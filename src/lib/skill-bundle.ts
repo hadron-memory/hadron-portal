@@ -54,6 +54,9 @@ export interface PlanEntry {
   findings: Array<{ rule: string; severity: string; message: string }>;
 }
 
+/** The fields of a plan entry that decide whether its body ships. */
+export type JudgedEntry = Pick<PlanEntry, 'name' | 'class' | 'renderedBody' | 'exportPlan' | 'findings'>;
+
 /** A skill that is declared and enabled but NOT in the archive, and why. */
 export interface SkippedSkill {
   name: string;
@@ -122,7 +125,7 @@ export function pluginName(orgName: string): string {
  * PATH: a name outside the skill grammar, and (`duplicate`) a name another
  * entry in the same archive also claims.
  */
-function serverReasons(e: PlanEntry): string[] {
+function serverReasons(e: JudgedEntry): string[] {
   return [
     ...new Set([
       ...e.findings.filter((f) => f.severity === 'error').map((f) => f.message),
@@ -131,7 +134,7 @@ function serverReasons(e: PlanEntry): string[] {
   ];
 }
 
-function judgeEntry(e: PlanEntry, duplicate: boolean): { ok: true; body: string } | { ok: false; reasons: string[] } {
+function judgeEntry(e: JudgedEntry, duplicate: boolean): { ok: true; body: string } | { ok: false; reasons: string[] } {
   const errors = serverReasons(e);
   if (!validSkillName(e.name)) {
     return { ok: false, reasons: [...errors, t('skill-bundle.skip.invalid-name', '"{name}" is not a valid skill name.', { name: e.name })] };
@@ -236,7 +239,7 @@ export interface SkillDownload {
  * The duplicate-name refusal does not apply: one entry cannot collide with
  * itself, and a collision with another node is the server's `collision` class.
  */
-export function planSkillDownload(entry: PlanEntry | undefined, host: SkillBundleHost): SkillDownload {
+export function planSkillDownload(entry: JudgedEntry | undefined, host: SkillBundleHost): SkillDownload {
   const none = (reasons: string[]): SkillDownload => ({ files: {}, filename: null, reasons });
   const hostName = hostLabel(host);
   if (!entry) {

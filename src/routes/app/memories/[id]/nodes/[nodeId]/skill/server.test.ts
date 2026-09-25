@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
-import { NODE_MEMORY_REF_QUERY, SKILL_PLAN_EXPORT_QUERY } from '$lib/server/queries';
+import { MEMORY_REF_ID_QUERY, NODE_MEMORY_REF_QUERY, SKILL_PLAN_SINGLE_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -43,21 +43,42 @@ const entry = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+/**
+ * The server resolves the URL's memory REF: `mem-1` by id, or its URN — both
+ * name the one memory the node lives in. Anything else is another memory (or
+ * none the caller can read), and resolves to that or to null.
+ */
+const MEM_1_URN = 'hrn:mem:acme.com:ops';
+function resolveMemory(ref: string) {
+  if (ref === 'mem-1' || ref === MEM_1_URN) return { id: 'mem-1' };
+  if (ref === 'other-mem') return { id: 'other-mem' };
+  return null;
+}
+
 function route(opts: { node?: unknown; nodeThrows?: boolean; entries?: unknown[]; planThrows?: boolean }) {
-  mockRequest.mockImplementation(async (query: string) => {
+  mockRequest.mockImplementation(async (query: string, vars: { ref?: string }) => {
     if (query === NODE_MEMORY_REF_QUERY) {
       if (opts.nodeThrows) throw new Error('node read down');
       return { node: opts.node === undefined ? { id: 'node-1', memoryId: 'mem-1', isRunnable: true } : opts.node };
     }
-    if (query === SKILL_PLAN_EXPORT_QUERY) {
+    if (query === MEMORY_REF_ID_QUERY) return { memory: resolveMemory(vars.ref ?? '') };
+    if (query === SKILL_PLAN_SINGLE_QUERY) {
       if (opts.planThrows) throw new Error('boom');
-      return { skillPlan: { scanned: 1, judged: 1, entries: opts.entries ?? [], unrecognized: [] } };
+      // Only what SKILL_PLAN_SINGLE_QUERY selects: no urn, no report.
+      return {
+        skillPlan: {
+          entries: (opts.entries ?? []).map((e) => {
+            const { urn: _urn, ...rest } = e as Record<string, unknown>;
+            return rest;
+          }),
+        },
+      };
     }
     throw new Error(`Unexpected query: ${String(query).slice(0, 40)}`);
   });
 }
 
-const planCalls = () => mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_EXPORT_QUERY);
+const planCalls = () => mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_SINGLE_QUERY);
 
 describe('POST …/nodes/[nodeId]/skill — refusals before any plan', () => {
   it('refuses an anonymous request without calling the API', async () => {
@@ -92,6 +113,22 @@ describe('POST …/nodes/[nodeId]/skill — refusals before any plan', () => {
     }
   });
 
+  it('accepts the memory by URN as well as by id: [id] is a ref (@copilot on #912)', async () => {
+    route({ entries: [entry()] });
+    const r = await post({ host: 'claudeSkill' }, 'tok', 'node-1', MEM_1_URN);
+    expect(r.status).toBe(200);
+    expect(r.body.filename).toBe('drive-pr-home.zip');
+    expect(planCalls().map(([, v]) => v)).toEqual([{ host: 'claudeSkill', memories: ['mem-1'] }]);
+  });
+
+  it('refuses a memory ref that resolves to nothing, and plans nothing', async () => {
+    route({ entries: [entry()] });
+    const r = await post({ host: 'claudeSkill' }, 'tok', 'node-1', 'no-such-mem');
+    expect(r.status).toBe(404);
+    expect(r.body.code).toBe('wrong-memory');
+    expect(planCalls()).toHaveLength(0);
+  });
+
   it('404s a node the caller cannot see, and plans nothing', async () => {
     route({ node: null });
     const r = await post({ host: 'claudeSkill' });
@@ -107,6 +144,7 @@ describe('POST …/nodes/[nodeId]/skill — the plan and the file', () => {
     expect(mockRequest.mock.calls.find(([q]) => q === NODE_MEMORY_REF_QUERY)?.[1]).toEqual({
       ref: 'hrn:node:acme.com:ops:tasks:drive-pr-home',
     });
+    expect(mockRequest.mock.calls.find(([q]) => q === MEMORY_REF_ID_QUERY)?.[1]).toEqual({ ref: 'mem-1' });
     expect(planCalls().map(([, v]) => v)).toEqual([{ host: 'codexSkill', memories: ['mem-1'] }]);
   });
 

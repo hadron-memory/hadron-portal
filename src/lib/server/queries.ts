@@ -2654,10 +2654,9 @@ export const NODE_PROPERTIES_READ_QUERY = /* GraphQL */ `
 `;
 
 /**
- * #911 — just enough of a node to plan its memory: its id, its memoryId, and
+ * #911 — just enough of a node to plan its memory: its id, its memoryId and
  * whether it is a task. The single-skill endpoint needs nothing else, so it does not reuse the node
- * page's full read (properties, asset, content) and invoke resolvers it would
- * never render.
+ * page's full read and invoke resolvers it would never render.
  */
 export const NODE_MEMORY_REF_QUERY = /* GraphQL */ `
   query NodeMemoryRef($ref: ID!) {
@@ -2665,6 +2664,51 @@ export const NODE_MEMORY_REF_QUERY = /* GraphQL */ `
       id
       memoryId
       isRunnable
+    }
+  }
+`;
+
+/**
+ * #911 — a memory ref (an id or a URN) resolved to its id, and nothing else.
+ * Its own document, not a second field on NODE_MEMORY_REF_QUERY: both fields
+ * take an argument named ref, and a variable is named after its argument
+ * (#681), so one document cannot fill both.
+ */
+export const MEMORY_REF_ID_QUERY = /* GraphQL */ `
+  query MemoryRefId($ref: ID!) {
+    memory(ref: $ref) {
+      id
+    }
+  }
+`;
+
+/**
+ * #911 — the EXPORT plan as the single-skill endpoint reads it: only the
+ * entry fields that judge one task. The org report's query also selects the
+ * unrecognized-key report, the scan counts and each entry's URN, none of
+ * which a one-skill download renders (@codex on #912).
+ */
+export const SKILL_PLAN_SINGLE_QUERY = /* GraphQL */ `
+  query SkillPlanSingle($host: String!, $memories: [String!]!) {
+    skillPlan(input: { intent: EXPORT, host: $host, memories: $memories }) {
+      entries {
+        nodeId
+        name
+        class
+        renderedBody
+        exportPlan {
+          action
+          reasons {
+            code
+            message
+          }
+        }
+        findings {
+          rule
+          severity
+          message
+        }
+      }
     }
   }
 `;

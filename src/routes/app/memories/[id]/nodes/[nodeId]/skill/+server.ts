@@ -2,8 +2,8 @@ import { json } from '@sveltejs/kit';
 import JSZip from 'jszip';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { NODE_MEMORY_REF_QUERY, SKILL_PLAN_EXPORT_QUERY } from '$lib/server/queries';
-import { isBundleHost, planSkillDownload, type PlanEntry } from '$lib/skill-bundle';
+import { MEMORY_REF_ID_QUERY, NODE_MEMORY_REF_QUERY, SKILL_PLAN_SINGLE_QUERY } from '$lib/server/queries';
+import { isBundleHost, planSkillDownload, type JudgedEntry } from '$lib/skill-bundle';
 import type { RequestHandler } from './$types';
 
 /**
@@ -28,10 +28,14 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
   const client = gqlClient(locals.token);
   let node: { id: string; memoryId: string; isRunnable?: boolean | null } | null;
+  let memory: { id: string } | null;
   try {
-    ({ node } = await client.request<{ node: { id: string; memoryId: string; isRunnable?: boolean | null } | null }>(NODE_MEMORY_REF_QUERY, {
-      ref: params.nodeId,
-    }));
+    // The URL's [id] is a REF — an id or a URN, as the memory layout reads it
+    // — so it is resolved rather than compared as a raw string.
+    [{ node }, { memory }] = await Promise.all([
+      client.request<{ node: typeof node }>(NODE_MEMORY_REF_QUERY, { ref: params.nodeId }),
+      client.request<{ memory: typeof memory }>(MEMORY_REF_ID_QUERY, { ref: params.id }),
+    ]);
   } catch (e) {
     console.error('[node skill] node read failed:', e);
     return json({ code: 'node-failed', detail: extractGqlError(e, 'The task could not be read') }, { status: 502 });
@@ -40,19 +44,21 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // The page loader REDIRECTS a node reached through another memory's URL
   // (#237); a POST cannot follow a redirect usefully, so it is refused, and a
   // download is never labelled with a memory the task is not in (@copilot on
-  // #912). Access is not the concern: the plan runs under the caller's token.
-  if (node.memoryId !== params.id) return json({ code: 'wrong-memory' }, { status: 404 });
+  // #912). The URL's [id] is a REF — an id or a URN — so it is compared by
+  // its resolved id, never as the raw string (@copilot on #912, round 6).
+  // Access is not the concern: every read runs under the caller's token.
+  if (!memory || node.memoryId !== memory.id) return json({ code: 'wrong-memory' }, { status: 404 });
   // Holger's rule on #911 — only a TASK is exported as a skill — held here as
   // well as in the menu, so a direct request cannot export a plain node that
   // happens to carry a declaration (@copilot on #912).
   if (!node.isRunnable) return json({ code: 'not-a-task' }, { status: 409 });
 
-  let entries: PlanEntry[];
+  let entries: Array<JudgedEntry & { nodeId: string }>;
   try {
-    const r = await client.request<{ skillPlan: { entries: PlanEntry[] } }>(SKILL_PLAN_EXPORT_QUERY, {
-      host,
-      memories: [node.memoryId],
-    });
+    const r = await client.request<{ skillPlan: { entries: Array<JudgedEntry & { nodeId: string }> } }>(
+      SKILL_PLAN_SINGLE_QUERY,
+      { host, memories: [node.memoryId] },
+    );
     entries = r.skillPlan.entries;
   } catch (e) {
     console.error('[node skill] skillPlan EXPORT failed:', e);
