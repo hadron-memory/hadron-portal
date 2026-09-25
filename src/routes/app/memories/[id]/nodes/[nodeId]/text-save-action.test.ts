@@ -10,7 +10,7 @@
  * enforces anything.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_BY_ID_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 import { parseExpectedRevision } from '$lib/node-revision';
 import { TextDraft } from '$lib/text-draft.svelte';
 
@@ -110,7 +110,7 @@ describe.each([
     await save(action, { [field]: 'B edit', expectedRevision: '1' });
     // The pre-#927 request: the whole buffer, no precondition.
     const { gqlClient } = await import('$lib/server/api');
-    await gqlClient('tok').request('mutation', { input: { memoryId: 'mem-1', loc: 'notes', [field]: editorA.text } });
+    await gqlClient('tok').request(UPDATE_NODE_MUTATION, { input: { memoryId: 'mem-1', loc: 'notes', [field]: editorA.text } });
     expect(stored[field]).toBe(editorA.text);
   });
 

@@ -156,6 +156,26 @@
     }
   }
 
+  /**
+   * Reload after a COMMITTED save. Kept apart from the save itself: a failed
+   * reload must not be reported as a failed save (@codex on #931).
+   */
+  async function refreshAfterSave(): Promise<boolean> {
+    try {
+      await invalidateAll();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function savedNotRefreshedText(): string {
+    return t(
+      'node.text.save.saved-not-refreshed',
+      'Your edit was saved, but the page could not reload. Reload the page before editing again.',
+    );
+  }
+
   async function saveContent() {
     if (saving || !contentDraft.dirty) return;
     // Captured before the first await, as saveProperties does: the node, its
@@ -174,7 +194,16 @@
       const result = await submitTextDraft({ url, field: 'content', text, expectedRevision });
       if (!stillOurs()) return;
       if (result.ok) {
-        await invalidateAll();
+        if (!(await refreshAfterSave())) {
+          // Committed, but the reload failed (@codex on #931): say so, and
+          // keep the saved text with NO base revision, so a further save is
+          // refused as "reload first" rather than conflicting with itself.
+          if (!stillOurs()) return;
+          contentDraft.reseed({ id: node.id, value: text, revision: null });
+          contentDraft.ensureSeeded();
+          contentSaveError = savedNotRefreshedText();
+          return;
+        }
         if (!stillOurs()) return;
         contentDraft.reseed({ id: node.id, value: node.content, revision: node.revision });
         showSource = false;
@@ -197,8 +226,18 @@
   }
 
   let copiedDraft = $state<'content' | 'abstract' | null>(null);
+  // A failed copy is SAID, unlike the other copy buttons' silent no-op: the
+  // next click here is likely "Discard", and it must not follow a copy that
+  // never happened (@copilot on #931).
+  let copyDraftFailed = $state<'content' | 'abstract' | null>(null);
   async function copyDraft(which: 'content' | 'abstract') {
-    await navigator.clipboard.writeText(which === 'content' ? contentDraft.text : abstractDraft.text);
+    copyDraftFailed = null;
+    try {
+      await navigator.clipboard.writeText(which === 'content' ? contentDraft.text : abstractDraft.text);
+    } catch {
+      copyDraftFailed = which;
+      return;
+    }
     copiedDraft = which;
     setTimeout(() => {
       if (copiedDraft === which) copiedDraft = null;
@@ -211,6 +250,7 @@
     contentDraft.ensureSeeded();
     contentConflict = false;
     contentSaveError = null;
+    copyDraftFailed = null;
   }
 
   // Abstract — paragraph-length summary, the default vector-index source
@@ -252,7 +292,16 @@
       const result = await submitTextDraft({ url, field: 'abstract', text, expectedRevision });
       if (!stillOurs()) return;
       if (result.ok) {
-        await invalidateAll();
+        if (!(await refreshAfterSave())) {
+          // Committed, but the reload failed (@codex on #931): say so, and
+          // keep the saved text with NO base revision, so a further save is
+          // refused as "reload first" rather than conflicting with itself.
+          if (!stillOurs()) return;
+          abstractDraft.reseed({ id: node.id, value: text, revision: null });
+          abstractDraft.ensureSeeded();
+          abstractSaveError = savedNotRefreshedText();
+          return;
+        }
         if (!stillOurs()) return;
         abstractDraft.reseed({ id: node.id, value: node.abstract, revision: node.revision });
         showAbstractSource = false;
@@ -277,6 +326,7 @@
     abstractDraft.ensureSeeded();
     abstractConflict = false;
     abstractSaveError = null;
+    copyDraftFailed = null;
   }
 
   // Markdown rendering
@@ -1726,6 +1776,7 @@
       savingAbstract = false;
       abstractSaveError = null;
       abstractConflict = false;
+      copyDraftFailed = null;
       showDataSource = false;
       dataSaveError = null;
       // #894: a Data save in flight for the previous node no longer owns this
@@ -2394,6 +2445,9 @@
           {#if contentSaveError}
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{contentSaveError}</p>
           {/if}
+          {#if copyDraftFailed === 'content'}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{t('node.text.conflict.copy-failed', "Couldn't copy to the clipboard. Select the text in the editor and copy it yourself before discarding.")}</p>
+          {/if}
         </div>
       {:else if hasContent}
         {#if contentFrontmatter}
@@ -2472,6 +2526,9 @@
           </div>
           {#if abstractSaveError}
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{abstractSaveError}</p>
+          {/if}
+          {#if copyDraftFailed === 'abstract'}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{t('node.text.conflict.copy-failed', "Couldn't copy to the clipboard. Select the text in the editor and copy it yourself before discarding.")}</p>
           {/if}
         </div>
       {:else if hasAbstract}
