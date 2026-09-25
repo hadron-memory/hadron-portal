@@ -13,6 +13,7 @@ import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NOD
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import { roleUpdate } from '$lib/node-role';
+import { nodeMetaSeed } from '$lib/node-meta-seed';
 import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
@@ -362,18 +363,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     ),
     superValidate<NodeDeleteForm>({ hard: false }, nodeDeleteFormAdapter, { errors: false }),
     superValidate<NodeCreateParentForm>({ loc: '', name: '' }, nodeCreateParentFormAdapter, { errors: false }),
-    superValidate<NodeUpdateMetaForm>({
-      name: node.name ?? '',
-      nodeType: node.nodeType ?? '',
-      description: node.description ?? '',
-      alias: node.alias ?? '',
-      seq: node.seq ?? null,
-      tags: (node.tags ?? []).join(', '),
-      isRunnable: node.isRunnable ?? false,
-      loc: node.loc,
-      role: node.role ?? '',
-      roleSeed: node.role ?? '',
-    }, nodeUpdateMetaFormAdapter, { errors: false }),
+    superValidate<NodeUpdateMetaForm>(nodeMetaSeed(node), nodeUpdateMetaFormAdapter, { errors: false }),
     superValidate<NodeDuplicateForm>({}, nodeDuplicateFormAdapter, { errors: false }),
     superValidate<NodeConvertToTaskForm>({}, nodeConvertToTaskFormAdapter, { errors: false }),
     superValidate<NodeUpdateFlowForm>({

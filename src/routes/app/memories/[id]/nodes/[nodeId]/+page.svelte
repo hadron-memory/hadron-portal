@@ -22,6 +22,7 @@
   import NodeSkillExport from '$lib/components/NodeSkillExport.svelte';
   import NodeRoleValue from '$lib/components/NodeRoleValue.svelte';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
+  import { nodeMetaSeed, nodeMetaSeedKey } from '$lib/node-meta-seed';
   import { skillExportMenuHosts } from '$lib/skill-export';
   import NodeAssetCard from '$lib/components/assets/NodeAssetCard.svelte';
   import { canUploadToMemory } from '$lib/assets/can-upload';
@@ -573,21 +574,15 @@
     },
   });
 
-  let updateMetaNodeId = $state(untrack(() => node.id));
+  // Reseed on a different node OR a changed stored role (after a role save):
+  // one field list shared with the loader, so a new field cannot be seeded in
+  // one place and forgotten in the other (@codex on #929).
+  let updateMetaSeedKey = $state(untrack(() => nodeMetaSeedKey(node)));
   $effect(() => {
-    if (updateMetaNodeId === node.id) return;
-    updateMetaNodeId = node.id;
-    updateMetaFormData.update((current) => ({
-      ...current,
-      name: node.name ?? '',
-      nodeType: node.nodeType ?? '',
-      description: node.description ?? '',
-      alias: node.alias ?? '',
-      seq: node.seq ?? null,
-      tags: (node.tags ?? []).join(', '),
-      isRunnable: node.isRunnable ?? false,
-      loc: node.loc,
-    }), { taint: false });
+    const key = nodeMetaSeedKey(node);
+    if (updateMetaSeedKey === key) return;
+    updateMetaSeedKey = key;
+    updateMetaFormData.update((current) => ({ ...current, ...nodeMetaSeed(node) }), { taint: false });
   });
 
   const initialDuplicateForm = untrack(() => submittedForm<NodeDuplicateForm>(form, 'duplicateNode') as NodeDuplicateSuperform | null ?? data.duplicateForm);
