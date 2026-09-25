@@ -113,10 +113,14 @@
       size: 200,
     },
     {
-      // Sorts by KIND (active first), while the cell and the search show words.
-      accessorFn: (w) => STATE_RANK[heldWorkerState(w)],
+      // The accessor is the WORDS the cell shows, so the search matches only
+      // what is on screen: a numeric rank here was searchable too, and "1"
+      // found every idle worker (@codex on #930). The ORDER is the rank, by a
+      // sorter of its own: active, then idle, never driven, and masked last.
+      accessorFn: (w) => heldWorkerStateLabel(w),
       id: 'state',
       header: t('user.workers.col.state', 'State'),
+      sortFn: (a, b) => STATE_RANK[heldWorkerState(a.original)] - STATE_RANK[heldWorkerState(b.original)],
       size: 220,
     },
     { accessorFn: (w) => w.role ?? '', id: 'role', header: t('user.workers.col.role', 'Role'), size: 150 },
@@ -132,8 +136,6 @@
 
   const fmt: Record<string, (value: unknown) => string> = {
     heldAt: (v) => (typeof v === 'number' ? new Date(v).toLocaleString() : ''),
-    // The rank is for sorting only; the words come from the extras.
-    state: () => '',
   };
 
   let globalFilter = $state('');
