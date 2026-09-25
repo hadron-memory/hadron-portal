@@ -97,7 +97,9 @@ describe.each([
       data: Record<string, unknown>;
     };
     expect(out.status).toBe(409);
-    expect(out.data).toEqual({ [`${field}Failed`]: { code: 'changed', detail: null } });
+    // The server's words ride along: the conflict is worded from them unless a
+    // reload shows this field moved.
+    expect(out.data).toEqual({ [`${field}Failed`]: { code: 'changed', detail: 'The node changed since it was read.' } });
     // B's save survives, and A's draft is untouched and still based on revision 1.
     expect(stored[field]).toBe('B edit');
     expect(editorA.text).toBe('A edit');

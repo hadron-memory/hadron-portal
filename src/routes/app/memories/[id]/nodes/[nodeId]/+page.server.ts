@@ -472,8 +472,11 @@ async function saveNodeText(
     await client.request(nodeUpdateDocument(node, input), { input });
   } catch (e: unknown) {
     if (e instanceof NoNodeDoorError) return fail(409, { [failed]: { code: 'no-door', detail: e.message } });
+    // The server's words are kept: NODE_WRITE_CONFLICT is not only a revision
+    // mismatch (a concurrent move answers with it too), so the page words the
+    // conflict generically unless the reload shows THIS field moved.
     if (extractGqlErrorCode(e) === 'NODE_WRITE_CONFLICT') {
-      return fail(409, { [failed]: { code: 'changed', detail: null } });
+      return fail(409, { [failed]: { code: 'changed', detail: extractGqlError(e, '') || null } });
     }
     const detail = extractGqlError(e, 'Save failed');
     if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });

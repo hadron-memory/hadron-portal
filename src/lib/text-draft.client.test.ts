@@ -110,6 +110,39 @@ describe('TextDraft through the page effect', () => {
     expect(draft.dirty).toBe(false);
   });
 
+  it('Content and Abstract move independently on ONE node: an abstract change rebases the content draft and conflicts the abstract draft', async () => {
+    // Both drafts watch the same node, as on the page. Each compares the newly
+    // fetched value of ITS field with the value it was based on (never with the
+    // unsaved text), and takes value + revision from the same snapshot.
+    const node = { id: 'a', content: 'body', abstract: 'summary', revision: 3 };
+    const content = await setup({ id: node.id, value: node.content, revision: node.revision });
+    const abstract = await setup({ id: node.id, value: node.abstract, revision: node.revision });
+    content.draft.text = 'my body';
+    abstract.draft.text = 'my summary';
+
+    // Someone — not necessarily this user — saves the abstract: revision 4.
+    content.props.node = { id: 'a', value: 'body', revision: 4 };
+    abstract.props.node = { id: 'a', value: 'their summary', revision: 4 };
+    await tick();
+
+    expect(content.draft.text).toBe('my body');
+    expect(content.draft.baseRevision).toBe(4);
+    expect(content.draft.isBehind('body')).toBe(false);
+
+    expect(abstract.draft.text).toBe('my summary');
+    expect(abstract.draft.baseRevision).toBe(3);
+    expect(abstract.draft.isBehind('their summary')).toBe(true);
+  });
+
+  it('a newer revision whose value EQUALS the unsaved draft still conflicts — the base is the last server value, not the draft', async () => {
+    const { props, draft } = await setup({ id: 'a', value: 'v1', revision: 1 });
+    draft.text = 'same words';
+    props.node = { id: 'a', value: 'same words', revision: 2 };
+    await tick();
+    expect(draft.baseRevision).toBe(1);
+    expect(draft.isBehind('same words')).toBe(true);
+  });
+
   it('stops syncing once unmounted', async () => {
     const { props, draft } = await setup({ id: 'a', value: 'v1', revision: 1 });
     mounted.pop()!.unmount();

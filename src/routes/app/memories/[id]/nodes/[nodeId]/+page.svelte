@@ -138,14 +138,17 @@
   function textSaveErrorText(code: string, detail: string | null, fieldChanged: boolean): string {
     switch (code) {
       case 'changed':
+        // Only the reload can say THIS text moved; the conflict itself is not
+        // necessarily a revision mismatch (a concurrent move answers the same).
         return fieldChanged
           ? t(
               'node.text.save.changed',
               'This text changed since you opened the editor, so your edit was not saved. It is still here: copy it, then load the newer version and apply your edit again.',
             )
           : t(
-              'node.text.save.changed-elsewhere',
-              'This node changed since you opened the editor, but not this text. Your edit is still here: save again to apply it.',
+              'node.text.save.conflict',
+              'Your edit was not saved: the server reported a conflicting change{detail}. This text is unchanged and your edit is still here, so you can save again.',
+              { detail: detail ? ` (${detail})` : '' },
             );
       case 'no-baseline':
         return t('node.text.save.no-baseline', 'This editor lost track of the version it opened. Copy your edit and reload the page.');
@@ -214,7 +217,7 @@
         if (!stillOurs()) return;
         const fieldChanged = contentDraft.isBehind(node.content);
         contentConflict = fieldChanged;
-        contentSaveError = textSaveErrorText('changed', null, fieldChanged);
+        contentSaveError = textSaveErrorText('changed', result.detail, fieldChanged);
       } else {
         contentSaveError = textSaveErrorText(result.code, result.detail, true);
       }
@@ -310,7 +313,7 @@
         if (!stillOurs()) return;
         const fieldChanged = abstractDraft.isBehind(node.abstract);
         abstractConflict = fieldChanged;
-        abstractSaveError = textSaveErrorText('changed', null, fieldChanged);
+        abstractSaveError = textSaveErrorText('changed', result.detail, fieldChanged);
       } else {
         abstractSaveError = textSaveErrorText(result.code, result.detail, true);
       }
