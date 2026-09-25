@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   activeExportHosts,
+  capCodePoints,
   skillExportMenuHosts,
   CLAUDE_SKILL_HOST,
   CODEX_HOST,
@@ -775,5 +776,25 @@ describe('taskExport — the skill name is bounded before it reaches the page (@
     expect(Array.from(got)).toHaveLength(NAME_MAX);
     expect(got).not.toContain('\uFFFD');
     expect(got.slice(0, -1)).toBe('😀'.repeat(NAME_MAX - 1));
+  });
+});
+
+describe('capCodePoints — bounded without materialising the input (@codex on #920)', () => {
+  it('keeps a string at the limit, and cuts one past it to max - 1 plus an ellipsis', () => {
+    expect(capCodePoints('abcd', 4)).toBe('abcd');
+    expect(capCodePoints('abcde', 4)).toBe('abc…');
+    expect(capCodePoints('', 4)).toBe('');
+  });
+
+  it('counts code points, so a surrogate pair is one and never split', () => {
+    expect(capCodePoints('😀😀😀😀', 4)).toBe('😀😀😀😀');
+    expect(capCodePoints('😀😀😀😀😀', 4)).toBe('😀😀😀…');
+  });
+
+  it('returns the capped value for a very large input', () => {
+    // The bound on WORK is by construction (the loop returns one code point
+    // past the limit), which a unit test cannot observe on a real string;
+    // this pins the result on an input where materialising it would hurt.
+    expect(Array.from(capCodePoints('y'.repeat(5_000_000), 64))).toHaveLength(64);
   });
 });

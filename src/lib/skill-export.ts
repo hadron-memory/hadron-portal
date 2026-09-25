@@ -580,8 +580,7 @@ export function unknownExportKeys(properties: unknown): UnknownExportKeys | null
       // By code point, as `codePoints` counts: a UTF-16 slice can cut an
       // emoji in half and render a replacement character.
       .map((k) => {
-        const cps = Array.from(k);
-        const shown = cps.length > UNKNOWN_KEY_CHARS ? `${cps.slice(0, UNKNOWN_KEY_CHARS - 1).join('')}…` : k;
+        const shown = capCodePoints(k, UNKNOWN_KEY_CHARS);
         // Quoted and escaped, as the server's own warnings quote the key:
         // an empty key would otherwise render as nothing at all, and a comma
         // or line break inside one would read as two keys (@codex on #903).
@@ -599,8 +598,22 @@ export function unknownExportKeys(properties: unknown): UnknownExportKeys | null
  * stored name is over the limit.
  */
 function boundedSkillName(name: string): string {
-  const cps = Array.from(name);
-  return cps.length > NAME_MAX ? `${cps.slice(0, NAME_MAX - 1).join('')}…` : name;
+  return capCodePoints(name, NAME_MAX);
+}
+
+/**
+ * `s` if it has at most `max` code points, else its first `max - 1` and "…".
+ * Iterates, and stops one code point past the limit: the input is
+ * writer-controlled, and `Array.from` on it would materialise every code
+ * point of an arbitrarily large string just to keep a few (@codex on #920).
+ */
+export function capCodePoints(s: string, max: number): string {
+  const kept: string[] = [];
+  for (const cp of s) {
+    if (kept.length === max) return `${kept.slice(0, max - 1).join('')}…`;
+    kept.push(cp);
+  }
+  return s;
 }
 
 export function taskExport(properties: unknown): TaskExport {
