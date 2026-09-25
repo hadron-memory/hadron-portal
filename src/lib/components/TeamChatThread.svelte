@@ -607,11 +607,27 @@
           </div>
         {/if}
         <div class="group flex gap-3">
-          <div
-            class="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full {avatarColorOf(label)}"
-          >
-            <span class="text-xs font-semibold text-white">{authorInitialOf(label)}</span>
-          </div>
+          <!-- The avatar links to the same profile as the author's name, when
+               there is one. The name link is the accessible one; this is a
+               pointer convenience, so it is out of the tab order and hidden from
+               assistive tech rather than announced as a second, identical link. -->
+          {#if authorHref}
+            <a
+              href={authorHref}
+              tabindex="-1"
+              aria-hidden="true"
+              data-testid="team-chat-avatar-link"
+              class="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full hover:opacity-80 {avatarColorOf(label)}"
+            >
+              <span class="text-xs font-semibold text-white">{authorInitialOf(label)}</span>
+            </a>
+          {:else}
+            <div
+              class="mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full {avatarColorOf(label)}"
+            >
+              <span class="text-xs font-semibold text-white">{authorInitialOf(label)}</span>
+            </div>
+          {/if}
 
           <div class="min-w-0 flex-1">
             <div class="mb-1 flex flex-wrap items-center gap-2">
@@ -685,7 +701,7 @@
                    and scrolling it sideways (measured at 375px: 383px of
                    content in a 199px header). -->
               <span class="ml-auto flex min-w-0 max-w-full items-center gap-2">
-                {#if msg.urn || authorUrn}
+                {#if authorUrn}
                   <!-- #855: the URN slot. Hover-revealed like ChatThread's
                        message chip, and revealed by keyboard focus too
                        (group-focus-within): the chip's link and copy buttons
@@ -693,19 +709,13 @@
                        lands on invisible controls. On a device that cannot
                        hover (touch), it is simply shown: a tap cannot target a
                        transparent, pointer-events-none control (@codex on #908).
-                       It holds the message's own URN (server#1209) and, for a
-                       worker author, the author's. Either may be absent, never
-                       an empty chip; with neither, there is no slot. -->
+                       It holds a worker author's URN; the message's own URN is
+                       in the footer under the body (Holger, #917). -->
                   <span
                     data-testid="team-chat-urns"
                     class="pointer-events-none flex min-w-0 items-center gap-1 opacity-0 transition-opacity duration-200 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
                   >
-                    {#if msg.urn}
-                      <span data-testid="team-chat-message-urn" class="flex min-w-0"><Urn value={msg.urn} type="node" size={8} linked label={t('app.team-chat.urn.message', 'message')} /></span>
-                    {/if}
-                    {#if authorUrn}
-                      <span data-testid="team-chat-author-urn" class="flex min-w-0"><Urn value={authorUrn} type="worker" size={8} linked label={t('app.team-chat.urn.author', 'author')} /></span>
-                    {/if}
+                    <span data-testid="team-chat-author-urn" class="flex min-w-0"><Urn value={authorUrn} type="worker" size={8} linked label={t('app.team-chat.urn.author', 'author')} /></span>
                   </span>
                 {/if}
                 <button
@@ -770,15 +780,34 @@
               {/if}
             </div>
 
-            {#if msg.mentions.length > 0}
-              <!-- Extracted server-side at write time. The portal never parses
-                   bodies for mentions, so this list is the only source. -->
-              <div class="mt-1 flex flex-wrap gap-1">
-                {#each msg.mentions as mention (mention)}
-                  <span class="rounded bg-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
-                    @{mention}
+            {#if msg.mentions.length > 0 || msg.urn}
+              <!-- The footer under the white box: mentions on the left, the
+                   message's own URN (server#1209) right-aligned with the box's
+                   right edge (Holger, #917). -->
+              <div class="mt-1 flex flex-wrap items-start gap-1">
+                {#if msg.mentions.length > 0}
+                  <!-- Extracted server-side at write time. The portal never parses
+                       bodies for mentions, so this list is the only source. -->
+                  <div class="flex flex-wrap gap-1">
+                    {#each msg.mentions as mention (mention)}
+                      <span class="rounded bg-zinc-200 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300">
+                        @{mention}
+                      </span>
+                    {/each}
+                  </div>
+                {/if}
+                {#if msg.urn}
+                  <!-- Revealed like the header's author chip: on hover or on
+                       focus within the message (its link and copy buttons stay
+                       in the tab order), and always on a device that cannot
+                       hover. min-w-0 lets it truncate rather than widen the row. -->
+                  <span
+                    data-testid="team-chat-message-urn"
+                    class="pointer-events-none ml-auto flex min-w-0 max-w-full opacity-0 transition-opacity duration-200 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+                  >
+                    <Urn value={msg.urn} type="node" size={8} linked label={t('app.team-chat.urn.message', 'message')} />
                   </span>
-                {/each}
+                {/if}
               </div>
             {/if}
           </div>
