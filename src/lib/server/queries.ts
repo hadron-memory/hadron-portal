@@ -2661,7 +2661,7 @@ export const NODE_PROPERTIES_READ_QUERY = /* GraphQL */ `
  */
 export const NODE_MEMORY_REF_QUERY = /* GraphQL */ `
   query NodeMemoryRef($ref: ID!) {
-    node(ref: $ref) {
+    node(ref: $ref, raw: true) {
       id
       memoryId
     }

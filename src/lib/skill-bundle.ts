@@ -136,8 +136,11 @@ function judgeEntry(e: PlanEntry, duplicate: boolean): { ok: true; body: string 
     return { ok: false, reasons: [...errors, t('skill-bundle.skip.duplicate-name', 'Another task is also named "{name}".', { name: e.name })] };
   }
   // A body is written only when the server both rendered one AND planned a
-  // WRITE; a body beside any other planned action is not ours to ship.
-  if (!e.renderedBody || (e.exportPlan && e.exportPlan.action !== 'WRITE')) {
+  // WRITE, explicitly: a body beside any other planned action is not ours to
+  // ship, and neither is one with NO planned action — the schema promises an
+  // exportPlan on every EXPORT entry, so its absence is a broken response,
+  // not permission (@copilot on #912).
+  if (!e.renderedBody || e.exportPlan?.action !== 'WRITE') {
     return {
       ok: false,
       reasons: errors.length > 0 ? errors : [t('skill-bundle.skip.not-exportable', 'Not exportable ({class}).', { class: e.class ?? 'unreadable' })],

@@ -33,6 +33,9 @@ const entry = (over: Partial<PlanEntry> = {}): PlanEntry => ({
   name: 'drive-pr-home',
   class: 'never-exported',
   renderedBody: '---\nname: drive-pr-home\ndescription: x\n---\n\nbody\n',
+  // Every EXPORT entry carries an exportPlan (schema: "Present only for
+  // EXPORT"), so a legal fixture does too.
+  exportPlan: { action: 'WRITE', reasons: [] },
   findings: [],
   ...over,
 });
@@ -302,6 +305,16 @@ describe('planSkillDownload — one task as one skill (#911)', () => {
       'claudeSkill',
     );
     expect(d).toEqual({ files: {}, filename: null, reasons: ['Another node claims this name.'] });
+  });
+
+  it('ships nothing when the entry has NO planned action — a broken response is not permission (@copilot on #912)', () => {
+    const d = planSkillDownload(entry({ exportPlan: null }), 'claudeSkill');
+    expect(d.filename).toBeNull();
+    expect(d.reasons).toEqual([expect.stringContaining('Not exportable')]);
+    // The org download applies the same rule: it is one shared verdict.
+    const b = planBundle([entry({ exportPlan: undefined })], 'codexSkill', 'Acme');
+    expect(b.files).toEqual({});
+    expect(b.skipped).toHaveLength(1);
   });
 
   it('never turns a name outside the grammar into a path', () => {
