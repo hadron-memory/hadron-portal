@@ -2,7 +2,7 @@ import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { AI_CONFIG_READINESS_QUERY, ORGANIZATIONS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
 import type { Agent, Organization } from '$lib/types';
@@ -94,9 +94,21 @@ async function llmReadiness(client: ReturnType<typeof gqlClient>, agentId: strin
     }>(AI_CONFIG_READINESS_QUERY, { name: 'default', agentRef: agentId });
     return { status: 'ready', ...r.resolveAIConfig };
   } catch (e: unknown) {
-    const detail = extractGqlError(e, '') || null;
+    // Only the SERVER's answer is shown. A transport failure's message is not:
+    // graphql-request packs the request into it (the #468 leak), so it gets
+    // the page's generic copy instead (@copilot on #932).
+    const detail = serverErrorMessage(e);
     if (extractGqlErrorCode(e) === 'NoAiConfigAvailableError') return { status: 'not-configured', detail };
-    console.warn('[agent-tester] LLM readiness check failed:', e);
+    // A refusal the server gave (a non-admin's Forbidden) is an expected
+    // answer, not an outage; only a failure to get one is logged.
+    if (detail === null) console.warn('[agent-tester] LLM readiness check failed:', e);
     return { status: 'unavailable', detail };
   }
+}
+
+/** The server's own error message, or null when the failure never reached it. */
+function serverErrorMessage(e: unknown): string | null {
+  const errors = (e as { response?: { errors?: Array<{ message?: unknown }> } } | null)?.response?.errors;
+  const message = errors?.[0]?.message;
+  return typeof message === 'string' && message !== '' ? message : null;
 }

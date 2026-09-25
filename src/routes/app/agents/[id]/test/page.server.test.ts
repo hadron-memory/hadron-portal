@@ -193,6 +193,28 @@ describe('/app/agents/[id]/test loader', () => {
       expect(result.llm).toEqual({ status: 'unavailable', detail: 'Forbidden' });
     });
 
+    it('a transport failure is `unavailable` WITHOUT its message, which can carry the request (#468)', async () => {
+      const leaky = new Error('GraphQL Error: {"query":"query AiConfigReadiness…","variables":{"agentRef":"agent-aaa"}}');
+      routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] }, leaky);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const load = await importLoad();
+      const result = (await load(ev({ agentId: 'agent-aaa' }))) as { llm: unknown };
+      expect(result.llm).toEqual({ status: 'unavailable', detail: null });
+      expect(JSON.stringify(result)).not.toContain('AiConfigReadiness');
+      // …and it IS logged, being a failure to reach the server at all.
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    });
+
+    it('does not log a refusal the server gave (the non-admin case is an answer, not an outage)', async () => {
+      routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] }, gqlRefusal('Forbidden', 'INTERNAL_SERVER_ERROR'));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const load = await importLoad();
+      await load(ev({ agentId: 'agent-aaa' }));
+      expect(warn).not.toHaveBeenCalled();
+      warn.mockRestore();
+    });
+
     it('never selects key material', () => {
       expect(AI_CONFIG_READINESS_QUERY).not.toMatch(/\bapiKey\b/);
       expect(AI_CONFIG_READINESS_QUERY).not.toMatch(/\bparams\b/);
