@@ -590,12 +590,25 @@ export function unknownExportKeys(properties: unknown): UnknownExportKeys | null
   };
 }
 
+/**
+ * The declared name as it may reach the page (@codex on #920): the name is
+ * writer-controlled and a hand-written one can be any length, while the
+ * Task Nodes payload carries up to 500 rows. Capped at the skill-name
+ * grammar's own limit (NAME_MAX), by code point as `codePoints` counts, so an
+ * emoji is never cut in half; a cut name ends in "…", which also says the
+ * stored name is over the limit.
+ */
+function boundedSkillName(name: string): string {
+  const cps = Array.from(name);
+  return cps.length > NAME_MAX ? `${cps.slice(0, NAME_MAX - 1).join('')}…` : name;
+}
+
 export function taskExport(properties: unknown): TaskExport {
   const s = rowExportState(properties);
   const base: TaskExport = legacySuppliesClaude(properties)
     ? { kind: 'legacy' }
     : s.kind === 'on'
-      ? { kind: 'on', hosts: s.hosts, skillName: s.declaration.name }
+      ? { kind: 'on', hosts: s.hosts, skillName: boundedSkillName(s.declaration.name) }
       : { kind: s.kind };
   const unknown = unknownExportKeys(properties);
   return unknown ? { ...base, unknown } : base;

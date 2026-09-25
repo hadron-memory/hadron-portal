@@ -752,3 +752,28 @@ describe('taskExportNote — a checked row names its skill (Holger, 2026-09-25)'
     expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ enable: false }), codexSkill: decl({ enable: false }) } }))).toBe('');
   });
 });
+
+describe('taskExport — the skill name is bounded before it reaches the page (@codex on #920)', () => {
+  const nameOf = (name: string) => {
+    const s = taskExport({ exports: { claudeSkill: decl({ name }) } });
+    return s.kind === 'on' ? s.skillName : null;
+  };
+
+  it('passes a name within the grammar limit through unchanged', () => {
+    const at = 'a'.repeat(NAME_MAX);
+    expect(nameOf(at)).toBe(at);
+  });
+
+  it('caps an over-long hand-written name at NAME_MAX code points, ending in an ellipsis', () => {
+    const got = nameOf('x'.repeat(100_000))!;
+    expect(Array.from(got)).toHaveLength(NAME_MAX);
+    expect(got.endsWith('…')).toBe(true);
+  });
+
+  it('never cuts an emoji in half', () => {
+    const got = nameOf('😀'.repeat(NAME_MAX + 5))!;
+    expect(Array.from(got)).toHaveLength(NAME_MAX);
+    expect(got).not.toContain('\uFFFD');
+    expect(got.slice(0, -1)).toBe('😀'.repeat(NAME_MAX - 1));
+  });
+});
