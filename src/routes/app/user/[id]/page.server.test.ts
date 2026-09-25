@@ -43,7 +43,7 @@ describe('/app/user/[id] loader', () => {
     mockRequest.mockResolvedValueOnce({ heldWorkers: { items: [], total: 0 } });
     const load = await importLoad();
     const result = await load(ev('user-1'));
-    expect(result).toEqual({ user, heldWorkers: { ok: true, items: [], total: 0 } });
+    expect(result).toEqual({ user, heldWorkers: { ok: true, items: [] } });
   });
 
   it('passes params.id through to the server as `ref`', async () => {
@@ -80,8 +80,20 @@ describe('/app/user/[id] loader — the Workers tab (#919)', () => {
     mockRequest.mockResolvedValueOnce({ heldWorkers: { items: [worker], total: 1 } });
     const load = await importLoad();
     const result = (await load(ev('hrn:user:alice'))) as { heldWorkers: unknown };
-    expect(mockRequest).toHaveBeenCalledWith(HELD_WORKERS_QUERY, { userRef: 'user-1', limit: 200 });
-    expect(result.heldWorkers).toEqual({ ok: true, items: [worker], total: 1 });
+    expect(mockRequest).toHaveBeenCalledWith(HELD_WORKERS_QUERY, { userRef: 'user-1', limit: 200, offset: 0 });
+    expect(result.heldWorkers).toEqual({ ok: true, items: [worker] });
+  });
+
+  it('pages PAST the server\'s 200-row cap, so no held worker is unreachable (@codex on #930)', async () => {
+    const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ ...worker, id: `w${from + i}` }));
+    mockRequest.mockResolvedValueOnce({ user });
+    mockRequest.mockResolvedValueOnce({ heldWorkers: { items: page(200, 0), total: 201 } });
+    mockRequest.mockResolvedValueOnce({ heldWorkers: { items: page(1, 200), total: 201 } });
+    const load = await importLoad();
+    const result = (await load(ev('user-1'))) as { heldWorkers: { ok: true; items: Array<{ id: string }> } };
+    expect(result.heldWorkers.items).toHaveLength(201);
+    expect(result.heldWorkers.items.at(-1)!.id).toBe('w200');
+    expect(mockRequest).toHaveBeenLastCalledWith(HELD_WORKERS_QUERY, { userRef: 'user-1', limit: 200, offset: 200 });
   });
 
   it('REPORTS a failed read instead of claiming the user holds nothing, and still renders the profile', async () => {

@@ -68,18 +68,15 @@
       <p role="alert" data-testid="held-workers-failed" class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
         {t('user.workers.failed', 'The workers could not be loaded: {detail}', { detail: held.detail })}
       </p>
-    {:else if held.total === 0}
+    {:else if held.items.length === 0}
       <!-- Not "holds no workers": holds in Apps this viewer cannot read are
            invisible here by design, so the honest claim is about visibility. -->
       <p data-testid="held-workers-empty" class="text-sm text-zinc-500 dark:text-zinc-400">
         {t('user.workers.empty', 'No workers you can see are held by this user.')}
       </p>
     {:else}
-      {#if held.total > held.items.length}
-        <p data-testid="held-workers-truncated" class="mb-2 text-xs text-zinc-500">
-          {t('user.workers.truncated', 'Showing {shown} of {total} held workers.', { shown: held.items.length, total: held.total })}
-        </p>
-      {/if}
+      <!-- Every visible held worker: the loader pages to completion, so the
+           grid never holds a partial roster it would have to caveat. -->
       <HeldWorkersTable workers={held.items} />
     {/if}
   </div>
