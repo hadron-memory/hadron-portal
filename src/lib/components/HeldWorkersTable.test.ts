@@ -95,3 +95,18 @@ describe('HeldWorkersTable — the "No role" it renders is searchable (@codex on
     expect(filter(row(w()), 'role', 'no role')).toBe(false);
   });
 });
+
+describe('HeldWorkersTable — names are App-qualified in this cross-App list (@codex on #930)', () => {
+  it('renders two same-named workers from different Apps as distinct', () => {
+    const body = render(HeldWorkersTable, {
+      props: {
+        workers: [
+          w({ id: 'a', name: 'Iris', appUrn: 'hrn:app:acme.com:eng-team' }),
+          w({ id: 'b', name: 'Iris', appUrn: 'hrn:app:acme.com:sales-team' }),
+        ],
+      },
+    }).body;
+    expect(body).toContain('eng-team/Iris');
+    expect(body).toContain('sales-team/Iris');
+  });
+});

@@ -82,6 +82,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import { makeGlobalFilterFn, searchableText } from '$lib/table/global-filter';
   import { t } from '$lib/i18n/t';
+  import { workerLabel } from '$lib/workers/worker-label';
 
   let {
     workers,
@@ -100,7 +101,17 @@
 
   // `t()` resolves once: a plain const, not $derived, so view state survives renders.
   const columns: PortalColumnDef<HeldWorker>[] = [
-    { accessorKey: 'name', header: t('user.workers.col.name', 'Worker'), enableHiding: false, size: 170 },
+    {
+      // Context-free list: a name is unique only within its App, so it is
+      // qualified as `eng-team/Iris` (hrn:node:hadronmemory.com:specs:cor:agt:020:02,
+      // via workerLabel) for the
+      // link text, the sort and the search alike (@codex on #930).
+      accessorFn: (w) => workerLabel(w.name, { context: 'org-wide', appSlugOrUrn: w.appUrn }),
+      id: 'name',
+      header: t('user.workers.col.name', 'Worker'),
+      enableHiding: false,
+      size: 200,
+    },
     {
       // Sorts by KIND (active first), while the cell and the search show words.
       accessorFn: (w) => STATE_RANK[heldWorkerState(w)],
@@ -162,7 +173,7 @@
 >
   {#snippet cell(c, w)}
     {#if c.column.id === 'name'}
-      <a href="/app/workers/{w.id}" class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white">{w.name}</a>
+      <a href="/app/workers/{w.id}" class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white">{workerLabel(w.name, { context: 'org-wide', appSlugOrUrn: w.appUrn })}</a>
     {:else if c.column.id === 'state'}
       {@const state = heldWorkerState(w)}
       {#if state === 'active'}
