@@ -44,7 +44,7 @@ describe('TaskExportToggle — what the row submits', () => {
   });
 
   it('a checked row asks to turn it OFF', async () => {
-    const { target } = row({ ...base, nodeId: 'n2', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'] } });
+    const { target } = row({ ...base, nodeId: 'n2', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: 'drive-pr-home' } });
     await tick();
     expect(submitted(target)).toEqual({ nodeId: 'n2', enable: 'false' });
     expect(target.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
@@ -52,7 +52,7 @@ describe('TaskExportToggle — what the row submits', () => {
 
   it('many rows are many forms — each carries only its own node', async () => {
     const a = row({ ...base, nodeId: 'a', exportState: { kind: 'off' } });
-    const b = row({ ...base, nodeId: 'b', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'] } });
+    const b = row({ ...base, nodeId: 'b', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: 'drive-pr-home' } });
     await tick();
     expect(submitted(a.target)).toEqual({ nodeId: 'a', enable: 'true' });
     expect(submitted(b.target)).toEqual({ nodeId: 'b', enable: 'false' });
@@ -65,7 +65,7 @@ describe('TaskExportToggle — what the row submits', () => {
     const { target } = row(props);
     await tick();
     expect(submitted(target).enable).toBe('true');
-    props.exportState = { kind: 'on', hosts: ['claudeSkill', 'codexSkill'] };
+    props.exportState = { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: 'drive-pr-home' };
     await tick();
     expect(submitted(target).enable).toBe('false');
   });
@@ -82,17 +82,42 @@ describe('TaskExportToggle — states the checkbox must not flatten', () => {
     expect(link.textContent).toBe('Differs per host');
   });
 
-  it('a single-host export stays checkable, and says which host it covers', async () => {
-    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill'] } });
+  const note = (t: HTMLElement) => t.querySelector('[data-testid="task-export-note"]');
+
+  it('a checked row shows the SKILL NAME, not the hosts (Holger, 2026-09-25)', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: 'drive-pr-home' } });
     await tick();
-    expect(submitted(target)).toEqual({ nodeId: 'n1', enable: 'false' });
-    expect(target.textContent).toContain('Claude only');
+    expect(note(target)!.textContent).toBe('drive-pr-home');
+    expect(target.textContent).not.toContain('only');
   });
 
-  it('a two-host export renders no note, so its search text is empty too', async () => {
-    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'] } });
+  it('a single-host export stays checkable, names its skill, and keeps the missing host in the link title', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill'], skillName: 'drive-pr-home' } });
     await tick();
-    expect(target.textContent?.trim()).toBe('');
+    expect(submitted(target)).toEqual({ nodeId: 'n1', enable: 'false' });
+    const link = note(target)!;
+    expect(link.tagName).toBe('A');
+    expect(link.textContent).toBe('drive-pr-home');
+    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1/edit');
+    expect(link.getAttribute('title')).toBe('Not exported for Codex. Change it on the node.');
+    expect(target.textContent).not.toContain('Claude only');
+  });
+
+  it('a declaration with no name falls back to the host note', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'on', hosts: ['claudeSkill'], skillName: '' } });
+    await tick();
+    expect(note(target)!.textContent).toBe('Claude only');
+    const both = row({ ...base, nodeId: 'n2', exportState: { kind: 'on', hosts: ['claudeSkill', 'codexSkill'], skillName: '' } });
+    await tick();
+    // Nothing to name and nothing to qualify: no note at all, never an empty one.
+    expect(note(both.target)).toBeNull();
+  });
+
+  it('an unchecked row shows no name', async () => {
+    const { target } = row({ ...base, nodeId: 'n1', exportState: { kind: 'off' } });
+    await tick();
+    expect(submitted(target)).toEqual({ nodeId: 'n1', enable: 'true' });
+    expect(note(target)).toBeNull();
   });
 });
 

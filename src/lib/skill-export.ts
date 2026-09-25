@@ -534,7 +534,17 @@ export type TaskExport = (
    * override it — so it is shown with no checkbox, like `divergent`.
    */
   | { kind: 'none' | 'off' | 'divergent' | 'legacy' }
-  | { kind: 'on'; hosts: string[] }
+  | {
+      kind: 'on';
+      hosts: string[];
+      /**
+       * The declared skill name, what the row shows beside a checked box
+       * (Holger, 2026-09-25): the one name the hosts share, since a row whose
+       * hosts disagree is `divergent`. May be '' for a hand-written
+       * declaration that never set one; the row then falls back to its note.
+       */
+      skillName: string;
+    }
 ) & {
   /** server#1296: keys under `exports` that name no host. Absent when there are none. */
   unknown?: UnknownExportKeys;
@@ -585,7 +595,7 @@ export function taskExport(properties: unknown): TaskExport {
   const base: TaskExport = legacySuppliesClaude(properties)
     ? { kind: 'legacy' }
     : s.kind === 'on'
-      ? { kind: 'on', hosts: s.hosts }
+      ? { kind: 'on', hosts: s.hosts, skillName: s.declaration.name }
       : { kind: s.kind };
   const unknown = unknownExportKeys(properties);
   return unknown ? { ...base, unknown } : base;
@@ -646,8 +656,13 @@ export function hostLabel(host: string): string {
 export function taskExportNote(s: TaskExport): string {
   if (s.kind === 'divergent') return t('tasks.export.divergent', 'Differs per host');
   if (s.kind === 'legacy') return t('tasks.export.legacy', 'Older export setting');
-  if (s.kind === 'on' && SKILL_HOSTS.some((h) => !s.hosts.includes(h))) {
-    return t('tasks.export.only', '{hosts} only', { hosts: s.hosts.map(hostLabel).join(', ') });
+  if (s.kind === 'on') {
+    // A checked row names the skill it exports (Holger, 2026-09-25). A
+    // one-host export keeps saying so, in the link's title, not in the text.
+    if (s.skillName) return s.skillName;
+    if (SKILL_HOSTS.some((h) => !s.hosts.includes(h))) {
+      return t('tasks.export.only', '{hosts} only', { hosts: s.hosts.map(hostLabel).join(', ') });
+    }
   }
   return '';
 }

@@ -608,7 +608,7 @@ describe('unknown export keys on a Task Nodes row (server#1296)', () => {
   });
 
   it('a row with no unknown key is exactly what it was — no `unknown` field at all', () => {
-    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'] });
+    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'], skillName: 'hadron-x' });
     expect(taskExportUnknownNote({ kind: 'none' })).toBe('');
   });
 
@@ -616,8 +616,8 @@ describe('unknown export keys on a Task Nodes row (server#1296)', () => {
     const s = taskExport({ exports: { claudeSkill: decl(), a: 1, b: 1, c: 1, d: 1 } });
     expect(taskExportUnknownNote(s)).toBe('4 unused keys: "a", "b", "c", …');
     expect(taskExportUnknownNote(taskExport({ exports: { a: 1, b: 1 } }))).toBe('2 unused keys: "a", "b"');
-    // Both notes are searchable: the host note and the unused-key note.
-    expect(taskExportSearchText(s)).toBe('Claude only 4 unused keys: "a", "b", "c", …');
+    // Both notes are searchable: the skill name and the unused-key note.
+    expect(taskExportSearchText(s)).toBe('hadron-x 4 unused keys: "a", "b", "c", …');
   });
 
   it('checking the box leaves the unknown key where it is — the note says to fix it on the node', () => {
@@ -671,9 +671,10 @@ describe('#906 — a Task Nodes row declared by a retired top-level key', () => 
     expect(taskExport({ skill: decl(), exports: { claudeSkill: decl(), codexSkill: decl() } })).toEqual({
       kind: 'on',
       hosts: ['claudeSkill', 'codexSkill'],
+      skillName: 'hadron-x',
     });
     // A row with no legacy key is exactly what it was.
-    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'] });
+    expect(taskExport({ exports: { claudeSkill: decl() } })).toEqual({ kind: 'on', hosts: ['claudeSkill'], skillName: 'hadron-x' });
   });
 
   it('says so, and is found by that text; an unused-key note still comes along', () => {
@@ -722,5 +723,22 @@ describe('#911 — which hosts the node menu\'s "Export as skill" offers', () =>
     expect(skillExportMenuHosts({ isRunnable: false, properties: props })).toEqual([]);
     expect(skillExportMenuHosts({ isRunnable: null, properties: props })).toEqual([]);
     expect(skillExportMenuHosts({ isRunnable: true, properties: { exports: { claudeSkill: off } } })).toEqual([]);
+  });
+});
+
+describe('taskExportNote — a checked row names its skill (Holger, 2026-09-25)', () => {
+  it('is the declared skill name, for every host coverage', () => {
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl(), codexSkill: decl() } }))).toBe('hadron-x');
+    expect(taskExportNote(taskExport({ exports: { codexSkill: decl() } }))).toBe('hadron-x');
+  });
+
+  it('is searchable by that name', () => {
+    expect(taskExportSearchText(taskExport({ exports: { claudeSkill: decl({ name: 'drive-pr-home' }) } }))).toBe('drive-pr-home');
+  });
+
+  it('falls back to the host note when the declaration has no name, and says nothing for an unchecked row', () => {
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: '' }) } }))).toBe('Claude only');
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ name: '' }), codexSkill: decl({ name: '' }) } }))).toBe('');
+    expect(taskExportNote(taskExport({ exports: { claudeSkill: decl({ enable: false }), codexSkill: decl({ enable: false }) } }))).toBe('');
   });
 });

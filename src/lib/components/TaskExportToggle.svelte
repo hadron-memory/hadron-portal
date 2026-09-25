@@ -128,13 +128,19 @@
       onchange={(e) => e.currentTarget.form?.requestSubmit()}
     />
     {#if on && missingHosts.length > 0}
+      <!-- Exported for some hosts only: the note (the skill name, when there
+           is one) links to the node, and its title says which host is left
+           out, so naming the skill does not hide the restriction. -->
       <a
         href={editHref}
+        data-testid="task-export-note"
         class="text-xs text-zinc-500 hover:underline"
         title={t('tasks.export.partial-title', 'Not exported for {hosts}. Change it on the node.', {
           hosts: missingHosts.map(hostLabel).join(', '),
         })}
       >{note}</a>
+    {:else if on && note}
+      <span data-testid="task-export-note" class="font-mono text-xs text-zinc-500 dark:text-zinc-400">{note}</span>
     {/if}
   </form>
   {#if failure}
