@@ -47,7 +47,7 @@ function route(opts: { node?: unknown; nodeThrows?: boolean; entries?: unknown[]
   mockRequest.mockImplementation(async (query: string) => {
     if (query === NODE_MEMORY_REF_QUERY) {
       if (opts.nodeThrows) throw new Error('node read down');
-      return { node: opts.node === undefined ? { id: 'node-1', memoryId: 'mem-1' } : opts.node };
+      return { node: opts.node === undefined ? { id: 'node-1', memoryId: 'mem-1', isRunnable: true } : opts.node };
     }
     if (query === SKILL_PLAN_EXPORT_QUERY) {
       if (opts.planThrows) throw new Error('boom');
@@ -79,6 +79,17 @@ describe('POST …/nodes/[nodeId]/skill — refusals before any plan', () => {
     expect(r.status).toBe(404);
     expect(r.body.code).toBe('wrong-memory');
     expect(planCalls()).toHaveLength(0);
+  });
+
+  it('refuses a plain node on a direct request, and plans nothing (@copilot on #912)', async () => {
+    for (const isRunnable of [false, null]) {
+      mockRequest.mockReset();
+      route({ node: { id: 'node-1', memoryId: 'mem-1', isRunnable }, entries: [entry()] });
+      const r = await post({ host: 'claudeSkill' });
+      expect(r.status).toBe(409);
+      expect(r.body.code).toBe('not-a-task');
+      expect(planCalls()).toHaveLength(0);
+    }
   });
 
   it('404s a node the caller cannot see, and plans nothing', async () => {

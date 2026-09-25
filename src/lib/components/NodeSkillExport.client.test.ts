@@ -101,6 +101,20 @@ describe('NodeSkillExport — the report', () => {
     expect(target.textContent).not.toContain('Try again shortly');
   });
 
+  it.each([
+    ['wrong-memory', 'may have been moved. Reload the page'],
+    ['not-found', 'may have been deleted. Reload the page'],
+    ['not-a-task', 'Only a task node can be exported'],
+  ])('turns the %s refusal into a reload instruction, not "try again" (@codex on #912)', async (code, text) => {
+    stubEndpoint({ code }, code === 'not-a-task' ? 409 : 404);
+    const { target } = panel({ endpoint: '/e', hosts: ['claudeSkill'] });
+    buttons(target)[0].click();
+    await reportRendered(target);
+    expect(saved).not.toHaveBeenCalled();
+    expect(target.querySelector('[role="status"]')?.textContent).toContain(text);
+    expect(target.textContent).not.toContain('Try again shortly');
+  });
+
   it('shows the server\'s words on a failure, and saves nothing', async () => {
     stubEndpoint({ code: 'plan-failed', detail: 'memory is locked' }, 502);
     const { target } = panel({ endpoint: '/e', hosts: ['claudeSkill'] });

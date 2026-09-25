@@ -27,9 +27,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   if (!isBundleHost(host)) return json({ code: 'invalid-host' }, { status: 400 });
 
   const client = gqlClient(locals.token);
-  let node: { id: string; memoryId: string } | null;
+  let node: { id: string; memoryId: string; isRunnable?: boolean | null } | null;
   try {
-    ({ node } = await client.request<{ node: { id: string; memoryId: string } | null }>(NODE_MEMORY_REF_QUERY, {
+    ({ node } = await client.request<{ node: { id: string; memoryId: string; isRunnable?: boolean | null } | null }>(NODE_MEMORY_REF_QUERY, {
       ref: params.nodeId,
     }));
   } catch (e) {
@@ -42,6 +42,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // download is never labelled with a memory the task is not in (@copilot on
   // #912). Access is not the concern: the plan runs under the caller's token.
   if (node.memoryId !== params.id) return json({ code: 'wrong-memory' }, { status: 404 });
+  // Holger's rule on #911 — only a TASK is exported as a skill — held here as
+  // well as in the menu, so a direct request cannot export a plain node that
+  // happens to carry a declaration (@copilot on #912).
+  if (!node.isRunnable) return json({ code: 'not-a-task' }, { status: 409 });
 
   let entries: PlanEntry[];
   try {

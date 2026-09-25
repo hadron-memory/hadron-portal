@@ -30,6 +30,21 @@
     | { kind: 'refused'; host: SkillBundleHost; reasons: string[] }
     | { kind: 'failed'; message: string };
 
+  /**
+   * The endpoint's refusals, in words. Each one fails the same way on every
+   * retry, so "try again" would be wrong for all of them (@codex on #912):
+   * the page itself is stale, and reloading it is the remedy.
+   */
+  function refusalText(code: unknown): string | null {
+    if (code === 'wrong-memory')
+      return t('node.skill-export.wrong-memory', 'This task is no longer in this memory — it may have been moved. Reload the page and try again.');
+    if (code === 'not-found')
+      return t('node.skill-export.not-found', 'This task could not be found — it may have been deleted. Reload the page.');
+    if (code === 'not-a-task')
+      return t('node.skill-export.not-a-task', 'Only a task node can be exported as a skill. Reload the page to see its current state.');
+    return null;
+  }
+
   let pendingHost = $state<SkillBundleHost | null>(null);
   let report = $state<Report | null>(null);
 
@@ -49,7 +64,7 @@
           // The endpoint's own words: `detail` for a failed plan or read,
           // `message` for an expired sign-in (401), where "try again" would
           // fail every time (@codex / @copilot on #912).
-          message: body?.detail ?? body?.message ?? t('node.skill-export.error', 'The skill could not be prepared. Try again shortly.'),
+          message: refusalText(body?.code) ?? body?.detail ?? body?.message ?? t('node.skill-export.error', 'The skill could not be prepared. Try again shortly.'),
         };
         return;
       }
