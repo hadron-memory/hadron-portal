@@ -285,6 +285,20 @@
     </div>
     <div class="flex items-center gap-2">
       {#if activeTab === 'own'}
+        <!-- The Create Chatbot Agent wizard is the one portal path that
+             scaffolds a WORKING chatbot (system memory, onboarding and
+             fallback conversations, prompts); New Agent creates the agent
+             alone. Its button was dropped in #473 and the route orphaned;
+             Holger restored the entry point on 2026-09-25 (team chat #1674).
+             Same gate as the wizard route: anyone who can read the org. -->
+        <a
+          href="/app/orgs/{org.id}/create-chatbot"
+          data-testid="new-chatbot-link"
+          title={t('org.agents.new-chatbot.title', 'Create an agent that is ready to chat: its memory, onboarding and prompts included.')}
+          class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >
+          {t('org.agents.new-chatbot', 'New Chatbot')}
+        </a>
         <a href="/app/orgs/{org.id}/agents/new" class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
           New Agent
         </a>
@@ -442,6 +456,12 @@
   {:else if agents.length === 0}
     <div class="rounded-xl border border-zinc-200 bg-white p-12 text-center text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
       No agents yet. <a href="/app/orgs/{org.id}/agents/new" class="text-indigo-600 hover:underline dark:text-indigo-400">Create one →</a>
+      <p class="mt-2 text-sm">
+        {t('org.agents.empty.chatbot-lead', 'Want one that is ready to chat?')}
+        <a href="/app/orgs/{org.id}/create-chatbot" data-testid="empty-new-chatbot-link" class="text-indigo-600 hover:underline dark:text-indigo-400"
+          >{t('org.agents.empty.chatbot', 'Create a chatbot →')}</a
+        >
+      </p>
     </div>
   {:else}
     <!-- 25rem offset tuned to this page's chrome height. -->
