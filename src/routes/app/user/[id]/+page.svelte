@@ -77,7 +77,12 @@
     {:else}
       <!-- Every visible held worker: the loader pages to completion, so the
            grid never holds a partial roster it would have to caveat. -->
-      <HeldWorkersTable workers={held.items} />
+      <!-- Keyed by the profile: SvelteKit reuses this page across /app/user
+           URLs, and a reused grid would carry the last profile's search into
+           this one, where it can hide every row (@codex on #930). -->
+      {#key user.id}
+        <HeldWorkersTable workers={held.items} />
+      {/key}
     {/if}
   </div>
 </div>
