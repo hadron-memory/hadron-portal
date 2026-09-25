@@ -164,6 +164,95 @@ describe('updateMeta', () => {
   });
 });
 
+describe('updateMeta — Node.role (#921)', () => {
+  const meta = (over: Record<string, string> = {}) => ({
+    name: 'Classify',
+    nodeType: 'info',
+    description: '',
+    alias: '',
+    seq: '1',
+    tags: 'keep',
+    loc: 'classify',
+    ...over,
+  });
+  const sent = (door: string) => mockRequest.mock.calls.find(([q]) => q === door)![1].input;
+
+  it('an untouched role is OMITTED from the write, set or unset', async () => {
+    stubNode({ role: 'spec', isRunnable: null });
+    await run('updateMeta', meta({ role: 'spec', roleSeed: 'spec' }));
+    expect(doorsUsed()).toEqual([UPDATE_SPEC_NODE_MUTATION]);
+    expect(sent(UPDATE_SPEC_NODE_MUTATION)).not.toHaveProperty('role');
+    mockRequest.mockReset();
+    stubNode({ role: null, isRunnable: null });
+    await run('updateMeta', meta());
+    expect(sent(UPDATE_NODE_MUTATION)).not.toHaveProperty('role');
+  });
+
+  it('a dotted or custom role is sent as typed, never lowercased', async () => {
+    stubNode({ role: null, isRunnable: null });
+    await run('updateMeta', meta({ role: ' Spec.Feature ', roleSeed: '' }));
+    // Not governed today (server's register matches `spec` exactly), so the generic door.
+    expect(doorsUsed()).toEqual([UPDATE_NODE_MUTATION]);
+    expect(sent(UPDATE_NODE_MUTATION)).toMatchObject({ role: 'Spec.Feature' });
+  });
+
+  it('setting a GOVERNED role goes through that kind\'s door (the write produces it)', async () => {
+    stubNode({ role: null, isRunnable: null });
+    await run('updateMeta', meta({ role: 'review', roleSeed: '' }));
+    expect(doorsUsed()).toEqual([UPDATE_REVIEW_NODE_MUTATION]);
+    expect(sent(UPDATE_REVIEW_NODE_MUTATION)).toMatchObject({ role: 'review' });
+  });
+
+  it('changing or clearing a governed role still goes through ITS door (before ∪ after)', async () => {
+    stubNode({ role: 'spec', isRunnable: null });
+    await run('updateMeta', meta({ role: 'spec.feature', roleSeed: 'spec' }));
+    expect(doorsUsed()).toEqual([UPDATE_SPEC_NODE_MUTATION]);
+    expect(sent(UPDATE_SPEC_NODE_MUTATION)).toMatchObject({ role: 'spec.feature' });
+    mockRequest.mockReset();
+    stubNode({ role: 'review', isRunnable: null });
+    await run('updateMeta', meta({ role: '', roleSeed: 'review' }));
+    expect(doorsUsed()).toEqual([UPDATE_REVIEW_NODE_MUTATION]);
+    expect(sent(UPDATE_REVIEW_NODE_MUTATION)).toMatchObject({ role: null });
+  });
+
+  it('never touches objectType, and leaves nodeType/isRunnable to their own fields', async () => {
+    stubNode({ role: null, isRunnable: null });
+    await run('updateMeta', meta({ role: 'spec.rule', roleSeed: '' }));
+    const input = sent(UPDATE_NODE_MUTATION);
+    expect(input).not.toHaveProperty('objectType');
+    expect(input).toMatchObject({ nodeType: 'info', isRunnable: false, role: 'spec.rule' });
+  });
+
+  it('a role that makes the write doorless is refused BEFORE any write, in words', async () => {
+    // A runnable node given the review role would match two governed kinds.
+    stubNode({ role: null, isRunnable: true });
+    const result = (await run('updateMeta', meta({ isRunnable: 'on', role: 'review', roleSeed: '' }))) as {
+      data?: { form?: { message?: { type: string; text: string } } };
+      form?: { message?: { type: string; text: string } };
+    };
+    expect(doorsUsed()).toEqual([]);
+    const msg = (result.data?.form ?? result.form)?.message;
+    expect(msg?.type).toBe('error');
+    expect(msg?.text).toContain('no single write path');
+  });
+
+  it('a server refusal of the transition reaches the user in the server\'s words', async () => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === NODE_BY_ID_QUERY || query === NODE_QUERY || query === NODE_DATA_READ_QUERY) return { node: { ...base, role: 'spec', isRunnable: null } };
+      throw Object.assign(new Error('refused'), {
+        response: { errors: [{ message: 'This write would REMOVE the marker that makes this a SPEC node.', extensions: { code: 'ROLE_GOVERNED' } }] },
+      });
+    });
+    const result = (await run('updateMeta', meta({ role: 'spec.feature', roleSeed: 'spec' }))) as {
+      data?: { form?: { message?: { type: string; text: string } } };
+      form?: { message?: { type: string; text: string } };
+    };
+    const msg = (result.data?.form ?? result.form)?.message;
+    expect(msg?.type).toBe('error');
+    expect(msg?.text).toContain('REMOVE the marker');
+  });
+});
+
 describe('updateMeta — the move happens AFTER the door is settled', () => {
   /**
    * @copilot on PR #869. `updateMeta` moves the node first when its loc

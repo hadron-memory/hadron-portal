@@ -1,4 +1,4 @@
-# Exported from hadron-server 2d08dd42e6edb3a221cf27a6d10cbfa327ca3d13 (origin/main, 2026-09-24T19:21:19-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server c951571f963dcd343e30cbefda6e4874efe75d71 (origin/main, 2026-09-25T09:48:02-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -4689,8 +4689,9 @@ type Mutation {
   every NodeRevision NEWER than the selected one (createdAt strictly greater),
   WITHOUT creating a pre-restore snapshot. Boundary is EXCLUSIVE of the
   selected row: the selected revision is KEPT and becomes the new baseline
-  (the most-recent snapshot afterward); its era and older survive. Restore +
-  truncate run in one transaction (atomic).
+  (the most-recent snapshot afterward); its era and older survive. The live
+  revision counter still advances monotonically for the restore itself.
+  Restore + truncate run in one transaction (atomic).
   """
   restoreNodeRevision(revisionId: ID!, truncate: Boolean = false): Node!
 
@@ -5504,6 +5505,11 @@ type Node {
   """
   portalUrl: String
   properties: JSON
+
+  """
+  #1323 — current live revision. Creation is revision 1; each committed authoring change advances it. NodeRevision.revNo N is the retained snapshot of this node when revision N was current, before the edit that advanced it.
+  """
+  revision: Int!
 
   """
   #1201 — what this node is FOR, as an OPEN string. Set it to anything; the
@@ -8543,6 +8549,11 @@ input SkillFileFactsInput {
   """True when the file exists and could not be parsed."""
   parseFailed: Boolean
 
+  """
+  The positive rev=N value from provenance. Null means an older artifact omitted it.
+  """
+  revision: Int
+
   """The source URN from the provenance header."""
   sourceUrn: String
 }
@@ -8635,6 +8646,9 @@ type SkillPlanEntry {
   server already judged broken.
   """
   renderedBody: String
+
+  """Authoritative current node revision used in rendered provenance."""
+  revision: Int!
   urn: String!
 }
 

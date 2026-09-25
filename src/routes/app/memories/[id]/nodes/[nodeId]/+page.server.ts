@@ -12,6 +12,7 @@ import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NOD
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
+import { roleUpdate } from '$lib/node-role';
 import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
@@ -370,6 +371,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       tags: (node.tags ?? []).join(', '),
       isRunnable: node.isRunnable ?? false,
       loc: node.loc,
+      role: node.role ?? '',
+      roleSeed: node.role ?? '',
     }, nodeUpdateMetaFormAdapter, { errors: false }),
     superValidate<NodeDuplicateForm>({}, nodeDuplicateFormAdapter, { errors: false }),
     superValidate<NodeConvertToTaskForm>({}, nodeConvertToTaskFormAdapter, { errors: false }),
@@ -506,7 +509,17 @@ export const actions: Actions = {
     // of the edit applied, reported as a 500. Nothing below needs the move to
     // have happened first, so the refusal costs nothing when it comes first and
     // costs a half-applied edit when it comes second.
-    const input = { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable };
+    // #921: role rides along only when the user changed it (`roleUpdate`):
+    // omitted, the server preserves it; emptied, it is cleared. Whatever it
+    // is, the door below is chosen on BEFORE ∪ AFTER with it included, so a
+    // role edit on a governed node goes through that kind's door, and the
+    // server's own gate decides whether the transition is allowed.
+    const role = roleUpdate(form.data.role, form.data.roleSeed);
+    const input = {
+      memoryId: currentNode.memoryId, loc, name, nodeType, description, alias,
+      seq: Number.isNaN(seq) ? null : seq, tags, isRunnable,
+      ...(role !== undefined ? { role } : {}),
+    };
     try {
       assertNodeUpdateDoor(currentNode, input);
     } catch (e: unknown) {

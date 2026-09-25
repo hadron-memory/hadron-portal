@@ -73,6 +73,41 @@ function loadEvent(opts: {
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
+describe('node-detail load — the metadata form opens on the node\'s role (#921)', () => {
+  it('seeds role AND roleSeed with the stored role, verbatim', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'n1', memoryId: 'mem-A', loc: 'specs:x', name: 'x',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, role: 'spec.feature', createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const result = (await runLoad(loadEvent({ gid: 'mem-A', nodeId: 'n1', parentGraphNodes: [] }))) as unknown as {
+      updateMetaForm: { data: { role: string; roleSeed: string } };
+    };
+    expect(result.updateMetaForm.data.role).toBe('spec.feature');
+    expect(result.updateMetaForm.data.roleSeed).toBe('spec.feature');
+  });
+
+  it('seeds an unset role as empty, which the action then omits unless typed into', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'n1', memoryId: 'mem-A', loc: 'x', name: 'x',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, role: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const result = (await runLoad(loadEvent({ gid: 'mem-A', nodeId: 'n1', parentGraphNodes: [] }))) as unknown as {
+      updateMetaForm: { data: { role: string; roleSeed: string } };
+    };
+    expect(result.updateMetaForm.data).toMatchObject({ role: '', roleSeed: '' });
+  });
+});
+
 describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
   it('resolves ancestor nodeIds from the current memory, not from a foreign memory sharing the loc', async () => {
     // Two memories accessible to the caller both have a `chats` row.
