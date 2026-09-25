@@ -47,6 +47,26 @@ export function nodeMetaSeedKey(node: { id: string; role?: string | null }): str
 }
 
 /**
+ * What to write into the form when the page's node changes, given the node
+ * the form was last seeded from (`prev`):
+ *
+ * - a DIFFERENT node: the whole seed, since nothing typed belongs to it;
+ * - the SAME node whose stored role changed: ONLY `role` and `roleSeed`.
+ *   That happens on the reload after a save, including a save whose move then
+ *   failed, where the editor stays open so the user can correct the location;
+ *   a full reseed would throw that location away (@codex on #929);
+ * - otherwise nothing (`null`).
+ */
+export function nodeMetaReseed(
+  prev: { id: string; role?: string | null },
+  node: NodeMetaSeedSource & { id: string },
+): Partial<ReturnType<typeof nodeMetaSeed>> | null {
+  if (prev.id !== node.id) return nodeMetaSeed(node);
+  if ((prev.role ?? '') !== (node.role ?? '')) return { role: node.role ?? '', roleSeed: node.role ?? '' };
+  return null;
+}
+
+/**
  * A failed metadata action whose edits were nevertheless SAVED: the update
  * succeeded and only the follow-up move failed. SvelteKit does not rerun the
  * page load for a failed action, so the page must reload the node itself, or

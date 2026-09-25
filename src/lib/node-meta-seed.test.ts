@@ -1,6 +1,6 @@
 /** #921 / @codex on #929 — the metadata form's single seed list. */
 import { describe, expect, it } from 'vitest';
-import { metaSavedDespiteFailure, nodeMetaSeed, nodeMetaSeedKey } from './node-meta-seed';
+import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeed, nodeMetaSeedKey } from './node-meta-seed';
 import { nodeUpdateMetaSchema } from '../routes/app/memories/[id]/nodes/[nodeId]/schema';
 
 const node = {
@@ -45,5 +45,23 @@ describe('metaSavedDespiteFailure (@codex on #929)', () => {
     expect(metaSavedDespiteFailure({ type: 'failure', data: { metaSaved: 'yes' } })).toBe(false);
     expect(metaSavedDespiteFailure({ type: 'success', data: { metaSaved: true } })).toBe(false);
     expect(metaSavedDespiteFailure({ type: 'failure' })).toBe(false);
+  });
+});
+
+describe('nodeMetaReseed — what a node change writes into the form (@codex on #929)', () => {
+  it('reseeds EVERYTHING for a different node', () => {
+    expect(nodeMetaReseed({ id: 'n0', role: 'review' }, node)).toEqual(nodeMetaSeed(node));
+  });
+
+  it('patches ONLY role and roleSeed when the same node\'s stored role changed, so a typed location survives', () => {
+    const patch = nodeMetaReseed({ id: 'n1', role: 'spec' }, node)!;
+    expect(patch).toEqual({ role: 'spec.feature', roleSeed: 'spec.feature' });
+    expect(patch).not.toHaveProperty('loc');
+    expect(nodeMetaReseed({ id: 'n1', role: 'spec.feature' }, { ...node, role: null })).toEqual({ role: '', roleSeed: '' });
+  });
+
+  it('writes nothing when neither the node nor its role changed', () => {
+    expect(nodeMetaReseed({ id: 'n1', role: 'spec.feature' }, node)).toBeNull();
+    expect(nodeMetaReseed({ id: 'n1', role: null }, { ...node, role: '' })).toBeNull();
   });
 });
