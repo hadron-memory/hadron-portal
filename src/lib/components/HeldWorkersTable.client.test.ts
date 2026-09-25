@@ -40,8 +40,9 @@ async function search(t: HTMLElement, text: string) {
 
 describe('HeldWorkersTable — mounted', () => {
   it('lists active first by default: the rank sorts, it is not what is shown', async () => {
-    // A MASKED row renders an empty state, which an alphabetical sort of the
-    // shown words would put FIRST; the rank puts it last.
+    // The rank puts a MASKED row last. (With today's English labels an
+    // alphabetical sort happens to agree; the rank is what keeps it last in a
+    // translation, so the order is pinned here, not left to the words.)
     const { target } = mount([...WORKERS, w({ id: 'masked', name: 'Masked', hasLiveSession: null, lastActiveAt: null })]);
     await tick(2);
     expect(names(target)).toEqual(['team/Live', 'team/Idle', 'team/Never', 'team/Masked']);

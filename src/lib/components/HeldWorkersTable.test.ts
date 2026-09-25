@@ -37,7 +37,8 @@ describe('heldWorkerState — live, idle, never, or masked', () => {
   it('treats a MASKED state (null) as unknown, never as idle or never-driven', () => {
     const masked = w({ hasLiveSession: null, lastActiveAt: null });
     expect(heldWorkerState(masked)).toBe('unknown');
-    expect(heldWorkerStateLabel(masked)).toBe('');
+    // In words, perceivable without hover (@codex on #930).
+    expect(heldWorkerStateLabel(masked)).toBe('Not shown to you');
   });
 });
 
@@ -62,6 +63,12 @@ describe('HeldWorkersTable — rendered', () => {
     expect(body).toContain('/app/u/hrn:app:acme.com:team');
     expect(body).toContain('/app/u/hrn:worker:acme.com:team:dara');
     expect(body).toContain('No role');
+  });
+
+  it('shows a MASKED state as visible text, not a hover-only dash (@codex on #930)', () => {
+    const masked = render(HeldWorkersTable, { props: { workers: [w({ hasLiveSession: null, lastActiveAt: null })] } }).body;
+    expect(masked).toMatch(/data-testid="held-worker-masked"[^>]*>Not shown to you</);
+    expect(masked).not.toContain('title="Not shown to you"');
   });
 
   it('names each chip\'s copy buttons for what they copy (@codex on #930)', () => {

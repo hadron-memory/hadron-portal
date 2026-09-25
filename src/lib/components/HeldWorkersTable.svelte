@@ -30,7 +30,8 @@
    *   an unended Session row);
    * - `idle`: driven before, not now;
    * - `never`: nobody has ever bound it;
-   * - `unknown`: masked by the read gate. Said as a dash, never as "idle".
+   * - `unknown`: masked by the read gate. Said as "Not shown to you", never
+   *   as "idle" or "never driven".
    */
   export function heldWorkerState(w: HeldWorker): HeldWorkerState {
     if (w.hasLiveSession === true) return 'active';
@@ -54,7 +55,9 @@
       case 'never':
         return tt('user.workers.state.never', 'Never driven');
       default:
-        return '';
+        // Said in words, not a dash with a hover-only title: keyboard and
+        // touch users must be able to tell MASKED from missing (@codex on #930).
+        return tt('user.workers.state.unknown', 'Not shown to you');
     }
   }
 
@@ -181,7 +184,7 @@
       {#if state === 'active'}
         <span data-testid="held-worker-active" class="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-950 dark:text-green-300">{heldWorkerStateLabel(w)}</span>
       {:else if state === 'unknown'}
-        <span class="text-zinc-400" title={t('user.workers.state.unknown', 'Not shown to you')}>—</span>
+        <span data-testid="held-worker-masked" class="text-sm italic text-zinc-400">{heldWorkerStateLabel(w)}</span>
       {:else}
         <span class="text-sm text-zinc-600 dark:text-zinc-300">{heldWorkerStateLabel(w)}</span>
       {/if}
