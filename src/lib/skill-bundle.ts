@@ -122,13 +122,17 @@ export function pluginName(orgName: string): string {
  * PATH: a name outside the skill grammar, and (`duplicate`) a name another
  * entry in the same archive also claims.
  */
-function judgeEntry(e: PlanEntry, duplicate: boolean): { ok: true; body: string } | { ok: false; reasons: string[] } {
-  const errors = [
+function serverReasons(e: PlanEntry): string[] {
+  return [
     ...new Set([
       ...e.findings.filter((f) => f.severity === 'error').map((f) => f.message),
       ...(e.exportPlan?.action && e.exportPlan.action !== 'WRITE' ? e.exportPlan.reasons.map((r) => r.message) : []),
     ]),
   ];
+}
+
+function judgeEntry(e: PlanEntry, duplicate: boolean): { ok: true; body: string } | { ok: false; reasons: string[] } {
+  const errors = serverReasons(e);
   if (!validSkillName(e.name)) {
     return { ok: false, reasons: [...errors, t('skill-bundle.skip.invalid-name', '"{name}" is not a valid skill name.', { name: e.name })] };
   }
@@ -239,7 +243,10 @@ export function planSkillDownload(entry: PlanEntry | undefined, host: SkillBundl
     return none([t('skill-bundle.single.not-in-plan', 'The export plan has no {host} entry for this task. Its export may have been switched off since this page loaded; reload the page to see its current state.', { host: hostName })]);
   }
   if (entry.class === 'disabled') {
-    return none([t('skill-bundle.single.disabled', 'This task’s {host} export is switched off.', { host: hostName })]);
+    // The server's own reasons when it gave any; the portal's sentence only
+    // stands in when it gave none (@copilot on #912).
+    const words = serverReasons(entry);
+    return none(words.length > 0 ? words : [t('skill-bundle.single.disabled', 'This task’s {host} export is switched off.', { host: hostName })]);
   }
   const v = judgeEntry(entry, false);
   if (!v.ok) return none(v.reasons);

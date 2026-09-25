@@ -288,6 +288,14 @@ describe('planSkillDownload — one task as one skill (#911)', () => {
     expect(d.reasons).toEqual([expect.stringContaining('Claude export is switched off')]);
   });
 
+  it('prefers the server\'s own words for a switched-off export, when it gave any (@copilot on #912)', () => {
+    const d = planSkillDownload(
+      entry({ class: 'disabled', exportPlan: { action: 'SKIP', reasons: [{ code: 'disabled', message: 'Export is disabled for claudeSkill.' }] } }),
+      'claudeSkill',
+    );
+    expect(d).toEqual({ files: {}, filename: null, reasons: ['Export is disabled for claudeSkill.'] });
+  });
+
   it('gives the server\'s own reasons when it withheld the body', () => {
     const d = planSkillDownload(
       entry({ renderedBody: null, findings: [
