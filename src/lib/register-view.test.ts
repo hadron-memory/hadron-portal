@@ -25,6 +25,20 @@ function view(over: ViewOverrides = {}): RegisterViewRow {
 }
 
 describe('effectiveRows', () => {
+  it('carries the Channel’s address, so same-named Channels in different memories are told apart', () => {
+    const [a, b] = effectiveRows([
+      view({ channel: { name: 'team', loc: 'chats:team', hostMemoryUrn: 'hrn:mem:acme.com:shared' } }),
+      view({ channel: { name: 'team', loc: 'chats:team', hostMemoryUrn: 'hrn:mem:acme.com:other' } }),
+    ]);
+    expect(a.channel).toBe(b.channel);
+    expect(a.channelUrn).toBe('hrn:node:acme.com:shared:chats:team');
+    expect(b.channelUrn).toBe('hrn:node:acme.com:other:chats:team');
+  });
+
+  it('no address when the host memory isn’t visible to the viewer: no chip, not an empty one', () => {
+    expect(effectiveRows([view({ channel: { hostMemoryUrn: null } })])[0].channelUrn).toBeNull();
+  });
+
   it('states the winning row, its mode, what counts, and why', () => {
     expect(effectiveRows([view({ entry: { role: 'WATCH', mentionOnly: true } })])[0]).toMatchObject({
       channel: 'team', mode: 'Watch', counts: 'Only when mentioned', because: 'Their own row',

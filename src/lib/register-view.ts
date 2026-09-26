@@ -17,6 +17,7 @@
  *   worded as the viewer's ("its memory isn't visible to you").
  */
 import { t } from '$lib/i18n/t';
+import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 
 export interface RegisterViewRow {
   namedBy: 'WORKER' | 'AGENT' | 'EVERYONE';
@@ -32,6 +33,8 @@ export interface RegisterViewRow {
 export interface EffectiveRow {
   id: string;
   channel: string;
+  /** The Channel's address, or null when its host memory isn't visible to the viewer: no chip then. */
+  channelUrn: string | null;
   mode: string;
   counts: string;
   because: string;
@@ -94,6 +97,9 @@ export function effectiveRows(view: RegisterViewRow[]): EffectiveRow[] {
   return view.map((r) => ({
     id: r.entry.id,
     channel: r.channel.name,
+    // Same-named Channels in different host memories are told apart by this.
+    // The view row carries no chatRootUrn; its address is the host memory plus loc.
+    channelUrn: r.channel.hostMemoryUrn ? composeNodeUrn(r.channel.hostMemoryUrn, r.channel.loc) : null,
     mode: modeLabel(r.entry.role),
     counts: r.entry.mentionOnly
       ? t('app.channels.register.mentions.only', 'Only when mentioned')

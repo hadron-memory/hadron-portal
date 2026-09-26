@@ -589,8 +589,15 @@
                 bind:globalFilter={effectiveFilter}
                 maxHeight="max(160px, calc(100vh - 34rem))"
               >
-                {#snippet cell(cell)}
-                  <div class="truncate">{cell.getValue()}</div>
+                {#snippet cell(cell, row)}
+                  {#if cell.column.id === 'channel' && row.channelUrn}
+                    <div class="min-w-0">
+                      <div class="truncate">{row.channel}</div>
+                      <Urn value={row.channelUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
+                    </div>
+                  {:else}
+                    <div class="truncate">{cell.getValue()}</div>
+                  {/if}
                 {/snippet}
               </DataTable>
             </div>
