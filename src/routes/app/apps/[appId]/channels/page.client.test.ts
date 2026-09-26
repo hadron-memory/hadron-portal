@@ -215,4 +215,29 @@ describe('Channels page', () => {
     const body = await html([channel({ lastMessageAt: '2026-09-26T10:00:00Z' })]);
     expect(body).toMatch(/Sep 26, 2026/);
   });
+
+  it('a picked Channel with no flat address shows its id under the picker', async () => {
+    const { target } = await mountPage([channel({ id: 'ch-legacy', chatRootUrn: null })]);
+    const pick = target.querySelector<HTMLSelectElement>('select[name="channelId"]')!;
+    pick.value = 'ch-legacy';
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(3);
+    expect(pick.parentElement!.textContent).toContain('ch-legacy');
+  });
+
+  it('“Takes part as” can’t be hidden: it holds the edit form the Save button submits', async () => {
+    const appRows = [{
+      id: 're-1', ownerType: 'APP', ownerId: 'app-1', appId: 'app-1', organizationId: null, channelId: 'ch-team',
+      channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team', chatRootUrn: null }, attendeeWorkerId: null, attendeeAgentId: null,
+      attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
+    }];
+    const { target } = await mountPage([channel()], { appRows });
+    const regTable = [...target.querySelectorAll('table')].find((tb) => tb.querySelector('form[action="?/removeAttendance"], button') && tb.textContent?.includes('Set by'))!;
+    let grid: HTMLElement = regTable;
+    while (!grid.querySelector('details')) grid = grid.parentElement!;
+    // The Columns menu lists only hideable columns (its <details> is in the DOM while closed).
+    const toggles = [...grid.querySelectorAll('details label')].map((l) => l.textContent?.trim());
+    expect(toggles).toContain('Set by'); // the menu is really there
+    expect(toggles).not.toContain('Takes part as');
+  });
 });

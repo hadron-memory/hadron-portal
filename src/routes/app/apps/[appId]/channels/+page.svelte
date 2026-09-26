@@ -282,7 +282,10 @@
     // Search matches the URN chips the cells show, not just the names.
     { accessorFn: (r) => [r.channel, r.entry.channel?.chatRootUrn].filter(Boolean).join(' '), id: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
     { accessorFn: (r) => [r.attendee, r.entry.attendeeUrn].filter(Boolean).join(' '), id: 'attendee', header: t('app.channels.register.col.attendee', 'Who'), size: 220 },
-    { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 170 },
+    // Not hideable: this cell renders the row's edit <form>, which the Save
+    // button in the actions cell submits by id. Hidden, Save would target a
+    // form that isn't in the DOM.
+    { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 170, enableHiding: false },
     { accessorKey: 'mentions', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 170 },
     { accessorKey: 'setBy', header: t('app.channels.register.col.set-by', 'Set by'), size: 190 },
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 200 },
@@ -551,11 +554,15 @@
                 <option value="" disabled>{t('app.channels.register.pick-channel', 'Pick a channel…')}</option>
                 {#each data.channels as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
               </select>
-              <!-- Two Channels can share a name: the chosen one's address tells them apart. -->
+              <!-- Two Channels can share a name: the chosen one's address tells them
+                   apart. A compound-memory Channel has no flat address, so its id,
+                   as in the Channels table. -->
               {#if pickedChannel?.chatRootUrn}
                 <span class="mt-1 block">
                   <Urn value={pickedChannel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
                 </span>
+              {:else if pickedChannel}
+                <span class="mt-1 block font-mono text-xs">{pickedChannel.id}</span>
               {/if}
             </label>
             <label class="block text-xs text-zinc-600 dark:text-zinc-400">
