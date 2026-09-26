@@ -320,6 +320,7 @@
     <h1 class="text-xl font-bold text-zinc-900 dark:text-white">
       <span class="font-normal text-zinc-400">{t('app.channels.title.prefix', 'Channels:')}</span> {data.app.name}
     </h1>
+    <Urn value={data.app.urn} type="app" size={8} label={t('app.channels.urn.app', 'App')} />
     <p class="mt-1 max-w-3xl text-sm text-zinc-500 dark:text-zinc-400">
       {t(
         'app.channels.explainer',

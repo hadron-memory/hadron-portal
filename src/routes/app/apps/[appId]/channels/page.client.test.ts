@@ -267,4 +267,10 @@ describe('Channels page', () => {
     expect(after.some((c) => c.includes('ch-leg-2'))).toBe(true);
     expect(after.some((c) => c.includes('ch-leg-1'))).toBe(false);
   });
+
+  it('names the App it manages with its URN', async () => {
+    const { target } = await mountPage([channel()]);
+    const h1 = target.querySelector('h1')!;
+    expect(h1.parentElement!.innerHTML).toContain('hrn:app:acme.com:team');
+  });
 });
