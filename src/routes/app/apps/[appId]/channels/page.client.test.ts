@@ -281,4 +281,31 @@ describe('Channels page', () => {
     expect(toggles).toContain('Set by'); // the menu is really there
     expect(toggles).not.toContain('Takes part as');
   });
+
+  it('effective search matches the Channel URN shown under the name', async () => {
+    const rows = [
+      { id: 'e1', channel: 'team', channelUrn: 'hrn:node:acme.com:a:chats:team', mode: 'Watch', counts: 'All messages', because: 'Their own row', readUpTo: 'x', note: '' },
+      { id: 'e2', channel: 'team', channelUrn: 'hrn:node:acme.com:b:chats:team', mode: 'Post', counts: 'Nothing (post only)', because: 'Their own row', readUpTo: 'y', note: '' },
+    ];
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ rows, loadedAt: '2026-09-26T00:00:00Z' }) }) as unknown as Response));
+    try {
+      const attendees = [{ id: 'w-ada', name: 'Ada', urn: null, kind: 'worker', role: null, retired: false }];
+      const { target } = await mountPage([channel()], { attendees });
+      const pick = [...target.querySelectorAll<HTMLSelectElement>('select')].find((s) => s.options[0]?.textContent?.includes('Pick a worker or agent'))!;
+      pick.value = 'w-ada';
+      pick.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(6);
+      const effTable = [...target.querySelectorAll('table')].find((tb) => tb.textContent?.includes('Because of'))!;
+      let grid: HTMLElement = effTable;
+      while (!grid.querySelector('input[aria-label]')) grid = grid.parentElement!;
+      const search = grid.querySelector<HTMLInputElement>('input[aria-label]')!;
+      search.value = 'hrn:node:acme.com:b';
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(3);
+      expect(effTable.textContent).toContain('Nothing (post only)');
+      expect(effTable.textContent).not.toContain('All messages');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

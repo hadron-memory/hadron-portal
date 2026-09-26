@@ -337,7 +337,8 @@
   }
   let effectiveFilter = $state('');
   const effectiveColumns: PortalColumnDef<EffectiveRow>[] = [
-    { accessorKey: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 180 },
+    // Search matches the URN chip the cell shows under the name.
+    { accessorFn: (r) => [r.channel, r.channelUrn].filter(Boolean).join(' '), id: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 180 },
     { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 150 },
     { accessorKey: 'counts', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 160 },
     { accessorKey: 'because', header: t('app.channels.effective.col.because', 'Because of'), size: 260 },
