@@ -160,6 +160,14 @@ describe('createChannel', () => {
     expect(sent(CREATE_CHANNEL_MUTATION)).toHaveLength(0);
   });
 
+  it('an overlong name is refused in words, before any request', async () => {
+    route({});
+    const r = await act('createChannel', { _kind: 'createChannel', name: 'x'.repeat(121), slug: 'ok', description: '' });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r)).toContain('Keep the name to 120 characters.');
+    expect(sent(CREATE_CHANNEL_MUTATION)).toHaveLength(0);
+  });
+
   it('an overlapping address is explained in words', async () => {
     route({ create: refusal('Channel address overlaps chats:team', 'LOC_OVERLAPS_CHANNEL') });
     const r = await act('createChannel', { _kind: 'createChannel', name: 'N', slug: 'team', description: '' });

@@ -13,22 +13,25 @@ export const CHANNEL_SLUG = /^[a-z0-9][a-z0-9-]{0,62}$/;
 export const CHANNEL_NAME_MAX = 120;
 export const CHANNEL_DESCRIPTION_MAX = 500;
 
+const NAME_TOO_LONG = t('app.channels.validation.name-too-long', 'Keep the name to {max} characters.', { max: String(CHANNEL_NAME_MAX) });
+const DESCRIPTION_TOO_LONG = t('app.channels.validation.description-too-long', 'Keep the description to {max} characters.', { max: String(CHANNEL_DESCRIPTION_MAX) });
+
 export const createChannelSchema = z.object({
   _kind: z.literal('createChannel').default('createChannel'),
-  name: z.string().trim().min(1, t('app.channels.validation.name-required', 'Give the channel a name.')).max(CHANNEL_NAME_MAX).prefault(''),
+  name: z.string().trim().min(1, t('app.channels.validation.name-required', 'Give the channel a name.')).max(CHANNEL_NAME_MAX, NAME_TOO_LONG).prefault(''),
   slug: z
     .string()
     .trim()
     .regex(CHANNEL_SLUG, t('app.channels.validation.slug', 'Use lowercase letters, digits and dashes, starting with a letter or digit.'))
     .prefault(''),
-  description: z.string().trim().max(CHANNEL_DESCRIPTION_MAX).prefault(''),
+  description: z.string().trim().max(CHANNEL_DESCRIPTION_MAX, DESCRIPTION_TOO_LONG).prefault(''),
 });
 
 export const renameChannelSchema = z.object({
   _kind: z.literal('renameChannel').default('renameChannel'),
   ref: z.string().trim().min(1).prefault(''),
-  name: z.string().trim().min(1, t('app.channels.validation.rename-name-required', 'A channel needs a name.')).max(CHANNEL_NAME_MAX).prefault(''),
-  description: z.string().trim().max(CHANNEL_DESCRIPTION_MAX).prefault(''),
+  name: z.string().trim().min(1, t('app.channels.validation.rename-name-required', 'A channel needs a name.')).max(CHANNEL_NAME_MAX, NAME_TOO_LONG).prefault(''),
+  description: z.string().trim().max(CHANNEL_DESCRIPTION_MAX, DESCRIPTION_TOO_LONG).prefault(''),
 });
 
 export const deleteChannelSchema = z.object({
