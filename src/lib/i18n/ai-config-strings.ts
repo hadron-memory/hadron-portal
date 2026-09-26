@@ -69,10 +69,12 @@ export const aiConfigStrings = {
   /**
    * Hint shown on the AGENT surface (#924). The agent page has no Chat tab any
    * more; the agent chats in an App's Chats → Agent chat and in its Tester.
-   * Both resolve a config by NAME, walking App → Agent → Org → Host with
-   * `default` as the fallback name (spec 036, `resolveAIConfig`), so an
-   * agent's config applies only where the App has none of that name. The copy
-   * must not claim every App uses the agent's `default`.
+   * Both resolve a config by NAME with `default` as the fallback name (spec
+   * 036, `resolveAIConfig`), but not along the same walk: App chat passes the
+   * App, so it walks App → Agent → Org → Host and an App config of the same
+   * name wins; the Tester passes no App (`fetchAgentAIConfig` without
+   * `appId`), so it walks Agent → Org → Host. The copy must not claim every
+   * App uses the agent's `default`.
    */
   agentDefaultHint: (): string =>
     t(
