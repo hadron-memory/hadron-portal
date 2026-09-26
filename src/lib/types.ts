@@ -867,3 +867,21 @@ export interface EffectiveAccess {
   /** Reasons access is granted; empty = no access. Ordered strongest-first. */
   grants: AccessGrant[];
 }
+
+/** #942 — a Channel (spec 049): a durable message stream at one reserved address in its host memory. */
+export interface Channel {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: string;
+  /** The reserved address in the host memory, e.g. `chats:team`. */
+  loc: string;
+  /** The Channel's address to copy; null when the server has no flat-v2 URN to advertise (use `id`). */
+  chatRootUrn: string | null;
+  chatRootNodeId: string;
+  /** The highest seq issued: a watermark, not a count. */
+  lastSeq: number;
+  lastMessageAt: string | null;
+  createdAt: string;
+  memory: { id: string; urn: string; name: string };
+}

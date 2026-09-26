@@ -3707,3 +3707,71 @@ export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// #942 — Channel management (spec 049 phase 4). An App's Channels, the App's
+// default, and the caller's WRITE standing on the App's shared memory (the
+// host an App-scoped create targets). Channel reads are gated on the host
+// memory: a Channel you may not read is simply not in the page.
+// ---------------------------------------------------------------------------
+
+export const APP_CHANNELS_QUERY = /* GraphQL */ `
+  query AppChannels($ref: ID!, $appRef: ID!) {
+    app(ref: $ref) {
+      id
+      name
+      urn
+      organizationId
+      defaultChannel { id }
+      sharedMemory { id urn name }
+    }
+    channels(filter: { appRef: $appRef }, limit: 200) {
+      total
+      items {
+        id
+        name
+        description
+        kind
+        loc
+        chatRootUrn
+        chatRootNodeId
+        lastSeq
+        lastMessageAt
+        createdAt
+        memory { id urn name }
+      }
+    }
+  }
+`;
+
+/** #942: the host an App-scoped Channel create targets: the App's shared memory. */
+export const APP_SHARED_MEMORY_QUERY = /* GraphQL */ `
+  query AppSharedMemory($ref: ID!) {
+    app(ref: $ref) { id sharedMemory { id } }
+  }
+`;
+
+/** #942: may the caller write this memory? A self-audit, always allowed. */
+export const SELF_CAN_WRITE_QUERY = /* GraphQL */ `
+  query SelfCanWrite($user: ID!, $resource: ID!) {
+    effectiveAccess(user: $user, resource: $resource) { canWrite }
+  }
+`;
+
+export const CREATE_CHANNEL_MUTATION = /* GraphQL */ `
+  mutation CreateChannel($input: CreateChannelInput!) {
+    createChannel(input: $input) { id loc name }
+  }
+`;
+
+export const UPDATE_CHANNEL_MUTATION = /* GraphQL */ `
+  mutation UpdateChannel($ref: ID!, $input: UpdateChannelInput!) {
+    updateChannel(ref: $ref, input: $input) { id name description }
+  }
+`;
+
+export const DELETE_CHANNEL_MUTATION = /* GraphQL */ `
+  mutation DeleteChannel($ref: ID!) {
+    deleteChannel(ref: $ref)
+  }
+`;
