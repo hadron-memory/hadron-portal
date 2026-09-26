@@ -3844,3 +3844,22 @@ export const DELETE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
     deleteRegisterEntry(ref: $ref)
   }
 `;
+
+// #942 slice 4 — an attendee's RESOLVED register (spec 049 phase 6): one
+// winning row per Channel. `canRead` / `canPost` / `disclosure` describe the
+// CALLER's standing (resolveRegister's actor is the request), NOT the
+// attendee's, so the portal must not present them as the attendee's.
+export const ATTENDEE_REGISTER_QUERY = /* GraphQL */ `
+  query AttendeeRegister($workerRef: ID, $agentRef: ID, $appRef: ID) {
+    attendeeRegister(workerRef: $workerRef, agentRef: $agentRef, appRef: $appRef) {
+      namedBy
+      lastSeenSeq
+      canRead
+      canPost
+      disclosure
+      attendeeUrn
+      entry { id ownerType role mentionOnly installDefault }
+      channel { id name loc hostMemoryUrn lastSeq lastMessageAt deleted }
+    }
+  }
+`;

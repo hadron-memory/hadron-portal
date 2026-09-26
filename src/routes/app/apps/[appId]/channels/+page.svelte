@@ -14,6 +14,7 @@
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { Channel, RegisterEntry } from '$lib/types';
+  import type { EffectiveRow } from '$lib/register-view';
   import type { PageData, ActionData } from './$types';
   import {
     CHANNEL_DESCRIPTION_MAX,
@@ -264,6 +265,58 @@
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
 
+  // ── #942 slice 4: what one attendee effectively follows (on demand) ──
+  let effectiveFor = $state('');
+  let effective = $state<{ rows: EffectiveRow[]; loadedAt: string } | null>(null);
+  let effectiveState = $state<'idle' | 'loading' | 'failed'>('idle');
+  // Each request is numbered; only the latest may write the panel, so a slow
+  // answer for the previous pick can't overwrite the current one.
+  let effectiveSeq = 0;
+  async function loadEffective(attendeeId: string) {
+    const seq = ++effectiveSeq;
+    effective = null;
+    if (!attendeeId) {
+      effectiveState = 'idle';
+      return;
+    }
+    const a = data.attendees.find((x) => x.id === attendeeId);
+    if (!a) return;
+    effectiveState = 'loading';
+    try {
+      const res = await fetch(`${basePath}/channels/effective?attendee=${encodeURIComponent(a.id)}&kind=${a.kind}`);
+      const body = await res.json();
+      if (seq !== effectiveSeq) return;
+      if (!res.ok || body.loadFailed) {
+        effectiveState = 'failed';
+        return;
+      }
+      effective = { rows: body.rows, loadedAt: body.loadedAt };
+      effectiveState = 'idle';
+    } catch {
+      if (seq === effectiveSeq) effectiveState = 'failed';
+    }
+  }
+  let effectiveFilter = $state('');
+  const effectiveColumns: PortalColumnDef<EffectiveRow>[] = [
+    { accessorKey: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 180 },
+    { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 150 },
+    { accessorKey: 'counts', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 160 },
+    { accessorKey: 'because', header: t('app.channels.effective.col.because', 'Because of'), size: 260 },
+    { accessorKey: 'readUpTo', header: t('app.channels.effective.col.read', 'Read'), size: 170 },
+    { accessorKey: 'note', header: t('app.channels.effective.col.note', 'Note'), size: 200 },
+  ];
+  const effectiveTable = createSvelteTable<EffectiveRow>({
+    get data() { return effective?.rows ?? []; },
+    columns: effectiveColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: { get globalFilter() { return effectiveFilter; } },
+    onGlobalFilterChange: (u) => { effectiveFilter = typeof u === 'function' ? u(effectiveFilter) : u; },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
+
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 </script>
@@ -495,6 +548,50 @@
           {/snippet}
         </DataTable>
       {/if}
+
+      <!-- #942 slice 4: the EFFECTIVE result for one attendee. Only facts true
+           about the attendee; the resolver's read/post standing is the
+           viewer's, so it is not shown as theirs. -->
+      <div class="border-t border-zinc-200 pt-3 dark:border-zinc-800">
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('app.channels.effective.title', 'What someone actually follows')}</h3>
+        <p class="mt-1 max-w-3xl text-xs text-zinc-500 dark:text-zinc-400">
+          {t('app.channels.effective.explainer', 'One row per channel: the setting that wins for them (their own row beats their agent’s, which beats everyone’s; this App’s beats the organization’s), and how far they have read.')}
+        </p>
+        <label class="mt-2 block max-w-sm text-xs text-zinc-600 dark:text-zinc-400">
+          {t('app.channels.effective.pick', 'Show for')}
+          <select bind:value={effectiveFor} onchange={() => loadEffective(effectiveFor)} class="mt-1 {inputClass}">
+            <option value="">{t('app.channels.effective.pick.none', 'Pick a worker or agent…')}</option>
+            {#each data.attendees as a (a.id)}
+              <option value={a.id}>{a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name })}</option>
+            {/each}
+          </select>
+        </label>
+        {#if effectiveState === 'loading'}
+          <p class="mt-2 text-xs text-zinc-500" role="status">{t('app.channels.effective.loading', 'Loading…')}</p>
+        {:else if effectiveState === 'failed'}
+          <p class="mt-2 text-sm text-amber-700 dark:text-amber-300" role="alert">{t('app.channels.effective.failed', 'Couldn’t load that just now. This is an error, not an empty list. Try again.')}</p>
+        {:else if effective}
+          {#if effective.rows.length === 0}
+            <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t('app.channels.effective.empty', 'They don’t take part in any channel you can see.')}</p>
+          {:else}
+            <p class="mt-2 text-[11px] text-zinc-400">{t('app.channels.effective.as-of', 'As of {time}.', { time: new Date(effective.loadedAt).toLocaleTimeString() })}</p>
+            <div class="mt-1">
+              <DataTable
+                table={effectiveTable}
+                listKey="app:register-effective"
+                searchPlaceholder={t('app.channels.register.search', 'Search…')}
+                searchAriaLabel={t('app.channels.register.search', 'Search…')}
+                bind:globalFilter={effectiveFilter}
+                maxHeight="max(160px, calc(100vh - 34rem))"
+              >
+                {#snippet cell(cell)}
+                  <div class="truncate">{cell.getValue()}</div>
+                {/snippet}
+              </DataTable>
+            </div>
+          {/if}
+        {/if}
+      </div>
 
       {#if canManageRegister && data.channels.length > 0}
         <div class="border-t border-zinc-200 pt-3 dark:border-zinc-800">
