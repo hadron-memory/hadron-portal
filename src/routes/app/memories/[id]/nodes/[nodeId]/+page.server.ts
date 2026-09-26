@@ -14,6 +14,7 @@ import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NOD
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import { roleUpdate } from '$lib/node-role';
 import { nodeMetaSeed } from '$lib/node-meta-seed';
+import { parseExpectedRevision } from '$lib/node-revision';
 import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
@@ -416,6 +417,79 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   };
 };
 
+/**
+ * #927 — the inline Content and Abstract saves.
+ *
+ * The editor posts the `Node.revision` it opened on, and the write sends it as
+ * `expectedRevision` (hadron-server#937): the server refuses atomically, with
+ * NODE_WRITE_CONFLICT, when anything wrote the node since. Before this the
+ * whole editor buffer went out unconditioned, and a stale one silently replaced
+ * newer content (seen in production, a user editing alongside an agent).
+ *
+ * A save without a revision is refused rather than sent unguarded: an action
+ * that cannot tell whether it overwrites someone does not guess (the same rule
+ * as the Data and Properties `baseline`).
+ *
+ * Failures are CODES under `<field>Failed`, which the page localizes; the old
+ * version returned prose the page never showed.
+ */
+async function saveNodeText(
+  field: 'content' | 'abstract',
+  value: string,
+  rawRevision: FormDataEntryValue | null,
+  nodeRef: string,
+  token: string | null | undefined,
+) {
+  const failed = `${field}Failed` as const;
+  const expectedRevision = parseExpectedRevision(rawRevision);
+  if (expectedRevision === null) return fail(400, { [failed]: { code: 'no-baseline', detail: null } });
+
+  const client = gqlClient(token);
+  let node: MemoryNode | null;
+  try {
+    ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: nodeRef }));
+  } catch (e: unknown) {
+    return fail(500, { [failed]: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node') } });
+  }
+  if (!node) return fail(404, { [failed]: { code: 'not-found', detail: null } });
+
+  // #868: this edit touches neither governance signal, so the resulting kind
+  // is the node's CURRENT one — which is why the fetched node, not the input,
+  // decides the door.
+  const input = {
+    // #237: memoryId from the node, not the URL. Selects the target together
+    // with loc; omitted fields (name, description, …) are preserved.
+    memoryId: node.memoryId,
+    loc: node.loc,
+    expectedRevision,
+    // #235 history: the old upsertNode resolver cleared omitted tags
+    // (`input.tags ?? []`). updateNode preserves omitted tags, so this explicit
+    // pass-through is no longer load-bearing — but it is still correct (it
+    // round-trips the user's tags verbatim), so it stays. The `?? []` guards a
+    // null-tags schema-shape regression at runtime. It is read here, after the
+    // editor opened, but the revision check covers it: if the tags changed
+    // since, so did the revision, and the write is refused.
+    tags: node.tags ?? [],
+    [field]: value,
+  };
+  try {
+    await client.request(nodeUpdateDocument(node, input), { input });
+  } catch (e: unknown) {
+    if (e instanceof NoNodeDoorError) return fail(409, { [failed]: { code: 'no-door', detail: e.message } });
+    // The server's words are kept: NODE_WRITE_CONFLICT is not only a revision
+    // mismatch (a concurrent move answers with it too), so the page words the
+    // conflict generically unless the reload shows THIS field moved.
+    if (extractGqlErrorCode(e) === 'NODE_WRITE_CONFLICT') {
+      return fail(409, { [failed]: { code: 'changed', detail: extractGqlError(e, '') || null } });
+    }
+    const detail = extractGqlError(e, 'Save failed');
+    if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
+    return fail(500, { [failed]: { code: 'failed', detail } });
+  }
+  return { [`${field}Saved`]: true };
+}
+
+
 export const actions: Actions = {
   // #237 review follow-up: every mutating action below derives `memoryId`
   // from the node fetched by PK rather than from `params.gid`. The load
@@ -629,37 +703,11 @@ export const actions: Actions = {
     }
   },
 
+  // #927: both inline text editors save through `saveNodeText`, which carries
+  // the revision the editor opened on. See there.
   updateContent: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const content = String(fd.get('content') ?? '');
-
-    const client = gqlClient(locals.token);
-    try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
-      if (!node) return fail(404, { error: 'Node not found' });
-
-      // #868: this edit touches neither governance signal, so the resulting
-      // kind is the node's CURRENT one — which is why the fetched node, not the
-      // input, decides the door.
-      const input = {
-        // #237: memoryId from the node, not the URL. Selects the target
-        // together with loc; omitted fields (name, description, …) are
-        // preserved by updateNode.
-        memoryId: node.memoryId,
-        loc: node.loc,
-        // #235 history: the old upsertNode resolver cleared omitted tags
-        // (`input.tags ?? []`). updateNode preserves omitted tags, so
-        // this explicit pass-through is no longer load-bearing — but it
-        // is still correct (it round-trips the user's tags verbatim), so
-        // it stays. The `?? []` guards a null-tags schema-shape
-        // regression at runtime.
-        tags: node.tags ?? [],
-        content,
-      };
-      await client.request(nodeUpdateDocument(node, input), { input });
-    } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
-    }
+    return saveNodeText('content', String(fd.get('content') ?? ''), fd.get('expectedRevision'), params.nodeId, locals.token);
   },
 
   updateAbstract: async ({ request, params, locals }) => {
@@ -668,28 +716,7 @@ export const actions: Actions = {
     // null (spec 031) and recomputes abstractOriginHash from current
     // content (spec 032). Length cap (2000) is enforced server-side too,
     // with a client-side maxlength as the first line of defense.
-    const abstract = String(fd.get('abstract') ?? '');
-
-    const client = gqlClient(locals.token);
-    try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
-      if (!node) return fail(404, { error: 'Node not found' });
-
-      // #868: neither governance signal is touched — the door follows the
-      // node's current kind. See updateContent.
-      const input = {
-        // #237: memoryId from the node, not the URL.
-        memoryId: node.memoryId,
-        loc: node.loc,
-        // #235: explicit tags pass-through — no longer load-bearing
-        // under updateNode, kept deliberately. See updateContent.
-        tags: node.tags ?? [],
-        abstract,
-      };
-      await client.request(nodeUpdateDocument(node, input), { input });
-    } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
-    }
+    return saveNodeText('abstract', String(fd.get('abstract') ?? ''), fd.get('expectedRevision'), params.nodeId, locals.token);
   },
 
   /**

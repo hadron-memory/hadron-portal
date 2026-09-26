@@ -102,8 +102,9 @@ async function run(action: string, form: Record<string, string> = {}) {
 
 /** The form payload each action needs to get past its own validation. */
 const ACTIONS: Array<[string, Record<string, string>]> = [
-  ['updateContent', { content: '# body' }],
-  ['updateAbstract', { abstract: 'a summary' }],
+  // #927: both refuse a save without the revision the editor opened on.
+  ['updateContent', { content: '# body', expectedRevision: '3' }],
+  ['updateAbstract', { abstract: 'a summary', expectedRevision: '3' }],
   // #894: updateData refuses a save without the fingerprint of the value it
   // was opened on — the stub node's `data` is {}.
   ['updateData', { data: '{"k":1}', baseline: await jsonFingerprint({}) }],

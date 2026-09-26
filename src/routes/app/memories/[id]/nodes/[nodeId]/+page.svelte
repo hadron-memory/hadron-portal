@@ -2,6 +2,7 @@
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
+  import { submitTextDraft, syncTextDraftWith, TextDraft } from '$lib/text-draft.svelte';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -114,28 +115,147 @@
   let copied = $state(false);
   let isEditing = $state(false);
 
-  // Inline editing
-  let editContent = $state('');
-  let saving = $state(false);
-
+  // Inline editing. #927: each text editor is a draft based on the revision it
+  // opened on, and its save is refused when the node changed since. The drafts
+  // outlive a reload (another tab's save calls invalidateAll()), so an unsaved
+  // edit is never silently replaced — see text-draft.svelte.ts.
+  const contentDraft = new TextDraft();
+  syncTextDraftWith(contentDraft, () => ({ id: node.id, value: node.content, revision: node.revision }));
   $effect(() => {
-    editContent = node.content ?? '';
+    if (showSource) untrack(() => contentDraft.ensureSeeded());
   });
+  let saving = $state(false);
+  let contentSaveError = $state<string | null>(null);
+  // A save refused as a conflict: the draft stays, with ways out (#927).
+  let contentConflict = $state(false);
+  let contentSaveSeq = 0;
+
+  /**
+   * The words for a refused Content or Abstract save. `changed` is the #927
+   * conflict, split by whether THIS field is what changed: a conflict over
+   * another field (tags, data, the other text) reloads to a draft that can
+   * simply be saved again.
+   */
+  function textSaveErrorText(code: string, detail: string | null, fieldChanged: boolean): string {
+    switch (code) {
+      case 'changed':
+        // Only the reload can say THIS text moved; the conflict itself is not
+        // necessarily a revision mismatch (a concurrent move answers the same).
+        return fieldChanged
+          ? t(
+              'node.text.save.changed',
+              'This text changed since you opened the editor, so your edit was not saved. It is still here: copy it, then load the newer version and apply your edit again.',
+            )
+          : t(
+              'node.text.save.conflict',
+              'Your edit was not saved: the server reported a conflicting change{detail}. This text is unchanged and your edit is still here, so you can save again.',
+              { detail: detail ? ` (${detail})` : '' },
+            );
+      case 'no-baseline':
+        return t('node.text.save.no-baseline', 'This editor lost track of the version it opened. Copy your edit and reload the page.');
+      case 'not-found':
+        // Missing and unreadable answer the same (hrn:node:hadronmemory.com:specs:cor:api:140:03).
+        return t('node.text.save.not-found', 'This node isn’t available to you any more. It may have been deleted, or your access changed.');
+      default:
+        return detail ?? t('node.text.save.failed', 'Your edit could not be saved.');
+    }
+  }
+
+  /**
+   * Reload after a COMMITTED save. Kept apart from the save itself: a failed
+   * reload must not be reported as a failed save (@codex on #931).
+   */
+  async function refreshAfterSave(): Promise<boolean> {
+    try {
+      await invalidateAll();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function savedNotRefreshedText(): string {
+    return t(
+      'node.text.save.saved-not-refreshed',
+      'Your edit was saved, but the page could not reload. Reload the page before editing again.',
+    );
+  }
 
   async function saveContent() {
+    if (saving || !contentDraft.dirty) return;
+    // Captured before the first await, as saveProperties does: the node, its
+    // ABSOLUTE action URL, the text and the revision it is based on.
+    const originId = node.id;
+    const seq = ++contentSaveSeq;
+    const url = `${basePath}/nodes/${originId}?/updateContent`;
+    const text = contentDraft.text;
+    const expectedRevision = contentDraft.baseRevision;
+    const stillOurs = () => seq === contentSaveSeq && node.id === originId;
+
     saving = true;
+    contentSaveError = null;
+    contentConflict = false;
     try {
-      const fd = new FormData();
-      fd.set('content', editContent);
-      const res = await fetch('?/updateContent', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error('Save failed');
-      await invalidateAll();
-      showSource = false;
-    } catch (err) {
-      console.error('Save failed:', err);
+      const result = await submitTextDraft({ url, field: 'content', text, expectedRevision });
+      if (!stillOurs()) return;
+      if (result.ok) {
+        if (!(await refreshAfterSave())) {
+          // Committed, but the reload failed (@codex on #931): say so, and
+          // keep the saved text with NO base revision, so a further save is
+          // refused as "reload first" rather than conflicting with itself.
+          if (!stillOurs()) return;
+          contentDraft.reseed({ id: node.id, value: text, revision: null });
+          contentDraft.ensureSeeded();
+          contentSaveError = savedNotRefreshedText();
+          return;
+        }
+        if (!stillOurs()) return;
+        contentDraft.reseed({ id: node.id, value: node.content, revision: node.revision });
+        showSource = false;
+      } else if (result.code === 'changed') {
+        // Load the newer version under the kept draft: Rendered now shows it,
+        // and the draft learns whether it was THIS field that moved.
+        await invalidateAll();
+        if (!stillOurs()) return;
+        const fieldChanged = contentDraft.isBehind(node.content);
+        contentConflict = fieldChanged;
+        contentSaveError = textSaveErrorText('changed', result.detail, fieldChanged);
+      } else {
+        contentSaveError = textSaveErrorText(result.code, result.detail, true);
+      }
+    } catch {
+      if (stillOurs()) contentSaveError = textSaveErrorText('failed', null, true);
     } finally {
-      saving = false;
+      if (seq === contentSaveSeq) saving = false;
     }
+  }
+
+  let copiedDraft = $state<'content' | 'abstract' | null>(null);
+  // A failed copy is SAID, unlike the other copy buttons' silent no-op: the
+  // next click here is likely "Discard", and it must not follow a copy that
+  // never happened (@copilot on #931).
+  let copyDraftFailed = $state<'content' | 'abstract' | null>(null);
+  async function copyDraft(which: 'content' | 'abstract') {
+    copyDraftFailed = null;
+    try {
+      await navigator.clipboard.writeText(which === 'content' ? contentDraft.text : abstractDraft.text);
+    } catch {
+      copyDraftFailed = which;
+      return;
+    }
+    copiedDraft = which;
+    setTimeout(() => {
+      if (copiedDraft === which) copiedDraft = null;
+    }, 2000);
+  }
+
+  /** The one way a conflicted draft is thrown away: the user asks for it. */
+  function discardContentDraft() {
+    contentDraft.reseed({ id: node.id, value: node.content, revision: node.revision });
+    contentDraft.ensureSeeded();
+    contentConflict = false;
+    contentSaveError = null;
+    copyDraftFailed = null;
   }
 
   // Abstract — paragraph-length summary; a vector-index source only where the
@@ -153,27 +273,68 @@
   // #936: what the abstract does for THIS memory's search, if anything.
   const abstractHint = $derived(abstractSearchHint(data.graph));
   let copiedAbstract = $state(false);
-  let editAbstract = $state('');
-  let savingAbstract = $state(false);
-
+  const abstractDraft = new TextDraft();
+  syncTextDraftWith(abstractDraft, () => ({ id: node.id, value: node.abstract, revision: node.revision }));
   $effect(() => {
-    editAbstract = node.abstract ?? '';
+    if (showAbstractSource) untrack(() => abstractDraft.ensureSeeded());
   });
+  let savingAbstract = $state(false);
+  let abstractSaveError = $state<string | null>(null);
+  let abstractConflict = $state(false);
+  let abstractSaveSeq = 0;
 
+  // The same save as saveContent, for the abstract (#927).
   async function saveAbstract() {
+    if (savingAbstract || !abstractDraft.dirty) return;
+    const originId = node.id;
+    const seq = ++abstractSaveSeq;
+    const url = `${basePath}/nodes/${originId}?/updateAbstract`;
+    const text = abstractDraft.text;
+    const expectedRevision = abstractDraft.baseRevision;
+    const stillOurs = () => seq === abstractSaveSeq && node.id === originId;
+
     savingAbstract = true;
+    abstractSaveError = null;
+    abstractConflict = false;
     try {
-      const fd = new FormData();
-      fd.set('abstract', editAbstract);
-      const res = await fetch('?/updateAbstract', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error('Save failed');
-      await invalidateAll();
-      showAbstractSource = false;
-    } catch (err) {
-      console.error('Save failed:', err);
+      const result = await submitTextDraft({ url, field: 'abstract', text, expectedRevision });
+      if (!stillOurs()) return;
+      if (result.ok) {
+        if (!(await refreshAfterSave())) {
+          // Committed, but the reload failed (@codex on #931): say so, and
+          // keep the saved text with NO base revision, so a further save is
+          // refused as "reload first" rather than conflicting with itself.
+          if (!stillOurs()) return;
+          abstractDraft.reseed({ id: node.id, value: text, revision: null });
+          abstractDraft.ensureSeeded();
+          abstractSaveError = savedNotRefreshedText();
+          return;
+        }
+        if (!stillOurs()) return;
+        abstractDraft.reseed({ id: node.id, value: node.abstract, revision: node.revision });
+        showAbstractSource = false;
+      } else if (result.code === 'changed') {
+        await invalidateAll();
+        if (!stillOurs()) return;
+        const fieldChanged = abstractDraft.isBehind(node.abstract);
+        abstractConflict = fieldChanged;
+        abstractSaveError = textSaveErrorText('changed', result.detail, fieldChanged);
+      } else {
+        abstractSaveError = textSaveErrorText(result.code, result.detail, true);
+      }
+    } catch {
+      if (stillOurs()) abstractSaveError = textSaveErrorText('failed', null, true);
     } finally {
-      savingAbstract = false;
+      if (seq === abstractSaveSeq) savingAbstract = false;
     }
+  }
+
+  function discardAbstractDraft() {
+    abstractDraft.reseed({ id: node.id, value: node.abstract, revision: node.revision });
+    abstractDraft.ensureSeeded();
+    abstractConflict = false;
+    abstractSaveError = null;
+    copyDraftFailed = null;
   }
 
   // Markdown rendering
@@ -1613,6 +1774,17 @@
       activeTab = defaultTab();
       showSource = false;
       showAbstractSource = false;
+      // #927: a Content/Abstract save in flight for the previous node no
+      // longer owns these editors. The drafts re-seed themselves on a new node.
+      contentSaveSeq++;
+      saving = false;
+      contentSaveError = null;
+      contentConflict = false;
+      abstractSaveSeq++;
+      savingAbstract = false;
+      abstractSaveError = null;
+      abstractConflict = false;
+      copyDraftFailed = null;
       showDataSource = false;
       dataSaveError = null;
       // #894: a Data save in flight for the previous node no longer owns this
@@ -2256,15 +2428,34 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
-            bind:value={editContent}
+            bind:value={contentDraft.text}
           ></textarea>
-          <div bind:this={contentSaveRow} class="mt-2 flex justify-end">
+          <div bind:this={contentSaveRow} class="mt-2 flex flex-wrap items-center justify-end gap-2">
+            {#if contentConflict}
+              <!-- #927: a refused save keeps the draft; these are the ways out. -->
+              <button
+                type="button"
+                onclick={() => copyDraft('content')}
+                class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >{copiedDraft === 'content' ? t('node.text.conflict.copied', 'Copied') : t('node.text.conflict.copy', 'Copy my edit')}</button>
+              <button
+                type="button"
+                onclick={discardContentDraft}
+                class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >{t('node.text.conflict.load-newer', 'Discard my edit and load the newer version')}</button>
+            {/if}
             <button
               onclick={saveContent}
-              disabled={saving || editContent === (node.content ?? '')}
+              disabled={saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{saving ? 'Saving...' : 'Save'}</button>
           </div>
+          {#if contentSaveError}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{contentSaveError}</p>
+          {/if}
+          {#if copyDraftFailed === 'content'}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{t('node.text.conflict.copy-failed', "Couldn't copy to the clipboard. Select the text in the editor and copy it yourself before discarding.")}</p>
+          {/if}
         </div>
       {:else if hasContent}
         {#if contentFrontmatter}
@@ -2318,20 +2509,40 @@
             maxlength={ABSTRACT_MAX}
             placeholder={abstractPlaceholder()}
             aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
-            bind:value={editAbstract}
+            bind:value={abstractDraft.text}
           ></textarea>
-          <div bind:this={abstractSaveRow} class="mt-2 flex items-center justify-between">
-            <span class="text-xs {editAbstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-400'}">{editAbstract.length} / {ABSTRACT_MAX}</span>
-            <button
-              onclick={saveAbstract}
-              disabled={savingAbstract || editAbstract === (node.abstract ?? '')}
-              class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >{savingAbstract ? 'Saving...' : 'Save'}</button>
+          <div bind:this={abstractSaveRow} class="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <span class="text-xs {abstractDraft.text.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-400'}">{abstractDraft.text.length} / {ABSTRACT_MAX}</span>
+            <div class="flex flex-wrap items-center gap-2">
+              {#if abstractConflict}
+                <button
+                  type="button"
+                  onclick={() => copyDraft('abstract')}
+                  class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >{copiedDraft === 'abstract' ? t('node.text.conflict.copied', 'Copied') : t('node.text.conflict.copy', 'Copy my edit')}</button>
+                <button
+                  type="button"
+                  onclick={discardAbstractDraft}
+                  class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                >{t('node.text.conflict.load-newer', 'Discard my edit and load the newer version')}</button>
+              {/if}
+              <button
+                onclick={saveAbstract}
+                disabled={savingAbstract || !abstractDraft.dirty}
+                class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              >{savingAbstract ? 'Saving...' : 'Save'}</button>
+            </div>
           </div>
           <!-- #936: derived from THIS memory's vector config; no claim when
                search doesn't use the abstract, or when there is no index. -->
           {#if abstractHint}
             <p id="node-abstract-search-hint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{abstractHint}</p>
+          {/if}
+          {#if abstractSaveError}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{abstractSaveError}</p>
+          {/if}
+          {#if copyDraftFailed === 'abstract'}
+            <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{t('node.text.conflict.copy-failed', "Couldn't copy to the clipboard. Select the text in the editor and copy it yourself before discarding.")}</p>
           {/if}
         </div>
       {:else if hasAbstract}

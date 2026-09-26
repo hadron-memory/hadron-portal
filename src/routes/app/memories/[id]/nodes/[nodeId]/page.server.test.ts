@@ -473,7 +473,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateContent(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-1',
-      form: { content: 'new content' },
+      form: { content: 'new content', expectedRevision: '3' },
     }));
 
     // Second call is the UPDATE_NODE_MUTATION. Its input must carry the
@@ -506,7 +506,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateContent(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-null',
-      form: { content: 'x' },
+      form: { content: 'x', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
@@ -534,7 +534,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateContent(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-2',
-      form: { content: 'x' },
+      form: { content: 'x', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
@@ -895,7 +895,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     await actions.updateContent(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk',
-      form: { content: 'new' },
+      form: { content: 'new', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string } }];
@@ -1110,7 +1110,7 @@ describe('node-detail action — updateAbstract (#257)', () => {
     await actions.updateAbstract(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk',
-      form: { abstract: 'new summary' },
+      form: { abstract: 'new summary', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [
@@ -1142,7 +1142,7 @@ describe('node-detail action — updateAbstract (#257)', () => {
     await actions.updateAbstract(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk',
-      form: { abstract: '' },
+      form: { abstract: '', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { abstract: unknown } }];

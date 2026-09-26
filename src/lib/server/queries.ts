@@ -2763,6 +2763,9 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
       properties
+      # #927 (server #1323/#937): the live revision an inline editor opens on
+      # and saves against as expectedRevision. Detail-only, like properties.
+      revision
       # portal#696 / server#888: the asset a reference node points at (its
       # data.asset), written either by createAssetReferenceNode or by
       # hadron_store_file. NULL for every ordinary node, and ALSO null when the
