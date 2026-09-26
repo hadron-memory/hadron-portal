@@ -1,4 +1,4 @@
-# Exported from hadron-server c951571f963dcd343e30cbefda6e4874efe75d71 (origin/main, 2026-09-25T09:48:02-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server a379aedd33b473f51d96e525ef3c2372280a7c39 (a379aed, 2026-09-26T13:22:24-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -340,6 +340,19 @@ type AgentsPage {
   total: Int!
 }
 
+"""#1373: the wire protocol of an OpenAI-compatible provider."""
+enum AiApiStyle {
+  """
+  POST {endpoint}/chat/completions — what most OpenAI-compatible hosts serve (the glm default).
+  """
+  CHAT_COMPLETIONS
+
+  """
+  POST {endpoint}/responses — OpenAI's Responses API (the openai default).
+  """
+  RESPONSES
+}
+
 """
 036-ai-service-config: which entity owns an AiServiceConfig. Exactly one
 owner per config (DB-enforced).
@@ -349,6 +362,24 @@ enum AiConfigOwnerType {
   APP
   HADRON_SERVER
   ORGANIZATION
+}
+
+"""#1378: which key a test used; NONE when there was none to use."""
+enum AiConfigTestKeySource {
+  NONE
+  OVERRIDE
+
+  """
+  A HADRON_SERVER config with no stored key: the server's own credential for that provider served the call, as it serves a run (#1385).
+  """
+  PLATFORM
+  SAVED
+}
+
+"""#1378: where a tested value came from."""
+enum AiConfigTestValueSource {
+  OVERRIDE
+  SAVED
 }
 
 """
@@ -381,6 +412,19 @@ type AiModelPriceList {
 }
 
 """
+#1373: one known endpoint for a provider, from the server's single suggestion list.
+"""
+type AiProviderEndpoint {
+  """The endpoint a config with no endpoint uses."""
+  isDefault: Boolean!
+  label: String!
+
+  """What the URL does not say: billing, terms."""
+  note: String
+  url: String!
+}
+
+"""
 036-ai-service-config: a named AI service configuration (masked
 management view — never carries key material beyond the preview).
 Owned by exactly one of HadronServer / Organization / App / Agent.
@@ -392,12 +436,35 @@ Name is unique per owner.
 type AiServiceConfig {
   """Ellipsis + last 4 characters of the stored key; null when no key."""
   apiKeyPreview: String
+
+  """
+  #1373: the wire protocol as stored; null = the provider default. OpenAI-compatible providers only.
+  """
+  apiStyle: AiApiStyle
   createdAt: DateTime!
+
+  """
+  #1373: the wire protocol a request actually uses (apiStyle, else the provider default); null for single-protocol providers.
+  """
+  effectiveApiStyle: AiApiStyle
+
+  """
+  #1373: where a request for this config actually goes: endpoint, else the
+  provider default. Null only for bedrock, whose endpoint is derived from
+  its region.
+  """
+  effectiveEndpoint: String
 
   """
   Disabled configs are skipped by resolution (the walk continues outward).
   """
   enabled: Boolean!
+
+  """
+  #1373: the base URL this config's requests are sent to, as stored. Null =
+  the provider's default (see effectiveEndpoint and aiProviderEndpoints).
+  """
+  endpoint: String
   hasApiKey: Boolean!
   id: ID!
 
@@ -429,6 +496,69 @@ input AiServiceConfigFilter {
   """The owning entity — accepts ID or URN (HADRON_SERVER: ID only)."""
   ownerId: ID!
   ownerType: AiConfigOwnerType!
+}
+
+type AiServiceConfigTestError {
+  """
+  NO_API_KEY | KEY_UNREADABLE (the stored key cannot be decrypted here; re-enter it) | QUOTA_EXCEEDED (a platform-funded test with the org's daily token allowance used up; no call made) | LLM_CALL_FAILED (the provider call failed or timed out; see transient)
+  """
+  code: String!
+
+  """Provider error text, scrubbed of the key and truncated."""
+  message: String!
+  transient: Boolean!
+}
+
+"""
+#1378: values to test INSTEAD of the saved ones — e.g. an edited form before
+it is saved. Never stored. Each is validated exactly as a write would be.
+"""
+input AiServiceConfigTestOverride {
+  """
+  A key to test with instead of the stored one. Never stored, never echoed.
+  """
+  apiKey: String
+
+  """Omitted = the saved style; null = the provider default."""
+  apiStyle: AiApiStyle
+
+  """Omitted = the saved endpoint; null or empty = the provider default."""
+  endpoint: String
+  model: String
+  provider: String
+}
+
+"""
+#1378: one test call, made through the same client and endpoint a run uses.
+"""
+type AiServiceConfigTestResult {
+  """The wire protocol the request actually used."""
+  apiStyle: AiApiStyle
+
+  """
+  The endpoint the request actually went to: the explicit endpoint, else the host the SDK chose (OPENAI_BASE_URL / ANTHROPIC_BASE_URL when the server sets one, Bedrock's regional host), else the catalog default. Null when it can't be known (Bedrock with no region).
+  """
+  endpoint: String
+  error: AiServiceConfigTestError
+  latencyMs: Int!
+  model: String!
+  ok: Boolean!
+  provider: String!
+
+  """The model's reply, truncated."""
+  reply: String
+  used: AiServiceConfigTestUsed!
+}
+
+"""
+#1378: per field, whether the test used the saved value or the override.
+"""
+type AiServiceConfigTestUsed {
+  apiStyle: AiConfigTestValueSource!
+  endpoint: AiConfigTestValueSource!
+  key: AiConfigTestKeySource!
+  model: AiConfigTestValueSource!
+  provider: AiConfigTestValueSource!
 }
 
 type AiServiceConfigsPage {
@@ -1360,6 +1490,11 @@ type ConnectionGrantsPage {
   total: Int!
 }
 
+enum ContentValidator {
+  AGENT
+  PLATFORM
+}
+
 input CreateAgentScheduleInput {
   """Agent — ref: PK or URN; must be installed in the App."""
   agentRef: String
@@ -1564,6 +1699,28 @@ input CreateNodeInput {
   role: String
   seq: Int
   tags: [String!]
+}
+
+"""
+#1325 — a new rule. Task and description references are node IDs or URNs you
+can read; a node you cannot read is refused exactly like a missing one
+(NODE_NOT_FOUND), and a task reference must be a runnable task (NOT_A_TASK).
+"""
+input CreateNodeRoleRuleInput {
+  authorTaskRef: ID
+  descriptionNodeRef: ID
+  enabled: Boolean
+
+  """
+  Lower-case letter/digit/dash segments joined by dots, 1-64 characters (INVALID_NODE_ROLE).
+  """
+  role: String!
+  strictSubRoles: Boolean
+
+  """Needs a validation task."""
+  validateBy: ContentValidator
+  validationTaskRef: ID
+  writers: NodeRoleWriters
 }
 
 input CreateRegisterEntryInput {
@@ -2563,6 +2720,14 @@ type Memory {
   #1232, long after `group` (023) and `private` made it six.
   """
   class: MemoryClass!
+
+  """
+  #1325 — this memory's config: its node-role rules. Null for anyone who does
+  not MANAGE the memory (the strict owner of a personal/private memory; else
+  its user owner or an org ADMIN/OWNER), however the Memory was reached. A
+  memory with no rules yet reads as the empty config (id null, no rules).
+  """
+  config: MemoryConfig
   createdAt: DateTime!
 
   """
@@ -2717,6 +2882,37 @@ enum MemoryClass {
   """
   private
   system
+}
+
+"""
+#1325 — a memory's config: exactly one per memory, holding its node-role
+rules (one per role or declared sub-role). Read and changed only by the
+memory's managers. Materialized by the first rule write; before that it reads
+as empty, with a null id.
+"""
+type MemoryConfig {
+  createdAt: DateTime
+  createdBy: ID
+
+  """Null until the first rule is written."""
+  id: ID
+  memoryId: ID!
+
+  """Role-ascending."""
+  rules: [NodeRoleRule!]!
+  updatedAt: DateTime
+  updatedBy: ID
+}
+
+"""
+#1325 — a non-fatal finding about a saved rule. Never changes the mutation's success.
+"""
+type MemoryConfigWarning {
+  code: String!
+  field: String
+  role: String!
+  taskState: NodeRoleRuleRefState
+  taskUrn: String
 }
 
 """
@@ -3335,7 +3531,26 @@ type Mutation {
   Auth: as aiServiceConfigs. ownerId accepts ID or URN
   (HADRON_SERVER: ID only).
   """
-  createAiServiceConfig(apiKey: String, enabled: Boolean, model: String!, name: String!, ownerId: ID!, ownerType: AiConfigOwnerType!, params: JSON, provider: String!): AiServiceConfig!
+  createAiServiceConfig(
+    apiKey: String
+
+    """
+    #1373: OpenAI-compatible providers only; omit for the provider default.
+    """
+    apiStyle: AiApiStyle
+    enabled: Boolean
+
+    """
+    #1373: base URL; https only, no query/fragment/credentials. Omit for the provider default.
+    """
+    endpoint: String
+    model: String!
+    name: String!
+    ownerId: ID!
+    ownerType: AiConfigOwnerType!
+    params: JSON
+    provider: String!
+  ): AiServiceConfig!
 
   """
   Create an App and install its initial Agent. With orgRef, the App is owned
@@ -3645,6 +3860,13 @@ type Mutation {
   createNode(input: CreateNodeInput!): Node!
 
   """
+  #1325 — add a rule to a memory's config (creating the config on first use).
+  Managers only; anyone else gets MEMORY_NOT_FOUND. A role that already has a
+  rule is refused NODE_ROLE_RULE_EXISTS.
+  """
+  createNodeRoleRule(input: CreateNodeRoleRuleInput!, memoryRef: ID!): NodeRoleRulePayload!
+
+  """
   #745 — Object store: the legible sugar surface over structured storage.
   An object IS a node; these ops are thin projections onto createNode /
   updateNodeProperties / deleteNode, inheriting all their invariants
@@ -3683,7 +3905,7 @@ type Mutation {
 
   """
   #1201 — the CREATE door for the review kind. A write that would produce a
-  node with role: 'review' must come through here; the generic createNode
+  node with role: 'review' or a dotted 'review.*' sub-role must come through here; the generic createNode
   refuses it.
   
   PURE ROUTING: it validates nothing and knows nothing beyond which kind it is
@@ -3739,7 +3961,7 @@ type Mutation {
 
   """
   #1201 — the CREATE door for the spec kind. A write that would produce a
-  node with role: 'spec' must come through here; the generic createNode
+  node with role: 'spec' or a dotted 'spec.*' sub-role must come through here; the generic createNode
   refuses it.
   
   PURE ROUTING: it validates nothing and knows nothing beyond which kind it is
@@ -4011,6 +4233,11 @@ type Mutation {
   write access (as restoreNodeRevision). Throws NOT_FOUND for an unknown id.
   """
   deleteNodeRevision(revisionId: ID!): Boolean!
+
+  """
+  #1325 — delete a rule by its id; expectedRevision as for updateNodeRoleRule.
+  """
+  deleteNodeRoleRule(expectedRevision: Int, ref: ID!): Boolean!
 
   """
   Delete an object (soft by default; 'hard: true' removes the row). 'ref' is
@@ -4919,6 +5146,17 @@ type Mutation {
   Accepts the entity's ID or URN.
   """
   syncMemory(id: ID!): Memory!
+
+  """
+  #1378: test a SAVED config by id with one small real call, through the same
+  client, endpoint and egress guard a run uses; the stored key never leaves
+  the server. The override argument tests edited values without saving them. Auth: as
+  updateAiServiceConfig; refused under impersonation. Every test that
+  reaches the provider is metered (usage type ai-config-test); NO_API_KEY
+  and KEY_UNREADABLE make no call and record nothing. The call is bounded
+  by a 20s timeout. Rate-limited per caller and config (RATE_LIMITED).
+  """
+  testAiServiceConfig(id: ID!, override: AiServiceConfigTestOverride): AiServiceConfigTestResult!
   testExchangeConnection(id: ID!): Boolean!
 
   """
@@ -4984,7 +5222,23 @@ type Mutation {
   
   Auth: admin rights on the owning entity (as aiServiceConfigs).
   """
-  updateAiServiceConfig(apiKey: String, enabled: Boolean, id: ID!, model: String, name: String, params: JSON, provider: String): AiServiceConfig!
+  updateAiServiceConfig(
+    apiKey: String
+
+    """#1373: omitted = unchanged; null = clear (provider default)."""
+    apiStyle: AiApiStyle
+    enabled: Boolean
+
+    """
+    #1373: omitted = unchanged; null or empty string = clear (provider default).
+    """
+    endpoint: String
+    id: ID!
+    model: String
+    name: String
+    params: JSON
+    provider: String
+  ): AiServiceConfig!
 
   """
   Update an App.
@@ -5178,6 +5432,14 @@ type Mutation {
   unreadable memory answers the same NOT_FOUND as an unknown id.
   """
   updateNodeRevision(revLabel: String, revisionId: ID!): NodeRevision!
+
+  """
+  #1325 — change a rule by its id. With expectedRevision, a rule changed since
+  you read it is refused CONFLICT (extensions.currentRevision) and nothing is
+  written; omitted, the last writer wins. A rule you may not manage reads as
+  NOT_FOUND.
+  """
+  updateNodeRoleRule(expectedRevision: Int, input: UpdateNodeRoleRuleInput!, ref: ID!): NodeRoleRulePayload!
 
   """
   Merge fields into an existing object (server-side atomic shallow merge +
@@ -5488,7 +5750,8 @@ type Node {
   property schema when it has one. NULL for an ordinary node.
   
   NOT 'nodeType' (the platform-kind axis, which drives retrieval) and NOT
-  'role' (what the node is for, which has no retrieval impact).
+  'role' (what the node is for; role can be filtered explicitly but does not
+  change default ranking or rendering).
   """
   objectType: String
   outgoingEdges: [Edge!]!
@@ -5517,13 +5780,14 @@ type Node {
   
   NOT 'nodeType' (the platform-kind axis, load-bearing for retrieval) and NOT
   'objectType' (the collection discriminator, schema-validated). This field
-  has NO retrieval impact.
+  does not change default retrieval or ranking; NodeFilter.role explicitly
+  selects its exact dotted family (#1322).
   
-  A GOVERNED value routes the write to that kind's own authoring door, and the
-  generic node surface is refused: 'review' and 'spec' today, alongside the
-  task kind, which is gated on 'isRunnable' rather than on any label because a
-  label can be omitted and a capability cannot. 'role: "weather-widget"'
-  does nothing at all.
+  A GOVERNED family routes the write to that kind's own authoring door, and
+  the generic node surface is refused: 'review' / 'review.*' and 'spec' /
+  'spec.*' today, alongside the task kind, which is gated on 'isRunnable'
+  rather than on any label because a label can be omitted and a capability
+  cannot. Other values are inert unless a caller explicitly filters for them.
   """
   role: String
   seq: Int
@@ -5664,6 +5928,11 @@ input NodeFilter {
   #725 — collection facet: only nodes whose objectType equals this (e.g. "competitor").
   """
   objectType: String
+
+  """
+  #1322 — role-family filter. 'spec' matches 'spec' and 'spec.*' on a dot boundary, never 'special' / 'specification'.
+  """
+  role: String
   tags: [String!]
   updatedAfter: String
   updatedBefore: String
@@ -5895,6 +6164,99 @@ search already exposes, so no per-caller visibility gate applies.
 type NodeRevisionEditor {
   handle: String
   urn: String
+}
+
+"""
+#1325 — one node-role rule. Task and description references are stored by
+node id (they survive moves) and returned as a URN and an id, each with its
+state. Both are given only when the state is OK; see NodeRoleRuleRefState.
+"""
+type NodeRoleRule {
+  authorTask: String
+  authorTaskId: ID
+  authorTaskState: NodeRoleRuleRefState!
+  createdAt: DateTime!
+  createdBy: ID
+
+  """
+  Documentation, not procedure: a deleted description node reads as NONE, never BROKEN.
+  """
+  descriptionNode: String
+  descriptionNodeId: ID
+  descriptionNodeState: NodeRoleRuleRefState!
+  enabled: Boolean!
+
+  """
+  The rule's id — its ref for updateNodeRoleRule / deleteNodeRoleRule (a rule has no URN).
+  """
+  id: ID!
+
+  """Set by applying a required template (#1334)."""
+  locked: Boolean!
+
+  """
+  Optimistic-concurrency token: pass it as expectedRevision to update or delete.
+  """
+  revision: Int!
+
+  """
+  The dotted role or sub-role this rule governs, unique within the config.
+  """
+  role: String!
+  sourceTemplate: NodeRoleRuleSourceTemplate
+
+  """
+  The template this rule was copied from, if any (provenance only; no live link).
+  """
+  sourceTemplateId: ID
+
+  """
+  On a parent role: refuse its undeclared sub-roles instead of falling back to it.
+  """
+  strictSubRoles: Boolean!
+  updatedAt: DateTime
+  updatedBy: ID
+  validateBy: ContentValidator
+  validationTask: String
+  validationTaskId: ID
+  validationTaskState: NodeRoleRuleRefState!
+  writers: NodeRoleWriters!
+}
+
+type NodeRoleRulePayload {
+  rule: NodeRoleRule!
+
+  """Empty until #1327 adds its visibility warnings."""
+  warnings: [MemoryConfigWarning!]!
+}
+
+"""
+#1325 — the state of one rule reference, next to its URN and id. NONE: not
+configured. OK: the node is live and you can read it; its id is given, and
+its URN too unless the node's memory has a legacy URN that cannot address it
+(#697), when the URN is null and the id is the ref to use. BROKEN: configured,
+but the node was deleted, so operations relying on the rule are refused until
+a manager repoints it (fail-closed). UNREADABLE: the node exists but you may
+not read it, so its URN and id are withheld.
+"""
+enum NodeRoleRuleRefState {
+  BROKEN
+  NONE
+  OK
+  UNREADABLE
+}
+
+type NodeRoleRuleSourceTemplate {
+  """The template has been deleted; the rule keeps its copy."""
+  deleted: Boolean!
+  id: ID!
+  name: String!
+}
+
+enum NodeRoleWriters {
+  ADMIN
+  ALL
+  OWNER
 }
 
 """
@@ -6235,6 +6597,15 @@ type Query {
   aiModelPrices(limit: Int, model: String, offset: Int, provider: String, tier: Int): AiModelPriceList!
 
   """
+  #1373: the known endpoints for a provider — the server's single suggestion
+  list, so the portal and the CLI render the same choices and neither
+  hardcodes a URL. Empty for an unknown provider and for bedrock (its
+  endpoint comes from the region). Public reference data (vendor URLs), so
+  it needs no auth.
+  """
+  aiProviderEndpoints(provider: String!): [AiProviderEndpoint!]!
+
+  """
   The uniform single-config read (#473). 'ref' is the config's ID —
   AiServiceConfig is the one URN-less entity (matching resolveUrn /
   effectiveAccess dispatch). Masked: never returns key material, only
@@ -6293,7 +6664,7 @@ type Query {
   The App's memory scope is authoritative, so the filter's memory-scope
   fields (memoryIds / memoryClasses) are rejected with BAD_USER_INPUT rather
   than silently ignored — use findNodes for cross-memory scoping. Only
-  node-level predicates (nodeType, tags, isRunnable, locPrefix, createdBy,
+  node-level predicates (nodeType, tags, isRunnable, role, locPrefix, createdBy,
   updatedAfter/Before, includeDeleted) apply. Unlike findNodes, system-memory
   nodes are NOT excluded by default.
   """
@@ -6752,6 +7123,19 @@ type Query {
   ): GlobalSearchResult!
 
   """
+  Workers CURRENTLY held by userRef across Apps the caller may inspect
+  (#1344), oldest casting first. userRef accepts a user id, handle, URN, or
+  email. Missing users, no holds, and holds confined to unreadable Apps all
+  return the same empty page; total and pagination are computed only after
+  the App authorization filter.
+  
+  Retired castings are hidden unless includeRetired. hasLiveSession on each
+  item uses the existing derived idle-window predicate — it means the worker
+  is being driven now, not merely that an unended Session row exists.
+  """
+  heldWorkers(includeRetired: Boolean, limit: Int, offset: Int, userRef: String!): WorkersPage!
+
+  """
   Fetch one registered Home Assistant instance (org member). Null when
   the row does not exist OR the caller is not a member of its org — no
   existence disclosure.
@@ -6893,6 +7277,12 @@ type Query {
   Accepts the entity's ID or URN.
   """
   memoryAssets(count: Int = 20, includeDeleted: Boolean = false, memoryId: ID!, mimeType: String, mine: Boolean = false, skip: Int = 0): AssetListResult!
+
+  """
+  #1325 — a memory's config, for the memory's managers only. For anyone else,
+  and for a missing memory, the same MEMORY_NOT_FOUND.
+  """
+  memoryConfig(memoryRef: ID!): MemoryConfig!
 
   """
   Slim, paginated edge list for a memory's graph view (issue #466) — phase two
@@ -7938,6 +8328,16 @@ type ResolvedAiConfig {
   """
   apiKey: String!
   configId: ID!
+
+  """
+  #1373: the wire protocol requests use (see AiServiceConfig.effectiveApiStyle).
+  """
+  effectiveApiStyle: AiApiStyle
+
+  """
+  #1373: where requests for this config go (see AiServiceConfig.effectiveEndpoint).
+  """
+  effectiveEndpoint: String
   model: String!
   name: String!
 
@@ -9062,6 +9462,16 @@ input UpdateNodeInput {
   edges: [NodeEdgeInput!]
 
   """
+  Optional optimistic-concurrency precondition (#937). When supplied, the
+  update is applied only while the node's current live revision still equals
+  this positive integer. A mismatch refuses atomically with
+  NODE_WRITE_CONFLICT; omitting it or passing null preserves last-write-wins
+  compatibility.
+  Read the baseline from Node.revision.
+  """
+  expectedRevision: Int
+
+  """
   The node to change: PK (CUID / 32-char hex) or fully-qualified node URN (hrn:node:<root>:<memory>:<loc>). XOR with memoryId+loc.
   """
   id: String
@@ -9114,6 +9524,21 @@ input UpdateNodeInput {
   Omit to preserve existing tags (issue #235); supply to replace the set.
   """
   tags: [String!]
+}
+
+"""
+#1325 — change a rule. An omitted field is unchanged. A reference given as
+null or an empty string CLEARS it; validateBy null clears it. The role itself
+is the rule's identity and cannot be changed: delete and re-create instead.
+"""
+input UpdateNodeRoleRuleInput {
+  authorTaskRef: ID
+  descriptionNodeRef: ID
+  enabled: Boolean
+  strictSubRoles: Boolean
+  validateBy: ContentValidator
+  validationTaskRef: ID
+  writers: NodeRoleWriters
 }
 
 input UpdateRegisterEntryInput {
@@ -9373,6 +9798,15 @@ type Worker {
   """The App whose staff this casting fills."""
   app: App
   appId: ID!
+
+  """
+  The App's canonical URN (the same value App.urn returns, e.g.
+  hrn:app:acme.com:team), as a scalar identity suitable for cross-App
+  worker lists. Null when the caller cannot inspect this App's workers. This
+  intentionally does not return the App object, whose nested keys and
+  members have a narrower read audience.
+  """
+  appUrn: String
 
   """
   #1029 — what a fresh binding of this worker inherits from the last one.

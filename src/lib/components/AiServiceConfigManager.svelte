@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
   import { invalidateAll } from '$app/navigation';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
@@ -56,13 +57,8 @@
   let paramsText = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
-  let testResult = $state<{
-    ok: boolean;
-    provider?: string;
-    model?: string;
-    reply?: string;
-    error?: string;
-  } | null>(null);
+  // #937: one shape for both paths, so the result always reads the same way.
+  let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
 
   const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? null) : null);
@@ -298,36 +294,31 @@
     error = null;
     testResult = null;
     try {
-      let payload: Record<string, unknown>;
-      if (enteredKey) {
-        // Test the in-form values before saving.
-        payload = {
+      if (editing) {
+        // #937: a SAVED config, of ANY owner kind, tests BY ID through the
+        // server's own run path (server#1378). The stored key stays there.
+        // Only what the user changed or typed rides along as an override,
+        // which is tested and never saved.
+        const override: Record<string, string> = {};
+        if (providerInput !== editing.provider) override.provider = providerInput;
+        if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
+        if (enteredKey) override.apiKey = enteredKey;
+        const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
+        testResult = testResultView(res.result);
+      } else if (enteredKey) {
+        // A NEW, unsaved config: nothing is stored yet, so it's tested inline.
+        const r = (await post({
           action: 'test',
           provider: providerInput,
           model: modelInput.trim(),
           apiKey: enteredKey,
-        };
-      } else if (editing && (ownerType === 'AGENT' || ownerType === 'APP')) {
-        // Test a saved config — the server resolves the decrypted key.
-        payload = {
-          action: 'test',
-          name: editing.name,
-          provider: providerInput,
-          model: modelInput.trim(),
-          ...(ownerType === 'AGENT' ? { agentId: ownerId } : { appId: ownerId }),
-        };
+        })) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
+        testResult = r.ok
+          ? { ok: true, headline: t('ai-config.test.ok.inline', '✓ Works: {provider} / {model}.', { provider: r.provider ?? '', model: r.model ?? '' }), details: r.reply ? [t('ai-config.test.reply', 'Reply: “{reply}”', { reply: r.reply })] : [] }
+          : { ok: false, headline: r.error ?? t('ai-config.test.error.unknown', 'The test failed.'), details: [] };
       } else {
         error = s.testNeedsKey();
-        busy = false;
-        return;
       }
-      testResult = (await post(payload)) as {
-        ok: boolean;
-        provider?: string;
-        model?: string;
-        reply?: string;
-        error?: string;
-      };
     } catch (e) {
       error = e instanceof Error ? e.message : 'Test failed';
     } finally {
@@ -524,11 +515,10 @@
             ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'
             : 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'}"
         >
-          {#if testResult.ok}
-            ✓ Works — {testResult.provider} / {testResult.model}. Reply: "{testResult.reply}"
-          {:else}
-            × {testResult.error}
-          {/if}
+          <p>{testResult.ok ? '' : '× '}{testResult.headline}</p>
+          {#each testResult.details as d (d)}
+            <p class="mt-0.5 opacity-80">{d}</p>
+          {/each}
         </div>
       {/if}
 

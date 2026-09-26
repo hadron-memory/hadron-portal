@@ -152,19 +152,50 @@ describe('POST /api/ai-configs', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('test (saved): resolves the decrypted key server-side, then calls the LLM', async () => {
-    mockRequest.mockResolvedValueOnce({
-      resolveAIConfig: { provider: 'anthropic', model: 'claude-x', apiKey: 'sk-resolved' },
-    });
-    mockCallAgentChatLlm.mockResolvedValueOnce({ respond: { message: 'hi' }, rawText: 'hi', usage: {} });
+  // #937: the old by-NAME saved test resolved whichever config won the
+  // App → Agent → Org → Host walk, not the one being edited, and tested it on
+  // the portal's own client. It's gone: a saved config tests by id (testSaved).
+  it('test: a by-name "saved" test is refused, with no resolution and no LLM call', async () => {
     const { POST } = await import('./+server');
     const res = await POST(ev({ body: { action: 'test', name: 'default', agentId: 'a1' } }));
+    expect(res.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect(mockCallAgentChatLlm).not.toHaveBeenCalled();
+  });
+
+  const RESULT = {
+    ok: true, provider: 'glm', model: 'glm-5.3', endpoint: 'https://api.z.ai/api/paas/v4', apiStyle: 'CHAT_COMPLETIONS',
+    used: { provider: 'SAVED', model: 'SAVED', endpoint: 'SAVED', apiStyle: 'SAVED', key: 'SAVED' },
+    latencyMs: 420, reply: 'I am reachable.', error: null,
+  };
+
+  it('testSaved: tests the config BY ID through the server, with no override when nothing changed', async () => {
+    mockRequest.mockResolvedValueOnce({ testAiServiceConfig: RESULT });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'testSaved', id: 'cfg-org-1' } }));
     expect(res.status).toBe(200);
-    expect((await jsonOf(res)).ok).toBe(true);
-    // Input body keeps `agentId`, but it's forwarded as the server's renamed
-    // `agentRef` arg (8032d99: read-surface <entity>Id → <entity>Ref).
-    expect(mockRequest.mock.calls[0][1]).toMatchObject({ name: 'default', agentRef: 'a1' });
-    expect(mockCallAgentChatLlm.mock.calls[0][0].apiKey).toBe('sk-resolved');
+    expect((await jsonOf(res)).result).toEqual(RESULT);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'cfg-org-1', override: null });
+    // The portal's own LLM client is never used for a saved config.
+    expect(mockCallAgentChatLlm).not.toHaveBeenCalled();
+  });
+
+  it('testSaved: forwards only the values the user changed or typed', async () => {
+    mockRequest.mockResolvedValueOnce({ testAiServiceConfig: RESULT });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'testSaved', id: 'c1', override: { model: 'glm-5.4', apiKey: 'sk-typed', provider: '' } } }));
+    expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'c1', override: { model: 'glm-5.4', apiKey: 'sk-typed' } });
+  });
+
+  it('testSaved: needs an id, and RATE_LIMITED is a 429 in words', async () => {
+    const { POST } = await import('./+server');
+    expect((await POST(ev({ body: { action: 'testSaved' } }))).status).toBe(400);
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('x'), { response: { errors: [{ message: 'Too many', extensions: { code: 'RATE_LIMITED' } }] } }),
+    );
+    const res = await POST(ev({ body: { action: 'testSaved', id: 'c1' } }));
+    expect(res.status).toBe(429);
+    expect((await jsonOf(res)).error).toMatch(/Wait a minute/);
   });
 
   it('test: surfaces LLM errors as ok:false (HTTP 200)', async () => {
