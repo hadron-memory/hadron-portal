@@ -3801,7 +3801,7 @@ const REGISTER_ENTRY_FIELDS = /* GraphQL */ `
     appId
     organizationId
     channelId
-    channel { id name loc }
+    channel { id name loc chatRootUrn }
     attendeeWorkerId
     attendeeAgentId
     attendeeUrn
@@ -3815,8 +3815,8 @@ const REGISTER_ENTRY_FIELDS = /* GraphQL */ `
 
 export const REGISTER_ENTRIES_BY_OWNER_QUERY = /* GraphQL */ `
   ${REGISTER_ENTRY_FIELDS}
-  query RegisterEntriesByOwner($ownerRef: ID!) {
-    registerEntries(filter: { ownerRef: $ownerRef }, limit: 200) {
+  query RegisterEntriesByOwner($ownerRef: ID!, $limit: Int, $offset: Int) {
+    registerEntries(filter: { ownerRef: $ownerRef }, limit: $limit, offset: $offset) {
       total
       items { ...RegisterEntryFields }
     }
@@ -3830,7 +3830,11 @@ export const APP_INSTALLED_AGENTS_QUERY = /* GraphQL */ `
   }
 `;
 
-/** #942: may the caller manage this entity (an App's register rows)? A self-audit. */
+/**
+ * #942: may the caller manage this entity (an App's register rows)? A
+ * self-audit. `resource` MUST be the entity's URN (`hrn:app:` …): a bare id is
+ * read as an AiServiceConfig id and answers NOT_FOUND.
+ */
 export const SELF_CAN_MANAGE_QUERY = /* GraphQL */ `
   query SelfCanManage($user: ID!, $resource: ID!) {
     effectiveAccess(user: $user, resource: $resource) { canManage }

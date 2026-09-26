@@ -131,8 +131,13 @@ export type Attendee = { id: string; name: string; urn: string | null; kind: 'wo
  * (shown, never editable here: an App removes only its own rows), the
  * attendees the picker offers (the App's Workers and installed Agents), and
  * whether the caller may manage the App's rows. That last one is a SELF-audit
- * `canManage` on the App, NOT `App.role`, which is the App's default member
- * role (hrn:node:hadronmemory.com:hadron-portal:findings:app-role-is-not-the-callers-role).
+ * `canManage` on the App's URN, NOT `App.role`, which is the App's default
+ * member role (hrn:node:hadronmemory.com:hadron-portal:findings:app-role-is-not-the-callers-role).
+ * Like `canWrite`, it is null (unknown) for most callers until
+ * hadron-server#1383 admits every self-audit.
+ *
+ * The rows and the Worker roster are paged to completion: both lists cap at
+ * 200 a page, and a row or Worker past it would be silently unmanageable.
  *
  * A failed register read is reported (`registerLoadFailed`), never shown as
  * an empty register: "no rows" and "couldn't read the rows" are different
@@ -144,24 +149,21 @@ async function loadRegister(
   userId: string | null,
 ) {
   const rows = (ownerRef: string) =>
-    client
-      .request<{ registerEntries: { items: RegisterEntry[] } }>(REGISTER_ENTRIES_BY_OWNER_QUERY, { ownerRef })
-      .then((r) => r.registerEntries.items);
+    fetchAllItems<RegisterEntry>(client, REGISTER_ENTRIES_BY_OWNER_QUERY, 'registerEntries', { ownerRef });
   try {
     const [appRows, orgRows, workers, installed, manage] = await Promise.all([
       rows(app.id),
       app.organizationId ? rows(app.organizationId) : Promise.resolve([] as RegisterEntry[]),
-      client.request<{ workers: { items: Array<{ id: string; name: string; urn: string | null; role: string | null }> } }>(
-        WORKERS_QUERY,
-        { appRef: app.id, limit: 200 },
-      ),
+      fetchAllItems<{ id: string; name: string; urn: string | null; role: string | null }>(client, WORKERS_QUERY, 'workers', {
+        appRef: app.id,
+      }),
       client.request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string } }> } | null }>(
         APP_INSTALLED_AGENTS_QUERY,
         { ref: app.id },
       ),
       userId
         ? client
-            .request<{ effectiveAccess: { canManage: boolean } }>(SELF_CAN_MANAGE_QUERY, { user: userId, resource: app.id })
+            .request<{ effectiveAccess: { canManage: boolean } }>(SELF_CAN_MANAGE_QUERY, { user: userId, resource: app.urn })
             .then((r) => r.effectiveAccess.canManage)
             .catch((e) => {
               console.warn(`[app-channels] manage check failed for app ${app.id}:`, e);
@@ -170,7 +172,7 @@ async function loadRegister(
         : Promise.resolve(null),
     ]);
     const attendees: Attendee[] = [
-      ...workers.workers.items.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role })),
+      ...workers.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role })),
       ...(installed.app?.appAgents ?? []).map((a) => ({ id: a.agent.id, name: a.agent.name, urn: a.agent.urn, kind: 'agent' as const })),
     ];
     return { appRows, orgRows, attendees, canManageRegister: manage as boolean | null, registerLoadFailed: false };

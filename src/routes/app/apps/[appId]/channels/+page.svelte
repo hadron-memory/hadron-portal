@@ -484,6 +484,11 @@
                   <button type="button" onclick={() => (confirmingRemove = row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.register.remove', 'Remove')}</button>
                 </div>
               {/if}
+            {:else if cell.column.id === 'channel' && row.entry.channel?.chatRootUrn}
+              <div class="min-w-0">
+                <div class="truncate">{row.channel}</div>
+                <Urn value={row.entry.channel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
+              </div>
             {:else if cell.column.id === 'attendee' && row.entry.attendeeUrn}
               <div class="min-w-0">
                 <div class="truncate">{row.attendee}</div>
