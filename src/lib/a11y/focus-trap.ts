@@ -117,9 +117,12 @@ export function focusTrap(container: HTMLElement) {
     const lastItem = items[items.length - 1];
     const active = document.activeElement;
 
-    // Focus having escaped the container at all (or sitting on the container
-    // itself) means the next Tab must come back in, not continue outward.
-    if (!(active instanceof HTMLElement) || !container.contains(active)) {
+    // Focus having escaped the container at all, or sitting on the container
+    // itself, means the next Tab must come back in, not continue outward. The
+    // container case is common since #938 (a click on its text focuses it),
+    // and `contains` is true of the node itself, so it needs its own test:
+    // without it Shift+Tab walked out to the page behind (@codex on #939).
+    if (!(active instanceof HTMLElement) || active === container || !container.contains(active)) {
       e.preventDefault();
       (e.shiftKey ? lastItem : firstItem).focus();
       return;

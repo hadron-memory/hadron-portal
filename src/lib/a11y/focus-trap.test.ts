@@ -272,6 +272,30 @@ describe('focusTrap — clicking text inside the dialog (#938)', () => {
     expect(document.activeElement).toBe(byId('first'));
   });
 
+  // @codex on #939: after a click on text, the CONTAINER is the active element.
+  // `contains` is true of the node itself, so it read as "inside" and Shift+Tab
+  // was left to the browser, which walked out to the page behind.
+  it('Shift+Tab from the focused container cycles to the LAST control, not out of the dialog', () => {
+    const { text } = inFocusablePanel();
+    focusTrap(dialog);
+    clickFocus(text);
+    expect(document.activeElement).toBe(dialog);
+    const ev = tabKey(true);
+    dialog.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(byId('last'));
+  });
+
+  it('Tab from the focused container goes to the FIRST control', () => {
+    const { text } = inFocusablePanel();
+    focusTrap(dialog);
+    clickFocus(text);
+    const ev = tabKey();
+    dialog.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(byId('first'));
+  });
+
   it('focusTrapWhen removes the tabindex it added when released…', () => {
     const action = focusTrapWhen(dialog, true);
     expect(dialog.getAttribute('tabindex')).toBe('-1');
