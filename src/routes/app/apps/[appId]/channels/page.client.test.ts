@@ -240,4 +240,11 @@ describe('Channels page', () => {
     expect(toggles).toContain('Set by'); // the menu is really there
     expect(toggles).not.toContain('Takes part as');
   });
+
+  it('with no readable shared memory, the create panel says unavailable, never "has none"', async () => {
+    const { target } = await mountPage([channel()], { app: { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: null, sharedMemory: null } });
+    const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
+    expect(panel.textContent).toContain('isn’t available to you');
+    expect(panel.textContent).not.toMatch(/has no shared memory/);
+  });
 });

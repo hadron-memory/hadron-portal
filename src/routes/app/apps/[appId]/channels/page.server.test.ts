@@ -208,11 +208,14 @@ describe('createChannel', () => {
     expect(msg(r)).toEqual({ type: 'error', text: 'Forbidden' });
   });
 
-  it('an App with no shared memory gets an explanation and no create', async () => {
+  it('an App with no readable shared memory gets an explanation that doesn’t claim it’s missing, and no create', async () => {
     route({ app: { id: 'app-1', name: 'T', urn: 'u', defaultChannel: null, sharedMemory: null } });
     const r = await act('createChannel', { _kind: 'createChannel', name: 'N', slug: 'ok', description: '' });
     expect(r.status).toBe(400);
     expect(sent(CREATE_CHANNEL_MUTATION)).toHaveLength(0);
+    const text = (msg(r) as { text: string }).text;
+    expect(text).toContain('isn’t available to you');
+    expect(text).not.toMatch(/has no shared memory/);
   });
 });
 

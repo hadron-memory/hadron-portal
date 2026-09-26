@@ -414,7 +414,10 @@
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
     <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.channels.create.title', 'New channel')}</h2>
     {#if !shared}
-      <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('app.channels.create.no-host', 'This App has no shared memory to hold a channel.')}</p>
+      <!-- A null sharedMemory is "not provisioned" OR "you can't read it": the
+           server doesn't say which (hrn:node:hadronmemory.com:specs:cor:api:140:03),
+           so neither does this. -->
+      <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('app.channels.create.no-host', 'This App’s shared memory, where its channels live, isn’t available to you.')}</p>
     {:else if !canCreate}
       <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
         {t('app.channels.create.no-write', 'Adding a channel needs write access to {memory}, where this App’s channels live.', { memory: shared.name })}
