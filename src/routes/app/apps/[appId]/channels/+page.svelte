@@ -316,20 +316,30 @@
   // Each request is numbered; only the latest may write the panel, so a slow
   // answer for the previous pick can't overwrite the current one.
   let effectiveSeq = 0;
-  // SvelteKit reuses this component across /app/apps/A/channels → B. Nothing
-  // of A's effective view may survive: clear the pick and the panel, and bump
-  // the sequence so an in-flight answer for A is dropped
-  // (hrn:node:hadronmemory.com:hadron-portal:review:a-reused-component-must-reseed-its-form).
-  // The App this view was loaded for; untracked on purpose (the effect below watches it).
-  let effectiveForApp = untrack(() => data.app.id);
+  // `data` is replaced whenever the page reloads: after an Add, Save or Remove
+  // on this App's register, or when SvelteKit REUSES this component for another
+  // App (/app/apps/A/channels → B). Either way the effective view is stale:
+  // - another App: nothing of A's view may survive, so clear the pick and the
+  //   panel and bump the sequence so an in-flight answer for A is dropped
+  //   (hrn:node:hadronmemory.com:hadron-portal:review:a-reused-component-must-reseed-its-form);
+  // - the same App: re-resolve the selected attendee, since the winning row
+  //   may have just changed.
+  let seenData = untrack(() => data);
   $effect(() => {
-    const appId = data.app.id;
-    if (appId === effectiveForApp) return;
-    effectiveForApp = appId;
-    effectiveSeq++;
-    effectiveFor = '';
-    effective = null;
-    effectiveState = 'idle';
+    const d = data;
+    untrack(() => {
+      if (d === seenData) return;
+      const appChanged = d.app.id !== seenData.app.id;
+      seenData = d;
+      if (appChanged) {
+        effectiveSeq++;
+        effectiveFor = '';
+        effective = null;
+        effectiveState = 'idle';
+      } else if (effectiveFor) {
+        void loadEffective(effectiveFor);
+      }
+    });
   });
   async function loadEffective(attendeeId: string) {
     const seq = ++effectiveSeq;

@@ -407,4 +407,35 @@ describe('Channels page', () => {
     await tick(3);
     expect(regTable.querySelectorAll('tbody tr')).toHaveLength(1);
   });
+
+  it('after a register change on the same App, the effective view re-resolves the selected attendee', async () => {
+    const answers = [
+      [{ id: 'e1', channel: 'team', channelUrn: null, mode: 'Watch', counts: 'All messages', because: 'Everyone in this App', readUpTo: 'x', note: '' }],
+      [{ id: 'e2', channel: 'team', channelUrn: null, mode: 'Post', counts: 'Nothing (post only)', because: 'Their own row', readUpTo: 'x', note: '' }],
+    ];
+    let n = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ rows: answers[Math.min(n++, 1)], loadedAt: 'x' }) }) as unknown as Response));
+    try {
+      const attendees = [{ id: 'ag-1', name: 'Coordinator', urn: null, kind: 'agent', retired: false }];
+      const first = await mountPage([channel()], { attendees });
+      const props = reactiveProps({ ...(first.props as Record<string, unknown>) });
+      first.unmount();
+      const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(3);
+      const pick = [...m.target.querySelectorAll<HTMLSelectElement>('select')].find((s) => s.options[0]?.textContent?.includes('Pick a worker or agent'))!;
+      pick.value = 'ag-1';
+      pick.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(6);
+      expect(m.target.textContent).toContain('Everyone in this App');
+
+      // The page reloads after an Add: same App, new data object.
+      props.data = { ...(props.data as Record<string, unknown>) };
+      await tick(8);
+      expect(n).toBe(2);
+      expect(m.target.textContent).toContain('Nothing (post only)');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
