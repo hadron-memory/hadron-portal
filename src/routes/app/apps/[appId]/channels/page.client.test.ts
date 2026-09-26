@@ -375,4 +375,10 @@ describe('Channels page', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('names the App it manages with its URN', async () => {
+    const { target } = await mountPage([channel()]);
+    const h1 = target.querySelector('h1')!;
+    expect(h1.parentElement!.innerHTML).toContain('hrn:app:acme.com:team');
+  });
 });
