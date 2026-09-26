@@ -3715,8 +3715,8 @@ export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
 // memory: a Channel you may not read is simply not in the page.
 // ---------------------------------------------------------------------------
 
-export const APP_CHANNELS_QUERY = /* GraphQL */ `
-  query AppChannels($ref: ID!, $appRef: ID!) {
+export const APP_CHANNELS_APP_QUERY = /* GraphQL */ `
+  query AppChannelsApp($ref: ID!) {
     app(ref: $ref) {
       id
       name
@@ -3725,7 +3725,13 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
       defaultChannel { id }
       sharedMemory { id urn name }
     }
-    channels(filter: { appRef: $appRef }, limit: 200) {
+  }
+`;
+
+/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200. */
+export const APP_CHANNELS_QUERY = /* GraphQL */ `
+  query AppChannels($appRef: ID!, $limit: Int, $offset: Int) {
+    channels(filter: { appRef: $appRef }, limit: $limit, offset: $offset) {
       total
       items {
         id
@@ -3751,7 +3757,11 @@ export const APP_SHARED_MEMORY_QUERY = /* GraphQL */ `
   }
 `;
 
-/** #942: may the caller write this memory? A self-audit, always allowed. */
+/**
+ * #942: may the caller write this memory? `resource` MUST be the memory's
+ * `hrn:mem:` URN: a bare id is read as an AiServiceConfig id and answers
+ * NOT_FOUND.
+ */
 export const SELF_CAN_WRITE_QUERY = /* GraphQL */ `
   query SelfCanWrite($user: ID!, $resource: ID!) {
     effectiveAccess(user: $user, resource: $resource) { canWrite }
@@ -3791,7 +3801,7 @@ const REGISTER_ENTRY_FIELDS = /* GraphQL */ `
     appId
     organizationId
     channelId
-    channel { id name loc }
+    channel { id name loc chatRootUrn }
     attendeeWorkerId
     attendeeAgentId
     attendeeUrn
@@ -3805,8 +3815,8 @@ const REGISTER_ENTRY_FIELDS = /* GraphQL */ `
 
 export const REGISTER_ENTRIES_BY_OWNER_QUERY = /* GraphQL */ `
   ${REGISTER_ENTRY_FIELDS}
-  query RegisterEntriesByOwner($ownerRef: ID!) {
-    registerEntries(filter: { ownerRef: $ownerRef }, limit: 200) {
+  query RegisterEntriesByOwner($ownerRef: ID!, $limit: Int, $offset: Int) {
+    registerEntries(filter: { ownerRef: $ownerRef }, limit: $limit, offset: $offset) {
       total
       items { ...RegisterEntryFields }
     }
@@ -3820,7 +3830,11 @@ export const APP_INSTALLED_AGENTS_QUERY = /* GraphQL */ `
   }
 `;
 
-/** #942: may the caller manage this entity (an App's register rows)? A self-audit. */
+/**
+ * #942: may the caller manage this entity (an App's register rows)? A
+ * self-audit. `resource` MUST be the entity's URN (`hrn:app:` …): a bare id is
+ * read as an AiServiceConfig id and answers NOT_FOUND.
+ */
 export const SELF_CAN_MANAGE_QUERY = /* GraphQL */ `
   query SelfCanManage($user: ID!, $resource: ID!) {
     effectiveAccess(user: $user, resource: $resource) { canManage }

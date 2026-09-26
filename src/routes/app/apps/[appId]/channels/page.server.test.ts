@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import {
+  APP_CHANNELS_APP_QUERY,
   APP_CHANNELS_QUERY,
   APP_SHARED_MEMORY_QUERY,
   CREATE_CHANNEL_MUTATION,
@@ -58,28 +59,44 @@ function route(opts: {
   appRows?: unknown[];
   orgRows?: unknown[];
   canManage?: boolean | Error;
+  workers?: unknown[];
   registerFails?: boolean;
   reg?: { create?: unknown; update?: unknown; del?: unknown };
 }) {
   const app = opts.app === undefined
     ? { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: { id: 'ch-team' }, sharedMemory: SHARED }
     : opts.app;
+  // The server's page: capped at 200, whatever limit is asked for.
+  const page = (all: unknown[], vars: Record<string, unknown>) => {
+    const offset = (vars.offset as number | undefined) ?? 0;
+    const limit = Math.min((vars.limit as number | undefined) ?? 50, 200);
+    return { total: all.length, items: all.slice(offset, offset + limit) };
+  };
   mockRequest.mockImplementation(async (doc: string, vars: Record<string, unknown>) => {
-    if (doc === APP_CHANNELS_QUERY) return { app, channels: { total: (opts.channels ?? []).length, items: opts.channels ?? [] } };
+    if (doc === APP_CHANNELS_APP_QUERY) return { app };
+    if (doc === APP_CHANNELS_QUERY) return { channels: page(opts.channels ?? [], vars) };
     if (doc === APP_SHARED_MEMORY_QUERY) return { app: app && { id: app.id, sharedMemory: app.sharedMemory } };
     if (doc === SELF_CAN_WRITE_QUERY) {
-      const v = opts.canWrite?.[vars.resource as string] ?? true;
+      // As the server dispatches it: a bare id is an AiServiceConfig id, so a
+      // memory audited by id is NOT_FOUND.
+      const resource = vars.resource as string;
+      if (!resource.startsWith('hrn:mem:')) throw refusal(`No AiServiceConfig ${resource}`, 'NOT_FOUND');
+      const v = opts.canWrite?.[resource] ?? true;
       if (v instanceof Error) throw v;
       return { effectiveAccess: { canWrite: v } };
     }
     if (doc === REGISTER_ENTRIES_BY_OWNER_QUERY) {
       if (opts.registerFails) throw new Error('boom');
       const items = vars.ownerRef === 'app-1' ? (opts.appRows ?? []) : (opts.orgRows ?? []);
-      return { registerEntries: { total: items.length, items } };
+      return { registerEntries: page(items, vars) };
     }
-    if (doc === WORKERS_QUERY) return { workers: { total: 1, items: [{ id: 'w-ada', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator' }] } };
+    if (doc === WORKERS_QUERY) {
+      return { workers: page(opts.workers ?? [{ id: 'w-ada', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator' }], vars) };
+    }
     if (doc === APP_INSTALLED_AGENTS_QUERY) return { app: { id: 'app-1', appAgents: [{ agent: { id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' } }] } };
     if (doc === SELF_CAN_MANAGE_QUERY) {
+      // An App is audited by its hrn:app: URN; a bare id is an AiServiceConfig id.
+      if (!(vars.resource as string).startsWith('hrn:app:')) throw refusal(`No AiServiceConfig ${vars.resource}`, 'NOT_FOUND');
       if (opts.canManage instanceof Error) throw opts.canManage;
       return { effectiveAccess: { canManage: opts.canManage ?? true } };
     }
@@ -121,19 +138,31 @@ const sent = (doc: string) => mockRequest.mock.calls.filter(([d]) => d === doc).
 
 describe('load', () => {
   it('lists the App’s Channels, marks the default, and audits write access per host memory', async () => {
-    route({ channels: [channel(), channel({ id: 'ch-x', loc: 'chats:x', memory: OTHER })], canWrite: { 'mem-other': false } });
+    route({ channels: [channel(), channel({ id: 'ch-x', loc: 'chats:x', memory: OTHER })], canWrite: { [OTHER.urn]: false } });
     const data = await load();
     expect(data.channels.map((c) => c.id)).toEqual(['ch-team', 'ch-x']);
     expect(data.defaultChannelId).toBe('ch-team');
+    // Keyed by memory id, as the page looks it up...
     expect(data.canWrite).toEqual({ 'mem-shared': true, 'mem-other': false });
-    // A SELF-audit: the caller's own user id, one per distinct host.
-    expect(sent(SELF_CAN_WRITE_QUERY)).toHaveLength(2);
-    expect(sent(SELF_CAN_WRITE_QUERY)[0]).toMatchObject({ user: 'u-1' });
+    // ...but audited by URN: a SELF-audit, the caller's own id, one per distinct host.
+    expect(sent(SELF_CAN_WRITE_QUERY)).toEqual([
+      { user: 'u-1', resource: SHARED.urn },
+      { user: 'u-1', resource: OTHER.urn },
+    ]);
+  });
+
+  it('pages past the 200-per-page cap, so a Channel after the first page is still listed', async () => {
+    const many = Array.from({ length: 201 }, (_, i) => channel({ id: `ch-${i}`, loc: `chats:c${i}` }));
+    route({ channels: many });
+    const data = await load();
+    expect(data.channels).toHaveLength(201);
+    expect(data.channels.at(-1)?.id).toBe('ch-200');
+    expect(sent(APP_CHANNELS_QUERY).map((v) => v.offset)).toEqual([0, 200]);
   });
 
   it('a failed audit is UNKNOWN (null), not "no": the server decides', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    route({ channels: [channel()], canWrite: { 'mem-shared': new Error('boom') } });
+    route({ channels: [channel()], canWrite: { [SHARED.urn]: new Error('boom') } });
     expect((await load()).canWrite['mem-shared']).toBeNull();
     warn.mockRestore();
   });
@@ -236,14 +265,28 @@ describe('load: who takes part (#942 slice 3)', () => {
       expect.objectContaining({ id: 'w-ada', kind: 'worker' }),
       expect.objectContaining({ id: 'ag-1', kind: 'agent' }),
     ]);
-    expect(sent(REGISTER_ENTRIES_BY_OWNER_QUERY)).toEqual([{ ownerRef: 'app-1' }, { ownerRef: 'org-1' }]);
+    expect(sent(REGISTER_ENTRIES_BY_OWNER_QUERY)).toEqual([
+      { ownerRef: 'app-1', limit: 200, offset: 0 },
+      { ownerRef: 'org-1', limit: 200, offset: 0 },
+    ]);
+  });
+
+  it('pages register rows and the Worker roster past the 200-per-page cap', async () => {
+    const rows = Array.from({ length: 201 }, (_, i) => row({ id: `re-${i}` }));
+    const workers = Array.from({ length: 201 }, (_, i) => ({ id: `w-${i}`, name: `W${i}`, urn: null, role: null }));
+    route({ appRows: rows, workers });
+    const data = await load();
+    expect(data.appRows).toHaveLength(201);
+    expect(data.attendees.filter((a) => a.kind === 'worker')).toHaveLength(201);
+    expect(data.attendees.map((a) => a.id)).toContain('w-200');
   });
 
   it('may-manage is a SELF canManage audit on the App, not App.role', async () => {
     route({ canManage: false });
     const data = await load();
     expect(data.canManageRegister).toBe(false);
-    expect(sent(SELF_CAN_MANAGE_QUERY)).toEqual([{ user: 'u-1', resource: 'app-1' }]);
+    // By URN: a bare App id would be dispatched as an AiServiceConfig id.
+    expect(sent(SELF_CAN_MANAGE_QUERY)).toEqual([{ user: 'u-1', resource: 'hrn:app:acme.com:team' }]);
   });
 
   it('a failed manage audit is unknown (null), offered, and the server decides', async () => {

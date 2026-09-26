@@ -895,7 +895,7 @@ export interface RegisterEntry {
   organizationId: string | null;
   channelId: string;
   /** Null when the caller may not read the Channel's host memory (they stand on the owner side only). */
-  channel: { id: string; name: string; loc: string } | null;
+  channel: { id: string; name: string; loc: string; chatRootUrn: string | null } | null;
   attendeeWorkerId: string | null;
   attendeeAgentId: string | null;
   /** Null for "every attendee in the owner's context". */

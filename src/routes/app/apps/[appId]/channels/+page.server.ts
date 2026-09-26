@@ -3,7 +3,9 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { fetchAllItems } from '$lib/server/paginate';
 import {
+  APP_CHANNELS_APP_QUERY,
   APP_CHANNELS_QUERY,
   APP_SHARED_MEMORY_QUERY,
   CREATE_CHANNEL_MUTATION,
@@ -49,12 +51,18 @@ type AppChannels = {
  * - The list is `channels(filter: {appRef})`: only Channels whose host memory
  *   the caller may read. There's no existence oracle, so there's nothing to
  *   hide here.
- * - `canWrite` per host memory comes from a SELF-audit (`effectiveAccess`,
- *   always allowed). It decides whether rename/delete/create are OFFERED; the
- *   server's host-memory write gate still decides whether they succeed. A
- *   failed audit is `null` (unknown): the controls are offered and the
- *   server's answer is shown, rather than hiding a control the caller may
- *   well be allowed.
+ * - The list is paged to completion: `channels` caps at 200 a page, and a
+ *   Channel past the first page would otherwise be unmanageable here.
+ * - `canWrite` per host memory comes from a SELF-audit (`effectiveAccess`) on
+ *   the memory's `hrn:mem:` URN; a bare id would be read as an AiServiceConfig.
+ *   It decides whether rename/delete/create are OFFERED; the server's
+ *   host-memory write gate still decides whether they succeed. A failed audit
+ *   is `null` (unknown): the controls are offered and the server's answer is
+ *   shown, rather than hiding a control the caller may well be allowed. That
+ *   is the common case until the server admits every self-audit
+ *   (hrn:node:hadronmemory.com:specs:cor:acl:060:01, hadron-server#1383):
+ *   today a caller who administers neither the memory nor its org gets
+ *   FORBIDDEN.
  * - An App-scoped create targets the App's SHARED memory, where its default
  *   `chats:team` lives. Channels in other memories belong to a memory-level
  *   view, not this one.
@@ -63,7 +71,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
   let data: AppChannels;
   try {
-    data = await client.request<AppChannels>(APP_CHANNELS_QUERY, { ref: params.appId, appRef: params.appId });
+    const [{ app }, items] = await Promise.all([
+      client.request<Pick<AppChannels, 'app'>>(APP_CHANNELS_APP_QUERY, { ref: params.appId }),
+      fetchAllItems<Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId }),
+    ]);
+    data = { app, channels: { total: items.length, items } };
   } catch (e) {
     // An App the caller cannot see answers as a missing one on both fields.
     if (extractGqlErrorCode(e) === 'NOT_FOUND') throw error(404, 'App not found');
@@ -71,11 +83,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   }
   if (!data.app) throw error(404, 'App not found');
 
-  const hostIds = new Set<string>(data.channels.items.map((c) => c.memory.id));
-  if (data.app.sharedMemory) hostIds.add(data.app.sharedMemory.id);
+  // Keyed by memory id (what the page looks up); audited by URN.
+  const hosts = new Map<string, string>(data.channels.items.map((c) => [c.memory.id, c.memory.urn]));
+  if (data.app.sharedMemory) hosts.set(data.app.sharedMemory.id, data.app.sharedMemory.urn);
   const canWrite: Record<string, boolean | null> = {};
   await Promise.all(
-    [...hostIds].map(async (id) => {
+    [...hosts].map(async ([id, urn]) => {
       if (!locals.user) {
         canWrite[id] = null;
         return;
@@ -83,7 +96,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       try {
         const r = await client.request<{ effectiveAccess: { canWrite: boolean } }>(SELF_CAN_WRITE_QUERY, {
           user: locals.user.id,
-          resource: id,
+          resource: urn,
         });
         canWrite[id] = r.effectiveAccess.canWrite;
       } catch (e) {
@@ -118,8 +131,13 @@ export type Attendee = { id: string; name: string; urn: string | null; kind: 'wo
  * (shown, never editable here: an App removes only its own rows), the
  * attendees the picker offers (the App's Workers and installed Agents), and
  * whether the caller may manage the App's rows. That last one is a SELF-audit
- * `canManage` on the App, NOT `App.role`, which is the App's default member
- * role (hrn:node:hadronmemory.com:hadron-portal:findings:app-role-is-not-the-callers-role).
+ * `canManage` on the App's URN, NOT `App.role`, which is the App's default
+ * member role (hrn:node:hadronmemory.com:hadron-portal:findings:app-role-is-not-the-callers-role).
+ * Like `canWrite`, it is null (unknown) for most callers until
+ * hadron-server#1383 admits every self-audit.
+ *
+ * The rows and the Worker roster are paged to completion: both lists cap at
+ * 200 a page, and a row or Worker past it would be silently unmanageable.
  *
  * A failed register read is reported (`registerLoadFailed`), never shown as
  * an empty register: "no rows" and "couldn't read the rows" are different
@@ -131,24 +149,21 @@ async function loadRegister(
   userId: string | null,
 ) {
   const rows = (ownerRef: string) =>
-    client
-      .request<{ registerEntries: { items: RegisterEntry[] } }>(REGISTER_ENTRIES_BY_OWNER_QUERY, { ownerRef })
-      .then((r) => r.registerEntries.items);
+    fetchAllItems<RegisterEntry>(client, REGISTER_ENTRIES_BY_OWNER_QUERY, 'registerEntries', { ownerRef });
   try {
     const [appRows, orgRows, workers, installed, manage] = await Promise.all([
       rows(app.id),
       app.organizationId ? rows(app.organizationId) : Promise.resolve([] as RegisterEntry[]),
-      client.request<{ workers: { items: Array<{ id: string; name: string; urn: string | null; role: string | null }> } }>(
-        WORKERS_QUERY,
-        { appRef: app.id, limit: 200 },
-      ),
+      fetchAllItems<{ id: string; name: string; urn: string | null; role: string | null }>(client, WORKERS_QUERY, 'workers', {
+        appRef: app.id,
+      }),
       client.request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string } }> } | null }>(
         APP_INSTALLED_AGENTS_QUERY,
         { ref: app.id },
       ),
       userId
         ? client
-            .request<{ effectiveAccess: { canManage: boolean } }>(SELF_CAN_MANAGE_QUERY, { user: userId, resource: app.id })
+            .request<{ effectiveAccess: { canManage: boolean } }>(SELF_CAN_MANAGE_QUERY, { user: userId, resource: app.urn })
             .then((r) => r.effectiveAccess.canManage)
             .catch((e) => {
               console.warn(`[app-channels] manage check failed for app ${app.id}:`, e);
@@ -157,7 +172,7 @@ async function loadRegister(
         : Promise.resolve(null),
     ]);
     const attendees: Attendee[] = [
-      ...workers.workers.items.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role })),
+      ...workers.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role })),
       ...(installed.app?.appAgents ?? []).map((a) => ({ id: a.agent.id, name: a.agent.name, urn: a.agent.urn, kind: 'agent' as const })),
     ];
     return { appRows, orgRows, attendees, canManageRegister: manage as boolean | null, registerLoadFailed: false };
