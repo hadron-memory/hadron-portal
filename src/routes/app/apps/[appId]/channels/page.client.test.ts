@@ -273,4 +273,20 @@ describe('Channels page', () => {
     const h1 = target.querySelector('h1')!;
     expect(h1.parentElement!.innerHTML).toContain('hrn:app:acme.com:team');
   });
+
+  it('a register row shows its saved note, and search finds it', async () => {
+    const row = (id: string, description: string | null) => ({
+      id, ownerType: 'ORGANIZATION', ownerId: 'org-1', appId: null, organizationId: 'org-1', channelId: 'ch-team',
+      channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team', chatRootUrn: null }, attendeeWorkerId: null, attendeeAgentId: null,
+      attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description, createdAt: '',
+    });
+    const { target } = await mountPage([channel()], { orgRows: [row('re-1', 'triage duty'), row('re-2', null)] });
+    const regTable = [...target.querySelectorAll('table')].find((tb) => tb.textContent?.includes('Set by'))!;
+    expect(regTable.textContent).toContain('triage duty');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search…"]')!;
+    search.value = 'triage';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(3);
+    expect(regTable.querySelectorAll('tbody tr')).toHaveLength(1);
+  });
 });

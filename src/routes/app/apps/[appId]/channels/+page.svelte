@@ -239,6 +239,8 @@
     mode: string;
     mentions: string;
     setBy: string;
+    /** The row's own note (its description), shown so what was saved stays visible. */
+    note: string;
     editable: boolean;
   }
   function attendeeLabel(r: RegisterEntry): string {
@@ -272,6 +274,7 @@
             ? t('app.channels.register.set-by.install', 'This App (set up at install)')
             : t('app.channels.register.set-by.app', 'This App')
           : t('app.channels.register.set-by.org', 'The organization'),
+      note: r.description ?? '',
       // An App edits and removes only ITS OWN rows; the org's are shown, not offered.
       editable: r.ownerType === 'APP' && canManageRegister,
     })),
@@ -289,6 +292,7 @@
     { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 170, enableHiding: false },
     { accessorKey: 'mentions', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 170 },
     { accessorKey: 'setBy', header: t('app.channels.register.col.set-by', 'Set by'), size: 190 },
+    { accessorKey: 'note', header: t('app.channels.register.col.note', 'Note'), size: 200 },
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 200 },
   ];
   const attendTable = createSvelteTable<AttendRow>({
