@@ -449,7 +449,7 @@
           {#if $createErrors.slug}
             <span id="create-slug-error" class="mt-1 block text-[11px] text-red-600 dark:text-red-400">{$createErrors.slug[0]}</span>
           {:else}
-            <span id="create-slug-address" class="mt-1 block font-mono text-[11px] text-zinc-400">{channelLoc($createData.slug || '…')}</span>
+            <span id="create-slug-address" class="mt-1 block font-mono text-[11px] text-zinc-400">{channelLoc($createData.slug.trim() || '…')}</span>
           {/if}
         </label>
         <label class="block text-xs text-zinc-600 sm:col-span-2 dark:text-zinc-400">

@@ -289,4 +289,13 @@ describe('Channels page', () => {
     await tick(3);
     expect(regTable.querySelectorAll('tbody tr')).toHaveLength(1);
   });
+
+  it('the address preview shows the trimmed short name, as the create will use it', async () => {
+    const { target } = await mountPage([channel()]);
+    const slug = target.querySelector<HTMLInputElement>('input[name="slug"]')!;
+    slug.value = ' release ';
+    slug.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(3);
+    expect(target.querySelector('#create-slug-address')!.textContent).toBe('chats:release');
+  });
 });
