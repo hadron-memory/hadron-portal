@@ -81,14 +81,24 @@ export function focusTrap(container: HTMLElement) {
       ? document.activeElement
       : null;
 
-  // Prefer the first tabbable control; fall back to the container itself, made
-  // programmatically focusable, so an empty dialog still takes focus off the
-  // page behind it rather than leaving it there.
+  // #938: the container is itself focusable (tabindex -1: reachable by click
+  // and by focus(), never by Tab) for as long as the trap holds. A mousedown on
+  // non-interactive content focuses the nearest focusable ANCESTOR. Without
+  // this that can be a focusable element OUTSIDE the dialog, such as the
+  // maximised team chat's enclosing tab panel (`tabindex="0"`). The focusin
+  // guard below then yanked focus back in, mid-mousedown, which cancels
+  // Chrome's text-selection drag: no text in the dialog could be selected.
+  // With the container focusable, the click lands inside and nothing moves.
+  const addedTabindex = !container.hasAttribute('tabindex');
+  if (addedTabindex) container.setAttribute('tabindex', '-1');
+
+  // Prefer the first tabbable control; fall back to the container itself, so
+  // an empty dialog still takes focus off the page behind it rather than
+  // leaving it there.
   const first = tabbable(container)[0];
   if (first) {
     first.focus();
   } else {
-    if (!container.hasAttribute('tabindex')) container.setAttribute('tabindex', '-1');
     container.focus();
   }
 
@@ -107,9 +117,12 @@ export function focusTrap(container: HTMLElement) {
     const lastItem = items[items.length - 1];
     const active = document.activeElement;
 
-    // Focus having escaped the container at all (or sitting on the container
-    // itself) means the next Tab must come back in, not continue outward.
-    if (!(active instanceof HTMLElement) || !container.contains(active)) {
+    // Focus having escaped the container at all, or sitting on the container
+    // itself, means the next Tab must come back in, not continue outward. The
+    // container case is common since #938 (a click on its text focuses it),
+    // and `contains` is true of the node itself, so it needs its own test:
+    // without it Shift+Tab walked out to the page behind (@codex on #939).
+    if (!(active instanceof HTMLElement) || active === container || !container.contains(active)) {
       e.preventDefault();
       (e.shiftKey ? lastItem : firstItem).focus();
       return;
@@ -139,6 +152,9 @@ export function focusTrap(container: HTMLElement) {
     destroy() {
       container.removeEventListener('keydown', onKeydown, true);
       document.removeEventListener('focusin', onFocusIn);
+      // A container that stays mounted (focusTrapWhen) goes back to what it
+      // was; a caller's own tabindex is never touched.
+      if (addedTabindex) container.removeAttribute('tabindex');
       // Restore only if focus is still inside the dialog (or nowhere). If the
       // user has already clicked elsewhere, yanking them back would be worse
       // than not restoring at all.
