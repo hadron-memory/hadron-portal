@@ -2,6 +2,7 @@ import type { GraphQLClient } from 'graphql-request';
 import {
   CREATE_NODE_MUTATION,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
+  LEGACY_THREAD_PROBE_QUERY,
   NODES_BY_LOC_PREFIX_QUERY,
   TEAM_CHAT_MESSAGES_QUERY,
 } from '$lib/server/queries';
@@ -46,21 +47,80 @@ const MESSAGES_SEGMENT = 'messages';
 /**
  * Whether a node is a chat ROOT.
  *
- * #926: a MESSAGE is never a root, whatever its tags. Legacy messages carry the
- * `team-chat` tag, and so do the platform `chat-message` nodes cloned from them
- * (all 142 of the MM Eng Team's). The tag alone made every one a "chat": its
- * page grew a Chat tab, and `chatPostTarget` offered a composer that would
- * have written legacy messages UNDER a message. The message test is the same
- * one `isChatMessageNode` applies, so a node is one or the other, never both.
+ * - A MESSAGE is never a root, whatever its tags (#926 part 1). Legacy
+ *   messages carry the `team-chat` tag, and so do the platform `chat-message`
+ *   nodes cloned from them. The test is the one `isChatMessageNode` applies,
+ *   so a node is one or the other, never both.
+ * - `nodeType: 'chat'` is a root (the platform, server #939).
+ * - The `team-chat` TAG alone is NOT enough (#926 part 2). A legacy root is an
+ *   ordinary node whose only marker is that tag, and so is a finding or a task
+ *   that is merely ABOUT the team chat (Chip's two reproductions). A tagged
+ *   node is a legacy root only on POSITIVE evidence of a legacy thread: a
+ *   direct `message` child, from `probeLegacyThread`. Holger ruled that an
+ *   EMPTY tag-only legacy root may lose its chat UI and first-post support
+ *   (team chat #2078).
  *
- * Still open (held for a product decision, see #926): a topical `team-chat`
- * tag on an ordinary node reads as a legacy root, because the tag is the only
- * marker a legacy root has.
+ * `legacyThread` must be true only on positive evidence. A failed or truncated
+ * probe is not evidence, and neither is the layout's `graphNodes` (partial,
+ * permission-filtered, or empty on a failed read).
  */
-export function isChatNode(node: Pick<MemoryNode, 'tags' | 'nodeType' | 'loc'> | null | undefined): boolean {
+export function isChatNode(
+  node: Pick<MemoryNode, 'tags' | 'nodeType' | 'loc'> | null | undefined,
+  opts: { legacyThread?: boolean } = {},
+): boolean {
   if (!node) return false;
   if (isChatMessageNode(node)) return false;
-  return node.nodeType === CHAT_NODE_TYPE || !!node.tags?.includes(TEAM_CHAT_TAG);
+  if (node.nodeType === CHAT_NODE_TYPE) return true;
+  return !!node.tags?.includes(TEAM_CHAT_TAG) && opts.legacyThread === true;
+}
+
+/** Whether classifying this node needs `probeLegacyThread`: a tagged, non-chat, non-message node. */
+export function needsLegacyThreadProbe(node: Pick<MemoryNode, 'tags' | 'nodeType' | 'loc'>): boolean {
+  return node.nodeType !== CHAT_NODE_TYPE && !isChatMessageNode(node) && !!node.tags?.includes(TEAM_CHAT_TAG);
+}
+
+/** Probe window. A legacy thread's first direct message sorts first by loc, so one page answers. */
+const LEGACY_THREAD_PROBE_LIMIT = 50;
+
+/**
+ * Whether a tag-only node has a legacy thread (#926), asked of the server with
+ * the VIEWER's token, so it can only find messages the viewer may read anyway.
+ *
+ * - `present`: a `message` node that is a DIRECT child (`<loc>:messages:<atom>`);
+ *   a deeper descendant is not a thread message (`loadChatMessages`'s rule).
+ * - `absent`: the complete answer holds none.
+ * - `unknown`: the window was truncated with no direct message in it, or the
+ *   read failed. NOT evidence either way; callers treat it as "not a chat".
+ */
+export type LegacyThread = 'present' | 'absent' | 'unknown';
+
+export async function probeLegacyThread(client: GraphQLClient, memoryId: string, loc: string): Promise<LegacyThread> {
+  try {
+    const r = await client.request<{
+      findNodes: { total: number | null; hits: Array<{ node: { loc: string; nodeType: string } }> };
+    }>(LEGACY_THREAD_PROBE_QUERY, { memoryId, locPrefix: messagesPrefix(loc), limit: LEGACY_THREAD_PROBE_LIMIT });
+    const hits = r.findNodes.hits;
+    if (hits.some(({ node }) => node.nodeType === LEGACY_MESSAGE_NODE_TYPE && chatRootLocForMessage(node.loc) === loc)) {
+      return 'present';
+    }
+    const total = r.findNodes.total;
+    return total !== null && total <= hits.length ? 'absent' : 'unknown';
+  } catch (e) {
+    console.warn(`[team-chat] legacy-thread probe failed for ${loc}:`, e);
+    return 'unknown';
+  }
+}
+
+/**
+ * The evidence `isChatNode` / `chatPostTarget` need for THIS node: probes only
+ * when the node is tag-only, so every other node pays nothing.
+ */
+export async function legacyThreadEvidence(
+  client: GraphQLClient,
+  node: Pick<MemoryNode, 'tags' | 'nodeType' | 'loc' | 'memoryId'>,
+): Promise<{ legacyThread: boolean }> {
+  if (!needsLegacyThreadProbe(node)) return { legacyThread: false };
+  return { legacyThread: (await probeLegacyThread(client, node.memoryId, node.loc)) === 'present' };
 }
 
 /**
@@ -124,8 +184,9 @@ export type ChatPostTarget =
 
 export function chatPostTarget(
   node: Pick<MemoryNode, 'tags' | 'nodeType' | 'loc'> & { memory?: { appId?: string | null } | null },
+  opts: { legacyThread?: boolean } = {},
 ): ChatPostTarget {
-  if (!isChatNode(node)) return { kind: 'none' };
+  if (!isChatNode(node, opts)) return { kind: 'none' };
   const appId = node.memory?.appId ?? null;
   if (node.nodeType === CHAT_NODE_TYPE && node.loc === TEAM_CHAT_LOC && appId) {
     return { kind: 'platform', appId };

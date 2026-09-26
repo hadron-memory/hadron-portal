@@ -13,7 +13,7 @@
  * root it must still accept, so a predicate that refuses everything fails too.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_BY_ID_QUERY } from '$lib/server/queries';
+import { LEGACY_THREAD_PROBE_QUERY, NODE_BY_ID_QUERY } from '$lib/server/queries';
 import { chatPostTarget, isChatMessageNode, isChatNode } from '$lib/server/team-chat';
 import type { MemoryNode } from '$lib/types';
 
@@ -65,14 +65,21 @@ describe('the predicate and the post target', () => {
   });
 
   it.each(ROOTS)('%s is still a chat with its own post target', (_n, node, kind) => {
-    expect(isChatNode(node as unknown as MemoryNode)).toBe(true);
-    expect(chatPostTarget(node as unknown as MemoryNode).kind).toBe(kind);
+    // The legacy root is one on the evidence of its thread (#926 part 2).
+    const evidence = { legacyThread: kind === 'legacy' };
+    expect(isChatNode(node as unknown as MemoryNode, evidence)).toBe(true);
+    expect(chatPostTarget(node as unknown as MemoryNode, evidence).kind).toBe(kind);
   });
 });
 
 function answerNode(node: unknown) {
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY) return { node };
+    // #926 part 2: the legacy root has a thread; the probe finds its message.
+    if (doc === LEGACY_THREAD_PROBE_QUERY) {
+      const loc = (node as { loc: string }).loc;
+      return { findNodes: { total: 1, hits: [{ node: { loc: `${loc}:messages:2026-06-21T175936Z-iris`, nodeType: 'message' } }] } };
+    }
     if (/findNodes/.test(doc)) return { findNodes: { total: 0, hits: [] } };
     return { memories: { items: [], total: 0 } };
   });

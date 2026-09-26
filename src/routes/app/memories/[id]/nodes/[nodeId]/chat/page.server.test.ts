@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CREATE_NODE_MUTATION, CREATE_TEAM_CHAT_MESSAGE_MUTATION, NODE_BY_ID_QUERY } from '$lib/server/queries';
+import { CREATE_NODE_MUTATION, CREATE_TEAM_CHAT_MESSAGE_MUTATION, LEGACY_THREAD_PROBE_QUERY, NODE_BY_ID_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -54,6 +54,9 @@ function legacyChat(over: Record<string, unknown> = {}) {
   };
 }
 
+/** #926: the probe's answer for `legacyChat()`, a direct legacy message under it. */
+const LEGACY_THREAD = { findNodes: { total: 1, hits: [{ node: { loc: 'team:chat:messages:001-ada', nodeType: 'message' } }] } };
+
 /** The App's one well-known team chat (server #939). */
 function teamChat(over: Record<string, unknown> = {}) {
   return {
@@ -66,6 +69,7 @@ describe('chat page load — fullUrn', () => {
   async function loadWith(memoryUrn: string | null, node: Record<string, unknown>) {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === NODE_BY_ID_QUERY) return { node };
+      if (query === LEGACY_THREAD_PROBE_QUERY) return LEGACY_THREAD;
       // loadChatMessages' NODES_BY_LOC_PREFIX_QUERY — an empty thread is fine,
       // the URN is what's under test.
       return { findNodes: { hits: [] } };
@@ -151,6 +155,7 @@ describe('chat sendMessage action', () => {
     mockRequest.mockResolvedValueOnce({
       node: legacyChat(),
     });
+    mockRequest.mockResolvedValueOnce(LEGACY_THREAD);
     mockRequest.mockResolvedValueOnce({
       createNode: { id: 'message-1', loc: 'team:chat:messages:20260720T120000Z-holger' },
     });
@@ -163,7 +168,8 @@ describe('chat sendMessage action', () => {
     expect(result).toMatchObject({ sent: true, messageNode: { nodeId: 'message-1' } });
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Message sent.' });
     expect(mockRequest).toHaveBeenNthCalledWith(1, NODE_BY_ID_QUERY, { ref: 'chat-1' });
-    expect(mockRequest).toHaveBeenNthCalledWith(2, CREATE_NODE_MUTATION, {
+    expect(mockRequest).toHaveBeenNthCalledWith(2, LEGACY_THREAD_PROBE_QUERY, expect.objectContaining({ locPrefix: 'team:chat:messages:' }));
+    expect(mockRequest).toHaveBeenNthCalledWith(3, CREATE_NODE_MUTATION, {
       input: expect.objectContaining({
         memoryId: 'mem-1',
         loc: expect.stringMatching(/^team:chat:messages:/),
@@ -236,6 +242,7 @@ describe('chat sendMessage action', () => {
     mockRequest.mockResolvedValueOnce({
       node: legacyChat(),
     });
+    mockRequest.mockResolvedValueOnce(LEGACY_THREAD);
 
     const result = (await send(
       { _kind: 'sendChatMessage', content: 'hello' },
@@ -244,13 +251,15 @@ describe('chat sendMessage action', () => {
 
     expect(result.status).toBe(401);
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Not authenticated' });
-    expect(mockRequest).toHaveBeenCalledTimes(1);
+    // The node read and the #926 thread probe; nothing written.
+    expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 
   it('extracts GraphQL failure messages into the Superforms message', async () => {
     mockRequest.mockResolvedValueOnce({
       node: legacyChat(),
     });
+    mockRequest.mockResolvedValueOnce(LEGACY_THREAD);
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'Cannot create message' }] },
     });
