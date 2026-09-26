@@ -477,4 +477,35 @@ describe('Channels page', () => {
     await tick(3);
     expect(target.textContent).not.toContain('That name is refused for Team chat.');
   });
+
+  it('a reload that retires the selected Worker clears "Show for" rather than re-resolving it', async () => {
+    let n = 0;
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      n++;
+      return { ok: true, json: async () => ({ rows: [{ id: 'e1', channel: 'team', channelUrn: null, mode: 'Watch', counts: 'All messages', because: 'Their own row', readUpTo: 'x', note: '' }], loadedAt: 'x' }) } as unknown as Response;
+    }));
+    try {
+      const ada = { id: 'w-ada', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', kind: 'worker', role: null, retired: false };
+      const first = await mountPage([channel()], { attendees: [ada] });
+      const props = reactiveProps({ ...(first.props as Record<string, unknown>) });
+      first.unmount();
+      const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(3);
+      const pick = () => [...m.target.querySelectorAll<HTMLSelectElement>('select')].find((s) => s.options[0]?.textContent?.includes('Pick a worker or agent'))!;
+      pick().value = 'w-ada';
+      pick().dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(6);
+      expect(n).toBe(1);
+
+      props.data = { ...(props.data as Record<string, unknown>), attendees: [{ ...ada, retired: true }] };
+      await tick(8);
+      expect(n).toBe(1); // not re-resolved
+      expect(pick().value).toBe('');
+      expect(m.target.textContent).not.toContain('Their own row');
+      expect(pick().parentElement!.innerHTML).not.toContain('hrn:worker:acme.com:team:ada');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

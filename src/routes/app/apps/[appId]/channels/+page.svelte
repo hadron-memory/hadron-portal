@@ -340,6 +340,12 @@
         effectiveFor = '';
         effective = null;
         effectiveState = 'idle';
+      } else if (effectiveFor && !d.attendees.some((a) => a.id === effectiveFor && !a.retired)) {
+        // The pick is no longer offered (retired, or gone since the reload).
+        effectiveSeq++;
+        effectiveFor = '';
+        effective = null;
+        effectiveState = 'idle';
       } else if (effectiveFor) {
         void loadEffective(effectiveFor);
       }
