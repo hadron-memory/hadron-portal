@@ -210,6 +210,63 @@ describe('POST /api/ai-configs', () => {
     expect(body.error).toMatch(/invalid api key/);
   });
 
+  // ── server#1373: endpoint / apiStyle, three-way ──────────────────────────
+  it('create: forwards endpoint and apiStyle; an empty one is omitted (provider default)', async () => {
+    mockRequest.mockResolvedValue({ createAiServiceConfig: { id: 'c1' } });
+    const { POST } = await import('./+server');
+    const base = { action: 'create', ownerType: 'ORGANIZATION', ownerId: 'o1', name: 'default', provider: 'openai-compatible', model: 'm', apiKey: 'k' };
+    await POST(ev({ body: { ...base, endpoint: 'https://llm.example.com/v1', apiStyle: 'RESPONSES' } }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ endpoint: 'https://llm.example.com/v1', apiStyle: 'RESPONSES' });
+    await POST(ev({ body: { ...base, provider: 'openai', endpoint: '', apiStyle: null } }));
+    expect(mockRequest.mock.calls[1][1].endpoint).toBeUndefined();
+    expect(mockRequest.mock.calls[1][1].apiStyle).toBeUndefined();
+  });
+
+  it('update: an ABSENT endpoint/apiStyle is unchanged, null clears, a value sets', async () => {
+    mockRequest.mockResolvedValue({ updateAiServiceConfig: { id: 'c1' } });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'update', id: 'c1', model: 'm' } }));
+    expect('endpoint' in mockRequest.mock.calls[0][1]).toBe(false);
+    expect('apiStyle' in mockRequest.mock.calls[0][1]).toBe(false);
+    await POST(ev({ body: { action: 'update', id: 'c1', endpoint: null, apiStyle: null } }));
+    expect(mockRequest.mock.calls[1][1]).toMatchObject({ endpoint: null, apiStyle: null });
+    await POST(ev({ body: { action: 'update', id: 'c1', endpoint: 'https://api.z.ai/api/coding/paas/v4' } }));
+    expect(mockRequest.mock.calls[2][1]).toMatchObject({ endpoint: 'https://api.z.ai/api/coding/paas/v4' });
+    expect('apiStyle' in mockRequest.mock.calls[2][1]).toBe(false);
+  });
+
+  it('testSaved: an edited endpoint/apiStyle rides the override, null included', async () => {
+    mockRequest.mockResolvedValueOnce({ testAiServiceConfig: RESULT });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'testSaved', id: 'c1', override: { endpoint: null, apiStyle: 'CHAT_COMPLETIONS' } } }));
+    expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'c1', override: { endpoint: null, apiStyle: 'CHAT_COMPLETIONS' } });
+  });
+
+  it('test (inline): refused for a host the portal client would get wrong; no LLM call', async () => {
+    const { POST } = await import('./+server');
+    for (const body of [
+      { provider: 'openai-compatible', endpoint: 'https://llm.example.com/v1' },
+      { provider: 'glm' }, // the portal's glm host is the Coding Plan, not the server default
+      { provider: 'openai', endpoint: 'https://proxy.example.com/v1' },
+      { provider: 'openai', apiStyle: 'CHAT_COMPLETIONS' },
+    ]) {
+      const res = await POST(ev({ body: { action: 'test', model: 'm', apiKey: 'k', ...body } }));
+      expect(res.status).toBe(400);
+      expect((await jsonOf(res)).error).toMatch(/Save this configuration first/);
+    }
+    expect(mockCallAgentChatLlm).not.toHaveBeenCalled();
+  });
+
+  it('endpoints: reads the server’s suggestion list for the provider', async () => {
+    const list = [{ url: 'https://api.z.ai/api/paas/v4', label: 'Z.ai (general)', isDefault: true, note: 'Pay-as-you-go' }];
+    mockRequest.mockResolvedValueOnce({ aiProviderEndpoints: list });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'endpoints', provider: 'glm' } }));
+    expect((await jsonOf(res)).endpoints).toEqual(list);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ provider: 'glm' });
+    expect((await POST(ev({ body: { action: 'endpoints' } }))).status).toBe(400);
+  });
+
   it('rejects unknown actions', async () => {
     const { POST } = await import('./+server');
     const res = await POST(ev({ body: { action: 'explode' } }));

@@ -6,7 +6,9 @@ import {
   UPDATE_AI_SERVICE_CONFIG_MUTATION,
   DELETE_AI_SERVICE_CONFIG_MUTATION,
   TEST_AI_SERVICE_CONFIG_MUTATION,
+  AI_PROVIDER_ENDPOINTS_QUERY,
 } from '$lib/server/queries';
+import { inlineTestable } from '$lib/components/ai-config-manager';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { AIProvider, AiConfigOwnerType, AiServiceConfig } from '$lib/types';
@@ -18,12 +20,18 @@ import type { RequestHandler } from './$types';
  * registry. One endpoint, dispatched on `action`, reused by the
  * AiServiceConfigManager component across the Org / Agent / App surfaces.
  *
- *   { action: 'create', ownerType, ownerId, name, provider, model, apiKey?, params?, enabled? }
+ *   { action: 'create', ownerType, ownerId, name, provider, model, apiKey?, params?, enabled?,
+ *       endpoint?, apiStyle? }
  *   { action: 'update', id, name?, provider?, model?, params?, enabled?,
- *       apiKeyAction: 'keep' | 'clear' | 'set', apiKey? }
+ *       apiKeyAction: 'keep' | 'clear' | 'set', apiKey?, endpoint?, apiStyle? }
  *   { action: 'delete', id }
  *   { action: 'test', provider, model, apiKey }            // test an UNSAVED config inline
  *   { action: 'testSaved', id, override? }                 // #937: test a SAVED config by id
+ *   { action: 'endpoints', provider }                      // server#1373: known endpoints
+ *
+ * endpoint / apiStyle follow the server's update grammar (server#1373): a key
+ * that is ABSENT means unchanged, `null` means clear to the provider default,
+ * a value sets it. So they're forwarded only when present, never defaulted.
  *
  * The browser never sees stored keys, so updates carry an explicit
  * `apiKeyAction` discriminator: 'keep' omits the apiKey arg (server keeps the
@@ -31,7 +39,7 @@ import type { RequestHandler } from './$types';
  */
 
 interface Body {
-  action?: 'create' | 'update' | 'delete' | 'test' | 'testSaved';
+  action?: 'create' | 'update' | 'delete' | 'test' | 'testSaved' | 'endpoints';
   // create / update
   id?: string;
   ownerType?: AiConfigOwnerType;
@@ -43,8 +51,24 @@ interface Body {
   apiKeyAction?: 'keep' | 'clear' | 'set';
   params?: Record<string, unknown> | null;
   enabled?: boolean;
+  endpoint?: string | null;
+  apiStyle?: 'CHAT_COMPLETIONS' | 'RESPONSES' | null;
   // testSaved (#937): values to test instead of the saved ones; never stored
-  override?: { provider?: string; model?: string; apiKey?: string };
+  override?: {
+    provider?: string;
+    model?: string;
+    apiKey?: string;
+    endpoint?: string | null;
+    apiStyle?: 'CHAT_COMPLETIONS' | 'RESPONSES' | null;
+  };
+}
+
+/** Copy endpoint/apiStyle only when the caller sent them: absent means unchanged. */
+function endpointArgs(src: { endpoint?: string | null; apiStyle?: string | null }): Record<string, string | null> {
+  return {
+    ...('endpoint' in src ? { endpoint: src.endpoint ?? null } : {}),
+    ...('apiStyle' in src ? { apiStyle: src.apiStyle ?? null } : {}),
+  };
 }
 
 const TEST_SYSTEM =
@@ -86,6 +110,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             apiKey: body.apiKey ? body.apiKey : undefined,
             params: body.params ?? undefined,
             enabled: body.enabled ?? undefined,
+            // A new config has nothing to clear: a null here is just "default".
+            endpoint: body.endpoint || undefined,
+            apiStyle: body.apiStyle || undefined,
           },
         );
         return json({ ok: true, config: data.createAiServiceConfig });
@@ -115,6 +142,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             apiKey,
             params: body.params ?? undefined,
             enabled: body.enabled ?? undefined,
+            ...endpointArgs(body),
           },
         );
         return json({ ok: true, config: data.updateAiServiceConfig });
@@ -148,6 +176,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         ...(o.provider ? { provider: o.provider } : {}),
         ...(o.model ? { model: o.model } : {}),
         ...(o.apiKey ? { apiKey: o.apiKey } : {}),
+        ...endpointArgs(o),
       };
       try {
         const data = await client.request<{ testAiServiceConfig: AiConfigTestResult }>(TEST_AI_SERVICE_CONFIG_MUTATION, {
@@ -181,6 +210,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         provider = body.provider;
         model = body.model;
         apiKey = body.apiKey;
+        // The portal's own client knows only built-in hosts (and its glm host
+        // isn't the server's default), so for these it would test something
+        // other than what a run does. The form doesn't offer it; refuse anyway.
+        if (!inlineTestable({ provider, endpoint: body.endpoint ?? '', apiStyle: body.apiStyle ?? '' })) {
+          return json(
+            { error: 'Save this configuration first, then Test it: the server tests it with the endpoint a run uses.' },
+            { status: 400 },
+          );
+        }
       } else {
         return json(
           { error: 'Provide provider, model and apiKey. To test a saved configuration, use testSaved with its id.' },
@@ -206,6 +244,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         });
       } catch (e) {
         return json({ ok: false, error: e instanceof Error ? e.message : 'LLM call failed' });
+      }
+    }
+
+    case 'endpoints': {
+      if (!body.provider) return json({ error: 'provider is required' }, { status: 400 });
+      try {
+        const data = await client.request<{ aiProviderEndpoints: unknown[] }>(AI_PROVIDER_ENDPOINTS_QUERY, {
+          provider: body.provider,
+        });
+        return json({ endpoints: data.aiProviderEndpoints });
+      } catch (e) {
+        return json({ error: extractGqlError(e, 'Could not load the known endpoints.') }, { status: 400 });
       }
     }
 

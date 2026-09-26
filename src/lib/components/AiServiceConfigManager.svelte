@@ -2,8 +2,8 @@
   import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
   import { invalidateAll } from '$app/navigation';
-  import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
-  import type { AiConfigOwnerType, AiServiceConfig, AIProvider } from '$lib/types';
+  import { AI_CONFIG_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
+  import type { AiConfigOwnerType, AiConfigProvider, AiServiceConfig } from '$lib/types';
   import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
   import { t } from '$lib/i18n/t';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -15,6 +15,13 @@
     resolveKeyInput,
     resolveApiKeyAction,
     parseParamsText,
+    apiStyleApplies,
+    endpointRequired,
+    keyRequired,
+    fieldChange,
+    endpointShapeError,
+    inlineTestable,
+    type AiApiStyle,
   } from './ai-config-manager';
 
   let {
@@ -46,7 +53,7 @@
   let formOpen = $state(false);
   let editId = $state<string | null>(null); // null ⇒ create
   let nameInput = $state('');
-  let providerInput = $state<AIProvider>('anthropic');
+  let providerInput = $state<AiConfigProvider>('anthropic');
   let modelInput = $state('');
   let apiKeyInput = $state('');
   let bedrockAccessKeyId = $state('');
@@ -55,6 +62,13 @@
   let enabledInput = $state(true);
   let removeKey = $state(false);
   let paramsText = $state('');
+  // server#1373: '' = the provider default, for both.
+  let endpointInput = $state('');
+  let apiStyleInput = $state<AiApiStyle | ''>('');
+  // server#1389: params.toolCalling, owned by this toggle for openai-compatible.
+  let toolCalling = $state(false);
+  type KnownEndpoint = { url: string; label: string; isDefault: boolean; note: string | null };
+  let knownEndpoints = $state<KnownEndpoint[]>([]);
   let busy = $state(false);
   let error = $state<string | null>(null);
   // #937: one shape for both paths, so the result always reads the same way.
@@ -68,7 +82,45 @@
   );
 
   function providerLabel(p: string): string {
-    return AI_PROVIDERS.find((x) => x.value === p)?.label ?? p;
+    return AI_CONFIG_PROVIDERS.find((x) => x.value === p)?.label ?? p;
+  }
+
+  const DEFAULT_API_STYLE: Record<string, AiApiStyle> = {
+    openai: 'RESPONSES',
+    glm: 'CHAT_COMPLETIONS',
+    'openai-compatible': 'CHAT_COMPLETIONS',
+  };
+  function apiStyleLabel(style: AiApiStyle): string {
+    return style === 'RESPONSES' ? s.apiStyleResponses() : s.apiStyleChat();
+  }
+  const needsKey = $derived(keyRequired({ ownerType, provider: providerInput, endpoint: endpointInput }));
+  const defaultEndpoint = $derived(knownEndpoints.find((e) => e.isDefault) ?? null);
+  const chosenEndpoint = $derived(knownEndpoints.find((e) => e.url === endpointInput.trim()) ?? null);
+
+  // The server's suggestion list for the chosen provider. A stale reply (the
+  // provider changed while it was in flight) is dropped, and a failed read is
+  // just no suggestions: the field still takes any URL.
+  let endpointsSeq = 0;
+  $effect(() => {
+    const provider = providerInput;
+    if (!formOpen || provider === 'bedrock') {
+      knownEndpoints = [];
+      return;
+    }
+    const seq = ++endpointsSeq;
+    post({ action: 'endpoints', provider })
+      .then((r) => {
+        if (seq === endpointsSeq) knownEndpoints = (r.endpoints as KnownEndpoint[]) ?? [];
+      })
+      .catch(() => {
+        if (seq === endpointsSeq) knownEndpoints = [];
+      });
+  });
+
+  function onProviderChange() {
+    // A style is refused for a single-protocol provider rather than ignored.
+    if (!apiStyleApplies(providerInput)) apiStyleInput = '';
+    if (providerInput !== 'openai-compatible') toolCalling = false;
   }
 
   // #719 — the config list as the shared TanStack grid, replacing a stack of
@@ -111,6 +163,9 @@
       size: 150,
     },
     { accessorKey: 'model', header: t('ai-config.column.model', 'Model'), size: 200 },
+    // Where a run actually goes (server#1373), so a Coding Plan config and a
+    // pay-as-you-go one are told apart. Null only for bedrock (region-derived).
+    { accessorFn: (row) => row.effectiveEndpoint ?? '—', id: 'endpoint', header: s.endpointColumn(), size: 240 },
     {
       accessorFn: (row) => (row.enabled ? s.enabledBadge() : s.disabledBadge()),
       id: 'enabled',
@@ -173,6 +228,9 @@
     enabledInput = true;
     removeKey = false;
     paramsText = '';
+    endpointInput = '';
+    apiStyleInput = '';
+    toolCalling = false;
     error = null;
     testResult = null;
   }
@@ -193,7 +251,13 @@
     bedrockRegion =
       (c.params && typeof c.params.bedrockRegion === 'string' && c.params.bedrockRegion) ||
       'us-east-1';
-    paramsText = c.params ? JSON.stringify(c.params, null, 2) : '';
+    endpointInput = c.endpoint ?? '';
+    apiStyleInput = c.apiStyle ?? '';
+    // The toggle owns toolCalling, so it's lifted out of the JSON shown.
+    const { toolCalling: tc, ...rest } = c.params ?? {};
+    toolCalling = tc === true;
+    const shown = c.provider === 'openai-compatible' ? rest : (c.params ?? {});
+    paramsText = c.params && Object.keys(shown).length > 0 ? JSON.stringify(shown, null, 2) : '';
     formOpen = true;
   }
 
@@ -234,8 +298,21 @@
     // on a later edit — the masked list never returns the key, so the region
     // (also encoded into the key) can't be recovered from there. Server params
     // validation is passthrough, so the extra key is preserved untouched.
+    const endpointErr = endpointShapeError(endpointInput);
+    if (endpointErr) {
+      error = endpointErr;
+      return;
+    }
+    if (endpointRequired(providerInput) && !endpointInput.trim()) {
+      error = s.endpointRequired();
+      return;
+    }
     const paramsValue =
-      providerInput === 'bedrock' ? { ...params.value, bedrockRegion } : params.value;
+      providerInput === 'bedrock'
+        ? { ...params.value, bedrockRegion }
+        : providerInput === 'openai-compatible'
+          ? { ...params.value, toolCalling }
+          : params.value;
     const enteredKey = resolveKeyInput({
       provider: providerInput,
       apiKey: apiKeyInput,
@@ -243,6 +320,16 @@
       bedrockSecretAccessKey,
       bedrockRegion,
     });
+
+    // The server refuses these too (server#1390); saying so here names the field.
+    // "Remove the stored key" is hidden where a key is required, so a box
+    // ticked before the provider changed must not still clear it.
+    const clearKey = removeKey && !needsKey;
+    const willHaveKey = clearKey ? !!enteredKey : !!enteredKey || hasExistingKey;
+    if (needsKey && !willHaveKey) {
+      error = s.keyRequired();
+      return;
+    }
 
     busy = true;
     error = null;
@@ -259,9 +346,14 @@
           apiKey: enteredKey || undefined,
           params: paramsValue,
           enabled: enabledInput,
+          endpoint: endpointInput.trim() || undefined,
+          apiStyle: apiStyleInput || undefined,
         });
       } else {
-        const keyArg = resolveApiKeyAction({ removeKey, enteredKey });
+        const keyArg = resolveApiKeyAction({ removeKey: clearKey, enteredKey });
+        // Absent = unchanged, null = back to the provider default.
+        const endpoint = fieldChange(editing?.endpoint, endpointInput);
+        const apiStyle = fieldChange<AiApiStyle>(editing?.apiStyle, apiStyleInput);
         await post({
           action: 'update',
           id: editId,
@@ -271,6 +363,8 @@
           params: paramsValue,
           enabled: enabledInput,
           ...keyArg,
+          ...(endpoint !== undefined ? { endpoint } : {}),
+          ...(apiStyle !== undefined ? { apiStyle } : {}),
         });
       }
       closeForm();
@@ -299,12 +393,19 @@
         // server's own run path (server#1378). The stored key stays there.
         // Only what the user changed or typed rides along as an override,
         // which is tested and never saved.
-        const override: Record<string, string> = {};
+        const override: Record<string, string | null> = {};
         if (providerInput !== editing.provider) override.provider = providerInput;
         if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
         if (enteredKey) override.apiKey = enteredKey;
+        const endpoint = fieldChange(editing.endpoint, endpointInput);
+        if (endpoint !== undefined) override.endpoint = endpoint;
+        const apiStyle = fieldChange<AiApiStyle>(editing.apiStyle, apiStyleInput);
+        if (apiStyle !== undefined) override.apiStyle = apiStyle;
         const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
         testResult = testResultView(res.result);
+      } else if (!inlineTestable({ provider: providerInput, endpoint: endpointInput, apiStyle: apiStyleInput })) {
+        // The portal's own client would test a different host than a run uses.
+        error = s.testSaveFirst();
       } else if (enteredKey) {
         // A NEW, unsaved config: nothing is stored yet, so it's tested inline.
         const r = (await post({
@@ -404,9 +505,10 @@
         <select
           id="ac-provider"
           bind:value={providerInput}
+          onchange={onProviderChange}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
         >
-          {#each AI_PROVIDERS as p (p.value)}<option value={p.value}>{p.label}</option>{/each}
+          {#each AI_CONFIG_PROVIDERS as p (p.value)}<option value={p.value}>{p.label}</option>{/each}
         </select>
       </div>
 
@@ -418,10 +520,73 @@
           id="ac-model"
           type="text"
           bind:value={modelInput}
-          placeholder={lookupOwn(DEFAULT_MODELS, providerInput)}
+          placeholder={lookupOwn(DEFAULT_MODELS, providerInput) ?? ''}
           class={inputClass}
         />
       </div>
+
+      {#if providerInput !== 'bedrock'}
+        <!-- server#1373. Bedrock has no endpoint: its host follows the region. -->
+        <div>
+          <label for="ac-endpoint" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            {s.endpointLabel()}
+          </label>
+          <input
+            id="ac-endpoint"
+            type="url"
+            list="ac-endpoint-options"
+            bind:value={endpointInput}
+            placeholder={defaultEndpoint?.url ?? 'https://'}
+            aria-describedby="ac-endpoint-hint"
+            class={inputClass}
+          />
+          <datalist id="ac-endpoint-options">
+            {#each knownEndpoints as e (e.url)}<option value={e.url}>{e.label}</option>{/each}
+          </datalist>
+          <div id="ac-endpoint-hint" class="mt-1 space-y-0.5 text-xs text-zinc-400">
+            {#if endpointRequired(providerInput)}
+              <p>{s.endpointRequiredHint()}</p>
+            {:else if !endpointInput.trim() && defaultEndpoint}
+              <p>{s.endpointDefaultHint(defaultEndpoint.url)}</p>
+            {/if}
+            {#if chosenEndpoint}
+              <p>{chosenEndpoint.label}{chosenEndpoint.note ? ` · ${chosenEndpoint.note}` : ''}</p>
+            {:else if !endpointInput.trim() && defaultEndpoint?.note}
+              <p>{defaultEndpoint.label} · {defaultEndpoint.note}</p>
+            {/if}
+            {#if endpointInput.trim() && !endpointRequired(providerInput)}
+              <p>{s.endpointCustomHint()}</p>
+            {/if}
+          </div>
+        </div>
+      {/if}
+
+      {#if apiStyleApplies(providerInput)}
+        <div>
+          <label for="ac-api-style" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            {s.apiStyleLabel()}
+          </label>
+          <select
+            id="ac-api-style"
+            bind:value={apiStyleInput}
+            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white"
+          >
+            <option value="">{s.apiStyleDefault(apiStyleLabel(DEFAULT_API_STYLE[providerInput]))}</option>
+            <option value="CHAT_COMPLETIONS">{s.apiStyleChat()}</option>
+            <option value="RESPONSES">{s.apiStyleResponses()}</option>
+          </select>
+        </div>
+      {/if}
+
+      {#if providerInput === 'openai-compatible'}
+        <div>
+          <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input type="checkbox" bind:checked={toolCalling} aria-describedby="ac-tool-calling-hint" />
+            {s.toolCallingLabel()}
+          </label>
+          <p id="ac-tool-calling-hint" class="mt-1 text-xs text-zinc-400">{s.toolCallingHint()}</p>
+        </div>
+      {/if}
 
       {#if providerInput === 'bedrock'}
         <div>
@@ -473,10 +638,14 @@
             class={inputClass}
           />
           <p class="mt-1 text-xs text-zinc-400">{s.encryptedNote()}</p>
+          {#if needsKey && !hasExistingKey}
+            <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">{s.keyRequiredNote()}</p>
+          {/if}
         </div>
       {/if}
 
-      {#if editId !== null && hasExistingKey}
+      <!-- Clearing the key is refused where one is required (server#1390). -->
+      {#if editId !== null && hasExistingKey && !needsKey}
         <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
           <input type="checkbox" bind:checked={removeKey} />
           {s.removeKeyLabel()}

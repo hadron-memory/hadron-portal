@@ -5,6 +5,12 @@ import {
   resolveKeyInput,
   resolveApiKeyAction,
   parseParamsText,
+  apiStyleApplies,
+  endpointRequired,
+  keyRequired,
+  fieldChange,
+  endpointShapeError,
+  inlineTestable,
 } from './ai-config-manager';
 
 describe('isValidConfigName', () => {
@@ -86,5 +92,58 @@ describe('parseParamsText', () => {
   });
   it('rejects invalid JSON', () => {
     expect(parseParamsText('{bad}').ok).toBe(false);
+  });
+});
+
+describe('server#1373 / #1390 rules, mirrored', () => {
+  it('apiStyle applies to the OpenAI-style providers only', () => {
+    expect(['openai', 'glm', 'openai-compatible'].every(apiStyleApplies)).toBe(true);
+    expect(apiStyleApplies('anthropic')).toBe(false);
+    expect(apiStyleApplies('bedrock')).toBe(false);
+  });
+
+  it('only openai-compatible requires an endpoint', () => {
+    expect(endpointRequired('openai-compatible')).toBe(true);
+    expect(endpointRequired('glm')).toBe(false);
+  });
+
+  it('every tenant config needs its own key (#1390)', () => {
+    for (const ownerType of ['ORGANIZATION', 'APP', 'AGENT']) {
+      for (const provider of ['openai', 'anthropic', 'bedrock', 'glm', 'openai-compatible']) {
+        expect(keyRequired({ ownerType, provider, endpoint: '' })).toBe(true);
+      }
+    }
+  });
+
+  it('the platform config may go keyless only at a credential-issuing default host', () => {
+    expect(keyRequired({ ownerType: 'HADRON_SERVER', provider: 'openai', endpoint: '' })).toBe(false);
+    expect(keyRequired({ ownerType: 'HADRON_SERVER', provider: 'anthropic', endpoint: ' ' })).toBe(false);
+    expect(keyRequired({ ownerType: 'HADRON_SERVER', provider: 'glm', endpoint: '' })).toBe(true);
+    expect(keyRequired({ ownerType: 'HADRON_SERVER', provider: 'openai', endpoint: 'https://proxy.example.com' })).toBe(true);
+  });
+
+  it('fieldChange speaks the update grammar: unchanged, clear, set', () => {
+    expect(fieldChange('https://a.example', 'https://a.example')).toBeUndefined();
+    expect(fieldChange(null, '')).toBeUndefined();
+    expect(fieldChange(null, '  ')).toBeUndefined();
+    expect(fieldChange('https://a.example', '')).toBeNull();
+    expect(fieldChange(null, ' https://b.example ')).toBe('https://b.example');
+  });
+
+  it('endpointShapeError: empty is fine, a full http(s) URL is fine, anything else is not', () => {
+    expect(endpointShapeError('')).toBeNull();
+    expect(endpointShapeError('https://llm.example.com/v1')).toBeNull();
+    expect(endpointShapeError('http://10.0.0.5:8000/v1')).toBeNull(); // the server decides private hosts
+    expect(endpointShapeError('llm.example.com')).toMatch(/full URL/);
+    expect(endpointShapeError('ftp://llm.example.com')).toMatch(/https/);
+  });
+
+  it('inlineTestable: only built-in hosts the portal client reaches the way a run does', () => {
+    expect(inlineTestable({ provider: 'anthropic', endpoint: '', apiStyle: '' })).toBe(true);
+    expect(inlineTestable({ provider: 'openai', endpoint: '', apiStyle: '' })).toBe(true);
+    expect(inlineTestable({ provider: 'glm', endpoint: '', apiStyle: '' })).toBe(false);
+    expect(inlineTestable({ provider: 'openai-compatible', endpoint: 'https://x.example', apiStyle: '' })).toBe(false);
+    expect(inlineTestable({ provider: 'openai', endpoint: 'https://x.example', apiStyle: '' })).toBe(false);
+    expect(inlineTestable({ provider: 'openai', endpoint: '', apiStyle: 'RESPONSES' })).toBe(false);
   });
 });

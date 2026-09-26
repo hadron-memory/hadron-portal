@@ -797,13 +797,28 @@ export interface AppAIConfig {
 
 export type AiConfigOwnerType = 'HADRON_SERVER' | 'ORGANIZATION' | 'APP' | 'AGENT';
 
+/**
+ * A provider an AiServiceConfig may name: the portal's own `AIProvider`s plus
+ * `openai-compatible` (server#1389), which the portal's LLM client can't
+ * speak. Kept apart so nothing that calls that client can be handed one.
+ */
+export type AiConfigProvider = AIProvider | 'openai-compatible';
+
 export interface AiServiceConfig {
   id: string;
   name: string;
   ownerType: AiConfigOwnerType;
   ownerId: string;
-  provider: AIProvider;
+  provider: AiConfigProvider;
   model: string;
+  /** server#1373: the base URL as stored; null = the provider default. */
+  endpoint: string | null;
+  /** Where a request actually goes: endpoint, else the default. Null only for bedrock. */
+  effectiveEndpoint: string | null;
+  /** The wire protocol as stored; null = the provider default. OpenAI-style providers only. */
+  apiStyle: 'CHAT_COMPLETIONS' | 'RESPONSES' | null;
+  /** The protocol a request actually uses; null for single-protocol providers. */
+  effectiveApiStyle: 'CHAT_COMPLETIONS' | 'RESPONSES' | null;
   hasApiKey: boolean;
   apiKeyPreview: string | null;
   params: Record<string, unknown> | null;
