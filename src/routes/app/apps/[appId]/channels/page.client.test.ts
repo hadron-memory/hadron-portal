@@ -139,4 +139,31 @@ describe('Channels page', () => {
     const confirm = target.querySelector<HTMLFormElement>('form[action="?/removeAttendance"]')!;
     expect((await submitEnhanced(confirm)).cancelled).toBe(false);
   });
+
+  it('search matches the memory URN and the default’s “Team chat” badge, as shown', async () => {
+    const OTHER = { id: 'mem-o', urn: 'hrn:mem:acme.com:other', name: 'Other' };
+    const { target } = await mountPage([
+      channel({ name: 'Renamed default' }),
+      channel({ id: 'ch-x', name: 'Elsewhere', loc: 'chats:x', chatRootUrn: 'hrn:node:acme.com:other:chats:x', memory: OTHER }),
+    ]);
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search channels…"]')!;
+    const rowsFor = async (q: string) => {
+      search.value = q;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(3);
+      return target.querySelector('table')!.textContent!;
+    };
+    let text = await rowsFor('hrn:mem:acme.com:other');
+    expect(text).toContain('Elsewhere');
+    expect(text).not.toContain('Renamed default');
+    text = await rowsFor('team chat');
+    expect(text).toContain('Renamed default');
+    expect(text).not.toContain('Elsewhere');
+  });
+
+  it('the create panel names its target memory with its URN', async () => {
+    const { target } = await mountPage([channel()]);
+    const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
+    expect(panel.innerHTML).toContain('hrn:mem:acme.com:team-shared');
+  });
 });
