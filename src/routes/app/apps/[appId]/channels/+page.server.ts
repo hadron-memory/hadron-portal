@@ -287,7 +287,7 @@ export const actions: Actions = {
         { ref: params.appId },
       );
       if (!app?.sharedMemory) {
-        return message(form, { type: 'error', text: t('app.channels.error.no-host', 'This App has no shared memory to hold a channel.') }, { status: 400 });
+        return message(form, { type: 'error', text: t('app.channels.error.no-host', 'This App’s shared memory, where its channels live, isn’t available to you.') }, { status: 400 });
       }
       await client.request(CREATE_CHANNEL_MUTATION, {
         input: {

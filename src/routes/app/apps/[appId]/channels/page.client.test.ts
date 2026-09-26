@@ -308,4 +308,31 @@ describe('Channels page', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('with no readable shared memory, the create panel says unavailable, never "has none"', async () => {
+    const { target } = await mountPage([channel()], { app: { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: null, sharedMemory: null } });
+    const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
+    expect(panel.textContent).toContain('isn’t available to you');
+    expect(panel.textContent).not.toMatch(/has no shared memory/);
+  });
+
+  it('a register row for a Channel with no flat address shows, and searches, its id', async () => {
+    const row = (id: string, channelId: string) => ({
+      id, ownerType: 'APP', ownerId: 'app-1', appId: 'app-1', organizationId: null, channelId,
+      channel: { id: channelId, name: 'legacy', loc: 'chats:legacy', chatRootUrn: null }, attendeeWorkerId: null, attendeeAgentId: null,
+      attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
+    });
+    const { target } = await mountPage([channel()], { appRows: [row('re-1', 'ch-leg-1'), row('re-2', 'ch-leg-2')] });
+    const regTable = [...target.querySelectorAll('table')].find((tb) => tb.textContent?.includes('Set by'))!;
+    // The Channel cell shows the name, and the id as its own address line.
+    const ids = [...regTable.querySelectorAll('tbody tr td:first-child .font-mono')].map((e) => e.textContent);
+    expect(ids).toEqual(['ch-leg-1', 'ch-leg-2']);
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search…"]')!;
+    search.value = 'ch-leg-2';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(3);
+    const after = [...regTable.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td')?.textContent ?? '');
+    expect(after.some((c) => c.includes('ch-leg-2'))).toBe(true);
+    expect(after.some((c) => c.includes('ch-leg-1'))).toBe(false);
+  });
 });
