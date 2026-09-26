@@ -356,4 +356,18 @@ describe('Channels page', () => {
     await tick(3);
     expect(target.textContent).not.toContain('Refused for the team chat.');
   });
+
+  it('a removal refusal for one row doesn’t show while confirming another', async () => {
+    const failed = await superValidate({ _kind: 'removeAttendance', ref: 're-1' }, zod4(removeAttendanceSchema));
+    failed.message = { type: 'error', text: 'Refused for row one.' };
+    const row = (id: string) => ({
+      id, ownerType: 'APP', ownerId: 'app-1', appId: 'app-1', organizationId: null, channelId: 'ch-team',
+      channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team', chatRootUrn: null }, attendeeWorkerId: null, attendeeAgentId: null,
+      attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
+    });
+    const { target } = await mountPage([channel()], { appRows: [row('re-1'), row('re-2')] }, { form: failed });
+    [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Remove')[1].click();
+    await tick(3);
+    expect(target.textContent).not.toContain('Refused for row one.');
+  });
 });
