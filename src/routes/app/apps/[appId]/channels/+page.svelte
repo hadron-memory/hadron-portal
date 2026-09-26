@@ -121,16 +121,18 @@
 
   let globalFilter = $state('');
   const columns: PortalColumnDef<Row>[] = [
-    // The cell shows the description under the name, so search finds it too.
+    // Search matches what the cell shows: the name, the "Team chat" badge on
+    // the default (which stays when it's renamed), and the description.
     {
-      accessorFn: (r) => [r.name, r.channel.description].filter(Boolean).join(' '),
+      accessorFn: (r) => [r.name, r.isDefault ? t('app.channels.default', 'Team chat') : '', r.channel.description].filter(Boolean).join(' '),
       id: 'name',
       header: t('app.channels.col.name', 'Channel'),
       enableHiding: false,
       size: 240,
     },
     { accessorKey: 'address', header: t('app.channels.col.address', 'Address'), size: 300 },
-    { accessorKey: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
+    // The cell shows the memory's name and its URN chip; search finds either.
+    { accessorFn: (r) => `${r.host} ${r.channel.memory.urn}`, id: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
     {
       accessorKey: 'lastMessage',
       id: 'lastMessage',
@@ -274,6 +276,7 @@
       <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {t('app.channels.create.where', 'It is created in {memory}, alongside the App’s team chat, so it has that memory’s audience.', { memory: shared.name })}
       </p>
+      <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
       {#if createDone}<p role="status" class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
       {#if createError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{createError}</p>{/if}
       <form method="POST" action="?/createChannel" use:createEnhance novalidate class="mt-3 grid gap-3 sm:grid-cols-2">
