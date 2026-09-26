@@ -14,6 +14,13 @@ import {
   DELETE_CHANNEL_MUTATION,
   SELF_CAN_WRITE_QUERY,
   UPDATE_CHANNEL_MUTATION,
+  APP_INSTALLED_AGENTS_QUERY,
+  CREATE_REGISTER_ENTRY_MUTATION,
+  DELETE_REGISTER_ENTRY_MUTATION,
+  REGISTER_ENTRIES_BY_OWNER_QUERY,
+  SELF_CAN_MANAGE_QUERY,
+  UPDATE_REGISTER_ENTRY_MUTATION,
+  WORKERS_QUERY,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -48,6 +55,11 @@ function route(opts: {
   create?: unknown;
   update?: unknown;
   del?: unknown;
+  appRows?: unknown[];
+  orgRows?: unknown[];
+  canManage?: boolean | Error;
+  registerFails?: boolean;
+  reg?: { create?: unknown; update?: unknown; del?: unknown };
 }) {
   const app = opts.app === undefined
     ? { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: { id: 'ch-team' }, sharedMemory: SHARED }
@@ -60,6 +72,20 @@ function route(opts: {
       if (v instanceof Error) throw v;
       return { effectiveAccess: { canWrite: v } };
     }
+    if (doc === REGISTER_ENTRIES_BY_OWNER_QUERY) {
+      if (opts.registerFails) throw new Error('boom');
+      const items = vars.ownerRef === 'app-1' ? (opts.appRows ?? []) : (opts.orgRows ?? []);
+      return { registerEntries: { total: items.length, items } };
+    }
+    if (doc === WORKERS_QUERY) return { workers: { total: 1, items: [{ id: 'w-ada', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator' }] } };
+    if (doc === APP_INSTALLED_AGENTS_QUERY) return { app: { id: 'app-1', appAgents: [{ agent: { id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' } }] } };
+    if (doc === SELF_CAN_MANAGE_QUERY) {
+      if (opts.canManage instanceof Error) throw opts.canManage;
+      return { effectiveAccess: { canManage: opts.canManage ?? true } };
+    }
+    const regReply = doc === CREATE_REGISTER_ENTRY_MUTATION ? opts.reg?.create : doc === UPDATE_REGISTER_ENTRY_MUTATION ? opts.reg?.update : doc === DELETE_REGISTER_ENTRY_MUTATION ? opts.reg?.del : undefined;
+    if (regReply instanceof Error) throw regReply;
+    if (regReply !== undefined) return regReply;
     const reply = doc === CREATE_CHANNEL_MUTATION ? opts.create : doc === UPDATE_CHANNEL_MUTATION ? opts.update : doc === DELETE_CHANNEL_MUTATION ? opts.del : undefined;
     if (reply instanceof Error) throw reply;
     return reply ?? {};
@@ -72,10 +98,15 @@ async function load() {
     channels: Array<{ id: string }>;
     defaultChannelId: string | null;
     canWrite: Record<string, boolean | null>;
+    appRows: Array<{ id: string }>;
+    orgRows: Array<{ id: string }>;
+    attendees: Array<{ id: string; kind: string }>;
+    canManageRegister: boolean | null;
+    registerLoadFailed: boolean;
   };
 }
 
-async function act(name: 'createChannel' | 'renameChannel' | 'deleteChannel', fields: Record<string, string>) {
+async function act(name: 'createChannel' | 'renameChannel' | 'deleteChannel' | 'addAttendance' | 'editAttendance' | 'removeAttendance', fields: Record<string, string>) {
   const { actions } = await import('./+page.server');
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) fd.set(k, v);
@@ -184,5 +215,98 @@ describe('renameChannel and deleteChannel', () => {
     const text = (msg(r) as { text: string }).text;
     expect(text).toContain('not available to you');
     expect(text).not.toMatch(/does not exist/i);
+  });
+});
+
+function row(over: Record<string, unknown> = {}) {
+  return {
+    id: 're-1', ownerType: 'APP', ownerId: 'app-1', appId: 'app-1', organizationId: null, channelId: 'ch-team',
+    channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team' }, attendeeWorkerId: null, attendeeAgentId: null,
+    attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: true, description: null, createdAt: '', ...over,
+  };
+}
+
+describe('load: who takes part (#942 slice 3)', () => {
+  it('reads the App’s rows and the organization’s separately, plus Workers and installed Agents as attendees', async () => {
+    route({ appRows: [row()], orgRows: [row({ id: 're-org', ownerType: 'ORGANIZATION', appId: null, organizationId: 'org-1' })] });
+    const data = await load();
+    expect(data.appRows.map((r) => r.id)).toEqual(['re-1']);
+    expect(data.orgRows.map((r) => r.id)).toEqual(['re-org']);
+    expect(data.attendees).toEqual([
+      expect.objectContaining({ id: 'w-ada', kind: 'worker' }),
+      expect.objectContaining({ id: 'ag-1', kind: 'agent' }),
+    ]);
+    expect(sent(REGISTER_ENTRIES_BY_OWNER_QUERY)).toEqual([{ ownerRef: 'app-1' }, { ownerRef: 'org-1' }]);
+  });
+
+  it('may-manage is a SELF canManage audit on the App, not App.role', async () => {
+    route({ canManage: false });
+    const data = await load();
+    expect(data.canManageRegister).toBe(false);
+    expect(sent(SELF_CAN_MANAGE_QUERY)).toEqual([{ user: 'u-1', resource: 'app-1' }]);
+  });
+
+  it('a failed manage audit is unknown (null), offered, and the server decides', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    route({ canManage: new Error('boom') });
+    expect((await load()).canManageRegister).toBeNull();
+    warn.mockRestore();
+  });
+
+  it('a failed register read is REPORTED, not shown as an empty register', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    route({ registerFails: true });
+    const data = await load();
+    expect(data.registerLoadFailed).toBe(true);
+    warn.mockRestore();
+  });
+});
+
+describe('attendance actions', () => {
+  it('add: owner is THIS App, and the attendee, mode, mention-only and note are sent as chosen', async () => {
+    route({ reg: { create: { createRegisterEntry: { id: 're-new' } } } });
+    const r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-x', attendee: 'w-ada', role: 'WATCH', mentionOnly: 'on', description: 'triage' });
+    expect(msg(r)).toEqual({ type: 'success', text: 'Attendance added.' });
+    expect(sent(CREATE_REGISTER_ENTRY_MUTATION)).toEqual([
+      { input: { ownerRef: 'app-1', channelRef: 'ch-x', attendeeRef: 'w-ada', role: 'WATCH', mentionOnly: true, description: 'triage' } },
+    ]);
+  });
+
+  it('add: an empty attendee means everyone in the App (attendeeRef null)', async () => {
+    route({ reg: { create: { createRegisterEntry: { id: 're-new' } } } });
+    await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-x', attendee: '', role: 'BOTH', description: '' });
+    expect(sent(CREATE_REGISTER_ENTRY_MUTATION)[0]).toMatchObject({ input: { attendeeRef: null, mentionOnly: false, description: null } });
+  });
+
+  it('add: a missing channel is refused before any request, and an unknown mode is refused too', async () => {
+    route({});
+    for (const fields of [{ channelId: '', role: 'BOTH' }, { channelId: 'ch-x', role: 'ADMIN' }]) {
+      const r = await act('addAttendance', { _kind: 'addAttendance', attendee: '', description: '', ...fields });
+      expect(r.status).toBe(400);
+    }
+    expect(sent(CREATE_REGISTER_ENTRY_MUTATION)).toHaveLength(0);
+  });
+
+  it('add: a duplicate is explained; an out-of-context attendee is the server’s own words', async () => {
+    route({ reg: { create: refusal('A live register entry already exists for this owner, Channel and attendee.', 'REGISTER_ENTRY_EXISTS') } });
+    let r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-x', attendee: 'w-ada', role: 'BOTH', description: '' });
+    expect((msg(r) as { text: string }).text).toContain('already takes part');
+    route({ reg: { create: refusal('No match for attendeeRef "w-zz" in this owner\'s context.', 'BAD_USER_INPUT') } });
+    r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-x', attendee: 'w-zz', role: 'BOTH', description: '' });
+    expect(msg(r)).toEqual({ type: 'error', text: 'No match for attendeeRef "w-zz" in this owner\'s context.' });
+  });
+
+  it('edit sends role, mention-only and note for the row', async () => {
+    route({ reg: { update: { updateRegisterEntry: { id: 're-1' } } } });
+    await act('editAttendance', { _kind: 'editAttendance', ref: 're-1', role: 'POST', description: '' });
+    expect(sent(UPDATE_REGISTER_ENTRY_MUTATION)).toEqual([{ ref: 're-1', input: { role: 'POST', mentionOnly: false, description: '' } }]);
+  });
+
+  it('remove sends the row; a refusal on a row the caller can’t manage is the server’s words, and nothing else is written', async () => {
+    route({ reg: { del: refusal('Forbidden', 'INTERNAL_SERVER_ERROR') } });
+    const r = await act('removeAttendance', { _kind: 'removeAttendance', ref: 're-org' });
+    expect(msg(r)).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(sent(DELETE_REGISTER_ENTRY_MUTATION)).toEqual([{ ref: 're-org' }]);
+    expect(mockRequest.mock.calls.filter(([d]) => /mutation/.test(d as string))).toHaveLength(1);
   });
 });

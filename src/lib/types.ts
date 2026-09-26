@@ -885,3 +885,24 @@ export interface Channel {
   createdAt: string;
   memory: { id: string; urn: string; name: string };
 }
+
+/** #942 — a register row (spec 049): "this attendee takes part in this Channel". Intent, never permission. */
+export interface RegisterEntry {
+  id: string;
+  ownerType: 'ORGANIZATION' | 'APP';
+  ownerId: string;
+  appId: string | null;
+  organizationId: string | null;
+  channelId: string;
+  /** Null when the caller may not read the Channel's host memory (they stand on the owner side only). */
+  channel: { id: string; name: string; loc: string } | null;
+  attendeeWorkerId: string | null;
+  attendeeAgentId: string | null;
+  /** Null for "every attendee in the owner's context". */
+  attendeeUrn: string | null;
+  role: 'WATCH' | 'POST' | 'BOTH';
+  mentionOnly: boolean;
+  installDefault: boolean;
+  description: string | null;
+  createdAt: string;
+}

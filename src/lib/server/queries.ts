@@ -3775,3 +3775,72 @@ export const DELETE_CHANNEL_MUTATION = /* GraphQL */ `
     deleteChannel(ref: $ref)
   }
 `;
+
+// ---------------------------------------------------------------------------
+// #942 slice 3 — the register (spec 049 phase 5): who attends which Channel.
+// A row declares INTENT, never permission. Read gate (§8.6): host memory
+// readable OR the caller is on the row's owner side; `channel` is null to an
+// owner-side reader who may not read its host.
+// ---------------------------------------------------------------------------
+
+const REGISTER_ENTRY_FIELDS = /* GraphQL */ `
+  fragment RegisterEntryFields on RegisterEntry {
+    id
+    ownerType
+    ownerId
+    appId
+    organizationId
+    channelId
+    channel { id name loc }
+    attendeeWorkerId
+    attendeeAgentId
+    attendeeUrn
+    role
+    mentionOnly
+    installDefault
+    description
+    createdAt
+  }
+`;
+
+export const REGISTER_ENTRIES_BY_OWNER_QUERY = /* GraphQL */ `
+  ${REGISTER_ENTRY_FIELDS}
+  query RegisterEntriesByOwner($ownerRef: ID!) {
+    registerEntries(filter: { ownerRef: $ownerRef }, limit: 200) {
+      total
+      items { ...RegisterEntryFields }
+    }
+  }
+`;
+
+/** The Agents installed in an App: the attendee picker's second half (Workers are the first). */
+export const APP_INSTALLED_AGENTS_QUERY = /* GraphQL */ `
+  query AppInstalledAgents($ref: ID!) {
+    app(ref: $ref) { id appAgents { agent { id name urn } } }
+  }
+`;
+
+/** #942: may the caller manage this entity (an App's register rows)? A self-audit. */
+export const SELF_CAN_MANAGE_QUERY = /* GraphQL */ `
+  query SelfCanManage($user: ID!, $resource: ID!) {
+    effectiveAccess(user: $user, resource: $resource) { canManage }
+  }
+`;
+
+export const CREATE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
+  mutation CreateRegisterEntry($input: CreateRegisterEntryInput!) {
+    createRegisterEntry(input: $input) { id }
+  }
+`;
+
+export const UPDATE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
+  mutation UpdateRegisterEntry($ref: ID!, $input: UpdateRegisterEntryInput!) {
+    updateRegisterEntry(ref: $ref, input: $input) { id role mentionOnly description }
+  }
+`;
+
+export const DELETE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
+  mutation DeleteRegisterEntry($ref: ID!) {
+    deleteRegisterEntry(ref: $ref)
+  }
+`;

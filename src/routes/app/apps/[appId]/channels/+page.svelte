@@ -13,14 +13,19 @@
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
-  import type { Channel } from '$lib/types';
+  import type { Channel, RegisterEntry } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import {
     CHANNEL_DESCRIPTION_MAX,
     CHANNEL_NAME_MAX,
+    REGISTER_DESCRIPTION_MAX,
+    REGISTER_ROLES,
+    addAttendanceSchema,
     channelLoc,
     createChannelSchema,
     deleteChannelSchema,
+    editAttendanceSchema,
+    removeAttendanceSchema,
     renameChannelSchema,
   } from './schema';
 
@@ -132,6 +137,129 @@
     columnResizeMode: 'onChange',
     state: { get globalFilter() { return globalFilter; } },
     onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
+
+  // ── #942 slice 3: who takes part (the register) ──
+  type AddForm = Infer<typeof addAttendanceSchema, 'zod4'>;
+  type EditForm = Infer<typeof editAttendanceSchema, 'zod4'>;
+  type RemoveForm = Infer<typeof removeAttendanceSchema, 'zod4'>;
+  type Role = (typeof REGISTER_ROLES)[number];
+
+  function roleLabel(role: Role): string {
+    switch (role) {
+      case 'WATCH':
+        return t('app.channels.register.role.watch', 'Watch');
+      case 'POST':
+        return t('app.channels.register.role.post', 'Post');
+      default:
+        return t('app.channels.register.role.both', 'Watch and post');
+    }
+  }
+  const canManageRegister = $derived(data.canManageRegister !== false);
+
+  const {
+    form: addData, errors: addErrors, message: addMessage, submitting: adding, enhance: addEnhance,
+  } = superForm<AddForm, App.Superforms.Message, AddForm>(
+    untrack(() => (submittedForm<AddForm>(form, 'addAttendance') as SuperValidated<AddForm, App.Superforms.Message, AddForm> | null) ?? data.addAttendanceForm),
+    { validators: zod4Client(addAttendanceSchema), clearOnSubmit: 'none', resetForm: true },
+  );
+  const addError = $derived(scopedActionError<AddForm>(form, 'addAttendance', $addMessage, $addErrors, ['channelId', 'attendee', 'description', '_kind']));
+  const addDone = $derived(scopedActionSuccess<AddForm>(form, 'addAttendance', $addMessage));
+
+  let editingRow = $state<string | null>(null);
+  const {
+    form: editData, errors: editErrors, message: editMessage, submitting: savingEdit, enhance: editEnhance,
+  } = superForm<EditForm, App.Superforms.Message, EditForm>(
+    untrack(() => (submittedForm<EditForm>(form, 'editAttendance') as SuperValidated<EditForm, App.Superforms.Message, EditForm> | null) ?? data.editAttendanceForm),
+    {
+      validators: zod4Client(editAttendanceSchema),
+      clearOnSubmit: 'none',
+      onResult: ({ result }) => {
+        if (result.type === 'success') editingRow = null;
+      },
+    },
+  );
+  const editError = $derived(scopedActionError<EditForm>(form, 'editAttendance', $editMessage, $editErrors, ['description', 'ref', '_kind']));
+  function startEdit(r: RegisterEntry) {
+    editingRow = r.id;
+    editData.set({ _kind: 'editAttendance', ref: r.id, role: r.role, mentionOnly: r.mentionOnly, description: r.description ?? '' }, { taint: false });
+  }
+
+  let confirmingRemove = $state<string | null>(null);
+  const {
+    message: removeMessage, submitting: removing, enhance: removeEnhance,
+  } = superForm<RemoveForm, App.Superforms.Message, RemoveForm>(
+    untrack(() => (submittedForm<RemoveForm>(form, 'removeAttendance') as SuperValidated<RemoveForm, App.Superforms.Message, RemoveForm> | null) ?? data.removeAttendanceForm),
+    {
+      validators: zod4Client(removeAttendanceSchema),
+      onResult: ({ result }) => {
+        if (result.type === 'success') confirmingRemove = null;
+      },
+    },
+  );
+  const removeError = $derived(scopedActionError<RemoveForm>(form, 'removeAttendance', $removeMessage, null));
+
+  interface AttendRow {
+    entry: RegisterEntry;
+    id: string;
+    channel: string;
+    attendee: string;
+    mode: string;
+    mentions: string;
+    setBy: string;
+    editable: boolean;
+  }
+  function attendeeLabel(r: RegisterEntry): string {
+    const id = r.attendeeWorkerId ?? r.attendeeAgentId;
+    if (!id) {
+      return r.ownerType === 'APP'
+        ? t('app.channels.register.everyone-app', 'Everyone in this App')
+        : t('app.channels.register.everyone-org', 'Everyone in the organization');
+    }
+    const a = data.attendees.find((x) => x.id === id);
+    if (a) return a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name });
+    return r.attendeeUrn ?? t('app.channels.register.unknown-attendee', 'An attendee not listed here');
+  }
+  const attendRows = $derived<AttendRow[]>(
+    [...data.appRows, ...data.orgRows].map((r) => ({
+      entry: r,
+      id: r.id,
+      // A Channel whose host memory the caller can't read comes back null:
+      // say so without naming it.
+      channel: r.channel?.name ?? t('app.channels.register.hidden-channel', 'A channel you can’t read'),
+      attendee: attendeeLabel(r),
+      mode: roleLabel(r.role),
+      mentions: r.mentionOnly ? t('app.channels.register.mentions.only', 'Only when mentioned') : t('app.channels.register.mentions.all', 'All messages'),
+      setBy:
+        r.ownerType === 'APP'
+          ? r.installDefault
+            ? t('app.channels.register.set-by.install', 'This App (set up at install)')
+            : t('app.channels.register.set-by.app', 'This App')
+          : t('app.channels.register.set-by.org', 'The organization'),
+      // An App edits and removes only ITS OWN rows; the org's are shown, not offered.
+      editable: r.ownerType === 'APP' && canManageRegister,
+    })),
+  );
+
+  let attendFilter = $state('');
+  const attendColumns: PortalColumnDef<AttendRow>[] = [
+    { accessorKey: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
+    { accessorKey: 'attendee', header: t('app.channels.register.col.attendee', 'Who'), size: 220 },
+    { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 170 },
+    { accessorKey: 'mentions', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 170 },
+    { accessorKey: 'setBy', header: t('app.channels.register.col.set-by', 'Set by'), size: 190 },
+    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 200 },
+  ];
+  const attendTable = createSvelteTable<AttendRow>({
+    get data() { return attendRows; },
+    columns: attendColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: { get globalFilter() { return attendFilter; } },
+    onGlobalFilterChange: (u) => { attendFilter = typeof u === 'function' ? u(attendFilter) : u; },
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
@@ -283,6 +411,136 @@
           <button type="submit" disabled={$creating} class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('app.channels.create.submit', 'Create channel')}</button>
         </div>
       </form>
+    {/if}
+  </section>
+  <!-- #942 slice 3: the register. A row says who TAKES PART in a channel. It
+       never grants access: reading and posting stay the host memory's call. -->
+  <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <div>
+      <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.channels.register.title', 'Who takes part')}</h2>
+      <p class="mt-1 max-w-3xl text-xs text-zinc-500 dark:text-zinc-400">
+        {t(
+          'app.channels.register.explainer',
+          'Choose which of this App’s workers and agents follow each channel. Watch means new messages count for them; Post means they’re expected to write there; both is the default. “Only when mentioned” counts a message as new only if it names them. This records who takes part. It doesn’t give anyone access: reading and posting are still decided by the channel’s memory.',
+        )}
+      </p>
+    </div>
+
+    {#if data.registerLoadFailed}
+      <div role="alert" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        {t('app.channels.register.load-failed', 'Couldn’t load who takes part just now. This is an error, not an empty list. Try refreshing the page.')}
+      </div>
+    {:else}
+      {#if removeError}<div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{removeError}</div>{/if}
+      {#if editError && !editingRow}<div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{editError}</div>{/if}
+
+      {#if attendRows.length === 0}
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.channels.register.empty', 'Nobody is set up to take part in a channel yet.')}</p>
+      {:else}
+        <DataTable
+          table={attendTable}
+          listKey="app:register"
+          searchPlaceholder={t('app.channels.register.search', 'Search…')}
+          searchAriaLabel={t('app.channels.register.search', 'Search…')}
+          bind:globalFilter={attendFilter}
+          maxHeight="max(200px, calc(100vh - 30rem))"
+        >
+          {#snippet cell(cell, row)}
+            {#if cell.column.id === 'mode' && editingRow === row.id}
+              <form id="edit-attendance-{row.id}" method="POST" action="?/editAttendance" use:editEnhance novalidate class="space-y-1.5">
+                <input type="hidden" name="_kind" value="editAttendance" />
+                <input type="hidden" name="ref" value={row.id} />
+                <select name="role" aria-label={t('app.channels.register.col.mode', 'Takes part as')} bind:value={$editData.role} class="{inputClass} py-1">
+                  {#each REGISTER_ROLES as r (r)}<option value={r}>{roleLabel(r)}</option>{/each}
+                </select>
+                <label class="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                  <input type="checkbox" name="mentionOnly" bind:checked={$editData.mentionOnly} />
+                  {t('app.channels.register.mentions.only', 'Only when mentioned')}
+                </label>
+                <input name="description" aria-label={t('app.channels.register.note', 'Note')} bind:value={$editData.description} maxlength={REGISTER_DESCRIPTION_MAX} placeholder={t('app.channels.register.note.placeholder', 'Why they take part (optional)')} class="{inputClass} py-1" />
+                {#if editError}<p role="alert" class="text-xs text-red-600 dark:text-red-400">{editError}</p>{/if}
+              </form>
+            {:else if cell.column.id === 'actions'}
+              {#if !row.editable}
+                <span class="text-xs text-zinc-400" title={row.entry.ownerType === 'APP'
+                  ? t('app.channels.register.readonly.app', 'Changing this App’s attendance needs admin rights on the App.')
+                  : t('app.channels.register.readonly.org', 'Set by the organization; change it in the organization’s settings.')}>{t('app.channels.readonly', 'Read-only')}</span>
+              {:else if editingRow === row.id}
+                <div class="flex gap-2">
+                  <button type="submit" form="edit-attendance-{row.id}" disabled={$savingEdit} class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('app.channels.rename.save', 'Save')}</button>
+                  <button type="button" onclick={() => (editingRow = null)} class="rounded-md px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.cancel', 'Cancel')}</button>
+                </div>
+              {:else if confirmingRemove === row.id}
+                <form method="POST" action="?/removeAttendance" use:removeEnhance class="flex flex-wrap items-center gap-2">
+                  <input type="hidden" name="_kind" value="removeAttendance" />
+                  <input type="hidden" name="ref" value={row.id} />
+                  <span class="text-xs text-red-700 dark:text-red-300">{t('app.channels.register.remove.confirm-text', 'Stop taking part?')}</span>
+                  <button type="submit" disabled={$removing} class="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50">{t('app.channels.register.remove', 'Remove')}</button>
+                  <button type="button" onclick={() => (confirmingRemove = null)} class="rounded-md px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.cancel', 'Cancel')}</button>
+                </form>
+              {:else}
+                <div class="flex gap-1">
+                  <button type="button" onclick={() => startEdit(row.entry)} class="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.register.edit', 'Edit')}</button>
+                  <button type="button" onclick={() => (confirmingRemove = row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.register.remove', 'Remove')}</button>
+                </div>
+              {/if}
+            {:else if cell.column.id === 'attendee' && row.entry.attendeeUrn}
+              <div class="min-w-0">
+                <div class="truncate">{row.attendee}</div>
+                <Urn value={row.entry.attendeeUrn} type={row.entry.attendeeWorkerId ? 'worker' : 'agent'} size={8} label={t('app.channels.register.urn', 'attendee')} />
+              </div>
+            {:else}
+              <div class="truncate">{cell.getValue()}</div>
+            {/if}
+          {/snippet}
+        </DataTable>
+      {/if}
+
+      {#if canManageRegister && data.channels.length > 0}
+        <div class="border-t border-zinc-200 pt-3 dark:border-zinc-800">
+          <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('app.channels.register.add.title', 'Add someone to a channel')}</h3>
+          {#if addDone}<p role="status" class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{addDone}</p>{/if}
+          {#if addError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{addError}</p>{/if}
+          <form method="POST" action="?/addAttendance" use:addEnhance novalidate class="mt-2 grid gap-3 sm:grid-cols-2">
+            <input type="hidden" name="_kind" value="addAttendance" />
+            <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+              {t('app.channels.register.col.channel', 'Channel')}
+              <select name="channelId" bind:value={$addData.channelId} class="mt-1 {inputClass}">
+                <option value="" disabled>{t('app.channels.register.pick-channel', 'Pick a channel…')}</option>
+                {#each data.channels as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+              </select>
+            </label>
+            <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+              {t('app.channels.register.col.attendee', 'Who')}
+              <select name="attendee" bind:value={$addData.attendee} class="mt-1 {inputClass}">
+                <option value="">{t('app.channels.register.everyone-app', 'Everyone in this App')}</option>
+                {#each data.attendees as a (a.id)}
+                  <option value={a.id}>{a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name })}</option>
+                {/each}
+              </select>
+            </label>
+            <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+              {t('app.channels.register.col.mode', 'Takes part as')}
+              <select name="role" bind:value={$addData.role} class="mt-1 {inputClass}">
+                {#each REGISTER_ROLES as r (r)}<option value={r}>{roleLabel(r)}</option>{/each}
+              </select>
+            </label>
+            <label class="flex items-center gap-2 self-end pb-2 text-xs text-zinc-600 dark:text-zinc-400">
+              <input type="checkbox" name="mentionOnly" bind:checked={$addData.mentionOnly} />
+              {t('app.channels.register.mentions.only', 'Only when mentioned')}
+            </label>
+            <label class="block text-xs text-zinc-600 sm:col-span-2 dark:text-zinc-400">
+              {t('app.channels.register.note', 'Note')}
+              <input name="description" bind:value={$addData.description} maxlength={REGISTER_DESCRIPTION_MAX} placeholder={t('app.channels.register.note.placeholder', 'Why they take part (optional)')} class="mt-1 {inputClass}" />
+            </label>
+            <div class="sm:col-span-2">
+              <button type="submit" disabled={$adding} class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('app.channels.register.add', 'Add')}</button>
+            </div>
+          </form>
+        </div>
+      {:else if !canManageRegister}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.channels.register.no-manage', 'Changing who takes part needs admin rights on this App.')}</p>
+      {/if}
     {/if}
   </section>
 </div>
