@@ -1105,7 +1105,9 @@
           'These properties were changed since you opened the editor. Copy your edit, reload, and apply it again — saving now would undo that change.',
         );
       case 'not-found':
-        return t('node.properties.source.not-found', 'This node no longer exists.');
+        // A node that's gone and one you can no longer read answer the same
+        // (hrn:node:hadronmemory.com:specs:cor:api:140:03), so don't claim which.
+        return t('node.properties.source.not-found', 'This node isn’t available to you any more. It may have been deleted, or your access changed.');
       case 'unauthenticated':
         return t('node.properties.source.unauthenticated', 'Your session has ended — sign in again.');
       default:
