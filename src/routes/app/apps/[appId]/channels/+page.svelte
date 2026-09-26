@@ -107,7 +107,11 @@
     canWrite: boolean | null;
   }
   function when(iso: string | null): string {
-    return iso ? new Date(iso).toLocaleString() : t('app.channels.never', 'No messages yet');
+    // Pinned locale, so SSR and the client format identically (the repo's
+    // convention: AssetTable, the memory Info tab, fmtRunTime).
+    return iso
+      ? new Date(iso).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+      : t('app.channels.never', 'No messages yet');
   }
   const rows = $derived<Row[]>(
     data.channels.map((c) => ({
@@ -412,6 +416,7 @@
       <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
         {t('app.channels.create.no-write', 'Adding a channel needs write access to {memory}, where this App’s channels live.', { memory: shared.name })}
       </p>
+      <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
     {:else}
       <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {t('app.channels.create.where', 'It is created in {memory}, alongside the App’s team chat, so it has that memory’s audience.', { memory: shared.name })}

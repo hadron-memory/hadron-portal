@@ -203,4 +203,16 @@ describe('Channels page', () => {
     await tick(3);
     expect(pick.parentElement!.innerHTML).toContain('hrn:node:acme.com:team-shared:chats:team');
   });
+
+  it('a read-only caller still sees the target memory’s URN in the create panel', async () => {
+    const { target } = await mountPage([channel()], { canWrite: { 'mem-shared': false } });
+    const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
+    expect(panel.textContent).toContain('needs write access');
+    expect(panel.innerHTML).toContain('hrn:mem:acme.com:team-shared');
+  });
+
+  it('Last message is formatted with a pinned locale', async () => {
+    const body = await html([channel({ lastMessageAt: '2026-09-26T10:00:00Z' })]);
+    expect(body).toMatch(/Sep 26, 2026/);
+  });
 });
