@@ -13,6 +13,7 @@
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
+  import { countsAsNewLabel } from '$lib/register-counts';
   import type { Channel, RegisterEntry } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import {
@@ -249,6 +250,7 @@
   }
   // Retired Workers name old rows but take no new ones.
   const pickable = $derived(data.attendees.filter((a) => !a.retired));
+  const pickedChannel = $derived(data.channels.find((c) => c.id === $addData.channelId) ?? null);
   const pickedAttendee = $derived(pickable.find((a) => a.id === $addData.attendee) ?? null);
   const attendRows = $derived<AttendRow[]>(
     [...data.appRows, ...data.orgRows].map((r) => ({
@@ -259,7 +261,7 @@
       channel: r.channel?.name ?? t('app.channels.register.hidden-channel', 'A channel you can’t read'),
       attendee: attendeeLabel(r),
       mode: roleLabel(r.role),
-      mentions: r.mentionOnly ? t('app.channels.register.mentions.only', 'Only when mentioned') : t('app.channels.register.mentions.all', 'All messages'),
+      mentions: countsAsNewLabel(r.role, r.mentionOnly),
       setBy:
         r.ownerType === 'APP'
           ? r.installDefault
@@ -273,8 +275,9 @@
 
   let attendFilter = $state('');
   const attendColumns: PortalColumnDef<AttendRow>[] = [
-    { accessorKey: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
-    { accessorKey: 'attendee', header: t('app.channels.register.col.attendee', 'Who'), size: 220 },
+    // Search matches the URN chips the cells show, not just the names.
+    { accessorFn: (r) => [r.channel, r.entry.channel?.chatRootUrn].filter(Boolean).join(' '), id: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
+    { accessorFn: (r) => [r.attendee, r.entry.attendeeUrn].filter(Boolean).join(' '), id: 'attendee', header: t('app.channels.register.col.attendee', 'Who'), size: 220 },
     { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 170 },
     { accessorKey: 'mentions', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 170 },
     { accessorKey: 'setBy', header: t('app.channels.register.col.set-by', 'Set by'), size: 190 },
@@ -543,6 +546,12 @@
                 <option value="" disabled>{t('app.channels.register.pick-channel', 'Pick a channel…')}</option>
                 {#each data.channels as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
               </select>
+              <!-- Two Channels can share a name: the chosen one's address tells them apart. -->
+              {#if pickedChannel?.chatRootUrn}
+                <span class="mt-1 block">
+                  <Urn value={pickedChannel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
+                </span>
+              {/if}
             </label>
             <label class="block text-xs text-zinc-600 dark:text-zinc-400">
               {t('app.channels.register.col.attendee', 'Who')}
