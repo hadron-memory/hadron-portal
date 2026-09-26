@@ -106,7 +106,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }),
   );
 
-  const register = await loadRegister(client, data.app, locals.user?.id ?? null);
+  const register = await loadRegister(client, data.app, locals.user?.id ?? null, new Set(data.channels.items.map((c) => c.id)));
 
   return {
     app: data.app,
@@ -147,6 +147,7 @@ async function loadRegister(
   client: ReturnType<typeof gqlClient>,
   app: NonNullable<AppChannels['app']>,
   userId: string | null,
+  channelIds: Set<string>,
 ) {
   const rows = (ownerRef: string) =>
     fetchAllItems<RegisterEntry>(client, REGISTER_ENTRIES_BY_OWNER_QUERY, 'registerEntries', { ownerRef });
@@ -180,7 +181,11 @@ async function loadRegister(
       ...workers.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role, retired: !!w.retiredAt })),
       ...(installed.app?.appAgents ?? []).map((a) => ({ id: a.agent.id, name: a.agent.name, urn: a.agent.urn, kind: 'agent' as const })),
     ];
-    return { appRows, orgRows, attendees, canManageRegister: manage as boolean | null, registerLoadFailed: false };
+    // The org's rows span every App it owns. Only those naming one of THIS
+    // App's Channels belong on this page; a row for another App's Channel
+    // would otherwise show here, often as "a channel you can't read".
+    const ownOrgRows = orgRows.filter((r) => channelIds.has(r.channelId));
+    return { appRows, orgRows: ownOrgRows, attendees, canManageRegister: manage as boolean | null, registerLoadFailed: false };
   } catch (e) {
     console.warn(`[app-channels] register read failed for app ${app.id}:`, e);
     return {

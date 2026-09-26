@@ -13,6 +13,7 @@
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
+  import { countsAsNewLabel } from '$lib/register-counts';
   import type { Channel, RegisterEntry } from '$lib/types';
   import type { EffectiveRow } from '$lib/register-view';
   import type { PageData, ActionData } from './$types';
@@ -127,16 +128,18 @@
 
   let globalFilter = $state('');
   const columns: PortalColumnDef<Row>[] = [
-    // The cell shows the description under the name, so search finds it too.
+    // Search matches what the cell shows: the name, the "Team chat" badge on
+    // the default (which stays when it's renamed), and the description.
     {
-      accessorFn: (r) => [r.name, r.channel.description].filter(Boolean).join(' '),
+      accessorFn: (r) => [r.name, r.isDefault ? t('app.channels.default', 'Team chat') : '', r.channel.description].filter(Boolean).join(' '),
       id: 'name',
       header: t('app.channels.col.name', 'Channel'),
       enableHiding: false,
       size: 240,
     },
     { accessorKey: 'address', header: t('app.channels.col.address', 'Address'), size: 300 },
-    { accessorKey: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
+    // The cell shows the memory's name and its URN chip; search finds either.
+    { accessorFn: (r) => `${r.host} ${r.channel.memory.urn}`, id: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
     {
       accessorKey: 'lastMessage',
       id: 'lastMessage',
@@ -248,6 +251,7 @@
   }
   // Retired Workers name old rows but take no new ones.
   const pickable = $derived(data.attendees.filter((a) => !a.retired));
+  const pickedChannel = $derived(data.channels.find((c) => c.id === $addData.channelId) ?? null);
   const pickedAttendee = $derived(pickable.find((a) => a.id === $addData.attendee) ?? null);
   const attendRows = $derived<AttendRow[]>(
     [...data.appRows, ...data.orgRows].map((r) => ({
@@ -258,7 +262,7 @@
       channel: r.channel?.name ?? t('app.channels.register.hidden-channel', 'A channel you can’t read'),
       attendee: attendeeLabel(r),
       mode: roleLabel(r.role),
-      mentions: r.mentionOnly ? t('app.channels.register.mentions.only', 'Only when mentioned') : t('app.channels.register.mentions.all', 'All messages'),
+      mentions: countsAsNewLabel(r.role, r.mentionOnly),
       setBy:
         r.ownerType === 'APP'
           ? r.installDefault
@@ -272,8 +276,9 @@
 
   let attendFilter = $state('');
   const attendColumns: PortalColumnDef<AttendRow>[] = [
-    { accessorKey: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
-    { accessorKey: 'attendee', header: t('app.channels.register.col.attendee', 'Who'), size: 220 },
+    // Search matches the URN chips the cells show, not just the names.
+    { accessorFn: (r) => [r.channel, r.entry.channel?.chatRootUrn].filter(Boolean).join(' '), id: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
+    { accessorFn: (r) => [r.attendee, r.entry.attendeeUrn].filter(Boolean).join(' '), id: 'attendee', header: t('app.channels.register.col.attendee', 'Who'), size: 220 },
     { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 170 },
     { accessorKey: 'mentions', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 170 },
     { accessorKey: 'setBy', header: t('app.channels.register.col.set-by', 'Set by'), size: 190 },
@@ -464,6 +469,7 @@
       <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {t('app.channels.create.where', 'It is created in {memory}, alongside the App’s team chat, so it has that memory’s audience.', { memory: shared.name })}
       </p>
+      <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
       {#if createDone}<p role="status" class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
       {#if createError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{createError}</p>{/if}
       <form method="POST" action="?/createChannel" use:createEnhance novalidate class="mt-3 grid gap-3 sm:grid-cols-2">
@@ -646,6 +652,12 @@
                 <option value="" disabled>{t('app.channels.register.pick-channel', 'Pick a channel…')}</option>
                 {#each data.channels as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
               </select>
+              <!-- Two Channels can share a name: the chosen one's address tells them apart. -->
+              {#if pickedChannel?.chatRootUrn}
+                <span class="mt-1 block">
+                  <Urn value={pickedChannel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
+                </span>
+              {/if}
             </label>
             <label class="block text-xs text-zinc-600 dark:text-zinc-400">
               {t('app.channels.register.col.attendee', 'Who')}

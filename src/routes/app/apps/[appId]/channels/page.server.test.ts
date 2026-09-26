@@ -257,7 +257,7 @@ function row(over: Record<string, unknown> = {}) {
 
 describe('load: who takes part (#942 slice 3)', () => {
   it('reads the App’s rows and the organization’s separately, plus Workers and installed Agents as attendees', async () => {
-    route({ appRows: [row()], orgRows: [row({ id: 're-org', ownerType: 'ORGANIZATION', appId: null, organizationId: 'org-1' })] });
+    route({ channels: [channel()], appRows: [row()], orgRows: [row({ id: 're-org', ownerType: 'ORGANIZATION', appId: null, organizationId: 'org-1' })] });
     const data = await load();
     expect(data.appRows.map((r) => r.id)).toEqual(['re-1']);
     expect(data.orgRows.map((r) => r.id)).toEqual(['re-org']);
@@ -269,6 +269,13 @@ describe('load: who takes part (#942 slice 3)', () => {
       { ownerRef: 'app-1', limit: 200, offset: 0 },
       { ownerRef: 'org-1', limit: 200, offset: 0 },
     ]);
+  });
+
+  it('keeps only the org rows naming one of THIS App’s Channels', async () => {
+    const org = (id: string, channelId: string) =>
+      row({ id, ownerType: 'ORGANIZATION', appId: null, organizationId: 'org-1', channelId, channel: null });
+    route({ channels: [channel()], orgRows: [org('re-mine', 'ch-team'), org('re-other-app', 'ch-elsewhere')] });
+    expect((await load()).orgRows.map((r) => r.id)).toEqual(['re-mine']);
   });
 
   it('reads retired Workers too, flagged, so an old row keeps its name', async () => {
