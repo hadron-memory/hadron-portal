@@ -115,9 +115,12 @@ export const actions: Actions = {
       // Note: the system memory is NOT added as a memory item — it is
       // linked exclusively via Agent.systemMemoryId (set on createAgent).
       // Per-user memories are created on-demand by startChat.
+      // #948: `read`, as the wizard tells the user ("Read-only"). A chatbot
+      // answers FROM its knowledge; per-user facts go to the user memory and
+      // designs to the system memory, so nothing here needs to write it.
       if (knowledgeMemoryId) {
         await client.request(ADD_MEMORY_TO_AGENT_MUTATION, {
-          agentRef: agentId, memoryRef: knowledgeMemoryId, role: 'read-write',
+          agentRef: agentId, memoryRef: knowledgeMemoryId, role: 'read',
         });
       }
 
