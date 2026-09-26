@@ -5,6 +5,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { submitEnhanced } from '$lib/test/stubs/app-forms';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import Page from './+page.svelte';
@@ -140,5 +141,28 @@ describe('Channels page', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it('Delete → confirm actually submits: the form’s own ref is set, not just a hidden input (Chip, #2186)', async () => {
+    const { target } = await mountPage([channel(), channel({ id: 'ch-x', name: 'Other', loc: 'chats:x', chatRootUrn: 'hrn:node:acme.com:team-shared:chats:x' })]);
+    const del = [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Delete');
+    del[1].click();
+    await tick(3);
+    const confirm = target.querySelector<HTMLFormElement>('form[action="?/deleteChannel"]')!;
+    const { cancelled } = await submitEnhanced(confirm);
+    expect(cancelled).toBe(false);
+  });
+
+  it('Remove → confirm on a register row actually submits (Chip, #2185)', async () => {
+    const appRows = [{
+      id: 're-1', ownerType: 'APP', ownerId: 'app-1', appId: 'app-1', organizationId: null, channelId: 'ch-team',
+      channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team', chatRootUrn: null }, attendeeWorkerId: null, attendeeAgentId: null,
+      attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
+    }];
+    const { target } = await mountPage([channel()], { appRows });
+    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Remove')!.click();
+    await tick(3);
+    const confirm = target.querySelector<HTMLFormElement>('form[action="?/removeAttendance"]')!;
+    expect((await submitEnhanced(confirm)).cancelled).toBe(false);
   });
 });
