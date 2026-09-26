@@ -25,13 +25,14 @@ function channel(over: Record<string, unknown> = {}) {
   };
 }
 
-async function mountPage(channels: unknown[]) {
+async function mountPage(channels: unknown[], extra: Record<string, unknown> = {}) {
   const data = {
     app: { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: { id: 'ch-team' }, sharedMemory: SHARED },
     channels, total: channels.length, defaultChannelId: 'ch-team', canWrite: { 'mem-shared': true },
     createForm: await superValidate(zod4(createChannelSchema), { errors: false }),
     renameForm: await superValidate(zod4(renameChannelSchema), { errors: false }),
     deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
+    ...extra,
   };
   const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -114,5 +115,17 @@ describe('Channels page', () => {
     const { target } = await mountPage([channel()]);
     const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
     expect(panel.innerHTML).toContain('hrn:mem:acme.com:team-shared');
+  });
+
+  it('a read-only caller still sees the target memory’s URN in the create panel', async () => {
+    const { target } = await mountPage([channel()], { canWrite: { 'mem-shared': false } });
+    const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
+    expect(panel.textContent).toContain('needs write access');
+    expect(panel.innerHTML).toContain('hrn:mem:acme.com:team-shared');
+  });
+
+  it('Last message is formatted with a pinned locale', async () => {
+    const body = await html([channel({ lastMessageAt: '2026-09-26T10:00:00Z' })]);
+    expect(body).toMatch(/Sep 26, 2026/);
   });
 });
