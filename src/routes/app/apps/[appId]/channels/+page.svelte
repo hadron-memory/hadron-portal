@@ -69,6 +69,10 @@
   const renameError = $derived(scopedActionError<RenameForm>(form, 'renameChannel', $renameMessage, $renameErrors, ['name', 'description', 'ref', '_kind']));
   function startRename(c: Channel) {
     editing = c.id;
+    // One form serves every row: a previous row's refusal must not show up in
+    // this one's editor.
+    renameMessage.set(undefined);
+    renameErrors.clear();
     renameData.set({ _kind: 'renameChannel', ref: c.id, name: c.name, description: c.description ?? '' }, { taint: false });
   }
 
@@ -445,7 +449,7 @@
         </label>
         <label class="block text-xs text-zinc-600 dark:text-zinc-400">
           {t('app.channels.create.slug', 'Short name (part of its address)')}
-          <input name="slug" bind:value={$createData.slug} placeholder="release" aria-invalid={$createErrors.slug ? 'true' : undefined} aria-describedby={$createErrors.slug ? 'create-slug-error' : 'create-slug-address'} class="mt-1 {inputClass} font-mono" />
+          <input name="slug" bind:value={$createData.slug} placeholder={t('app.channels.create.slug.placeholder', 'release')} aria-invalid={$createErrors.slug ? 'true' : undefined} aria-describedby={$createErrors.slug ? 'create-slug-error' : 'create-slug-address'} class="mt-1 {inputClass} font-mono" />
           {#if $createErrors.slug}
             <span id="create-slug-error" class="mt-1 block text-[11px] text-red-600 dark:text-red-400">{$createErrors.slug[0]}</span>
           {:else}
