@@ -107,7 +107,10 @@
       channel: c,
       id: c.id,
       name: c.name,
-      address: c.chatRootUrn ?? c.loc,
+      // A compound (pre-v2) host memory has no chatRootUrn, and its loc is only
+      // memory-relative, so the id is the address there: the server accepts it
+      // on every channelRef.
+      address: c.chatRootUrn ?? c.id,
       host: c.memory.name,
       lastMessage: when(c.lastMessageAt),
       isDefault: c.id === data.defaultChannelId,
@@ -117,7 +120,14 @@
 
   let globalFilter = $state('');
   const columns: PortalColumnDef<Row>[] = [
-    { accessorKey: 'name', header: t('app.channels.col.name', 'Channel'), enableHiding: false, size: 240 },
+    // The cell shows the description under the name, so search finds it too.
+    {
+      accessorFn: (r) => [r.name, r.channel.description].filter(Boolean).join(' '),
+      id: 'name',
+      header: t('app.channels.col.name', 'Channel'),
+      enableHiding: false,
+      size: 240,
+    },
     { accessorKey: 'address', header: t('app.channels.col.address', 'Address'), size: 300 },
     { accessorKey: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
     {
@@ -223,6 +233,9 @@
     if (a) return a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name });
     return r.attendeeUrn ?? t('app.channels.register.unknown-attendee', 'An attendee not listed here');
   }
+  // Retired Workers name old rows but take no new ones.
+  const pickable = $derived(data.attendees.filter((a) => !a.retired));
+  const pickedAttendee = $derived(pickable.find((a) => a.id === $addData.attendee) ?? null);
   const attendRows = $derived<AttendRow[]>(
     [...data.appRows, ...data.orgRows].map((r) => ({
       entry: r,
@@ -325,7 +338,7 @@
 
 <div class="space-y-4">
   <Breadcrumb items={[
-    { label: 'Apps', href: appsHref },
+    { label: t('app.channels.crumb.apps', 'Apps'), href: appsHref },
     { label: data.app.name, href: basePath },
     { label: t('app.channels.crumb', 'Channels') },
   ]} />
@@ -389,7 +402,7 @@
           {#if row.channel.chatRootUrn}
             <Urn value={row.channel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
           {:else}
-            <span class="font-mono text-xs">{row.channel.loc}</span>
+            <span class="font-mono text-xs" title={t('app.channels.address.id', 'This channel’s memory has no flat address; use its id.')}>{row.channel.id}</span>
           {/if}
         {:else if cell.column.id === 'host'}
           <div class="min-w-0">
@@ -623,10 +636,17 @@
               {t('app.channels.register.col.attendee', 'Who')}
               <select name="attendee" bind:value={$addData.attendee} class="mt-1 {inputClass}">
                 <option value="">{t('app.channels.register.everyone-app', 'Everyone in this App')}</option>
-                {#each data.attendees as a (a.id)}
+                {#each pickable as a (a.id)}
                   <option value={a.id}>{a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name })}</option>
                 {/each}
               </select>
+              <!-- An <option> can't hold a chip: the chosen one's address shows here,
+                   which is what tells two same-named Agents apart. -->
+              {#if pickedAttendee?.urn}
+                <span class="mt-1 block">
+                  <Urn value={pickedAttendee.urn} type={pickedAttendee.kind === 'worker' ? 'worker' : 'agent'} size={8} label={t('app.channels.register.urn', 'attendee')} />
+                </span>
+              {/if}
             </label>
             <label class="block text-xs text-zinc-600 dark:text-zinc-400">
               {t('app.channels.register.col.mode', 'Takes part as')}

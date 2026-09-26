@@ -271,6 +271,19 @@ describe('load: who takes part (#942 slice 3)', () => {
     ]);
   });
 
+  it('reads retired Workers too, flagged, so an old row keeps its name', async () => {
+    route({ workers: [
+      { id: 'w-ada', name: 'Ada', urn: null, role: null, retiredAt: null },
+      { id: 'w-old', name: 'Olaf', urn: null, role: null, retiredAt: '2026-09-01T00:00:00Z' },
+    ] });
+    const data = await load();
+    expect(sent(WORKERS_QUERY)[0]).toMatchObject({ appRef: 'app-1', includeRetired: true });
+    expect(data.attendees.filter((a) => a.kind === 'worker')).toEqual([
+      expect.objectContaining({ id: 'w-ada', retired: false }),
+      expect.objectContaining({ id: 'w-old', retired: true }),
+    ]);
+  });
+
   it('pages register rows and the Worker roster past the 200-per-page cap', async () => {
     const rows = Array.from({ length: 201 }, (_, i) => row({ id: `re-${i}` }));
     const workers = Array.from({ length: 201 }, (_, i) => ({ id: `w-${i}`, name: `W${i}`, urn: null, role: null }));
