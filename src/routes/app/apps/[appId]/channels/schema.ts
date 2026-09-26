@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { t } from '$lib/i18n/t';
 
 /**
  * #942: the App Channels page's three forms. `_kind` discriminates them, since
@@ -14,11 +15,11 @@ export const CHANNEL_DESCRIPTION_MAX = 500;
 
 export const createChannelSchema = z.object({
   _kind: z.literal('createChannel').default('createChannel'),
-  name: z.string().trim().min(1, 'Give the channel a name.').max(CHANNEL_NAME_MAX).prefault(''),
+  name: z.string().trim().min(1, t('app.channels.validation.name-required', 'Give the channel a name.')).max(CHANNEL_NAME_MAX).prefault(''),
   slug: z
     .string()
     .trim()
-    .regex(CHANNEL_SLUG, 'Use lowercase letters, digits and dashes, starting with a letter or digit.')
+    .regex(CHANNEL_SLUG, t('app.channels.validation.slug', 'Use lowercase letters, digits and dashes, starting with a letter or digit.'))
     .prefault(''),
   description: z.string().trim().max(CHANNEL_DESCRIPTION_MAX).prefault(''),
 });
@@ -26,7 +27,7 @@ export const createChannelSchema = z.object({
 export const renameChannelSchema = z.object({
   _kind: z.literal('renameChannel').default('renameChannel'),
   ref: z.string().trim().min(1).prefault(''),
-  name: z.string().trim().min(1, 'A channel needs a name.').max(CHANNEL_NAME_MAX).prefault(''),
+  name: z.string().trim().min(1, t('app.channels.validation.rename-name-required', 'A channel needs a name.')).max(CHANNEL_NAME_MAX).prefault(''),
   description: z.string().trim().max(CHANNEL_DESCRIPTION_MAX).prefault(''),
 });
 
