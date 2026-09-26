@@ -636,7 +636,8 @@
                or this listener runs first. -->
           <select bind:value={effectiveFor} onchange={(e) => loadEffective(e.currentTarget.value)} class="mt-1 {inputClass}">
             <option value="">{t('app.channels.effective.pick.none', 'Pick a worker or agent…')}</option>
-            {#each data.attendees as a (a.id)}
+            <!-- Active attendees only, as in the add form: a retired Worker follows nothing now. -->
+            {#each pickable as a (a.id)}
               <option value={a.id}>{a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name })}</option>
             {/each}
           </select>

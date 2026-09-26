@@ -381,4 +381,14 @@ describe('Channels page', () => {
     const h1 = target.querySelector('h1')!;
     expect(h1.parentElement!.innerHTML).toContain('hrn:app:acme.com:team');
   });
+
+  it('"Show for" offers active attendees only', async () => {
+    const attendees = [
+      { id: 'w-ada', name: 'Ada', urn: null, kind: 'worker', role: null, retired: false },
+      { id: 'w-old', name: 'Olaf', urn: null, kind: 'worker', role: null, retired: true },
+    ];
+    const { target } = await mountPage([channel()], { attendees });
+    const pick = [...target.querySelectorAll<HTMLSelectElement>('select')].find((s) => s.options[0]?.textContent?.includes('Pick a worker or agent'))!;
+    expect([...pick.options].map((o) => o.value)).toEqual(['', 'w-ada']);
+  });
 });
