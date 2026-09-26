@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -16,6 +17,7 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
   const memory = $derived(data.graph);
+  const abstractHint = $derived(abstractSearchHint(memory));
   const parentLoc = $derived(data.parentLoc);
   const existingLocs = $derived(data.existingLocs);
   const initialForm = untrack(() => form?.form ?? data.form);
@@ -293,9 +295,19 @@
         {createNodeStrings.fieldAbstract()}
       </label>
       <textarea id="abstract" name="abstract" rows="3" bind:value={$formData.abstract} maxlength={ABSTRACT_MAX}
-        placeholder="Paragraph-length summary — the default source for vector search."
+        placeholder={abstractPlaceholder()}
+        aria-describedby={abstractHint ? 'abstract-search-hint' : undefined}
         class={inputClass}></textarea>
-      <p class="mt-1 text-right text-xs {$formData.abstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-500 dark:text-zinc-400'}">{$formData.abstract.length} / {ABSTRACT_MAX}</p>
+      <div class="mt-1 flex items-start justify-between gap-3">
+        <!-- #936: derived from THIS memory's vector config; no claim when
+             search doesn't use the abstract, or when there is no index. -->
+        {#if abstractHint}
+          <p id="abstract-search-hint" class="text-xs text-zinc-500 dark:text-zinc-400">{abstractHint}</p>
+        {:else}
+          <span></span>
+        {/if}
+        <p class="shrink-0 text-right text-xs {$formData.abstract.length > ABSTRACT_MAX ? 'text-red-500' : 'text-zinc-500 dark:text-zinc-400'}">{$formData.abstract.length} / {ABSTRACT_MAX}</p>
+      </div>
     </div>
 
     <div>
