@@ -196,6 +196,14 @@ describe('createChannel', () => {
     expect(sent(CREATE_CHANNEL_MUTATION)).toHaveLength(0);
   });
 
+  it('an add refused NOT_FOUND names the picked channel or attendee, not a row that doesn’t exist yet', async () => {
+    route({ reg: { create: refusal('No match for channelRef "ch-gone".', 'NOT_FOUND') } });
+    const r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-gone', attendee: '', role: 'BOTH', description: '' });
+    const text = (msg(r) as { text: string }).text;
+    expect(text).toContain('That channel or attendee is not available to you');
+    expect(text).not.toMatch(/row/);
+  });
+
   it('an overlong register note is refused in words, before any request', async () => {
     route({});
     const r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-x', attendee: '', role: 'BOTH', description: 'x'.repeat(2001) });

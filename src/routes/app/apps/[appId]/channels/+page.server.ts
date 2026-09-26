@@ -218,12 +218,15 @@ function channelErrorText(e: unknown, fallback: string): string {
 }
 
 /** The words for a refused register write: the codes lib/register.ts emits, else the server's own. */
-function registerErrorText(e: unknown, fallback: string): string {
+function registerErrorText(e: unknown, fallback: string, op: 'add' | 'change' = 'change'): string {
   switch (extractGqlErrorCode(e)) {
     case 'REGISTER_ENTRY_EXISTS':
       return t('app.channels.register.error.exists', 'That attendee already takes part in that channel. Edit the existing row instead.');
     case 'NOT_FOUND':
-      return t('app.channels.register.error.not-found', 'That row is not available to you.');
+      // An add has no row yet: what went missing is the chosen channel or attendee.
+      return op === 'add'
+        ? t('app.channels.register.error.add-not-found', 'That channel or attendee is not available to you. Reload the page and pick again.')
+        : t('app.channels.register.error.not-found', 'That row is not available to you.');
     default:
       return extractGqlError(e, fallback);
   }
@@ -247,7 +250,7 @@ export const actions: Actions = {
         },
       });
     } catch (e) {
-      return message(form, { type: 'error', text: registerErrorText(e, t('app.channels.register.error.added', 'The attendance could not be added.')) }, { status: 400 });
+      return message(form, { type: 'error', text: registerErrorText(e, t('app.channels.register.error.added', 'The attendance could not be added.'), 'add') }, { status: 400 });
     }
     return message(form, { type: 'success', text: t('app.channels.register.added', 'Attendance added.') });
   },
