@@ -124,7 +124,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   };
 };
 
-export type Attendee = { id: string; name: string; urn: string | null; kind: 'worker' | 'agent'; role?: string | null };
+export type Attendee = { id: string; name: string; urn: string | null; kind: 'worker' | 'agent'; role?: string | null; retired?: boolean };
 
 /**
  * #942 slice 3: the register rows this App owns, the organization's rows
@@ -154,9 +154,14 @@ async function loadRegister(
     const [appRows, orgRows, workers, installed, manage] = await Promise.all([
       rows(app.id),
       app.organizationId ? rows(app.organizationId) : Promise.resolve([] as RegisterEntry[]),
-      fetchAllItems<{ id: string; name: string; urn: string | null; role: string | null }>(client, WORKERS_QUERY, 'workers', {
-        appRef: app.id,
-      }),
+      // Retired Workers too: a row that still names one must keep its name.
+      // The picker offers only active ones.
+      fetchAllItems<{ id: string; name: string; urn: string | null; role: string | null; retiredAt: string | null }>(
+        client,
+        WORKERS_QUERY,
+        'workers',
+        { appRef: app.id, includeRetired: true },
+      ),
       client.request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string } }> } | null }>(
         APP_INSTALLED_AGENTS_QUERY,
         { ref: app.id },
@@ -172,7 +177,7 @@ async function loadRegister(
         : Promise.resolve(null),
     ]);
     const attendees: Attendee[] = [
-      ...workers.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role })),
+      ...workers.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role, retired: !!w.retiredAt })),
       ...(installed.app?.appAgents ?? []).map((a) => ({ id: a.agent.id, name: a.agent.name, urn: a.agent.urn, kind: 'agent' as const })),
     ];
     return { appRows, orgRows, attendees, canManageRegister: manage as boolean | null, registerLoadFailed: false };

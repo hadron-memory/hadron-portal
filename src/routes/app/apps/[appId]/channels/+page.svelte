@@ -232,6 +232,9 @@
     if (a) return a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name });
     return r.attendeeUrn ?? t('app.channels.register.unknown-attendee', 'An attendee not listed here');
   }
+  // Retired Workers name old rows but take no new ones.
+  const pickable = $derived(data.attendees.filter((a) => !a.retired));
+  const pickedAttendee = $derived(pickable.find((a) => a.id === $addData.attendee) ?? null);
   const attendRows = $derived<AttendRow[]>(
     [...data.appRows, ...data.orgRows].map((r) => ({
       entry: r,
@@ -529,10 +532,17 @@
               {t('app.channels.register.col.attendee', 'Who')}
               <select name="attendee" bind:value={$addData.attendee} class="mt-1 {inputClass}">
                 <option value="">{t('app.channels.register.everyone-app', 'Everyone in this App')}</option>
-                {#each data.attendees as a (a.id)}
+                {#each pickable as a (a.id)}
                   <option value={a.id}>{a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name })}</option>
                 {/each}
               </select>
+              <!-- An <option> can't hold a chip: the chosen one's address shows here,
+                   which is what tells two same-named Agents apart. -->
+              {#if pickedAttendee?.urn}
+                <span class="mt-1 block">
+                  <Urn value={pickedAttendee.urn} type={pickedAttendee.kind === 'worker' ? 'worker' : 'agent'} size={8} label={t('app.channels.register.urn', 'attendee')} />
+                </span>
+              {/if}
             </label>
             <label class="block text-xs text-zinc-600 dark:text-zinc-400">
               {t('app.channels.register.col.mode', 'Takes part as')}

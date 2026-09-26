@@ -8,7 +8,14 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import Page from './+page.svelte';
-import { createChannelSchema, deleteChannelSchema, renameChannelSchema } from './schema';
+import {
+  addAttendanceSchema,
+  createChannelSchema,
+  deleteChannelSchema,
+  editAttendanceSchema,
+  removeAttendanceSchema,
+  renameChannelSchema,
+} from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
@@ -24,13 +31,18 @@ function channel(over: Record<string, unknown> = {}) {
   };
 }
 
-async function mountPage(channels: unknown[]) {
+async function mountPage(channels: unknown[], extra: Record<string, unknown> = {}) {
   const data = {
+    appRows: [], orgRows: [], attendees: [], canManageRegister: true, registerLoadFailed: false,
+    addAttendanceForm: await superValidate(zod4(addAttendanceSchema), { errors: false }),
+    editAttendanceForm: await superValidate(zod4(editAttendanceSchema), { errors: false }),
+    removeAttendanceForm: await superValidate(zod4(removeAttendanceSchema), { errors: false }),
     app: { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: { id: 'ch-team' }, sharedMemory: SHARED },
     channels, total: channels.length, defaultChannelId: 'ch-team', canWrite: { 'mem-shared': true },
     createForm: await superValidate(zod4(createChannelSchema), { errors: false }),
     renameForm: await superValidate(zod4(renameChannelSchema), { errors: false }),
     deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
+    ...extra,
   };
   const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -76,5 +88,31 @@ describe('Channels page', () => {
     const text = target.querySelector('table')!.textContent!;
     expect(text).toContain('Release');
     expect(text).not.toContain('Team chat');
+  });
+
+  it('the attendee picker offers active Workers only, and shows the chosen one’s URN', async () => {
+    const attendees = [
+      { id: 'w-ada', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', kind: 'worker', role: 'coordinator', retired: false },
+      { id: 'w-old', name: 'Olaf', urn: 'hrn:worker:acme.com:team:olaf', kind: 'worker', role: null, retired: true },
+    ];
+    const { target } = await mountPage([channel()], { attendees });
+    const picker = target.querySelector<HTMLSelectElement>('select[name="attendee"]')!;
+    expect([...picker.options].map((o) => o.value)).toEqual(['', 'w-ada']);
+    expect(target.innerHTML).not.toContain('hrn:worker:acme.com:team:ada');
+    picker.value = 'w-ada';
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(3);
+    expect(picker.parentElement!.innerHTML).toContain('hrn:worker:acme.com:team:ada');
+  });
+
+  it('a register row naming a retired Worker keeps its name', async () => {
+    const attendees = [{ id: 'w-old', name: 'Olaf', urn: 'hrn:worker:acme.com:team:olaf', kind: 'worker', role: null, retired: true }];
+    const appRows = [{
+      id: 're-1', ownerType: 'APP', ownerId: 'app-1', appId: 'app-1', organizationId: null, channelId: 'ch-team',
+      channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team', chatRootUrn: null }, attendeeWorkerId: 'w-old', attendeeAgentId: null,
+      attendeeUrn: 'hrn:worker:acme.com:team:olaf', role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
+    }];
+    const { target } = await mountPage([channel()], { attendees, appRows });
+    expect(target.textContent).toContain('Olaf');
   });
 });
