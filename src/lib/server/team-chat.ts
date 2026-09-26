@@ -43,8 +43,23 @@ const MESSAGE_NODE_TYPES = [PLATFORM_MESSAGE_NODE_TYPE, LEGACY_MESSAGE_NODE_TYPE
 /** The loc segment a chat's thread hangs under — `<chatLoc>:messages:<atom>`. */
 const MESSAGES_SEGMENT = 'messages';
 
-export function isChatNode(node: Pick<MemoryNode, 'tags' | 'nodeType'> | null | undefined): boolean {
+/**
+ * Whether a node is a chat ROOT.
+ *
+ * #926: a MESSAGE is never a root, whatever its tags. Legacy messages carry the
+ * `team-chat` tag, and so do the platform `chat-message` nodes cloned from them
+ * (all 142 of the MM Eng Team's). The tag alone made every one a "chat": its
+ * page grew a Chat tab, and `chatPostTarget` offered a composer that would
+ * have written legacy messages UNDER a message. The message test is the same
+ * one `isChatMessageNode` applies, so a node is one or the other, never both.
+ *
+ * Still open (held for a product decision, see #926): a topical `team-chat`
+ * tag on an ordinary node reads as a legacy root, because the tag is the only
+ * marker a legacy root has.
+ */
+export function isChatNode(node: Pick<MemoryNode, 'tags' | 'nodeType' | 'loc'> | null | undefined): boolean {
   if (!node) return false;
+  if (isChatMessageNode(node)) return false;
   return node.nodeType === CHAT_NODE_TYPE || !!node.tags?.includes(TEAM_CHAT_TAG);
 }
 

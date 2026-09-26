@@ -3,6 +3,7 @@
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
   import { submitTextDraft, syncTextDraftWith, TextDraft } from '$lib/text-draft.svelte';
+  import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -256,17 +257,20 @@
     copyDraftFailed = null;
   }
 
-  // Abstract — paragraph-length summary, the default vector-index source
-  // (spec 031/033). Edited inline here exactly like content. The Abstract
-  // tab is ALWAYS shown: an empty abstract still needs an authoring surface,
-  // or there is no portal path to populate the index's default source. (The
-  // Content tab is now always shown for the same reason — issue #256.)
+  // Abstract — paragraph-length summary; a vector-index source only where the
+  // memory's embeddingSource says so (spec 031/033, #936). Edited inline here
+  // exactly like content. The Abstract tab is ALWAYS shown: an empty abstract
+  // still needs an authoring surface, or an abstract-sourced index has no
+  // portal path to its input. (The Content tab is now always shown for the
+  // same reason — issue #256.)
   const ABSTRACT_MAX = 2000;
   let showAbstractSource = $state(false);
   // #878: the rows under the Source editors, measured so each editor can fill
   // the viewport without pushing its Save button off-screen.
   let contentSaveRow = $state<HTMLElement | null>(null);
   let abstractSaveRow = $state<HTMLElement | null>(null);
+  // #936: what the abstract does for THIS memory's search, if anything.
+  const abstractHint = $derived(abstractSearchHint(data.graph));
   let copiedAbstract = $state(false);
   const abstractDraft = new TextDraft();
   syncTextDraftWith(abstractDraft, () => ({ id: node.id, value: node.abstract, revision: node.revision }));
@@ -2313,7 +2317,7 @@
         {#if !hasContent}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
       <!-- Always shown — an empty abstract still needs an authoring surface
-           (the default vector-index source), same rationale as Content (#256). -->
+           (a vector-index source where the memory says so, #936), same rationale as Content (#256). -->
       <button
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'abstract' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'abstract'}
@@ -2502,7 +2506,8 @@
             use:fillViewport={abstractSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             maxlength={ABSTRACT_MAX}
-            placeholder="A paragraph-length summary of this node. This is the default source for vector search."
+            placeholder={abstractPlaceholder()}
+            aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
             bind:value={abstractDraft.text}
           ></textarea>
           <div bind:this={abstractSaveRow} class="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -2527,6 +2532,11 @@
               >{savingAbstract ? 'Saving...' : 'Save'}</button>
             </div>
           </div>
+          <!-- #936: derived from THIS memory's vector config; no claim when
+               search doesn't use the abstract, or when there is no index. -->
+          {#if abstractHint}
+            <p id="node-abstract-search-hint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{abstractHint}</p>
+          {/if}
           {#if abstractSaveError}
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{abstractSaveError}</p>
           {/if}
@@ -2538,7 +2548,10 @@
         <div class="prose prose-sm prose-zinc mt-3 max-w-none dark:prose-invert">{@html renderedAbstractHtml}</div>
       {:else}
         <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-          <p class="text-sm text-zinc-500 dark:text-zinc-400">No abstract yet. The abstract is a paragraph-length summary and the default source for vector search.</p>
+          <p class="text-sm text-zinc-500 dark:text-zinc-400">
+            {t('node.abstract.empty', 'No abstract yet. The abstract is a paragraph-length summary of this node.')}
+            {#if abstractHint}{abstractHint}{/if}
+          </p>
           <button
             onclick={() => showAbstractSource = true}
             class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"

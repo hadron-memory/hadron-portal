@@ -1,7 +1,8 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { ORGANIZATIONS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
+import { AI_CONFIG_READINESS_QUERY, ORGANIZATIONS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
 import type { Agent, Organization } from '$lib/types';
@@ -31,12 +32,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   if (!agent || !org) throw error(404, 'Agent not found or no longer available');
 
-  // 036-ai-service-config: readiness is whether the agent's `default` config
-  // has a key. `Agent.hasAiApiKey` is the server-computed shim for exactly
-  // that (any member can read it; the registry list itself is admin-gated).
-  const llmProviderConfigured = Boolean(
-    (agent as unknown as { hasAiApiKey?: boolean }).hasAiApiKey,
-  );
+  // #928: readiness is what the tester's RUNTIME would resolve, asked of the
+  // same resolver. It used to be `Agent.hasAiApiKey`, which sees only the
+  // Agent's own `default` config, so an Agent inheriting a valid Org or Host
+  // config was blocked as "not configured" although every turn would have run.
+  const llm = await llmReadiness(client, agent.id);
+  const llmProviderConfigured = llm.status === 'ready';
 
   // Fixtures live as system-type nodes at `fixtures:*` in the agent's
   // system memory (Q1 = B). Decode each and surface summaries.
@@ -65,5 +66,49 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   }
 
-  return { agent, org, llmProviderConfigured, fixtures };
+  return { agent, org, llmProviderConfigured, llm, fixtures };
 };
+
+/**
+ * #928 — whether the tester can run, by the runtime's own resolution.
+ *
+ * - `ready`: a config resolves. Which level it came from is reported, since an
+ *   inherited config is the case the old check got wrong.
+ * - `not-configured`: NoAiConfigAvailableError. The server's words are kept:
+ *   they name the config and level when a nearer config exists without a key,
+ *   which fails closed rather than falling through (spec 036).
+ * - `unavailable`: any other refusal, shown verbatim. The runtime makes this
+ *   exact call before every turn, so it would fail the same way. A caller who
+ *   is not an admin of the agent's org lands here: the server's refusal is an
+ *   untyped `Forbidden`, and it is not guessed at from the prose.
+ */
+export type LlmReadiness =
+  | { status: 'ready'; name: string; ownerType: string; provider: string; model: string }
+  | { status: 'not-configured'; detail: string | null }
+  | { status: 'unavailable'; detail: string | null };
+
+async function llmReadiness(client: ReturnType<typeof gqlClient>, agentId: string): Promise<LlmReadiness> {
+  try {
+    const r = await client.request<{
+      resolveAIConfig: { name: string; ownerType: string; provider: string; model: string };
+    }>(AI_CONFIG_READINESS_QUERY, { name: 'default', agentRef: agentId });
+    return { status: 'ready', ...r.resolveAIConfig };
+  } catch (e: unknown) {
+    // Only the SERVER's answer is shown. A transport failure's message is not:
+    // graphql-request packs the request into it (the #468 leak), so it gets
+    // the page's generic copy instead (@copilot on #932).
+    const detail = serverErrorMessage(e);
+    if (extractGqlErrorCode(e) === 'NoAiConfigAvailableError') return { status: 'not-configured', detail };
+    // A refusal the server gave (a non-admin's Forbidden) is an expected
+    // answer, not an outage; only a failure to get one is logged.
+    if (detail === null) console.warn('[agent-tester] LLM readiness check failed:', e);
+    return { status: 'unavailable', detail };
+  }
+}
+
+/** The server's own error message, or null when the failure never reached it. */
+function serverErrorMessage(e: unknown): string | null {
+  const errors = (e as { response?: { errors?: Array<{ message?: unknown }> } } | null)?.response?.errors;
+  const message = errors?.[0]?.message;
+  return typeof message === 'string' && message !== '' ? message : null;
+}

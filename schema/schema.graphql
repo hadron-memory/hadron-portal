@@ -1,4 +1,4 @@
-# Exported from hadron-server 039762765fa27a79bffff13811ad7eb436684c16 (039762765f, 2026-09-25T10:27:49-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server d8404ad7ec3913b2e6526a3919630f4ea0baafb9 (d8404ad7, 2026-09-25T20:22:15-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -3683,7 +3683,7 @@ type Mutation {
 
   """
   #1201 — the CREATE door for the review kind. A write that would produce a
-  node with role: 'review' must come through here; the generic createNode
+  node with role: 'review' or a dotted 'review.*' sub-role must come through here; the generic createNode
   refuses it.
   
   PURE ROUTING: it validates nothing and knows nothing beyond which kind it is
@@ -3739,7 +3739,7 @@ type Mutation {
 
   """
   #1201 — the CREATE door for the spec kind. A write that would produce a
-  node with role: 'spec' must come through here; the generic createNode
+  node with role: 'spec' or a dotted 'spec.*' sub-role must come through here; the generic createNode
   refuses it.
   
   PURE ROUTING: it validates nothing and knows nothing beyond which kind it is
@@ -5488,7 +5488,8 @@ type Node {
   property schema when it has one. NULL for an ordinary node.
   
   NOT 'nodeType' (the platform-kind axis, which drives retrieval) and NOT
-  'role' (what the node is for, which has no retrieval impact).
+  'role' (what the node is for; role can be filtered explicitly but does not
+  change default ranking or rendering).
   """
   objectType: String
   outgoingEdges: [Edge!]!
@@ -5517,13 +5518,14 @@ type Node {
   
   NOT 'nodeType' (the platform-kind axis, load-bearing for retrieval) and NOT
   'objectType' (the collection discriminator, schema-validated). This field
-  has NO retrieval impact.
+  does not change default retrieval or ranking; NodeFilter.role explicitly
+  selects its exact dotted family (#1322).
   
-  A GOVERNED value routes the write to that kind's own authoring door, and the
-  generic node surface is refused: 'review' and 'spec' today, alongside the
-  task kind, which is gated on 'isRunnable' rather than on any label because a
-  label can be omitted and a capability cannot. 'role: "weather-widget"'
-  does nothing at all.
+  A GOVERNED family routes the write to that kind's own authoring door, and
+  the generic node surface is refused: 'review' / 'review.*' and 'spec' /
+  'spec.*' today, alongside the task kind, which is gated on 'isRunnable'
+  rather than on any label because a label can be omitted and a capability
+  cannot. Other values are inert unless a caller explicitly filters for them.
   """
   role: String
   seq: Int
@@ -5664,6 +5666,11 @@ input NodeFilter {
   #725 — collection facet: only nodes whose objectType equals this (e.g. "competitor").
   """
   objectType: String
+
+  """
+  #1322 — role-family filter. 'spec' matches 'spec' and 'spec.*' on a dot boundary, never 'special' / 'specification'.
+  """
+  role: String
   tags: [String!]
   updatedAfter: String
   updatedBefore: String
@@ -6293,7 +6300,7 @@ type Query {
   The App's memory scope is authoritative, so the filter's memory-scope
   fields (memoryIds / memoryClasses) are rejected with BAD_USER_INPUT rather
   than silently ignored — use findNodes for cross-memory scoping. Only
-  node-level predicates (nodeType, tags, isRunnable, locPrefix, createdBy,
+  node-level predicates (nodeType, tags, isRunnable, role, locPrefix, createdBy,
   updatedAfter/Before, includeDeleted) apply. Unlike findNodes, system-memory
   nodes are NOT excluded by default.
   """

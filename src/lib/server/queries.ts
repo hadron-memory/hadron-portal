@@ -1740,6 +1740,24 @@ export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
   }
 `;
 
+// #928: the Agent tester's readiness probe. The SAME resolution the tester's
+// runtime performs (fetchAgentAIConfig: name default, agentRef, no app), so
+// the two cannot disagree: inherited Agent -> Org -> Host configs count, a
+// nearer enabled config without a key fails closed, and the server alone
+// decides what makes a config usable. Deliberately selects NO key material:
+// the decrypted key stays on the server, and nothing here can leak it to the
+// page. Same gate as the runtime (org ADMIN of the effective org).
+export const AI_CONFIG_READINESS_QUERY = /* GraphQL */ `
+  query AiConfigReadiness($name: String, $agentRef: ID) {
+    resolveAIConfig(name: $name, agentRef: $agentRef) {
+      name
+      ownerType
+      provider
+      model
+    }
+  }
+`;
+
 // Masked, resolution-aware set of configs selectable in a chat context
 // (App -> Agent -> Org -> Host, deduped by name, enabled-only, no key
 // material). Auth: App membership (or platform admin). Powers the App chat
