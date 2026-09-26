@@ -196,6 +196,14 @@ describe('createChannel', () => {
     expect(sent(CREATE_CHANNEL_MUTATION)).toHaveLength(0);
   });
 
+  it('an overlong register note is refused in words, before any request', async () => {
+    route({});
+    const r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-x', attendee: '', role: 'BOTH', description: 'x'.repeat(2001) });
+    expect(r.status).toBe(400);
+    expect(JSON.stringify(r)).toMatch(/Keep the note to \d+ characters\./);
+    expect(sent(CREATE_REGISTER_ENTRY_MUTATION)).toHaveLength(0);
+  });
+
   it('an overlong name is refused in words, before any request', async () => {
     route({});
     const r = await act('createChannel', { _kind: 'createChannel', name: 'x'.repeat(121), slug: 'ok', description: '' });

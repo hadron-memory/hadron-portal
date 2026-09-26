@@ -463,4 +463,18 @@ describe('Channels page', () => {
     expect(target.querySelector('#add-channel-error')?.textContent).toBe('Pick a channel.');
     expect(target.querySelector('select[name="channelId"]')!.getAttribute('aria-invalid')).toBe('true');
   });
+
+  it('a rename refusal for one Channel doesn’t follow the editor to another', async () => {
+    const failed = await superValidate({ _kind: 'renameChannel', ref: 'ch-team', name: 'Taken' }, zod4(renameChannelSchema));
+    failed.message = { type: 'error', text: 'That name is refused for Team chat.' };
+    const { target } = await mountPage(
+      [channel(), channel({ id: 'ch-x', name: 'Other', loc: 'chats:x', chatRootUrn: 'hrn:node:acme.com:team-shared:chats:x' })],
+      {},
+      { form: failed },
+    );
+    const renames = [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Rename');
+    renames[1].click();
+    await tick(3);
+    expect(target.textContent).not.toContain('That name is refused for Team chat.');
+  });
 });
