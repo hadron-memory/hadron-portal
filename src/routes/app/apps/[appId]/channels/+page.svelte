@@ -106,7 +106,10 @@
       channel: c,
       id: c.id,
       name: c.name,
-      address: c.chatRootUrn ?? c.loc,
+      // A compound (pre-v2) host memory has no chatRootUrn, and its loc is only
+      // memory-relative, so the id is the address there: the server accepts it
+      // on every channelRef.
+      address: c.chatRootUrn ?? c.id,
       host: c.memory.name,
       lastMessage: when(c.lastMessageAt),
       isDefault: c.id === data.defaultChannelId,
@@ -116,7 +119,14 @@
 
   let globalFilter = $state('');
   const columns: PortalColumnDef<Row>[] = [
-    { accessorKey: 'name', header: t('app.channels.col.name', 'Channel'), enableHiding: false, size: 240 },
+    // The cell shows the description under the name, so search finds it too.
+    {
+      accessorFn: (r) => [r.name, r.channel.description].filter(Boolean).join(' '),
+      id: 'name',
+      header: t('app.channels.col.name', 'Channel'),
+      enableHiding: false,
+      size: 240,
+    },
     { accessorKey: 'address', header: t('app.channels.col.address', 'Address'), size: 300 },
     { accessorKey: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
     {
@@ -272,7 +282,7 @@
 
 <div class="space-y-4">
   <Breadcrumb items={[
-    { label: 'Apps', href: appsHref },
+    { label: t('app.channels.crumb.apps', 'Apps'), href: appsHref },
     { label: data.app.name, href: basePath },
     { label: t('app.channels.crumb', 'Channels') },
   ]} />
@@ -336,7 +346,7 @@
           {#if row.channel.chatRootUrn}
             <Urn value={row.channel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
           {:else}
-            <span class="font-mono text-xs">{row.channel.loc}</span>
+            <span class="font-mono text-xs" title={t('app.channels.address.id', 'This channel’s memory has no flat address; use its id.')}>{row.channel.id}</span>
           {/if}
         {:else if cell.column.id === 'host'}
           <div class="min-w-0">
