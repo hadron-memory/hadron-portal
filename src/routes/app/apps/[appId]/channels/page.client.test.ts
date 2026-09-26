@@ -164,4 +164,17 @@ describe('Channels page', () => {
     await tick(3);
     expect(target.textContent).not.toContain('That name is refused for Team chat.');
   });
+
+  it('a delete refusal for one Channel doesn’t show while confirming another', async () => {
+    const failed = await superValidate({ _kind: 'deleteChannel', ref: 'ch-team' }, zod4(deleteChannelSchema));
+    failed.message = { type: 'error', text: 'Refused for the team chat.' };
+    const { target } = await mountPage(
+      [channel(), channel({ id: 'ch-x', name: 'Other', loc: 'chats:x', chatRootUrn: 'hrn:node:acme.com:team-shared:chats:x' })],
+      {},
+      { form: failed },
+    );
+    [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Delete')[1].click();
+    await tick(3);
+    expect(target.textContent).not.toContain('Refused for the team chat.');
+  });
 });
