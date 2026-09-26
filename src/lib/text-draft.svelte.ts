@@ -50,7 +50,11 @@ export class TextDraft {
   #baseValue = '';
   #nodeId: string | null = null;
   #latest: TextDraftSource | null = null;
-  #pending = true;
+  // $state, not a plain field: `dirty` reads it FIRST and short-circuits, so a
+  // template that evaluated `dirty` while pending (the editor renders before
+  // the effect that seeds it) tracked nothing reactive and never re-ran. Save
+  // stayed disabled after typing. Found driving #931 in a browser.
+  #pending = $state(true);
 
   get dirty(): boolean {
     return !this.#pending && this.text !== this.#seededText;

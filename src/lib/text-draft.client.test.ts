@@ -10,6 +10,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitTextDraft, TextDraft, type TextDraftSource } from './text-draft.svelte';
 import Harness from './test/TextDraftHarness.svelte';
+import DirtyHarness from './test/TextDraftDirtyHarness.svelte';
 
 type Props = { draft: TextDraft; node: TextDraftSource };
 const mounted: Array<Mounted<Props>> = [];
@@ -184,5 +185,39 @@ describe('submitTextDraft', () => {
     const out = await submitTextDraft({ url: '/x?/updateContent', field: 'content', text: 'b', expectedRevision: null, fetchImpl });
     expect(calls[0].body.has('expectedRevision')).toBe(false);
     expect(out).toEqual({ ok: false, code: 'no-baseline', detail: null });
+  });
+});
+
+/**
+ * #931 — found driving the node page in a browser: Save stayed DISABLED after
+ * typing. `dirty` read the plain `#pending` field first and short-circuited, so
+ * the button's `disabled`, evaluated while the editor was still pending,
+ * tracked nothing reactive and never re-evaluated. Only a rendered template
+ * shows this; the getter read directly was always right.
+ */
+describe('TextDraft.dirty through a rendered template (#931)', () => {
+  type DProps = { draft: TextDraft; node: TextDraftSource; open: boolean };
+  const dmounted: Array<Mounted<DProps>> = [];
+  afterEach(() => {
+    while (dmounted.length) dmounted.pop()!.unmount();
+  });
+
+  it('Save enables when the user types after the editor opens, and disables again when the edit is undone', async () => {
+    const props = reactiveProps<DProps>({ draft: new TextDraft(), node: { id: 'a', value: 'v1', revision: 1 }, open: false });
+    const m = mountComponent(DirtyHarness, props);
+    dmounted.push(m);
+    await tick();
+    props.open = true; // the editor renders, THEN the effect seeds it
+    await tick();
+    const save = () => m.target.querySelector('[data-testid="save"]') as HTMLButtonElement;
+    expect(save().disabled).toBe(true);
+
+    props.draft.text = 'v1 edited';
+    await tick();
+    expect(save().disabled).toBe(false);
+
+    props.draft.text = 'v1';
+    await tick();
+    expect(save().disabled).toBe(true);
   });
 });
