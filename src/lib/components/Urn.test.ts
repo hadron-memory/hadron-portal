@@ -165,3 +165,12 @@ describe('Urn — a labelled chip names its copy buttons (@codex on #917)', () =
     expect(plain).toContain('aria-label="Copy URL"');
   });
 });
+
+describe('Urn.svelte — safe inside a <form> (portal#945)', () => {
+  it('every button it renders is type="button", so a copy never submits the form around it', () => {
+    const body = render(Urn, { props: { value: 'hrn:node:acme.com:ops:x' } }).body;
+    const buttons = body.match(/<button\b[^>]*>/g) ?? [];
+    expect(buttons.length).toBeGreaterThanOrEqual(2);
+    for (const b of buttons) expect(b).toContain('type="button"');
+  });
+});

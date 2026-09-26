@@ -174,7 +174,8 @@
       <span class="min-w-0 truncate bg-zinc-200 pl-0.5 pr-1.5 py-0.5 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200" title={displayFullUrn}>{bareValue}</span>
     {/if}
   </svelte:element>
-  <button onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrnName} aria-label={copyUrnName}>
+  <!-- type="button": a chip inside a <form> must never submit it (portal#945). -->
+  <button type="button" onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrnName} aria-label={copyUrnName}>
     {#if copied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
@@ -182,7 +183,7 @@
     {/if}
   </button>
   {#if showCopyUrl}
-  <button onclick={copyUrl} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrlName} aria-label={copyUrlName}>
+  <button type="button" onclick={copyUrl} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrlName} aria-label={copyUrlName}>
     {#if urlCopied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
