@@ -185,7 +185,7 @@ function channelErrorText(e: unknown, fallback: string): string {
     case 'LOC_OCCUPIED':
       return t('app.channels.error.occupied', 'Something that is not a channel already lives at that address. Pick another short name.');
     case 'NOT_FOUND':
-      // Missing and unreadable answer the same on purpose (cor:api:140:03).
+      // Missing and unreadable answer the same on purpose (hrn:node:hadronmemory.com:specs:cor:api:140:03).
       return t('app.channels.error.not-found', 'That channel or its memory is not available to you.');
     default:
       return extractGqlError(e, fallback);
