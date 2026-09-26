@@ -128,4 +128,11 @@ describe('Channels page', () => {
     const body = await html([channel({ lastMessageAt: '2026-09-26T10:00:00Z' })]);
     expect(body).toMatch(/Sep 26, 2026/);
   });
+
+  it('with no readable shared memory, the create panel says unavailable, never "has none"', async () => {
+    const { target } = await mountPage([channel()], { app: { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: null, sharedMemory: null } });
+    const panel = [...target.querySelectorAll('h2')].find((h) => h.textContent?.includes('New channel'))!.parentElement!;
+    expect(panel.textContent).toContain('isn’t available to you');
+    expect(panel.textContent).not.toMatch(/has no shared memory/);
+  });
 });
