@@ -391,4 +391,20 @@ describe('Channels page', () => {
     const pick = [...target.querySelectorAll<HTMLSelectElement>('select')].find((s) => s.options[0]?.textContent?.includes('Pick a worker or agent'))!;
     expect([...pick.options].map((o) => o.value)).toEqual(['', 'w-ada']);
   });
+
+  it('a register row shows its saved note, and search finds it', async () => {
+    const row = (id: string, description: string | null) => ({
+      id, ownerType: 'ORGANIZATION', ownerId: 'org-1', appId: null, organizationId: 'org-1', channelId: 'ch-team',
+      channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team', chatRootUrn: null }, attendeeWorkerId: null, attendeeAgentId: null,
+      attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description, createdAt: '',
+    });
+    const { target } = await mountPage([channel()], { orgRows: [row('re-1', 'triage duty'), row('re-2', null)] });
+    const regTable = [...target.querySelectorAll('table')].find((tb) => tb.textContent?.includes('Set by'))!;
+    expect(regTable.textContent).toContain('triage duty');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search…"]')!;
+    search.value = 'triage';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(3);
+    expect(regTable.querySelectorAll('tbody tr')).toHaveLength(1);
+  });
 });
