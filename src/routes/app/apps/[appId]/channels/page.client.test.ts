@@ -25,7 +25,7 @@ function channel(over: Record<string, unknown> = {}) {
   };
 }
 
-async function mountPage(channels: unknown[], extra: Record<string, unknown> = {}) {
+async function mountPage(channels: unknown[], extra: Record<string, unknown> = {}, actionData: unknown = null) {
   const data = {
     app: { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: { id: 'ch-team' }, sharedMemory: SHARED },
     channels, total: channels.length, defaultChannelId: 'ch-team', canWrite: { 'mem-shared': true },
@@ -34,7 +34,7 @@ async function mountPage(channels: unknown[], extra: Record<string, unknown> = {
     deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
     ...extra,
   };
-  const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+  const m = mountComponent(Page as never, { data, form: actionData } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick();
   return m;
@@ -149,5 +149,19 @@ describe('Channels page', () => {
     slug.dispatchEvent(new Event('input', { bubbles: true }));
     await tick(3);
     expect(target.querySelector('#create-slug-address')!.textContent).toBe('chats:release');
+  });
+
+  it('a rename refusal for one Channel doesn’t follow the editor to another', async () => {
+    const failed = await superValidate({ _kind: 'renameChannel', ref: 'ch-team', name: 'Taken' }, zod4(renameChannelSchema));
+    failed.message = { type: 'error', text: 'That name is refused for Team chat.' };
+    const { target } = await mountPage(
+      [channel(), channel({ id: 'ch-x', name: 'Other', loc: 'chats:x', chatRootUrn: 'hrn:node:acme.com:team-shared:chats:x' })],
+      {},
+      { form: failed },
+    );
+    const renames = [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Rename');
+    renames[1].click();
+    await tick(3);
+    expect(target.textContent).not.toContain('That name is refused for Team chat.');
   });
 });
