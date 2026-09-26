@@ -370,4 +370,23 @@ describe('Channels page', () => {
     await tick(3);
     expect(target.textContent).not.toContain('Refused for row one.');
   });
+
+  it('copying the picked Channel’s URN inside the Add form does not submit it (Codex P1)', async () => {
+    const { target } = await mountPage([channel()]);
+    const form = target.querySelector<HTMLFormElement>('form[action="?/addAttendance"]')!;
+    const pick = form.querySelector<HTMLSelectElement>('select[name="channelId"]')!;
+    pick.value = 'ch-team';
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(3);
+    let submitted = 0;
+    form.addEventListener('submit', (e) => {
+      submitted++;
+      e.preventDefault();
+    });
+    const copy = form.querySelector<HTMLButtonElement>('button[aria-label^="Copy"]')!;
+    expect(copy).toBeTruthy();
+    copy.click();
+    await tick(3);
+    expect(submitted).toBe(0);
+  });
 });
