@@ -25,6 +25,16 @@ function view(over: ViewOverrides = {}): RegisterViewRow {
 }
 
 describe('effectiveRows', () => {
+  it('a POST-only winning row counts nothing as new', () => {
+    expect(effectiveRows([view({ entry: { role: 'POST', mentionOnly: true } })])[0].counts).toBe('Nothing (post only)');
+  });
+
+  it('namedBy AGENT is the attendee’s OWN row when the attendee is that Agent', () => {
+    const v = [view({ namedBy: 'AGENT', entry: { ownerType: 'APP' } })];
+    expect(effectiveRows(v, 'agent')[0].because).toBe('Their own row');
+    expect(effectiveRows(v, 'worker')[0].because).toBe('Their agent’s row');
+  });
+
   it('carries the Channel’s address, so same-named Channels in different memories are told apart', () => {
     const [a, b] = effectiveRows([
       view({ channel: { name: 'team', loc: 'chats:team', hostMemoryUrn: 'hrn:mem:acme.com:shared' } }),

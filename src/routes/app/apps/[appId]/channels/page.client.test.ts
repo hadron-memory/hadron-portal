@@ -229,4 +229,19 @@ describe('Channels page', () => {
     await tick(3);
     expect(pick.parentElement!.innerHTML).toContain('hrn:node:acme.com:team-shared:chats:team');
   });
+
+  it('"Show for" shows the chosen attendee’s URN', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ rows: [] }) }) as unknown as Response));
+    try {
+      const attendees = [{ id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator', kind: 'agent', retired: false }];
+      const { target } = await mountPage([channel()], { attendees });
+      const pick = [...target.querySelectorAll<HTMLSelectElement>('select')].find((s) => s.options[0]?.textContent?.includes('Pick a worker or agent'))!;
+      pick.value = 'ag-1';
+      pick.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(5);
+      expect(pick.parentElement!.innerHTML).toContain('hrn:agent:acme.com:coordinator');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

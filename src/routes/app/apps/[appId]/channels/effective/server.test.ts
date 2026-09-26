@@ -43,6 +43,12 @@ describe('GET effective', () => {
     expect(JSON.stringify(body)).not.toMatch(/canPost|canRead|disclosure|DRIVER_NOT_PARTICIPANT/);
   });
 
+  it('for an Agent, a namedBy AGENT row is their own row, not "their agent’s"', async () => {
+    mockRequest.mockResolvedValue({ attendeeRegister: VIEW });
+    const { body } = await get('attendee=ag-1&kind=agent');
+    expect(body.rows[0].because).toBe('Their own row');
+  });
+
   it.each(['', 'attendee=w-ada', 'attendee=w-ada&kind=user', 'kind=worker'])('refuses %j without asking the server', async (qs) => {
     const { status } = await get(qs);
     expect(status).toBe(400);

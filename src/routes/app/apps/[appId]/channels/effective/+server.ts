@@ -23,7 +23,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
   const vars = kind === 'worker' ? { workerRef: attendee } : { agentRef: attendee, appRef: params.appId };
   try {
     const r = await gqlClient(locals.token).request<{ attendeeRegister: RegisterViewRow[] }>(ATTENDEE_REGISTER_QUERY, vars);
-    return json({ loadFailed: false, rows: effectiveRows(r.attendeeRegister), loadedAt: new Date().toISOString() });
+    return json({ loadFailed: false, rows: effectiveRows(r.attendeeRegister, kind), loadedAt: new Date().toISOString() });
   } catch (e) {
     console.warn(`[app-channels] attendeeRegister failed for ${kind} ${attendee}:`, e);
     // A failed read is not an empty register; the page says which.

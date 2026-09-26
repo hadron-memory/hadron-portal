@@ -298,6 +298,7 @@
 
   // ── #942 slice 4: what one attendee effectively follows (on demand) ──
   let effectiveFor = $state('');
+  const effectiveAttendee = $derived(data.attendees.find((a) => a.id === effectiveFor) ?? null);
   let effective = $state<{ rows: EffectiveRow[]; loadedAt: string } | null>(null);
   let effectiveState = $state<'idle' | 'loading' | 'failed'>('idle');
   // Each request is numbered; only the latest may write the panel, so a slow
@@ -604,6 +605,11 @@
               <option value={a.id}>{a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name })}</option>
             {/each}
           </select>
+          {#if effectiveAttendee?.urn}
+            <span class="mt-1 block">
+              <Urn value={effectiveAttendee.urn} type={effectiveAttendee.kind === 'worker' ? 'worker' : 'agent'} size={8} label={t('app.channels.register.urn', 'attendee')} />
+            </span>
+          {/if}
         </label>
         {#if effectiveState === 'loading'}
           <p class="mt-2 text-xs text-zinc-500" role="status">{t('app.channels.effective.loading', 'Loading…')}</p>

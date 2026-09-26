@@ -18,6 +18,7 @@
  */
 import { t } from '$lib/i18n/t';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { countsAsNewLabel } from '$lib/register-counts';
 
 export interface RegisterViewRow {
   namedBy: 'WORKER' | 'AGENT' | 'EVERYONE';
@@ -53,9 +54,22 @@ export function modeLabel(role: RegisterViewRow['entry']['role']): string {
   }
 }
 
-/** Why this row is the one that applies: the resolution's `namedBy`, plus who set it. */
-export function becauseLabel(r: RegisterViewRow): string {
+/** Whose effective register this is: an Agent's own row and a Worker's agent's row read differently. */
+export type AttendeeKind = 'worker' | 'agent';
+
+/**
+ * Why this row is the one that applies: the resolution's `namedBy`, plus who
+ * set it. `namedBy: AGENT` is the Worker's AGENT's row when a Worker is
+ * shown, but the attendee's OWN row when the attendee is that Agent.
+ */
+export function becauseLabel(r: RegisterViewRow, kind: AttendeeKind = 'worker'): string {
   const org = r.entry.ownerType === 'ORGANIZATION';
+  const own = r.namedBy === 'WORKER' || (r.namedBy === 'AGENT' && kind === 'agent');
+  if (own) {
+    return org
+      ? t('app.channels.effective.because.worker-org', 'Their own row, set by the organization')
+      : t('app.channels.effective.because.worker', 'Their own row');
+  }
   switch (r.namedBy) {
     case 'WORKER':
       return org
@@ -93,7 +107,7 @@ export function noteLabel(r: RegisterViewRow): string {
   return '';
 }
 
-export function effectiveRows(view: RegisterViewRow[]): EffectiveRow[] {
+export function effectiveRows(view: RegisterViewRow[], kind: AttendeeKind = 'worker'): EffectiveRow[] {
   return view.map((r) => ({
     id: r.entry.id,
     channel: r.channel.name,
@@ -101,10 +115,8 @@ export function effectiveRows(view: RegisterViewRow[]): EffectiveRow[] {
     // The view row carries no chatRootUrn; its address is the host memory plus loc.
     channelUrn: r.channel.hostMemoryUrn ? composeNodeUrn(r.channel.hostMemoryUrn, r.channel.loc) : null,
     mode: modeLabel(r.entry.role),
-    counts: r.entry.mentionOnly
-      ? t('app.channels.register.mentions.only', 'Only when mentioned')
-      : t('app.channels.register.mentions.all', 'All messages'),
-    because: becauseLabel(r),
+    counts: countsAsNewLabel(r.entry.role, r.entry.mentionOnly),
+    because: becauseLabel(r, kind),
     readUpTo: readUpToLabel(r),
     note: noteLabel(r),
   }));
