@@ -18,7 +18,7 @@ import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePr
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
-import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -284,12 +284,15 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // default tab and is AWAITED rather than streamed — it is the primary content
   // for those nodes. Every other node pays nothing. Best-effort: an empty thread
   // beats failing the whole page.
-  const isChat = isChatNode(node);
+  // #926: a `team-chat`-tagged node is a chat only with a legacy thread under
+  // it. Probed only for such a node, so every other page pays nothing.
+  const chatEvidence = await legacyThreadEvidence(gqlClient(locals.token), node);
+  const isChat = isChatNode(node, chatEvidence);
   // Whether the composer has anywhere to send. Derived from the NODE (the same
   // input the action re-derives it from), not from the parent layout's memory —
   // a partial/streamed layout must not be able to hide a composer the action
   // would happily accept, or offer one it would reject.
-  const canPostChat = chatPostTarget(node).kind !== 'none';
+  const canPostChat = chatPostTarget(node, chatEvidence).kind !== 'none';
   // #793: a bounded WINDOW (the newest CHAT_PAGE_SIZE), not the whole thread.
   // The page also carries `hasOlder` so the Chat tab can offer scrollback
   // instead of silently presenting a window as the complete transcript.
@@ -321,7 +324,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const chatRoot = chatRootLoc
     ? memoryNodes.find((n) => n.memoryId === params.id && n.loc === chatRootLoc)
     : undefined;
-  const openChat = chatRoot && isChatNode(chatRoot)
+  // A legacy `message` under the root IS the root's thread evidence (#926).
+  const openChat = chatRoot && isChatNode(chatRoot, { legacyThread: node.nodeType === 'message' })
     ? { nodeId: chatRoot.id, loc: chatRoot.loc, name: chatRoot.name ?? chatRoot.loc }
     : null;
 
@@ -590,7 +594,8 @@ export const actions: Actions = {
     try {
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return message(form, { type: 'error', text: 'Chat node not found' }, { status: 404 });
-      if (!isChatNode(node)) {
+      const evidence = await legacyThreadEvidence(client, node);
+      if (!isChatNode(node, evidence)) {
         return message(form, { type: 'error', text: 'This node is not a chat.' }, { status: 400 });
       }
       if (!locals.user) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
@@ -598,7 +603,7 @@ export const actions: Actions = {
       // #237: the target is derived from the fetched node, not the URL, which
       // may be stale. `none` means the message would land in some OTHER thread
       // (or nowhere) — refuse rather than report a success that isn't one.
-      const target = chatPostTarget(node);
+      const target = chatPostTarget(node, evidence);
       if (target.kind === 'none') {
         return message(
           form,

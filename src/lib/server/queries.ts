@@ -2504,6 +2504,23 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   }
 `;
 
+// #926: the evidence probe for a tag-only (legacy) chat root. Slim on purpose:
+// only the legacy MESSAGE nodes under the root's messages prefix, and only the
+// fields the direct-child check reads. Sorted by loc so direct children come
+// before their own descendants.
+export const LEGACY_THREAD_PROBE_QUERY = /* GraphQL */ `
+  query LegacyThreadProbe($memoryId: ID!, $locPrefix: String!, $limit: Int) {
+    findNodes(
+      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix, nodeType: "message" }
+      limit: $limit
+      sort: loc
+    ) {
+      total
+      hits { node { loc nodeType } }
+    }
+  }
+`;
+
 // Node CONTENT search (issue #355) — keyword/FTS over name+description+content,
 // scoped to a SET of memories (`filter.memoryIds`). Backs the "Exact" toggle of the
 // MemoryBrowser search box; powers /api/nodes/search. NOTE: `mode:keyword` is now
