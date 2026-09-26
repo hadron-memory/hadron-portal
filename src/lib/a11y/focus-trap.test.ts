@@ -211,3 +211,78 @@ describe('focusTrapWhen', () => {
     expect(document.activeElement).toBe(opener);
   });
 });
+
+/**
+ * #938 — text in a trapped dialog must stay selectable.
+ *
+ * A mousedown on non-interactive content focuses its nearest focusable
+ * ANCESTOR (the browser's default). The maximised team chat lives inside a
+ * focusable tab panel (`tabindex="0"`), so clicking message text focused that
+ * panel, OUTSIDE the dialog. The trap then pulled focus back in mid-mousedown,
+ * which cancels Chrome's text-selection drag. jsdom has no mousedown-to-focus
+ * default, so `clickFocus` performs exactly that step.
+ */
+describe('focusTrap — clicking text inside the dialog (#938)', () => {
+  /** What the browser does to focus on a mousedown at `target`. */
+  function clickFocus(target: HTMLElement) {
+    let el: HTMLElement | null = target;
+    while (el && !el.hasAttribute('tabindex') && !el.matches('a[href],button,input,select,textarea')) {
+      el = el.parentElement;
+    }
+    const focusTarget = el ?? document.body;
+    focusTarget.focus();
+    focusTarget.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    return focusTarget;
+  }
+
+  function inFocusablePanel() {
+    // The real shape: the tab panel is focusable and CONTAINS the dialog.
+    const panel = document.createElement('div');
+    panel.setAttribute('tabindex', '0');
+    panel.id = 'panel-chats';
+    document.body.append(panel);
+    panel.append(dialog);
+    const text = document.createElement('p');
+    text.textContent = 'a message body the reader wants to copy';
+    dialog.append(text);
+    return { panel, text };
+  }
+
+  it('a click on text lands on the dialog itself, and the trap leaves it there', () => {
+    const { panel, text } = inFocusablePanel();
+    focusTrap(dialog);
+    const landed = clickFocus(text);
+    expect(landed).toBe(dialog);
+    expect(landed).not.toBe(panel);
+    // No refocus to the first control, which is the jump that killed the drag.
+    expect(document.activeElement).toBe(dialog);
+  });
+
+  it('makes the container focusable while trapping, even when it HAS controls', () => {
+    focusTrap(dialog);
+    expect(dialog.getAttribute('tabindex')).toBe('-1');
+    // -1: reachable by click and focus(), never a Tab stop of its own.
+    expect(dialog.tabIndex).toBe(-1);
+  });
+
+  it('still pulls focus back from a genuinely outside element', () => {
+    inFocusablePanel();
+    focusTrap(dialog);
+    clickFocus(byId('behind'));
+    expect(document.activeElement).toBe(byId('first'));
+  });
+
+  it('focusTrapWhen removes the tabindex it added when released…', () => {
+    const action = focusTrapWhen(dialog, true);
+    expect(dialog.getAttribute('tabindex')).toBe('-1');
+    action.update(false);
+    expect(dialog.hasAttribute('tabindex')).toBe(false);
+  });
+
+  it('…and never touches a tabindex the caller set', () => {
+    dialog.setAttribute('tabindex', '0');
+    const action = focusTrapWhen(dialog, true);
+    action.update(false);
+    expect(dialog.getAttribute('tabindex')).toBe('0');
+  });
+});
