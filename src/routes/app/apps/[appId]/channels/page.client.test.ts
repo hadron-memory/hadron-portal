@@ -126,4 +126,17 @@ describe('Channels page', () => {
     const { cancelled } = await submitEnhanced(confirm);
     expect(cancelled).toBe(false);
   });
+
+  it('Remove → confirm on a register row actually submits (Chip, #2185)', async () => {
+    const appRows = [{
+      id: 're-1', ownerType: 'APP', ownerId: 'app-1', appId: 'app-1', organizationId: null, channelId: 'ch-team',
+      channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team', chatRootUrn: null }, attendeeWorkerId: null, attendeeAgentId: null,
+      attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
+    }];
+    const { target } = await mountPage([channel()], { appRows });
+    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Remove')!.click();
+    await tick(3);
+    const confirm = target.querySelector<HTMLFormElement>('form[action="?/removeAttendance"]')!;
+    expect((await submitEnhanced(confirm)).cancelled).toBe(false);
+  });
 });

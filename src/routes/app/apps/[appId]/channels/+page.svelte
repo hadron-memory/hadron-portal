@@ -206,7 +206,7 @@
 
   let confirmingRemove = $state<string | null>(null);
   const {
-    message: removeMessage, submitting: removing, enhance: removeEnhance,
+    form: removeData, message: removeMessage, submitting: removing, enhance: removeEnhance,
   } = superForm<RemoveForm, App.Superforms.Message, RemoveForm>(
     untrack(() => (submittedForm<RemoveForm>(form, 'removeAttendance') as SuperValidated<RemoveForm, App.Superforms.Message, RemoveForm> | null) ?? data.removeAttendanceForm),
     {
@@ -217,6 +217,12 @@
     },
   );
   const removeError = $derived(scopedActionError<RemoveForm>(form, 'removeAttendance', $removeMessage, null));
+  // As for a Channel delete: superforms validates its own state, so the ref
+  // must be set there, not only in the hidden input (Chip, team chat #2185).
+  function startRemove(id: string) {
+    confirmingRemove = id;
+    removeData.set({ _kind: 'removeAttendance', ref: id }, { taint: false });
+  }
 
   interface AttendRow {
     entry: RegisterEntry;
@@ -501,7 +507,7 @@
               {:else}
                 <div class="flex gap-1">
                   <button type="button" onclick={() => startEdit(row.entry)} class="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.register.edit', 'Edit')}</button>
-                  <button type="button" onclick={() => (confirmingRemove = row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.register.remove', 'Remove')}</button>
+                  <button type="button" onclick={() => startRemove(row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.register.remove', 'Remove')}</button>
                 </div>
               {/if}
             {:else if cell.column.id === 'channel' && row.entry.channel?.chatRootUrn}
