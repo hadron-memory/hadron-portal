@@ -213,6 +213,10 @@
   const editError = $derived(scopedActionError<EditForm>(form, 'editAttendance', $editMessage, $editErrors, ['description', 'ref', '_kind']));
   function startEdit(r: RegisterEntry) {
     editingRow = r.id;
+    // As for rename: one form serves every row, so a previous row's refusal
+    // must not show in this one's editor.
+    editMessage.set(undefined);
+    editErrors.clear();
     editData.set({ _kind: 'editAttendance', ref: r.id, role: r.role, mentionOnly: r.mentionOnly, description: r.description ?? '' }, { taint: false });
   }
 

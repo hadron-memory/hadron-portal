@@ -508,4 +508,19 @@ describe('Channels page', () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it('an attendance edit refusal for one row doesn’t follow the editor to another', async () => {
+    const failed = await superValidate({ _kind: 'editAttendance', ref: 're-1', role: 'BOTH' }, zod4(editAttendanceSchema));
+    failed.message = { type: 'error', text: 'Refused for row one.' };
+    const row = (id: string) => ({
+      id, ownerType: 'APP', ownerId: 'app-1', appId: 'app-1', organizationId: null, channelId: 'ch-team',
+      channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team', chatRootUrn: null }, attendeeWorkerId: null, attendeeAgentId: null,
+      attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
+    });
+    const { target } = await mountPage([channel()], { appRows: [row('re-1'), row('re-2')] }, { form: failed });
+    const edits = [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Edit');
+    edits[1].click();
+    await tick(3);
+    expect(target.textContent).not.toContain('Refused for row one.');
+  });
 });
