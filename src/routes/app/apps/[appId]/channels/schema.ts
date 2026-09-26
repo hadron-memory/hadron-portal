@@ -53,13 +53,15 @@ export function channelLoc(slug: string): string {
 export const REGISTER_ROLES = ['WATCH', 'POST', 'BOTH'] as const;
 export const REGISTER_DESCRIPTION_MAX = 500;
 
+const NOTE_TOO_LONG = t('app.channels.validation.note-too-long', 'Keep the note to {max} characters.', { max: String(REGISTER_DESCRIPTION_MAX) });
+
 export const addAttendanceSchema = z.object({
   _kind: z.literal('addAttendance').default('addAttendance'),
   channelId: z.string().trim().min(1, t('app.channels.validation.pick-channel', 'Pick a channel.')).prefault(''),
   attendee: z.string().trim().prefault(''),
   role: z.enum(REGISTER_ROLES).default('BOTH'),
   mentionOnly: z.boolean().default(false),
-  description: z.string().trim().max(REGISTER_DESCRIPTION_MAX).prefault(''),
+  description: z.string().trim().max(REGISTER_DESCRIPTION_MAX, NOTE_TOO_LONG).prefault(''),
 });
 
 export const editAttendanceSchema = z.object({
@@ -67,7 +69,7 @@ export const editAttendanceSchema = z.object({
   ref: z.string().trim().min(1).prefault(''),
   role: z.enum(REGISTER_ROLES).default('BOTH'),
   mentionOnly: z.boolean().default(false),
-  description: z.string().trim().max(REGISTER_DESCRIPTION_MAX).prefault(''),
+  description: z.string().trim().max(REGISTER_DESCRIPTION_MAX, NOTE_TOO_LONG).prefault(''),
 });
 
 export const removeAttendanceSchema = z.object({
