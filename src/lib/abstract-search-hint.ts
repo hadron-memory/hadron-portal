@@ -10,8 +10,11 @@
  * nothing. So the hint is derived per memory, and a memory whose config the
  * page doesn't have gets no claim at all.
  *
- * A null `embeddingSource` means the column default, `abstract`, the same
- * reading the org memories list and the settings page apply.
+ * `Memory.embeddingSource` is non-null on the server (column default
+ * `abstract`), so a null or missing value here means the page did not load
+ * it, NOT "abstract". An unknown source makes no claim, like a disabled index
+ * (the embedder, hadron-server `jobs/embedNodes.ts`, embeds the abstract only
+ * for `abstract` and `both`).
  */
 import { t } from '$lib/i18n/t';
 
@@ -23,24 +26,19 @@ export interface VectorConfig {
 /** The reader-facing hint, or null when there is nothing true to say about search. */
 export function abstractSearchHint(memory: VectorConfig | null | undefined): string | null {
   if (!memory || memory.vectorIndexEnabled !== true) return null;
-  switch (memory.embeddingSource ?? 'abstract') {
+  switch (memory.embeddingSource) {
     case 'abstract':
       return t(
         'node.abstract.search-hint.abstract',
-        'This memory’s vector search embeds abstracts, so the abstract is what search matches this node on.',
+        'Vector search in this memory finds nodes by their abstract, so a node without one isn’t found.',
       );
     case 'both':
-      return t(
-        'node.abstract.search-hint.both',
-        'This memory’s vector search embeds both abstracts and content.',
-      );
+      return t('node.abstract.search-hint.both', 'Vector search in this memory finds nodes by their abstract and their content.');
     case 'contentChunks':
-      return t(
-        'node.abstract.search-hint.content-chunks',
-        'This memory’s vector search embeds node content, not abstracts.',
-      );
+      return t('node.abstract.search-hint.content-chunks', 'Vector search in this memory finds nodes by their content, not their abstract.');
     default:
-      // A source added server-side later: say nothing rather than guess.
+      // Not loaded, or a source added server-side later: say nothing rather
+      // than guess.
       return null;
   }
 }

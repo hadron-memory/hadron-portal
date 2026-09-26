@@ -702,7 +702,7 @@
                how it was created: createMemory gives a knowledge memory
                contentChunks, while the column default is abstract. The copy
                says what each source embeds, which is true for every memory. -->
-          <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('memory.settings.embedding-source.help', 'Abstract embeds each node’s authored summary, so a node without one isn’t matched. Content chunks index the full body in token windows. Both does both.')}</p>
+          <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('memory.settings.embedding-source.help', 'Abstract: each node’s written summary; a node without one isn’t found by vector search. Content chunks: the node’s full content, in token-sized windows. Both: the abstract and the content.')}</p>
         </div>
 
         {#if viSourceIncludesChunks}

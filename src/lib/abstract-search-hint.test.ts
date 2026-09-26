@@ -8,19 +8,21 @@ import { abstractPlaceholder, abstractSearchHint } from './abstract-search-hint'
 describe('abstractSearchHint (#936)', () => {
   it('a knowledge memory at its server default (index on, contentChunks) says abstracts are NOT embedded', () => {
     const hint = abstractSearchHint({ vectorIndexEnabled: true, embeddingSource: 'contentChunks' });
-    expect(hint).toContain('not abstracts');
+    expect(hint).toContain('by their content, not their abstract');
   });
 
-  it('an abstract-sourced index says the abstract is what search matches on', () => {
-    expect(abstractSearchHint({ vectorIndexEnabled: true, embeddingSource: 'abstract' })).toContain('embeds abstracts');
+  it('an abstract-sourced index says search finds nodes by their abstract', () => {
+    expect(abstractSearchHint({ vectorIndexEnabled: true, embeddingSource: 'abstract' })).toContain('by their abstract, so');
   });
 
-  it('a null source reads as the column default, abstract', () => {
-    expect(abstractSearchHint({ vectorIndexEnabled: true, embeddingSource: null })).toContain('embeds abstracts');
+  // The server field is non-null, so null/missing means NOT LOADED, not the
+  // column default: the embedder embeds nothing for it either.
+  it.each([null, undefined])('a %s source makes no claim (not loaded, not "abstract")', (embeddingSource) => {
+    expect(abstractSearchHint({ vectorIndexEnabled: true, embeddingSource })).toBeNull();
   });
 
   it('both sources says both', () => {
-    expect(abstractSearchHint({ vectorIndexEnabled: true, embeddingSource: 'both' })).toContain('both abstracts and content');
+    expect(abstractSearchHint({ vectorIndexEnabled: true, embeddingSource: 'both' })).toContain('by their abstract and their content');
   });
 
   it.each([
