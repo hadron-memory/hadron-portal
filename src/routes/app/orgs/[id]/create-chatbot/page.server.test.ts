@@ -107,11 +107,13 @@ describe('create chatbot action', () => {
       ref: 'agent-1',
       name: 'Juno',
     });
+    // #948: read-only, as the wizard promises the user. Never read-write.
     expect(mockRequest).toHaveBeenCalledWith(ADD_MEMORY_TO_AGENT_MUTATION, {
       agentRef: 'agent-1',
       memoryRef: 'memory-2',
-      role: 'read-write',
+      role: 'read',
     });
+    expect(mockRequest).not.toHaveBeenCalledWith(ADD_MEMORY_TO_AGENT_MUTATION, expect.objectContaining({ role: 'read-write' }));
   });
 
   it('skips knowledge memory creation when includeKnowledge is false', async () => {
