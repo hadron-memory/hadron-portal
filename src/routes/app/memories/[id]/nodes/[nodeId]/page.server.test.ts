@@ -73,6 +73,41 @@ function loadEvent(opts: {
   } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
 }
 
+describe('node-detail load — the metadata form opens on the node\'s role (#921)', () => {
+  it('seeds role AND roleSeed with the stored role, verbatim', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'n1', memoryId: 'mem-A', loc: 'specs:x', name: 'x',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, role: 'spec.feature', createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const result = (await runLoad(loadEvent({ gid: 'mem-A', nodeId: 'n1', parentGraphNodes: [] }))) as unknown as {
+      updateMetaForm: { data: { role: string; roleSeed: string } };
+    };
+    expect(result.updateMetaForm.data.role).toBe('spec.feature');
+    expect(result.updateMetaForm.data.roleSeed).toBe('spec.feature');
+  });
+
+  it('seeds an unset role as empty, which the action then omits unless typed into', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'n1', memoryId: 'mem-A', loc: 'x', name: 'x',
+        nodeType: 'info', alias: null, description: null, content: null,
+        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+        isRunnable: null, role: null, createdAt: '', updatedAt: '',
+        outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const result = (await runLoad(loadEvent({ gid: 'mem-A', nodeId: 'n1', parentGraphNodes: [] }))) as unknown as {
+      updateMetaForm: { data: { role: string; roleSeed: string } };
+    };
+    expect(result.updateMetaForm.data).toMatchObject({ role: '', roleSeed: '' });
+  });
+});
+
 describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
   it('resolves ancestor nodeIds from the current memory, not from a foreign memory sharing the loc', async () => {
     // Two memories accessible to the caller both have a `chats` row.
@@ -438,7 +473,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateContent(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-1',
-      form: { content: 'new content' },
+      form: { content: 'new content', expectedRevision: '3' },
     }));
 
     // Second call is the UPDATE_NODE_MUTATION. Its input must carry the
@@ -471,7 +506,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateContent(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-null',
-      form: { content: 'x' },
+      form: { content: 'x', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
@@ -499,7 +534,7 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     await actions.updateContent(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk-2',
-      form: { content: 'x' },
+      form: { content: 'x', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { tags?: unknown } }];
@@ -793,6 +828,11 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
         outgoingEdges: [], incomingEdges: [],
       },
     });
+    // @codex on #929: the metadata update runs FIRST (by id), the move after.
+    mockRequest.mockImplementationOnce(async (query: string) => {
+      expect(query).not.toBe(MOVE_NODE_MUTATION);
+      return { updateNode: { id: 'pk-r5' } };
+    });
     mockRequest.mockImplementationOnce(async (query: string) => {
       expect(query).toBe(MOVE_NODE_MUTATION);
       throw {
@@ -815,8 +855,11 @@ describe('node-detail actions — preserve tags on save (#235)', () => {
     }))) as { status: number };
 
     expect(result.status).toBe(409);
-    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Target loc is already occupied');
-    expect(mockRequest).toHaveBeenCalledTimes(2);
+    // The other edits are already saved by then, and the error says so.
+    expect(superFormFrom(result)?.errors?.loc?.[0]).toBe('Saved, but the node was not moved: Target loc is already occupied');
+    expect(mockRequest).toHaveBeenCalledTimes(3);
+    // …and it flags the partial save, so the page reloads the node (@codex on #929).
+    expect((result as unknown as { data: { metaSaved?: boolean } }).data.metaSaved).toBe(true);
   });
 });
 
@@ -852,7 +895,7 @@ describe('node-detail actions — derive memoryId from fetched node (#237)', () 
     await actions.updateContent(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk',
-      form: { content: 'new' },
+      form: { content: 'new', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string } }];
@@ -1067,7 +1110,7 @@ describe('node-detail action — updateAbstract (#257)', () => {
     await actions.updateAbstract(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk',
-      form: { abstract: 'new summary' },
+      form: { abstract: 'new summary', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [
@@ -1099,7 +1142,7 @@ describe('node-detail action — updateAbstract (#257)', () => {
     await actions.updateAbstract(actionEvent({
       gid: 'mem-A',
       nodeId: 'pk',
-      form: { abstract: '' },
+      form: { abstract: '', expectedRevision: '3' },
     }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { abstract: unknown } }];

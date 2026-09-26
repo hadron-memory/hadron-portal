@@ -1,4 +1,4 @@
-# Exported from hadron-server 84901cbc71873773b4b95d94f935225f81a57eff (84901cbc71873773b4b95d94f935225f81a57eff, 2026-09-25T09:15:34-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server b713799a5fdd63f6a7dad3b658cb95b3aa69039e (b713799a, 2026-09-25T20:52:52-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -3683,7 +3683,7 @@ type Mutation {
 
   """
   #1201 — the CREATE door for the review kind. A write that would produce a
-  node with role: 'review' must come through here; the generic createNode
+  node with role: 'review' or a dotted 'review.*' sub-role must come through here; the generic createNode
   refuses it.
   
   PURE ROUTING: it validates nothing and knows nothing beyond which kind it is
@@ -3739,7 +3739,7 @@ type Mutation {
 
   """
   #1201 — the CREATE door for the spec kind. A write that would produce a
-  node with role: 'spec' must come through here; the generic createNode
+  node with role: 'spec' or a dotted 'spec.*' sub-role must come through here; the generic createNode
   refuses it.
   
   PURE ROUTING: it validates nothing and knows nothing beyond which kind it is
@@ -4689,8 +4689,9 @@ type Mutation {
   every NodeRevision NEWER than the selected one (createdAt strictly greater),
   WITHOUT creating a pre-restore snapshot. Boundary is EXCLUSIVE of the
   selected row: the selected revision is KEPT and becomes the new baseline
-  (the most-recent snapshot afterward); its era and older survive. Restore +
-  truncate run in one transaction (atomic).
+  (the most-recent snapshot afterward); its era and older survive. The live
+  revision counter still advances monotonically for the restore itself.
+  Restore + truncate run in one transaction (atomic).
   """
   restoreNodeRevision(revisionId: ID!, truncate: Boolean = false): Node!
 
@@ -5487,7 +5488,8 @@ type Node {
   property schema when it has one. NULL for an ordinary node.
   
   NOT 'nodeType' (the platform-kind axis, which drives retrieval) and NOT
-  'role' (what the node is for, which has no retrieval impact).
+  'role' (what the node is for; role can be filtered explicitly but does not
+  change default ranking or rendering).
   """
   objectType: String
   outgoingEdges: [Edge!]!
@@ -5506,18 +5508,24 @@ type Node {
   properties: JSON
 
   """
+  #1323 — current live revision. Creation is revision 1; each committed authoring change advances it. NodeRevision.revNo N is the retained snapshot of this node when revision N was current, before the edit that advanced it.
+  """
+  revision: Int!
+
+  """
   #1201 — what this node is FOR, as an OPEN string. Set it to anything; the
   platform reads a small CLOSED subset and ignores every other value.
   
   NOT 'nodeType' (the platform-kind axis, load-bearing for retrieval) and NOT
   'objectType' (the collection discriminator, schema-validated). This field
-  has NO retrieval impact.
+  does not change default retrieval or ranking; NodeFilter.role explicitly
+  selects its exact dotted family (#1322).
   
-  A GOVERNED value routes the write to that kind's own authoring door, and the
-  generic node surface is refused: 'review' and 'spec' today, alongside the
-  task kind, which is gated on 'isRunnable' rather than on any label because a
-  label can be omitted and a capability cannot. 'role: "weather-widget"'
-  does nothing at all.
+  A GOVERNED family routes the write to that kind's own authoring door, and
+  the generic node surface is refused: 'review' / 'review.*' and 'spec' /
+  'spec.*' today, alongside the task kind, which is gated on 'isRunnable'
+  rather than on any label because a label can be omitted and a capability
+  cannot. Other values are inert unless a caller explicitly filters for them.
   """
   role: String
   seq: Int
@@ -5658,6 +5666,11 @@ input NodeFilter {
   #725 — collection facet: only nodes whose objectType equals this (e.g. "competitor").
   """
   objectType: String
+
+  """
+  #1322 — role-family filter. 'spec' matches 'spec' and 'spec.*' on a dot boundary, never 'special' / 'specification'.
+  """
+  role: String
   tags: [String!]
   updatedAfter: String
   updatedBefore: String
@@ -6287,7 +6300,7 @@ type Query {
   The App's memory scope is authoritative, so the filter's memory-scope
   fields (memoryIds / memoryClasses) are rejected with BAD_USER_INPUT rather
   than silently ignored — use findNodes for cross-memory scoping. Only
-  node-level predicates (nodeType, tags, isRunnable, locPrefix, createdBy,
+  node-level predicates (nodeType, tags, isRunnable, role, locPrefix, createdBy,
   updatedAfter/Before, includeDeleted) apply. Unlike findNodes, system-memory
   nodes are NOT excluded by default.
   """
@@ -8556,6 +8569,11 @@ input SkillFileFactsInput {
   """True when the file exists and could not be parsed."""
   parseFailed: Boolean
 
+  """
+  The positive rev=N value from provenance. Null means an older artifact omitted it.
+  """
+  revision: Int
+
   """The source URN from the provenance header."""
   sourceUrn: String
 }
@@ -8648,6 +8666,9 @@ type SkillPlanEntry {
   server already judged broken.
   """
   renderedBody: String
+
+  """Authoritative current node revision used in rendered provenance."""
+  revision: Int!
   urn: String!
 }
 
@@ -9061,6 +9082,16 @@ input UpdateNodeInput {
   edges: [NodeEdgeInput!]
 
   """
+  Optional optimistic-concurrency precondition (#937). When supplied, the
+  update is applied only while the node's current live revision still equals
+  this positive integer. A mismatch refuses atomically with
+  NODE_WRITE_CONFLICT; omitting it or passing null preserves last-write-wins
+  compatibility.
+  Read the baseline from Node.revision.
+  """
+  expectedRevision: Int
+
+  """
   The node to change: PK (CUID / 32-char hex) or fully-qualified node URN (hrn:node:<root>:<memory>:<loc>). XOR with memoryId+loc.
   """
   id: String
@@ -9374,7 +9405,8 @@ type Worker {
   appId: ID!
 
   """
-  The App's canonical URN, as a scalar identity suitable for cross-App
+  The App's canonical URN (the same value App.urn returns, e.g.
+  hrn:app:acme.com:team), as a scalar identity suitable for cross-App
   worker lists. Null when the caller cannot inspect this App's workers. This
   intentionally does not return the App object, whose nested keys and
   members have a narrower read audience.

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CREATE_NODE_MUTATION,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
+  LEGACY_THREAD_PROBE_QUERY,
   NODES_BY_LOC_PREFIX_QUERY,
   NODE_BY_ID_QUERY,
 } from '$lib/server/queries';
@@ -27,12 +28,19 @@ function nodeRow(over: Record<string, unknown> = {}) {
   };
 }
 
+/** The #926 probe's answer: one direct legacy message under `loc`. */
+function legacyThreadOf(loc: string) {
+  return { findNodes: { total: 1, hits: [{ node: { loc: `${loc}:messages:001-ada`, nodeType: 'message' } }] } };
+}
+
 // Route the mocked GraphQL client by document so the load's fetch order (which
 // includes streamed, best-effort calls) doesn't make these tests brittle.
 function routeRequests(over: { messages?: unknown; node?: Record<string, unknown> } = {}) {
   const node = over.node ?? nodeRow();
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY) return { node };
+    // #926: a tag-only root is a chat only with a legacy message under it.
+    if (doc === LEGACY_THREAD_PROBE_QUERY) return legacyThreadOf(node.loc as string);
     if (doc === NODES_BY_LOC_PREFIX_QUERY) {
       if (over.messages instanceof Error) throw over.messages;
       return over.messages ?? { findNodes: { hits: [] } };
@@ -166,11 +174,13 @@ describe('node-detail sendChatMessage action', () => {
     mockRequest.mockResolvedValueOnce({
       node: nodeRow({ nodeType: 'info', loc: 'chats:standup', tags: ['team-chat'] }),
     });
+    mockRequest.mockResolvedValueOnce(legacyThreadOf('chats:standup'));
     mockRequest.mockResolvedValueOnce({ createNode: { id: 'm-1' } });
 
     await send({ _kind: 'sendChatMessage', content: 'hello team' });
 
-    expect(mockRequest).toHaveBeenNthCalledWith(2, CREATE_NODE_MUTATION, {
+    expect(mockRequest).toHaveBeenNthCalledWith(2, LEGACY_THREAD_PROBE_QUERY, expect.objectContaining({ locPrefix: 'chats:standup:messages:' }));
+    expect(mockRequest).toHaveBeenNthCalledWith(3, CREATE_NODE_MUTATION, {
       input: expect.objectContaining({
         memoryId: MEM,
         loc: expect.stringMatching(/^chats:standup:messages:/),

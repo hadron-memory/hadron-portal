@@ -12,11 +12,14 @@ import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NOD
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
+import { roleUpdate } from '$lib/node-role';
+import { nodeMetaSeed } from '$lib/node-meta-seed';
+import { parseExpectedRevision } from '$lib/node-revision';
 import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePropertiesSource, propertiesFingerprint, sameProperties } from '$lib/properties-source';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
-import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -282,12 +285,15 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // default tab and is AWAITED rather than streamed — it is the primary content
   // for those nodes. Every other node pays nothing. Best-effort: an empty thread
   // beats failing the whole page.
-  const isChat = isChatNode(node);
+  // #926: a `team-chat`-tagged node is a chat only with a legacy thread under
+  // it. Probed only for such a node, so every other page pays nothing.
+  const chatEvidence = await legacyThreadEvidence(gqlClient(locals.token), node);
+  const isChat = isChatNode(node, chatEvidence);
   // Whether the composer has anywhere to send. Derived from the NODE (the same
   // input the action re-derives it from), not from the parent layout's memory —
   // a partial/streamed layout must not be able to hide a composer the action
   // would happily accept, or offer one it would reject.
-  const canPostChat = chatPostTarget(node).kind !== 'none';
+  const canPostChat = chatPostTarget(node, chatEvidence).kind !== 'none';
   // #793: a bounded WINDOW (the newest CHAT_PAGE_SIZE), not the whole thread.
   // The page also carries `hasOlder` so the Chat tab can offer scrollback
   // instead of silently presenting a window as the complete transcript.
@@ -319,7 +325,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const chatRoot = chatRootLoc
     ? memoryNodes.find((n) => n.memoryId === params.id && n.loc === chatRootLoc)
     : undefined;
-  const openChat = chatRoot && isChatNode(chatRoot)
+  // A legacy `message` under the root IS the root's thread evidence (#926).
+  const openChat = chatRoot && isChatNode(chatRoot, { legacyThread: node.nodeType === 'message' })
     ? { nodeId: chatRoot.id, loc: chatRoot.loc, name: chatRoot.name ?? chatRoot.loc }
     : null;
 
@@ -361,16 +368,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     ),
     superValidate<NodeDeleteForm>({ hard: false }, nodeDeleteFormAdapter, { errors: false }),
     superValidate<NodeCreateParentForm>({ loc: '', name: '' }, nodeCreateParentFormAdapter, { errors: false }),
-    superValidate<NodeUpdateMetaForm>({
-      name: node.name ?? '',
-      nodeType: node.nodeType ?? '',
-      description: node.description ?? '',
-      alias: node.alias ?? '',
-      seq: node.seq ?? null,
-      tags: (node.tags ?? []).join(', '),
-      isRunnable: node.isRunnable ?? false,
-      loc: node.loc,
-    }, nodeUpdateMetaFormAdapter, { errors: false }),
+    superValidate<NodeUpdateMetaForm>(nodeMetaSeed(node), nodeUpdateMetaFormAdapter, { errors: false }),
     superValidate<NodeDuplicateForm>({}, nodeDuplicateFormAdapter, { errors: false }),
     superValidate<NodeConvertToTaskForm>({}, nodeConvertToTaskFormAdapter, { errors: false }),
     superValidate<NodeUpdateFlowForm>({
@@ -418,6 +416,79 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     edgesForm,
   };
 };
+
+/**
+ * #927 — the inline Content and Abstract saves.
+ *
+ * The editor posts the `Node.revision` it opened on, and the write sends it as
+ * `expectedRevision` (hadron-server#937): the server refuses atomically, with
+ * NODE_WRITE_CONFLICT, when anything wrote the node since. Before this the
+ * whole editor buffer went out unconditioned, and a stale one silently replaced
+ * newer content (seen in production, a user editing alongside an agent).
+ *
+ * A save without a revision is refused rather than sent unguarded: an action
+ * that cannot tell whether it overwrites someone does not guess (the same rule
+ * as the Data and Properties `baseline`).
+ *
+ * Failures are CODES under `<field>Failed`, which the page localizes; the old
+ * version returned prose the page never showed.
+ */
+async function saveNodeText(
+  field: 'content' | 'abstract',
+  value: string,
+  rawRevision: FormDataEntryValue | null,
+  nodeRef: string,
+  token: string | null | undefined,
+) {
+  const failed = `${field}Failed` as const;
+  const expectedRevision = parseExpectedRevision(rawRevision);
+  if (expectedRevision === null) return fail(400, { [failed]: { code: 'no-baseline', detail: null } });
+
+  const client = gqlClient(token);
+  let node: MemoryNode | null;
+  try {
+    ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: nodeRef }));
+  } catch (e: unknown) {
+    return fail(500, { [failed]: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node') } });
+  }
+  if (!node) return fail(404, { [failed]: { code: 'not-found', detail: null } });
+
+  // #868: this edit touches neither governance signal, so the resulting kind
+  // is the node's CURRENT one — which is why the fetched node, not the input,
+  // decides the door.
+  const input = {
+    // #237: memoryId from the node, not the URL. Selects the target together
+    // with loc; omitted fields (name, description, …) are preserved.
+    memoryId: node.memoryId,
+    loc: node.loc,
+    expectedRevision,
+    // #235 history: the old upsertNode resolver cleared omitted tags
+    // (`input.tags ?? []`). updateNode preserves omitted tags, so this explicit
+    // pass-through is no longer load-bearing — but it is still correct (it
+    // round-trips the user's tags verbatim), so it stays. The `?? []` guards a
+    // null-tags schema-shape regression at runtime. It is read here, after the
+    // editor opened, but the revision check covers it: if the tags changed
+    // since, so did the revision, and the write is refused.
+    tags: node.tags ?? [],
+    [field]: value,
+  };
+  try {
+    await client.request(nodeUpdateDocument(node, input), { input });
+  } catch (e: unknown) {
+    if (e instanceof NoNodeDoorError) return fail(409, { [failed]: { code: 'no-door', detail: e.message } });
+    // The server's words are kept: NODE_WRITE_CONFLICT is not only a revision
+    // mismatch (a concurrent move answers with it too), so the page words the
+    // conflict generically unless the reload shows THIS field moved.
+    if (extractGqlErrorCode(e) === 'NODE_WRITE_CONFLICT') {
+      return fail(409, { [failed]: { code: 'changed', detail: extractGqlError(e, '') || null } });
+    }
+    const detail = extractGqlError(e, 'Save failed');
+    if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
+    return fail(500, { [failed]: { code: 'failed', detail } });
+  }
+  return { [`${field}Saved`]: true };
+}
+
 
 export const actions: Actions = {
   // #237 review follow-up: every mutating action below derives `memoryId`
@@ -487,35 +558,57 @@ export const actions: Actions = {
     const isRunnable = form.data.isRunnable;
     const newLoc = form.data.loc;
 
-    // Move if loc changed. #237: route the move through the node's OWN
-    // identity — #564 reshaped moveNode to sourceRef (the PK) + targetUrn
-    // (the full destination node URN, composed from the node's own memory
-    // urn), so a stale URL can't redirect the move anyway. An occupied
-    // destination fails loudly with NODE_ALREADY_EXISTS (#501).
-    const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
-
     // #868: updateMeta is the ONE action here that can change a governance
     // signal, so its resulting kind is the SUBMITTED `isRunnable` merged over
     // the node. Un-ticking Runnable on a task node is still a TASK-door write
     // (before ∪ after), a direction #867's submitted-value-only routing got
     // wrong.
     //
-    // Chosen BEFORE the move, not after (@copilot on PR #869). The chooser can
-    // refuse — a node matching two governed kinds has no door — and a refusal
-    // raised after `moveNode` has committed leaves the node relocated with none
-    // of the edit applied, reported as a 500. Nothing below needs the move to
-    // have happened first, so the refusal costs nothing when it comes first and
-    // costs a half-applied edit when it comes second.
-    const input = { memoryId: currentNode.memoryId, loc, name, nodeType, description, alias, seq: Number.isNaN(seq) ? null : seq, tags, isRunnable };
+    // #921: role rides along only when the user changed it (`roleUpdate`):
+    // omitted, the server preserves it; emptied, it is cleared. The door below
+    // is chosen on BEFORE ∪ AFTER with it included, so a role edit on a
+    // governed node goes through that kind's door, and the server's own gate
+    // decides whether the transition is allowed.
+    //
+    // ORDER (@copilot on #869, @codex on #929): the fallible metadata update
+    // runs FIRST, selected by the node's id, and the move only after it
+    // succeeded. The chooser can refuse (a doorless combination) and so can
+    // the server (a governed role transition it does not allow); either one
+    // after a committed move left the node relocated with none of the edit
+    // applied. Now a refusal leaves the node exactly where and as it was.
+    const role = roleUpdate(form.data.role, form.data.roleSeed);
+    const input = {
+      id: currentNode.id, name, nodeType, description, alias,
+      seq: Number.isNaN(seq) ? null : seq, tags, isRunnable,
+      ...(role !== undefined ? { role } : {}),
+    };
     try {
       assertNodeUpdateDoor(currentNode, input);
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
     }
 
+    try {
+      await client.request(nodeUpdateDocument(currentNode, input), { input });
+    } catch (e: unknown) {
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
+    }
+
+    // Move if loc changed. #237: route the move through the node's OWN
+    // identity (#564: sourceRef = the PK, targetUrn = the full destination
+    // node URN composed from the node's own memory urn), so a stale URL can't
+    // redirect it. An occupied destination fails loudly with
+    // NODE_ALREADY_EXISTS (#501). The other edits are already SAVED by then,
+    // so a failed move says so rather than implying nothing happened.
+    const loc = newLoc && newLoc !== currentNode.loc ? newLoc : currentNode.loc;
     if (loc !== currentNode.loc) {
+      // `metaSaved` on every failure below: the edits ARE saved, and a failed
+      // action does not rerun the page load, so the client reloads the node
+      // itself on this flag rather than keep showing the pre-save metadata
+      // (@codex on #929).
       if (!currentNode.memory?.urn) {
-        return message(form, { type: 'error', text: 'Node has no memory URN to move by.' }, { status: 500 });
+        message(form, { type: 'error', text: t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail: 'it has no memory URN to move by.' }) });
+        return fail(500, { form, metaSaved: true });
       }
       try {
         await client.request(MOVE_NODE_MUTATION, {
@@ -526,18 +619,15 @@ export const actions: Actions = {
         // An occupied destination is a 409 Conflict, not a 500 — matches the
         // /api/nodes/move endpoint and keeps it out of error monitoring.
         const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
-        return status === 409
-          ? setError(form, 'loc', extractGqlError(e, 'Failed to move node'), { status })
-          : message(form, { type: 'error', text: extractGqlError(e, 'Failed to move node') }, { status });
+        const detail = extractGqlError(e, 'Failed to move node');
+        const text = t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail });
+        if (status === 409) setError(form, 'loc', text);
+        else message(form, { type: 'error', text });
+        return fail(status, { form, metaSaved: true });
       }
     }
 
-    try {
-      await client.request(nodeUpdateDocument(currentNode, input), { input });
-      return message(form, { type: 'success', text: t('node.meta.saved', 'Node settings saved.') });
-    } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
-    }
+    return message(form, { type: 'success', text: t('node.meta.saved', 'Node settings saved.') });
   },
 
   delete: async ({ request, params, locals }) => {
@@ -578,7 +668,8 @@ export const actions: Actions = {
     try {
       const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
       if (!node) return message(form, { type: 'error', text: 'Chat node not found' }, { status: 404 });
-      if (!isChatNode(node)) {
+      const evidence = await legacyThreadEvidence(client, node);
+      if (!isChatNode(node, evidence)) {
         return message(form, { type: 'error', text: 'This node is not a chat.' }, { status: 400 });
       }
       if (!locals.user) return message(form, { type: 'error', text: 'Not authenticated' }, { status: 401 });
@@ -586,7 +677,7 @@ export const actions: Actions = {
       // #237: the target is derived from the fetched node, not the URL, which
       // may be stale. `none` means the message would land in some OTHER thread
       // (or nowhere) — refuse rather than report a success that isn't one.
-      const target = chatPostTarget(node);
+      const target = chatPostTarget(node, evidence);
       if (target.kind === 'none') {
         return message(
           form,
@@ -612,37 +703,11 @@ export const actions: Actions = {
     }
   },
 
+  // #927: both inline text editors save through `saveNodeText`, which carries
+  // the revision the editor opened on. See there.
   updateContent: async ({ request, params, locals }) => {
     const fd = await request.formData();
-    const content = String(fd.get('content') ?? '');
-
-    const client = gqlClient(locals.token);
-    try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
-      if (!node) return fail(404, { error: 'Node not found' });
-
-      // #868: this edit touches neither governance signal, so the resulting
-      // kind is the node's CURRENT one — which is why the fetched node, not the
-      // input, decides the door.
-      const input = {
-        // #237: memoryId from the node, not the URL. Selects the target
-        // together with loc; omitted fields (name, description, …) are
-        // preserved by updateNode.
-        memoryId: node.memoryId,
-        loc: node.loc,
-        // #235 history: the old upsertNode resolver cleared omitted tags
-        // (`input.tags ?? []`). updateNode preserves omitted tags, so
-        // this explicit pass-through is no longer load-bearing — but it
-        // is still correct (it round-trips the user's tags verbatim), so
-        // it stays. The `?? []` guards a null-tags schema-shape
-        // regression at runtime.
-        tags: node.tags ?? [],
-        content,
-      };
-      await client.request(nodeUpdateDocument(node, input), { input });
-    } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
-    }
+    return saveNodeText('content', String(fd.get('content') ?? ''), fd.get('expectedRevision'), params.nodeId, locals.token);
   },
 
   updateAbstract: async ({ request, params, locals }) => {
@@ -651,28 +716,7 @@ export const actions: Actions = {
     // null (spec 031) and recomputes abstractOriginHash from current
     // content (spec 032). Length cap (2000) is enforced server-side too,
     // with a client-side maxlength as the first line of defense.
-    const abstract = String(fd.get('abstract') ?? '');
-
-    const client = gqlClient(locals.token);
-    try {
-      const { node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: params.nodeId });
-      if (!node) return fail(404, { error: 'Node not found' });
-
-      // #868: neither governance signal is touched — the door follows the
-      // node's current kind. See updateContent.
-      const input = {
-        // #237: memoryId from the node, not the URL.
-        memoryId: node.memoryId,
-        loc: node.loc,
-        // #235: explicit tags pass-through — no longer load-bearing
-        // under updateNode, kept deliberately. See updateContent.
-        tags: node.tags ?? [],
-        abstract,
-      };
-      await client.request(nodeUpdateDocument(node, input), { input });
-    } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Save failed' });
-    }
+    return saveNodeText('abstract', String(fd.get('abstract') ?? ''), fd.get('expectedRevision'), params.nodeId, locals.token);
   },
 
   /**

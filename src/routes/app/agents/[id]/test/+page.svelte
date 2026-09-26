@@ -18,7 +18,23 @@
   const agent = $derived(data.agent);
   const org = $derived(data.org);
   const llmReady = $derived(data.llmProviderConfigured);
+  // #928: why not, when not — or which config, when ready.
+  const llm = $derived(data.llm);
   const fixtures = $derived(data.fixtures ?? []);
+
+  function configLevelLabel(ownerType: string): string {
+    switch (ownerType) {
+      case 'AGENT':
+        return t('agent-tester.llm-provider.level.agent', 'this agent');
+      case 'ORGANIZATION':
+        return t('agent-tester.llm-provider.level.org', "this agent's organization");
+      case 'HADRON_SERVER':
+        return t('agent-tester.llm-provider.level.host', 'the platform default');
+      default:
+        // A level added server-side later reads as itself, not as a wrong guess.
+        return ownerType;
+    }
+  }
 
   type Assertion =
     | { mode: 'literal-contains'; value: string }
@@ -295,16 +311,39 @@
 
   {#if !llmReady}
     <section class="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-      <h2 class="mb-1 font-semibold">{t('agent-tester.llm-provider.heading', 'LLM provider not configured')}</h2>
-      <p>
-        {t('agent-tester.llm-provider.body', 'Configure an LLM provider for this agent before running the Tester.')}
-        <a href={`/app/agents/${agent.id}`} class="font-medium text-indigo-600 underline hover:text-indigo-500 dark:text-indigo-400">
-          {t('agent-tester.llm-provider.link', 'Open agent settings →')}
-        </a>
-      </p>
+      {#if llm?.status === 'unavailable'}
+        <!-- #928: a refusal other than "nothing configured" — the runtime makes
+             this same call before every turn, so the Tester cannot run either.
+             The server's words, not a guess at the cause. -->
+        <h2 class="mb-1 font-semibold">{t('agent-tester.llm-provider.unavailable-heading', "The Tester can't use this agent's LLM configuration")}</h2>
+        <p>{llm.detail ?? t('agent-tester.llm-provider.unavailable-body', 'The configuration could not be resolved. Reload to try again.')}</p>
+      {:else}
+        <h2 class="mb-1 font-semibold">{t('agent-tester.llm-provider.heading', 'LLM provider not configured')}</h2>
+        <p>
+          {t('agent-tester.llm-provider.body', 'Configure an LLM provider for this agent before running the Tester.')}
+          <a href={`/app/agents/${agent.id}`} class="font-medium text-indigo-600 underline hover:text-indigo-500 dark:text-indigo-400">
+            {t('agent-tester.llm-provider.link', 'Open agent settings →')}
+          </a>
+        </p>
+        {#if llm?.status === 'not-configured' && llm.detail}
+          <p class="mt-1 text-xs">{llm.detail}</p>
+        {/if}
+      {/if}
     </section>
   {:else}
     <section class="rounded-md border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      {#if llm?.status === 'ready'}
+        <!-- #928: say WHERE the config came from — an inherited one is the case
+             the old readiness check refused. -->
+        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+          {t('agent-tester.llm-provider.using', 'Using the "{name}" config from {level}: {provider} · {model}', {
+            name: llm.name,
+            level: configLevelLabel(llm.ownerType),
+            provider: llm.provider,
+            model: llm.model,
+          })}
+        </p>
+      {/if}
       <ProbeForm onrun={run} {running} />
     </section>
 

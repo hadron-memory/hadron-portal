@@ -28,6 +28,7 @@ import {
   NODE_BY_ID_QUERY,
   NODE_DATA_READ_QUERY,
   NODE_QUERY,
+  MOVE_NODE_MUTATION,
   UPDATE_NODE_MUTATION,
   UPDATE_REVIEW_NODE_MUTATION,
   UPDATE_SPEC_NODE_MUTATION,
@@ -101,8 +102,9 @@ async function run(action: string, form: Record<string, string> = {}) {
 
 /** The form payload each action needs to get past its own validation. */
 const ACTIONS: Array<[string, Record<string, string>]> = [
-  ['updateContent', { content: '# body' }],
-  ['updateAbstract', { abstract: 'a summary' }],
+  // #927: both refuse a save without the revision the editor opened on.
+  ['updateContent', { content: '# body', expectedRevision: '3' }],
+  ['updateAbstract', { abstract: 'a summary', expectedRevision: '3' }],
   // #894: updateData refuses a save without the fingerprint of the value it
   // was opened on — the stub node's `data` is {}.
   ['updateData', { data: '{"k":1}', baseline: await jsonFingerprint({}) }],
@@ -164,6 +166,98 @@ describe('updateMeta', () => {
   });
 });
 
+describe('updateMeta — Node.role (#921)', () => {
+  const meta = (over: Record<string, string> = {}) => ({
+    name: 'Classify',
+    nodeType: 'info',
+    description: '',
+    alias: '',
+    seq: '1',
+    tags: 'keep',
+    loc: 'classify',
+    ...over,
+  });
+  const sent = (door: string) => mockRequest.mock.calls.find(([q]) => q === door)![1].input;
+
+  it('an untouched role is OMITTED from the write, set or unset', async () => {
+    stubNode({ role: 'spec', isRunnable: null });
+    await run('updateMeta', meta({ role: 'spec', roleSeed: 'spec' }));
+    expect(doorsUsed()).toEqual([UPDATE_SPEC_NODE_MUTATION]);
+    expect(sent(UPDATE_SPEC_NODE_MUTATION)).not.toHaveProperty('role');
+    mockRequest.mockReset();
+    stubNode({ role: null, isRunnable: null });
+    await run('updateMeta', meta());
+    expect(sent(UPDATE_NODE_MUTATION)).not.toHaveProperty('role');
+  });
+
+  it('a dotted or custom role is sent as typed, never lowercased', async () => {
+    stubNode({ role: null, isRunnable: null });
+    await run('updateMeta', meta({ role: ' Spec.Feature ', roleSeed: '' }));
+    // Not governed: the family match is case-sensitive, as on the server
+    // (`roleIsOrDescendsFrom`), so `Spec.Feature` is not in `spec.*`.
+    expect(doorsUsed()).toEqual([UPDATE_NODE_MUTATION]);
+    expect(sent(UPDATE_NODE_MUTATION)).toMatchObject({ role: 'Spec.Feature' });
+  });
+
+  it('setting a GOVERNED role goes through that kind\'s door (the write produces it)', async () => {
+    stubNode({ role: null, isRunnable: null });
+    await run('updateMeta', meta({ role: 'review', roleSeed: '' }));
+    expect(doorsUsed()).toEqual([UPDATE_REVIEW_NODE_MUTATION]);
+    expect(sent(UPDATE_REVIEW_NODE_MUTATION)).toMatchObject({ role: 'review' });
+  });
+
+  it('changing or clearing a governed role still goes through ITS door (before ∪ after)', async () => {
+    stubNode({ role: 'spec', isRunnable: null });
+    await run('updateMeta', meta({ role: 'spec.feature', roleSeed: 'spec' }));
+    expect(doorsUsed()).toEqual([UPDATE_SPEC_NODE_MUTATION]);
+    expect(sent(UPDATE_SPEC_NODE_MUTATION)).toMatchObject({ role: 'spec.feature' });
+    mockRequest.mockReset();
+    stubNode({ role: 'review', isRunnable: null });
+    await run('updateMeta', meta({ role: '', roleSeed: 'review' }));
+    expect(doorsUsed()).toEqual([UPDATE_REVIEW_NODE_MUTATION]);
+    expect(sent(UPDATE_REVIEW_NODE_MUTATION)).toMatchObject({ role: null });
+  });
+
+  it('never touches objectType, and leaves nodeType/isRunnable to their own fields', async () => {
+    stubNode({ role: null, isRunnable: null });
+    await run('updateMeta', meta({ role: 'spec.rule', roleSeed: '' }));
+    // `spec.rule` is in the governed `spec` FAMILY (server#1345), so the spec door.
+    expect(doorsUsed()).toEqual([UPDATE_SPEC_NODE_MUTATION]);
+    const input = sent(UPDATE_SPEC_NODE_MUTATION);
+    expect(input).not.toHaveProperty('objectType');
+    expect(input).toMatchObject({ nodeType: 'info', isRunnable: false, role: 'spec.rule' });
+  });
+
+  it('a role that makes the write doorless is refused BEFORE any write, in words', async () => {
+    // A runnable node given the review role would match two governed kinds.
+    stubNode({ role: null, isRunnable: true });
+    const result = (await run('updateMeta', meta({ isRunnable: 'on', role: 'review', roleSeed: '' }))) as {
+      data?: { form?: { message?: { type: string; text: string } } };
+      form?: { message?: { type: string; text: string } };
+    };
+    expect(doorsUsed()).toEqual([]);
+    const msg = (result.data?.form ?? result.form)?.message;
+    expect(msg?.type).toBe('error');
+    expect(msg?.text).toContain('no single write path');
+  });
+
+  it('a server refusal of the transition reaches the user in the server\'s words', async () => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === NODE_BY_ID_QUERY || query === NODE_QUERY || query === NODE_DATA_READ_QUERY) return { node: { ...base, role: 'spec', isRunnable: null } };
+      throw Object.assign(new Error('refused'), {
+        response: { errors: [{ message: 'This write would REMOVE the marker that makes this a SPEC node.', extensions: { code: 'ROLE_GOVERNED' } }] },
+      });
+    });
+    const result = (await run('updateMeta', meta({ role: 'spec.feature', roleSeed: 'spec' }))) as {
+      data?: { form?: { message?: { type: string; text: string } } };
+      form?: { message?: { type: string; text: string } };
+    };
+    const msg = (result.data?.form ?? result.form)?.message;
+    expect(msg?.type).toBe('error');
+    expect(msg?.text).toContain('REMOVE the marker');
+  });
+});
+
 describe('updateMeta — the move happens AFTER the door is settled', () => {
   /**
    * @copilot on PR #869. `updateMeta` moves the node first when its loc
@@ -196,15 +290,35 @@ describe('updateMeta — the move happens AFTER the door is settled', () => {
     expect(mockRequest.mock.calls.every(([q]) => q === NODE_BY_ID_QUERY || q === NODE_QUERY)).toBe(true);
   });
 
-  it('still moves when the write DOES have a door', async () => {
+  it('still moves when the write DOES have a door, AFTER the update (@codex on #929)', async () => {
     stubNode({ role: null, isRunnable: null });
     await run('updateMeta', {
       name: 'Classify', nodeType: 'info', description: '', alias: '',
       seq: '1', tags: 'keep', loc: 'somewhere:else',
     });
-    // The move is a non-read call ahead of the update, so both are present.
-    expect(doorsUsed()).toHaveLength(2);
-    expect(doorsUsed()[1]).toBe(UPDATE_NODE_MUTATION);
+    // The update first, selected by id; then the move.
+    expect(doorsUsed()).toEqual([UPDATE_NODE_MUTATION, MOVE_NODE_MUTATION]);
+    const input = mockRequest.mock.calls.find(([q]) => q === UPDATE_NODE_MUTATION)![1].input;
+    expect(input).toMatchObject({ id: base.id });
+    expect(input).not.toHaveProperty('loc');
+  });
+
+  it('does NOT move a node whose update the SERVER refused (a governed role transition)', async () => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === NODE_BY_ID_QUERY || query === NODE_QUERY || query === NODE_DATA_READ_QUERY) return { node: { ...base, role: 'spec', isRunnable: null } };
+      if (query === UPDATE_SPEC_NODE_MUTATION) {
+        throw Object.assign(new Error('refused'), { response: { errors: [{ message: 'refused by the spec gate', extensions: { code: 'ROLE_GOVERNED' } }] } });
+      }
+      return {};
+    });
+    const result = (await run('updateMeta', {
+      name: 'Classify', nodeType: 'info', description: '', alias: '',
+      seq: '1', tags: 'keep', loc: 'somewhere:else',
+      role: 'spec.feature', roleSeed: 'spec',
+    })) as { status?: number };
+    expect(result.status).toBe(500);
+    // The refused update was attempted; the move never was.
+    expect(doorsUsed()).toEqual([UPDATE_SPEC_NODE_MUTATION]);
   });
 });
 

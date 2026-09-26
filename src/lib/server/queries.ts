@@ -1766,6 +1766,24 @@ export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
   }
 `;
 
+// #928: the Agent tester's readiness probe. The SAME resolution the tester's
+// runtime performs (fetchAgentAIConfig: name default, agentRef, no app), so
+// the two cannot disagree: inherited Agent -> Org -> Host configs count, a
+// nearer enabled config without a key fails closed, and the server alone
+// decides what makes a config usable. Deliberately selects NO key material:
+// the decrypted key stays on the server, and nothing here can leak it to the
+// page. Same gate as the runtime (org ADMIN of the effective org).
+export const AI_CONFIG_READINESS_QUERY = /* GraphQL */ `
+  query AiConfigReadiness($name: String, $agentRef: ID) {
+    resolveAIConfig(name: $name, agentRef: $agentRef) {
+      name
+      ownerType
+      provider
+      model
+    }
+  }
+`;
+
 // Masked, resolution-aware set of configs selectable in a chat context
 // (App -> Agent -> Org -> Host, deduped by name, enabled-only, no key
 // material). Auth: App membership (or platform admin). Powers the App chat
@@ -2512,6 +2530,23 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   }
 `;
 
+// #926: the evidence probe for a tag-only (legacy) chat root. Slim on purpose:
+// only the legacy MESSAGE nodes under the root's messages prefix, and only the
+// fields the direct-child check reads. Sorted by loc so direct children come
+// before their own descendants.
+export const LEGACY_THREAD_PROBE_QUERY = /* GraphQL */ `
+  query LegacyThreadProbe($memoryId: ID!, $locPrefix: String!, $limit: Int) {
+    findNodes(
+      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix, nodeType: "message" }
+      limit: $limit
+      sort: loc
+    ) {
+      total
+      hits { node { loc nodeType } }
+    }
+  }
+`;
+
 // Node CONTENT search (issue #355) — keyword/FTS over name+description+content,
 // scoped to a SET of memories (`filter.memoryIds`). Backs the "Exact" toggle of the
 // MemoryBrowser search box; powers /api/nodes/search. NOTE: `mode:keyword` is now
@@ -2754,6 +2789,9 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
       properties
+      # #927 (server #1323/#937): the live revision an inline editor opens on
+      # and saves against as expectedRevision. Detail-only, like properties.
+      revision
       # portal#696 / server#888: the asset a reference node points at (its
       # data.asset), written either by createAssetReferenceNode or by
       # hadron_store_file. NULL for every ordinary node, and ALSO null when the
