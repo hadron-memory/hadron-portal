@@ -247,7 +247,7 @@ export const actions: Actions = {
         },
       });
     } catch (e) {
-      return message(form, { type: 'error', text: registerErrorText(e, 'The attendance could not be added.') }, { status: 400 });
+      return message(form, { type: 'error', text: registerErrorText(e, t('app.channels.register.error.added', 'The attendance could not be added.')) }, { status: 400 });
     }
     return message(form, { type: 'success', text: t('app.channels.register.added', 'Attendance added.') });
   },
@@ -261,7 +261,7 @@ export const actions: Actions = {
         input: { role: form.data.role, mentionOnly: form.data.mentionOnly, description: form.data.description },
       });
     } catch (e) {
-      return message(form, { type: 'error', text: registerErrorText(e, 'The attendance could not be updated.') }, { status: 400 });
+      return message(form, { type: 'error', text: registerErrorText(e, t('app.channels.register.error.updated', 'The attendance could not be updated.')) }, { status: 400 });
     }
     return message(form, { type: 'success', text: t('app.channels.register.updated', 'Attendance updated.') });
   },
@@ -272,7 +272,7 @@ export const actions: Actions = {
     try {
       await gqlClient(locals.token).request(DELETE_REGISTER_ENTRY_MUTATION, { ref: form.data.ref });
     } catch (e) {
-      return message(form, { type: 'error', text: registerErrorText(e, 'The attendance could not be removed.') }, { status: 400 });
+      return message(form, { type: 'error', text: registerErrorText(e, t('app.channels.register.error.removed', 'The attendance could not be removed.')) }, { status: 400 });
     }
     return message(form, { type: 'success', text: t('app.channels.register.removed', 'Attendance removed.') });
   },

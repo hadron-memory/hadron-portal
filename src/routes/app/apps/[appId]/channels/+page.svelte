@@ -565,10 +565,15 @@
             <input type="hidden" name="_kind" value="addAttendance" />
             <label class="block text-xs text-zinc-600 dark:text-zinc-400">
               {t('app.channels.register.col.channel', 'Channel')}
-              <select name="channelId" bind:value={$addData.channelId} class="mt-1 {inputClass}">
+              <select name="channelId" bind:value={$addData.channelId} aria-invalid={$addErrors.channelId ? 'true' : undefined} aria-describedby={$addErrors.channelId ? 'add-channel-error' : undefined} class="mt-1 {inputClass}">
                 <option value="" disabled>{t('app.channels.register.pick-channel', 'Pick a channel…')}</option>
                 {#each data.channels as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
               </select>
+              <!-- Client validation cancels an empty pick before any action result
+                   exists, so scopedActionError never sees it: show the field error here. -->
+              {#if $addErrors.channelId}
+                <span id="add-channel-error" role="alert" class="mt-1 block text-[11px] text-red-600 dark:text-red-400">{$addErrors.channelId[0]}</span>
+              {/if}
               <!-- Two Channels can share a name: the chosen one's address tells them
                    apart. A compound-memory Channel has no flat address, so its id,
                    as in the Channels table. -->

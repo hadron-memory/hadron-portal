@@ -55,7 +55,7 @@ export const REGISTER_DESCRIPTION_MAX = 500;
 
 export const addAttendanceSchema = z.object({
   _kind: z.literal('addAttendance').default('addAttendance'),
-  channelId: z.string().trim().min(1, 'Pick a channel.').prefault(''),
+  channelId: z.string().trim().min(1, t('app.channels.validation.pick-channel', 'Pick a channel.')).prefault(''),
   attendee: z.string().trim().prefault(''),
   role: z.enum(REGISTER_ROLES).default('BOTH'),
   mentionOnly: z.boolean().default(false),

@@ -32,7 +32,7 @@ function channel(over: Record<string, unknown> = {}) {
   };
 }
 
-async function mountPage(channels: unknown[], extra: Record<string, unknown> = {}) {
+async function mountPage(channels: unknown[], extra: Record<string, unknown> = {}, actionData: unknown = null) {
   const data = {
     appRows: [], orgRows: [], attendees: [], canManageRegister: true, registerLoadFailed: false,
     addAttendanceForm: await superValidate(zod4(addAttendanceSchema), { errors: false }),
@@ -45,7 +45,7 @@ async function mountPage(channels: unknown[], extra: Record<string, unknown> = {
     deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
     ...extra,
   };
-  const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+  const m = mountComponent(Page as never, { data, form: actionData } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick();
   return m;
@@ -297,5 +297,21 @@ describe('Channels page', () => {
     slug.dispatchEvent(new Event('input', { bubbles: true }));
     await tick(3);
     expect(target.querySelector('#create-slug-address')!.textContent).toBe('chats:release');
+  });
+
+  it('Add with no Channel picked: novalidate sends it to the server, whose refusal is shown on the field', async () => {
+    const { target } = await mountPage([channel()]);
+    const form = target.querySelector<HTMLFormElement>('form[action="?/addAttendance"]')!;
+    // `novalidate` makes superforms skip client validation, so the empty pick
+    // is POSTed (not silently cancelled) and the server answers fail(400).
+    expect(form.noValidate).toBe(true);
+    expect((await submitEnhanced(form)).cancelled).toBe(false);
+  });
+
+  it('the server’s "Pick a channel." shows under the Channel picker', async () => {
+    const failed = await superValidate({ _kind: 'addAttendance', channelId: '' }, zod4(addAttendanceSchema));
+    const { target } = await mountPage([channel()], {}, { form: failed });
+    expect(target.querySelector('#add-channel-error')?.textContent).toBe('Pick a channel.');
+    expect(target.querySelector('select[name="channelId"]')!.getAttribute('aria-invalid')).toBe('true');
   });
 });
