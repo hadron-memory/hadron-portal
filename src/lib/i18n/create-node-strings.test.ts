@@ -39,9 +39,13 @@ describe('translateCreateNodeError', () => {
     expect(text).toMatch(/letters.*digits.*hyphens/i);
   });
 
-  it('translates MemoryNotFoundError', () => {
+  // A missing memory and one you can no longer read answer identically
+  // (hrn:node:hadronmemory.com:specs:cor:api:140:03, team chat #2103), so the
+  // copy must not claim it no longer exists.
+  it('translates MemoryNotFoundError without claiming the memory is gone', () => {
     const text = translateCreateNodeError(gqlError('MemoryNotFoundError'));
-    expect(text).toMatch(/no longer exists/i);
+    expect(text).toMatch(/isn’t available to you/);
+    expect(text).not.toMatch(/exist/i);
   });
 
   it('translates Forbidden to no-write-access copy', () => {
