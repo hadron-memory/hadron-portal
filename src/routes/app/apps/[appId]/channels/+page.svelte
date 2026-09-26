@@ -80,6 +80,13 @@
     },
   );
   const deleteError = $derived(scopedActionError<DeleteForm>(form, 'deleteChannel', $deleteMessage, null));
+  // Superforms validates its OWN state, not the DOM: the hidden ref input alone
+  // leaves `ref` empty, and the client validator silently cancels the submit
+  // (Chip, team chat #2186). So opening the confirm sets it, as rename does.
+  function startDelete(id: string) {
+    confirmingDelete = id;
+    deleteData.set({ _kind: 'deleteChannel', ref: id }, { taint: false });
+  }
 
   // ── table ──
   interface Row {
@@ -245,7 +252,7 @@
           {:else}
             <div class="flex gap-1">
               <button type="button" onclick={() => startRename(row.channel)} class="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.rename', 'Rename')}</button>
-              <button type="button" onclick={() => (confirmingDelete = row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.delete', 'Delete')}</button>
+              <button type="button" onclick={() => startDelete(row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.delete', 'Delete')}</button>
             </div>
           {/if}
         {:else}

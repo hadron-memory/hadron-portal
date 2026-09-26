@@ -5,6 +5,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { submitEnhanced } from '$lib/test/stubs/app-forms';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import Page from './+page.svelte';
@@ -76,5 +77,15 @@ describe('Channels page', () => {
     const text = target.querySelector('table')!.textContent!;
     expect(text).toContain('Release');
     expect(text).not.toContain('Team chat');
+  });
+
+  it('Delete → confirm actually submits: the form’s own ref is set, not just a hidden input (Chip, #2186)', async () => {
+    const { target } = await mountPage([channel(), channel({ id: 'ch-x', name: 'Other', loc: 'chats:x', chatRootUrn: 'hrn:node:acme.com:team-shared:chats:x' })]);
+    const del = [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Delete');
+    del[1].click();
+    await tick(3);
+    const confirm = target.querySelector<HTMLFormElement>('form[action="?/deleteChannel"]')!;
+    const { cancelled } = await submitEnhanced(confirm);
+    expect(cancelled).toBe(false);
   });
 });
