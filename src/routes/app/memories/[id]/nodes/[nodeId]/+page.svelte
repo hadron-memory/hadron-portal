@@ -154,7 +154,8 @@
       case 'no-baseline':
         return t('node.text.save.no-baseline', 'This editor lost track of the version it opened. Copy your edit and reload the page.');
       case 'not-found':
-        return t('node.text.save.not-found', 'This node no longer exists.');
+        // Missing and unreadable answer the same (hrn:node:hadronmemory.com:specs:cor:api:140:03).
+        return t('node.text.save.not-found', 'This node isn’t available to you any more. It may have been deleted, or your access changed.');
       default:
         return detail ?? t('node.text.save.failed', 'Your edit could not be saved.');
     }
