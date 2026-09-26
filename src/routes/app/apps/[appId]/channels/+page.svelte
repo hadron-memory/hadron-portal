@@ -95,6 +95,8 @@
   // (Chip, team chat #2186). So opening the confirm sets it, as rename does.
   function startDelete(id: string) {
     confirmingDelete = id;
+    // A previous row's refusal must not show while confirming this one.
+    deleteMessage.set(undefined);
     deleteData.set({ _kind: 'deleteChannel', ref: id }, { taint: false });
   }
 
