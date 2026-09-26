@@ -193,7 +193,8 @@ describe('updateMeta — Node.role (#921)', () => {
   it('a dotted or custom role is sent as typed, never lowercased', async () => {
     stubNode({ role: null, isRunnable: null });
     await run('updateMeta', meta({ role: ' Spec.Feature ', roleSeed: '' }));
-    // Not governed today (server's register matches `spec` exactly), so the generic door.
+    // Not governed: the family match is case-sensitive, as on the server
+    // (`roleIsOrDescendsFrom`), so `Spec.Feature` is not in `spec.*`.
     expect(doorsUsed()).toEqual([UPDATE_NODE_MUTATION]);
     expect(sent(UPDATE_NODE_MUTATION)).toMatchObject({ role: 'Spec.Feature' });
   });
@@ -220,7 +221,9 @@ describe('updateMeta — Node.role (#921)', () => {
   it('never touches objectType, and leaves nodeType/isRunnable to their own fields', async () => {
     stubNode({ role: null, isRunnable: null });
     await run('updateMeta', meta({ role: 'spec.rule', roleSeed: '' }));
-    const input = sent(UPDATE_NODE_MUTATION);
+    // `spec.rule` is in the governed `spec` FAMILY (server#1345), so the spec door.
+    expect(doorsUsed()).toEqual([UPDATE_SPEC_NODE_MUTATION]);
+    const input = sent(UPDATE_SPEC_NODE_MUTATION);
     expect(input).not.toHaveProperty('objectType');
     expect(input).toMatchObject({ nodeType: 'info', isRunnable: false, role: 'spec.rule' });
   });
