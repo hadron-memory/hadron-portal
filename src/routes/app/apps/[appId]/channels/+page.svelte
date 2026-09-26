@@ -280,7 +280,8 @@
   let attendFilter = $state('');
   const attendColumns: PortalColumnDef<AttendRow>[] = [
     // Search matches the URN chips the cells show, not just the names.
-    { accessorFn: (r) => [r.channel, r.entry.channel?.chatRootUrn].filter(Boolean).join(' '), id: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
+    // A readable Channel in a compound memory has no chatRootUrn; its id is its address.
+    { accessorFn: (r) => [r.channel, r.entry.channel ? (r.entry.channel.chatRootUrn ?? r.entry.channelId) : null].filter(Boolean).join(' '), id: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
     { accessorFn: (r) => [r.attendee, r.entry.attendeeUrn].filter(Boolean).join(' '), id: 'attendee', header: t('app.channels.register.col.attendee', 'Who'), size: 220 },
     // Not hideable: this cell renders the row's edit <form>, which the Save
     // button in the actions cell submits by id. Hidden, Save would target a
@@ -531,6 +532,12 @@
               <div class="min-w-0">
                 <div class="truncate">{row.channel}</div>
                 <Urn value={row.entry.channel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
+              </div>
+            {:else if cell.column.id === 'channel' && row.entry.channel}
+              <!-- No flat address (compound memory): the id, as in the Channels table. -->
+              <div class="min-w-0">
+                <div class="truncate">{row.channel}</div>
+                <span class="font-mono text-xs">{row.entry.channelId}</span>
               </div>
             {:else if cell.column.id === 'attendee' && row.entry.attendeeUrn}
               <div class="min-w-0">
