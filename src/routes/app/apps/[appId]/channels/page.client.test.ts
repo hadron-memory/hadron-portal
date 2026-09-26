@@ -3,7 +3,7 @@
  * flat address shows its id (the loc is memory-relative, never an address),
  * and every chrome string goes through t().
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -114,5 +114,31 @@ describe('Channels page', () => {
     }];
     const { target } = await mountPage([channel()], { attendees, appRows });
     expect(target.textContent).toContain('Olaf');
+  });
+
+  it('"Show for" loads the attendee just picked, not the previous one (Codex P1 on #946, measured)', async () => {
+    const urls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (u: string) => {
+      urls.push(u);
+      return { ok: true, json: async () => ({ rows: [] }) } as Response;
+    }));
+    try {
+      const attendees = [
+        { id: 'w-ada', name: 'Ada', urn: null, kind: 'worker', role: null, retired: false },
+        { id: 'ag-1', name: 'Coordinator', urn: null, kind: 'agent', retired: false },
+      ];
+      const { target } = await mountPage([channel()], { attendees });
+      const pick = [...target.querySelectorAll<HTMLSelectElement>('select')].find((s) =>
+        s.options[0]?.textContent?.includes('Pick a worker or agent'),
+      )!;
+      for (const id of ['w-ada', 'ag-1']) {
+        pick.value = id;
+        pick.dispatchEvent(new Event('change', { bubbles: true }));
+        await tick(5);
+      }
+      expect(urls.map((u) => new URL(u, 'http://x').searchParams.get('attendee'))).toEqual(['w-ada', 'ag-1']);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

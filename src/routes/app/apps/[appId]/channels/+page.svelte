@@ -577,7 +577,9 @@
         </p>
         <label class="mt-2 block max-w-sm text-xs text-zinc-600 dark:text-zinc-400">
           {t('app.channels.effective.pick', 'Show for')}
-          <select bind:value={effectiveFor} onchange={() => loadEffective(effectiveFor)} class="mt-1 {inputClass}">
+          <!-- Read from the event, so the load never depends on whether the binding
+               or this listener runs first. -->
+          <select bind:value={effectiveFor} onchange={(e) => loadEffective(e.currentTarget.value)} class="mt-1 {inputClass}">
             <option value="">{t('app.channels.effective.pick.none', 'Pick a worker or agent…')}</option>
             {#each data.attendees as a (a.id)}
               <option value={a.id}>{a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name })}</option>
