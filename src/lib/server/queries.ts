@@ -3715,8 +3715,8 @@ export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
 // memory: a Channel you may not read is simply not in the page.
 // ---------------------------------------------------------------------------
 
-export const APP_CHANNELS_QUERY = /* GraphQL */ `
-  query AppChannels($ref: ID!, $appRef: ID!) {
+export const APP_CHANNELS_APP_QUERY = /* GraphQL */ `
+  query AppChannelsApp($ref: ID!) {
     app(ref: $ref) {
       id
       name
@@ -3725,7 +3725,13 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
       defaultChannel { id }
       sharedMemory { id urn name }
     }
-    channels(filter: { appRef: $appRef }, limit: 200) {
+  }
+`;
+
+/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200. */
+export const APP_CHANNELS_QUERY = /* GraphQL */ `
+  query AppChannels($appRef: ID!, $limit: Int, $offset: Int) {
+    channels(filter: { appRef: $appRef }, limit: $limit, offset: $offset) {
       total
       items {
         id
@@ -3751,7 +3757,11 @@ export const APP_SHARED_MEMORY_QUERY = /* GraphQL */ `
   }
 `;
 
-/** #942: may the caller write this memory? A self-audit, always allowed. */
+/**
+ * #942: may the caller write this memory? `resource` MUST be the memory's
+ * `hrn:mem:` URN: a bare id is read as an AiServiceConfig id and answers
+ * NOT_FOUND.
+ */
 export const SELF_CAN_WRITE_QUERY = /* GraphQL */ `
   query SelfCanWrite($user: ID!, $resource: ID!) {
     effectiveAccess(user: $user, resource: $resource) { canWrite }

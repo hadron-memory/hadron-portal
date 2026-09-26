@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import {
+  APP_CHANNELS_APP_QUERY,
   APP_CHANNELS_QUERY,
   APP_SHARED_MEMORY_QUERY,
   CREATE_CHANNEL_MUTATION,
@@ -53,10 +54,21 @@ function route(opts: {
     ? { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: 'org-1', defaultChannel: { id: 'ch-team' }, sharedMemory: SHARED }
     : opts.app;
   mockRequest.mockImplementation(async (doc: string, vars: Record<string, unknown>) => {
-    if (doc === APP_CHANNELS_QUERY) return { app, channels: { total: (opts.channels ?? []).length, items: opts.channels ?? [] } };
+    if (doc === APP_CHANNELS_APP_QUERY) return { app };
+    if (doc === APP_CHANNELS_QUERY) {
+      // The server's page: capped at 200, whatever limit is asked for.
+      const all = opts.channels ?? [];
+      const offset = (vars.offset as number | undefined) ?? 0;
+      const limit = Math.min((vars.limit as number | undefined) ?? 50, 200);
+      return { channels: { total: all.length, items: all.slice(offset, offset + limit) } };
+    }
     if (doc === APP_SHARED_MEMORY_QUERY) return { app: app && { id: app.id, sharedMemory: app.sharedMemory } };
     if (doc === SELF_CAN_WRITE_QUERY) {
-      const v = opts.canWrite?.[vars.resource as string] ?? true;
+      // As the server dispatches it: a bare id is an AiServiceConfig id, so a
+      // memory audited by id is NOT_FOUND.
+      const resource = vars.resource as string;
+      if (!resource.startsWith('hrn:mem:')) throw refusal(`No AiServiceConfig ${resource}`, 'NOT_FOUND');
+      const v = opts.canWrite?.[resource] ?? true;
       if (v instanceof Error) throw v;
       return { effectiveAccess: { canWrite: v } };
     }
@@ -90,19 +102,31 @@ const sent = (doc: string) => mockRequest.mock.calls.filter(([d]) => d === doc).
 
 describe('load', () => {
   it('lists the App’s Channels, marks the default, and audits write access per host memory', async () => {
-    route({ channels: [channel(), channel({ id: 'ch-x', loc: 'chats:x', memory: OTHER })], canWrite: { 'mem-other': false } });
+    route({ channels: [channel(), channel({ id: 'ch-x', loc: 'chats:x', memory: OTHER })], canWrite: { [OTHER.urn]: false } });
     const data = await load();
     expect(data.channels.map((c) => c.id)).toEqual(['ch-team', 'ch-x']);
     expect(data.defaultChannelId).toBe('ch-team');
+    // Keyed by memory id, as the page looks it up...
     expect(data.canWrite).toEqual({ 'mem-shared': true, 'mem-other': false });
-    // A SELF-audit: the caller's own user id, one per distinct host.
-    expect(sent(SELF_CAN_WRITE_QUERY)).toHaveLength(2);
-    expect(sent(SELF_CAN_WRITE_QUERY)[0]).toMatchObject({ user: 'u-1' });
+    // ...but audited by URN: a SELF-audit, the caller's own id, one per distinct host.
+    expect(sent(SELF_CAN_WRITE_QUERY)).toEqual([
+      { user: 'u-1', resource: SHARED.urn },
+      { user: 'u-1', resource: OTHER.urn },
+    ]);
+  });
+
+  it('pages past the 200-per-page cap, so a Channel after the first page is still listed', async () => {
+    const many = Array.from({ length: 201 }, (_, i) => channel({ id: `ch-${i}`, loc: `chats:c${i}` }));
+    route({ channels: many });
+    const data = await load();
+    expect(data.channels).toHaveLength(201);
+    expect(data.channels.at(-1)?.id).toBe('ch-200');
+    expect(sent(APP_CHANNELS_QUERY).map((v) => v.offset)).toEqual([0, 200]);
   });
 
   it('a failed audit is UNKNOWN (null), not "no": the server decides', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    route({ channels: [channel()], canWrite: { 'mem-shared': new Error('boom') } });
+    route({ channels: [channel()], canWrite: { [SHARED.urn]: new Error('boom') } });
     expect((await load()).canWrite['mem-shared']).toBeNull();
     warn.mockRestore();
   });
