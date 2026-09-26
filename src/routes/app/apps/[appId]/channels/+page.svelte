@@ -108,7 +108,11 @@
     canWrite: boolean | null;
   }
   function when(iso: string | null): string {
-    return iso ? new Date(iso).toLocaleString() : t('app.channels.never', 'No messages yet');
+    // Pinned locale, so SSR and the client format identically (the repo's
+    // convention: AssetTable, the memory Info tab, fmtRunTime).
+    return iso
+      ? new Date(iso).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+      : t('app.channels.never', 'No messages yet');
   }
   const rows = $derived<Row[]>(
     data.channels.map((c) => ({
@@ -279,7 +283,10 @@
     // Search matches the URN chips the cells show, not just the names.
     { accessorFn: (r) => [r.channel, r.entry.channel?.chatRootUrn].filter(Boolean).join(' '), id: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
     { accessorFn: (r) => [r.attendee, r.entry.attendeeUrn].filter(Boolean).join(' '), id: 'attendee', header: t('app.channels.register.col.attendee', 'Who'), size: 220 },
-    { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 170 },
+    // Not hideable: this cell renders the row's edit <form>, which the Save
+    // button in the actions cell submits by id. Hidden, Save would target a
+    // form that isn't in the DOM.
+    { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 170, enableHiding: false },
     { accessorKey: 'mentions', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 170 },
     { accessorKey: 'setBy', header: t('app.channels.register.col.set-by', 'Set by'), size: 190 },
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 200 },
@@ -466,6 +473,7 @@
       <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
         {t('app.channels.create.no-write', 'Adding a channel needs write access to {memory}, where this App’s channels live.', { memory: shared.name })}
       </p>
+      <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
     {:else}
       <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
         {t('app.channels.create.where', 'It is created in {memory}, alongside the App’s team chat, so it has that memory’s audience.', { memory: shared.name })}
@@ -658,11 +666,15 @@
                 <option value="" disabled>{t('app.channels.register.pick-channel', 'Pick a channel…')}</option>
                 {#each data.channels as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
               </select>
-              <!-- Two Channels can share a name: the chosen one's address tells them apart. -->
+              <!-- Two Channels can share a name: the chosen one's address tells them
+                   apart. A compound-memory Channel has no flat address, so its id,
+                   as in the Channels table. -->
               {#if pickedChannel?.chatRootUrn}
                 <span class="mt-1 block">
                   <Urn value={pickedChannel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
                 </span>
+              {:else if pickedChannel}
+                <span class="mt-1 block font-mono text-xs">{pickedChannel.id}</span>
               {/if}
             </label>
             <label class="block text-xs text-zinc-600 dark:text-zinc-400">
