@@ -312,6 +312,21 @@
   // Each request is numbered; only the latest may write the panel, so a slow
   // answer for the previous pick can't overwrite the current one.
   let effectiveSeq = 0;
+  // SvelteKit reuses this component across /app/apps/A/channels → B. Nothing
+  // of A's effective view may survive: clear the pick and the panel, and bump
+  // the sequence so an in-flight answer for A is dropped
+  // (hrn:node:hadronmemory.com:hadron-portal:review:a-reused-component-must-reseed-its-form).
+  // The App this view was loaded for; untracked on purpose (the effect below watches it).
+  let effectiveForApp = untrack(() => data.app.id);
+  $effect(() => {
+    const appId = data.app.id;
+    if (appId === effectiveForApp) return;
+    effectiveForApp = appId;
+    effectiveSeq++;
+    effectiveFor = '';
+    effective = null;
+    effectiveState = 'idle';
+  });
   async function loadEffective(attendeeId: string) {
     const seq = ++effectiveSeq;
     effective = null;

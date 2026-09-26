@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhanced } from '$lib/test/stubs/app-forms';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import Page from './+page.svelte';
@@ -334,5 +335,44 @@ describe('Channels page', () => {
     const after = [...regTable.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td')?.textContent ?? '');
     expect(after.some((c) => c.includes('ch-leg-2'))).toBe(true);
     expect(after.some((c) => c.includes('ch-leg-1'))).toBe(false);
+  });
+
+  it('navigating to another App clears the effective view, and a late answer for the first App is dropped', async () => {
+    let release!: (v: unknown) => void;
+    const calls: string[] = [];
+    vi.stubGlobal('fetch', vi.fn((u: string) => {
+      calls.push(u);
+      // App A's answer is held until after the navigation.
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    }));
+    try {
+      const attendees = [{ id: 'ag-1', name: 'Coordinator', urn: null, kind: 'agent', retired: false }];
+      const first = await mountPage([channel()], { attendees });
+      const props = reactiveProps({ ...(first.props as Record<string, unknown>) });
+      first.unmount();
+      const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(3);
+      const pick = () => [...m.target.querySelectorAll<HTMLSelectElement>('select')].find((s) => s.options[0]?.textContent?.includes('Pick a worker or agent'))!;
+      pick().value = 'ag-1';
+      pick().dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(3);
+      expect(calls).toHaveLength(1);
+
+      // Navigate: same component, App B's data (same Agent installed there).
+      const data = props.data as Record<string, unknown>;
+      props.data = { ...data, app: { ...(data.app as object), id: 'app-2', name: 'Other team' } };
+      await tick(3);
+      expect(pick().value).toBe('');
+
+      // A's answer arrives late: it must not fill B's panel.
+      release({ ok: true, json: async () => ({ rows: [{ id: 'e1', channel: 'from-A', channelUrn: null, mode: 'Watch', counts: 'All messages', because: 'x', readUpTo: 'x', note: '' }], loadedAt: 'x' }) });
+      await tick(8);
+      expect(m.target.textContent).not.toContain('from-A');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
