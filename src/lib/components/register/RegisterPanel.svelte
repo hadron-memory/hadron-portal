@@ -389,6 +389,12 @@
               <Urn value={pickedAttendee.urn} type={pickedAttendee.kind === 'worker' ? 'worker' : 'agent'} size={8} label={t('app.channels.register.urn', 'attendee')} />
             </span>
           {/if}
+          <!-- On an organization's page, a Worker's App is part of who they are. -->
+          {#if pickedAttendee?.appUrn}
+            <span class="mt-1 block">
+              <Urn value={pickedAttendee.appUrn} type="app" size={8} label={t('app.channels.register.urn.app', 'App')} />
+            </span>
+          {/if}
         </label>
         <label class="block text-xs text-zinc-600 dark:text-zinc-400">
           {t('app.channels.register.col.mode', 'Takes part as')}

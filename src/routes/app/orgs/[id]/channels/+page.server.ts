@@ -4,7 +4,7 @@ import { mapWithConcurrency } from '$lib/server/concurrency';
 import { attendanceActions, registerForms } from '$lib/server/register-actions';
 import {
   APP_INSTALLED_AGENTS_QUERY,
-  ORG_APP_INSTALLS_QUERY,
+  ORG_APPS_FOR_REGISTER_QUERY,
   ORG_CHANNELS_QUERY,
   ORG_MEMBER_ROLES_QUERY,
   REGISTER_ENTRIES_BY_OWNER_QUERY,
@@ -32,7 +32,7 @@ import type { Actions, PageServerLoad } from './$types';
  * are not a way to move anyone's cursor.
  */
 
-type OrgApp = { id: string; name: string };
+type OrgApp = { id: string; name: string; urn: string };
 type OrgWorker = { id: string; name: string; urn: string | null; role: string | null; retiredAt: string | null };
 
 /**
@@ -64,7 +64,7 @@ async function loadOrgAttendees(
   client: ReturnType<typeof gqlClient>,
   orgId: string,
 ): Promise<{ attendees: Attendee[]; unreadApps: number }> {
-  const apps = await fetchAllItems<OrgApp>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgId });
+  const apps = await fetchAllItems<OrgApp>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgId });
   const perApp = await mapWithConcurrency(apps, ROSTER_CONCURRENCY, async (app) => {
     // allSettled, not all: an App's slot must stay taken until BOTH of its
     // reads have finished. With Promise.all a fast rejection would free the
@@ -83,8 +83,22 @@ async function loadOrgAttendees(
     }
     return { app, workers: workers.value, agents: installed.value.app?.appAgents.map((a) => a.agent) ?? [], failed: false };
   });
+  // An App's display name alone can repeat within an org; when it does, its URN
+  // joins the label so the options stay distinct. The App URN is also kept on
+  // the attendee, and the picker shows it for the chosen Worker (Codex on #955).
+  const nameCount = new Map<string, number>();
+  for (const { name } of apps) nameCount.set(name, (nameCount.get(name) ?? 0) + 1);
+  const appLabel = (app: OrgApp) => ((nameCount.get(app.name) ?? 0) > 1 ? `${app.name} · ${app.urn}` : app.name);
   const workers: Attendee[] = perApp.flatMap(({ app, workers }) =>
-    workers.map((w) => ({ id: w.id, name: `${w.name} (${app.name})`, urn: w.urn, kind: 'worker' as const, role: w.role, retired: !!w.retiredAt })),
+    workers.map((w) => ({
+      id: w.id,
+      name: `${w.name} (${appLabel(app)})`,
+      urn: w.urn,
+      kind: 'worker' as const,
+      role: w.role,
+      retired: !!w.retiredAt,
+      appUrn: app.urn,
+    })),
   );
   const agents = new Map<string, Attendee>();
   for (const { agents: installed } of perApp) {

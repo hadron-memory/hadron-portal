@@ -3824,6 +3824,20 @@ export const ORG_CHANNELS_QUERY = /* GraphQL */ `
 `;
 
 /**
+ * #942: an organization's Apps with their URNs: whose Workers and installed
+ * Agents an org-owned register row may name. The URN keeps a Worker's App
+ * addressable when two Apps share a display name.
+ */
+export const ORG_APPS_FOR_REGISTER_QUERY = /* GraphQL */ `
+  query OrgAppsForRegister($orgId: ID, $limit: Int, $offset: Int) {
+    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+      items { id name urn }
+      total
+    }
+  }
+`;
+
+/**
  * #942: the caller's standing in an organization, for deciding what the org
  * Channels page OFFERS (org register rows need CONTRIBUTOR+ on the server).
  * Slim on purpose: the members tab's query carries emails and avatars.

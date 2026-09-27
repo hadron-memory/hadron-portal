@@ -11,4 +11,9 @@ export type Attendee = {
   kind: 'worker' | 'agent';
   role?: string | null;
   retired?: boolean;
+  /**
+   * On an organization's page: the App a Worker is cast in, by URN, so two
+   * same-named Workers in same-named Apps stay distinguishable.
+   */
+  appUrn?: string | null;
 };

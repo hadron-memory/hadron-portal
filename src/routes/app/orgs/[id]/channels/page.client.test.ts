@@ -39,7 +39,7 @@ async function pageData(extra: Record<string, unknown> = {}) {
     org: { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com' },
     channels: [channel()],
     orgRows: [row()],
-    attendees: [{ id: 'w-1', name: 'Ada (Team A)', urn: 'hrn:worker:acme.com:a:ada', kind: 'worker', role: null, retired: false }],
+    attendees: [{ id: 'w-1', name: 'Ada (Team A)', urn: 'hrn:worker:acme.com:a:ada', kind: 'worker', role: null, retired: false, appUrn: 'hrn:app:acme.com:a' }],
     registerLoadFailed: false,
     canManageRegister: true,
     rosterUnreadApps: 0,
@@ -131,5 +131,15 @@ describe('the organization Channels page', () => {
     await tick(5);
     expect(note().value).toBe('');
     expect(m.target.querySelector('form[action="?/editAttendance"]')).toBeNull();
+  });
+
+  it('the picked Worker shows its App’s URN as well as its own', async () => {
+    const root = await mountPage();
+    const who = root.querySelector<HTMLSelectElement>('select[name="attendee"]')!;
+    who.value = 'w-1';
+    who.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(3);
+    expect(who.parentElement!.innerHTML).toContain('hrn:worker:acme.com:a:ada');
+    expect(who.parentElement!.innerHTML).toContain('hrn:app:acme.com:a');
   });
 });

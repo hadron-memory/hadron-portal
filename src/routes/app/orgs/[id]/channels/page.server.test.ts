@@ -12,7 +12,7 @@ import {
   APP_INSTALLED_AGENTS_QUERY,
   CREATE_REGISTER_ENTRY_MUTATION,
   DELETE_REGISTER_ENTRY_MUTATION,
-  ORG_APP_INSTALLS_QUERY,
+  ORG_APPS_FOR_REGISTER_QUERY,
   ORG_CHANNELS_QUERY,
   ORG_MEMBER_ROLES_QUERY,
   REGISTER_ENTRIES_BY_OWNER_QUERY,
@@ -54,7 +54,7 @@ function row(over: Record<string, unknown> = {}) {
 function route(opts: {
   channels?: unknown[];
   rows?: unknown[];
-  apps?: Array<{ id: string; name: string }>;
+  apps?: Array<{ id: string; name: string; urn?: string }>;
   workers?: Record<string, unknown[]>;
   agents?: Record<string, Array<{ id: string; name: string; urn: string }>>;
   members?: Array<{ role: string; user: { id: string } }> | Error;
@@ -80,7 +80,7 @@ function route(opts: {
       if (opts.registerFails) throw new Error('boom');
       return { registerEntries: page(opts.rows ?? [], vars) };
     }
-    if (doc === ORG_APP_INSTALLS_QUERY) return { apps: page(opts.apps ?? [], vars) };
+    if (doc === ORG_APPS_FOR_REGISTER_QUERY) return { apps: page((opts.apps ?? []).map((a) => ({ urn: `hrn:app:acme.com:${a.id}`, ...a })), vars) };
     if (doc === WORKERS_QUERY) {
       if (opts.rosterFails?.includes(vars.appRef as string)) throw new Error('roster boom');
       if (opts.track) {
@@ -173,6 +173,21 @@ describe('load', () => {
       expect.objectContaining({ id: 'ag-1', kind: 'agent' }),
     ]);
     expect(sent(WORKERS_QUERY).every((v) => v.includeRetired === true)).toBe(true);
+  });
+
+  it('two Apps sharing a name stay distinguishable: the App URN joins the label, and rides on the attendee', async () => {
+    route({
+      apps: [{ id: 'app-a', name: 'Team', urn: 'hrn:app:acme.com:team' }, { id: 'app-b', name: 'Team', urn: 'hrn:app:acme.com:team-2' }],
+      workers: {
+        'app-a': [{ id: 'w-1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: null, retiredAt: null }],
+        'app-b': [{ id: 'w-2', name: 'Ada', urn: 'hrn:worker:acme.com:team-2:ada', role: null, retiredAt: null }],
+      },
+    });
+    const data = (await load()) as Loaded & { attendees: Array<{ id: string; name: string; appUrn?: string }> };
+    const [a, b] = data.attendees;
+    expect(a.name).not.toBe(b.name);
+    expect(a).toMatchObject({ name: 'Ada (Team · hrn:app:acme.com:team)', appUrn: 'hrn:app:acme.com:team' });
+    expect(b).toMatchObject({ name: 'Ada (Team · hrn:app:acme.com:team-2)', appUrn: 'hrn:app:acme.com:team-2' });
   });
 
   it('reads App rosters with bounded concurrency, not one burst per App', async () => {
