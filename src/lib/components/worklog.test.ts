@@ -22,6 +22,7 @@ function item(over: Partial<TeamWorkItem> = {}): TeamWorkItem {
     action: 'opened',
     at: '2026-08-17T11:00:00Z',
     detail: null,
+    model: null,
     ...over,
   };
 }

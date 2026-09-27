@@ -1,4 +1,4 @@
-# Exported from hadron-server 264cdd4a770e1e8912818692b27c666540b44ff8 (origin/main, 2026-09-27T08:14:37-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 163e1816e6526054edde74bfcc23458abb416fa6 (origin/main, 2026-09-27T12:32:44-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -525,6 +525,11 @@ input AiServiceConfigTestOverride {
   """Omitted = the saved endpoint; null or empty = the provider default."""
   endpoint: String
   model: String
+
+  """
+  Edited params to test instead of the saved ones (#1413): validated exactly as a save validates them, including the params.baseUrl refusal, against the effective provider — before anything outbound. Used for the call, never stored. Omitted = the saved params; null = the edit clears them (the provider defaults). On the wire the probe exercises the effective provider/model/endpoint/key and (hard-capped at 16, per #1378's original ceiling pending a cost ruling) maxTokens, like its one-word prompt; the platform's request contract does not yet forward the other knobs (temperature, reasoningEffort, …) on any path, so they are validated and reported, not transmitted.
+  """
+  params: JSON
   provider: String
 }
 
@@ -558,6 +563,7 @@ type AiServiceConfigTestUsed {
   endpoint: AiConfigTestValueSource!
   key: AiConfigTestKeySource!
   model: AiConfigTestValueSource!
+  params: AiConfigTestValueSource!
   provider: AiConfigTestValueSource!
 }
 
@@ -4942,7 +4948,20 @@ type Mutation {
   
   appRef accepts the entity's ID or URN; sessionRef is the session id.
   """
-  recordTeamWork(action: String!, appRef: ID!, detail: JSON, kind: String!, ref: String!, sessionRef: ID!, tool: String!): TeamWorkItem!
+  recordTeamWork(
+    action: String!
+    appRef: ID!
+    detail: JSON
+    kind: String!
+
+    """
+    Optional explicit model report (#1398). Takes precedence over the session's model; a model switch or a late record should pass the model that actually did the work. Empty string is refused — pass nothing to fall back to the session's model.
+    """
+    model: String
+    ref: String!
+    sessionRef: ID!
+    tool: String!
+  ): TeamWorkItem!
 
   """Record a usage event"""
   recordUsage(event: UsageEventInput!): Boolean!
@@ -5123,8 +5142,12 @@ type Mutation {
   """
   repairAgentSystemMemory(agentRef: ID!): Agent!
 
-  """Replace all nodes owned by a repo within a memory (collection tool)"""
-  replaceSubtree(edges: [EdgeInput!]!, memoryId: String!, nodes: [NodeInput!]!, ownerRepo: String!): Int!
+  """
+  Retired. Calls return REPLACE_SUBTREE_RETIRED without changing nodes or
+  edges. The field remains temporarily so existing clients get a clear
+  refusal rather than an unknown-field error.
+  """
+  replaceSubtree(edges: [EdgeInput!]!, memoryId: String!, nodes: [NodeInput!]!, ownerRepo: String!): Int! @deprecated(reason: "Retired (#454): every authorized call refuses with REPLACE_SUBTREE_RETIRED and writes nothing. Use the canonical node write mutations.")
   restoreAsset(assetId: ID!): Asset!
 
   """
@@ -6269,8 +6292,9 @@ type NodeHit {
 }
 
 """
-Bulk-import node shape, used only by replaceSubtree (git-sync). Single-node
-writes use CreateNodeInput / UpdateNodeInput (spec 039 Phase 0 D1).
+Legacy bulk-import node shape retained for replaceSubtree compatibility.
+replaceSubtree now refuses without writing; single-node writes use
+CreateNodeInput / UpdateNodeInput (spec 039 Phase 0 D1).
 """
 input NodeInput {
   """
@@ -8065,6 +8089,11 @@ type Query {
   secrets(limit: Int, offset: Int, ownerRef: ID, ownerType: String!): SecretsPage!
 
   """
+  Selected individual skill files only. Plugin bundles cannot use node selectors.
+  """
+  selectedSkillFilePlan(input: SelectedSkillFilePlanInput!): SkillPlan!
+
+  """
   Identity of the hadron-server this GraphQL endpoint is bound to: the
   server-identity version and the deployment's canonical base URL. The
   GraphQL counterpart to the hadron_server_info MCP tool — both read the
@@ -9020,6 +9049,20 @@ type SecretsPage {
   total: Int!
 }
 
+"""
+Plan installed individual skill files for explicit task refs; plugin exports use skillPlan.
+"""
+input SelectedSkillFilePlanInput {
+  files: [SkillFileFactsInput!]
+  force: Boolean
+  host: String
+
+  """
+  Nonempty node IDs or fully qualified node URNs. Relative locs are refused.
+  """
+  nodes: [String!]!
+}
+
 """Identity of the running hadron-server (see Query.serverInfo)."""
 type ServerInfo {
   """
@@ -9360,6 +9403,11 @@ type SkillPlan {
   design; the gap is a fact about the corpus, not a discrepancy.
   """
   judged: Int!
+
+  """
+  True for explicit individual-file selection: unselected files are not classified as orphans.
+  """
+  orphanAssessmentSkipped: Boolean!
   orphans: [SkillOrphan!]!
 
   """
@@ -9369,6 +9417,11 @@ type SkillPlan {
   corpus it was denied.
   """
   scanned: Int!
+
+  """
+  Opaque unavailable refs and selected nodes with no declaration for this host.
+  """
+  selectionResults: [SkillSelectionResult!]!
 
   """
   Nodes in scope carrying a key under properties.exports that names no host
@@ -9487,6 +9540,16 @@ type SkillPlanUnrecognized {
   name: String!
   nodeId: String!
   urn: String!
+}
+
+"""
+A named task that cannot produce a host entry. An unavailable ref reveals no node metadata.
+"""
+type SkillSelectionResult {
+  action: SkillExportAction!
+  nodeId: String
+  reason: SkillExportReason!
+  ref: String!
 }
 
 """
@@ -9780,6 +9843,11 @@ type TeamWorkItem {
 
   """Artifact kind: pr, issue, commit, branch, or repo."""
   kind: String!
+
+  """
+  The LLM model that produced the work, snapshotted at record time (#1398): an explicit report wins over the recording session's model; null on records that predate the field or were made with none — never backfilled, so null always means unknown-at-record-time.
+  """
+  model: String
 
   """The record node's id."""
   nodeId: ID!

@@ -263,6 +263,13 @@ export interface TeamWorkItem {
   at: string;
   /** Display extras (title, URL). Documented as never filtered on. */
   detail: Record<string, unknown> | null;
+  /**
+   * hadron-server#1398: the LLM model that produced the work, snapshotted when
+   * the record was made (an explicit report, else the recording session's
+   * model). Null means unknown at record time. It is never backfilled and must
+   * never be filled from the worker's CURRENT model.
+   */
+  model: string | null;
 }
 
 export interface App {
