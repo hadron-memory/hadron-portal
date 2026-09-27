@@ -953,6 +953,32 @@ export const WORKER_QUERY = /* GraphQL */ `
   }
 `;
 
+// #919 — the workers a USER holds, across the Apps the CALLER may inspect
+// (hadron-server#1344). The profile page's Workers tab. The server applies the
+// worker read gate before counting or paging, so a viewer sees only workers in
+// Apps they can already read; an unknown user, no holds, and holds confined to
+// unreadable Apps are the same empty page, by design. Retired castings are
+// excluded (includeRetired omitted). appUrn is a gated scalar, so no nested
+// App object rides along.
+export const HELD_WORKERS_QUERY = /* GraphQL */ `
+  query HeldWorkers($userRef: String!, $limit: Int, $offset: Int) {
+    heldWorkers(userRef: $userRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        name
+        urn
+        role
+        appId
+        appUrn
+        heldAt
+        hasLiveSession
+        lastActiveAt
+      }
+      total
+    }
+  }
+`;
+
 // The App's staff. Retired castings are hidden unless includeRetired — they
 // keep their name reserved forever, so showing them is how a reader
 // understands why a name cannot be reused.
@@ -1321,6 +1347,8 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
   query NodeRevisions($nodeRef: ID!, $limit: Int) {
     nodeRevisions(nodeRef: $nodeRef, limit: $limit) {
       id
+      # #914: the revision this snapshots; null on legacy rows.
+      revNo
       loc
       name
       alias
@@ -1345,6 +1373,7 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
   query NodeRevision($revisionId: ID!) {
     nodeRevision(revisionId: $revisionId) {
       id
+      revNo
       nodeId
       loc
       name
@@ -1358,6 +1387,72 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
       revLabel
       changes
       createdAt
+    }
+  }
+`;
+
+// #914 (server #1326): authorship + advisory content validation. Each is read
+// by its OWN query, never folded into the node, History or revision reads:
+// `contentValidation` is NON-NULL, so a resolver error there would null the
+// parent node (or the whole revision list) and take the surface down with it.
+// Apart, a failure costs only this display, which then says "couldn't load".
+// `authorship` also reconciles the node's revision server-side, which is one
+// more reason to keep it off every read that doesn't render it.
+const PROVENANCE_FIELDS = /* GraphQL */ `
+  fragment NodeAuthorshipFields on NodeAuthorship {
+    kind
+    taskRef
+    taskRevision
+    human { handle urn }
+    authoredAt
+  }
+  fragment NodeContentValidationFields on NodeContentValidationStatus {
+    state
+    latestReport {
+      nodeRevision
+      validationTaskRef
+      validationTaskRevision
+      outcome
+      reportedAt
+    }
+  }
+`;
+
+export const NODE_PROVENANCE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeProvenance($ref: ID!) {
+    node(ref: $ref) {
+      id
+      # The revision these stamps describe: the loader shows them only when it
+      # equals the revision the page rendered (bindToRevision).
+      revision
+      authorship { ...NodeAuthorshipFields }
+      contentValidation { ...NodeContentValidationFields }
+    }
+  }
+`;
+
+// Same `limit` as NODE_REVISIONS_QUERY, so every History row has its provenance.
+export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeRevisionsProvenance($nodeRef: ID!, $limit: Int) {
+    nodeRevisions(nodeRef: $nodeRef, limit: $limit) {
+      id
+      revNo
+      authorship { ...NodeAuthorshipFields }
+      contentValidation { ...NodeContentValidationFields }
+    }
+  }
+`;
+
+export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeRevisionProvenance($revisionId: ID!) {
+    nodeRevision(revisionId: $revisionId) {
+      id
+      revNo
+      authorship { ...NodeAuthorshipFields }
+      contentValidation { ...NodeContentValidationFields }
     }
   }
 `;
@@ -3727,6 +3822,249 @@ export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
           message
         }
       }
+    }
+  }
+`;
+
+// #937 (server#1378): test a SAVED config by id, of any owner kind, through the
+// server's own run path. The stored key never leaves the server; `override`
+// tests edited-but-unsaved values without storing them.
+export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
+  mutation TestAiServiceConfig($id: ID!, $override: AiServiceConfigTestOverride) {
+    testAiServiceConfig(id: $id, override: $override) {
+      ok
+      provider
+      model
+      endpoint
+      apiStyle
+      used { provider model endpoint apiStyle key }
+      latencyMs
+      reply
+      error { code message transient }
+    }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// #942 — Channel management (spec 049 phase 4). An App's Channels, the App's
+// default, and the caller's WRITE standing on the App's shared memory (the
+// host an App-scoped create targets). Channel reads are gated on the host
+// memory: a Channel you may not read is simply not in the page.
+// ---------------------------------------------------------------------------
+
+export const APP_CHANNELS_APP_QUERY = /* GraphQL */ `
+  query AppChannelsApp($ref: ID!) {
+    app(ref: $ref) {
+      id
+      name
+      urn
+      organizationId
+      defaultChannel { id }
+      sharedMemory { id urn name }
+    }
+  }
+`;
+
+/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200. */
+export const APP_CHANNELS_QUERY = /* GraphQL */ `
+  query AppChannels($appRef: ID!, $limit: Int, $offset: Int) {
+    channels(filter: { appRef: $appRef }, limit: $limit, offset: $offset) {
+      total
+      items {
+        id
+        name
+        description
+        kind
+        loc
+        chatRootUrn
+        chatRootNodeId
+        lastSeq
+        lastMessageAt
+        createdAt
+        memory { id urn name }
+      }
+    }
+  }
+`;
+
+/** #942: the host an App-scoped Channel create targets: the App's shared memory. */
+/**
+ * #942: one page of an ORGANIZATION's Channels, those whose host memory
+ * belongs to it (`channels(orgId:)`), and only those the caller may read.
+ * Page it with `fetchAllItems`: the list caps at 200.
+ */
+export const ORG_CHANNELS_QUERY = /* GraphQL */ `
+  query OrgChannels($orgId: ID!, $limit: Int, $offset: Int) {
+    channels(orgId: $orgId, limit: $limit, offset: $offset) {
+      total
+      items {
+        id
+        name
+        description
+        kind
+        loc
+        chatRootUrn
+        chatRootNodeId
+        lastSeq
+        lastMessageAt
+        createdAt
+        memory { id urn name }
+      }
+    }
+  }
+`;
+
+/**
+ * #942: an organization's Apps with their URNs: whose Workers and installed
+ * Agents an org-owned register row may name. The URN keeps a Worker's App
+ * addressable when two Apps share a display name.
+ */
+export const ORG_APPS_FOR_REGISTER_QUERY = /* GraphQL */ `
+  query OrgAppsForRegister($orgId: ID, $limit: Int, $offset: Int) {
+    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+      items { id name urn }
+      total
+    }
+  }
+`;
+
+/**
+ * #942: the caller's standing in an organization, for deciding what the org
+ * Channels page OFFERS (org register rows need CONTRIBUTOR+ on the server).
+ * Slim on purpose: the members tab's query carries emails and avatars.
+ */
+export const ORG_MEMBER_ROLES_QUERY = /* GraphQL */ `
+  query OrgMemberRoles($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      members { role user { id } }
+    }
+  }
+`;
+
+export const APP_SHARED_MEMORY_QUERY = /* GraphQL */ `
+  query AppSharedMemory($ref: ID!) {
+    app(ref: $ref) { id sharedMemory { id } }
+  }
+`;
+
+/**
+ * #942: may the caller write this memory? `resource` MUST be the memory's
+ * `hrn:mem:` URN: a bare id is read as an AiServiceConfig id and answers
+ * NOT_FOUND.
+ */
+export const SELF_CAN_WRITE_QUERY = /* GraphQL */ `
+  query SelfCanWrite($user: ID!, $resource: ID!) {
+    effectiveAccess(user: $user, resource: $resource) { canWrite }
+  }
+`;
+
+export const CREATE_CHANNEL_MUTATION = /* GraphQL */ `
+  mutation CreateChannel($input: CreateChannelInput!) {
+    createChannel(input: $input) { id loc name }
+  }
+`;
+
+export const UPDATE_CHANNEL_MUTATION = /* GraphQL */ `
+  mutation UpdateChannel($ref: ID!, $input: UpdateChannelInput!) {
+    updateChannel(ref: $ref, input: $input) { id name description }
+  }
+`;
+
+export const DELETE_CHANNEL_MUTATION = /* GraphQL */ `
+  mutation DeleteChannel($ref: ID!) {
+    deleteChannel(ref: $ref)
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// #942 slice 3 — the register (spec 049 phase 5): who attends which Channel.
+// A row declares INTENT, never permission. Read gate (§8.6): host memory
+// readable OR the caller is on the row's owner side; `channel` is null to an
+// owner-side reader who may not read its host.
+// ---------------------------------------------------------------------------
+
+const REGISTER_ENTRY_FIELDS = /* GraphQL */ `
+  fragment RegisterEntryFields on RegisterEntry {
+    id
+    ownerType
+    ownerId
+    appId
+    organizationId
+    channelId
+    channel { id name loc chatRootUrn }
+    attendeeWorkerId
+    attendeeAgentId
+    attendeeUrn
+    role
+    mentionOnly
+    installDefault
+    description
+    createdAt
+  }
+`;
+
+export const REGISTER_ENTRIES_BY_OWNER_QUERY = /* GraphQL */ `
+  ${REGISTER_ENTRY_FIELDS}
+  query RegisterEntriesByOwner($ownerRef: ID!, $limit: Int, $offset: Int) {
+    registerEntries(filter: { ownerRef: $ownerRef }, limit: $limit, offset: $offset) {
+      total
+      items { ...RegisterEntryFields }
+    }
+  }
+`;
+
+/** The Agents installed in an App: the attendee picker's second half (Workers are the first). */
+export const APP_INSTALLED_AGENTS_QUERY = /* GraphQL */ `
+  query AppInstalledAgents($ref: ID!) {
+    app(ref: $ref) { id appAgents { agent { id name urn } } }
+  }
+`;
+
+/**
+ * #942: may the caller manage this entity (an App's register rows)? A
+ * self-audit. `resource` MUST be the entity's URN (`hrn:app:` …): a bare id is
+ * read as an AiServiceConfig id and answers NOT_FOUND.
+ */
+export const SELF_CAN_MANAGE_QUERY = /* GraphQL */ `
+  query SelfCanManage($user: ID!, $resource: ID!) {
+    effectiveAccess(user: $user, resource: $resource) { canManage }
+  }
+`;
+
+export const CREATE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
+  mutation CreateRegisterEntry($input: CreateRegisterEntryInput!) {
+    createRegisterEntry(input: $input) { id }
+  }
+`;
+
+export const UPDATE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
+  mutation UpdateRegisterEntry($ref: ID!, $input: UpdateRegisterEntryInput!) {
+    updateRegisterEntry(ref: $ref, input: $input) { id role mentionOnly description }
+  }
+`;
+
+export const DELETE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
+  mutation DeleteRegisterEntry($ref: ID!) {
+    deleteRegisterEntry(ref: $ref)
+  }
+`;
+
+// #942 slice 4 — an attendee's RESOLVED register (spec 049 phase 6): one
+// winning row per Channel. `canRead` / `canPost` / `disclosure` describe the
+// CALLER's standing (resolveRegister's actor is the request), NOT the
+// attendee's, so the portal must not present them as the attendee's.
+export const ATTENDEE_REGISTER_QUERY = /* GraphQL */ `
+  query AttendeeRegister($workerRef: ID, $agentRef: ID, $appRef: ID) {
+    attendeeRegister(workerRef: $workerRef, agentRef: $agentRef, appRef: $appRef) {
+      namedBy
+      lastSeenSeq
+      canRead
+      canPost
+      disclosure
+      attendeeUrn
+      entry { id ownerType role mentionOnly installDefault }
+      channel { id name loc hostMemoryUrn lastSeq lastMessageAt deleted }
     }
   }
 `;

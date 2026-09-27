@@ -1,4 +1,4 @@
-# Exported from hadron-server 709d5b0bd6e8b319e4f6fcb38df3f89324c4c732 (709d5b0b, 2026-09-26T16:58:00-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 163e1816e6526054edde74bfcc23458abb416fa6 (origin/main, 2026-09-27T12:32:44-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -340,6 +340,19 @@ type AgentsPage {
   total: Int!
 }
 
+"""#1373: the wire protocol of an OpenAI-compatible provider."""
+enum AiApiStyle {
+  """
+  POST {endpoint}/chat/completions — what most OpenAI-compatible hosts serve (the glm default).
+  """
+  CHAT_COMPLETIONS
+
+  """
+  POST {endpoint}/responses — OpenAI's Responses API (the openai default).
+  """
+  RESPONSES
+}
+
 """
 036-ai-service-config: which entity owns an AiServiceConfig. Exactly one
 owner per config (DB-enforced).
@@ -349,6 +362,24 @@ enum AiConfigOwnerType {
   APP
   HADRON_SERVER
   ORGANIZATION
+}
+
+"""#1378: which key a test used; NONE when there was none to use."""
+enum AiConfigTestKeySource {
+  NONE
+  OVERRIDE
+
+  """
+  A HADRON_SERVER config with no stored key: the server's own credential for that provider served the call, as it serves a run (#1385).
+  """
+  PLATFORM
+  SAVED
+}
+
+"""#1378: where a tested value came from."""
+enum AiConfigTestValueSource {
+  OVERRIDE
+  SAVED
 }
 
 """
@@ -381,6 +412,19 @@ type AiModelPriceList {
 }
 
 """
+#1373: one known endpoint for a provider, from the server's single suggestion list.
+"""
+type AiProviderEndpoint {
+  """The endpoint a config with no endpoint uses."""
+  isDefault: Boolean!
+  label: String!
+
+  """What the URL does not say: billing, terms."""
+  note: String
+  url: String!
+}
+
+"""
 036-ai-service-config: a named AI service configuration (masked
 management view — never carries key material beyond the preview).
 Owned by exactly one of HadronServer / Organization / App / Agent.
@@ -392,12 +436,35 @@ Name is unique per owner.
 type AiServiceConfig {
   """Ellipsis + last 4 characters of the stored key; null when no key."""
   apiKeyPreview: String
+
+  """
+  #1373: the wire protocol as stored; null = the provider default. OpenAI-compatible providers only.
+  """
+  apiStyle: AiApiStyle
   createdAt: DateTime!
+
+  """
+  #1373: the wire protocol a request actually uses (apiStyle, else the provider default); null for single-protocol providers.
+  """
+  effectiveApiStyle: AiApiStyle
+
+  """
+  #1373: where a request for this config actually goes: endpoint, else the
+  provider default. Null only for bedrock, whose endpoint is derived from
+  its region.
+  """
+  effectiveEndpoint: String
 
   """
   Disabled configs are skipped by resolution (the walk continues outward).
   """
   enabled: Boolean!
+
+  """
+  #1373: the base URL this config's requests are sent to, as stored. Null =
+  the provider's default (see effectiveEndpoint and aiProviderEndpoints).
+  """
+  endpoint: String
   hasApiKey: Boolean!
   id: ID!
 
@@ -413,7 +480,7 @@ type AiServiceConfig {
   params: JSON
 
   """
-  Provider identifier; v1 known: 'anthropic' | 'openai' | 'glm' | 'bedrock'.
+  Provider identifier; known: 'anthropic' | 'openai' | 'glm' | 'bedrock' | 'openai-compatible' (any OpenAI-wire host; endpoint required).
   """
   provider: String!
   updatedAt: DateTime
@@ -429,6 +496,75 @@ input AiServiceConfigFilter {
   """The owning entity — accepts ID or URN (HADRON_SERVER: ID only)."""
   ownerId: ID!
   ownerType: AiConfigOwnerType!
+}
+
+type AiServiceConfigTestError {
+  """
+  NO_API_KEY | KEY_UNREADABLE (the stored key cannot be decrypted here; re-enter it) | CONFIG_INVALID (the config cannot be built at all, e.g. a malformed Bedrock key; no call made) | QUOTA_EXCEEDED (a platform-funded test with the org's daily token allowance used up; no call made) | LLM_CALL_FAILED (the provider call failed or timed out; see transient)
+  """
+  code: String!
+
+  """Provider error text, scrubbed of the key and truncated."""
+  message: String!
+  transient: Boolean!
+}
+
+"""
+#1378: values to test INSTEAD of the saved ones — e.g. an edited form before
+it is saved. Never stored. Each is validated exactly as a write would be.
+"""
+input AiServiceConfigTestOverride {
+  """
+  A key to test with instead of the stored one. Never stored, never echoed.
+  """
+  apiKey: String
+
+  """Omitted = the saved style; null = the provider default."""
+  apiStyle: AiApiStyle
+
+  """Omitted = the saved endpoint; null or empty = the provider default."""
+  endpoint: String
+  model: String
+
+  """
+  Edited params to test instead of the saved ones (#1413): validated exactly as a save validates them, including the params.baseUrl refusal, against the effective provider — before anything outbound. Used for the call, never stored. Omitted = the saved params; null = the edit clears them (the provider defaults). On the wire the probe exercises the effective provider/model/endpoint/key and (hard-capped at 16, per #1378's original ceiling pending a cost ruling) maxTokens, like its one-word prompt; the platform's request contract does not yet forward the other knobs (temperature, reasoningEffort, …) on any path, so they are validated and reported, not transmitted.
+  """
+  params: JSON
+  provider: String
+}
+
+"""
+#1378: one test call, made through the same client and endpoint a run uses.
+"""
+type AiServiceConfigTestResult {
+  """The wire protocol the request actually used."""
+  apiStyle: AiApiStyle
+
+  """
+  The endpoint the request actually went to: the explicit endpoint, else the host the SDK chose (OPENAI_BASE_URL / ANTHROPIC_BASE_URL when the server sets one, Bedrock's regional host), else the catalog default. Null when it can't be known (Bedrock with no region).
+  """
+  endpoint: String
+  error: AiServiceConfigTestError
+  latencyMs: Int!
+  model: String!
+  ok: Boolean!
+  provider: String!
+
+  """The model's reply, truncated."""
+  reply: String
+  used: AiServiceConfigTestUsed!
+}
+
+"""
+#1378: per field, whether the test used the saved value or the override.
+"""
+type AiServiceConfigTestUsed {
+  apiStyle: AiConfigTestValueSource!
+  endpoint: AiConfigTestValueSource!
+  key: AiConfigTestKeySource!
+  model: AiConfigTestValueSource!
+  params: AiConfigTestValueSource!
+  provider: AiConfigTestValueSource!
 }
 
 type AiServiceConfigsPage {
@@ -2787,6 +2923,59 @@ type MemoryConfig {
   updatedBy: ID
 }
 
+type MemoryConfigApplyEntry {
+  outcome: MemoryConfigApplyOutcome!
+  role: String!
+
+  """
+  The rule in force for this role afterwards. On a dry run, the existing rule, or null for a would-be APPLIED.
+  """
+  rule: NodeRoleRule
+}
+
+"""
+#1334 — what applying a template did (or, on a dry run, would do) for one role.
+"""
+enum MemoryConfigApplyOutcome {
+  """
+  The memory had no rule for the role; the template's was copied in (locked if the template is required).
+  """
+  APPLIED
+
+  """
+  The memory's rule for the role was overwritten by a required template's, and is now locked.
+  """
+  REPLACED
+
+  """
+  The memory already had a rule for the role, and a non-required template never overrides one.
+  """
+  SKIPPED_CONFLICT
+
+  """
+  A required template met a LOCKED rule that you have no authority to move; the rule stands.
+  """
+  SKIPPED_LOCKED
+}
+
+type MemoryConfigApplyResult {
+  dryRun: Boolean!
+
+  """One per template rule, role-ascending."""
+  entries: [MemoryConfigApplyEntry!]!
+  memoryId: ID!
+  required: Boolean!
+  template: NodeRoleRuleSourceTemplate!
+
+  """
+  The template revision that was applied; pass it back as expectedTemplateRevision to apply exactly what a dry run showed.
+  """
+  templateRevision: Int!
+
+  """Empty until #1327 adds its visibility warnings."""
+  warnings: [MemoryConfigWarning!]!
+}
+
 """
 #1325 part (c) — a reusable rulebook with exactly one owner, COPIED into a
 memory's config when applied (never live-linked). Read and managed only by
@@ -3285,6 +3474,28 @@ type Mutation {
   advanceChannelReadState(appRef: ID, attendeeRef: ID!, channelRef: ID!, seq: Int!): ChannelReadState!
 
   """
+  #1334 — copy a template's rules into ONE memory's config. A one-off copy:
+  later template edits never reach this memory, and re-applying is explicit.
+  
+  Needs MANAGE on the memory (else MemoryNotFound) and on the template,
+  which exists for you only if you manage its owner (else
+  MEMORY_CONFIG_TEMPLATE_NOT_FOUND). The rules are validated as a whole,
+  under a share lock, as createNodeRoleRule validates a new rule's
+  references (NODE_NOT_FOUND for one you cannot read, NOT_A_TASK), and a
+  template rule whose task was deleted refuses the whole apply
+  (NODE_ROLE_RULE_REF_BROKEN). All-or-nothing per memory.
+  
+  When the memory already has a rule for a role, a non-required template
+  skips it and a required template replaces it. A LOCKED rule is only
+  replaced by a caller with lock authority (see unlockNodeRoleRule);
+  otherwise SKIPPED_LOCKED. Rules written by a required template are locked.
+  
+  expectedTemplateRevision: CONFLICT (with currentRevision) if the template
+  changed since you read it. dryRun: the same report with nothing written.
+  """
+  applyMemoryConfigTemplate(dryRun: Boolean, expectedTemplateRevision: Int, memoryRef: ID!, templateRef: ID!): MemoryConfigApplyResult!
+
+  """
   Attach an EXISTING free-standing memory to an App.
   
   Applies only to 'personal'/'private' memories owned by the caller (an
@@ -3466,6 +3677,14 @@ type Mutation {
   completeAssetUpload(input: CompleteAssetUploadInput!): Asset!
 
   """
+  Explicitly confirm a previously previewed #1353 switchover. The proof is
+  actor/App/scope-bound; any live-Worker, register or cursor drift rejects
+  the whole transaction. It advances only through the heads captured by the
+  preview, so messages arriving afterward remain unread.
+  """
+  confirmTeamAttentionSwitchover(appRef: ID!, proof: String!): TeamAttentionSwitchoverResult!
+
+  """
   Create an agent. Provide orgId to create an ORG-owned agent (requires org
   ADMIN); OMIT orgId to create a USER-OWNED agent owned by the caller — its
   URN is rooted on the caller's bare handle (hrn:agent:<handle>:<slug>, grammar
@@ -3496,16 +3715,43 @@ type Mutation {
   """
   036-ai-service-config: create a named AI config on an owner entity.
   
-  apiKey semantics: omitted = stored without a key (unusable for
-  execution until one is set); non-empty = encrypted at rest with a
-  masked preview. Name must be 1-64 lower-case [a-z0-9_-], unique per
+  apiKey semantics: non-empty = encrypted at rest with a masked preview.
+  Omitted is accepted only where a run may use the server's own
+  credential: a HADRON_SERVER config for openai, anthropic or bedrock at
+  their default host (no endpoint). Every ORGANIZATION, APP and AGENT
+  config needs its own key: the platform credential is platform spend
+  (#1390). Any other provider (glm, openai-compatible), and any config
+  with an endpoint, needs one too, because the SDK would otherwise send
+  the server's credential to a host that didn't issue it (#1389). All of
+  these are refused with AiConfigValidationError. A host that checks no
+  key takes any placeholder.
+  Name must be 1-64 lower-case [a-z0-9_-], unique per
   owner. provider must be a known provider; params are validated per
   provider.
   
   Auth: as aiServiceConfigs. ownerId accepts ID or URN
   (HADRON_SERVER: ID only).
   """
-  createAiServiceConfig(apiKey: String, enabled: Boolean, model: String!, name: String!, ownerId: ID!, ownerType: AiConfigOwnerType!, params: JSON, provider: String!): AiServiceConfig!
+  createAiServiceConfig(
+    apiKey: String
+
+    """
+    #1373: OpenAI-compatible providers only; omit for the provider default.
+    """
+    apiStyle: AiApiStyle
+    enabled: Boolean
+
+    """
+    #1373: base URL; https only, no query/fragment/credentials. Omit for the provider default.
+    """
+    endpoint: String
+    model: String!
+    name: String!
+    ownerId: ID!
+    ownerType: AiConfigOwnerType!
+    params: JSON
+    provider: String!
+  ): AiServiceConfig!
 
   """
   Create an App and install its initial Agent. With orgRef, the App is owned
@@ -3540,6 +3786,10 @@ type Mutation {
     """
     agentRef: ID!
     agentTools: [String!]
+
+    """
+    036 legacy shim over the App's 'default' AI config; held to createAiServiceConfig's key rule (#1389).
+    """
     aiApiKey: String
     aiModel: String
     aiProvider: String
@@ -4204,7 +4454,7 @@ type Mutation {
   deleteNodeRevision(revisionId: ID!): Boolean!
 
   """
-  #1325 — delete a rule by its id; expectedRevision as for updateNodeRoleRule.
+  #1325 — delete a rule by its id; expectedRevision as for updateNodeRoleRule. A LOCKED rule (#1334) is refused with RULE_LOCKED for every caller: unlock it first (unlockNodeRoleRule).
   """
   deleteNodeRoleRule(expectedRevision: Int, ref: ID!): Boolean!
 
@@ -4575,6 +4825,15 @@ type Mutation {
   linkMemoryToUser(dataKey: String, externalUserId: String!, memoryId: ID!): Memory!
 
   """
+  #1353 internal pilot: explicitly advance the cursor owned by one exact,
+  caller-owned live Worker session on one readable registered Channel.
+  Shares the MCP mark-read gate; unlike advanceChannelReadState this door is
+  operator+App pilot-gated and session-pinned. Monotonic; a seq beyond the
+  captured Channel watermark is refused.
+  """
+  markOwnTeamChatRead(appRef: ID!, channelRef: ID!, seq: Int!, sessionRef: ID!): OwnTeamChatReadState!
+
+  """
   Merge one memory (source) into another (target), returning the updated
   target. Source nodes whose loc already exists in the target are folded
   into their counterpart via the mergeNodes field strategy ('include'
@@ -4883,8 +5142,12 @@ type Mutation {
   """
   repairAgentSystemMemory(agentRef: ID!): Agent!
 
-  """Replace all nodes owned by a repo within a memory (collection tool)"""
-  replaceSubtree(edges: [EdgeInput!]!, memoryId: String!, nodes: [NodeInput!]!, ownerRepo: String!): Int!
+  """
+  Retired. Calls return REPLACE_SUBTREE_RETIRED without changing nodes or
+  edges. The field remains temporarily so existing clients get a clear
+  refusal rather than an unknown-field error.
+  """
+  replaceSubtree(edges: [EdgeInput!]!, memoryId: String!, nodes: [NodeInput!]!, ownerRepo: String!): Int! @deprecated(reason: "Retired (#454): every authorized call refuses with REPLACE_SUBTREE_RETIRED and writes nothing. Use the canonical node write mutations.")
   restoreAsset(assetId: ID!): Asset!
 
   """
@@ -5128,6 +5391,17 @@ type Mutation {
   Accepts the entity's ID or URN.
   """
   syncMemory(id: ID!): Memory!
+
+  """
+  #1378: test a SAVED config by id with one small real call, through the same
+  client, endpoint and egress guard a run uses; the stored key never leaves
+  the server. The override argument tests edited values without saving them. Auth: as
+  updateAiServiceConfig; refused under impersonation. Every test that
+  reaches the provider is metered (usage type ai-config-test); NO_API_KEY
+  and KEY_UNREADABLE make no call and record nothing. The call is bounded
+  by a 20s timeout. Rate-limited per caller and config (RATE_LIMITED).
+  """
+  testAiServiceConfig(id: ID!, override: AiServiceConfigTestOverride): AiServiceConfigTestResult!
   testExchangeConnection(id: ID!): Boolean!
 
   """
@@ -5153,6 +5427,17 @@ type Mutation {
   Accepts the entity's ID or URN.
   """
   unlinkGithubApp(orgId: ID!): Organization!
+
+  """
+  #1334 — the deliberate step before a rule a required template LOCKED can be
+  edited or deleted (Holger, 2026-09-27: nobody changes a locked rule through
+  an ordinary edit). Needs lock authority: an org ADMIN/OWNER of the memory's
+  org; on a personal/private or org-less memory, its manager. Anyone else who
+  manages the memory gets RULE_LOCKED. Visible: bumps revision and stamps
+  updatedBy. Unlocking an unlocked rule changes nothing. expectedRevision as
+  for updateNodeRoleRule.
+  """
+  unlockNodeRoleRule(expectedRevision: Int, ref: ID!): NodeRoleRulePayload!
 
   """
   Update an Agent.
@@ -5189,18 +5474,59 @@ type Mutation {
   036-ai-service-config: update a named AI config. All fields optional.
   
   apiKey semantics: omitted = keep the stored key; empty string =
-  clear it; non-empty = replace (encrypted, preview recomputed).
+  clear it; non-empty = replace (encrypted, preview recomputed). The
+  RESULTING config is held to createAiServiceConfig's key rule, so
+  clearing the key of a config that needs one is refused.
   
   Auth: admin rights on the owning entity (as aiServiceConfigs).
   """
-  updateAiServiceConfig(apiKey: String, enabled: Boolean, id: ID!, model: String, name: String, params: JSON, provider: String): AiServiceConfig!
+  updateAiServiceConfig(
+    apiKey: String
+
+    """#1373: omitted = unchanged; null = clear (provider default)."""
+    apiStyle: AiApiStyle
+    enabled: Boolean
+
+    """
+    #1373: omitted = unchanged; null or empty string = clear (provider default).
+    """
+    endpoint: String
+    id: ID!
+    model: String
+    name: String
+    params: JSON
+    provider: String
+  ): AiServiceConfig!
 
   """
   Update an App.
   
   Accepts the entity's ID or URN.
   """
-  updateApp(agentTools: [String!], aiApiKey: String, aiModel: String, aiProvider: String, anonymousTtlDays: Int, appType: AppType, createUserPermission: CreateUserPermission, description: String, expiresAt: String, identifyUserMethod: IdentifyUserMethod, name: String, ref: ID!, role: AppMembershipRole, sessionTimeoutSeconds: Int, surfaces: [String!], systemPrompt: String, trainingMode: Boolean, urn: String): App!
+  updateApp(
+    agentTools: [String!]
+
+    """
+    036 legacy shim over the App's 'default' AI config; held to createAiServiceConfig's key rule (#1389).
+    """
+    aiApiKey: String
+    aiModel: String
+    aiProvider: String
+    anonymousTtlDays: Int
+    appType: AppType
+    createUserPermission: CreateUserPermission
+    description: String
+    expiresAt: String
+    identifyUserMethod: IdentifyUserMethod
+    name: String
+    ref: ID!
+    role: AppMembershipRole
+    sessionTimeoutSeconds: Int
+    surfaces: [String!]
+    systemPrompt: String
+    trainingMode: Boolean
+    urn: String
+  ): App!
 
   """
   Spec 049 Phase 4 — rename / re-describe a Channel whose host memory you may write. ref: its id or its address (Channel.chatRootUrn, #1171).
@@ -5400,7 +5726,9 @@ type Mutation {
   #1325 — change a rule by its id. With expectedRevision, a rule changed since
   you read it is refused CONFLICT (extensions.currentRevision) and nothing is
   written; omitted, the last writer wins. A rule you may not manage reads as
-  NOT_FOUND.
+  NOT_FOUND. A LOCKED rule (#1334) is refused with RULE_LOCKED (extensions
+  ruleId, role, sourceTemplateId) for EVERY caller: unlock it first
+  (unlockNodeRoleRule) or re-apply its required template.
   """
   updateNodeRoleRule(expectedRevision: Int, input: UpdateNodeRoleRuleInput!, ref: ID!): NodeRoleRulePayload!
 
@@ -5631,7 +5959,17 @@ type Node {
   carrying data.asset still has a live asset behind it.
   """
   asset: Asset
+
+  """
+  #1326 — attribution of this content state. Null means legacy or unknown. Task identity is redacted unless its memory is independently readable.
+  """
+  authorship: NodeAuthorship
   content: String
+
+  """
+  #1326 — advisory validation for this exact revision. A report for an older revision is STALE.
+  """
+  contentValidation: NodeContentValidationStatus!
   createdAt: DateTime!
   data: JSON
   description: String
@@ -5764,6 +6102,19 @@ type Node {
   urn: String!
 }
 
+type NodeAuthorship {
+  authoredAt: DateTime!
+  human: NodeRevisionEditor
+  kind: NodeAuthorshipKind!
+  taskRef: String
+  taskRevision: Int
+}
+
+enum NodeAuthorshipKind {
+  HUMAN
+  TASK
+}
+
 """
 Spec cor:api:040 — result envelope for the batch node read (nodeBatch).
 'nodes' is the authorized, existing subset (input order for a ref set, loc
@@ -5782,6 +6133,33 @@ type NodeBatchResult {
   omitted: [ID!]!
   truncated: Boolean!
   unavailable: [ID!]!
+}
+
+enum NodeContentValidationOutcome {
+  ERROR
+  FAIL
+  PASS
+}
+
+type NodeContentValidationReport {
+  nodeRevision: Int!
+  outcome: NodeContentValidationOutcome!
+  reportedAt: DateTime!
+  validationTaskRef: String
+  validationTaskRevision: Int
+}
+
+enum NodeContentValidationState {
+  ERROR
+  FAIL
+  PASS
+  STALE
+  UNVALIDATED
+}
+
+type NodeContentValidationStatus {
+  latestReport: NodeContentValidationReport
+  state: NodeContentValidationState!
 }
 
 """Outgoing edge on a node, used in NodeInput.edges"""
@@ -5914,8 +6292,9 @@ type NodeHit {
 }
 
 """
-Bulk-import node shape, used only by replaceSubtree (git-sync). Single-node
-writes use CreateNodeInput / UpdateNodeInput (spec 039 Phase 0 D1).
+Legacy bulk-import node shape retained for replaceSubtree compatibility.
+replaceSubtree now refuses without writing; single-node writes use
+CreateNodeInput / UpdateNodeInput (spec 039 Phase 0 D1).
 """
 input NodeInput {
   """
@@ -6046,6 +6425,9 @@ type NodeRevision {
   """
   approvedByUser: NodeRevisionEditor
 
+  """#1326 — attribution of the content captured before the next edit."""
+  authorship: NodeAuthorship
+
   """
   Which node fields the edit that took this snapshot changed, e.g.
   ["abstract","tags"] (#620). The snapshot is the PRE-edit state, so this
@@ -6054,6 +6436,9 @@ type NodeRevision {
   """
   changes: [String!]!
   content: String
+
+  """#1326 — advisory validation at this historical revision."""
+  contentValidation: NodeContentValidationStatus!
   createdAt: DateTime!
   data: JSON
   description: String
@@ -6154,7 +6539,9 @@ type NodeRoleRule {
   """
   id: ID!
 
-  """Set by applying a required template (#1334)."""
+  """
+  Set by applying a required template (#1334). A locked rule refuses every ordinary edit and delete (RULE_LOCKED); unlockNodeRoleRule is the deliberate step.
+  """
   locked: Boolean!
 
   """
@@ -6384,6 +6771,15 @@ type OrganizationsPage {
 }
 
 """
+#1353 — the exact Worker/Channel cursor advanced by markOwnTeamChatRead.
+"""
+type OwnTeamChatReadState {
+  channelId: ID!
+  lastSeenSeq: Int!
+  workerId: ID!
+}
+
+"""
 Spec 033 US2 — one matching chunk from a content-chunk vector index.
 Carries the locator metadata a RAG consumer needs for context-stuffing:
 span text, character offset within the parent node, chunk index, and
@@ -6558,6 +6954,15 @@ type Query {
   Provider rate rows, newest effective first, optional provider/model filter (spec 046). Authenticated read.
   """
   aiModelPrices(limit: Int, model: String, offset: Int, provider: String, tier: Int): AiModelPriceList!
+
+  """
+  #1373: the known endpoints for a provider — the server's single suggestion
+  list, so the portal and the CLI render the same choices and neither
+  hardcodes a URL. Empty for an unknown provider and for bedrock (its
+  endpoint comes from the region). Public reference data (vendor URLs), so
+  it needs no auth.
+  """
+  aiProviderEndpoints(provider: String!): [AiProviderEndpoint!]!
 
   """
   The uniform single-config read (#473). 'ref' is the config's ID —
@@ -6792,6 +7197,12 @@ type Query {
   It is the mirror of teamChatMessages' sinceSeq: pass the OLDEST seq you
   hold, as you would pass the newest to page forward. Omit it for the tail.
   
+  There is no total -- the field returns the page and nothing else. A
+  page SHORTER than the limit is a truthful end-of-data under that cursor,
+  and only here: this resolver applies every filter inside the query and
+  never drops a row after the database take, so the take IS the page. Do
+  not carry the same-looking inference to reads that overfetch and
+  post-filter; there a short page can still mean rows were removed.
   Two boundaries worth knowing before you build on it:
     - A message with NO seq is older than every numbered one
       (cor:cht:050:02), so every cursor includes such messages. They are
@@ -7678,6 +8089,11 @@ type Query {
   secrets(limit: Int, offset: Int, ownerRef: ID, ownerType: String!): SecretsPage!
 
   """
+  Selected individual skill files only. Plugin bundles cannot use node selectors.
+  """
+  selectedSkillFilePlan(input: SelectedSkillFilePlanInput!): SkillPlan!
+
+  """
   Identity of the hadron-server this GraphQL endpoint is bound to: the
   server-identity version and the deployment's canonical base URL. The
   GraphQL counterpart to the hadron_server_info MCP tool — both read the
@@ -7746,6 +8162,25 @@ type Query {
   limit: 0 -> count only.
   """
   slackConnections(limit: Int, offset: Int, orgId: ID): SlackConnectionsPage!
+
+  """
+  #1353 internal pilot: compact attention for this operator's LIVE Workers.
+  The signed token is a pure poll watermark and never changes read state.
+  Omit since for all current unread. since:"now" is refused: discarding a
+  backlog requires the separate preview + confirmed switchover.
+  
+  A router must adopt the returned token only after EVERY listed nudge was
+  accepted. On any partial failure retain the prior token; retries can
+  duplicate a nudge but cannot silently lose one.
+  """
+  teamAttention(appRef: ID!, since: String): TeamAttentionResult!
+
+  """
+  Preview the explicit baseline switchover for the operator's current live
+  Workers. Read-only: inspect the exact cursors, heads and unread counts,
+  then pass proof to confirmTeamAttentionSwitchover within ten minutes.
+  """
+  teamAttentionSwitchoverPreview(appRef: ID!): TeamAttentionSwitchoverPreview!
 
   """
   Read a team App's chat (#939), seq-ordered ascending, as a uniform
@@ -8293,6 +8728,16 @@ type ResolvedAiConfig {
   """
   apiKey: String!
   configId: ID!
+
+  """
+  #1373: the wire protocol requests use (see AiServiceConfig.effectiveApiStyle).
+  """
+  effectiveApiStyle: AiApiStyle
+
+  """
+  #1373: where requests for this config go (see AiServiceConfig.effectiveEndpoint).
+  """
+  effectiveEndpoint: String
   model: String!
   name: String!
 
@@ -8602,6 +9047,20 @@ type Secret {
 type SecretsPage {
   items: [Secret!]!
   total: Int!
+}
+
+"""
+Plan installed individual skill files for explicit task refs; plugin exports use skillPlan.
+"""
+input SelectedSkillFilePlanInput {
+  files: [SkillFileFactsInput!]
+  force: Boolean
+  host: String
+
+  """
+  Nonempty node IDs or fully qualified node URNs. Relative locs are refused.
+  """
+  nodes: [String!]!
 }
 
 """Identity of the running hadron-server (see Query.serverInfo)."""
@@ -8944,6 +9403,11 @@ type SkillPlan {
   design; the gap is a fact about the corpus, not a discrepancy.
   """
   judged: Int!
+
+  """
+  True for explicit individual-file selection: unselected files are not classified as orphans.
+  """
+  orphanAssessmentSkipped: Boolean!
   orphans: [SkillOrphan!]!
 
   """
@@ -8953,6 +9417,11 @@ type SkillPlan {
   corpus it was denied.
   """
   scanned: Int!
+
+  """
+  Opaque unavailable refs and selected nodes with no declaration for this host.
+  """
+  selectionResults: [SkillSelectionResult!]!
 
   """
   Nodes in scope carrying a key under properties.exports that names no host
@@ -9074,6 +9543,16 @@ type SkillPlanUnrecognized {
 }
 
 """
+A named task that cannot produce a host entry. An unavailable ref reveals no node metadata.
+"""
+type SkillSelectionResult {
+  action: SkillExportAction!
+  nodeId: String
+  reason: SkillExportReason!
+  ref: String!
+}
+
+"""
 One Slack workspace install of the Hadron Slack app (spec 043).
 Org-owned, workspace granularity: defaultAppId names the Hadron App that
 serves /hadron commands from this workspace. The bot + app tokens live
@@ -9147,6 +9626,69 @@ enum SyncStatus {
   OK
   PENDING
   SYNCING
+}
+
+"""
+#1353 — compact unread metadata for one Worker/Channel pair. No message body is returned.
+"""
+type TeamAttentionChannel {
+  channel: ID!
+  firstUnreadSeq: Int
+  lastSeq: Int!
+  name: String!
+  unread: Int!
+  unreadMentions: Int!
+}
+
+type TeamAttentionResult {
+  """
+  Opaque signed snapshot. Adopt it only after every listed nudge is accepted.
+  """
+  token: String!
+  workers: [TeamAttentionWorker!]!
+}
+
+type TeamAttentionSwitchoverChannel {
+  channel: ID!
+  fromSeq: Int!
+  name: String!
+  throughSeq: Int!
+  unread: Int!
+  unreadMentions: Int!
+}
+
+type TeamAttentionSwitchoverPreview {
+  expiresAt: DateTime!
+
+  """
+  Short-lived proof binding the exact operator, App, Workers, registers, cursors and heads shown here.
+  """
+  proof: String!
+  workers: [TeamAttentionSwitchoverWorker!]!
+}
+
+type TeamAttentionSwitchoverResult {
+  applied: Boolean!
+  channelsAdvanced: Int!
+  workersAdvanced: Int!
+}
+
+type TeamAttentionSwitchoverWorker {
+  channels: [TeamAttentionSwitchoverChannel!]!
+  name: String!
+  urn: String
+  worker: ID!
+}
+
+"""
+#1353 — one live Worker that has relevant unread attention after the supplied token.
+"""
+type TeamAttentionWorker {
+  channels: [TeamAttentionChannel!]!
+  live: Boolean!
+  name: String!
+  urn: String
+  worker: ID!
 }
 
 """

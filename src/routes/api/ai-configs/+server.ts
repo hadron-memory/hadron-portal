@@ -1,15 +1,16 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import {
   CREATE_AI_SERVICE_CONFIG_MUTATION,
   UPDATE_AI_SERVICE_CONFIG_MUTATION,
   DELETE_AI_SERVICE_CONFIG_MUTATION,
-  RESOLVE_AI_CONFIG_QUERY,
+  TEST_AI_SERVICE_CONFIG_MUTATION,
 } from '$lib/server/queries';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { AIProvider, AiConfigOwnerType, AiServiceConfig } from '$lib/types';
+import type { AiConfigTestResult } from '$lib/ai-config-test';
 import type { RequestHandler } from './$types';
 
 /**
@@ -21,8 +22,8 @@ import type { RequestHandler } from './$types';
  *   { action: 'update', id, name?, provider?, model?, params?, enabled?,
  *       apiKeyAction: 'keep' | 'clear' | 'set', apiKey? }
  *   { action: 'delete', id }
- *   { action: 'test', provider, model, apiKey }            // test inline (before save)
- *   { action: 'test', name, appId?, agentId? }             // test a saved config
+ *   { action: 'test', provider, model, apiKey }            // test an UNSAVED config inline
+ *   { action: 'testSaved', id, override? }                 // #937: test a SAVED config by id
  *
  * The browser never sees stored keys, so updates carry an explicit
  * `apiKeyAction` discriminator: 'keep' omits the apiKey arg (server keeps the
@@ -30,7 +31,7 @@ import type { RequestHandler } from './$types';
  */
 
 interface Body {
-  action?: 'create' | 'update' | 'delete' | 'test';
+  action?: 'create' | 'update' | 'delete' | 'test' | 'testSaved';
   // create / update
   id?: string;
   ownerType?: AiConfigOwnerType;
@@ -42,9 +43,8 @@ interface Body {
   apiKeyAction?: 'keep' | 'clear' | 'set';
   params?: Record<string, unknown> | null;
   enabled?: boolean;
-  // test (saved)
-  appId?: string;
-  agentId?: string;
+  // testSaved (#937): values to test instead of the saved ones; never stored
+  override?: { provider?: string; model?: string; apiKey?: string | null };
 }
 
 const TEST_SYSTEM =
@@ -135,6 +135,37 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       }
     }
 
+    case 'testSaved': {
+      // #937 / server#1378: a SAVED config of ANY owner kind, by id, through
+      // the server's own run path. The stored key never reaches the portal.
+      // The server rate-limits and meters it too; this per-user bound is the
+      // portal's own, as for the inline test (#467).
+      const limited = rateLimitResponse(locals.user?.id ?? locals.token, 'ai-config-test', 20, 60_000);
+      if (limited) return limited;
+      if (!body.id) return json({ error: 'id is required' }, { status: 400 });
+      const o = body.override ?? {};
+      const override = {
+        ...(o.provider ? { provider: o.provider } : {}),
+        ...(o.model ? { model: o.model } : {}),
+        ...(o.apiKey ? { apiKey: o.apiKey } : {}),
+        // An explicit null is "test without the stored key" (Remove the stored
+        // key ticked), not "unchanged": pass it through rather than drop it.
+        ...(o.apiKey === null ? { apiKey: null } : {}),
+      };
+      try {
+        const data = await client.request<{ testAiServiceConfig: AiConfigTestResult }>(TEST_AI_SERVICE_CONFIG_MUTATION, {
+          id: body.id,
+          override: Object.keys(override).length > 0 ? override : null,
+        });
+        return json({ result: data.testAiServiceConfig });
+      } catch (e) {
+        if (extractGqlErrorCode(e) === 'RATE_LIMITED') {
+          return json({ error: 'Too many tests just now. Wait a minute and try again.' }, { status: 429 });
+        }
+        return json({ error: extractGqlError(e, 'The test could not run.') }, { status: 400 });
+      }
+    }
+
     case 'test': {
       // #467: this drives a real LLM call — and the saved-config path burns the
       // org's server-stored provider budget — so bound it per user like the
@@ -153,29 +184,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         provider = body.provider;
         model = body.model;
         apiKey = body.apiKey;
-      } else if (body.name && (body.appId || body.agentId)) {
-        // Test a saved config: resolve the decrypted key server-side. Only
-        // possible where there's an app/agent execution context.
-        try {
-          const resolved = await client.request<{
-            resolveAIConfig: { provider: string; model: string; apiKey: string } | null;
-          }>(RESOLVE_AI_CONFIG_QUERY, {
-            name: body.name,
-            appRef: body.appId ?? undefined,
-            agentRef: body.agentId ?? undefined,
-          });
-          if (!resolved.resolveAIConfig) {
-            return json({ ok: false, error: 'No AI config available to test' });
-          }
-          provider = body.provider || resolved.resolveAIConfig.provider;
-          model = body.model || resolved.resolveAIConfig.model;
-          apiKey = resolved.resolveAIConfig.apiKey;
-        } catch (e) {
-          return json({ ok: false, error: extractGqlError(e, 'Failed to resolve AI config') });
-        }
       } else {
         return json(
-          { error: 'Provide provider/model/apiKey, or name plus appId/agentId' },
+          { error: 'Provide provider, model and apiKey. To test a saved configuration, use testSaved with its id.' },
           { status: 400 },
         );
       }

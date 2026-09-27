@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { testResultView, type AiConfigTestResult, type AiConfigTestView } from '$lib/ai-config-test';
   import { lookupOwn } from '$lib/lookup';
   import { invalidateAll } from '$app/navigation';
   import { AI_PROVIDERS, DEFAULT_MODELS } from '$lib/ai-config';
@@ -13,6 +14,7 @@
     isValidConfigName,
     resolveKeyInput,
     resolveApiKeyAction,
+    testOverrideKey,
     parseParamsText,
   } from './ai-config-manager';
 
@@ -56,13 +58,8 @@
   let paramsText = $state('');
   let busy = $state(false);
   let error = $state<string | null>(null);
-  let testResult = $state<{
-    ok: boolean;
-    provider?: string;
-    model?: string;
-    reply?: string;
-    error?: string;
-  } | null>(null);
+  // #937: one shape for both paths, so the result always reads the same way.
+  let testResult = $state<AiConfigTestView | null>(null);
   let confirmDeleteId = $state<string | null>(null);
 
   const editing = $derived(editId ? (configs.find((c) => c.id === editId) ?? null) : null);
@@ -208,6 +205,26 @@
     testResult = null;
   }
 
+  /** Stable JSON for comparing params: keys sorted at every level. */
+  function canonicalJson(v: unknown): string {
+    return JSON.stringify(v, (_k, val) =>
+      val && typeof val === 'object' && !Array.isArray(val)
+        ? Object.fromEntries(Object.keys(val as Record<string, unknown>).sort().map((k) => [k, (val as Record<string, unknown>)[k]]))
+        : val,
+    );
+  }
+  /**
+   * Whether the params Save would write differ from the saved config's. Save's
+   * own computation (the JSON field, plus Bedrock's region), so the two can't
+   * disagree. Unparseable JSON counts as edited.
+   */
+  function paramsEdited(c: AiServiceConfig): boolean {
+    const parsed = parseParamsText(paramsText);
+    if (!parsed.ok) return true;
+    const next = providerInput === 'bedrock' ? { ...parsed.value, bedrockRegion } : parsed.value;
+    return canonicalJson(next ?? null) !== canonicalJson(c.params ?? null);
+  }
+
   async function post(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch('/api/ai-configs', {
       method: 'POST',
@@ -287,6 +304,13 @@
   }
 
   async function test() {
+    // Save refuses a blank model, so Test does too: otherwise an edited-away
+    // model would silently test the saved one and could report success.
+    if (!modelInput.trim()) {
+      error = s.modelRequired();
+      testResult = null;
+      return;
+    }
     const enteredKey = resolveKeyInput({
       provider: providerInput,
       apiKey: apiKeyInput,
@@ -298,36 +322,48 @@
     error = null;
     testResult = null;
     try {
-      let payload: Record<string, unknown>;
-      if (enteredKey) {
-        // Test the in-form values before saving.
-        payload = {
+      if (editing) {
+        // #937: a SAVED config, of ANY owner kind, tests BY ID through the
+        // server's own run path (server#1378). The stored key stays there.
+        // Only what the user changed or typed rides along as an override,
+        // which is tested and never saved.
+        const override: Record<string, string | null> = {};
+        if (providerInput !== editing.provider) override.provider = providerInput;
+        if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
+        // The credential Save would leave, by Save's own rule: "Remove the
+        // stored key" wins over a typed key, so a pass can't hide a config that
+        // won't run once saved.
+        const key = testOverrideKey({ removeKey, enteredKey });
+        if (key !== undefined) override.apiKey = key;
+        const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
+        testResult = testResultView(res.result);
+        // The saved-config Test can't carry Parameters: the server's test
+        // override has no params (hadron-server AiServiceConfigTestOverride).
+        // When the form's params differ from the saved ones, say plainly that
+        // the SAVED params were used, rather than imply the edits were tested.
+        if (paramsEdited(editing)) {
+          testResult = {
+            ...testResult,
+            details: [
+              ...testResult.details,
+              t('ai-config.test.params-not-tested', 'Your edited Parameters weren’t part of this test; the saved ones were used. Save to test them.'),
+            ],
+          };
+        }
+      } else if (enteredKey) {
+        // A NEW, unsaved config: nothing is stored yet, so it's tested inline.
+        const r = (await post({
           action: 'test',
           provider: providerInput,
           model: modelInput.trim(),
           apiKey: enteredKey,
-        };
-      } else if (editing && (ownerType === 'AGENT' || ownerType === 'APP')) {
-        // Test a saved config — the server resolves the decrypted key.
-        payload = {
-          action: 'test',
-          name: editing.name,
-          provider: providerInput,
-          model: modelInput.trim(),
-          ...(ownerType === 'AGENT' ? { agentId: ownerId } : { appId: ownerId }),
-        };
+        })) as { ok: boolean; provider?: string; model?: string; reply?: string; error?: string };
+        testResult = r.ok
+          ? { ok: true, headline: t('ai-config.test.ok.inline', '✓ Works: {provider} / {model}.', { provider: r.provider ?? '', model: r.model ?? '' }), details: r.reply ? [t('ai-config.test.reply', 'Reply: “{reply}”', { reply: r.reply })] : [] }
+          : { ok: false, headline: r.error ?? t('ai-config.test.error.unknown', 'The test failed.'), details: [] };
       } else {
         error = s.testNeedsKey();
-        busy = false;
-        return;
       }
-      testResult = (await post(payload)) as {
-        ok: boolean;
-        provider?: string;
-        model?: string;
-        reply?: string;
-        error?: string;
-      };
     } catch (e) {
       error = e instanceof Error ? e.message : 'Test failed';
     } finally {
@@ -524,11 +560,10 @@
             ? 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'
             : 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'}"
         >
-          {#if testResult.ok}
-            ✓ Works — {testResult.provider} / {testResult.model}. Reply: "{testResult.reply}"
-          {:else}
-            × {testResult.error}
-          {/if}
+          <p>{testResult.ok ? '' : '× '}{testResult.headline}</p>
+          {#each testResult.details as d (d)}
+            <p class="mt-0.5 opacity-80">{d}</p>
+          {/each}
         </div>
       {/if}
 
