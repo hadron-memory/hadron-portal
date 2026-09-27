@@ -59,6 +59,8 @@ function route(opts: {
   agents?: Record<string, Array<{ id: string; name: string; urn: string }>>;
   members?: Array<{ role: string; user: { id: string } }> | Error;
   registerFails?: boolean;
+  /** The org's App list itself fails. */
+  appsFail?: boolean;
   /** App ids whose roster read fails. */
   rosterFails?: string[];
   /** Resolves each Worker page read after a tick, and records how many were in flight. */
@@ -80,6 +82,7 @@ function route(opts: {
       if (opts.registerFails) throw new Error('boom');
       return { registerEntries: page(opts.rows ?? [], vars) };
     }
+    if (doc === ORG_APPS_FOR_REGISTER_QUERY && opts.appsFail) throw new Error('apps boom');
     if (doc === ORG_APPS_FOR_REGISTER_QUERY) return { apps: page((opts.apps ?? []).map((a) => ({ urn: `hrn:app:acme.com:${a.id}`, ...a })), vars) };
     if (doc === WORKERS_QUERY) {
       if (opts.rosterFails?.includes(vars.appRef as string)) throw new Error('roster boom');
@@ -117,9 +120,9 @@ type Loaded = {
   registerLoadFailed: boolean;
   canManageRegister: boolean | null;
 };
-async function load(user: { id: string } | null = { id: 'u-1' }) {
+async function load(user: { id: string } | null = { id: 'u-1' }, parentExtra: Record<string, unknown> = {}) {
   const { load } = await import('./+page.server');
-  return (await load({ params: { id: 'org-1' }, locals: { token: 'tok', user }, parent: async () => ({ org: ORG }) } as never)) as unknown as Loaded;
+  return (await load({ params: { id: 'org-1' }, locals: { token: 'tok', user }, parent: async () => ({ org: ORG, ...parentExtra }) } as never)) as unknown as Loaded;
 }
 async function act(name: 'addAttendance' | 'editAttendance' | 'removeAttendance', fields: Record<string, string>) {
   const { actions } = await import('./+page.server');
@@ -252,6 +255,23 @@ describe('load', () => {
     const data = await load();
     expect(data.registerLoadFailed).toBe(true);
     expect(data.orgRows).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it('a consumer-mode caller is bounced like the sibling admin tabs, before any API read', async () => {
+    route({});
+    await expect(load({ id: 'u-1' }, { isConsumerMode: true, activeOrgId: null })).rejects.toMatchObject({ status: expect.any(Number), location: expect.any(String) });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('when even the org’s App list can’t be read, the rows still show and the gap is flagged', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    route({ rows: [row()], appsFail: true });
+    const data = (await load()) as Loaded & { rosterFailed: boolean };
+    expect(data.registerLoadFailed).toBe(false);
+    expect(data.orgRows.map((r) => r.id)).toEqual(['re-1']);
+    expect(data.rosterFailed).toBe(true);
+    expect(data.attendees).toEqual([]);
     warn.mockRestore();
   });
 

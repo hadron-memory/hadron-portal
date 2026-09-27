@@ -43,6 +43,7 @@ async function pageData(extra: Record<string, unknown> = {}) {
     registerLoadFailed: false,
     canManageRegister: true,
     rosterUnreadApps: 0,
+    rosterFailed: false,
     addAttendanceForm: await superValidate(zod4(addAttendanceSchema), { errors: false }),
     editAttendanceForm: await superValidate(zod4(editAttendanceSchema), { errors: false }),
     removeAttendanceForm: await superValidate(zod4(removeAttendanceSchema), { errors: false }),
@@ -141,5 +142,11 @@ describe('the organization Channels page', () => {
     await tick(3);
     expect(who.parentElement!.innerHTML).toContain('hrn:worker:acme.com:a:ada');
     expect(who.parentElement!.innerHTML).toContain('hrn:app:acme.com:a');
+  });
+
+  it('says when the org’s workers and agents couldn’t be read at all, and still shows the rows', async () => {
+    const root = await mountPage({ rosterFailed: true, attendees: [] });
+    expect(root.textContent).toContain('Couldn’t load this organization’s workers and agents');
+    expect(root.textContent).toContain('All hands');
   });
 });

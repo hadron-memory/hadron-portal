@@ -1,4 +1,5 @@
 import { gqlClient } from '$lib/server/api';
+import { requireNonConsumer } from '$lib/server/guards';
 import { fetchAllItems } from '$lib/server/paginate';
 import { mapWithConcurrency } from '$lib/server/concurrency';
 import { attendanceActions, registerForms } from '$lib/server/register-actions';
@@ -108,6 +109,9 @@ async function loadOrgAttendees(
 }
 
 export const load: PageServerLoad = async ({ parent, locals }) => {
+  // An admin surface like the sibling Team / Integrations / Usage tabs: hiding
+  // the tab in consumer mode is not the only restriction (Codex on #955).
+  await requireNonConsumer(parent);
   const { org } = await parent();
   const client = gqlClient(locals.token);
 
@@ -117,15 +121,23 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
     fetchAllItems<Channel>(client, ORG_CHANNELS_QUERY, 'channels', { orgId: org.id }),
     // The register is reported as failed, never shown as empty: "no rows" and
     // "couldn't read the rows" are different facts.
+    // The rows and the roster are read SEPARATELY: the rows carry their own
+    // attendee URNs and render without the roster, so a roster outage (even
+    // listing the org's Apps) must not hide them (Codex on #955).
     Promise.all([
-      fetchAllItems<RegisterEntry>(client, REGISTER_ENTRIES_BY_OWNER_QUERY, 'registerEntries', { ownerRef: org.id }),
-      loadOrgAttendees(client, org.id),
-    ])
-      .then(([rows, roster]) => ({ rows, ...roster, failed: false }))
-      .catch((e) => {
-        console.warn(`[org-channels] register read failed for org ${org.id}:`, e);
-        return { rows: [] as RegisterEntry[], attendees: [] as Attendee[], unreadApps: 0, failed: true };
-      }),
+      fetchAllItems<RegisterEntry>(client, REGISTER_ENTRIES_BY_OWNER_QUERY, 'registerEntries', { ownerRef: org.id })
+        .then((rows) => ({ rows, failed: false }))
+        .catch((e) => {
+          console.warn(`[org-channels] register read failed for org ${org.id}:`, e);
+          return { rows: [] as RegisterEntry[], failed: true };
+        }),
+      loadOrgAttendees(client, org.id)
+        .then((roster) => ({ ...roster, rosterFailed: false }))
+        .catch((e) => {
+          console.warn(`[org-channels] App list read failed for org ${org.id}:`, e);
+          return { attendees: [] as Attendee[], unreadApps: 0, rosterFailed: true };
+        }),
+    ]).then(([rows, roster]) => ({ ...rows, ...roster })),
     locals.user
       ? client
           .request<{ organization: { members: Array<{ role: string; user: { id: string } }> } | null }>(ORG_MEMBER_ROLES_QUERY, { ref: org.id })
@@ -143,6 +155,8 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
     attendees: register.attendees,
     /** Apps whose Workers and Agents couldn't be read, so aren't offered. */
     rosterUnreadApps: register.unreadApps,
+    /** The org's App list itself couldn't be read: nobody is offered by name. */
+    rosterFailed: register.rosterFailed,
     registerLoadFailed: register.failed,
     canManageRegister: canManageFromRole(role),
     ...(await registerForms()),
