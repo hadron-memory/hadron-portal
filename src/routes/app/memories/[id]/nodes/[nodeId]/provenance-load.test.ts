@@ -39,6 +39,7 @@ const NODE = {
 };
 const PROV: NodeProvenance = {
   id: 'leaf-pk',
+  revision: 4, // the revision NODE rendered
   authorship: { kind: 'TASK', taskRef: 'hrn:node:acme.com:ops:tasks:t', taskRevision: 2, human: null, authoredAt: '2026-09-27T10:00:00Z' },
   contentValidation: { state: 'UNVALIDATED', latestReport: null },
 };
@@ -104,6 +105,16 @@ describe('node page — provenance is its own streamed read', () => {
     expect(data.node).toMatchObject({ id: 'leaf-pk' });
     expect(await data.provenance).toEqual({ ok: false });
     expect(await data.revisionProvenance).toEqual({ ok: false });
+  });
+
+  it('a provenance read for a newer revision than the page rendered is withheld as changed', async () => {
+    // Another writer edited the node between the node read (revision 4) and this one.
+    serve(new Map<string, (v: Record<string, unknown>) => unknown>([
+      [NODE_PROVENANCE_QUERY, () => ({ node: { ...PROV, revision: 5 } })],
+    ]));
+    const data = await runNodeLoad();
+    expect(data.node).toMatchObject({ revision: 4 });
+    expect(await data.provenance).toEqual({ ok: false, changed: true });
   });
 
   it('a null node from the provenance read is ok:false, not an empty claim', async () => {

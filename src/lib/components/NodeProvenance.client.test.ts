@@ -54,10 +54,12 @@ describe('NodeProvenanceRows', () => {
     const { target } = mount(NodeProvenanceRows, { result: { ok: true, value: prov() }, revision: 5 });
     await tick();
     const line = q(target, 'authorship-task')!;
+    // Rendered through the shared Urn component (Codex on #956): a linked chip.
     const a = line.querySelector('a')!;
     expect(a.getAttribute('href')).toBe(`/app/u/${TASK}`);
-    expect(a.textContent).toBe(TASK);
-    expect(line.textContent!.replace(/\s+/g, ' ').trim()).toBe(`Written with ${TASK} (revision 3)`);
+    expect(a.textContent!.replace(/\s+/g, '')).toBe(TASK);
+    expect(line.textContent).toMatch(/^\s*Written with/);
+    expect(line.textContent).toMatch(/\(revision 3\)\s*$/);
     expect(q(target, 'authorship-task-note')!.textContent).toMatch(/doesn't show that the content follows it/);
   });
 
@@ -69,6 +71,30 @@ describe('NodeProvenanceRows', () => {
     expect(line.textContent).toBe("Written with a task that isn't available to you");
     expect(target.querySelector('a')).toBeNull();
     expect(target.textContent).not.toContain('hrn:');
+  });
+
+  it('a person renders the handle and, when the server gives one, their URN chip', async () => {
+    const human = (urn: string | null) => ({
+      ok: true,
+      value: prov({ authorship: { kind: 'HUMAN', taskRef: null, taskRevision: null, human: { handle: 'dara', urn }, authoredAt: AT } }),
+    });
+    let { target } = mount(NodeProvenanceRows, { result: human('hrn:user:dara'), revision: 5 });
+    await tick();
+    const line = q(target, 'authorship-human')!;
+    expect(line.textContent).toContain('Edited by @dara');
+    expect(line.querySelector('a')!.getAttribute('href')).toBe('/app/u/hrn:user:dara');
+    ({ target } = mount(NodeProvenanceRows, { result: human(null), revision: 5 }));
+    await tick();
+    expect(q(target, 'authorship-human')!.querySelector('a, code')).toBeNull(); // absent, never an empty chip
+  });
+
+  it('a read for a newer revision is withheld as "changed", never shown beside older content', async () => {
+    const { target } = mount(NodeProvenanceRows, { result: { ok: false, changed: true }, revision: 5 });
+    await tick();
+    expect(q(target, 'authorship-changed')!.textContent).toMatch(/Changed since this page loaded/);
+    expect(q(target, 'validation-state')!.getAttribute('data-state')).toBe('CHANGED');
+    expect(q(target, 'authorship-unavailable')).toBeNull();
+    expect(target.querySelector('a')).toBeNull();
   });
 
   it('no stamp: "No authorship recorded"', async () => {

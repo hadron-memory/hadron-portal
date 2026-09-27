@@ -6,8 +6,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  authorshipSearchText,
   authorshipText,
   authorshipView,
+  bindToRevision,
   provenanceById,
   taskLink,
   validationText,
@@ -66,7 +68,9 @@ describe('authorshipView / authorshipText', () => {
     const human = (h: { handle: string | null; urn: string | null } | null): NodeAuthorship => ({
       kind: 'HUMAN', taskRef: null, taskRevision: null, human: h, authoredAt: AT,
     });
-    expect(authorshipText(authorshipView(human({ handle: 'dara', urn: 'hrn:user:dara' })))).toBe('Edited by @dara');
+    const dara = authorshipView(human({ handle: 'dara', urn: 'hrn:user:dara' }));
+    expect(dara).toMatchObject({ kind: 'human', handle: 'dara', urn: 'hrn:user:dara' });
+    expect(authorshipText(dara)).toBe('Edited by @dara');
     for (const h of [null, { handle: null, urn: null }, { handle: '  ', urn: 'hrn:user:x' }]) {
       expect(authorshipText(authorshipView(human(h)))).toBe('Edited by a person');
     }
@@ -138,5 +142,45 @@ describe('provenanceById', () => {
     const a = { id: 'r1', revNo: 1, authorship: null, contentValidation: { state: 'UNVALIDATED' as const, latestReport: null } };
     expect(provenanceById([a]).get('r1')).toBe(a);
     expect(provenanceById([a]).get('r2')).toBeUndefined();
+  });
+});
+
+describe('authorshipSearchText (History grid search)', () => {
+  it('includes the URN chip a cell renders, so searching for it finds the row', () => {
+    expect(authorshipSearchText(authorshipView(taskStamp()))).toBe(`Written with ${TASK} (revision 3) ${TASK}`);
+    const human: NodeAuthorship = { kind: 'HUMAN', taskRef: null, taskRevision: null, human: { handle: 'dara', urn: 'hrn:user:dara' }, authoredAt: AT };
+    expect(authorshipSearchText(authorshipView(human))).toBe('Edited by @dara hrn:user:dara');
+    expect(authorshipSearchText(authorshipView(null))).toBe('No authorship recorded');
+  });
+});
+
+describe('bindToRevision (Codex P1 on #956)', () => {
+  const read = (revision?: number) => ({
+    ok: true as const,
+    value: { id: 'n1', revision, authorship: null, contentValidation: { state: 'UNVALIDATED' as const, latestReport: null } },
+  });
+
+  it('keeps a read that describes the revision the page rendered', () => {
+    expect(bindToRevision(read(4), 4)).toEqual(read(4));
+  });
+
+  it('withholds a read for another revision as changed', () => {
+    expect(bindToRevision(read(5), 4)).toEqual({ ok: false, changed: true });
+    expect(bindToRevision(read(3), 4)).toEqual({ ok: false, changed: true });
+  });
+
+  it('withholds what it cannot check: no revision on either side', () => {
+    expect(bindToRevision(read(undefined), 4)).toEqual({ ok: false, changed: true });
+    expect(bindToRevision(read(4), undefined)).toEqual({ ok: false, changed: true });
+  });
+
+  it('passes a plain failure through unchanged', () => {
+    expect(bindToRevision({ ok: false }, 4)).toEqual({ ok: false });
+  });
+
+  it('a changed read renders as CHANGED, not as a verdict or "couldn\'t load"', () => {
+    const v = validationView({ ok: false, changed: true });
+    expect(v).toMatchObject({ state: 'CHANGED', tone: 'neutral', report: null });
+    expect(validationText(v)).toBe('Changed since this page loaded. Reload to see it.');
   });
 });

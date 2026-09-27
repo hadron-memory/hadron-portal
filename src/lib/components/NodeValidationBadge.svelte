@@ -6,6 +6,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
   import { validationText, type ValidationView } from '$lib/node-provenance';
+  import Urn from './Urn.svelte';
 
   let { view, compact = false }: { view: ValidationView; compact?: boolean } = $props();
 
@@ -30,7 +31,7 @@
       })}
       {#if view.task}
         · {t('node.validation.with', 'with')}
-        <a href={view.task.href} class="break-all font-mono text-indigo-600 hover:underline dark:text-indigo-400">{view.task.urn}</a>
+        <Urn value={view.task.urn} type="node" linked size={9} />
         {#if view.task.revision != null}
           {t('node.authorship.task-rev-suffix', '(revision {rev})', { rev: view.task.revision })}
         {/if}

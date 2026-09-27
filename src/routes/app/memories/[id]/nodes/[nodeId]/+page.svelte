@@ -27,7 +27,7 @@
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
   import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
   import {
-    authorshipText,
+    authorshipSearchText,
     authorshipView,
     provenanceById,
     validationText,
@@ -1630,11 +1630,12 @@
     if (!r.provenance) return null;
     return validationView(r.provenance.ok ? { ok: true, value: r.provenance.value.contentValidation } : { ok: false });
   }
-  // What the Authorship and Validation cells show, as text, so search matches it.
+  // What the Authorship and Validation cells show, as text (URN chips included),
+  // so search matches it.
   function historyAuthorshipText(r: HistoryRow): string {
     if (!r.provenance) return '';
     const v = historyAuthorship(r);
-    return v ? authorshipText(v) : t('node.provenance.unavailable', "Couldn't load");
+    return v ? authorshipSearchText(v) : t('node.provenance.unavailable', "Couldn't load");
   }
   function historyValidationText(r: HistoryRow): string {
     const v = historyValidation(r);

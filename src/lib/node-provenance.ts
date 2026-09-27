@@ -53,14 +53,26 @@ export interface NodeContentValidationStatus {
 /** What one provenance read returns, for a node or for one of its revisions. */
 export interface NodeProvenance {
   id: string;
+  /**
+   * Set on the NODE's provenance: the live revision the stamps belong to. The
+   * loader accepts them only when it equals the revision the page rendered
+   * (Codex on #956), since this read runs after the node read and a concurrent
+   * edit in between would otherwise pair one revision's content with the
+   * next revision's authorship and validation.
+   */
+  revision?: number;
   /** Set on a revision's provenance: the revision number the row snapshots. */
   revNo?: number | null;
   authorship: NodeAuthorship | null;
   contentValidation: NodeContentValidationStatus;
 }
 
-/** A streamed read that may have failed: failure renders as "couldn't load". */
-export type ProvenanceResult<T> = { ok: true; value: T } | { ok: false };
+/**
+ * A streamed read that may have failed. A plain failure renders as "couldn't
+ * load"; `changed` means the read succeeded but described a newer revision than
+ * the page shows, so it is withheld rather than shown beside older content.
+ */
+export type ProvenanceResult<T> = { ok: true; value: T } | { ok: false; changed?: true };
 
 export interface TaskLink {
   urn: string;
@@ -80,7 +92,7 @@ export function taskLink(ref: string | null | undefined, revision: number | null
 export type AuthorshipView =
   | { kind: 'task'; task: TaskLink; authoredAt: string }
   | { kind: 'task-unavailable'; authoredAt: string }
-  | { kind: 'human'; handle: string | null; authoredAt: string }
+  | { kind: 'human'; handle: string | null; urn: string | null; authoredAt: string }
   | { kind: 'none' };
 
 export function authorshipView(a: NodeAuthorship | null | undefined): AuthorshipView {
@@ -91,7 +103,8 @@ export function authorshipView(a: NodeAuthorship | null | undefined): Authorship
   }
   if (a.kind === 'HUMAN') {
     const handle = a.human?.handle?.trim() || null;
-    return { kind: 'human', handle, authoredAt: a.authoredAt };
+    const urn = a.human?.urn?.trim() || null;
+    return { kind: 'human', handle, urn, authoredAt: a.authoredAt };
   }
   // A kind this build doesn't know: say nothing rather than guess.
   return { kind: 'none' };
@@ -100,7 +113,7 @@ export function authorshipView(a: NodeAuthorship | null | undefined): Authorship
 export type ValidationTone = 'neutral' | 'pass' | 'attention';
 
 export interface ValidationView {
-  state: NodeContentValidationState | 'UNAVAILABLE';
+  state: NodeContentValidationState | 'UNAVAILABLE' | 'CHANGED';
   tone: ValidationTone;
   /** The report behind the state, when there is one. */
   report: NodeContentValidationReport | null;
@@ -114,7 +127,10 @@ const KNOWN_STATES: readonly NodeContentValidationState[] = ['UNVALIDATED', 'STA
 export function validationView(
   result: ProvenanceResult<NodeContentValidationStatus | null | undefined>,
 ): ValidationView {
-  if (!result.ok || !result.value || !KNOWN_STATES.includes(result.value.state)) {
+  if (!result.ok) {
+    return { state: result.changed ? 'CHANGED' : 'UNAVAILABLE', tone: 'neutral', report: null, checkedRevision: null, task: null };
+  }
+  if (!result.value || !KNOWN_STATES.includes(result.value.state)) {
     return { state: 'UNAVAILABLE', tone: 'neutral', report: null, checkedRevision: null, task: null };
   }
   const { state, latestReport } = result.value;
@@ -127,6 +143,22 @@ export function validationView(
     checkedRevision: state === 'STALE' && report ? report.nodeRevision : null,
     task: report ? taskLink(report.validationTaskRef, report.validationTaskRevision) : null,
   };
+}
+
+/**
+ * Bind the node's provenance to the revision the page rendered. A read for a
+ * different revision is withheld as `changed`, never shown beside content it
+ * doesn't describe. A missing revision can't be checked, so it's withheld too.
+ */
+export function bindToRevision(
+  result: ProvenanceResult<NodeProvenance>,
+  shownRevision: number | null | undefined,
+): ProvenanceResult<NodeProvenance> {
+  if (!result.ok) return result;
+  if (shownRevision == null || result.value.revision == null || result.value.revision !== shownRevision) {
+    return { ok: false, changed: true };
+  }
+  return result;
 }
 
 /** Index a provenance list by row id, for the History grid. */
@@ -155,10 +187,18 @@ export function authorshipText(v: AuthorshipView): string {
   }
 }
 
+/** What an authorship cell shows, INCLUDING the URN chip, for grid search. */
+export function authorshipSearchText(v: AuthorshipView): string {
+  const urn = v.kind === 'task' ? v.task.urn : v.kind === 'human' ? v.urn : null;
+  return urn ? `${authorshipText(v)} ${urn}` : authorshipText(v);
+}
+
 export function validationText(v: ValidationView): string {
   switch (v.state) {
     case 'UNAVAILABLE':
       return t('node.validation.unavailable', "Couldn't load");
+    case 'CHANGED':
+      return t('node.provenance.changed', 'Changed since this page loaded. Reload to see it.');
     case 'UNVALIDATED':
       return t('node.validation.unvalidated', 'Not validated');
     case 'PASS':

@@ -1423,6 +1423,9 @@ export const NODE_PROVENANCE_QUERY = /* GraphQL */ `
   query NodeProvenance($ref: ID!) {
     node(ref: $ref) {
       id
+      # The revision these stamps describe: the loader shows them only when it
+      # equals the revision the page rendered (bindToRevision).
+      revision
       authorship { ...NodeAuthorshipFields }
       contentValidation { ...NodeContentValidationFields }
     }

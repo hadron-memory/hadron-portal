@@ -22,7 +22,7 @@
 
   const authorship = $derived(result?.ok ? authorshipView(result.value.authorship) : null);
   const validation = $derived(
-    result ? validationView(result.ok ? { ok: true, value: result.value.contentValidation } : { ok: false }) : null,
+    result ? validationView(result.ok ? { ok: true, value: result.value.contentValidation } : result) : null,
   );
 </script>
 
@@ -37,6 +37,8 @@
   <span class="min-w-0 text-right">
     {#if !result}
       <span data-testid="authorship-loading" class="text-sm text-zinc-500">{t('node.provenance.loading', 'Loading…')}</span>
+    {:else if !result.ok && result.changed}
+      <span data-testid="authorship-changed" class="text-sm italic text-zinc-500 dark:text-zinc-400">{t('node.provenance.changed', 'Changed since this page loaded. Reload to see it.')}</span>
     {:else if !authorship}
       <span data-testid="authorship-unavailable" class="text-sm italic text-zinc-500 dark:text-zinc-400">{t('node.provenance.unavailable', "Couldn't load")}</span>
     {:else}

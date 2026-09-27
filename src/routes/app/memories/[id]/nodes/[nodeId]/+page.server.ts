@@ -8,7 +8,7 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
 import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY } from '$lib/server/queries';
-import type { NodeProvenance, ProvenanceResult } from '$lib/node-provenance';
+import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
@@ -290,7 +290,9 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
         NODE_PROVENANCE_QUERY,
         { ref: node.id },
       );
-      return r?.node ? { ok: true, value: r.node } : { ok: false };
+      // Read AFTER the node, so a concurrent edit can land in between: shown
+      // only when it describes the revision this page rendered.
+      return r?.node ? bindToRevision({ ok: true, value: r.node }, node.revision) : { ok: false };
     } catch (e) {
       console.warn('[node-detail] provenance failed:', e);
       return { ok: false };
