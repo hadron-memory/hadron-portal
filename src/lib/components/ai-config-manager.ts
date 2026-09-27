@@ -3,6 +3,7 @@
 // keep/clear/replace logic can be unit-tested without a DOM.
 
 import type { AiConfigProvider } from '$lib/types';
+import { aiConfigStrings as s } from '$lib/i18n/ai-config-strings';
 
 /** Server contract: config name is 1–64 chars of [a-z0-9_-], unique per owner. */
 export function isValidConfigName(name: string): boolean {
@@ -129,9 +130,9 @@ export function endpointShapeError(input: string): string | null {
   try {
     u = new URL(v);
   } catch {
-    return 'The endpoint must be a full URL, like https://api.example.com/v1.';
+    return s.endpointNotUrl();
   }
-  if (u.protocol !== 'https:' && u.protocol !== 'http:') return 'The endpoint must start with https://.';
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return s.endpointBadScheme();
   return null;
 }
 

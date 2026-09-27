@@ -174,3 +174,25 @@ describe('a saved glm config', () => {
     expect(root.textContent).toContain('Remove the stored key');
   });
 });
+
+describe('switching to Bedrock', () => {
+  it('drops a hidden custom endpoint, so it is neither sent nor demanding a key', async () => {
+    const root = await open({ ownerType: 'HADRON_SERVER' });
+    button(root, 'Add configuration').click();
+    await settle();
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai');
+    await settle();
+    set($<HTMLInputElement>(root, '#ac-endpoint')!, 'https://proxy.example.com/v1');
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'bedrock');
+    await settle();
+    expect(root.querySelector('#ac-endpoint')).toBeNull();
+    set($<HTMLInputElement>(root, '#ac-name')!, 'default');
+    set($<HTMLInputElement>(root, '#ac-model')!, 'anthropic.claude');
+    button(root, 'Save').click();
+    await settle();
+    // The platform's own bedrock config at its region host may go keyless.
+    expect(root.textContent).not.toContain('needs its own API key');
+    const create = posts.find((p) => p.action === 'create')!;
+    expect(create.endpoint).toBeUndefined();
+  });
+});

@@ -120,6 +120,9 @@
   function onProviderChange() {
     // A style is refused for a single-protocol provider rather than ignored.
     if (!apiStyleApplies(providerInput)) apiStyleInput = '';
+    // Bedrock's host follows its region, and its endpoint field is hidden: a
+    // leftover value would still be sent and would still demand a key.
+    if (providerInput === 'bedrock') endpointInput = '';
     if (providerInput !== 'openai-compatible') toolCalling = false;
   }
 

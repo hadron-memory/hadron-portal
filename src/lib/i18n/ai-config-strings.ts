@@ -80,6 +80,9 @@ export const aiConfigStrings = {
     t('ai-config.key-required-note', 'Required: this configuration needs its own key.'),
 
   // Validation / errors.
+  endpointNotUrl: (): string =>
+    t('ai-config.endpoint-not-url', 'The endpoint must be a full URL, like https://api.example.com/v1.'),
+  endpointBadScheme: (): string => t('ai-config.endpoint-bad-scheme', 'The endpoint must start with https://.'),
   endpointRequired: (): string =>
     t('ai-config.endpoint-required', 'An OpenAI-compatible provider needs an endpoint.'),
   keyRequired: (): string =>
