@@ -1,0 +1,121 @@
+import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
+import { attendanceActions, registerForms } from '$lib/server/register-actions';
+import {
+  APP_INSTALLED_AGENTS_QUERY,
+  ORG_APP_INSTALLS_QUERY,
+  ORG_CHANNELS_QUERY,
+  ORG_MEMBER_ROLES_QUERY,
+  REGISTER_ENTRIES_BY_OWNER_QUERY,
+  WORKERS_QUERY,
+} from '$lib/server/queries';
+import type { Attendee } from '$lib/register/types';
+import type { Channel, RegisterEntry } from '$lib/types';
+import type { Actions, PageServerLoad } from './$types';
+
+/**
+ * #942 — an organization's Channels and its OWN register rows (org-owned
+ * attendance, spec 049). The App Channels page shows these rows read-only as
+ * inherited; this is where they are managed.
+ *
+ * Server contract, on hadron-server main (lib/register.ts):
+ * - writing an org row needs org CONTRIBUTOR+;
+ * - a row may name a Channel the caller can read, or one hosted in one of the
+ *   org's memories;
+ * - its attendee is a Worker cast in any of the org's Apps, or an Agent
+ *   installed in one.
+ * This page only decides what to OFFER. Every write runs under the caller's
+ * token, and a refusal comes back in the server's words.
+ *
+ * Everything here is a read. Nothing marks a Channel read or posts: settings
+ * are not a way to move anyone's cursor.
+ */
+
+type OrgApp = { id: string; name: string };
+type OrgWorker = { id: string; name: string; urn: string | null; role: string | null; retiredAt: string | null };
+
+/**
+ * The caller's org role, as far as this page can see it: members only list for
+ * members. A non-member who can still open the org (a platform admin) reads
+ * as `null`, which is unknown: the controls are offered and the server decides.
+ */
+function canManageFromRole(role: string | null | undefined): boolean | null {
+  if (role === 'CONTRIBUTOR' || role === 'ADMIN' || role === 'OWNER') return true;
+  if (role === 'READER') return false;
+  return null;
+}
+
+/**
+ * Who an org row can name: every Worker cast in any of the org's Apps
+ * (retired included, so old rows keep their names) and every Agent installed
+ * in one, each listed once. A Worker name is unique only within its App, so
+ * the App is part of its label here.
+ */
+async function loadOrgAttendees(client: ReturnType<typeof gqlClient>, orgId: string): Promise<Attendee[]> {
+  const apps = await fetchAllItems<OrgApp>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgId });
+  const perApp = await Promise.all(
+    apps.map(async (app) => {
+      const [workers, installed] = await Promise.all([
+        fetchAllItems<OrgWorker>(client, WORKERS_QUERY, 'workers', { appRef: app.id, includeRetired: true }),
+        client.request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string } }> } | null }>(
+          APP_INSTALLED_AGENTS_QUERY,
+          { ref: app.id },
+        ),
+      ]);
+      return { app, workers, agents: installed.app?.appAgents.map((a) => a.agent) ?? [] };
+    }),
+  );
+  const workers: Attendee[] = perApp.flatMap(({ app, workers }) =>
+    workers.map((w) => ({ id: w.id, name: `${w.name} (${app.name})`, urn: w.urn, kind: 'worker' as const, role: w.role, retired: !!w.retiredAt })),
+  );
+  const agents = new Map<string, Attendee>();
+  for (const { agents: installed } of perApp) {
+    for (const a of installed) if (!agents.has(a.id)) agents.set(a.id, { id: a.id, name: a.name, urn: a.urn, kind: 'agent' });
+  }
+  return [...workers, ...agents.values()];
+}
+
+export const load: PageServerLoad = async ({ parent, locals }) => {
+  const { org } = await parent();
+  const client = gqlClient(locals.token);
+
+  const [channels, register, role] = await Promise.all([
+    // The org's Channels. A failure here is the page's failure: the register
+    // below names them.
+    fetchAllItems<Channel>(client, ORG_CHANNELS_QUERY, 'channels', { orgId: org.id }),
+    // The register is reported as failed, never shown as empty: "no rows" and
+    // "couldn't read the rows" are different facts.
+    Promise.all([
+      fetchAllItems<RegisterEntry>(client, REGISTER_ENTRIES_BY_OWNER_QUERY, 'registerEntries', { ownerRef: org.id }),
+      loadOrgAttendees(client, org.id),
+    ])
+      .then(([rows, attendees]) => ({ rows, attendees, failed: false }))
+      .catch((e) => {
+        console.warn(`[org-channels] register read failed for org ${org.id}:`, e);
+        return { rows: [] as RegisterEntry[], attendees: [] as Attendee[], failed: true };
+      }),
+    locals.user
+      ? client
+          .request<{ organization: { members: Array<{ role: string; user: { id: string } }> } | null }>(ORG_MEMBER_ROLES_QUERY, { ref: org.id })
+          .then((r) => r.organization?.members.find((m) => m.user.id === locals.user!.id)?.role ?? null)
+          .catch((e) => {
+            console.warn(`[org-channels] member-role read failed for org ${org.id}:`, e);
+            return null;
+          })
+      : Promise.resolve(null),
+  ]);
+
+  return {
+    channels,
+    orgRows: register.rows.filter((r) => r.ownerType === 'ORGANIZATION'),
+    attendees: register.attendees,
+    registerLoadFailed: register.failed,
+    canManageRegister: canManageFromRole(role),
+    ...(await registerForms()),
+  };
+};
+
+export const actions: Actions = {
+  // Org-owned rows: the owner is this page's organization, never a form field.
+  ...attendanceActions((params) => params.id),
+};
