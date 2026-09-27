@@ -299,10 +299,15 @@
         // server's own run path (server#1378). The stored key stays there.
         // Only what the user changed or typed rides along as an override,
         // which is tested and never saved.
-        const override: Record<string, string> = {};
+        const override: Record<string, string | null> = {};
         if (providerInput !== editing.provider) override.provider = providerInput;
         if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
         if (enteredKey) override.apiKey = enteredKey;
+        // "Remove the stored key" with nothing typed: test the keyless state
+        // Save would produce. An override key of null clears it for the test
+        // (server testAiServiceConfig), so a pass can't hide a config that
+        // won't run once saved.
+        else if (removeKey) override.apiKey = null;
         const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
         testResult = testResultView(res.result);
       } else if (enteredKey) {

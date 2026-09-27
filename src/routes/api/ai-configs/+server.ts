@@ -44,7 +44,7 @@ interface Body {
   params?: Record<string, unknown> | null;
   enabled?: boolean;
   // testSaved (#937): values to test instead of the saved ones; never stored
-  override?: { provider?: string; model?: string; apiKey?: string };
+  override?: { provider?: string; model?: string; apiKey?: string | null };
 }
 
 const TEST_SYSTEM =
@@ -148,6 +148,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         ...(o.provider ? { provider: o.provider } : {}),
         ...(o.model ? { model: o.model } : {}),
         ...(o.apiKey ? { apiKey: o.apiKey } : {}),
+        // An explicit null is "test without the stored key" (Remove the stored
+        // key ticked), not "unchanged": pass it through rather than drop it.
+        ...(o.apiKey === null ? { apiKey: null } : {}),
       };
       try {
         const data = await client.request<{ testAiServiceConfig: AiConfigTestResult }>(TEST_AI_SERVICE_CONFIG_MUTATION, {
