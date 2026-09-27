@@ -3754,6 +3754,25 @@ export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
   }
 `;
 
+// #937 (server#1378): test a SAVED config by id, of any owner kind, through the
+// server's own run path. The stored key never leaves the server; `override`
+// tests edited-but-unsaved values without storing them.
+export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
+  mutation TestAiServiceConfig($id: ID!, $override: AiServiceConfigTestOverride) {
+    testAiServiceConfig(id: $id, override: $override) {
+      ok
+      provider
+      model
+      endpoint
+      apiStyle
+      used { provider model endpoint apiStyle key }
+      latencyMs
+      reply
+      error { code message transient }
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // #942 — Channel management (spec 049 phase 4). An App's Channels, the App's
 // default, and the caller's WRITE standing on the App's shared memory (the
