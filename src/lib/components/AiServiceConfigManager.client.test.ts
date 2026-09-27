@@ -221,3 +221,33 @@ describe('Test with "Remove the stored key" ticked', () => {
     expect(posts.find((p) => p.action === 'testSaved')).toEqual({ action: 'testSaved', id: 'c1', override: {} });
   });
 });
+
+describe('Test with edited Parameters', () => {
+  const NOTE = 'Your edited Parameters weren’t part of this test';
+
+  it('says the saved params were used when the form’s params differ', async () => {
+    const root = await open({ configs: [config({ params: { maxTokens: 100 } })] });
+    button(root, 'Edit').click();
+    await settle();
+    const params = $<HTMLTextAreaElement>(root, '#ac-params')!;
+    params.value = '{"maxTokens": 500}';
+    params.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    button(root, 'Test').click();
+    await settle();
+    expect(root.textContent).toContain(NOTE);
+  });
+
+  it('says nothing when the params are unchanged, including a tool-calling config whose flag lives in the toggle', async () => {
+    const root = await open({
+      ownerType: 'ORGANIZATION',
+      configs: [config({ provider: 'openai-compatible', endpoint: 'https://llm.example.com/v1', params: { toolCalling: true, maxTokens: 100 } })],
+    });
+    button(root, 'Edit').click();
+    await settle();
+    button(root, 'Test').click();
+    await settle();
+    expect(posts.some((p) => p.action === 'testSaved')).toBe(true);
+    expect(root.textContent).not.toContain(NOTE);
+  });
+});
