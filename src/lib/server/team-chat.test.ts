@@ -38,9 +38,12 @@ function clientReturning(hits: MemoryNode[]) {
 }
 
 describe('isChatNode', () => {
-  it('accepts the platform `chat` nodeType and the legacy `team-chat` tag', () => {
+  it('accepts the platform `chat` nodeType, and a `team-chat` tag only WITH a legacy thread (#926)', () => {
     expect(isChatNode({ nodeType: 'chat', tags: [] } as unknown as MemoryNode)).toBe(true);
-    expect(isChatNode({ nodeType: 'info', tags: ['team-chat'] } as unknown as MemoryNode)).toBe(true);
+    const tagged = { nodeType: 'info', loc: 'notes:x', tags: ['team-chat'] } as unknown as MemoryNode;
+    expect(isChatNode(tagged)).toBe(false);
+    expect(isChatNode(tagged, { legacyThread: false })).toBe(false);
+    expect(isChatNode(tagged, { legacyThread: true })).toBe(true);
     expect(isChatNode({ nodeType: 'info', tags: ['chat'] } as unknown as MemoryNode)).toBe(false);
     expect(isChatNode({ nodeType: 'chat-message', tags: [] } as unknown as MemoryNode)).toBe(false);
     expect(isChatNode(null)).toBe(false);
@@ -296,9 +299,12 @@ describe('chatPostTarget', () => {
   });
 
   it('keeps a legacy tagged thread on the node path even when its memory has an App', () => {
-    expect(chatPostTarget({
+    const tagged = {
       nodeType: 'info', loc: 'chats:standup', tags: ['team-chat'], memory: { appId: 'app-1' },
-    } as unknown as MemoryNode)).toEqual({ kind: 'legacy' });
+    } as unknown as MemoryNode;
+    expect(chatPostTarget(tagged, { legacyThread: true })).toEqual({ kind: 'legacy' });
+    // #926: without thread evidence the tag is a topic, and there is nowhere to post.
+    expect(chatPostTarget(tagged)).toEqual({ kind: 'none' });
   });
 
   it('has nowhere to post for a platform chat whose memory has no App', () => {

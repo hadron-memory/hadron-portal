@@ -616,6 +616,10 @@ export interface MemoryNode {
   // Optional: only the node-detail read (NODE_BY_ID_QUERY) selects it — it's
   // kept off the shared NodeFields fragment so search/list payloads stay lean.
   properties?: Record<string, unknown> | null;
+  // #927 (server #1323): the node's live revision, the precondition an inline
+  // editor saves against. Optional: only the detail read (NODE_BY_ID_QUERY)
+  // selects it.
+  revision?: number;
   ownerRepo: string | null;
   isRunnable: boolean | null;
   // #868 (server #1201): what this node is FOR — an OPEN string whose GOVERNED
@@ -866,4 +870,43 @@ export interface EffectiveAccess {
   role: string | null;
   /** Reasons access is granted; empty = no access. Ordered strongest-first. */
   grants: AccessGrant[];
+}
+
+/** #942 — a Channel (spec 049): a durable message stream at one reserved address in its host memory. */
+export interface Channel {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: string;
+  /** The reserved address in the host memory, e.g. `chats:team`. */
+  loc: string;
+  /** The Channel's address to copy; null when the server has no flat-v2 URN to advertise (use `id`). */
+  chatRootUrn: string | null;
+  chatRootNodeId: string;
+  /** The highest seq issued: a watermark, not a count. */
+  lastSeq: number;
+  lastMessageAt: string | null;
+  createdAt: string;
+  memory: { id: string; urn: string; name: string };
+}
+
+/** #942 — a register row (spec 049): "this attendee takes part in this Channel". Intent, never permission. */
+export interface RegisterEntry {
+  id: string;
+  ownerType: 'ORGANIZATION' | 'APP';
+  ownerId: string;
+  appId: string | null;
+  organizationId: string | null;
+  channelId: string;
+  /** Null when the caller may not read the Channel's host memory (they stand on the owner side only). */
+  channel: { id: string; name: string; loc: string; chatRootUrn: string | null } | null;
+  attendeeWorkerId: string | null;
+  attendeeAgentId: string | null;
+  /** Null for "every attendee in the owner's context". */
+  attendeeUrn: string | null;
+  role: 'WATCH' | 'POST' | 'BOTH';
+  mentionOnly: boolean;
+  installDefault: boolean;
+  description: string | null;
+  createdAt: string;
 }

@@ -102,8 +102,9 @@ async function run(action: string, form: Record<string, string> = {}) {
 
 /** The form payload each action needs to get past its own validation. */
 const ACTIONS: Array<[string, Record<string, string>]> = [
-  ['updateContent', { content: '# body' }],
-  ['updateAbstract', { abstract: 'a summary' }],
+  // #927: both refuse a save without the revision the editor opened on.
+  ['updateContent', { content: '# body', expectedRevision: '3' }],
+  ['updateAbstract', { abstract: 'a summary', expectedRevision: '3' }],
   // #894: updateData refuses a save without the fingerprint of the value it
   // was opened on — the stub node's `data` is {}.
   ['updateData', { data: '{"k":1}', baseline: await jsonFingerprint({}) }],
@@ -192,7 +193,8 @@ describe('updateMeta — Node.role (#921)', () => {
   it('a dotted or custom role is sent as typed, never lowercased', async () => {
     stubNode({ role: null, isRunnable: null });
     await run('updateMeta', meta({ role: ' Spec.Feature ', roleSeed: '' }));
-    // Not governed today (server's register matches `spec` exactly), so the generic door.
+    // Not governed: the family match is case-sensitive, as on the server
+    // (`roleIsOrDescendsFrom`), so `Spec.Feature` is not in `spec.*`.
     expect(doorsUsed()).toEqual([UPDATE_NODE_MUTATION]);
     expect(sent(UPDATE_NODE_MUTATION)).toMatchObject({ role: 'Spec.Feature' });
   });
@@ -219,7 +221,9 @@ describe('updateMeta — Node.role (#921)', () => {
   it('never touches objectType, and leaves nodeType/isRunnable to their own fields', async () => {
     stubNode({ role: null, isRunnable: null });
     await run('updateMeta', meta({ role: 'spec.rule', roleSeed: '' }));
-    const input = sent(UPDATE_NODE_MUTATION);
+    // `spec.rule` is in the governed `spec` FAMILY (server#1345), so the spec door.
+    expect(doorsUsed()).toEqual([UPDATE_SPEC_NODE_MUTATION]);
+    const input = sent(UPDATE_SPEC_NODE_MUTATION);
     expect(input).not.toHaveProperty('objectType');
     expect(input).toMatchObject({ nodeType: 'info', isRunnable: false, role: 'spec.rule' });
   });
