@@ -5,7 +5,13 @@ import {
   PROCESS_CHAT_RESPONSE_MUTATION,
   SAVE_CHAT_SUMMARY_MUTATION,
 } from '$lib/server/queries';
-import { callAgentChatLlm, portalRuntimeRefusal, type HadronTool } from './agentChatLlm.js';
+import {
+  callAgentChatLlm,
+  EFFECTIVE_ENDPOINT_UNSUPPORTED,
+  isMissingEffectiveEndpoint,
+  portalRuntimeRefusal,
+  type HadronTool,
+} from './agentChatLlm.js';
 import type { AIProvider } from '$lib/types';
 
 /** Result of a single chat turn surfaced to the frontend. */
@@ -49,11 +55,7 @@ export async function fetchAgentAIConfig(
       throw new Error('Agent has no LLM provider configured. Set one in agent settings first.');
     }
     // A server without #1373 can't say where a config goes, so nothing is run.
-    if (/Cannot query field\W+effectiveEndpoint/.test(msg)) {
-      throw new Error(
-        "The Hadron server didn't recognize effectiveEndpoint, which portal chats need to check where an AI configuration sends requests, so the chat won't run. The server may be older than this portal.",
-      );
-    }
+    if (isMissingEffectiveEndpoint(msg)) throw new Error(EFFECTIVE_ENDPOINT_UNSUPPORTED);
     throw e;
   }
   // Stopgap (Holger, 2026-09-27): never run a config somewhere other than where

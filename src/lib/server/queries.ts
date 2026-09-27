@@ -1784,6 +1784,9 @@ export const AI_CONFIG_READINESS_QUERY = /* GraphQL */ `
       ownerType
       provider
       model
+      # #958: the runtime also refuses a config by where it sends requests
+      # (portalRuntimeRefusal), so readiness asks the same question.
+      effectiveEndpoint
     }
   }
 `;

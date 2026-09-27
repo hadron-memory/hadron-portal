@@ -84,13 +84,29 @@ function sameEndpoint(a: string, b: string): boolean {
   return pa.origin === pb.origin && path(pa) === path(pb) && pa.search === pb.search && pa.hash === pb.hash;
 }
 
-function hostOf(url: string): string {
+/**
+ * The endpoint's host, for a message, or null when it doesn't parse as a URL.
+ * Only a parsed host is ever shown: a string that isn't a URL could carry
+ * anything (a token in a would-be query string, say), so it is never echoed
+ * into a chat or judge message (Dara and Charles on #958).
+ */
+function hostOf(url: string): string | null {
   try {
-    return new URL(url).host || url;
+    return new URL(url.trim()).host || null;
   } catch {
-    return url;
+    return null;
   }
 }
+
+/** A resolve that failed because the server predates `effectiveEndpoint` (#1373). */
+export function isMissingEffectiveEndpoint(message: string): boolean {
+  return /Cannot query field\W+effectiveEndpoint/.test(message);
+}
+
+export const EFFECTIVE_ENDPOINT_UNSUPPORTED =
+  "The Hadron server didn't recognize effectiveEndpoint, which portal chats need to check where an AI configuration sends requests, so the chat won't run. The server may be older than this portal.";
+
+const INVALID_ENDPOINT = "This AI configuration's endpoint isn't a valid URL, so portal chats won't run it. Check the configuration's endpoint, or use another configuration.";
 
 /**
  * Why this runtime must not run a resolved config, or null when it may.
@@ -105,15 +121,19 @@ export function portalRuntimeRefusal(config: { provider: string; effectiveEndpoi
   }
   const hosts = PORTAL_RUNTIME_HOSTS[provider];
   if (hosts === null) {
-    return endpoint === null
-      ? null
-      : `This AI configuration has an endpoint (${hostOf(endpoint)}), which portal chats can't use for ${provider}. Remove the endpoint, or use another configuration.`;
+    if (endpoint === null) return null;
+    const host = hostOf(endpoint);
+    return host
+      ? `This AI configuration has an endpoint (${host}), which portal chats can't use for ${provider}. Remove the endpoint, or use another configuration.`
+      : INVALID_ENDPOINT;
   }
   if (endpoint === null) {
     return `Portal chats couldn't confirm where this AI configuration sends requests, so they won't run it. Check the configuration's endpoint, or use another configuration.`;
   }
   if (!hosts.some((h) => sameEndpoint(h, endpoint))) {
-    return `This AI configuration sends requests to a custom endpoint (${hostOf(endpoint)}), which portal chats can't use yet: custom endpoints are called only by the Hadron server. Until portal chats run on the server, use a configuration on the provider's default endpoint.`;
+    const host = hostOf(endpoint);
+    if (!host) return INVALID_ENDPOINT;
+    return `This AI configuration sends requests to a custom endpoint (${host}), which portal chats can't use yet: custom endpoints are called only by the Hadron server. Until portal chats run on the server, use a configuration on the provider's default endpoint.`;
   }
   return null;
 }

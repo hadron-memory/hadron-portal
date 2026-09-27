@@ -35,9 +35,22 @@ describe('portalRuntimeRefusal', () => {
       'https://api.openai.com/v1#f',
       'https://api.openai.com/v1/extra',
       'https://api.openai.com:8443/v1',
-      'not a url',
     ]) {
       expect(portalRuntimeRefusal({ provider: 'openai', effectiveEndpoint })).toMatch(/custom endpoint/);
+    }
+  });
+
+  it('an endpoint that isn\'t a URL is refused without echoing it (Dara and Charles on #958)', () => {
+    for (const [provider, effectiveEndpoint] of [
+      ['openai', 'not-a-url?token=synthetic-secret'],
+      ['anthropic', 'not a url'],
+      ['bedrock', 'bedrock?key=synthetic-secret'],
+      ['glm', '   '],
+    ]) {
+      const msg = portalRuntimeRefusal({ provider, effectiveEndpoint })!;
+      expect(msg).toMatch(/endpoint isn't a valid URL/);
+      expect(msg).not.toContain('synthetic-secret');
+      expect(msg).not.toContain(effectiveEndpoint.trim() || '\u0000');
     }
   });
 
