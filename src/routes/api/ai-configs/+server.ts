@@ -140,7 +140,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             provider: body.provider ?? undefined,
             model: body.model ?? undefined,
             apiKey,
-            params: body.params ?? undefined,
+            // Same grammar as endpoint: ABSENT = unchanged, null = clear, a value
+            // REPLACES the stored params (server updateAiServiceConfig). The form
+            // sends the whole params it shows, so its null must reach the server:
+            // collapsing it to "absent" kept stale params, e.g. a hidden
+            // openai-compatible toolCalling surviving a switch to GLM (Chip, #951).
+            ...('params' in body ? { params: body.params ?? null } : {}),
             enabled: body.enabled ?? undefined,
             ...endpointArgs(body),
           },

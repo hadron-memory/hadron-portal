@@ -242,6 +242,18 @@ describe('POST /api/ai-configs', () => {
     expect('apiStyle' in mockRequest.mock.calls[2][1]).toBe(false);
   });
 
+  it('update: ABSENT params are unchanged, null CLEARS them, a value replaces them (#951)', async () => {
+    mockRequest.mockResolvedValue({ updateAiServiceConfig: { id: 'c1' } });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'update', id: 'c1', model: 'm' } }));
+    expect('params' in mockRequest.mock.calls[0][1]).toBe(false);
+    // The null must survive as null: omitting it would keep stale stored params.
+    await POST(ev({ body: { action: 'update', id: 'c1', provider: 'glm', params: null } }));
+    expect(mockRequest.mock.calls[1][1]).toHaveProperty('params', null);
+    await POST(ev({ body: { action: 'update', id: 'c1', params: { temperature: 0.2 } } }));
+    expect(mockRequest.mock.calls[2][1]).toHaveProperty('params', { temperature: 0.2 });
+  });
+
   it('testSaved: an edited endpoint/apiStyle rides the override, null included', async () => {
     mockRequest.mockResolvedValueOnce({ testAiServiceConfig: RESULT });
     const { POST } = await import('./+server');

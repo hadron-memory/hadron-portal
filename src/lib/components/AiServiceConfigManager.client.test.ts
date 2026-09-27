@@ -106,6 +106,37 @@ describe('openai-compatible', () => {
     expect(create.apiStyle).toBeUndefined();
   });
 
+  it('switching a saved one to another provider drops its hidden toolCalling from the update (#951)', async () => {
+    // Chip's repro: the toggle owns toolCalling and is hidden once the provider
+    // changes, so the update must replace params WITHOUT it, keeping other knobs.
+    const saved = config({ provider: 'openai-compatible', model: 'qwen3', endpoint: 'https://llm.example.com/v1', params: { toolCalling: true } });
+    let root = await open({ configs: [saved] });
+    button(root, 'Edit').click();
+    await settle();
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'glm');
+    set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
+    await settle();
+    button(root, 'Save').click();
+    await settle();
+    let update = posts.find((p) => p.action === 'update')!;
+    expect(update).toMatchObject({ provider: 'glm', endpoint: null });
+    expect(update).toHaveProperty('params', null); // cleared, not "unchanged"
+
+    posts.length = 0;
+    const withKnob = config({ ...saved, id: 'c2', params: { toolCalling: true, temperature: 0.3 } });
+    mounted.pop()!.unmount();
+    root = await open({ configs: [withKnob] });
+    button(root, 'Edit').click();
+    await settle();
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'glm');
+    set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
+    await settle();
+    button(root, 'Save').click();
+    await settle();
+    update = posts.find((p) => p.action === 'update')!;
+    expect(update.params).toEqual({ temperature: 0.3 });
+  });
+
   it('an unsaved one is never tested by the portal’s own client', async () => {
     const root = await open();
     button(root, 'Add configuration').click();
