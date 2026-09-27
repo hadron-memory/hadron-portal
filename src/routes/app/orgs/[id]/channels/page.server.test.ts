@@ -63,6 +63,8 @@ function route(opts: {
   rosterFails?: string[];
   /** Resolves each Worker page read after a tick, and records how many were in flight. */
   track?: { inFlight: number; peak: number };
+  /** Same, for the installed-Agent read, which is also slowed. */
+  trackAgents?: { inFlight: number; peak: number };
   create?: unknown;
   update?: unknown;
   del?: unknown;
@@ -90,6 +92,12 @@ function route(opts: {
       return { workers: page(opts.workers?.[vars.appRef as string] ?? [], vars) };
     }
     if (doc === APP_INSTALLED_AGENTS_QUERY) {
+      if (opts.trackAgents) {
+        opts.trackAgents.inFlight++;
+        opts.trackAgents.peak = Math.max(opts.trackAgents.peak, opts.trackAgents.inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        opts.trackAgents.inFlight--;
+      }
       return { app: { id: vars.ref, appAgents: (opts.agents?.[vars.ref as string] ?? []).map((agent) => ({ agent })) } };
     }
     if (doc === ORG_MEMBER_ROLES_QUERY) {
@@ -175,6 +183,17 @@ describe('load', () => {
     expect(sent(WORKERS_QUERY)).toHaveLength(12);
     expect(track.peak).toBeLessThanOrEqual(4);
     expect(track.peak).toBeGreaterThan(1); // still concurrent, just bounded
+  });
+
+  it('a fast-failing Worker read does not free the App’s slot while its Agent read still runs', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const trackAgents = { inFlight: 0, peak: 0 };
+    const apps = Array.from({ length: 12 }, (_, i) => ({ id: `app-${i}`, name: `App ${i}` }));
+    route({ apps, rosterFails: apps.map((a) => a.id), trackAgents });
+    const data = (await load()) as Loaded & { rosterUnreadApps: number };
+    expect(trackAgents.peak).toBeLessThanOrEqual(4);
+    expect(data.rosterUnreadApps).toBe(12);
+    warn.mockRestore();
   });
 
   it('an App whose roster can’t be read is counted, not fatal: the rows still show', async () => {

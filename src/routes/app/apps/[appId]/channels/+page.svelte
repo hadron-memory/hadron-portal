@@ -435,6 +435,7 @@
     <RegisterPanel
       rows={[...data.appRows, ...data.orgRows]}
       ownerType="APP"
+      ownerId={data.app.id}
       canManage={data.canManageRegister}
       channels={data.channels}
       attendees={data.attendees}

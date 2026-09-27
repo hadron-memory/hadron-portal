@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhanced } from '$lib/test/stubs/app-forms';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import Page from './+page.svelte';
@@ -33,8 +34,8 @@ function row(over: Record<string, unknown> = {}) {
   };
 }
 
-async function mountPage(extra: Record<string, unknown> = {}) {
-  const data = {
+async function pageData(extra: Record<string, unknown> = {}) {
+  return {
     org: { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com' },
     channels: [channel()],
     orgRows: [row()],
@@ -47,6 +48,9 @@ async function mountPage(extra: Record<string, unknown> = {}) {
     removeAttendanceForm: await superValidate(zod4(removeAttendanceSchema), { errors: false }),
     ...extra,
   };
+}
+async function mountPage(extra: Record<string, unknown> = {}) {
+  const data = await pageData(extra);
   const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick();
@@ -107,5 +111,25 @@ describe('the organization Channels page', () => {
     const root = await mountPage({ rosterUnreadApps: 2 });
     expect(root.textContent).toContain('Couldn’t load the workers and agents of 2 App(s)');
     expect(root.textContent).toContain('All hands');
+  });
+
+  it('moving to another organization reseeds the forms: nothing typed for A is left on B', async () => {
+    const props = reactiveProps({ data: await pageData(), form: null } as Record<string, unknown>);
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    const note = () => m.target.querySelector<HTMLInputElement>('form[action="?/addAttendance"] input[name="description"]')!;
+    note().value = 'typed for Acme';
+    note().dispatchEvent(new Event('input', { bubbles: true }));
+    buttons(m.target, 'Edit')[0].click();
+    await tick(3);
+    expect(note().value).toBe('typed for Acme');
+    expect(m.target.querySelector('form[action="?/editAttendance"]')).not.toBeNull();
+
+    // Same component, org B.
+    props.data = await pageData({ org: { id: 'org-2', name: 'Globex', urn: 'hrn:org:globex.com' }, orgRows: [row({ id: 're-b', organizationId: 'org-2', ownerId: 'org-2' })] });
+    await tick(5);
+    expect(note().value).toBe('');
+    expect(m.target.querySelector('form[action="?/editAttendance"]')).toBeNull();
   });
 });

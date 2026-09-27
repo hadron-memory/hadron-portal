@@ -38,6 +38,7 @@
   let {
     rows,
     ownerType,
+    ownerId,
     canManage,
     channels,
     attendees,
@@ -53,6 +54,12 @@
     /** Every row to show: the owner's own, plus any inherited ones. */
     rows: RegisterEntry[];
     ownerType: OwnerType;
+    /**
+     * The page's App or organization. SvelteKit reuses this component across
+     * /app/orgs/A/channels → B (and App → App), so a change of owner reseeds
+     * every form: nothing typed for A may be submitted against B.
+     */
+    ownerId: string;
     /** May the caller manage this owner's rows? `null` = unknown: offer, and let the server decide. */
     canManage: boolean | null;
     /** The Channels the add form offers. */
@@ -139,6 +146,30 @@
     removeMessage.set(undefined);
     removeData.set({ _kind: 'removeAttendance', ref: id }, { taint: false });
   }
+
+  // Reseed on a change of owner
+  // (hrn:node:hadronmemory.com:hadron-portal:review:a-reused-component-must-reseed-its-form).
+  // The superForms were initialised once from the FIRST owner's props, so A's
+  // add-form values, messages and errors would otherwise survive onto B's page.
+  let seenOwner = untrack(() => ownerId);
+  $effect(() => {
+    const id = ownerId;
+    untrack(() => {
+      if (id === seenOwner) return;
+      seenOwner = id;
+      addData.set($state.snapshot(addForm.data), { taint: false });
+      addErrors.clear();
+      addMessage.set(undefined);
+      editData.set($state.snapshot(editForm.data), { taint: false });
+      editErrors.clear();
+      editMessage.set(undefined);
+      removeData.set($state.snapshot(removeForm.data), { taint: false });
+      removeMessage.set(undefined);
+      editingRow = null;
+      confirmingRemove = null;
+      attendFilter = '';
+    });
+  });
 
   interface AttendRow {
     entry: RegisterEntry;

@@ -66,19 +66,22 @@ async function loadOrgAttendees(
 ): Promise<{ attendees: Attendee[]; unreadApps: number }> {
   const apps = await fetchAllItems<OrgApp>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgId });
   const perApp = await mapWithConcurrency(apps, ROSTER_CONCURRENCY, async (app) => {
-    try {
-      const [workers, installed] = await Promise.all([
-        fetchAllItems<OrgWorker>(client, WORKERS_QUERY, 'workers', { appRef: app.id, includeRetired: true }),
-        client.request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string } }> } | null }>(
-          APP_INSTALLED_AGENTS_QUERY,
-          { ref: app.id },
-        ),
-      ]);
-      return { app, workers, agents: installed.app?.appAgents.map((a) => a.agent) ?? [], failed: false };
-    } catch (e) {
-      console.warn(`[org-channels] roster read failed for app ${app.id}:`, e);
+    // allSettled, not all: an App's slot must stay taken until BOTH of its
+    // reads have finished. With Promise.all a fast rejection would free the
+    // slot while its sibling was still running, and a run of such failures
+    // would rebuild the unbounded burst this bound exists to prevent (Codex).
+    const [workers, installed] = await Promise.allSettled([
+      fetchAllItems<OrgWorker>(client, WORKERS_QUERY, 'workers', { appRef: app.id, includeRetired: true }),
+      client.request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string } }> } | null }>(
+        APP_INSTALLED_AGENTS_QUERY,
+        { ref: app.id },
+      ),
+    ]);
+    if (workers.status === 'rejected' || installed.status === 'rejected') {
+      console.warn(`[org-channels] roster read failed for app ${app.id}:`, workers.status === 'rejected' ? workers.reason : (installed as PromiseRejectedResult).reason);
       return { app, workers: [] as OrgWorker[], agents: [] as Array<{ id: string; name: string; urn: string }>, failed: true };
     }
+    return { app, workers: workers.value, agents: installed.value.app?.appAgents.map((a) => a.agent) ?? [], failed: false };
   });
   const workers: Attendee[] = perApp.flatMap(({ app, workers }) =>
     workers.map((w) => ({ id: w.id, name: `${w.name} (${app.name})`, urn: w.urn, kind: 'worker' as const, role: w.role, retired: !!w.retiredAt })),

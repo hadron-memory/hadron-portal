@@ -128,6 +128,7 @@
     <RegisterPanel
       rows={data.orgRows}
       ownerType="ORGANIZATION"
+      ownerId={data.org.id}
       canManage={data.canManageRegister}
       channels={data.channels}
       attendees={data.attendees}
