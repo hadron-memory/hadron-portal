@@ -304,6 +304,13 @@
   }
 
   async function test() {
+    // Save refuses a blank model, so Test does too: otherwise an edited-away
+    // model would silently test the saved one and could report success.
+    if (!modelInput.trim()) {
+      error = s.modelRequired();
+      testResult = null;
+      return;
+    }
     const enteredKey = resolveKeyInput({
       provider: providerInput,
       apiKey: apiKeyInput,

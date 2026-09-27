@@ -44,16 +44,31 @@ describe('testResultView', () => {
   });
 
   it.each([
-    ['NO_API_KEY', false, /no key stored/],
-    ['KEY_UNREADABLE', false, /Re-enter it/],
-    ['QUOTA_EXCEEDED', false, /no test call was made/],
-    ['LLM_CALL_FAILED', true, /didn’t answer this time: 503.*Try again/],
-    ['LLM_CALL_FAILED', false, /refused the call: 503/],
-    ['SOMETHING_NEW', false, /^503 upstream$/],
-  ] as const)('failure %s (transient=%s)', (code, transient, headline) => {
+    // Only the provider itself failing means the endpoint was actually called.
+    ['NO_API_KEY', false, /no key stored/, /^Would call /],
+    ['KEY_UNREADABLE', false, /Re-enter it/, /^Would call /],
+    ['QUOTA_EXCEEDED', false, /no test call was made/, /^Would call /],
+    ['LLM_CALL_FAILED', true, /didn’t answer this time: 503.*Try again/, /^Called /],
+    ['LLM_CALL_FAILED', false, /refused the call: 503/, /^Called /],
+    ['SOMETHING_NEW', false, /^503 upstream$/, /^Would call /],
+  ] as const)('failure %s (transient=%s)', (code, transient, headline, where) => {
     const v = testResultView(result({ ok: false, reply: null, error: { code, message: '503 upstream', transient } }));
     expect(v.ok).toBe(false);
     expect(v.headline).toMatch(headline);
-    expect(v.details[0]).toMatch(/^Called /);
+    expect(v.details[0]).toMatch(where);
+  });
+});
+
+describe('testResultView: "Called" only when a call ran (Codex on #950)', () => {
+  it.each(['NO_API_KEY', 'KEY_UNREADABLE', 'CONFIG_INVALID', 'QUOTA_EXCEEDED', 'SOMETHING_NEW'])('%s stops before the call: "Would call …", never "Called"', (code) => {
+    const v = testResultView(result({ ok: false, endpoint: 'https://api.z.ai/api/paas/v4', error: { code, message: 'x', transient: false } }));
+    expect(v.details.join(' ')).toContain('Would call https://api.z.ai/api/paas/v4 (no call was made)');
+    expect(v.details.join(' ')).not.toMatch(/\bCalled\b/);
+  });
+
+  it('a success, or the provider itself failing, did call the endpoint', () => {
+    expect(testResultView(result({ ok: true, endpoint: 'https://e.example' })).details.join(' ')).toContain('Called https://e.example');
+    const failed = testResultView(result({ ok: false, endpoint: 'https://e.example', error: { code: 'LLM_CALL_FAILED', message: 'x', transient: false } }));
+    expect(failed.details.join(' ')).toContain('Called https://e.example');
   });
 });
