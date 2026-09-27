@@ -2,8 +2,8 @@ import { json } from '@sveltejs/kit';
 import JSZip from 'jszip';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { MEMORY_REF_ID_QUERY, NODE_MEMORY_REF_QUERY, SKILL_PLAN_SINGLE_QUERY } from '$lib/server/queries';
-import { isBundleHost, planSkillDownload, type JudgedEntry } from '$lib/skill-bundle';
+import { MEMORY_REF_ID_QUERY, NODE_MEMORY_REF_QUERY, SKILL_SELECTED_PLAN_QUERY } from '$lib/server/queries';
+import { isBundleHost, planSkillDownload, type JudgedEntry, type SelectionResult } from '$lib/skill-bundle';
 import type { RequestHandler } from './$types';
 
 /**
@@ -15,9 +15,11 @@ import type { RequestHandler } from './$types';
  * archive travels base64-encoded beside the reasons, so a refusal is said on
  * the page instead of arriving as an empty file.
  *
- * `skillPlan` has no node filter, so this plans the node's OWN memory and keeps
- * the entry whose id matches (#911, option a — no server change). The memory
- * planned is the fetched node's, and the URL's memory must be that one.
+ * The plan is `selectedSkillFilePlan` for exactly this node (server#1409). Its
+ * name is judged against a complete collision census across memories and orgs
+ * (`cor:agt:030:06`), which the earlier `skillPlan(memories: [node.memoryId])`
+ * could not do: it judged within the node's own memory only. The URL's memory
+ * must still be the fetched node's.
  */
 export const POST: RequestHandler = async ({ request, params, locals }) => {
   // A +server.ts does not run the /app layout's sign-in redirect.
@@ -54,14 +56,14 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   if (!node.isRunnable) return json({ code: 'not-a-task' }, { status: 409 });
 
   let entries: Array<JudgedEntry & { nodeId: string }>;
+  let selectionResults: SelectionResult[];
   try {
-    const r = await client.request<{ skillPlan: { entries: Array<JudgedEntry & { nodeId: string }> } }>(
-      SKILL_PLAN_SINGLE_QUERY,
-      { host, memories: [node.memoryId] },
-    );
-    entries = r.skillPlan.entries;
+    const r = await client.request<{
+      selectedSkillFilePlan: { entries: Array<JudgedEntry & { nodeId: string }>; selectionResults: SelectionResult[] };
+    }>(SKILL_SELECTED_PLAN_QUERY, { host, nodes: [node.id] });
+    ({ entries, selectionResults } = r.selectedSkillFilePlan);
   } catch (e) {
-    console.error('[node skill] skillPlan EXPORT failed:', e);
+    console.error('[node skill] selectedSkillFilePlan failed:', e);
     return json({ code: 'plan-failed', detail: extractGqlError(e, 'The export plan failed') }, { status: 502 });
   }
 
@@ -69,6 +71,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const download = planSkillDownload(
     entries.find((e) => e.nodeId === nodeId),
     host,
+    selectionResults.find((r) => r.nodeId === nodeId || r.ref === nodeId),
   );
   let zipBase64: string | null = null;
   if (download.filename) {
