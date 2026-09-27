@@ -44,35 +44,12 @@ export function channelLoc(slug: string): string {
   return `chats:${slug}`;
 }
 
-/**
- * #942 slice 3 — the register. A row says an attendee TAKES PART in a Channel
- * (Watch / Post / Both, optionally only when mentioned). It is intent, never
- * permission: what the attendee may read or post is the host memory's call.
- * `attendee` is a Worker's or an installed Agent's id; empty = everyone in the App.
- */
-export const REGISTER_ROLES = ['WATCH', 'POST', 'BOTH'] as const;
-export const REGISTER_DESCRIPTION_MAX = 500;
-
-const NOTE_TOO_LONG = t('app.channels.validation.note-too-long', 'Keep the note to {max} characters.', { max: String(REGISTER_DESCRIPTION_MAX) });
-
-export const addAttendanceSchema = z.object({
-  _kind: z.literal('addAttendance').default('addAttendance'),
-  channelId: z.string().trim().min(1, t('app.channels.validation.pick-channel', 'Pick a channel.')).prefault(''),
-  attendee: z.string().trim().prefault(''),
-  role: z.enum(REGISTER_ROLES).default('BOTH'),
-  mentionOnly: z.boolean().default(false),
-  description: z.string().trim().max(REGISTER_DESCRIPTION_MAX, NOTE_TOO_LONG).prefault(''),
-});
-
-export const editAttendanceSchema = z.object({
-  _kind: z.literal('editAttendance').default('editAttendance'),
-  ref: z.string().trim().min(1).prefault(''),
-  role: z.enum(REGISTER_ROLES).default('BOTH'),
-  mentionOnly: z.boolean().default(false),
-  description: z.string().trim().max(REGISTER_DESCRIPTION_MAX, NOTE_TOO_LONG).prefault(''),
-});
-
-export const removeAttendanceSchema = z.object({
-  _kind: z.literal('removeAttendance').default('removeAttendance'),
-  ref: z.string().trim().min(1).prefault(''),
-});
+// The register forms are shared with the organization's Channels page
+// (#942, org-owned rows), so they live in $lib/register.
+export {
+  REGISTER_ROLES,
+  REGISTER_DESCRIPTION_MAX,
+  addAttendanceSchema,
+  editAttendanceSchema,
+  removeAttendanceSchema,
+} from '$lib/register/schema';

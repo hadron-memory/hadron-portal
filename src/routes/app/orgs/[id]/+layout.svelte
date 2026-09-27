@@ -3,7 +3,7 @@
   // header + tab bar; each tab is a sub-route rendered via {@render children()}.
   //
   // The tabs cover the org's OWN sections — Profile (overview), Team,
-  // Integrations, Usage. Memories / Agents / Apps are top-level destinations
+  // Integrations, Channels, Usage. Memories / Agents / Apps are top-level destinations
   // (sidebar nav in app/+layout.svelte), NOT org sub-pages: they live under
   // this route for org-scoped data loading but are absent from `tabs`, so they
   // render via {@render children()} WITHOUT the breadcrumb/tab-bar chrome.
@@ -29,6 +29,8 @@
           { id: 'profile', label: t('org-detail.tab.profile', 'Profile'), href: basePath },
           { id: 'team', label: t('org-detail.tab.team', 'Team'), href: `${basePath}/members` },
           { id: 'integrations', label: t('org-detail.tab.integrations', 'Integrations'), href: `${basePath}/integrations` },
+          // #942: the org's Channels and its own register rows.
+          { id: 'channels', label: t('org-detail.tab.channels', 'Channels'), href: `${basePath}/channels` },
           { id: 'usage', label: t('org-detail.tab.usage', 'Usage'), href: `${basePath}/sessions` },
         ],
   );
