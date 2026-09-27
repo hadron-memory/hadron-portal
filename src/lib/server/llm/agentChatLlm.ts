@@ -66,8 +66,8 @@ const PORTAL_RUNTIME_HOSTS: Readonly<Record<string, readonly string[] | null>> =
 /**
  * Whether two endpoints name the same place. Scheme and host are compared
  * case-insensitively (URL normalizes them, and a default port); the PATH is
- * case-sensitive, so `/V1` is not `/v1` (Codex on #958). Only a trailing slash
- * is ignored, and any query or fragment makes it a different endpoint.
+ * case-sensitive, so `/V1` is not `/v1` (Codex on #958). Only a single trailing
+ * slash is ignored, and any query or fragment makes it a different endpoint.
  */
 function sameEndpoint(a: string, b: string): boolean {
   const parse = (u: string) => {
@@ -80,7 +80,8 @@ function sameEndpoint(a: string, b: string): boolean {
   const pa = parse(a);
   const pb = parse(b);
   if (!pa || !pb) return false;
-  const path = (u: URL) => u.pathname.replace(/\/+$/, '');
+  // At most ONE trailing slash is ignored: `/v1//` is not `/v1` (Codex on #958).
+  const path = (u: URL) => u.pathname.replace(/\/$/, '');
   return pa.origin === pb.origin && path(pa) === path(pb) && pa.search === pb.search && pa.hash === pb.hash;
 }
 

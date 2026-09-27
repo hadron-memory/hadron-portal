@@ -35,6 +35,7 @@ describe('portalRuntimeRefusal', () => {
       'https://api.openai.com/v1#f',
       'https://api.openai.com/v1/extra',
       'https://api.openai.com:8443/v1',
+      'https://api.openai.com/v1//',
     ]) {
       expect(portalRuntimeRefusal({ provider: 'openai', effectiveEndpoint })).toMatch(/custom endpoint/);
     }
