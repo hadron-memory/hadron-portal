@@ -23,6 +23,18 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import NodeSkillExport from '$lib/components/NodeSkillExport.svelte';
   import NodeRoleValue from '$lib/components/NodeRoleValue.svelte';
+  import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
+  import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
+  import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
+  import {
+    authorshipText,
+    authorshipView,
+    provenanceById,
+    validationText,
+    validationView,
+    type NodeProvenance,
+    type ProvenanceResult,
+  } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
   import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey } from '$lib/node-meta-seed';
   import { skillExportMenuHosts } from '$lib/skill-export';
@@ -1579,6 +1591,56 @@
     });
   });
 
+  // #914: authorship + advisory validation. Both are streamed and resolve to a
+  // result that may be { ok: false }. Each resolution is checked against the
+  // promise now current, so a late answer for the node the reader navigated
+  // away from can't land on this one.
+  let provenance = $state<ProvenanceResult<NodeProvenance> | null>(null);
+  $effect(() => {
+    const p = data.provenance;
+    provenance = null;
+    p.then((res) => {
+      if (data.provenance === p) provenance = res;
+    });
+  });
+  let revisionProvenance = $state<ProvenanceResult<Map<string, NodeProvenance>> | null>(null);
+  $effect(() => {
+    const p = data.revisionProvenance;
+    revisionProvenance = null;
+    p.then((res) => {
+      if (data.revisionProvenance !== p) return;
+      revisionProvenance = res.ok ? { ok: true, value: provenanceById(res.value) } : { ok: false };
+    });
+  });
+
+  // A History row with its provenance: null while loading, { ok: false } when
+  // the read failed or didn't cover the row.
+  type HistoryRow = NodeRevision & { provenance: ProvenanceResult<NodeProvenance> | null };
+  const historyRows = $derived<HistoryRow[]>(
+    revisionRows.map((r) => {
+      if (!revisionProvenance) return { ...r, provenance: null };
+      const p = revisionProvenance.ok ? revisionProvenance.value.get(r.id) : undefined;
+      return { ...r, provenance: p ? { ok: true, value: p } : { ok: false } };
+    }),
+  );
+  function historyAuthorship(r: HistoryRow) {
+    return r.provenance?.ok ? authorshipView(r.provenance.value.authorship) : null;
+  }
+  function historyValidation(r: HistoryRow) {
+    if (!r.provenance) return null;
+    return validationView(r.provenance.ok ? { ok: true, value: r.provenance.value.contentValidation } : { ok: false });
+  }
+  // What the Authorship and Validation cells show, as text, so search matches it.
+  function historyAuthorshipText(r: HistoryRow): string {
+    if (!r.provenance) return '';
+    const v = historyAuthorship(r);
+    return v ? authorshipText(v) : t('node.provenance.unavailable', "Couldn't load");
+  }
+  function historyValidationText(r: HistoryRow): string {
+    const v = historyValidation(r);
+    return v ? validationText(v) : '';
+  }
+
   // Editor display (#620 contract): resolved handle, else identity string.
   function editorLabel(r: NodeRevision): string {
     return r.editedByUser?.handle ? `@${r.editedByUser.handle}` : (r.editedByInfo ?? '—');
@@ -1597,18 +1659,23 @@
   }
 
   let revisionFilter = $state('');
-  const revisionColumns: PortalColumnDef<NodeRevision>[] = [
+  const revisionColumns: PortalColumnDef<HistoryRow>[] = [
     { accessorFn: (r) => revisionDateMs(r.createdAt), id: 'when', header: t('node.history.col.when', 'When'), size: 200 },
+    // #914: the revision number this row snapshots (null on legacy rows).
+    { accessorFn: (r) => r.revNo ?? null, id: 'rev', header: t('node.history.col.rev', 'Rev'), size: 96 },
     { accessorFn: (r) => r.revLabel ?? '', id: 'label', header: t('node.history.col.label', 'Label'), size: 280 },
     // #620: changed fields (empty on legacy rows). Filterable by field name.
     { accessorFn: (r) => (r.changes ?? []).join(' '), id: 'changes', header: t('node.history.col.changes', 'Changes'), enableSorting: false, size: 220 },
     // Filterable by handle / identity string.
     { accessorFn: (r) => editorLabel(r), id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 220 },
+    // #914: the snapshot's own recorded authorship and validation, never today's.
+    { accessorFn: (r) => historyAuthorshipText(r), id: 'authorship', header: t('node.history.col.authorship', 'Authorship'), enableSorting: false, size: 240 },
+    { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 140 },
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
-  const revisionTable = createSvelteTable<NodeRevision>({
+  const revisionTable = createSvelteTable<HistoryRow>({
     get data() {
-      return revisionRows;
+      return historyRows;
     },
     columns: revisionColumns,
     enableMultiSort: false,
@@ -1628,7 +1695,7 @@
     // rebuilding it from the epoch, which would be a second definition of what
     // the cell shows; the raw ISO rides along, and it is also the cell's own
     // `title`, so a reader can search what the tooltip shows them.
-    globalFilterFn: makeGlobalFilterFn<NodeRevision>({}, {
+    globalFilterFn: makeGlobalFilterFn<HistoryRow>({}, {
       when: (row) => `${new Date(row.createdAt).toLocaleString()} ${row.createdAt}`,
     }),
     initialState: {
@@ -3256,6 +3323,18 @@
               {:else}
                 <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{r.editedByInfo ?? '—'}</span>
               {/if}
+            {:else if cell.column.id === 'rev'}
+              <span class="tabular-nums text-zinc-600 dark:text-zinc-400">{r.revNo ?? '—'}</span>
+            {:else if cell.column.id === 'authorship'}
+              {@const a = historyAuthorship(r)}
+              {#if a}
+                <NodeAuthorshipText view={a} compact />
+              {:else if r.provenance}
+                <span class="text-sm italic text-zinc-500 dark:text-zinc-400">{historyAuthorshipText(r)}</span>
+              {/if}
+            {:else if cell.column.id === 'validation'}
+              {@const v = historyValidation(r)}
+              {#if v}<NodeValidationBadge view={v} compact />{/if}
             {:else if cell.column.id === 'actions'}
               <button type="button" onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
                 aria-label={t('node.history.row-actions', 'Revision actions')}
@@ -3408,6 +3487,7 @@
                 <span class="shrink-0 text-sm text-zinc-500">{t('node.role.label', 'Role')}</span>
                 <NodeRoleValue role={node.role} />
               </div>
+              <NodeProvenanceRows result={provenance} revision={node.revision} />
               {#if node.objectType}
                 <div class="flex items-center justify-between gap-4 px-5 py-3">
                   <span class="shrink-0 text-sm text-zinc-500">{t('node.object-type.label', 'Object type')}</span>

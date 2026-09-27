@@ -1347,6 +1347,8 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
   query NodeRevisions($nodeRef: ID!, $limit: Int) {
     nodeRevisions(nodeRef: $nodeRef, limit: $limit) {
       id
+      # #914: the revision this snapshots; null on legacy rows.
+      revNo
       loc
       name
       alias
@@ -1371,6 +1373,7 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
   query NodeRevision($revisionId: ID!) {
     nodeRevision(revisionId: $revisionId) {
       id
+      revNo
       nodeId
       loc
       name
@@ -1384,6 +1387,69 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
       revLabel
       changes
       createdAt
+    }
+  }
+`;
+
+// #914 (server #1326): authorship + advisory content validation. Each is read
+// by its OWN query, never folded into the node, History or revision reads:
+// `contentValidation` is NON-NULL, so a resolver error there would null the
+// parent node (or the whole revision list) and take the surface down with it.
+// Apart, a failure costs only this display, which then says "couldn't load".
+// `authorship` also reconciles the node's revision server-side, which is one
+// more reason to keep it off every read that doesn't render it.
+const PROVENANCE_FIELDS = /* GraphQL */ `
+  fragment NodeAuthorshipFields on NodeAuthorship {
+    kind
+    taskRef
+    taskRevision
+    human { handle urn }
+    authoredAt
+  }
+  fragment NodeContentValidationFields on NodeContentValidationStatus {
+    state
+    latestReport {
+      nodeRevision
+      validationTaskRef
+      validationTaskRevision
+      outcome
+      reportedAt
+    }
+  }
+`;
+
+export const NODE_PROVENANCE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeProvenance($ref: ID!) {
+    node(ref: $ref) {
+      id
+      authorship { ...NodeAuthorshipFields }
+      contentValidation { ...NodeContentValidationFields }
+    }
+  }
+`;
+
+// Same `limit` as NODE_REVISIONS_QUERY, so every History row has its provenance.
+export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeRevisionsProvenance($nodeRef: ID!, $limit: Int) {
+    nodeRevisions(nodeRef: $nodeRef, limit: $limit) {
+      id
+      revNo
+      authorship { ...NodeAuthorshipFields }
+      contentValidation { ...NodeContentValidationFields }
+    }
+  }
+`;
+
+export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeRevisionProvenance($revisionId: ID!) {
+    nodeRevision(revisionId: $revisionId) {
+      id
+      revNo
+      authorship { ...NodeAuthorshipFields }
+      contentValidation { ...NodeContentValidationFields }
     }
   }
 `;
