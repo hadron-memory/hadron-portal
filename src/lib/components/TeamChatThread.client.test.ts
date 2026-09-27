@@ -9,6 +9,7 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatMessage } from '$lib/types';
 import TeamChatThread from './TeamChatThread.svelte';
@@ -203,3 +204,64 @@ describe('TeamChatThread — the avatar links to the author\'s profile (Holger o
     expect(rowOf(target, 1).textContent).toContain('S');
   });
 });
+
+describe('TeamChatThread — the composer after a post (#957)', () => {
+  type Msg = { type: 'success' | 'error'; text: string };
+  /** A post form as the App action returns it: the posted values plus a message. */
+  async function posted(body: string, msg: Msg, valid = true) {
+    const f = await superValidate({ _kind: 'postTeamChatMessage', body }, zod4(postTeamChatMessageSchema));
+    return { ...f, valid, message: msg };
+  }
+  async function mountComposer(form: unknown) {
+    setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
+    const postForm = await superValidate(zod4(postTeamChatMessageSchema), { errors: false });
+    const m = mountComponent(TeamChatThread as never, {
+      messages: [message(1, { authorUserId: 'u1', authorName: 'holger' })],
+      total: 1,
+      postForm,
+      form,
+      workerUrns: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  const composer = (t: HTMLElement) => t.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
+
+  it('remounting while a SUCCESSFUL post is still the page\'s action data leaves the composer empty', async () => {
+    // Chip's repro step 2: post C, switch Settings -> Chats. The action data
+    // still carries C; it must not come back into the composer.
+    const t = await mountComposer({ form: await posted('message C', { type: 'success', text: 'Posted to the team chat.' }) });
+    expect(composer(t).value).toBe('');
+  });
+
+  it('a FAILED post\'s draft is kept, whether refused by validation or by the server', async () => {
+    const server = await mountComposer({ form: await posted('draft D', { type: 'error', text: 'Failed to post.' }) });
+    expect(composer(server).value).toBe('draft D');
+    const invalid = await mountComposer({ form: await posted('draft E', { type: 'error', text: 'x' }, false) });
+    expect(composer(invalid).value).toBe('draft E');
+  });
+
+  it('a success after a kept draft empties the composer, and a later reset never brings the draft back', async () => {
+    // The sibling of #957: seeded from a failed draft, `resetForm` alone would
+    // reset TO that draft after the next successful post.
+    const t = await mountComposer({ form: await posted('draft D', { type: 'error', text: 'Failed to post.' }) });
+    expect(composer(t).value).toBe('draft D'); // positive control: the seed path ran
+    const form = composer(t).closest('form')!;
+    const ok = await posted('draft D', { type: 'success', text: 'Posted to the team chat.' });
+    const { cancelled } = await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: ok } });
+    expect(cancelled).toBe(false);
+    await tick(4);
+    expect(composer(t).value).toBe('');
+
+    // A second successful post resets to the re-based (empty) state too.
+    composer(t).value = 'message F';
+    composer(t).dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    const ok2 = await posted('message F', { type: 'success', text: 'Posted to the team chat.' });
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: { form: ok2 } });
+    await tick(4);
+    expect(composer(t).value).toBe('');
+  });
+});
+
