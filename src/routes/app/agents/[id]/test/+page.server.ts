@@ -3,6 +3,11 @@ import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { AI_CONFIG_READINESS_QUERY, ORGANIZATIONS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
+import {
+  EFFECTIVE_ENDPOINT_UNSUPPORTED,
+  isMissingEffectiveEndpoint,
+  portalRuntimeRefusal,
+} from '$lib/server/llm/agentChatLlm';
 import { requireNonConsumer } from '$lib/server/guards';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
 import type { Agent, Organization } from '$lib/types';
@@ -71,6 +76,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
 /**
  * #928 — whether the tester can run, by the runtime's own resolution.
+ * (#958: including the runtime's endpoint check — a config it would refuse is
+ * `unavailable`, with the runtime's message.)
  *
  * - `ready`: a config resolves. Which level it came from is reported, since an
  *   inherited config is the case the old check got wrong.
@@ -90,14 +97,20 @@ export type LlmReadiness =
 async function llmReadiness(client: ReturnType<typeof gqlClient>, agentId: string): Promise<LlmReadiness> {
   try {
     const r = await client.request<{
-      resolveAIConfig: { name: string; ownerType: string; provider: string; model: string };
+      resolveAIConfig: { name: string; ownerType: string; provider: string; model: string; effectiveEndpoint: string | null };
     }>(AI_CONFIG_READINESS_QUERY, { name: 'default', agentRef: agentId });
-    return { status: 'ready', ...r.resolveAIConfig };
+    const { effectiveEndpoint, ...config } = r.resolveAIConfig;
+    // #958: a config the runtime would refuse is not ready, in the runtime's
+    // own words, so the two still cannot disagree (#928).
+    const refusal = portalRuntimeRefusal({ provider: config.provider, effectiveEndpoint });
+    if (refusal) return { status: 'unavailable', detail: refusal };
+    return { status: 'ready', ...config };
   } catch (e: unknown) {
     // Only the SERVER's answer is shown. A transport failure's message is not:
     // graphql-request packs the request into it (the #468 leak), so it gets
     // the page's generic copy instead (@copilot on #932).
     const detail = serverErrorMessage(e);
+    if (detail !== null && isMissingEffectiveEndpoint(detail)) return { status: 'unavailable', detail: EFFECTIVE_ENDPOINT_UNSUPPORTED };
     if (extractGqlErrorCode(e) === 'NoAiConfigAvailableError') return { status: 'not-configured', detail };
     // A refusal the server gave (a non-admin's Forbidden) is an expected
     // answer, not an outage; only a failure to get one is logged.

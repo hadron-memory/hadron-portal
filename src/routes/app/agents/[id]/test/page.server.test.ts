@@ -57,7 +57,14 @@ function gqlRefusal(message: string, code: string) {
 }
 
 /** Where the runtime's resolution lands for this agent, or how it refuses. */
-type Resolution = { ownerType: string; provider?: string; model?: string } | Error;
+type Resolution = { ownerType: string; provider?: string; model?: string; effectiveEndpoint?: string | null } | Error;
+/** The server's default endpoint per provider (hadron-server aiEndpoint.ts), as ResolvedAiConfig reports it. */
+const SERVER_DEFAULT_ENDPOINT: Record<string, string | null> = {
+  anthropic: 'https://api.anthropic.com/v1',
+  openai: 'https://api.openai.com/v1',
+  glm: 'https://api.z.ai/api/paas/v4',
+  bedrock: null,
+};
 const inheritedFromOrg: Resolution = { ownerType: 'ORGANIZATION' };
 
 const readinessCalls: unknown[] = [];
@@ -78,6 +85,10 @@ function routeMyOrgs(data: { organizations: unknown[] }, resolution: Resolution 
           provider: resolution.provider ?? 'anthropic',
           model: resolution.model ?? 'claude-x',
           ownerType: resolution.ownerType,
+          effectiveEndpoint:
+            'effectiveEndpoint' in resolution
+              ? resolution.effectiveEndpoint
+              : (SERVER_DEFAULT_ENDPOINT[resolution.provider ?? 'anthropic'] ?? null),
         },
       };
     }
@@ -213,6 +224,40 @@ describe('/app/agents/[id]/test loader', () => {
       await load(ev({ agentId: 'agent-aaa' }));
       expect(warn).not.toHaveBeenCalled();
       warn.mockRestore();
+    });
+
+    it('#958 — a config the runtime would refuse is NOT ready, in the runtime\'s own words', async () => {
+      routeMyOrgs(
+        { organizations: [{ ...orgA, agents: [agentConfigured] }] },
+        { ownerType: 'ORGANIZATION', provider: 'openai', effectiveEndpoint: 'https://proxy.example.com/v1' },
+      );
+      const load = await importLoad();
+      const result = (await load(ev({ agentId: 'agent-aaa' }))) as { llmProviderConfigured: boolean; llm: { status: string; detail: string } };
+      expect(result.llmProviderConfigured).toBe(false);
+      expect(result.llm.status).toBe('unavailable');
+      expect(result.llm.detail).toMatch(/custom endpoint \(proxy\.example\.com\)/);
+    });
+
+    it('#958 — openai-compatible is not ready either; an openai config at its default host still is', async () => {
+      routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] }, { ownerType: 'AGENT', provider: 'openai-compatible', effectiveEndpoint: 'https://llm.example.com/v1' });
+      const load = await importLoad();
+      let result = (await load(ev({ agentId: 'agent-aaa' }))) as { llm: { status: string; detail?: string } };
+      expect(result.llm.status).toBe('unavailable');
+      expect(result.llm.detail).toMatch(/"openai-compatible" provider/);
+      routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] }, { ownerType: 'AGENT', provider: 'openai' });
+      result = (await load(ev({ agentId: 'agent-aaa' }))) as { llm: { status: string } };
+      expect(result.llm.status).toBe('ready');
+    });
+
+    it('#958 — a server without effectiveEndpoint is `unavailable` in words, not a raw GraphQL error', async () => {
+      routeMyOrgs(
+        { organizations: [{ ...orgA, agents: [agentConfigured] }] },
+        gqlRefusal('Cannot query field "effectiveEndpoint" on type "ResolvedAiConfig".', 'GRAPHQL_VALIDATION_FAILED'),
+      );
+      const load = await importLoad();
+      const result = (await load(ev({ agentId: 'agent-aaa' }))) as { llm: { status: string; detail: string } };
+      expect(result.llm.status).toBe('unavailable');
+      expect(result.llm.detail).toMatch(/may be older than this portal/);
     });
 
     it('never selects key material', () => {
