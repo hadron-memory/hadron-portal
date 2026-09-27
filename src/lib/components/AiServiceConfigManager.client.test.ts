@@ -251,3 +251,16 @@ describe('Test with edited Parameters', () => {
     expect(root.textContent).not.toContain(NOTE);
   });
 });
+
+describe('Test with the Model field cleared', () => {
+  it('is refused like Save, before any request', async () => {
+    const root = await open({ configs: [config()] });
+    button(root, 'Edit').click();
+    await settle();
+    set($<HTMLInputElement>(root, '#ac-model')!, '');
+    button(root, 'Test').click();
+    await settle();
+    expect(root.textContent).toContain('Provider and model are required.');
+    expect(posts.filter((p) => p.action === 'testSaved')).toHaveLength(0);
+  });
+});
