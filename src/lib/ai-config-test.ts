@@ -62,9 +62,17 @@ function errorHeadline(e: NonNullable<AiConfigTestResult['error']>): string {
 }
 
 export function testResultView(r: AiConfigTestResult): AiConfigTestView {
-  const where = r.endpoint
-    ? t('ai-config.test.endpoint', 'Called {endpoint}', { endpoint: r.endpoint })
-    : t('ai-config.test.endpoint.unknown', 'The endpoint can’t be known for this provider setup');
+  // "Called" only when a provider call is known to have run: a success, or
+  // the provider itself failing (LLM_CALL_FAILED). Every other failure
+  // (NO_API_KEY, KEY_UNREADABLE, CONFIG_INVALID, QUOTA_EXCEEDED, or any
+  // unrecognised code) stops before the call, and must not read as evidence
+  // that the endpoint was reached.
+  const called = r.ok || r.error?.code === 'LLM_CALL_FAILED';
+  const where = !r.endpoint
+    ? t('ai-config.test.endpoint.unknown', 'The endpoint can’t be known for this provider setup')
+    : called
+      ? t('ai-config.test.endpoint', 'Called {endpoint}', { endpoint: r.endpoint })
+      : t('ai-config.test.endpoint.not-called', 'Would call {endpoint} (no call was made)', { endpoint: r.endpoint });
   const details = [
     where,
     t('ai-config.test.key', 'Using {key}', { key: keyLabel(r.used.key) }),
