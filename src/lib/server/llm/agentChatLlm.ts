@@ -63,9 +63,25 @@ const PORTAL_RUNTIME_HOSTS: Readonly<Record<string, readonly string[] | null>> =
   bedrock: null,
 };
 
+/**
+ * Whether two endpoints name the same place. Scheme and host are compared
+ * case-insensitively (URL normalizes them, and a default port); the PATH is
+ * case-sensitive, so `/V1` is not `/v1` (Codex on #958). Only a trailing slash
+ * is ignored, and any query or fragment makes it a different endpoint.
+ */
 function sameEndpoint(a: string, b: string): boolean {
-  const norm = (u: string) => u.trim().replace(/\/+$/, '').toLowerCase();
-  return norm(a) === norm(b);
+  const parse = (u: string) => {
+    try {
+      return new URL(u.trim());
+    } catch {
+      return null;
+    }
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  if (!pa || !pb) return false;
+  const path = (u: URL) => u.pathname.replace(/\/+$/, '');
+  return pa.origin === pb.origin && path(pa) === path(pb) && pa.search === pb.search && pa.hash === pb.hash;
 }
 
 function hostOf(url: string): string {

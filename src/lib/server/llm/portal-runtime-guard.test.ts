@@ -23,8 +23,22 @@ describe('portalRuntimeRefusal', () => {
   it('runs a built-in provider at the host this runtime calls', () => {
     expect(portalRuntimeRefusal({ provider: 'anthropic', effectiveEndpoint: 'https://api.anthropic.com/v1' })).toBeNull();
     expect(portalRuntimeRefusal({ provider: 'openai', effectiveEndpoint: 'https://api.openai.com/v1' })).toBeNull();
-    // Trailing slash and case are the same endpoint.
-    expect(portalRuntimeRefusal({ provider: 'openai', effectiveEndpoint: 'HTTPS://api.openai.com/v1/' })).toBeNull();
+    // Scheme/host case, a default port and a trailing slash are the same endpoint.
+    expect(portalRuntimeRefusal({ provider: 'openai', effectiveEndpoint: 'HTTPS://API.openai.com/v1/' })).toBeNull();
+    expect(portalRuntimeRefusal({ provider: 'openai', effectiveEndpoint: 'https://api.openai.com:443/v1' })).toBeNull();
+  });
+
+  it('the path is case-sensitive, and a query or fragment is a different endpoint (Codex on #958)', () => {
+    for (const effectiveEndpoint of [
+      'https://api.openai.com/V1',
+      'https://api.openai.com/v1?x=1',
+      'https://api.openai.com/v1#f',
+      'https://api.openai.com/v1/extra',
+      'https://api.openai.com:8443/v1',
+      'not a url',
+    ]) {
+      expect(portalRuntimeRefusal({ provider: 'openai', effectiveEndpoint })).toMatch(/custom endpoint/);
+    }
   });
 
   it('GLM: the Coding Plan host it calls, and the server default kept as it was', () => {
