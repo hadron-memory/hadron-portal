@@ -1,4 +1,5 @@
 import type { AIProvider, AiConfigProvider } from './types';
+import { t } from './i18n/t';
 
 export const AI_PROVIDERS: { value: AIProvider; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic (Claude)' },
@@ -14,7 +15,8 @@ export const AI_PROVIDERS: { value: AIProvider; label: string }[] = [
  */
 export const AI_CONFIG_PROVIDERS: { value: AiConfigProvider; label: string }[] = [
   ...AI_PROVIDERS,
-  { value: 'openai-compatible', label: 'OpenAI-compatible (your endpoint)' },
+  // Unlike the brand names above, this label is words, so it is translatable.
+  { value: 'openai-compatible', label: t('ai-config.provider.openai-compatible', 'OpenAI-compatible (your endpoint)') },
 ];
 
 export const DEFAULT_MODELS: Record<AIProvider, string> = {
