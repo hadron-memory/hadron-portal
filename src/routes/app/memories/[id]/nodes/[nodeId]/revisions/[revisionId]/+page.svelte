@@ -1,12 +1,25 @@
 <script lang="ts">
   // #529: read-only snapshot view (opened in a new tab from the History tab).
   import Urn from '$lib/components/Urn.svelte';
+  import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
+  import type { NodeProvenance, ProvenanceResult } from '$lib/node-provenance';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   let { data }: { data: PageData } = $props();
   const r = $derived(data.revision);
   const nodeHref = $derived(`/app/memories/${data.memoryId}/nodes/${data.nodeId}`);
+
+  // #914: streamed; checked against the current promise so a late answer for
+  // another revision can't land here.
+  let provenance = $state<ProvenanceResult<NodeProvenance> | null>(null);
+  $effect(() => {
+    const p = data.provenance;
+    provenance = null;
+    p.then((res) => {
+      if (data.provenance === p) provenance = res;
+    });
+  });
 </script>
 
 <svelte:head><title>{t('node-revision.title', 'Revision')}: {r.name}</title></svelte:head>
@@ -30,6 +43,11 @@
       <p class="mt-1 text-sm italic text-zinc-600 dark:text-zinc-400">“{r.revLabel}”</p>
     {/if}
     <p class="mt-1 font-mono text-xs text-zinc-400">{r.loc}</p>
+  </div>
+
+  <!-- #914: what was recorded for THIS snapshot, not the node's current state. -->
+  <div class="divide-y divide-zinc-200 overflow-hidden rounded-xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+    <NodeProvenanceRows result={provenance} revision={r.revNo} />
   </div>
 
   {#if r.description}
