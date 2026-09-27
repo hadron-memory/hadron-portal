@@ -1762,6 +1762,10 @@ export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
       model
       apiKey
       params
+      # #1373: where a request for this config is meant to go. The portal
+      # runtime refuses a config whose endpoint isn't a host it calls
+      # (portalRuntimeRefusal) rather than run it elsewhere with its key.
+      effectiveEndpoint
     }
   }
 `;
