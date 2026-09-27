@@ -573,6 +573,8 @@ export interface NodeEdge {
 // revision (Display) query — optional here.
 export interface NodeRevision {
   id: string;
+  // #914 (#696): the revision this snapshots. Null on legacy rows.
+  revNo?: number | null;
   nodeId?: string;
   loc: string;
   name: string;
