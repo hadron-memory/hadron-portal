@@ -59,6 +59,10 @@ function route(opts: {
   agents?: Record<string, Array<{ id: string; name: string; urn: string }>>;
   members?: Array<{ role: string; user: { id: string } }> | Error;
   registerFails?: boolean;
+  /** App ids whose roster read fails. */
+  rosterFails?: string[];
+  /** Resolves each Worker page read after a tick, and records how many were in flight. */
+  track?: { inFlight: number; peak: number };
   create?: unknown;
   update?: unknown;
   del?: unknown;
@@ -75,7 +79,16 @@ function route(opts: {
       return { registerEntries: page(opts.rows ?? [], vars) };
     }
     if (doc === ORG_APP_INSTALLS_QUERY) return { apps: page(opts.apps ?? [], vars) };
-    if (doc === WORKERS_QUERY) return { workers: page(opts.workers?.[vars.appRef as string] ?? [], vars) };
+    if (doc === WORKERS_QUERY) {
+      if (opts.rosterFails?.includes(vars.appRef as string)) throw new Error('roster boom');
+      if (opts.track) {
+        opts.track.inFlight++;
+        opts.track.peak = Math.max(opts.track.peak, opts.track.inFlight);
+        await new Promise((r) => setTimeout(r, 2));
+        opts.track.inFlight--;
+      }
+      return { workers: page(opts.workers?.[vars.appRef as string] ?? [], vars) };
+    }
     if (doc === APP_INSTALLED_AGENTS_QUERY) {
       return { app: { id: vars.ref, appAgents: (opts.agents?.[vars.ref as string] ?? []).map((agent) => ({ agent })) } };
     }
@@ -152,6 +165,32 @@ describe('load', () => {
       expect.objectContaining({ id: 'ag-1', kind: 'agent' }),
     ]);
     expect(sent(WORKERS_QUERY).every((v) => v.includeRetired === true)).toBe(true);
+  });
+
+  it('reads App rosters with bounded concurrency, not one burst per App', async () => {
+    const track = { inFlight: 0, peak: 0 };
+    const apps = Array.from({ length: 12 }, (_, i) => ({ id: `app-${i}`, name: `App ${i}` }));
+    route({ apps, track });
+    await load();
+    expect(sent(WORKERS_QUERY)).toHaveLength(12);
+    expect(track.peak).toBeLessThanOrEqual(4);
+    expect(track.peak).toBeGreaterThan(1); // still concurrent, just bounded
+  });
+
+  it('an App whose roster can’t be read is counted, not fatal: the rows still show', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    route({
+      rows: [row()],
+      apps: [{ id: 'app-a', name: 'Team A' }, { id: 'app-b', name: 'Team B' }],
+      workers: { 'app-a': [{ id: 'w-1', name: 'Ada', urn: null, role: null, retiredAt: null }] },
+      rosterFails: ['app-b'],
+    });
+    const data = (await load()) as Loaded & { rosterUnreadApps: number };
+    expect(data.registerLoadFailed).toBe(false);
+    expect(data.orgRows.map((r) => r.id)).toEqual(['re-1']);
+    expect(data.attendees.map((a) => a.id)).toEqual(['w-1']);
+    expect(data.rosterUnreadApps).toBe(1);
+    warn.mockRestore();
   });
 
   it.each([

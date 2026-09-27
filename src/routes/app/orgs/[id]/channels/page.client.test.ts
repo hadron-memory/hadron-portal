@@ -41,6 +41,7 @@ async function mountPage(extra: Record<string, unknown> = {}) {
     attendees: [{ id: 'w-1', name: 'Ada (Team A)', urn: 'hrn:worker:acme.com:a:ada', kind: 'worker', role: null, retired: false }],
     registerLoadFailed: false,
     canManageRegister: true,
+    rosterUnreadApps: 0,
     addAttendanceForm: await superValidate(zod4(addAttendanceSchema), { errors: false }),
     editAttendanceForm: await superValidate(zod4(editAttendanceSchema), { errors: false }),
     removeAttendanceForm: await superValidate(zod4(removeAttendanceSchema), { errors: false }),
@@ -100,5 +101,11 @@ describe('the organization Channels page', () => {
     const root = await mountPage({ registerLoadFailed: true, orgRows: [] });
     expect(root.textContent).toContain('This is an error, not an empty list');
     expect(root.textContent).not.toContain('Nobody is set up to take part');
+  });
+
+  it('says when some Apps’ people couldn’t be read, and still shows the rows', async () => {
+    const root = await mountPage({ rosterUnreadApps: 2 });
+    expect(root.textContent).toContain('Couldn’t load the workers and agents of 2 App(s)');
+    expect(root.textContent).toContain('All hands');
   });
 });

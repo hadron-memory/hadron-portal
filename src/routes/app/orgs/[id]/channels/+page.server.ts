@@ -1,5 +1,6 @@
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
+import { mapWithConcurrency } from '$lib/server/concurrency';
 import { attendanceActions, registerForms } from '$lib/server/register-actions';
 import {
   APP_INSTALLED_AGENTS_QUERY,
@@ -45,16 +46,27 @@ function canManageFromRole(role: string | null | undefined): boolean | null {
   return null;
 }
 
+/** How many Apps' rosters are read at once. The fan-out scales with the org. */
+const ROSTER_CONCURRENCY = 4;
+
 /**
  * Who an org row can name: every Worker cast in any of the org's Apps
  * (retired included, so old rows keep their names) and every Agent installed
  * in one, each listed once. A Worker name is unique only within its App, so
  * the App is part of its label here.
+ *
+ * Two requests per App, so they run with bounded concurrency rather than as one
+ * burst (Codex on #955). An App whose roster can't be read is COUNTED, not
+ * fatal: the register rows still show (they carry their own attendee URNs),
+ * and the page says how many Apps' people are missing from the picker.
  */
-async function loadOrgAttendees(client: ReturnType<typeof gqlClient>, orgId: string): Promise<Attendee[]> {
+async function loadOrgAttendees(
+  client: ReturnType<typeof gqlClient>,
+  orgId: string,
+): Promise<{ attendees: Attendee[]; unreadApps: number }> {
   const apps = await fetchAllItems<OrgApp>(client, ORG_APP_INSTALLS_QUERY, 'apps', { orgId });
-  const perApp = await Promise.all(
-    apps.map(async (app) => {
+  const perApp = await mapWithConcurrency(apps, ROSTER_CONCURRENCY, async (app) => {
+    try {
       const [workers, installed] = await Promise.all([
         fetchAllItems<OrgWorker>(client, WORKERS_QUERY, 'workers', { appRef: app.id, includeRetired: true }),
         client.request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string } }> } | null }>(
@@ -62,9 +74,12 @@ async function loadOrgAttendees(client: ReturnType<typeof gqlClient>, orgId: str
           { ref: app.id },
         ),
       ]);
-      return { app, workers, agents: installed.app?.appAgents.map((a) => a.agent) ?? [] };
-    }),
-  );
+      return { app, workers, agents: installed.app?.appAgents.map((a) => a.agent) ?? [], failed: false };
+    } catch (e) {
+      console.warn(`[org-channels] roster read failed for app ${app.id}:`, e);
+      return { app, workers: [] as OrgWorker[], agents: [] as Array<{ id: string; name: string; urn: string }>, failed: true };
+    }
+  });
   const workers: Attendee[] = perApp.flatMap(({ app, workers }) =>
     workers.map((w) => ({ id: w.id, name: `${w.name} (${app.name})`, urn: w.urn, kind: 'worker' as const, role: w.role, retired: !!w.retiredAt })),
   );
@@ -72,7 +87,7 @@ async function loadOrgAttendees(client: ReturnType<typeof gqlClient>, orgId: str
   for (const { agents: installed } of perApp) {
     for (const a of installed) if (!agents.has(a.id)) agents.set(a.id, { id: a.id, name: a.name, urn: a.urn, kind: 'agent' });
   }
-  return [...workers, ...agents.values()];
+  return { attendees: [...workers, ...agents.values()], unreadApps: perApp.filter((r) => r.failed).length };
 }
 
 export const load: PageServerLoad = async ({ parent, locals }) => {
@@ -89,10 +104,10 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
       fetchAllItems<RegisterEntry>(client, REGISTER_ENTRIES_BY_OWNER_QUERY, 'registerEntries', { ownerRef: org.id }),
       loadOrgAttendees(client, org.id),
     ])
-      .then(([rows, attendees]) => ({ rows, attendees, failed: false }))
+      .then(([rows, roster]) => ({ rows, ...roster, failed: false }))
       .catch((e) => {
         console.warn(`[org-channels] register read failed for org ${org.id}:`, e);
-        return { rows: [] as RegisterEntry[], attendees: [] as Attendee[], failed: true };
+        return { rows: [] as RegisterEntry[], attendees: [] as Attendee[], unreadApps: 0, failed: true };
       }),
     locals.user
       ? client
@@ -109,6 +124,8 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
     channels,
     orgRows: register.rows.filter((r) => r.ownerType === 'ORGANIZATION'),
     attendees: register.attendees,
+    /** Apps whose Workers and Agents couldn't be read, so aren't offered. */
+    rosterUnreadApps: register.unreadApps,
     registerLoadFailed: register.failed,
     canManageRegister: canManageFromRole(role),
     ...(await registerForms()),
