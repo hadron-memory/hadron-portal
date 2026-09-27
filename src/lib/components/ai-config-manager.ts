@@ -54,6 +54,21 @@ export function resolveApiKeyAction(opts: {
   return { apiKeyAction: 'keep' };
 }
 
+/**
+ * The key a Test of a SAVED config should use, derived from the same
+ * resolveApiKeyAction that Save uses, so the two can never disagree: a Test
+ * exercises the credential the saved config will actually have.
+ * `undefined` = the stored key (omit it from the override), `null` = no key
+ * (the server reads a present-but-empty override key as cleared), else the
+ * typed key.
+ */
+export function testOverrideKey(opts: { removeKey: boolean; enteredKey: string }): string | null | undefined {
+  const action = resolveApiKeyAction(opts);
+  if (action.apiKeyAction === 'clear') return null;
+  if (action.apiKeyAction === 'set') return action.apiKey;
+  return undefined;
+}
+
 /** Parse the params JSON textarea: empty ⇒ null; otherwise must be a JSON object. */
 export function parseParamsText(
   text: string,

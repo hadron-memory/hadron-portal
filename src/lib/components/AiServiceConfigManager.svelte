@@ -14,6 +14,7 @@
     isValidConfigName,
     resolveKeyInput,
     resolveApiKeyAction,
+    testOverrideKey,
     parseParamsText,
   } from './ai-config-manager';
 
@@ -302,12 +303,11 @@
         const override: Record<string, string | null> = {};
         if (providerInput !== editing.provider) override.provider = providerInput;
         if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
-        if (enteredKey) override.apiKey = enteredKey;
-        // "Remove the stored key" with nothing typed: test the keyless state
-        // Save would produce. An override key of null clears it for the test
-        // (server testAiServiceConfig), so a pass can't hide a config that
+        // The credential Save would leave, by Save's own rule: "Remove the
+        // stored key" wins over a typed key, so a pass can't hide a config that
         // won't run once saved.
-        else if (removeKey) override.apiKey = null;
+        const key = testOverrideKey({ removeKey, enteredKey });
+        if (key !== undefined) override.apiKey = key;
         const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
         testResult = testResultView(res.result);
       } else if (enteredKey) {

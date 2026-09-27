@@ -5,6 +5,7 @@ import {
   resolveKeyInput,
   resolveApiKeyAction,
   parseParamsText,
+  testOverrideKey,
 } from './ai-config-manager';
 
 describe('isValidConfigName', () => {
@@ -86,5 +87,16 @@ describe('parseParamsText', () => {
   });
   it('rejects invalid JSON', () => {
     expect(parseParamsText('{bad}').ok).toBe(false);
+  });
+});
+
+describe('testOverrideKey (Test follows Save)', () => {
+  it('"Remove the stored key" wins over a typed key, as it does on Save', () => {
+    expect(testOverrideKey({ removeKey: true, enteredKey: 'sk-new' })).toBeNull();
+    expect(testOverrideKey({ removeKey: true, enteredKey: '' })).toBeNull();
+  });
+  it('a typed key is tested; nothing typed keeps the stored key (omitted)', () => {
+    expect(testOverrideKey({ removeKey: false, enteredKey: 'sk-new' })).toBe('sk-new');
+    expect(testOverrideKey({ removeKey: false, enteredKey: '' })).toBeUndefined();
   });
 });
