@@ -1,4 +1,4 @@
-# Exported from hadron-server 2f3dd592200bc03de1d44657268974cbbe03ac38 (origin/main, 2026-09-26T23:31:39-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 264cdd4a770e1e8912818692b27c666540b44ff8 (origin/main, 2026-09-27T08:14:37-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -480,7 +480,7 @@ type AiServiceConfig {
   params: JSON
 
   """
-  Provider identifier; v1 known: 'anthropic' | 'openai' | 'glm' | 'bedrock'.
+  Provider identifier; known: 'anthropic' | 'openai' | 'glm' | 'bedrock' | 'openai-compatible' (any OpenAI-wire host; endpoint required).
   """
   provider: String!
   updatedAt: DateTime
@@ -2917,6 +2917,59 @@ type MemoryConfig {
   updatedBy: ID
 }
 
+type MemoryConfigApplyEntry {
+  outcome: MemoryConfigApplyOutcome!
+  role: String!
+
+  """
+  The rule in force for this role afterwards. On a dry run, the existing rule, or null for a would-be APPLIED.
+  """
+  rule: NodeRoleRule
+}
+
+"""
+#1334 — what applying a template did (or, on a dry run, would do) for one role.
+"""
+enum MemoryConfigApplyOutcome {
+  """
+  The memory had no rule for the role; the template's was copied in (locked if the template is required).
+  """
+  APPLIED
+
+  """
+  The memory's rule for the role was overwritten by a required template's, and is now locked.
+  """
+  REPLACED
+
+  """
+  The memory already had a rule for the role, and a non-required template never overrides one.
+  """
+  SKIPPED_CONFLICT
+
+  """
+  A required template met a LOCKED rule that you have no authority to move; the rule stands.
+  """
+  SKIPPED_LOCKED
+}
+
+type MemoryConfigApplyResult {
+  dryRun: Boolean!
+
+  """One per template rule, role-ascending."""
+  entries: [MemoryConfigApplyEntry!]!
+  memoryId: ID!
+  required: Boolean!
+  template: NodeRoleRuleSourceTemplate!
+
+  """
+  The template revision that was applied; pass it back as expectedTemplateRevision to apply exactly what a dry run showed.
+  """
+  templateRevision: Int!
+
+  """Empty until #1327 adds its visibility warnings."""
+  warnings: [MemoryConfigWarning!]!
+}
+
 """
 #1325 part (c) — a reusable rulebook with exactly one owner, COPIED into a
 memory's config when applied (never live-linked). Read and managed only by
@@ -3415,6 +3468,28 @@ type Mutation {
   advanceChannelReadState(appRef: ID, attendeeRef: ID!, channelRef: ID!, seq: Int!): ChannelReadState!
 
   """
+  #1334 — copy a template's rules into ONE memory's config. A one-off copy:
+  later template edits never reach this memory, and re-applying is explicit.
+  
+  Needs MANAGE on the memory (else MemoryNotFound) and on the template,
+  which exists for you only if you manage its owner (else
+  MEMORY_CONFIG_TEMPLATE_NOT_FOUND). The rules are validated as a whole,
+  under a share lock, as createNodeRoleRule validates a new rule's
+  references (NODE_NOT_FOUND for one you cannot read, NOT_A_TASK), and a
+  template rule whose task was deleted refuses the whole apply
+  (NODE_ROLE_RULE_REF_BROKEN). All-or-nothing per memory.
+  
+  When the memory already has a rule for a role, a non-required template
+  skips it and a required template replaces it. A LOCKED rule is only
+  replaced by a caller with lock authority (see unlockNodeRoleRule);
+  otherwise SKIPPED_LOCKED. Rules written by a required template are locked.
+  
+  expectedTemplateRevision: CONFLICT (with currentRevision) if the template
+  changed since you read it. dryRun: the same report with nothing written.
+  """
+  applyMemoryConfigTemplate(dryRun: Boolean, expectedTemplateRevision: Int, memoryRef: ID!, templateRef: ID!): MemoryConfigApplyResult!
+
+  """
   Attach an EXISTING free-standing memory to an App.
   
   Applies only to 'personal'/'private' memories owned by the caller (an
@@ -3634,9 +3709,17 @@ type Mutation {
   """
   036-ai-service-config: create a named AI config on an owner entity.
   
-  apiKey semantics: omitted = stored without a key (unusable for
-  execution until one is set); non-empty = encrypted at rest with a
-  masked preview. Name must be 1-64 lower-case [a-z0-9_-], unique per
+  apiKey semantics: non-empty = encrypted at rest with a masked preview.
+  Omitted is accepted only where a run may use the server's own
+  credential: a HADRON_SERVER config for openai, anthropic or bedrock at
+  their default host (no endpoint). Every ORGANIZATION, APP and AGENT
+  config needs its own key: the platform credential is platform spend
+  (#1390). Any other provider (glm, openai-compatible), and any config
+  with an endpoint, needs one too, because the SDK would otherwise send
+  the server's credential to a host that didn't issue it (#1389). All of
+  these are refused with AiConfigValidationError. A host that checks no
+  key takes any placeholder.
+  Name must be 1-64 lower-case [a-z0-9_-], unique per
   owner. provider must be a known provider; params are validated per
   provider.
   
@@ -3697,6 +3780,10 @@ type Mutation {
     """
     agentRef: ID!
     agentTools: [String!]
+
+    """
+    036 legacy shim over the App's 'default' AI config; held to createAiServiceConfig's key rule (#1389).
+    """
     aiApiKey: String
     aiModel: String
     aiProvider: String
@@ -4361,7 +4448,7 @@ type Mutation {
   deleteNodeRevision(revisionId: ID!): Boolean!
 
   """
-  #1325 — delete a rule by its id; expectedRevision as for updateNodeRoleRule.
+  #1325 — delete a rule by its id; expectedRevision as for updateNodeRoleRule. A LOCKED rule (#1334) is refused with RULE_LOCKED for every caller: unlock it first (unlockNodeRoleRule).
   """
   deleteNodeRoleRule(expectedRevision: Int, ref: ID!): Boolean!
 
@@ -5319,6 +5406,17 @@ type Mutation {
   unlinkGithubApp(orgId: ID!): Organization!
 
   """
+  #1334 — the deliberate step before a rule a required template LOCKED can be
+  edited or deleted (Holger, 2026-09-27: nobody changes a locked rule through
+  an ordinary edit). Needs lock authority: an org ADMIN/OWNER of the memory's
+  org; on a personal/private or org-less memory, its manager. Anyone else who
+  manages the memory gets RULE_LOCKED. Visible: bumps revision and stamps
+  updatedBy. Unlocking an unlocked rule changes nothing. expectedRevision as
+  for updateNodeRoleRule.
+  """
+  unlockNodeRoleRule(expectedRevision: Int, ref: ID!): NodeRoleRulePayload!
+
+  """
   Update an Agent.
   
   urn renames the slug (org-owned agents only). personaRole / personaPrompt
@@ -5353,7 +5451,9 @@ type Mutation {
   036-ai-service-config: update a named AI config. All fields optional.
   
   apiKey semantics: omitted = keep the stored key; empty string =
-  clear it; non-empty = replace (encrypted, preview recomputed).
+  clear it; non-empty = replace (encrypted, preview recomputed). The
+  RESULTING config is held to createAiServiceConfig's key rule, so
+  clearing the key of a config that needs one is refused.
   
   Auth: admin rights on the owning entity (as aiServiceConfigs).
   """
@@ -5380,7 +5480,30 @@ type Mutation {
   
   Accepts the entity's ID or URN.
   """
-  updateApp(agentTools: [String!], aiApiKey: String, aiModel: String, aiProvider: String, anonymousTtlDays: Int, appType: AppType, createUserPermission: CreateUserPermission, description: String, expiresAt: String, identifyUserMethod: IdentifyUserMethod, name: String, ref: ID!, role: AppMembershipRole, sessionTimeoutSeconds: Int, surfaces: [String!], systemPrompt: String, trainingMode: Boolean, urn: String): App!
+  updateApp(
+    agentTools: [String!]
+
+    """
+    036 legacy shim over the App's 'default' AI config; held to createAiServiceConfig's key rule (#1389).
+    """
+    aiApiKey: String
+    aiModel: String
+    aiProvider: String
+    anonymousTtlDays: Int
+    appType: AppType
+    createUserPermission: CreateUserPermission
+    description: String
+    expiresAt: String
+    identifyUserMethod: IdentifyUserMethod
+    name: String
+    ref: ID!
+    role: AppMembershipRole
+    sessionTimeoutSeconds: Int
+    surfaces: [String!]
+    systemPrompt: String
+    trainingMode: Boolean
+    urn: String
+  ): App!
 
   """
   Spec 049 Phase 4 — rename / re-describe a Channel whose host memory you may write. ref: its id or its address (Channel.chatRootUrn, #1171).
@@ -5580,7 +5703,9 @@ type Mutation {
   #1325 — change a rule by its id. With expectedRevision, a rule changed since
   you read it is refused CONFLICT (extensions.currentRevision) and nothing is
   written; omitted, the last writer wins. A rule you may not manage reads as
-  NOT_FOUND.
+  NOT_FOUND. A LOCKED rule (#1334) is refused with RULE_LOCKED (extensions
+  ruleId, role, sourceTemplateId) for EVERY caller: unlock it first
+  (unlockNodeRoleRule) or re-apply its required template.
   """
   updateNodeRoleRule(expectedRevision: Int, input: UpdateNodeRoleRuleInput!, ref: ID!): NodeRoleRulePayload!
 
@@ -5811,7 +5936,17 @@ type Node {
   carrying data.asset still has a live asset behind it.
   """
   asset: Asset
+
+  """
+  #1326 — attribution of this content state. Null means legacy or unknown. Task identity is redacted unless its memory is independently readable.
+  """
+  authorship: NodeAuthorship
   content: String
+
+  """
+  #1326 — advisory validation for this exact revision. A report for an older revision is STALE.
+  """
+  contentValidation: NodeContentValidationStatus!
   createdAt: DateTime!
   data: JSON
   description: String
@@ -5944,6 +6079,19 @@ type Node {
   urn: String!
 }
 
+type NodeAuthorship {
+  authoredAt: DateTime!
+  human: NodeRevisionEditor
+  kind: NodeAuthorshipKind!
+  taskRef: String
+  taskRevision: Int
+}
+
+enum NodeAuthorshipKind {
+  HUMAN
+  TASK
+}
+
 """
 Spec cor:api:040 — result envelope for the batch node read (nodeBatch).
 'nodes' is the authorized, existing subset (input order for a ref set, loc
@@ -5962,6 +6110,33 @@ type NodeBatchResult {
   omitted: [ID!]!
   truncated: Boolean!
   unavailable: [ID!]!
+}
+
+enum NodeContentValidationOutcome {
+  ERROR
+  FAIL
+  PASS
+}
+
+type NodeContentValidationReport {
+  nodeRevision: Int!
+  outcome: NodeContentValidationOutcome!
+  reportedAt: DateTime!
+  validationTaskRef: String
+  validationTaskRevision: Int
+}
+
+enum NodeContentValidationState {
+  ERROR
+  FAIL
+  PASS
+  STALE
+  UNVALIDATED
+}
+
+type NodeContentValidationStatus {
+  latestReport: NodeContentValidationReport
+  state: NodeContentValidationState!
 }
 
 """Outgoing edge on a node, used in NodeInput.edges"""
@@ -6226,6 +6401,9 @@ type NodeRevision {
   """
   approvedByUser: NodeRevisionEditor
 
+  """#1326 — attribution of the content captured before the next edit."""
+  authorship: NodeAuthorship
+
   """
   Which node fields the edit that took this snapshot changed, e.g.
   ["abstract","tags"] (#620). The snapshot is the PRE-edit state, so this
@@ -6234,6 +6412,9 @@ type NodeRevision {
   """
   changes: [String!]!
   content: String
+
+  """#1326 — advisory validation at this historical revision."""
+  contentValidation: NodeContentValidationStatus!
   createdAt: DateTime!
   data: JSON
   description: String
@@ -6334,7 +6515,9 @@ type NodeRoleRule {
   """
   id: ID!
 
-  """Set by applying a required template (#1334)."""
+  """
+  Set by applying a required template (#1334). A locked rule refuses every ordinary edit and delete (RULE_LOCKED); unlockNodeRoleRule is the deliberate step.
+  """
   locked: Boolean!
 
   """
