@@ -187,6 +187,13 @@ describe('POST /api/ai-configs', () => {
     expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'c1', override: { model: 'glm-5.4', apiKey: 'sk-typed' } });
   });
 
+  it('testSaved: an explicit null key (Remove the stored key) is forwarded, so the test runs keyless', async () => {
+    mockRequest.mockResolvedValueOnce({ testAiServiceConfig: RESULT });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'testSaved', id: 'c1', override: { apiKey: null } } }));
+    expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'c1', override: { apiKey: null } });
+  });
+
   it('testSaved: needs an id, and RATE_LIMITED is a 429 in words', async () => {
     const { POST } = await import('./+server');
     expect((await POST(ev({ body: { action: 'testSaved' } }))).status).toBe(400);

@@ -196,3 +196,28 @@ describe('switching to Bedrock', () => {
     expect(create.endpoint).toBeUndefined();
   });
 });
+
+describe('Test with "Remove the stored key" ticked', () => {
+  it('tests the keyless state Save would produce (override apiKey: null)', async () => {
+    const root = await open({ ownerType: 'HADRON_SERVER', configs: [config({ ownerType: 'HADRON_SERVER', provider: 'openai' })] });
+    button(root, 'Edit').click();
+    await settle();
+    const remove = [...root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find((c) =>
+      c.parentElement?.textContent?.includes('Remove the stored key'),
+    )!;
+    remove.click();
+    flushSync();
+    button(root, 'Test').click();
+    await settle();
+    expect(posts.find((p) => p.action === 'testSaved')).toEqual({ action: 'testSaved', id: 'c1', override: { apiKey: null } });
+  });
+
+  it('without the box, the saved key is used (no apiKey in the override)', async () => {
+    const root = await open({ ownerType: 'HADRON_SERVER', configs: [config({ ownerType: 'HADRON_SERVER', provider: 'openai' })] });
+    button(root, 'Edit').click();
+    await settle();
+    button(root, 'Test').click();
+    await settle();
+    expect(posts.find((p) => p.action === 'testSaved')).toEqual({ action: 'testSaved', id: 'c1', override: {} });
+  });
+});

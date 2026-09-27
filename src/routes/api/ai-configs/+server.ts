@@ -57,7 +57,7 @@ interface Body {
   override?: {
     provider?: string;
     model?: string;
-    apiKey?: string;
+    apiKey?: string | null;
     endpoint?: string | null;
     apiStyle?: 'CHAT_COMPLETIONS' | 'RESPONSES' | null;
   };
@@ -177,6 +177,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         ...(o.model ? { model: o.model } : {}),
         ...(o.apiKey ? { apiKey: o.apiKey } : {}),
         ...endpointArgs(o),
+        // An explicit null is "test without the stored key" (Remove the stored
+        // key ticked), not "unchanged": pass it through rather than drop it.
+        ...(o.apiKey === null ? { apiKey: null } : {}),
       };
       try {
         const data = await client.request<{ testAiServiceConfig: AiConfigTestResult }>(TEST_AI_SERVICE_CONFIG_MUTATION, {

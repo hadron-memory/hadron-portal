@@ -400,6 +400,13 @@
         if (providerInput !== editing.provider) override.provider = providerInput;
         if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
         if (enteredKey) override.apiKey = enteredKey;
+        // "Remove the stored key" with nothing typed: test the keyless state
+        // Save would produce. An override key of null clears it for the test
+        // (server testAiServiceConfig), so a pass can't hide a config that
+        // won't run once saved.
+        // Guarded like Save's clearKey: the box is hidden where a key is
+        // required, so a tick left over from another provider clears nothing.
+        else if (removeKey && !needsKey) override.apiKey = null;
         const endpoint = fieldChange(editing.endpoint, endpointInput);
         if (endpoint !== undefined) override.endpoint = endpoint;
         const apiStyle = fieldChange<AiApiStyle>(editing.apiStyle, apiStyleInput);
