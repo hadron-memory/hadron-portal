@@ -11,6 +11,7 @@ import {
   fieldChange,
   endpointShapeError,
   inlineTestable,
+  testOverrideKey,
 } from './ai-config-manager';
 
 describe('isValidConfigName', () => {
@@ -145,5 +146,16 @@ describe('server#1373 / #1390 rules, mirrored', () => {
     expect(inlineTestable({ provider: 'openai-compatible', endpoint: 'https://x.example', apiStyle: '' })).toBe(false);
     expect(inlineTestable({ provider: 'openai', endpoint: 'https://x.example', apiStyle: '' })).toBe(false);
     expect(inlineTestable({ provider: 'openai', endpoint: '', apiStyle: 'RESPONSES' })).toBe(false);
+  });
+});
+
+describe('testOverrideKey (Test follows Save)', () => {
+  it('"Remove the stored key" wins over a typed key, as it does on Save', () => {
+    expect(testOverrideKey({ removeKey: true, enteredKey: 'sk-new' })).toBeNull();
+    expect(testOverrideKey({ removeKey: true, enteredKey: '' })).toBeNull();
+  });
+  it('a typed key is tested; nothing typed keeps the stored key (omitted)', () => {
+    expect(testOverrideKey({ removeKey: false, enteredKey: 'sk-new' })).toBe('sk-new');
+    expect(testOverrideKey({ removeKey: false, enteredKey: '' })).toBeUndefined();
   });
 });
