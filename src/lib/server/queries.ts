@@ -2443,6 +2443,9 @@ export const TEAM_WORK_ITEMS_QUERY = /* GraphQL */ `
         action
         at
         detail
+        # hadron-server#1398: the LLM model snapshotted at record time. Null =
+        # unknown (predates the field, or none was reported). Never backfilled.
+        model
       }
       total
     }
