@@ -953,6 +953,32 @@ export const WORKER_QUERY = /* GraphQL */ `
   }
 `;
 
+// #919 — the workers a USER holds, across the Apps the CALLER may inspect
+// (hadron-server#1344). The profile page's Workers tab. The server applies the
+// worker read gate before counting or paging, so a viewer sees only workers in
+// Apps they can already read; an unknown user, no holds, and holds confined to
+// unreadable Apps are the same empty page, by design. Retired castings are
+// excluded (includeRetired omitted). appUrn is a gated scalar, so no nested
+// App object rides along.
+export const HELD_WORKERS_QUERY = /* GraphQL */ `
+  query HeldWorkers($userRef: String!, $limit: Int, $offset: Int) {
+    heldWorkers(userRef: $userRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        name
+        urn
+        role
+        appId
+        appUrn
+        heldAt
+        hasLiveSession
+        lastActiveAt
+      }
+      total
+    }
+  }
+`;
+
 // The App's staff. Retired castings are hidden unless includeRetired — they
 // keep their name reserved forever, so showing them is how a reader
 // understands why a name cannot be reused.

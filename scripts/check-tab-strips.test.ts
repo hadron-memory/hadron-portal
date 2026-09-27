@@ -772,6 +772,12 @@ describe('the repository as it stands', () => {
     'src/lib/dashboard/DashboardEditor.svelte',
     'src/lib/dashboard/DashboardEditor.svelte',
     'src/routes/+page.svelte',
+    // #919: the profile page's strip holds ONE tab (Workers) today, below the
+    // gate's two-tab threshold. It is a real strip and is already written the
+    // scrolling way (overflow-x-auto rail, shrink-0 whitespace-nowrap tab), so
+    // it needs no exemption from the rule, only from this count: move it to
+    // SEEN_AS_STRIPS when a second tab lands.
+    'src/routes/app/user/[id]/+page.svelte',
   ];
 
   it('the rails resolving to NO tabs are exactly the known non-strips', () => {

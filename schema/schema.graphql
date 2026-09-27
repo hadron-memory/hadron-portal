@@ -1,4 +1,4 @@
-# Exported from hadron-server d8404ad7ec3913b2e6526a3919630f4ea0baafb9 (d8404ad7, 2026-09-25T20:22:15-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server b713799a5fdd63f6a7dad3b658cb95b3aa69039e (b713799a, 2026-09-25T20:52:52-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -6759,6 +6759,19 @@ type Query {
   ): GlobalSearchResult!
 
   """
+  Workers CURRENTLY held by userRef across Apps the caller may inspect
+  (#1344), oldest casting first. userRef accepts a user id, handle, URN, or
+  email. Missing users, no holds, and holds confined to unreadable Apps all
+  return the same empty page; total and pagination are computed only after
+  the App authorization filter.
+  
+  Retired castings are hidden unless includeRetired. hasLiveSession on each
+  item uses the existing derived idle-window predicate — it means the worker
+  is being driven now, not merely that an unended Session row exists.
+  """
+  heldWorkers(includeRetired: Boolean, limit: Int, offset: Int, userRef: String!): WorkersPage!
+
+  """
   Fetch one registered Home Assistant instance (org member). Null when
   the row does not exist OR the caller is not a member of its org — no
   existence disclosure.
@@ -9390,6 +9403,15 @@ type Worker {
   """The App whose staff this casting fills."""
   app: App
   appId: ID!
+
+  """
+  The App's canonical URN (the same value App.urn returns, e.g.
+  hrn:app:acme.com:team), as a scalar identity suitable for cross-App
+  worker lists. Null when the caller cannot inspect this App's workers. This
+  intentionally does not return the App object, whose nested keys and
+  members have a narrower read audience.
+  """
+  appUrn: String
 
   """
   #1029 — what a fresh binding of this worker inherits from the last one.
