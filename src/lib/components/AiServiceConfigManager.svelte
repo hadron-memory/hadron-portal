@@ -205,6 +205,26 @@
     testResult = null;
   }
 
+  /** Stable JSON for comparing params: keys sorted at every level. */
+  function canonicalJson(v: unknown): string {
+    return JSON.stringify(v, (_k, val) =>
+      val && typeof val === 'object' && !Array.isArray(val)
+        ? Object.fromEntries(Object.keys(val as Record<string, unknown>).sort().map((k) => [k, (val as Record<string, unknown>)[k]]))
+        : val,
+    );
+  }
+  /**
+   * Whether the params Save would write differ from the saved config's. Save's
+   * own computation (the JSON field, plus Bedrock's region), so the two can't
+   * disagree. Unparseable JSON counts as edited.
+   */
+  function paramsEdited(c: AiServiceConfig): boolean {
+    const parsed = parseParamsText(paramsText);
+    if (!parsed.ok) return true;
+    const next = providerInput === 'bedrock' ? { ...parsed.value, bedrockRegion } : parsed.value;
+    return canonicalJson(next ?? null) !== canonicalJson(c.params ?? null);
+  }
+
   async function post(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     const res = await fetch('/api/ai-configs', {
       method: 'POST',
@@ -310,6 +330,19 @@
         if (key !== undefined) override.apiKey = key;
         const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
         testResult = testResultView(res.result);
+        // The saved-config Test can't carry Parameters: the server's test
+        // override has no params (hadron-server AiServiceConfigTestOverride).
+        // When the form's params differ from the saved ones, say plainly that
+        // the SAVED params were used, rather than imply the edits were tested.
+        if (paramsEdited(editing)) {
+          testResult = {
+            ...testResult,
+            details: [
+              ...testResult.details,
+              t('ai-config.test.params-not-tested', 'Your edited Parameters weren’t part of this test; the saved ones were used. Save to test them.'),
+            ],
+          };
+        }
       } else if (enteredKey) {
         // A NEW, unsaved config: nothing is stored yet, so it's tested inline.
         const r = (await post({
