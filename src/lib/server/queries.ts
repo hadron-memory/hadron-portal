@@ -3885,6 +3885,60 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
 `;
 
 /** #942: the host an App-scoped Channel create targets: the App's shared memory. */
+/**
+ * #942: one page of an ORGANIZATION's Channels, those whose host memory
+ * belongs to it (`channels(orgId:)`), and only those the caller may read.
+ * Page it with `fetchAllItems`: the list caps at 200.
+ */
+export const ORG_CHANNELS_QUERY = /* GraphQL */ `
+  query OrgChannels($orgId: ID!, $limit: Int, $offset: Int) {
+    channels(orgId: $orgId, limit: $limit, offset: $offset) {
+      total
+      items {
+        id
+        name
+        description
+        kind
+        loc
+        chatRootUrn
+        chatRootNodeId
+        lastSeq
+        lastMessageAt
+        createdAt
+        memory { id urn name }
+      }
+    }
+  }
+`;
+
+/**
+ * #942: an organization's Apps with their URNs: whose Workers and installed
+ * Agents an org-owned register row may name. The URN keeps a Worker's App
+ * addressable when two Apps share a display name.
+ */
+export const ORG_APPS_FOR_REGISTER_QUERY = /* GraphQL */ `
+  query OrgAppsForRegister($orgId: ID, $limit: Int, $offset: Int) {
+    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+      items { id name urn }
+      total
+    }
+  }
+`;
+
+/**
+ * #942: the caller's standing in an organization, for deciding what the org
+ * Channels page OFFERS (org register rows need CONTRIBUTOR+ on the server).
+ * Slim on purpose: the members tab's query carries emails and avatars.
+ */
+export const ORG_MEMBER_ROLES_QUERY = /* GraphQL */ `
+  query OrgMemberRoles($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      members { role user { id } }
+    }
+  }
+`;
+
 export const APP_SHARED_MEMORY_QUERY = /* GraphQL */ `
   query AppSharedMemory($ref: ID!) {
     app(ref: $ref) { id sharedMemory { id } }

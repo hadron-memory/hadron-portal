@@ -569,4 +569,21 @@ describe('Channels page', () => {
     await tick(3);
     expect(submitted).toBe(0);
   });
+
+  it('an org-owned row links to the org’s Channels page for a member, and is plainly read-only otherwise', async () => {
+    const orgRow = {
+      id: 're-org', ownerType: 'ORGANIZATION', ownerId: 'org-1', appId: null, organizationId: 'org-1', channelId: 'ch-team',
+      channel: { id: 'ch-team', name: 'Team chat', loc: 'chats:team', chatRootUrn: null }, attendeeWorkerId: null, attendeeAgentId: null,
+      attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
+    };
+    const member = await mountPage([channel()], { orgRows: [orgRow], navOrgs: [{ id: 'org-1', name: 'Acme' }] });
+    const link = [...member.target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.includes('Managed by the organization'));
+    expect(link?.getAttribute('href')).toBe('/app/orgs/org-1/channels');
+    // Never offered for editing here, member or not.
+    expect([...member.target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Edit')).toHaveLength(0);
+
+    const outsider = await mountPage([channel()], { orgRows: [orgRow], navOrgs: [] });
+    expect(outsider.target.textContent).not.toContain('Managed by the organization');
+    expect(outsider.target.textContent).toContain('Read-only');
+  });
 });

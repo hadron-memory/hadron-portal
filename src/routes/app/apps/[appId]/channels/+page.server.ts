@@ -4,6 +4,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
+import { attendanceActions, registerForms } from '$lib/server/register-actions';
 import {
   APP_CHANNELS_APP_QUERY,
   APP_CHANNELS_QUERY,
@@ -13,23 +14,17 @@ import {
   SELF_CAN_WRITE_QUERY,
   UPDATE_CHANNEL_MUTATION,
   APP_INSTALLED_AGENTS_QUERY,
-  CREATE_REGISTER_ENTRY_MUTATION,
-  DELETE_REGISTER_ENTRY_MUTATION,
   REGISTER_ENTRIES_BY_OWNER_QUERY,
   SELF_CAN_MANAGE_QUERY,
-  UPDATE_REGISTER_ENTRY_MUTATION,
   WORKERS_QUERY,
 } from '$lib/server/queries';
 import { t } from '$lib/i18n/t';
 import type { Channel, RegisterEntry } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
-  addAttendanceSchema,
   channelLoc,
   createChannelSchema,
   deleteChannelSchema,
-  editAttendanceSchema,
-  removeAttendanceSchema,
   renameChannelSchema,
 } from './schema';
 
@@ -118,13 +113,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     createForm: await superValidate(zod4(createChannelSchema), { errors: false }),
     renameForm: await superValidate(zod4(renameChannelSchema), { errors: false }),
     deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
-    addAttendanceForm: await superValidate(zod4(addAttendanceSchema), { errors: false }),
-    editAttendanceForm: await superValidate(zod4(editAttendanceSchema), { errors: false }),
-    removeAttendanceForm: await superValidate(zod4(removeAttendanceSchema), { errors: false }),
+    ...(await registerForms()),
   };
 };
 
-export type Attendee = { id: string; name: string; urn: string | null; kind: 'worker' | 'agent'; role?: string | null; retired?: boolean };
+export type { Attendee } from '$lib/register/types';
+import type { Attendee } from '$lib/register/types';
 
 /**
  * #942 slice 3: the register rows this App owns, the organization's rows
@@ -217,68 +211,9 @@ function channelErrorText(e: unknown, fallback: string): string {
   }
 }
 
-/** The words for a refused register write: the codes lib/register.ts emits, else the server's own. */
-function registerErrorText(e: unknown, fallback: string, op: 'add' | 'change' = 'change'): string {
-  switch (extractGqlErrorCode(e)) {
-    case 'REGISTER_ENTRY_EXISTS':
-      return t('app.channels.register.error.exists', 'That attendee already takes part in that channel. Edit the existing row instead.');
-    case 'NOT_FOUND':
-      // An add has no row yet: what went missing is the chosen channel or attendee.
-      return op === 'add'
-        ? t('app.channels.register.error.add-not-found', 'That channel or attendee is not available to you. Reload the page and pick again.')
-        : t('app.channels.register.error.not-found', 'That row is not available to you.');
-    default:
-      return extractGqlError(e, fallback);
-  }
-}
-
 export const actions: Actions = {
-  addAttendance: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(addAttendanceSchema));
-    if (!form.valid) return fail(400, { form });
-    try {
-      await gqlClient(locals.token).request(CREATE_REGISTER_ENTRY_MUTATION, {
-        input: {
-          ownerRef: params.appId,
-          channelRef: form.data.channelId,
-          // Empty = every attendee in the App; the server resolves a Worker
-          // first, then an Agent installed here, and refuses anything else.
-          attendeeRef: form.data.attendee || null,
-          role: form.data.role,
-          mentionOnly: form.data.mentionOnly,
-          description: form.data.description || null,
-        },
-      });
-    } catch (e) {
-      return message(form, { type: 'error', text: registerErrorText(e, t('app.channels.register.error.added', 'The attendance could not be added.'), 'add') }, { status: 400 });
-    }
-    return message(form, { type: 'success', text: t('app.channels.register.added', 'Attendance added.') });
-  },
-
-  editAttendance: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(editAttendanceSchema));
-    if (!form.valid) return fail(400, { form });
-    try {
-      await gqlClient(locals.token).request(UPDATE_REGISTER_ENTRY_MUTATION, {
-        ref: form.data.ref,
-        input: { role: form.data.role, mentionOnly: form.data.mentionOnly, description: form.data.description },
-      });
-    } catch (e) {
-      return message(form, { type: 'error', text: registerErrorText(e, t('app.channels.register.error.updated', 'The attendance could not be updated.')) }, { status: 400 });
-    }
-    return message(form, { type: 'success', text: t('app.channels.register.updated', 'Attendance updated.') });
-  },
-
-  removeAttendance: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(removeAttendanceSchema));
-    if (!form.valid) return fail(400, { form });
-    try {
-      await gqlClient(locals.token).request(DELETE_REGISTER_ENTRY_MUTATION, { ref: form.data.ref });
-    } catch (e) {
-      return message(form, { type: 'error', text: registerErrorText(e, t('app.channels.register.error.removed', 'The attendance could not be removed.')) }, { status: 400 });
-    }
-    return message(form, { type: 'success', text: t('app.channels.register.removed', 'Attendance removed.') });
-  },
+  // #942: the register writes, shared with the organization's Channels page.
+  ...attendanceActions((params) => params.appId),
 
   createChannel: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), zod4(createChannelSchema));
