@@ -1,0 +1,785 @@
+<script lang="ts">
+  // #942 slice 2: an App's Channels. A table of the Channels in this App's
+  // memories, with create / rename / delete through the sanctioned Channel
+  // mutations. Register (who attends which Channel) is the next slice.
+  import { untrack } from 'svelte';
+  import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
+  import { zod4Client } from 'sveltekit-superforms/adapters';
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import DataTable from '$lib/components/table/DataTable.svelte';
+  import Urn from '$lib/components/Urn.svelte';
+  import type { PortalColumnDef } from '$lib/table/features';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
+  import { submittedForm } from '$lib/forms/submitted-form';
+  import { t } from '$lib/i18n/t';
+  import { countsAsNewLabel } from '$lib/register-counts';
+  import type { Channel, RegisterEntry } from '$lib/types';
+  import type { EffectiveRow } from '$lib/register-view';
+  import type { PageData, ActionData } from './$types';
+  import {
+    CHANNEL_DESCRIPTION_MAX,
+    CHANNEL_NAME_MAX,
+    REGISTER_DESCRIPTION_MAX,
+    REGISTER_ROLES,
+    addAttendanceSchema,
+    channelLoc,
+    createChannelSchema,
+    deleteChannelSchema,
+    editAttendanceSchema,
+    removeAttendanceSchema,
+    renameChannelSchema,
+  } from './schema';
+
+  type CreateForm = Infer<typeof createChannelSchema, 'zod4'>;
+  type RenameForm = Infer<typeof renameChannelSchema, 'zod4'>;
+  type DeleteForm = Infer<typeof deleteChannelSchema, 'zod4'>;
+
+  let { data, form }: { data: PageData; form: ActionData } = $props();
+
+  const basePath = $derived(`/app/apps/${data.app.id}`);
+  const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
+  const shared = $derived(data.app.sharedMemory);
+  // null = the self-audit failed: offer the control and let the server answer.
+  const canCreate = $derived(shared ? data.canWrite[shared.id] !== false : false);
+
+  // ── create ──
+  const {
+    form: createData, errors: createErrors, message: createMessage, submitting: creating, enhance: createEnhance,
+  } = superForm<CreateForm, App.Superforms.Message, CreateForm>(
+    untrack(() => (submittedForm<CreateForm>(form, 'createChannel') as SuperValidated<CreateForm, App.Superforms.Message, CreateForm> | null) ?? data.createForm),
+    { validators: zod4Client(createChannelSchema), validationMethod: 'oninput', clearOnSubmit: 'none', resetForm: true },
+  );
+  const createError = $derived(scopedActionError<CreateForm>(form, 'createChannel', $createMessage, $createErrors, ['name', 'slug', 'description', '_kind']));
+  const createDone = $derived(scopedActionSuccess<CreateForm>(form, 'createChannel', $createMessage));
+
+  // ── rename (one form, re-pointed at the row being edited) ──
+  let editing = $state<string | null>(null);
+  const {
+    form: renameData, errors: renameErrors, message: renameMessage, submitting: renaming, enhance: renameEnhance,
+  } = superForm<RenameForm, App.Superforms.Message, RenameForm>(
+    untrack(() => (submittedForm<RenameForm>(form, 'renameChannel') as SuperValidated<RenameForm, App.Superforms.Message, RenameForm> | null) ?? data.renameForm),
+    {
+      validators: zod4Client(renameChannelSchema),
+      clearOnSubmit: 'none',
+      onResult: ({ result }) => {
+        if (result.type === 'success') editing = null;
+      },
+    },
+  );
+  const renameError = $derived(scopedActionError<RenameForm>(form, 'renameChannel', $renameMessage, $renameErrors, ['name', 'description', 'ref', '_kind']));
+  function startRename(c: Channel) {
+    editing = c.id;
+    // One form serves every row: a previous row's refusal must not show up in
+    // this one's editor.
+    renameMessage.set(undefined);
+    renameErrors.clear();
+    renameData.set({ _kind: 'renameChannel', ref: c.id, name: c.name, description: c.description ?? '' }, { taint: false });
+  }
+
+  // ── delete (confirmed per row; the App's default gets a stronger warning) ──
+  let confirmingDelete = $state<string | null>(null);
+  const {
+    form: deleteData, message: deleteMessage, submitting: deleting, enhance: deleteEnhance,
+  } = superForm<DeleteForm, App.Superforms.Message, DeleteForm>(
+    untrack(() => (submittedForm<DeleteForm>(form, 'deleteChannel') as SuperValidated<DeleteForm, App.Superforms.Message, DeleteForm> | null) ?? data.deleteForm),
+    {
+      validators: zod4Client(deleteChannelSchema),
+      onResult: ({ result }) => {
+        if (result.type === 'success') confirmingDelete = null;
+      },
+    },
+  );
+  const deleteError = $derived(scopedActionError<DeleteForm>(form, 'deleteChannel', $deleteMessage, null));
+  // Superforms validates its OWN state, not the DOM: the hidden ref input alone
+  // leaves `ref` empty, and the client validator silently cancels the submit
+  // (Chip, team chat #2186). So opening the confirm sets it, as rename does.
+  function startDelete(id: string) {
+    confirmingDelete = id;
+    // A previous row's refusal must not show while confirming this one.
+    deleteMessage.set(undefined);
+    deleteData.set({ _kind: 'deleteChannel', ref: id }, { taint: false });
+  }
+
+  // ── table ──
+  interface Row {
+    channel: Channel;
+    id: string;
+    name: string;
+    /** The address as shown: the URN when there is one, else the loc. */
+    address: string;
+    host: string;
+    lastMessage: string;
+    isDefault: boolean;
+    canWrite: boolean | null;
+  }
+  function when(iso: string | null): string {
+    // Pinned locale, so SSR and the client format identically (the repo's
+    // convention: AssetTable, the memory Info tab, fmtRunTime).
+    return iso
+      ? new Date(iso).toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+      : t('app.channels.never', 'No messages yet');
+  }
+  const rows = $derived<Row[]>(
+    data.channels.map((c) => ({
+      channel: c,
+      id: c.id,
+      name: c.name,
+      // A compound (pre-v2) host memory has no chatRootUrn, and its loc is only
+      // memory-relative, so the id is the address there: the server accepts it
+      // on every channelRef.
+      address: c.chatRootUrn ?? c.id,
+      host: c.memory.name,
+      lastMessage: when(c.lastMessageAt),
+      isDefault: c.id === data.defaultChannelId,
+      canWrite: data.canWrite[c.memory.id] ?? null,
+    })),
+  );
+
+  let globalFilter = $state('');
+  const columns: PortalColumnDef<Row>[] = [
+    // Search matches what the cell shows: the name, the "Team chat" badge on
+    // the default (which stays when it's renamed), and the description.
+    {
+      accessorFn: (r) => [r.name, r.isDefault ? t('app.channels.default', 'Team chat') : '', r.channel.description].filter(Boolean).join(' '),
+      id: 'name',
+      header: t('app.channels.col.name', 'Channel'),
+      enableHiding: false,
+      size: 240,
+    },
+    { accessorKey: 'address', header: t('app.channels.col.address', 'Address'), size: 300 },
+    // The cell shows the memory's name and its URN chip; search finds either.
+    { accessorFn: (r) => `${r.host} ${r.channel.memory.urn}`, id: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
+    {
+      accessorKey: 'lastMessage',
+      id: 'lastMessage',
+      header: t('app.channels.col.last', 'Last message'),
+      size: 190,
+      // Sort by the instant, not the localized words the column shows.
+      sortFn: (a, b) => Date.parse(a.original.channel.lastMessageAt ?? '0') - Date.parse(b.original.channel.lastMessageAt ?? '0'),
+    },
+    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 200 },
+  ];
+  const table = createSvelteTable<Row>({
+    get data() { return rows; },
+    columns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: { get globalFilter() { return globalFilter; } },
+    onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
+
+  // ── #942 slice 3: who takes part (the register) ──
+  type AddForm = Infer<typeof addAttendanceSchema, 'zod4'>;
+  type EditForm = Infer<typeof editAttendanceSchema, 'zod4'>;
+  type RemoveForm = Infer<typeof removeAttendanceSchema, 'zod4'>;
+  type Role = (typeof REGISTER_ROLES)[number];
+
+  function roleLabel(role: Role): string {
+    switch (role) {
+      case 'WATCH':
+        return t('app.channels.register.role.watch', 'Watch');
+      case 'POST':
+        return t('app.channels.register.role.post', 'Post');
+      default:
+        return t('app.channels.register.role.both', 'Watch and post');
+    }
+  }
+  const canManageRegister = $derived(data.canManageRegister !== false);
+
+  const {
+    form: addData, errors: addErrors, message: addMessage, submitting: adding, enhance: addEnhance,
+  } = superForm<AddForm, App.Superforms.Message, AddForm>(
+    untrack(() => (submittedForm<AddForm>(form, 'addAttendance') as SuperValidated<AddForm, App.Superforms.Message, AddForm> | null) ?? data.addAttendanceForm),
+    { validators: zod4Client(addAttendanceSchema), clearOnSubmit: 'none', resetForm: true },
+  );
+  const addError = $derived(scopedActionError<AddForm>(form, 'addAttendance', $addMessage, $addErrors, ['channelId', 'attendee', 'description', '_kind']));
+  const addDone = $derived(scopedActionSuccess<AddForm>(form, 'addAttendance', $addMessage));
+
+  let editingRow = $state<string | null>(null);
+  const {
+    form: editData, errors: editErrors, message: editMessage, submitting: savingEdit, enhance: editEnhance,
+  } = superForm<EditForm, App.Superforms.Message, EditForm>(
+    untrack(() => (submittedForm<EditForm>(form, 'editAttendance') as SuperValidated<EditForm, App.Superforms.Message, EditForm> | null) ?? data.editAttendanceForm),
+    {
+      validators: zod4Client(editAttendanceSchema),
+      clearOnSubmit: 'none',
+      onResult: ({ result }) => {
+        if (result.type === 'success') editingRow = null;
+      },
+    },
+  );
+  const editError = $derived(scopedActionError<EditForm>(form, 'editAttendance', $editMessage, $editErrors, ['description', 'ref', '_kind']));
+  function startEdit(r: RegisterEntry) {
+    editingRow = r.id;
+    // As for rename: one form serves every row, so a previous row's refusal
+    // must not show in this one's editor.
+    editMessage.set(undefined);
+    editErrors.clear();
+    editData.set({ _kind: 'editAttendance', ref: r.id, role: r.role, mentionOnly: r.mentionOnly, description: r.description ?? '' }, { taint: false });
+  }
+
+  let confirmingRemove = $state<string | null>(null);
+  const {
+    form: removeData, message: removeMessage, submitting: removing, enhance: removeEnhance,
+  } = superForm<RemoveForm, App.Superforms.Message, RemoveForm>(
+    untrack(() => (submittedForm<RemoveForm>(form, 'removeAttendance') as SuperValidated<RemoveForm, App.Superforms.Message, RemoveForm> | null) ?? data.removeAttendanceForm),
+    {
+      validators: zod4Client(removeAttendanceSchema),
+      onResult: ({ result }) => {
+        if (result.type === 'success') confirmingRemove = null;
+      },
+    },
+  );
+  const removeError = $derived(scopedActionError<RemoveForm>(form, 'removeAttendance', $removeMessage, null));
+  // As for a Channel delete: superforms validates its own state, so the ref
+  // must be set there, not only in the hidden input (Chip, team chat #2185).
+  function startRemove(id: string) {
+    confirmingRemove = id;
+    // A previous row's refusal must not show while confirming this one.
+    removeMessage.set(undefined);
+    removeData.set({ _kind: 'removeAttendance', ref: id }, { taint: false });
+  }
+
+  interface AttendRow {
+    entry: RegisterEntry;
+    id: string;
+    channel: string;
+    attendee: string;
+    mode: string;
+    mentions: string;
+    setBy: string;
+    /** The row's own note (its description), shown so what was saved stays visible. */
+    note: string;
+    editable: boolean;
+  }
+  function attendeeLabel(r: RegisterEntry): string {
+    const id = r.attendeeWorkerId ?? r.attendeeAgentId;
+    if (!id) {
+      return r.ownerType === 'APP'
+        ? t('app.channels.register.everyone-app', 'Everyone in this App')
+        : t('app.channels.register.everyone-org', 'Everyone in the organization');
+    }
+    const a = data.attendees.find((x) => x.id === id);
+    if (a) return a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name });
+    return r.attendeeUrn ?? t('app.channels.register.unknown-attendee', 'An attendee not listed here');
+  }
+  // Retired Workers name old rows but take no new ones.
+  const pickable = $derived(data.attendees.filter((a) => !a.retired));
+  const pickedChannel = $derived(data.channels.find((c) => c.id === $addData.channelId) ?? null);
+  const pickedAttendee = $derived(pickable.find((a) => a.id === $addData.attendee) ?? null);
+  const attendRows = $derived<AttendRow[]>(
+    [...data.appRows, ...data.orgRows].map((r) => ({
+      entry: r,
+      id: r.id,
+      // A Channel whose host memory the caller can't read comes back null:
+      // say so without naming it.
+      channel: r.channel?.name ?? t('app.channels.register.hidden-channel', 'A channel you can’t read'),
+      attendee: attendeeLabel(r),
+      mode: roleLabel(r.role),
+      mentions: countsAsNewLabel(r.role, r.mentionOnly),
+      setBy:
+        r.ownerType === 'APP'
+          ? r.installDefault
+            ? t('app.channels.register.set-by.install', 'This App (set up at install)')
+            : t('app.channels.register.set-by.app', 'This App')
+          : t('app.channels.register.set-by.org', 'The organization'),
+      note: r.description ?? '',
+      // An App edits and removes only ITS OWN rows; the org's are shown, not offered.
+      editable: r.ownerType === 'APP' && canManageRegister,
+    })),
+  );
+
+  let attendFilter = $state('');
+  const attendColumns: PortalColumnDef<AttendRow>[] = [
+    // Search matches the URN chips the cells show, not just the names.
+    // A readable Channel in a compound memory has no chatRootUrn; its id is its address.
+    { accessorFn: (r) => [r.channel, r.entry.channel ? (r.entry.channel.chatRootUrn ?? r.entry.channelId) : null].filter(Boolean).join(' '), id: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 200 },
+    { accessorFn: (r) => [r.attendee, r.entry.attendeeUrn].filter(Boolean).join(' '), id: 'attendee', header: t('app.channels.register.col.attendee', 'Who'), size: 220 },
+    // Not hideable: this cell renders the row's edit <form>, which the Save
+    // button in the actions cell submits by id. Hidden, Save would target a
+    // form that isn't in the DOM.
+    { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 170, enableHiding: false },
+    { accessorKey: 'mentions', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 170 },
+    { accessorKey: 'setBy', header: t('app.channels.register.col.set-by', 'Set by'), size: 190 },
+    { accessorKey: 'note', header: t('app.channels.register.col.note', 'Note'), size: 200 },
+    { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 200 },
+  ];
+  const attendTable = createSvelteTable<AttendRow>({
+    get data() { return attendRows; },
+    columns: attendColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: { get globalFilter() { return attendFilter; } },
+    onGlobalFilterChange: (u) => { attendFilter = typeof u === 'function' ? u(attendFilter) : u; },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
+
+  // ── #942 slice 4: what one attendee effectively follows (on demand) ──
+  let effectiveFor = $state('');
+  const effectiveAttendee = $derived(data.attendees.find((a) => a.id === effectiveFor) ?? null);
+  let effective = $state<{ rows: EffectiveRow[]; loadedAt: string } | null>(null);
+  let effectiveState = $state<'idle' | 'loading' | 'failed'>('idle');
+  // Each request is numbered; only the latest may write the panel, so a slow
+  // answer for the previous pick can't overwrite the current one.
+  let effectiveSeq = 0;
+  // `data` is replaced whenever the page reloads: after an Add, Save or Remove
+  // on this App's register, or when SvelteKit REUSES this component for another
+  // App (/app/apps/A/channels → B). Either way the effective view is stale:
+  // - another App: nothing of A's view may survive, so clear the pick and the
+  //   panel and bump the sequence so an in-flight answer for A is dropped
+  //   (hrn:node:hadronmemory.com:hadron-portal:review:a-reused-component-must-reseed-its-form);
+  // - the same App: re-resolve the selected attendee, since the winning row
+  //   may have just changed.
+  let seenData = untrack(() => data);
+  $effect(() => {
+    const d = data;
+    untrack(() => {
+      if (d === seenData) return;
+      const appChanged = d.app.id !== seenData.app.id;
+      seenData = d;
+      if (appChanged) {
+        effectiveSeq++;
+        effectiveFor = '';
+        effective = null;
+        effectiveState = 'idle';
+      } else if (effectiveFor && !d.attendees.some((a) => a.id === effectiveFor && !a.retired)) {
+        // The pick is no longer offered (retired, or gone since the reload).
+        effectiveSeq++;
+        effectiveFor = '';
+        effective = null;
+        effectiveState = 'idle';
+      } else if (effectiveFor) {
+        void loadEffective(effectiveFor);
+      }
+    });
+  });
+  async function loadEffective(attendeeId: string) {
+    const seq = ++effectiveSeq;
+    effective = null;
+    if (!attendeeId) {
+      effectiveState = 'idle';
+      return;
+    }
+    const a = data.attendees.find((x) => x.id === attendeeId);
+    if (!a) return;
+    effectiveState = 'loading';
+    try {
+      const res = await fetch(`${basePath}/channels/effective?attendee=${encodeURIComponent(a.id)}&kind=${a.kind}`);
+      const body = await res.json();
+      if (seq !== effectiveSeq) return;
+      if (!res.ok || body.loadFailed) {
+        effectiveState = 'failed';
+        return;
+      }
+      effective = { rows: body.rows, loadedAt: body.loadedAt };
+      effectiveState = 'idle';
+    } catch {
+      if (seq === effectiveSeq) effectiveState = 'failed';
+    }
+  }
+  let effectiveFilter = $state('');
+  const effectiveColumns: PortalColumnDef<EffectiveRow>[] = [
+    // Search matches the URN chip the cell shows under the name.
+    { accessorFn: (r) => [r.channel, r.channelUrn].filter(Boolean).join(' '), id: 'channel', header: t('app.channels.register.col.channel', 'Channel'), size: 180 },
+    { accessorKey: 'mode', header: t('app.channels.register.col.mode', 'Takes part as'), size: 150 },
+    { accessorKey: 'counts', header: t('app.channels.register.col.mentions', 'Counts as new'), size: 160 },
+    { accessorKey: 'because', header: t('app.channels.effective.col.because', 'Because of'), size: 260 },
+    { accessorKey: 'readUpTo', header: t('app.channels.effective.col.read', 'Read'), size: 170 },
+    { accessorKey: 'note', header: t('app.channels.effective.col.note', 'Note'), size: 200 },
+  ];
+  const effectiveTable = createSvelteTable<EffectiveRow>({
+    get data() { return effective?.rows ?? []; },
+    columns: effectiveColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: { get globalFilter() { return effectiveFilter; } },
+    onGlobalFilterChange: (u) => { effectiveFilter = typeof u === 'function' ? u(effectiveFilter) : u; },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
+
+  const inputClass =
+    'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
+</script>
+
+<svelte:head><title>{t('app.channels.head', 'Channels')} · {data.app.name} · Hadron</title></svelte:head>
+
+<div class="space-y-4">
+  <Breadcrumb items={[
+    { label: t('app.channels.crumb.apps', 'Apps'), href: appsHref },
+    { label: data.app.name, href: basePath },
+    { label: t('app.channels.crumb', 'Channels') },
+  ]} />
+
+  <div>
+    <h1 class="text-xl font-bold text-zinc-900 dark:text-white">
+      <span class="font-normal text-zinc-400">{t('app.channels.title.prefix', 'Channels:')}</span> {data.app.name}
+    </h1>
+    <Urn value={data.app.urn} type="app" size={8} label={t('app.channels.urn.app', 'App')} />
+    <p class="mt-1 max-w-3xl text-sm text-zinc-500 dark:text-zinc-400">
+      {t(
+        'app.channels.explainer',
+        'A channel is a shared conversation that lives in one of this App’s memories. Who can read it and post to it is decided by that memory’s access. A channel adds no access of its own.',
+      )}
+    </p>
+  </div>
+
+  {#if deleteError}
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{deleteError}</div>
+  {/if}
+  {#if renameError && !editing}
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{renameError}</div>
+  {/if}
+
+  {#if rows.length === 0}
+    <div class="rounded-xl border border-dashed border-zinc-300 bg-white p-8 text-center text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400">
+      {t('app.channels.empty', 'No channels you can read in this App yet.')}
+    </div>
+  {:else}
+    <DataTable
+      {table}
+      listKey="app:channels"
+      searchPlaceholder={t('app.channels.search', 'Search channels…')}
+      searchAriaLabel={t('app.channels.search', 'Search channels…')}
+      bind:globalFilter
+      maxHeight="max(200px, calc(100vh - 30rem))"
+    >
+      {#snippet cell(cell, row)}
+        {#if cell.column.id === 'name'}
+          {#if editing === row.id}
+            <form method="POST" action="?/renameChannel" use:renameEnhance novalidate class="space-y-1.5">
+              <input type="hidden" name="_kind" value="renameChannel" />
+              <input type="hidden" name="ref" value={row.id} />
+              <input aria-label={t('app.channels.rename.name', 'Channel name')} name="name" bind:value={$renameData.name} maxlength={CHANNEL_NAME_MAX} class={inputClass} />
+              <input aria-label={t('app.channels.rename.description', 'Description')} name="description" bind:value={$renameData.description} maxlength={CHANNEL_DESCRIPTION_MAX} placeholder={t('app.channels.description.placeholder', 'What this channel is for (optional)')} class={inputClass} />
+              {#if renameError}<p role="alert" class="text-xs text-red-600 dark:text-red-400">{renameError}</p>{/if}
+              <div class="flex gap-2">
+                <button type="submit" disabled={$renaming} class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('app.channels.rename.save', 'Save')}</button>
+                <button type="button" onclick={() => (editing = null)} class="rounded-md px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.cancel', 'Cancel')}</button>
+              </div>
+            </form>
+          {:else}
+            <div class="min-w-0">
+              <a href="/app/memories/{row.channel.memory.id}/nodes/{row.channel.chatRootNodeId}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
+              {#if row.isDefault}
+                <span class="ml-1 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">{t('app.channels.default', 'Team chat')}</span>
+              {/if}
+              {#if row.channel.description}<div class="truncate text-xs text-zinc-500 dark:text-zinc-400">{row.channel.description}</div>{/if}
+            </div>
+          {/if}
+        {:else if cell.column.id === 'address'}
+          {#if row.channel.chatRootUrn}
+            <Urn value={row.channel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
+          {:else}
+            <span class="font-mono text-xs" title={t('app.channels.address.id', 'This channel’s memory has no flat address; use its id.')}>{row.channel.id}</span>
+          {/if}
+        {:else if cell.column.id === 'host'}
+          <div class="min-w-0">
+            <div class="truncate">{row.host}</div>
+            <Urn value={row.channel.memory.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
+          </div>
+        {:else if cell.column.id === 'actions'}
+          {#if row.canWrite === false}
+            <span class="text-xs text-zinc-400" title={t('app.channels.readonly.hint', 'Changing a channel needs write access to the memory it lives in.')}>{t('app.channels.readonly', 'Read-only')}</span>
+          {:else if confirmingDelete === row.id}
+            <form method="POST" action="?/deleteChannel" use:deleteEnhance class="space-y-1.5">
+              <input type="hidden" name="_kind" value="deleteChannel" />
+              <input type="hidden" name="ref" value={row.id} />
+              <p class="text-xs text-red-700 dark:text-red-300">
+                {row.isDefault
+                  ? t('app.channels.delete.default-warning', 'This is the App’s team chat. Deleting it unlinks it from the App: workers can no longer post to the team chat until a new default is set up.')
+                  : t('app.channels.delete.warning', 'Delete this channel and its messages? Its address stays reserved.')}
+              </p>
+              <div class="flex gap-2">
+                <button type="submit" disabled={$deleting} class="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50">{t('app.channels.delete.confirm', 'Delete')}</button>
+                <button type="button" onclick={() => (confirmingDelete = null)} class="rounded-md px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.cancel', 'Cancel')}</button>
+              </div>
+            </form>
+          {:else}
+            <div class="flex gap-1">
+              <button type="button" onclick={() => startRename(row.channel)} class="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.rename', 'Rename')}</button>
+              <button type="button" onclick={() => startDelete(row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.delete', 'Delete')}</button>
+            </div>
+          {/if}
+        {:else}
+          <div class="truncate">{cell.getValue()}</div>
+        {/if}
+      {/snippet}
+    </DataTable>
+  {/if}
+
+  <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.channels.create.title', 'New channel')}</h2>
+    {#if !shared}
+      <!-- A null sharedMemory is "not provisioned" OR "you can't read it": the
+           server doesn't say which (hrn:node:hadronmemory.com:specs:cor:api:140:03),
+           so neither does this. -->
+      <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t('app.channels.create.no-host', 'This App’s shared memory, where its channels live, isn’t available to you.')}</p>
+    {:else if !canCreate}
+      <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+        {t('app.channels.create.no-write', 'Adding a channel needs write access to {memory}, where this App’s channels live.', { memory: shared.name })}
+      </p>
+      <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
+    {:else}
+      <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+        {t('app.channels.create.where', 'It is created in {memory}, alongside the App’s team chat, so it has that memory’s audience.', { memory: shared.name })}
+      </p>
+      <Urn value={shared.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
+      {#if createDone}<p role="status" class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{createDone}</p>{/if}
+      {#if createError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{createError}</p>{/if}
+      <form method="POST" action="?/createChannel" use:createEnhance novalidate class="mt-3 grid gap-3 sm:grid-cols-2">
+        <input type="hidden" name="_kind" value="createChannel" />
+        <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+          {t('app.channels.create.name', 'Name')}
+          <input name="name" bind:value={$createData.name} maxlength={CHANNEL_NAME_MAX} placeholder={t('app.channels.create.name.placeholder', 'Release coordination')} aria-invalid={$createErrors.name ? 'true' : undefined} aria-describedby={$createErrors.name ? 'create-name-error' : undefined} class="mt-1 {inputClass}" />
+          {#if $createErrors.name}<span id="create-name-error" class="mt-1 block text-[11px] text-red-600 dark:text-red-400">{$createErrors.name[0]}</span>{/if}
+        </label>
+        <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+          {t('app.channels.create.slug', 'Short name (part of its address)')}
+          <input name="slug" bind:value={$createData.slug} placeholder={t('app.channels.create.slug.placeholder', 'release')} aria-invalid={$createErrors.slug ? 'true' : undefined} aria-describedby={$createErrors.slug ? 'create-slug-error' : 'create-slug-address'} class="mt-1 {inputClass} font-mono" />
+          {#if $createErrors.slug}
+            <span id="create-slug-error" class="mt-1 block text-[11px] text-red-600 dark:text-red-400">{$createErrors.slug[0]}</span>
+          {:else}
+            <span id="create-slug-address" class="mt-1 block font-mono text-[11px] text-zinc-400">{channelLoc($createData.slug.trim() || '…')}</span>
+          {/if}
+        </label>
+        <label class="block text-xs text-zinc-600 sm:col-span-2 dark:text-zinc-400">
+          {t('app.channels.create.description', 'Description')}
+          <input name="description" bind:value={$createData.description} maxlength={CHANNEL_DESCRIPTION_MAX} placeholder={t('app.channels.description.placeholder', 'What this channel is for (optional)')} class="mt-1 {inputClass}" />
+        </label>
+        <div class="sm:col-span-2">
+          <button type="submit" disabled={$creating} class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('app.channels.create.submit', 'Create channel')}</button>
+        </div>
+      </form>
+    {/if}
+  </section>
+  <!-- #942 slice 3: the register. A row says who TAKES PART in a channel. It
+       never grants access: reading and posting stay the host memory's call. -->
+  <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <div>
+      <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.channels.register.title', 'Who takes part')}</h2>
+      <p class="mt-1 max-w-3xl text-xs text-zinc-500 dark:text-zinc-400">
+        {t(
+          'app.channels.register.explainer',
+          'Choose which of this App’s workers and agents follow each channel. Watch means new messages count for them; Post means they’re expected to write there; both is the default. “Only when mentioned” counts a message as new only if it names them. This records who takes part. It doesn’t give anyone access: reading and posting are still decided by the channel’s memory.',
+        )}
+      </p>
+    </div>
+
+    {#if data.registerLoadFailed}
+      <div role="alert" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        {t('app.channels.register.load-failed', 'Couldn’t load who takes part just now. This is an error, not an empty list. Try refreshing the page.')}
+      </div>
+    {:else}
+      {#if removeError}<div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{removeError}</div>{/if}
+      {#if editError && !editingRow}<div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{editError}</div>{/if}
+
+      {#if attendRows.length === 0}
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.channels.register.empty', 'Nobody is set up to take part in a channel yet.')}</p>
+      {:else}
+        <DataTable
+          table={attendTable}
+          listKey="app:register"
+          searchPlaceholder={t('app.channels.register.search', 'Search…')}
+          searchAriaLabel={t('app.channels.register.search', 'Search…')}
+          bind:globalFilter={attendFilter}
+          maxHeight="max(200px, calc(100vh - 30rem))"
+        >
+          {#snippet cell(cell, row)}
+            {#if cell.column.id === 'mode' && editingRow === row.id}
+              <form id="edit-attendance-{row.id}" method="POST" action="?/editAttendance" use:editEnhance novalidate class="space-y-1.5">
+                <input type="hidden" name="_kind" value="editAttendance" />
+                <input type="hidden" name="ref" value={row.id} />
+                <select name="role" aria-label={t('app.channels.register.col.mode', 'Takes part as')} bind:value={$editData.role} class="{inputClass} py-1">
+                  {#each REGISTER_ROLES as r (r)}<option value={r}>{roleLabel(r)}</option>{/each}
+                </select>
+                <label class="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+                  <input type="checkbox" name="mentionOnly" bind:checked={$editData.mentionOnly} />
+                  {t('app.channels.register.mentions.only', 'Only when mentioned')}
+                </label>
+                <input name="description" aria-label={t('app.channels.register.note', 'Note')} bind:value={$editData.description} maxlength={REGISTER_DESCRIPTION_MAX} placeholder={t('app.channels.register.note.placeholder', 'Why they take part (optional)')} class="{inputClass} py-1" />
+                {#if editError}<p role="alert" class="text-xs text-red-600 dark:text-red-400">{editError}</p>{/if}
+              </form>
+            {:else if cell.column.id === 'actions'}
+              {#if !row.editable}
+                <span class="text-xs text-zinc-400" title={row.entry.ownerType === 'APP'
+                  ? t('app.channels.register.readonly.app', 'Changing this App’s attendance needs admin rights on the App.')
+                  : t('app.channels.register.readonly.org', 'Set by the organization; change it in the organization’s settings.')}>{t('app.channels.readonly', 'Read-only')}</span>
+              {:else if editingRow === row.id}
+                <div class="flex gap-2">
+                  <button type="submit" form="edit-attendance-{row.id}" disabled={$savingEdit} class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('app.channels.rename.save', 'Save')}</button>
+                  <button type="button" onclick={() => (editingRow = null)} class="rounded-md px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.cancel', 'Cancel')}</button>
+                </div>
+              {:else if confirmingRemove === row.id}
+                <form method="POST" action="?/removeAttendance" use:removeEnhance class="flex flex-wrap items-center gap-2">
+                  <input type="hidden" name="_kind" value="removeAttendance" />
+                  <input type="hidden" name="ref" value={row.id} />
+                  <span class="text-xs text-red-700 dark:text-red-300">{t('app.channels.register.remove.confirm-text', 'Stop taking part?')}</span>
+                  <button type="submit" disabled={$removing} class="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50">{t('app.channels.register.remove', 'Remove')}</button>
+                  <button type="button" onclick={() => (confirmingRemove = null)} class="rounded-md px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.cancel', 'Cancel')}</button>
+                </form>
+              {:else}
+                <div class="flex gap-1">
+                  <button type="button" onclick={() => startEdit(row.entry)} class="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.register.edit', 'Edit')}</button>
+                  <button type="button" onclick={() => startRemove(row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.register.remove', 'Remove')}</button>
+                </div>
+              {/if}
+            {:else if cell.column.id === 'channel' && row.entry.channel?.chatRootUrn}
+              <div class="min-w-0">
+                <div class="truncate">{row.channel}</div>
+                <Urn value={row.entry.channel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
+              </div>
+            {:else if cell.column.id === 'channel' && row.entry.channel}
+              <!-- No flat address (compound memory): the id, as in the Channels table. -->
+              <div class="min-w-0">
+                <div class="truncate">{row.channel}</div>
+                <span class="font-mono text-xs">{row.entry.channelId}</span>
+              </div>
+            {:else if cell.column.id === 'attendee' && row.entry.attendeeUrn}
+              <div class="min-w-0">
+                <div class="truncate">{row.attendee}</div>
+                <Urn value={row.entry.attendeeUrn} type={row.entry.attendeeWorkerId ? 'worker' : 'agent'} size={8} label={t('app.channels.register.urn', 'attendee')} />
+              </div>
+            {:else}
+              <div class="truncate">{cell.getValue()}</div>
+            {/if}
+          {/snippet}
+        </DataTable>
+      {/if}
+
+      <!-- #942 slice 4: the EFFECTIVE result for one attendee. Only facts true
+           about the attendee; the resolver's read/post standing is the
+           viewer's, so it is not shown as theirs. -->
+      <div class="border-t border-zinc-200 pt-3 dark:border-zinc-800">
+        <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('app.channels.effective.title', 'What someone actually follows')}</h3>
+        <p class="mt-1 max-w-3xl text-xs text-zinc-500 dark:text-zinc-400">
+          {t('app.channels.effective.explainer', 'One row per channel: the setting that wins for them (their own row beats their agent’s, which beats everyone’s; this App’s beats the organization’s), and how far they have read.')}
+        </p>
+        <label class="mt-2 block max-w-sm text-xs text-zinc-600 dark:text-zinc-400">
+          {t('app.channels.effective.pick', 'Show for')}
+          <!-- Read from the event, so the load never depends on whether the binding
+               or this listener runs first. -->
+          <select bind:value={effectiveFor} onchange={(e) => loadEffective(e.currentTarget.value)} class="mt-1 {inputClass}">
+            <option value="">{t('app.channels.effective.pick.none', 'Pick a worker or agent…')}</option>
+            <!-- Active attendees only, as in the add form: a retired Worker follows nothing now. -->
+            {#each pickable as a (a.id)}
+              <option value={a.id}>{a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name })}</option>
+            {/each}
+          </select>
+          {#if effectiveAttendee?.urn}
+            <span class="mt-1 block">
+              <Urn value={effectiveAttendee.urn} type={effectiveAttendee.kind === 'worker' ? 'worker' : 'agent'} size={8} label={t('app.channels.register.urn', 'attendee')} />
+            </span>
+          {/if}
+        </label>
+        {#if effectiveState === 'loading'}
+          <p class="mt-2 text-xs text-zinc-500" role="status">{t('app.channels.effective.loading', 'Loading…')}</p>
+        {:else if effectiveState === 'failed'}
+          <p class="mt-2 text-sm text-amber-700 dark:text-amber-300" role="alert">{t('app.channels.effective.failed', 'Couldn’t load that just now. This is an error, not an empty list. Try again.')}</p>
+        {:else if effective}
+          {#if effective.rows.length === 0}
+            <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t('app.channels.effective.empty', 'They don’t take part in any channel you can see.')}</p>
+          {:else}
+            <p class="mt-2 text-[11px] text-zinc-400">{t('app.channels.effective.as-of', 'As of {time}.', { time: new Date(effective.loadedAt).toLocaleTimeString() })}</p>
+            <div class="mt-1">
+              <DataTable
+                table={effectiveTable}
+                listKey="app:register-effective"
+                searchPlaceholder={t('app.channels.register.search', 'Search…')}
+                searchAriaLabel={t('app.channels.register.search', 'Search…')}
+                bind:globalFilter={effectiveFilter}
+                maxHeight="max(160px, calc(100vh - 34rem))"
+              >
+                {#snippet cell(cell, row)}
+                  {#if cell.column.id === 'channel' && row.channelUrn}
+                    <div class="min-w-0">
+                      <div class="truncate">{row.channel}</div>
+                      <Urn value={row.channelUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
+                    </div>
+                  {:else}
+                    <div class="truncate">{cell.getValue()}</div>
+                  {/if}
+                {/snippet}
+              </DataTable>
+            </div>
+          {/if}
+        {/if}
+      </div>
+
+      {#if canManageRegister && data.channels.length > 0}
+        <div class="border-t border-zinc-200 pt-3 dark:border-zinc-800">
+          <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('app.channels.register.add.title', 'Add someone to a channel')}</h3>
+          {#if addDone}<p role="status" class="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{addDone}</p>{/if}
+          {#if addError}<p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{addError}</p>{/if}
+          <form method="POST" action="?/addAttendance" use:addEnhance novalidate class="mt-2 grid gap-3 sm:grid-cols-2">
+            <input type="hidden" name="_kind" value="addAttendance" />
+            <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+              {t('app.channels.register.col.channel', 'Channel')}
+              <select name="channelId" bind:value={$addData.channelId} aria-invalid={$addErrors.channelId ? 'true' : undefined} aria-describedby={$addErrors.channelId ? 'add-channel-error' : undefined} class="mt-1 {inputClass}">
+                <option value="" disabled>{t('app.channels.register.pick-channel', 'Pick a channel…')}</option>
+                {#each data.channels as c (c.id)}<option value={c.id}>{c.name}</option>{/each}
+              </select>
+              <!-- Client validation cancels an empty pick before any action result
+                   exists, so scopedActionError never sees it: show the field error here. -->
+              {#if $addErrors.channelId}
+                <span id="add-channel-error" role="alert" class="mt-1 block text-[11px] text-red-600 dark:text-red-400">{$addErrors.channelId[0]}</span>
+              {/if}
+              <!-- Two Channels can share a name: the chosen one's address tells them
+                   apart. A compound-memory Channel has no flat address, so its id,
+                   as in the Channels table. -->
+              {#if pickedChannel?.chatRootUrn}
+                <span class="mt-1 block">
+                  <Urn value={pickedChannel.chatRootUrn} type="node" size={8} label={t('app.channels.urn.channel', 'channel')} />
+                </span>
+              {:else if pickedChannel}
+                <span class="mt-1 block font-mono text-xs">{pickedChannel.id}</span>
+              {/if}
+            </label>
+            <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+              {t('app.channels.register.col.attendee', 'Who')}
+              <select name="attendee" bind:value={$addData.attendee} class="mt-1 {inputClass}">
+                <option value="">{t('app.channels.register.everyone-app', 'Everyone in this App')}</option>
+                {#each pickable as a (a.id)}
+                  <option value={a.id}>{a.kind === 'worker' ? a.name : t('app.channels.register.agent', '{name} (agent)', { name: a.name })}</option>
+                {/each}
+              </select>
+              <!-- An <option> can't hold a chip: the chosen one's address shows here,
+                   which is what tells two same-named Agents apart. -->
+              {#if pickedAttendee?.urn}
+                <span class="mt-1 block">
+                  <Urn value={pickedAttendee.urn} type={pickedAttendee.kind === 'worker' ? 'worker' : 'agent'} size={8} label={t('app.channels.register.urn', 'attendee')} />
+                </span>
+              {/if}
+            </label>
+            <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+              {t('app.channels.register.col.mode', 'Takes part as')}
+              <select name="role" bind:value={$addData.role} class="mt-1 {inputClass}">
+                {#each REGISTER_ROLES as r (r)}<option value={r}>{roleLabel(r)}</option>{/each}
+              </select>
+            </label>
+            <label class="flex items-center gap-2 self-end pb-2 text-xs text-zinc-600 dark:text-zinc-400">
+              <input type="checkbox" name="mentionOnly" bind:checked={$addData.mentionOnly} />
+              {t('app.channels.register.mentions.only', 'Only when mentioned')}
+            </label>
+            <label class="block text-xs text-zinc-600 sm:col-span-2 dark:text-zinc-400">
+              {t('app.channels.register.note', 'Note')}
+              <input name="description" bind:value={$addData.description} maxlength={REGISTER_DESCRIPTION_MAX} placeholder={t('app.channels.register.note.placeholder', 'Why they take part (optional)')} class="mt-1 {inputClass}" />
+            </label>
+            <div class="sm:col-span-2">
+              <button type="submit" disabled={$adding} class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">{t('app.channels.register.add', 'Add')}</button>
+            </div>
+          </form>
+        </div>
+      {:else if !canManageRegister}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.channels.register.no-manage', 'Changing who takes part needs admin rights on this App.')}</p>
+      {/if}
+    {/if}
+  </section>
+</div>

@@ -1,6 +1,9 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { USER_PROFILE_QUERY } from '$lib/server/queries';
+import { extractGqlError } from '$lib/server/gqlError';
+import { fetchAllItems } from '$lib/server/paginate';
+import { HELD_WORKERS_QUERY, USER_PROFILE_QUERY } from '$lib/server/queries';
+import type { HeldWorker } from '$lib/components/HeldWorkersTable.svelte';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -31,5 +34,26 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   if (!user) throw error(404, 'User not found, or you do not have access to it.');
 
-  return { user };
+  return { user, heldWorkers: await loadHeldWorkers(locals.token, user.id) };
 };
+
+type HeldWorkersResult = { ok: true; items: HeldWorker[] } | { ok: false; detail: string };
+
+/**
+ * #919 — the Workers tab. Selected by the resolved user's id, never the URL
+ * ref, and paged to COMPLETION (`fetchAllItems`): the server caps a page at
+ * 200 and orders oldest-first, so one request left every newer worker
+ * unreachable by the grid (@codex on #930). A failed read is REPORTED on the
+ * tab (`ok: false`), not folded into an empty roster that would claim the user
+ * holds nothing (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch);
+ * the profile itself still renders.
+ */
+async function loadHeldWorkers(token: string | null | undefined, userId: string): Promise<HeldWorkersResult> {
+  try {
+    const items = await fetchAllItems<HeldWorker>(gqlClient(token), HELD_WORKERS_QUERY, 'heldWorkers', { userRef: userId });
+    return { ok: true, items };
+  } catch (e) {
+    console.error('[user profile] heldWorkers failed:', e);
+    return { ok: false, detail: extractGqlError(e, 'The workers could not be loaded') };
+  }
+}

@@ -11,7 +11,7 @@
  * against a clean tree is decoration, and #849 shipped one with three holes of
  * the class it was written for.
  */
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { analyse, offences, svelteFilesUnder } from './check-tab-strips.mjs';
 
@@ -716,8 +716,23 @@ describe('the gate FLAGS what it should — the half that makes it real', () => 
  * (`hrn:node:hadronmemory.com:hadron-portal:review:a-spare-test-must-reach-the-matcher`).
  */
 describe('the repository as it stands', () => {
-  const scan = () =>
-    svelteFilesUnder('src').map((file) => ({ file, ...analyse(readFileSync(file, 'utf8')) }));
+  type Scanned = { file: string } & ReturnType<typeof analyse>;
+  /**
+   * The repo is walked ONCE for this block, and every test reads the result.
+   *
+   * One walk reads and analyses every .svelte file under src/ (~165 files,
+   * ~0.5 s idle). It used to run once per test, and twice inside one, which
+   * timed out at vitest's 5 s default under full-suite load while passing
+   * alone and in CI. The walk lives in a hook with its own explicit budget, so
+   * a loaded machine slows the suite instead of failing it. The assertions are
+   * unchanged, and each still runs over a fresh read of the tree.
+   */
+  let scanned: Scanned[] = [];
+  const REPO_WALK_BUDGET_MS = 60_000;
+  beforeAll(() => {
+    scanned = svelteFilesUnder('src').map((file) => ({ file, ...analyse(readFileSync(file, 'utf8')) }));
+  }, REPO_WALK_BUDGET_MS);
+  const scan = () => scanned;
 
   /**
    * The strips this predicate can currently SEE, by path.
@@ -772,6 +787,12 @@ describe('the repository as it stands', () => {
     'src/lib/dashboard/DashboardEditor.svelte',
     'src/lib/dashboard/DashboardEditor.svelte',
     'src/routes/+page.svelte',
+    // #919: the profile page's strip holds ONE tab (Workers) today, below the
+    // gate's two-tab threshold. It is a real strip and is already written the
+    // scrolling way (overflow-x-auto rail, shrink-0 whitespace-nowrap tab), so
+    // it needs no exemption from the rule, only from this count: move it to
+    // SEEN_AS_STRIPS when a second tab lands.
+    'src/routes/app/user/[id]/+page.svelte',
   ];
 
   it('the rails resolving to NO tabs are exactly the known non-strips', () => {
@@ -785,8 +806,9 @@ describe('the repository as it stands', () => {
   it('walks a plausible number of real .svelte files', () => {
     // The mirror of every "no offences" assertion in this file: an empty file
     // list produces the same clean result as a clean tree, so the walk has to
-    // be proven to have happened at all.
-    expect(svelteFilesUnder('src').length).toBeGreaterThan(100);
+    // be proven to have happened at all. It asserts on the SHARED scan every
+    // other test reads, so a hook that silently scanned nothing fails here.
+    expect(scan().length).toBeGreaterThan(100);
   });
 
   it('has no tab strip that stops scrolling', () => {

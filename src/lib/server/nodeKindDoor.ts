@@ -121,12 +121,24 @@ export const NODE_DOORS: readonly DoorEntry[] = [
   },
 ] as const;
 
+/**
+ * `role` is `base` or one of its dotted descendants: hadron-server's
+ * `roleIsOrDescendsFrom` (src/lib/governedRole.ts, #1322 / server#1345). The
+ * server governs the whole `spec.*` and `review.*` families, so a node with
+ * role `spec.feature` must go through the spec door. Matching `spec` exactly
+ * sent such writes to the generic `updateNode`, which refuses them (@codex on
+ * #931). The dot boundary is load-bearing: `spec` never matches `special`.
+ */
+export function roleIsOrDescendsFrom(role: string | null | undefined, base: string): boolean {
+  return role === base || (typeof role === 'string' && role.startsWith(`${base}.`));
+}
+
 /** Which governed kinds a state matches. Usually none; a runnable review is two. */
 export function governedKindsOf(state: GovernedState): DoorEntry[] {
   return NODE_DOORS.filter((entry) =>
     entry.signal.field === 'isRunnable'
       ? state.isRunnable === true
-      : state.role === entry.signal.value,
+      : roleIsOrDescendsFrom(state.role, entry.signal.value),
   );
 }
 

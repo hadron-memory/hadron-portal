@@ -53,6 +53,23 @@ describe('governedKindsOf', () => {
     expect(governedKindsOf({ role: 'weather-widget', isRunnable: null })).toEqual([]);
   });
 
+  // server#1345 governs the whole dotted FAMILY (`roleIsOrDescendsFrom`).
+  it.each([
+    ['spec.feature', 'spec'],
+    ['spec.rule', 'spec'],
+    ['review.security.deep', 'review'],
+  ])('matches the dotted descendant %s as %s', (role, kind) => {
+    expect(governedKindsOf({ role, isRunnable: null }).map((e) => e.kind)).toEqual([kind]);
+  });
+
+  // The dot boundary: a role that merely STARTS with the letters is ungoverned.
+  it.each(['special', 'specification', 'spec-', 'reviewer', 'reviews.x', '.spec', 'x.spec'])(
+    'does not match %s',
+    (role) => {
+      expect(governedKindsOf({ role, isRunnable: null })).toEqual([]);
+    },
+  );
+
   it('matches BOTH on a runnable review', () => {
     expect(governedKindsOf({ role: 'review', isRunnable: true }).map((e) => e.kind)).toEqual([
       'task',
@@ -112,6 +129,12 @@ describe('nodeUpdateDocument', () => {
    */
   it('routes a write that REMOVES the task marker through the task door', () => {
     expect(nodeUpdateDocument(task, { isRunnable: false })).toBe(UPDATE_TASK_NODE_MUTATION);
+  });
+
+  it('routes a Content save on a dotted spec node through the spec door (@codex on #931)', () => {
+    expect(nodeUpdateDocument({ role: 'spec.feature', isRunnable: null }, { content: 'x' })).toBe(
+      UPDATE_SPEC_NODE_MUTATION,
+    );
   });
 
   it('routes a write that CLEARS a review role through the review door', () => {

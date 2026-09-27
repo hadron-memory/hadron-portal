@@ -138,7 +138,8 @@ export function createNodeErrorCode(e: unknown): string | null {
  *  - `NodeLocConflictError` — a node with this loc already exists.
  *  - `InvalidLocError` — the loc fails server-side validation.
  *  - `MemoryNotFoundError` — the memory was removed between page load and
- *    submit.
+ *    submit, OR the caller can no longer read it: the two answer identically
+ *    (hrn:node:hadronmemory.com:specs:cor:api:140:03), so the copy claims neither.
  *  - `Forbidden` / no-write access — the user doesn't have write
  *    permission. (The route's `load` should surface this earlier; this is
  *    a defense-in-depth mapping.)
@@ -157,9 +158,11 @@ export function translateCreateNodeError(e: unknown): string {
         'Loc segments may only contain letters, digits, hyphens, and underscores.',
       );
     case 'MemoryNotFoundError':
+      // An unreadable memory answers exactly like a missing one
+      // (hrn:node:hadronmemory.com:specs:cor:api:140:03), so don't claim which.
       return t(
         'create-node.error.memory-not-found',
-        'This memory no longer exists. Try refreshing the page.',
+        'This memory isn’t available to you. It may have been deleted, or your access changed. Try refreshing the page.',
       );
     case 'Forbidden':
       return createNodeStrings.noWriteAccess();

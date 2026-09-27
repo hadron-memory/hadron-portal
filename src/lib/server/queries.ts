@@ -953,6 +953,32 @@ export const WORKER_QUERY = /* GraphQL */ `
   }
 `;
 
+// #919 — the workers a USER holds, across the Apps the CALLER may inspect
+// (hadron-server#1344). The profile page's Workers tab. The server applies the
+// worker read gate before counting or paging, so a viewer sees only workers in
+// Apps they can already read; an unknown user, no holds, and holds confined to
+// unreadable Apps are the same empty page, by design. Retired castings are
+// excluded (includeRetired omitted). appUrn is a gated scalar, so no nested
+// App object rides along.
+export const HELD_WORKERS_QUERY = /* GraphQL */ `
+  query HeldWorkers($userRef: String!, $limit: Int, $offset: Int) {
+    heldWorkers(userRef: $userRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        name
+        urn
+        role
+        appId
+        appUrn
+        heldAt
+        hasLiveSession
+        lastActiveAt
+      }
+      total
+    }
+  }
+`;
+
 // The App's staff. Retired castings are hidden unless includeRetired — they
 // keep their name reserved forever, so showing them is how a reader
 // understands why a name cannot be reused.
@@ -2523,6 +2549,23 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   }
 `;
 
+// #926: the evidence probe for a tag-only (legacy) chat root. Slim on purpose:
+// only the legacy MESSAGE nodes under the root's messages prefix, and only the
+// fields the direct-child check reads. Sorted by loc so direct children come
+// before their own descendants.
+export const LEGACY_THREAD_PROBE_QUERY = /* GraphQL */ `
+  query LegacyThreadProbe($memoryId: ID!, $locPrefix: String!, $limit: Int) {
+    findNodes(
+      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix, nodeType: "message" }
+      limit: $limit
+      sort: loc
+    ) {
+      total
+      hits { node { loc nodeType } }
+    }
+  }
+`;
+
 // Node CONTENT search (issue #355) — keyword/FTS over name+description+content,
 // scoped to a SET of memories (`filter.memoryIds`). Backs the "Exact" toggle of the
 // MemoryBrowser search box; powers /api/nodes/search. NOTE: `mode:keyword` is now
@@ -2765,6 +2808,9 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
       properties
+      # #927 (server #1323/#937): the live revision an inline editor opens on
+      # and saves against as expectedRevision. Detail-only, like properties.
+      revision
       # portal#696 / server#888: the asset a reference node points at (its
       # data.asset), written either by createAssetReferenceNode or by
       # hadron_store_file. NULL for every ordinary node, and ALSO null when the
@@ -3742,6 +3788,176 @@ export const TEST_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
       latencyMs
       reply
       error { code message transient }
+    }
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// #942 — Channel management (spec 049 phase 4). An App's Channels, the App's
+// default, and the caller's WRITE standing on the App's shared memory (the
+// host an App-scoped create targets). Channel reads are gated on the host
+// memory: a Channel you may not read is simply not in the page.
+// ---------------------------------------------------------------------------
+
+export const APP_CHANNELS_APP_QUERY = /* GraphQL */ `
+  query AppChannelsApp($ref: ID!) {
+    app(ref: $ref) {
+      id
+      name
+      urn
+      organizationId
+      defaultChannel { id }
+      sharedMemory { id urn name }
+    }
+  }
+`;
+
+/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200. */
+export const APP_CHANNELS_QUERY = /* GraphQL */ `
+  query AppChannels($appRef: ID!, $limit: Int, $offset: Int) {
+    channels(filter: { appRef: $appRef }, limit: $limit, offset: $offset) {
+      total
+      items {
+        id
+        name
+        description
+        kind
+        loc
+        chatRootUrn
+        chatRootNodeId
+        lastSeq
+        lastMessageAt
+        createdAt
+        memory { id urn name }
+      }
+    }
+  }
+`;
+
+/** #942: the host an App-scoped Channel create targets: the App's shared memory. */
+export const APP_SHARED_MEMORY_QUERY = /* GraphQL */ `
+  query AppSharedMemory($ref: ID!) {
+    app(ref: $ref) { id sharedMemory { id } }
+  }
+`;
+
+/**
+ * #942: may the caller write this memory? `resource` MUST be the memory's
+ * `hrn:mem:` URN: a bare id is read as an AiServiceConfig id and answers
+ * NOT_FOUND.
+ */
+export const SELF_CAN_WRITE_QUERY = /* GraphQL */ `
+  query SelfCanWrite($user: ID!, $resource: ID!) {
+    effectiveAccess(user: $user, resource: $resource) { canWrite }
+  }
+`;
+
+export const CREATE_CHANNEL_MUTATION = /* GraphQL */ `
+  mutation CreateChannel($input: CreateChannelInput!) {
+    createChannel(input: $input) { id loc name }
+  }
+`;
+
+export const UPDATE_CHANNEL_MUTATION = /* GraphQL */ `
+  mutation UpdateChannel($ref: ID!, $input: UpdateChannelInput!) {
+    updateChannel(ref: $ref, input: $input) { id name description }
+  }
+`;
+
+export const DELETE_CHANNEL_MUTATION = /* GraphQL */ `
+  mutation DeleteChannel($ref: ID!) {
+    deleteChannel(ref: $ref)
+  }
+`;
+
+// ---------------------------------------------------------------------------
+// #942 slice 3 — the register (spec 049 phase 5): who attends which Channel.
+// A row declares INTENT, never permission. Read gate (§8.6): host memory
+// readable OR the caller is on the row's owner side; `channel` is null to an
+// owner-side reader who may not read its host.
+// ---------------------------------------------------------------------------
+
+const REGISTER_ENTRY_FIELDS = /* GraphQL */ `
+  fragment RegisterEntryFields on RegisterEntry {
+    id
+    ownerType
+    ownerId
+    appId
+    organizationId
+    channelId
+    channel { id name loc chatRootUrn }
+    attendeeWorkerId
+    attendeeAgentId
+    attendeeUrn
+    role
+    mentionOnly
+    installDefault
+    description
+    createdAt
+  }
+`;
+
+export const REGISTER_ENTRIES_BY_OWNER_QUERY = /* GraphQL */ `
+  ${REGISTER_ENTRY_FIELDS}
+  query RegisterEntriesByOwner($ownerRef: ID!, $limit: Int, $offset: Int) {
+    registerEntries(filter: { ownerRef: $ownerRef }, limit: $limit, offset: $offset) {
+      total
+      items { ...RegisterEntryFields }
+    }
+  }
+`;
+
+/** The Agents installed in an App: the attendee picker's second half (Workers are the first). */
+export const APP_INSTALLED_AGENTS_QUERY = /* GraphQL */ `
+  query AppInstalledAgents($ref: ID!) {
+    app(ref: $ref) { id appAgents { agent { id name urn } } }
+  }
+`;
+
+/**
+ * #942: may the caller manage this entity (an App's register rows)? A
+ * self-audit. `resource` MUST be the entity's URN (`hrn:app:` …): a bare id is
+ * read as an AiServiceConfig id and answers NOT_FOUND.
+ */
+export const SELF_CAN_MANAGE_QUERY = /* GraphQL */ `
+  query SelfCanManage($user: ID!, $resource: ID!) {
+    effectiveAccess(user: $user, resource: $resource) { canManage }
+  }
+`;
+
+export const CREATE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
+  mutation CreateRegisterEntry($input: CreateRegisterEntryInput!) {
+    createRegisterEntry(input: $input) { id }
+  }
+`;
+
+export const UPDATE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
+  mutation UpdateRegisterEntry($ref: ID!, $input: UpdateRegisterEntryInput!) {
+    updateRegisterEntry(ref: $ref, input: $input) { id role mentionOnly description }
+  }
+`;
+
+export const DELETE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
+  mutation DeleteRegisterEntry($ref: ID!) {
+    deleteRegisterEntry(ref: $ref)
+  }
+`;
+
+// #942 slice 4 — an attendee's RESOLVED register (spec 049 phase 6): one
+// winning row per Channel. `canRead` / `canPost` / `disclosure` describe the
+// CALLER's standing (resolveRegister's actor is the request), NOT the
+// attendee's, so the portal must not present them as the attendee's.
+export const ATTENDEE_REGISTER_QUERY = /* GraphQL */ `
+  query AttendeeRegister($workerRef: ID, $agentRef: ID, $appRef: ID) {
+    attendeeRegister(workerRef: $workerRef, agentRef: $agentRef, appRef: $appRef) {
+      namedBy
+      lastSeenSeq
+      canRead
+      canPost
+      disclosure
+      attendeeUrn
+      entry { id ownerType role mentionOnly installDefault }
+      channel { id name loc hostMemoryUrn lastSeq lastMessageAt deleted }
     }
   }
 `;
