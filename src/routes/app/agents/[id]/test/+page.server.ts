@@ -1,30 +1,28 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { AI_CONFIG_READINESS_QUERY, ORGANIZATIONS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
+import { AI_CONFIG_READINESS_QUERY, ORGANIZATIONS_QUERY, MY_AGENTS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import {
   EFFECTIVE_ENDPOINT_UNSUPPORTED,
   isMissingEffectiveEndpoint,
   portalRuntimeRefusal,
 } from '$lib/server/llm/agentChatLlm';
-import { requireNonConsumer } from '$lib/server/guards';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
 import type { Agent, Organization } from '$lib/types';
 import type { PageServerLoad } from './$types';
 
-// Spec 019 — Agent Chat Tester. The loader resolves the agent through
-// the same organizations[*].agents scan the spec-018-fixed detail
-// loader uses; failure modes are inherited (404 no-leak, no silent
-// catch on the orgs query). Fixtures list is empty in US1 — US3
-// will populate it from `fixtures:*` system-memory nodes.
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  await requireNonConsumer(parent);
+type TesterAgent = Pick<Agent, 'id' | 'name' | 'urn' | 'organizationId' | 'systemMemoryId'>;
+
+// Spec 019 — Agent Chat Tester. Organization agents come from the caller's
+// organizations; user-owned agents come from the server's ownedByMe scope.
+// Neither list includes an unrelated private agent, so misses share one 404.
+export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
 
   const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
 
-  let agent: Agent | null = null;
+  let agent: TesterAgent | null = null;
   let org: Organization | null = null;
   for (const o of orgs) {
     const found = (o.agents ?? []).find((a) => a.id === params.id);
@@ -35,7 +33,17 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   }
 
-  if (!agent || !org) throw error(404, 'Agent not found or no longer available');
+  if (!agent) {
+    // #933: ownedByMe is enforced by the server, including for platform
+    // admins. Do not use the unfiltered agents list or a PUBLIC find-one:
+    // either would let this tester display somebody else's personal agent.
+    const owned = await fetchAllItems<TesterAgent>(
+      client, MY_AGENTS_QUERY, 'agents',
+    );
+    agent = owned.find((a) => a.id === params.id) ?? null;
+  }
+
+  if (!agent) throw error(404, 'Agent not found or no longer available');
 
   // #928: readiness is what the tester's RUNTIME would resolve, asked of the
   // same resolver. It used to be `Agent.hasAiApiKey`, which sees only the
@@ -48,7 +56,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // system memory (Q1 = B). Decode each and surface summaries.
   // Malformed fixtures decode to null and are skipped silently here —
   // T032's FixtureList can show an inline error tile if needed.
-  const systemMemoryId = (agent as unknown as { systemMemoryId?: string | null }).systemMemoryId ?? null;
+  const systemMemoryId = agent.systemMemoryId ?? null;
   let fixtures: FixtureSummary[] = [];
   if (systemMemoryId) {
     // Scope to the agent's system memory. findNodes hides class:'system'

@@ -282,7 +282,7 @@
 <div class="space-y-4">
   <Breadcrumb items={[
     { label: t('agent-tester.breadcrumb.dashboard', 'Dashboard'), href: '/app/dashboard' },
-    { label: t('agent-tester.breadcrumb.agents', 'Agents'), href: `/app/orgs/${org.id}/agents` },
+    { label: t('agent-tester.breadcrumb.agents', 'Agents'), href: org ? `/app/orgs/${org.id}/agents` : '/app/agents' },
     { label: agent.name, href: `/app/agents/${agent.id}` },
     { label: t('agent-tester.breadcrumb.test', 'Test') },
   ]} />
@@ -418,7 +418,9 @@
     <PersonaScript agentId={agent.id} />
   {/if}
 
-  <footer class="text-xs text-zinc-400 dark:text-zinc-500">
-    {t('agent-tester.footer.org', 'Org')}: {org.name}
-  </footer>
+  {#if org}
+    <footer class="text-xs text-zinc-400 dark:text-zinc-500">
+      {t('agent-tester.footer.org', 'Org')}: {org.name}
+    </footer>
+  {/if}
 </div>
