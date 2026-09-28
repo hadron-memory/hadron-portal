@@ -2824,7 +2824,7 @@ export const MEMORY_REF_ID_QUERY = /* GraphQL */ `
  *
  * server#1409 (#1406): `selectedSkillFilePlan` plans exactly the named node and
  * judges its name against a COMPLETE collision census, across memories and
- * orgs (`cor:agt:030:06`). The old `skillPlan(memories: [node.memoryId])`
+ * orgs (`hrn:node:hadronmemory.com:specs:cor:agt:030:06`). The old `skillPlan(memories: [node.memoryId])`
  * judged collisions within that one memory only.
  */
 export const SKILL_SELECTED_PLAN_QUERY = /* GraphQL */ `

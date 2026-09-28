@@ -17,7 +17,7 @@ import type { RequestHandler } from './$types';
  *
  * The plan is `selectedSkillFilePlan` for exactly this node (server#1409). Its
  * name is judged against a complete collision census across memories and orgs
- * (`cor:agt:030:06`), which the earlier `skillPlan(memories: [node.memoryId])`
+ * (`hrn:node:hadronmemory.com:specs:cor:agt:030:06`), which the earlier `skillPlan(memories: [node.memoryId])`
  * could not do: it judged within the node's own memory only. The URL's memory
  * must still be the fetched node's.
  */
