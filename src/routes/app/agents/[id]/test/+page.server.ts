@@ -1,7 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
-import { AI_CONFIG_READINESS_QUERY, ORGANIZATIONS_QUERY, MY_AGENTS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
+import { AI_CONFIG_READINESS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import {
   EFFECTIVE_ENDPOINT_UNSUPPORTED,
@@ -9,41 +8,17 @@ import {
   portalRuntimeRefusal,
 } from '$lib/server/llm/agentChatLlm';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
-import type { Agent, Organization } from '$lib/types';
+import { resolveTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import type { PageServerLoad } from './$types';
-
-type TesterAgent = Pick<Agent, 'id' | 'name' | 'urn' | 'organizationId' | 'systemMemoryId'>;
 
 // Spec 019 — Agent Chat Tester. Organization agents come from the caller's
 // organizations; user-owned agents come from the server's ownedByMe scope.
 // Neither list includes an unrelated private agent, so misses share one 404.
 export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
-
-  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
-
-  let agent: TesterAgent | null = null;
-  let org: Organization | null = null;
-  for (const o of orgs) {
-    const found = (o.agents ?? []).find((a) => a.id === params.id);
-    if (found) {
-      agent = found;
-      org = o;
-      break;
-    }
-  }
-
-  if (!agent) {
-    // #933: ownedByMe is enforced by the server, including for platform
-    // admins. Do not use the unfiltered agents list or a PUBLIC find-one:
-    // either would let this tester display somebody else's personal agent.
-    const owned = await fetchAllItems<TesterAgent>(
-      client, MY_AGENTS_QUERY, 'agents',
-    );
-    agent = owned.find((a) => a.id === params.id) ?? null;
-  }
-
-  if (!agent) throw error(404, 'Agent not found or no longer available');
+  const resolved = await resolveTesterAgent(client, params.id);
+  if (!resolved) throw error(404, 'Agent not found or no longer available');
+  const { agent, org } = resolved;
 
   // #928: readiness is what the tester's RUNTIME would resolve, asked of the
   // same resolver. It used to be `Agent.hasAiApiKey`, which sees only the
