@@ -3,6 +3,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText, tool, jsonSchema } from 'ai';
 import type { AIProvider } from '$lib/types';
+import { ChatError } from './chatError.js';
 
 /**
  * The tool-use response shape returned by the `respond` tool. This is the
@@ -185,6 +186,23 @@ export function createLanguageModel(provider: AIProvider, apiKey: string, model:
  * (or an empty array for turn zero / welcome).
  */
 export async function callAgentChatLlm(args: {
+  provider: AIProvider;
+  apiKey: string;
+  model: string;
+  systemMessage: string;
+  tools: HadronTool[] | null;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+}): Promise<AgentChatLlmResult> {
+  try {
+    return await callAgentChatLlmUnsafe(args);
+  } catch {
+    // SDK errors can contain the request Authorization header. Do not attach
+    // the original error as a cause or log it here.
+    throw new ChatError('llmFailed');
+  }
+}
+
+async function callAgentChatLlmUnsafe(args: {
   provider: AIProvider;
   apiKey: string;
   model: string;

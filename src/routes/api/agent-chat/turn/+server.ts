@@ -1,4 +1,5 @@
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { publicChatError } from '$lib/server/llm/chatError.js';
 import type { RequestHandler } from './$types';
 
 /**
@@ -52,9 +53,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Turn failed';
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
+    const safe = publicChatError(e);
+    return new Response(JSON.stringify({ error: safe.message, code: safe.code }), {
+      status: safe.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }

@@ -124,7 +124,7 @@ describe('fetchAgentAIConfig refuses before handing out the key', () => {
     });
     const err = await fetchConfig().then(() => null, (e: unknown) => e as Error);
     expect(err).toBeInstanceOf(Error);
-    expect(err!.message).toMatch(/custom endpoint \(proxy\.example\.com\)/);
+    expect(err!.message).toMatch(/cannot run in portal chats/);
     expect(err!.message).not.toContain('sk-canary');
   });
 
@@ -132,7 +132,7 @@ describe('fetchAgentAIConfig refuses before handing out the key', () => {
     mockRequest.mockResolvedValue({
       resolveAIConfig: { provider: 'openai-compatible', model: 'qwen3', apiKey: 'k', params: { toolCalling: true }, effectiveEndpoint: 'https://llm.example.com/v1' },
     });
-    await expect(fetchConfig()).rejects.toThrow(/"openai-compatible" provider, which portal chats can't run yet/);
+    await expect(fetchConfig()).rejects.toThrow(/cannot run in portal chats/);
   });
 
   it('a server that predates effectiveEndpoint fails in words, never by running unchecked', async () => {

@@ -84,6 +84,14 @@ const body = {
 };
 
 describe('POST /api/agent-chat/test-persona', () => {
+  it('does not echo a provider error from a scripted turn', async () => {
+    mockHappyPath();
+    mockRunChatTurn.mockRejectedValueOnce(new Error('Authorization: Bearer sk-synthetic-966'));
+    const POST = await importPOST();
+    const res = await POST(ev({ body }));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Chat request failed. Please try again.', code: 'failed' });
+  });
   it('starts the chat as a private test run (#898)', async () => {
     mockHappyPath();
     const POST = await importPOST();

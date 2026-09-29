@@ -7,6 +7,7 @@ import {
 } from '$lib/server/queries';
 import { resolveTesterSystemMemory } from '$lib/server/agent-tester/resolve-agent';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import {
   decodeFixture,
@@ -137,7 +138,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       errored++;
       result = {
         fixtureLoc: t.loc,
-        error: e instanceof Error ? e.message : 'Run failed',
+        error: publicChatError(e).message,
       };
     }
     results.push(result);
