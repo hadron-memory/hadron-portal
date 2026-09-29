@@ -131,6 +131,35 @@ describe('POST /api/ai-configs', () => {
     expect((await jsonOf(res)).error).toMatch(/already exists/);
   });
 
+  const configWrites = [
+    { action: 'create', ownerType: 'ORGANIZATION', ownerId: 'o1', name: 'default', provider: 'openai', model: 'gpt-4o' },
+    { action: 'update', id: 'c1', params: { temperature: 3 } },
+  ];
+
+  it.each(configWrites)('$action: maps typed validation to a safe 400', async (body) => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Authorization: Bearer sk-synthetic-966', extensions: { code: 'AiConfigValidationError' } }] },
+    });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body }));
+    expect(res.status).toBe(400);
+    expect(await jsonOf(res)).toEqual({
+      error: 'AI configuration is invalid. Check the name, provider settings, model, and API key.',
+    });
+  });
+
+  it.each(configWrites)('$action: keeps an unknown GraphQL error generic', async (body) => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Authorization: Bearer sk-synthetic-966', extensions: { code: 'UNKNOWN_ERROR' } }] },
+    });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body }));
+    expect(res.status).toBe(500);
+    expect(await jsonOf(res)).toEqual({
+      error: body.action === 'create' ? 'Failed to create AI configuration.' : 'Failed to update AI configuration.',
+    });
+  });
+
   it('test (inline): forwards the in-form key to the LLM and returns the reply', async () => {
     mockCallAgentChatLlm.mockResolvedValueOnce({
       respond: { message: 'I am here.' },

@@ -92,8 +92,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.createAiServiceConfig });
       } catch (e) {
-        if (extractGqlErrorCode(e) === 'DuplicateAiServiceConfigNameError') {
+        const code = extractGqlErrorCode(e);
+        if (code === 'DuplicateAiServiceConfigNameError') {
           return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
+        }
+        if (code === 'AiConfigValidationError') {
+          return json({ error: t('ai-config.error.invalid', 'AI configuration is invalid. Check the name, provider settings, model, and API key.') }, { status: 400 });
         }
         return json({ error: t('ai-config.error.create-failed', 'Failed to create AI configuration.') }, { status: 500 });
       }
@@ -124,8 +128,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.updateAiServiceConfig });
       } catch (e) {
-        if (extractGqlErrorCode(e) === 'DuplicateAiServiceConfigNameError') {
+        const code = extractGqlErrorCode(e);
+        if (code === 'DuplicateAiServiceConfigNameError') {
           return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
+        }
+        if (code === 'AiConfigValidationError') {
+          return json({ error: t('ai-config.error.invalid', 'AI configuration is invalid. Check the name, provider settings, model, and API key.') }, { status: 400 });
         }
         return json({ error: t('ai-config.error.update-failed', 'Failed to update AI configuration.') }, { status: 500 });
       }
