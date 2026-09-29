@@ -22,6 +22,21 @@ const SAFE_INLINE_STYLES = new Set([
   'text-decoration',
 ]);
 
+// Markdown formatting plus inert HTML content. Interactive controls and form
+// actions must never be supplied by a writable node in the portal's origin.
+const NOTE_TAGS = [
+  'a', 'abbr', 'article', 'aside', 'b', 'blockquote', 'br', 'caption', 'cite',
+  'code', 'dd', 'del', 'details', 'div', 'dl', 'dt', 'em', 'figcaption', 'figure',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'hr', 'i', 'img', 'input', 'ins', 'kbd', 'li',
+  'mark', 'ol', 'p', 'pre', 'q', 's', 'samp', 'section', 'small', 'span', 'strong',
+  'sub', 'summary', 'sup', 'table', 'tbody', 'td', 'tfoot', 'th', 'thead', 'tr',
+  'u', 'ul', 'var',
+];
+const NOTE_ATTRIBUTES = [
+  'alt', 'checked', 'class', 'colspan', 'disabled', 'height', 'href',
+  'open', 'rowspan', 'src', 'start', 'style', 'title', 'type', 'width',
+];
+
 function safeInlineStyle(raw: string, document: Document): string {
   const parsed = document.createElement('span').style;
   parsed.cssText = raw;
@@ -65,6 +80,14 @@ function purifier(): ReturnType<typeof DOMPurify> {
       attribute.keepAttr = Boolean(attribute.attrValue);
     }
   });
+  instance.addHook('afterSanitizeAttributes', (node) => {
+    if (node.nodeName.toLowerCase() !== 'input') return;
+    // Marked emits disabled checkboxes for GFM task lists. Treat authored
+    // inputs the same way, with no submit-capable input type or name.
+    node.setAttribute('type', 'checkbox');
+    node.setAttribute('disabled', '');
+    node.removeAttribute('src');
+  });
   nodePurifier = instance;
   return instance;
 }
@@ -81,8 +104,9 @@ export function renderNodeMarkdown(renderer: Marked, source: string): string {
   // Preserve authored HTML (including inline styles) while sanitizing every
   // output path before the node page inserts it with {@html}.
   return purifier().sanitize(renderer.parse(source, { async: false }) as string, {
+    ALLOWED_TAGS: NOTE_TAGS,
+    ALLOWED_ATTR: NOTE_ATTRIBUTES,
     // A stylesheet element can target the whole portal, outside node content.
-    // Inline style attributes still support local formatting such as spec blocks.
     FORBID_TAGS: ['style'],
   });
 }

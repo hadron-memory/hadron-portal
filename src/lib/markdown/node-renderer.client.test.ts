@@ -38,6 +38,19 @@ describe('node Markdown rendering', () => {
     expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
   });
 
+  it('keeps authored forms inert while retaining disabled Markdown task checkboxes', () => {
+    const html = renderNodeMarkdown(
+      renderer,
+      '<form method="POST" action="?/delete"><input type="image" name="hard" src="x"><button formaction="?/delete">Delete</button></form>\n\n<div id="portal-root">content</div>\n\n- [x] done',
+    );
+    const container = document.createElement('div');
+    container.innerHTML = html;
+
+    expect(container.querySelector('form, button, [action], [formaction], [name], [id]')).toBeNull();
+    expect([...container.querySelectorAll('input')].every((input) => input.type === 'checkbox' && input.disabled)).toBe(true);
+    expect(container.querySelector('input[checked]')).not.toBeNull();
+  });
+
   it('keeps wikilink rendering in the node Markdown pipeline', () => {
     const withLink = createNodeMarkdownRenderer(
       Marked,
