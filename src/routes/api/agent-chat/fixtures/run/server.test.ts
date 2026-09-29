@@ -149,6 +149,31 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect(mockRequest).toHaveBeenCalledWith(START_CHAT_MUTATION, expect.objectContaining({ agentId: 'agent-personal' }));
   });
 
+  it('does not send a fixture message or accept a baseline after an ended welcome', async () => {
+    setupChat({ nodes: [fixtureNode('fixtures:abc', { assertionMode: 'literal-contains' })] });
+    mockRunChatTurn.mockReset().mockResolvedValueOnce({
+      assistantMessage: 'Goodbye.',
+      stageTransitioned: false, newStageName: null, conversationHandoff: null,
+      chatEnded: true, onTrack: true, offTrackReason: null,
+    });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: {
+      agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc', acceptNewBaseline: true,
+    } }));
+    const report = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockRunChatTurn).toHaveBeenCalledTimes(1);
+    expect(mockRunChatTurn.mock.calls[0][0].userMessage).toBeNull();
+    expect(report.results[0]).toEqual({
+      fixtureLoc: 'fixtures:abc',
+      error: 'Chat ended during the welcome turn before the fixture message was sent.',
+    });
+    expect(report.summary).toMatchObject({ passed: 0, failed: 0, errored: 1 });
+    expect(mockJudgeAgentReply).not.toHaveBeenCalled();
+    expect(mockRequest.mock.calls.some((c) => c[0] === UPDATE_NODE_MUTATION)).toBe(false);
+  });
+
   it('single fixture replay: reports still-passing when reply matches baseline', async () => {
     setupChat({ nodes: [fixtureNode('fixtures:abc', { assertionMode: 'literal-contains' })] });
     const POST = await importPOST();

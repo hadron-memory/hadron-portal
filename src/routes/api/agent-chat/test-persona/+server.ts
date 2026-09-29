@@ -21,9 +21,8 @@ const MAX_TOTAL_MESSAGE_BYTES = 100_000;
  * Backs the Tester's "Scripted persona (multi-turn)" section. Runs a
  * scripted conversation against the agent's chatbot with the agent's
  * configured LLM: a welcome turn, then one turn per scripted message,
- * until the script runs out or the bot ends the chat on a scripted
- * turn. A welcome turn that ends the chat does NOT stop the script:
- * only the replies to scripted messages are checked for `chatEnded`.
+ * until the script runs out or the bot ends the chat, including on the
+ * welcome turn before any scripted message is sent.
  *
  * The report is built from startChat's result and what each turn
  * returns: the turns themselves, the stage transitions and conversation
@@ -154,8 +153,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     // 3. Send the opening message
     const allMessages = [body.openingMessage, ...(body.followUpMessages ?? [])];
+    let endedAtStep: number | null = welcomeTurn.chatEnded ? 0 : null;
 
-    for (let i = 0; i < allMessages.length; i++) {
+    for (let i = 0; !welcomeTurn.chatEnded && i < allMessages.length; i++) {
       const userMessage = allMessages[i];
       turns.push({ step: i + 1, role: 'user', message: userMessage });
 
@@ -176,9 +176,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         onTrack: turnResult.onTrack,
       });
 
-      // Stop if the chatbot indicates it's done or off-track
-      if (turnResult.chatEnded) break;
+      // Stop once the chatbot has ended the chat.
+      if (turnResult.chatEnded) {
+        endedAtStep = i + 1;
+        break;
+      }
     }
+
+    const skippedMessages = allMessages.length - turns.filter((turn) => turn.role === 'user').length;
 
     // 4. Build the test report
     const stageTransitions = turns
@@ -220,6 +225,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         stageTransitions,
         conversationsVisited,
         totalTurns: turns.length,
+        endedAtStep,
+        skippedMessages,
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
