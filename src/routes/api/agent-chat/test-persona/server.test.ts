@@ -128,7 +128,7 @@ describe('POST /api/agent-chat/test-persona', () => {
       conversationHandoff: 'finished',
     });
     const POST = await importPOST();
-    const res = await POST(ev({ body }));
+    const res = await POST(ev({ body: { ...body, expectedConversations: ['setup', 'finished'] } }));
     const report = await res.json();
 
     expect(res.status).toBe(200);
@@ -140,6 +140,34 @@ describe('POST /api/agent-chat/test-persona', () => {
     expect(report.totalTurns).toBe(1);
     expect(report.endedAtStep).toBe(0);
     expect(report.skippedMessages).toBe(2);
+    expect(report.pass).toBe(true);
+    expect(report.issues).toEqual([]);
+  });
+
+  it('still fails an unmet conversation expectation when the welcome ends the chat', async () => {
+    mockHappyPath();
+    mockRunChatTurn.mockResolvedValueOnce({ ...turn('Goodbye.'), chatEnded: true });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { ...body, expectedConversations: ['later'] } }));
+    const report = await res.json();
+
+    expect(mockRunChatTurn).toHaveBeenCalledTimes(1);
+    expect(report.endedAtStep).toBe(0);
+    expect(report.skippedMessages).toBe(2);
+    expect(report.pass).toBe(false);
+    expect(report.issues).toEqual(['Expected conversation "later" was not visited.']);
+  });
+
+  it('scores unmet conversation expectations when the welcome does not end the chat', async () => {
+    mockHappyPath();
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { ...body, expectedConversations: ['setup', 'later'] } }));
+    const report = await res.json();
+
+    expect(mockRunChatTurn).toHaveBeenCalledTimes(3);
+    expect(report.skippedMessages).toBe(0);
+    expect(report.pass).toBe(false);
+    expect(report.issues).toEqual(['Expected conversation "later" was not visited.']);
   });
 
   it('sends a null conversationName when none is given', async () => {

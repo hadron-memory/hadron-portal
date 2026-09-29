@@ -199,6 +199,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       conversationsVisited.unshift(startResult.startChat.conversationName);
     }
 
+    // Pass/Fail scores the configured conversation expectations. Early
+    // termination is reported separately through endedAtStep/skippedMessages;
+    // it does not change this verdict by itself (#901).
     let pass = true;
     const issues: string[] = [];
     if (body.expectedConversations?.length) {
