@@ -78,6 +78,15 @@ describe('agent update action (#488)', () => {
  * systemPrompt. The removed personaPrompt argument must never reach GraphQL.
  */
 describe('agent update action — shared prompt and persona role (#1241)', () => {
+  it('preserves every prompt byte when saving an unrelated role edit', async () => {
+    const migratedPrompt = '  Persona template.\n\nSystem guidance.\n';
+    await runUpdate({
+      name: 'Agent', urnSlug: 'agent', personaRole: 'staff-assistant',
+      systemPrompt: migratedPrompt,
+    });
+    expect(updateAgentVariables().systemPrompt).toBe(migratedPrompt);
+  });
+
   it('sends the shared prompt and role through', async () => {
     await runUpdate({
       name: 'Backend Engineer', urnSlug: 'backend-engineer',
