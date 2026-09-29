@@ -99,13 +99,9 @@ export interface Agent {
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
-  // #974 (hrn:node:hadronmemory.com:specs:cor:agt:020 v0.0.3): persona is *dressing* on any Agent, not an
-  // identity — the Agent is the reusable role-actor ("backend-engineer") and
-  // `personaPrompt` is a TEMPLATE ({{name}}/{{role}} bound at casting time).
-  // The named individual is a Worker (see below); `Agent.personaName` was
-  // dropped from the schema with the Worker model.
+  // The role is dressing on the reusable Agent; systemPrompt supplies the
+  // shared template for chats and bound Worker briefings (#1241).
   personaRole?: string | null;
-  personaPrompt?: string | null;
   // 036-ai-service-config: server shim — true when the agent's `default`
   // config has a key. Used by the Chat-tab readiness gate.
   hasAiApiKey?: boolean;
@@ -375,7 +371,7 @@ export interface Worker {
     urn: string;
     personaRole?: string | null;
     /**
-     * #1010 — the agent's RAW persona template, selected only by
+     * #1010/#1241 — the agent's RAW shared prompt template, selected only by
      * WORKER_QUERY and never by WorkerFields (which feeds the Staff
      * roster, where a template per row is the hadron-cli#459 mistake).
      *
@@ -385,7 +381,7 @@ export interface Worker {
      * different gate from the one guarding the composed `prompt`, so a
      * caller can legitimately have one and not the other.
      */
-    personaPrompt?: string | null;
+    systemPrompt?: string | null;
   } | null;
   /**
    * Retirement instant — a retired worker stops authoring and takes no new

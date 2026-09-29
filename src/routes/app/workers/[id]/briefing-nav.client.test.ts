@@ -37,7 +37,7 @@ function worker(id: string, promptOverride: string | null) {
     heldByUserId: null,
     heldAt: null,
     createdAt: '1789430400000',
-    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:x:engineer', personaPrompt: 'You are {{name}}.' },
+    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:x:engineer', systemPrompt: 'You are {{name}}.' },
     app: { id: 'app-1', name: 'Team', urn: 'hrn:app:x:team', organizationId: 'org-1' },
   };
 }
@@ -87,6 +87,17 @@ beforeEach(() => {
 });
 
 describe('#1010 — the no-JS path keeps its view (@codex/@copilot on #857)', () => {
+  it('shows the agent system prompt as the inherited Source template (#1241)', async () => {
+    const mounted = mountComponent(Page as never, { data: await dataFor(worker('w-a', 'X')) } as never);
+    try {
+      openSource(mounted.target);
+      expect(mounted.target.textContent).toContain('You are {{name}}.');
+      expect(overrideBox(mounted.target).value).toBe('X');
+    } finally {
+      mounted.unmount();
+    }
+  });
+
   it('the form action carries tab and view, not just the action name', async () => {
     const mounted = mountComponent(Page as never, { data: await dataFor(worker('w-a', 'X')) } as never);
     try {

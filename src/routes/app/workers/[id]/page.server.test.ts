@@ -573,15 +573,15 @@ describe('#1010 — the briefing view is URL-addressable (@codex on #857)', () =
   });
 });
 
-describe('#1010 — WORKER_QUERY carries the inherited template', () => {
-  it('selects the agent\'s personaPrompt, for the Source view\'s read-only half', () => {
-    expect(WORKER_QUERY).toMatch(/agent\s*\{\s*personaPrompt\s*\}/);
+describe('#1010/#1241 — WORKER_QUERY carries the inherited template', () => {
+  it('selects the agent\'s systemPrompt, for the Source view\'s read-only half', () => {
+    expect(WORKER_QUERY).toMatch(/agent\s*\{\s*systemPrompt\s*\}/);
   });
 
-  it('keeps personaPrompt OFF the roster fragment', () => {
+  it('keeps systemPrompt OFF the roster fragment', () => {
     // Same rule as `prompt`: select it where it is rendered, never on a list.
     // WorkerFields feeds the Staff roster, and a multi-KB template per row is
     // hadron-cli#459 in miniature.
-    expect(WORKERS_QUERY).not.toMatch(/personaPrompt/);
+    expect(WORKERS_QUERY).not.toMatch(/systemPrompt/);
   });
 });
