@@ -2,6 +2,8 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { publicChatError } from '$lib/server/llm/chatError.js';
+import { t } from '$lib/i18n/t';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import type { RequestHandler } from './$types';
 
@@ -122,7 +124,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       return new Response(
         JSON.stringify({
           error: 'shared-chat-requires-app-context',
-          message: msg,
+          message: t('agent-chat.error.shared-chat-membership', 'A shared chat requires membership in an App that installs this Agent.'),
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       );
@@ -137,12 +139,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       return new Response(
         JSON.stringify({
           error: 'shared-chat-not-available-for-app-sessions',
-          message: msg,
+          message: t('agent-chat.error.shared-chat-app-session', 'Shared chats are unavailable for App sessions.'),
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       );
     }
-    return new Response(JSON.stringify({ error: msg }), {
+    return new Response(JSON.stringify({ error: publicChatError(e).message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });
@@ -170,8 +172,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     finalStageName = turn.newStageName ?? stageName;
     stageTransitioned = turn.stageTransitioned;
   } catch (e) {
-    welcomeError = e instanceof Error ? e.message : 'Welcome turn failed';
-    console.warn('[agent-chat/start] welcome turn failed (chat is created and usable):', welcomeError);
+    const safe = publicChatError(e);
+    welcomeError = safe.message;
+    console.warn('[agent-chat/start] welcome turn failed (chat is created and usable):', safe.code);
   }
 
   return new Response(

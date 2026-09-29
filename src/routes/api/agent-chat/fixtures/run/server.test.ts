@@ -140,6 +140,16 @@ function setupChat(opts: {
 }
 
 describe('POST /api/agent-chat/fixtures/run', () => {
+  it('keeps provider text out of per-fixture failures', async () => {
+    setupChat({ nodes: [fixtureNode('fixtures:abc')] });
+    mockRunChatTurn.mockReset().mockRejectedValueOnce(new Error('Authorization: Bearer sk-synthetic-966'));
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc' } }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.results[0].error).toBe('Chat request failed. Please try again.');
+    expect(JSON.stringify(body)).not.toContain('sk-synthetic-966');
+  });
   it('replays a fixture for the caller\'s personal agent', async () => {
     setupChat({ nodes: [fixtureNode('fixtures:abc')], agentScope: 'personal' });
     const POST = await importPOST();

@@ -43,7 +43,7 @@ function keyLabel(k: AiConfigTestResult['used']['key']): string {
   }
 }
 
-/** The words for each `error.code` the server documents; else the server's own message. */
+/** Only fixed messages are rendered; a provider may echo credentials in error text. */
 function errorHeadline(e: NonNullable<AiConfigTestResult['error']>): string {
   switch (e.code) {
     case 'NO_API_KEY':
@@ -54,10 +54,10 @@ function errorHeadline(e: NonNullable<AiConfigTestResult['error']>): string {
       return t('ai-config.test.error.quota', 'Today’s token allowance is used up, so no test call was made.');
     case 'LLM_CALL_FAILED':
       return e.transient
-        ? t('ai-config.test.error.transient', 'The provider didn’t answer this time: {message}. Try again.', { message: e.message })
-        : t('ai-config.test.error.failed', 'The provider refused the call: {message}', { message: e.message });
+        ? t('ai-config.test.error.transient', 'The provider didn’t answer this time. Try again.')
+        : t('ai-config.test.error.failed', 'The provider call failed. Check the configuration and try again.');
     default:
-      return e.message;
+      return t('ai-config.test.error.unknown', 'The test failed.');
   }
 }
 

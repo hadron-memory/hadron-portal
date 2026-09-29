@@ -5,6 +5,7 @@ import {
   PROCESS_CHAT_RESPONSE_MUTATION,
 } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
@@ -224,9 +225,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Test persona failed';
-    return new Response(JSON.stringify({ error: msg }), {
-      status: 500,
+    const safe = publicChatError(e);
+    return new Response(JSON.stringify({ error: safe.message, code: safe.code }), {
+      status: safe.status,
       headers: { 'Content-Type': 'application/json' },
     });
   }

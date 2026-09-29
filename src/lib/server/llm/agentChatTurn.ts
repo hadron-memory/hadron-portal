@@ -7,12 +7,12 @@ import {
 } from '$lib/server/queries';
 import {
   callAgentChatLlm,
-  EFFECTIVE_ENDPOINT_UNSUPPORTED,
   isMissingEffectiveEndpoint,
   portalRuntimeRefusal,
   type HadronTool,
 } from './agentChatLlm.js';
 import type { AIProvider } from '$lib/types';
+import { ChatError, publicChatError } from './chatError.js';
 
 /** Result of a single chat turn surfaced to the frontend. */
 export interface ChatTurnResult {
@@ -52,16 +52,16 @@ export async function fetchAgentAIConfig(
   } catch (e) {
     const msg = e instanceof Error ? e.message : '';
     if (msg.includes('NoAiConfigAvailable') || /no ai config|not configured/i.test(msg)) {
-      throw new Error('Agent has no LLM provider configured. Set one in agent settings first.');
+      throw new ChatError('noConfig');
     }
     // A server without #1373 can't say where a config goes, so nothing is run.
-    if (isMissingEffectiveEndpoint(msg)) throw new Error(EFFECTIVE_ENDPOINT_UNSUPPORTED);
+    if (isMissingEffectiveEndpoint(msg)) throw new ChatError('oldServer');
     throw e;
   }
   // Stopgap (Holger, 2026-09-27): never run a config somewhere other than where
   // it's meant to go, with its key. Refused BEFORE the key is handed to anything.
   const refusal = portalRuntimeRefusal(resolved);
-  if (refusal) throw new Error(refusal);
+  if (refusal) throw new ChatError('configUnsupported');
   return {
     provider: resolved.provider as AIProvider,
     apiKey: resolved.apiKey,
@@ -180,7 +180,7 @@ export async function runChatTurn(args: {
           await client.request(SAVE_CHAT_SUMMARY_MUTATION, { chatId, summary });
         }
       } catch (err) {
-        console.warn('[agent-chat] summarization failed:', err);
+        console.warn('[agent-chat] summarization failed:', publicChatError(err).code);
       }
     })();
   }
