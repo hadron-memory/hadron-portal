@@ -25,12 +25,13 @@ describe('node Markdown rendering', () => {
   it('sanitizes scripts, event handlers, and unsafe links before insertion', () => {
     const html = renderNodeMarkdown(
       renderer,
-      '<script>alert(1)</script>\n\n<img src="x" onerror="alert(2)">\n\n[bad](javascript:alert%283%29)',
+      '<script>alert(1)</script>\n\n<style>body { display: none }</style>\n\n<img src="x" onerror="alert(2)">\n\n[bad](javascript:alert%283%29)',
     );
     const container = document.createElement('div');
     container.innerHTML = html;
 
     expect(container.querySelector('script')).toBeNull();
+    expect(container.querySelector('style')).toBeNull();
     expect(container.querySelector('img')?.hasAttribute('onerror')).toBe(false);
     expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
   });

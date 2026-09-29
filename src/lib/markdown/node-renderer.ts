@@ -13,5 +13,9 @@ export function createNodeMarkdownRenderer(
 export function renderNodeMarkdown(renderer: Marked, source: string): string {
   // Preserve authored HTML (including inline styles) while sanitizing every
   // output path before the node page inserts it with {@html}.
-  return DOMPurify.sanitize(renderer.parse(source, { async: false }) as string);
+  return DOMPurify.sanitize(renderer.parse(source, { async: false }) as string, {
+    // A stylesheet element can target the whole portal, outside node content.
+    // Inline style attributes still support local formatting such as spec blocks.
+    FORBID_TAGS: ['style'],
+  });
 }
