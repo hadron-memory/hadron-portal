@@ -278,6 +278,13 @@ async function runOneFixture(
     },
   });
 
+  // A fixture asserts the reply to its user message. Once the welcome turn
+  // ends the chat, there can be no such reply or verdict to compare or save.
+  // The caller isolates this as one fixture error and continues the batch.
+  if (welcomeTurn.chatEnded) {
+    throw new Error('Chat ended during the welcome turn before the fixture message was sent.');
+  }
+
   const t = await runChatTurn({ token, agentId, chatId, userMessage: turn.user });
 
   const newRoute: RouteTrace = {
