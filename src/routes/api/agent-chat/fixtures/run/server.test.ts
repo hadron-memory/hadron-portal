@@ -7,6 +7,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ORGANIZATIONS_QUERY,
+  MY_AGENTS_QUERY,
   GRAPH_NODES_QUERY,
   START_CHAT_MUTATION,
   UPDATE_NODE_MUTATION,
@@ -97,14 +98,22 @@ function fixtureNode(loc: string, opts: { assertionMode?: 'literal-contains' | '
 function setupChat(opts: {
   nodes: ReturnType<typeof fixtureNode>[];
   replyText?: string;
+  agentScope?: 'org' | 'personal';
 }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === ORGANIZATIONS_QUERY) {
-      return { organizations: { items: [
+      const items = opts.agentScope === 'personal' ? [] : [
         { id: 'org-a', name: 'A', urn: 'u', agents: [
           { id: 'agent-aaa', organizationId: 'org-a', systemMemoryId: 'sys-mem-a' },
         ] },
-      ], total: 1 } };
+      ];
+      return { organizations: { items, total: items.length } };
+    }
+    if (query === MY_AGENTS_QUERY) {
+      const items = opts.agentScope === 'personal'
+        ? [{ id: 'agent-personal', organizationId: null, systemMemoryId: 'sys-mem-a' }]
+        : [];
+      return { agents: { items, total: items.length } };
     }
     if (query === GRAPH_NODES_QUERY) return { findNodes: { hits: opts.nodes.map((node) => ({ node })) } };
     if (query === START_CHAT_MUTATION) {
@@ -131,6 +140,15 @@ function setupChat(opts: {
 }
 
 describe('POST /api/agent-chat/fixtures/run', () => {
+  it('replays a fixture for the caller\'s personal agent', async () => {
+    setupChat({ nodes: [fixtureNode('fixtures:abc')], agentScope: 'personal' });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'agent-personal', fixtureLoc: 'fixtures:abc' } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).summary.totalRuns).toBe(1);
+    expect(mockRequest).toHaveBeenCalledWith(START_CHAT_MUTATION, expect.objectContaining({ agentId: 'agent-personal' }));
+  });
+
   it('single fixture replay: reports still-passing when reply matches baseline', async () => {
     setupChat({ nodes: [fixtureNode('fixtures:abc', { assertionMode: 'literal-contains' })] });
     const POST = await importPOST();
@@ -324,9 +342,10 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect(res.status).toBe(200);
   });
 
-  it('404 when the agent is not a member', async () => {
+  it('404 when the agent is outside both caller scopes', async () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === ORGANIZATIONS_QUERY) return { organizations: { items: [], total: 0 } };
+      if (query === MY_AGENTS_QUERY) return { agents: { items: [], total: 0 } };
       throw new Error('unexpected');
     });
     const POST = await importPOST();
