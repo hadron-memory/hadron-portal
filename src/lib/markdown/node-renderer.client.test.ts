@@ -17,7 +17,7 @@ describe('node Markdown rendering', () => {
 
     expect(container.textContent).toContain('some text');
     expect(container.textContent).toContain('some other text');
-    const spec = container.querySelector('.spec-core');
+    const spec = container.querySelector('.node-html-spec-core');
     expect(spec).not.toBeNull();
     expect(spec?.getAttribute('style')).toContain('background-color: gray');
   });
@@ -25,14 +25,15 @@ describe('node Markdown rendering', () => {
   it('sanitizes scripts, event handlers, and unsafe links before insertion', () => {
     const html = renderNodeMarkdown(
       renderer,
-      '<script>alert(1)</script>\n\n<style>body { display: none }</style>\n\n<div class="overlay" style="position:fixed;inset:0;z-index:9999;background-color:white">cover</div>\n\n<img src="x" onerror="alert(2)">\n\n[bad](javascript:alert%283%29)',
+      '<script>alert(1)</script>\n\n<style>body { display: none }</style>\n\n<div class="fixed inset-0 z-50 bg-white" style="position:fixed;inset:0;z-index:9999;background-color:white">cover</div>\n\n<img src="x" onerror="alert(2)">\n\n[bad](javascript:alert%283%29)',
     );
     const container = document.createElement('div');
     container.innerHTML = html;
 
     expect(container.querySelector('script')).toBeNull();
     expect(container.querySelector('style')).toBeNull();
-    expect(container.querySelector('.overlay')?.getAttribute('style')).toBe('background-color: white;');
+    expect(container.querySelector('.fixed')).toBeNull();
+    expect(container.querySelector('.node-html-fixed')?.getAttribute('style')).toBe('background-color: white;');
     expect(container.querySelector('img')?.hasAttribute('onerror')).toBe(false);
     expect(container.querySelector('a[href^="javascript:"]')).toBeNull();
   });

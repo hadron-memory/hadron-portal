@@ -1,6 +1,6 @@
 import DOMPurify from 'dompurify';
 import type { Marked } from 'marked';
-import { wikilinkExtension, type WikilinkMap, type WikilinkStrings } from './wikilink';
+import { wikilinkExtension, WIKILINK_UNRESOLVED_CLASS, type WikilinkMap, type WikilinkStrings } from './wikilink';
 
 // Authored styles can decorate node content, but layout/positioning properties
 // must not let a node cover or impersonate the portal chrome.
@@ -40,15 +40,30 @@ function safeInlineStyle(raw: string, document: Document): string {
   return safe.cssText;
 }
 
+function safeClassNames(raw: string): string {
+  return raw.split(/\s+/).filter(Boolean).map((name) => {
+    // Keep classes emitted by our Markdown extensions. Namespace authored
+    // classes so they cannot activate the portal's Tailwind utility rules.
+    if (name === 'wikilink' || name === WIKILINK_UNRESOLVED_CLASS || /^language-[\w-]+$/.test(name)) {
+      return name;
+    }
+    return /^[\w-]+$/.test(name) ? `node-html-${name}` : '';
+  }).filter(Boolean).join(' ');
+}
+
 let nodePurifier: ReturnType<typeof DOMPurify> | null = null;
 
 function purifier(): ReturnType<typeof DOMPurify> {
   if (nodePurifier) return nodePurifier;
   const instance = DOMPurify(window);
   instance.addHook('uponSanitizeAttribute', (node, attribute) => {
-    if (attribute.attrName !== 'style') return;
-    attribute.attrValue = safeInlineStyle(attribute.attrValue, node.ownerDocument);
-    attribute.keepAttr = Boolean(attribute.attrValue);
+    if (attribute.attrName === 'style') {
+      attribute.attrValue = safeInlineStyle(attribute.attrValue, node.ownerDocument);
+      attribute.keepAttr = Boolean(attribute.attrValue);
+    } else if (attribute.attrName === 'class') {
+      attribute.attrValue = safeClassNames(attribute.attrValue);
+      attribute.keepAttr = Boolean(attribute.attrValue);
+    }
   });
   nodePurifier = instance;
   return instance;
