@@ -4,12 +4,14 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorNoEcho } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
+import { encryptMemoryStrings } from '$lib/i18n/encrypt-memory-strings';
 import {
   UPDATE_MEMORY_MUTATION,
   DELETE_MEMORY_MUTATION,
+  ENCRYPT_MEMORY_MUTATION,
   RETRY_FAILED_EMBEDDINGS_MUTATION,
   ORGANIZATIONS_QUERY,
   RESOLVE_URN_QUERY,
@@ -20,6 +22,7 @@ import type { Memory, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
   deleteMemorySchema,
+  encryptMemorySchema,
   memorySchemaSettingsSchema,
   memorySettingsSchema,
   retryFailedEmbeddingsSchema,
@@ -31,11 +34,33 @@ const vectorIndexSettingsFormAdapter = zod4(vectorIndexSettingsSchema);
 const memorySchemaSettingsFormAdapter = zod4(memorySchemaSettingsSchema);
 const deleteMemoryFormAdapter = zod4(deleteMemorySchema);
 const retryFailedEmbeddingsFormAdapter = zod4(retryFailedEmbeddingsSchema);
+const encryptMemoryFormAdapter = zod4(encryptMemorySchema);
 type MemorySettingsForm = Infer<typeof memorySettingsSchema, 'zod4'>;
 type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
 type MemorySchemaSettingsForm = Infer<typeof memorySchemaSettingsSchema, 'zod4'>;
 type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
 type RetryFailedEmbeddingsForm = Infer<typeof retryFailedEmbeddingsSchema, 'zod4'>;
+type EncryptMemoryForm = Infer<typeof encryptMemorySchema, 'zod4'>;
+
+/**
+ * Blank the secret fields before a form goes back over the wire (#873).
+ *
+ * superforms returns `form.data` to the client on EVERY path — success,
+ * `fail(400)`, and `message(..., { status: 500 })` alike — so a passphrase
+ * submitted to a form that then fails validation would be returned into the
+ * page's form store and live there for the rest of the session. Nothing in the
+ * happy path needs it either: the mutation has already run.
+ *
+ * Mutates and returns the same object rather than cloning, because superforms'
+ * callers hold that reference — a copy would be scrubbed while the original
+ * went out.
+ */
+function scrubSecrets<T extends { data: EncryptMemoryForm }>(form: T): T {
+  form.data.passphrase = '';
+  form.data.passphraseConfirm = '';
+  form.data.dataKey = '';
+  return form;
+}
 
 // FR-026: enabling the vector index on an encrypted memory without
 // acknowledging the embedding-inversion disclosure fails with this code.
@@ -123,7 +148,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
           return null;
         })
     : null;
-  const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
+  const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm, encryptForm] = await Promise.all([
     superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false }),
     superValidate<VectorIndexSettingsForm>(
       {
@@ -148,8 +173,12 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
       { errors: false },
     ),
     superValidate<RetryFailedEmbeddingsForm>({}, retryFailedEmbeddingsFormAdapter, { errors: false }),
+    superValidate<EncryptMemoryForm>({}, encryptMemoryFormAdapter, { errors: false }),
   ]);
-  return { allOrgs, owner, ownerUserId, form, vectorForm, schemaForm, deleteForm, retryEmbedsForm };
+  return {
+    allOrgs, owner, ownerUserId, form, vectorForm, schemaForm, deleteForm, retryEmbedsForm,
+    encryptForm,
+  };
 };
 
 export const actions: Actions = {
@@ -396,6 +425,74 @@ export const actions: Actions = {
       }
       return message(form, { type: 'error', text }, { status: 500 });
     }
+  },
+
+  // #873 — the encrypt route the portal did not have. Spec 041; owner-only,
+  // class='private' only, one-way.
+  encrypt: async ({ request, params, locals }) => {
+    const form = await superValidate<EncryptMemoryForm>(
+      await request.formData(),
+      encryptMemoryFormAdapter,
+    );
+    // Scrubbed on EVERY return path below, including this one. superforms sends
+    // `form.data` back to the client, so an invalid submit would otherwise
+    // return the user's passphrase into the page's form store — and from there
+    // into anything that serialises the form. The secret exists for the length
+    // of this function and nowhere else.
+    if (!form.valid) return fail(400, { form: scrubSecrets(form) });
+
+    // Send only the field `mode` names, never both. The server refuses
+    // both-at-once, and sending the unused one would turn a UI bug into a
+    // BAD_USER_INPUT the user cannot act on.
+    // One declared shape, not a union of two — both keys are always present,
+    // and the unused one is explicitly null so the mutation's optional
+    // argument is sent as null rather than omitted (the server reads
+    // both-supplied as an error, and neither-supplied as an error too).
+    const variables: { memoryId: string; passphrase: string | null; dataKey: string | null } =
+      form.data.mode === 'passphrase'
+        ? { memoryId: params.id, passphrase: form.data.passphrase, dataKey: null }
+        : { memoryId: params.id, passphrase: null, dataKey: form.data.dataKey };
+
+    try {
+      await gqlClient(locals.token).request(ENCRYPT_MEMORY_MUTATION, variables);
+    } catch (e: unknown) {
+      // Every precondition is the server's — owner, class='private',
+      // not-already-encrypted, and the FR-026 vector-index acknowledgement.
+      // A refusal is surfaced verbatim rather than re-worded: each message
+      // names the thing to change, and a paraphrase here would drift from the
+      // rule it is paraphrasing (the portal has no way to know which fired).
+      //
+      // But a refusal and a LOST RESPONSE are not the same event, and until
+      // #884 both produced "Failed to encrypt this memory" (@codex). If the
+      // mutation committed and its response died on the way back, that
+      // sentence is a confident claim we have not established — on an
+      // operation with no undo, whose key the client is about to clear. The
+      // same ambiguity as the browser→portal hop, one hop further in, and it
+      // needs the same answer.
+      //
+      // `errors[0].message` present ⇒ the server answered ⇒ definite.
+      // Absent ⇒ we never heard ⇒ say so.
+      const refusal = extractGqlErrorNoEcho(e, '');
+      return message(
+        scrubSecrets(form),
+        {
+          type: 'error',
+          // NOT extractGqlError: its transport fallback returns
+          // `Error.message`, and graphql-request packs the VARIABLES into that
+          // — so a 502 would put the passphrase in `form.message.text`, which
+          // scrubbing `form.data` does nothing about (@copilot on #884).
+          text: refusal || encryptMemoryStrings.outcomeUnknown(),
+        },
+        { status: 500 },
+      );
+    }
+    return message(scrubSecrets(form), {
+      type: 'success',
+      text: t(
+        'memory.encrypt.done',
+        'This memory is now encrypted. Keep your key safe — the content cannot be recovered without it.',
+      ),
+    });
   },
 
   delete: async ({ request, params, locals }) => {

@@ -948,3 +948,290 @@ describe('memory-detail `retryFailedEmbeddings` action (#695 / server #882)', ()
     expect(retriedCountOf(result)).toBe(1);
   });
 });
+
+// ── Tests for the `encrypt` action (#873 / spec 041) ─────────────────────
+
+/**
+ * #873 — the encrypt route.
+ *
+ * Two things are worth testing here and they are not the happy path.
+ *
+ * **The secret must not come back.** superforms returns `form.data` to the
+ * client on every path — success, `fail(400)`, and the 500 message alike — so
+ * a passphrase that is not scrubbed is returned into the page's form store and
+ * lives there for the rest of the session. It is the kind of defect that never
+ * shows up in a screenshot, so every path below asserts on the returned data
+ * rather than only on the status.
+ *
+ * **Exactly one key reaches the server.** The mutation refuses both-at-once,
+ * so a stale value in the field the user is not using would turn a UI slip
+ * into a BAD_USER_INPUT they cannot act on.
+ */
+function encryptEv(fields: Record<string, string>, opts: { memId?: string } = {}) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
+  return {
+    params: { id: opts.memId ?? 'mem-id-abc' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as Parameters<Awaited<ReturnType<typeof importActions>>['encrypt']>[0];
+}
+
+const VALID_PASSPHRASE = 'correct horse battery staple';
+// 32 bytes of 'A' → base64. Decodes to exactly 32, which is what the server wants.
+const VALID_DATA_KEY = btoa('A'.repeat(32));
+
+function returnedData(result: unknown): Record<string, unknown> {
+  const r = result as { data?: { form?: { data?: Record<string, unknown> } }; form?: { data?: Record<string, unknown> } };
+  // fail() wraps in `data`; message() returns the form at the top level.
+  return (r.data?.form?.data ?? r.form?.data ?? {}) as Record<string, unknown>;
+}
+
+describe('memory-settings `encrypt` action (#873)', () => {
+  it('sends the passphrase and an explicit null dataKey, never both', async () => {
+    mockRequest.mockResolvedValueOnce({ encryptMemory: { id: 'mem-y', isEncrypted: true } });
+    const actions = await importActions();
+
+    await actions.encrypt(
+      encryptEv({
+        _kind: 'encryptMemory',
+        mode: 'passphrase',
+        passphrase: VALID_PASSPHRASE,
+        passphraseConfirm: VALID_PASSPHRASE,
+        confirmIrreversible: 'true',
+      }, { memId: 'mem-y' }),
+    );
+
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    const [, vars] = mockRequest.mock.calls[0]!;
+    expect(vars).toEqual({ memoryId: 'mem-y', passphrase: VALID_PASSPHRASE, dataKey: null });
+  });
+
+  it('sends the data key and an explicit null passphrase in dataKey mode', async () => {
+    mockRequest.mockResolvedValueOnce({ encryptMemory: { id: 'm', isEncrypted: true } });
+    const actions = await importActions();
+
+    await actions.encrypt(
+      encryptEv({
+        _kind: 'encryptMemory',
+        mode: 'dataKey',
+        dataKey: VALID_DATA_KEY,
+        // A passphrase left behind by the user switching modes must NOT be sent.
+        passphrase: VALID_PASSPHRASE,
+        passphraseConfirm: VALID_PASSPHRASE,
+        confirmIrreversible: 'true',
+      }),
+    );
+
+    const [, vars] = mockRequest.mock.calls[0]!;
+    expect(vars).toEqual({ memoryId: 'mem-id-abc', passphrase: null, dataKey: VALID_DATA_KEY });
+  });
+
+  // The security assertion. Each case is a DIFFERENT return path, because the
+  // scrub has to be on all of them and one missing call is invisible.
+  it.each([
+    [
+      'success',
+      () => mockRequest.mockResolvedValueOnce({ encryptMemory: { id: 'm', isEncrypted: true } }),
+      { mode: 'passphrase', passphrase: VALID_PASSPHRASE, passphraseConfirm: VALID_PASSPHRASE, confirmIrreversible: 'true' },
+    ],
+    [
+      'server refusal',
+      () => mockRequest.mockRejectedValueOnce(new Error('Only class=private memories support encryption')),
+      { mode: 'passphrase', passphrase: VALID_PASSPHRASE, passphraseConfirm: VALID_PASSPHRASE, confirmIrreversible: 'true' },
+    ],
+    [
+      'validation failure (mismatched confirmation)',
+      () => undefined,
+      { mode: 'passphrase', passphrase: VALID_PASSPHRASE, passphraseConfirm: 'something else', confirmIrreversible: 'true' },
+    ],
+    [
+      'validation failure (unconfirmed)',
+      () => undefined,
+      { mode: 'passphrase', passphrase: VALID_PASSPHRASE, passphraseConfirm: VALID_PASSPHRASE },
+    ],
+    [
+      'validation failure (bad data key)',
+      () => undefined,
+      { mode: 'dataKey', dataKey: 'not-base64!!', confirmIrreversible: 'true' },
+    ],
+    // dataKey mode on the SUCCESS path — the passphrase cases above leave the
+    // data key empty from the start, so they would pass against a scrub that
+    // never touched it (@copilot on #884).
+    [
+      'success in dataKey mode',
+      () => mockRequest.mockResolvedValueOnce({ encryptMemory: { id: 'm', isEncrypted: true } }),
+      { mode: 'dataKey', dataKey: VALID_DATA_KEY, confirmIrreversible: 'true' },
+    ],
+  ])('returns no secret to the client on %s', async (_what, arrange, fields) => {
+    arrange();
+    const actions = await importActions();
+
+    const result = await actions.encrypt(encryptEv({ _kind: 'encryptMemory', ...fields }));
+    const data = returnedData(result);
+
+    // The control: the form really did come back, so these assertions are
+    // about a scrubbed value rather than about an absent form.
+    expect(data).toHaveProperty('mode');
+    expect(data.passphrase).toBe('');
+    expect(data.passphraseConfirm).toBe('');
+    expect(data.dataKey).toBe('');
+    // And nothing anywhere in the serialised result carries either secret —
+    // catches a copy surviving somewhere other than form.data.
+    expect(JSON.stringify(result)).not.toContain(VALID_PASSPHRASE);
+    expect(JSON.stringify(result)).not.toContain(VALID_DATA_KEY);
+  });
+
+  it('does not call the server at all when validation fails', async () => {
+    const actions = await importActions();
+    const result = await actions.encrypt(
+      encryptEv({ _kind: 'encryptMemory', mode: 'passphrase', passphrase: 'short', confirmIrreversible: 'true' }),
+    );
+    expect(mockRequest).not.toHaveBeenCalled();
+    expect((result as { status?: number }).status).toBe(400);
+  });
+
+  /**
+   * A refusal and a LOST RESPONSE are different events (@codex on #884).
+   *
+   * If the mutation committed and its response died on the way back, "Failed
+   * to encrypt this memory" is a confident claim we have not established — on
+   * an operation with no undo, whose key the client clears immediately after.
+   * The same ambiguity the component's `onError` handles on the browser hop,
+   * one hop further in, and it gets the same sentence.
+   */
+  it('reports UNCERTAINTY when the GraphQL response is lost, not a failure', async () => {
+    // A transport error: `response` exists but carries no errors array, which
+    // is what a lost/aborted response looks like to graphql-request.
+    mockRequest.mockRejectedValueOnce(Object.assign(new Error('socket hang up'), { response: undefined }));
+    const actions = await importActions();
+
+    const result = await actions.encrypt(
+      encryptEv({
+        _kind: 'encryptMemory',
+        mode: 'passphrase',
+        passphrase: VALID_PASSPHRASE,
+        passphraseConfirm: VALID_PASSPHRASE,
+        confirmIrreversible: 'true',
+      }),
+    );
+
+    const text = (result as { data?: { form?: { message?: { text?: string } } } }).data?.form?.message?.text ?? '';
+    expect(text).toContain('we cannot tell you whether the encryption completed');
+    expect(text).toContain('Reload this page');
+    // It must NOT claim a failure it has not established.
+    expect(text).not.toBe('Failed to encrypt this memory');
+    // Nor assert the negative (@codex P1): the connection can fail while the
+    // mutation is still running, so a plaintext reading may simply be early.
+    // Saying "nothing changed" there invites discarding the only key to a
+    // memory that is about to be encrypted with it.
+    expect(text).not.toContain('nothing changed');
+    expect(text).toContain('do not discard the key');
+    // And still no secret in it.
+    expect(JSON.stringify(result)).not.toContain(VALID_PASSPHRASE);
+  });
+
+  // The server's verdict is surfaced, not paraphrased: each refusal names the
+  // thing to change (the class, the index, the key), and a portal-authored
+  // sentence would drift from whichever rule actually fired.
+  it('surfaces the server’s refusal message verbatim', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{ message: 'Disable the vector index (or acknowledge the inversion disclosure) before encrypting.' }],
+      },
+    });
+    const actions = await importActions();
+
+    const result = await actions.encrypt(
+      encryptEv({
+        _kind: 'encryptMemory',
+        mode: 'passphrase',
+        passphrase: VALID_PASSPHRASE,
+        passphraseConfirm: VALID_PASSPHRASE,
+        confirmIrreversible: 'true',
+      }),
+    );
+
+    // `message(form, …, { status: 500 })` returns an ActionFailure, so the form
+    // is under `data` exactly as with fail() — not at the top level, which is
+    // where a success-path message lands. Read both rather than assuming.
+    const r = result as {
+      data?: { form?: { message?: { text?: string; type?: string } } };
+      form?: { message?: { text?: string; type?: string } };
+    };
+    const message = r.data?.form?.message ?? r.form?.message;
+    expect(message?.type).toBe('error');
+    expect(message?.text).toContain('Disable the vector index');
+  });
+});
+
+/**
+ * @copilot on #884 — the scrub covered `form.data` and the error MESSAGE
+ * bypassed it entirely.
+ *
+ * `extractGqlError` falls back to `Error.message` on a transport failure, and
+ * graphql-request packs the request — variables included — into that message.
+ * So a 502 put the submitted passphrase into `form.message.text`, a different
+ * field on the same response that `scrubSecrets` never touched.
+ *
+ * `extractGqlErrorNoEcho` returns the server's own GraphQL message when there
+ * is one and the caller's generic fallback otherwise — never `Error.message`.
+ */
+describe('#884 — the error message must not echo the secret either', () => {
+  it('drops a transport error’s message rather than returning the variables in it', async () => {
+    // The real shape: graphql-request stringifies { query, variables } into
+    // the Error message when there is no GraphQL response payload.
+    mockRequest.mockRejectedValueOnce(
+      new Error(
+        'GraphQL Error (Code: 502): {"response":{"status":502},"request":{"query":"mutation EncryptMemory","variables":{"passphrase":"' +
+          VALID_PASSPHRASE +
+          '"}}}',
+      ),
+    );
+    const actions = await importActions();
+
+    const result = await actions.encrypt(
+      encryptEv({
+        _kind: 'encryptMemory',
+        mode: 'passphrase',
+        passphrase: VALID_PASSPHRASE,
+        passphraseConfirm: VALID_PASSPHRASE,
+        confirmIrreversible: 'true',
+      }),
+    );
+
+    const serialised = JSON.stringify(result);
+    expect(serialised).not.toContain(VALID_PASSPHRASE);
+    // The control: a message WAS reported, so the assertion above is about a
+    // suppressed secret rather than about an absent message.
+    //
+    // It is the UNCERTAINTY text rather than a failure claim, because this
+    // shape — an error with no GraphQL `errors` array — is exactly a lost
+    // response, and the mutation may have committed (@codex on #884). This
+    // assertion used to pin "Failed to encrypt this memory", which is the
+    // claim that finding was about.
+    const r = result as { data?: { form?: { message?: { text?: string } } } };
+    expect(r.data?.form?.message?.text).toContain('we cannot tell you whether the encryption completed');
+  });
+
+  // The other half: a real server refusal still reaches the user verbatim.
+  // A fix that blanked every message would "pass" the test above.
+  it('still surfaces a GraphQL error message, which is written by us', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: "Only class='private' memories support encryption (D-2026-07-06-B)." }] },
+    });
+    const actions = await importActions();
+
+    const result = await actions.encrypt(
+      encryptEv({
+        _kind: 'encryptMemory',
+        mode: 'passphrase',
+        passphrase: VALID_PASSPHRASE,
+        passphraseConfirm: VALID_PASSPHRASE,
+        confirmIrreversible: 'true',
+      }),
+    );
+    const r = result as { data?: { form?: { message?: { text?: string } } } };
+    expect(r.data?.form?.message?.text).toContain("class='private'");
+  });
+});

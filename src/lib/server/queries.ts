@@ -1306,6 +1306,37 @@ export const DELETE_MEMORY_MUTATION = /* GraphQL */ `
   mutation DeleteMemory($id: ID!) { deleteMemory(id: $id) }
 `;
 
+// #873 (spec 041, server #516/#221): convert a plaintext PRIVATE memory to
+// encrypted. The portal could READ `isEncrypted` in five places and had no
+// route that could set it — encryption-at-rest is the strongest expression of
+// the platform's access-control promise and was the one control a portal-only
+// user could not reach at all.
+//
+// EXACTLY ONE of `dataKey` (base64, 32 bytes) or `passphrase` (scrypt-derived
+// server-side; salt + params are stored on the memory, the key itself never).
+// The server refuses both-or-neither with BAD_USER_INPUT. The portal leads with
+// the passphrase because it is the only one of the two that does not put a raw
+// secret through a browser form, and keeps the data key behind a disclosure for
+// parity with `hadron memory encrypt --data-key`.
+//
+// ONE-WAY: there is no decryptMemory, and the server cannot recover content
+// without the key. Every other precondition is the server's and is surfaced
+// verbatim rather than re-implemented here — owner-only, class='private' only,
+// not-already-encrypted, and the FR-026 vector-index acknowledgement.
+//
+// The selection set is deliberately narrow. Re-reading the whole
+// MemoryFields fragment would invite the page to trust a payload that has just
+// been rewritten as ciphertext; `isEncrypted` is the one field whose change is
+// the point, and `invalidateAll` re-reads the rest through the layout.
+export const ENCRYPT_MEMORY_MUTATION = /* GraphQL */ `
+  mutation EncryptMemory($memoryId: ID!, $dataKey: String, $passphrase: String) {
+    encryptMemory(memoryId: $memoryId, dataKey: $dataKey, passphrase: $passphrase) {
+      id
+      isEncrypted
+    }
+  }
+`;
+
 // #695 (server #882, merged in server #883): operator recovery for embeddings
 // that failed PERMANENTLY. Re-stamps every live node carrying
 // embeddingFailedAt, clears the failure state, wakes the embedding worker, and

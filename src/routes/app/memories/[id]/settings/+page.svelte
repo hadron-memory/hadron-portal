@@ -8,12 +8,15 @@
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
+  import { encryptMemoryStrings } from '$lib/i18n/encrypt-memory-strings';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { PageData, ActionData } from './$types';
   import {
+    PASSPHRASE_MIN,
     deleteMemorySchema,
+    encryptMemorySchema,
     memorySchemaSettingsSchema,
     memorySettingsSchema,
     retryFailedEmbeddingsSchema,
@@ -30,6 +33,8 @@
   type MemorySchemaSettingsSuperform = SuperValidated<MemorySchemaSettingsForm, App.Superforms.Message, MemorySchemaSettingsForm>;
   type DeleteMemorySuperform = SuperValidated<DeleteMemoryForm, App.Superforms.Message, DeleteMemoryForm>;
   type RetryFailedEmbeddingsSuperform = SuperValidated<RetryFailedEmbeddingsForm, App.Superforms.Message, RetryFailedEmbeddingsForm>;
+  type EncryptMemoryForm = Infer<typeof encryptMemorySchema, 'zod4'>;
+  type EncryptMemorySuperform = SuperValidated<EncryptMemoryForm, App.Superforms.Message, EncryptMemoryForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
@@ -275,6 +280,95 @@
     return typeof n === 'number' ? n : null;
   });
   const retryEmbedsError = $derived(scopedActionError<RetryFailedEmbeddingsForm>(form, 'retryFailedEmbeddings', $retryEmbedsMessage));
+
+  // ── Encryption (#873 / spec 041) ────────────────────────────────────
+  const initialEncryptForm = untrack(() => submittedForm<EncryptMemoryForm>(form, 'encryptMemory') as EncryptMemorySuperform | null ?? data.encryptForm);
+  const {
+    form: encryptForm,
+    errors: encryptErrors,
+    message: encryptMessage,
+    submitting: encryptSubmitting,
+    enhance: encryptEnhance,
+  } = superForm<EncryptMemoryForm, App.Superforms.Message, EncryptMemoryForm>(initialEncryptForm, {
+    validators: zod4Client(encryptMemorySchema),
+    clearOnSubmit: 'errors-and-message',
+    // Unlike the re-drive button above, this one DOES want the full
+    // invalidation the layout pays for: every node's content and data has just
+    // been rewritten as ciphertext, so anything this page or its siblings hold
+    // is stale in the most literal way. Once per memory, forever.
+    invalidateAll: true,
+    // The client half of the server's scrub, from BOTH callbacks. `onResult`
+    // fires only once SvelteKit has an action result to deserialize, so a
+    // transport failure never reaches it — that path is `onError`, and an
+    // earlier version of this comment claimed network failures were covered
+    // while only registering `onResult` (@copilot on #884). One helper, two
+    // registrations, so they cannot drift again.
+    onSubmit: () => {
+      encryptTransportError = null;
+    },
+    onResult: () => {
+      clearSecretFields();
+      encryptTransportError = null;
+    },
+    onError: () => {
+      // A custom `onError` REPLACES superforms' default error handling, so a
+      // handler that only cleared left the user with a silently emptied form
+      // and no message at all (@codex on #884) — on the one operation in this
+      // repo that cannot be undone or retried into the same state.
+      //
+      // It cannot go through `scopedActionError`: that returns null unless
+      // ACTION DATA came back with a matching `_kind`, and a transport failure
+      // has none. Hence a separate piece of state rather than the message
+      // store.
+      clearSecretFields();
+      // Shared with the server action, which reaches the identical ambiguity
+      // on the portal→GraphQL hop. One sentence, one place.
+      encryptTransportError = encryptMemoryStrings.outcomeUnknown();
+    },
+  });
+
+  // Set by `onError` only. Separate from `encryptError`, which is derived from
+  // action data that a transport failure never produces.
+  let encryptTransportError = $state<string | null>(null);
+
+  function clearSecretFields() {
+    $encryptForm.passphrase = '';
+    $encryptForm.passphraseConfirm = '';
+    $encryptForm.dataKey = '';
+  }
+
+  // DERIVED from the form, not a second source of truth (@copilot's overview
+  // on #884: "can expose inconsistent disclosure state when initialized in
+  // data-key mode"). As separate `$state` it started false while a form
+  // returned with `mode: 'dataKey'` rendered the data-key input — so
+  // `aria-expanded` said collapsed over an expanded disclosure, and only for
+  // the user who had just submitted that path.
+  const showDataKeyPath = $derived($encryptForm.mode === 'dataKey');
+
+  const encryptError = $derived(scopedActionError<EncryptMemoryForm>(form, 'encryptMemory', $encryptMessage));
+  const encryptSuccess = $derived(scopedActionSuccess<EncryptMemoryForm>(form, 'encryptMemory', $encryptMessage));
+
+  // class='private' is the ONLY encryptable class (server D-2026-07-06-B), and
+  // encryption is one-way, so a memory offers this exactly once.
+  // `encryptMemory` is OWNER-only, and this page is reachable by org admins
+  // (see `canDelete` above), so without `ownerIsViewer` the form would be
+  // offered to someone whose submit can only be refused (@codex on #884).
+  // Presentation only — the server is the trust boundary — but an invitation
+  // that cannot be accepted is worse than no invitation.
+  const encryptable = $derived(g.class === 'private' && !g.isEncrypted && ownerIsViewer);
+
+  // The server refuses to encrypt while the vector index is enabled without the
+  // FR-026 ack — and that ack CANNOT be set on a plaintext memory: updateMemory
+  // only writes vectorIndexEncryptedAckAt when the memory is already encrypted
+  // (hadron-server resolvers.mutation.memory.ts:783). So there is exactly one
+  // route, and this is not a preference we are steering: disable the index,
+  // then encrypt. Reported to the server owner as a chicken-and-egg rather than
+  // worked around here.
+  //
+  // It is also the route that leaves nothing behind: disabling the index
+  // DELETES the stored vectors, so no embedding derived from the plaintext
+  // survives the conversion.
+  const encryptBlockedByIndex = $derived(encryptable && (g.vectorIndexEnabled ?? false));
 
   // ── Property schema (#588 / server #725) ────────────────────────────
   const initialSchemaForm = untrack(() => submittedForm<MemorySchemaSettingsForm>(form, 'updateSchema') as MemorySchemaSettingsSuperform | null ?? data.schemaForm);
@@ -927,6 +1021,256 @@
         </div>
       {/if}
     </form>
+  </section>
+
+  <!-- #873 / spec 041 — encryption at rest. The portal could read
+       `isEncrypted` in five places and had no route that could set it, which
+       made encryption the one control a portal-only user could not reach.
+       Every gate below is the SERVER's (owner-only, class='private' only,
+       not-already-encrypted, vector index disabled); the hides here are
+       presentation, and the server's refusal is surfaced verbatim. -->
+  <section class="max-w-lg">
+    <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">
+      {t('memory.encrypt.heading', 'Encryption')}
+    </h2>
+
+    {#if g.isEncrypted}
+      <p class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
+        {t(
+          'memory.encrypt.already',
+          'This memory is encrypted. Node content, abstracts and data are stored as ciphertext, and the server cannot read them without your key.',
+        )}
+      </p>
+    {:else if g.class !== 'private'}
+      <!-- Said plainly rather than hidden: a user looking for encryption here
+           should learn that it is not on offer and what decides that, not find
+           a gap.
+
+           CLASS-NEUTRAL on purpose, and it took two goes. The first version
+           said a non-private memory "is shared"; the second said every other
+           kind "can be reached by someone other than you". Both are false for
+           a PERSONAL memory, which `types.ts` documents as owner-only
+           alongside private (spec 034-memory-class-access) — twice caught by
+           @copilot on #884.
+
+           The mistake underneath both was inventing a RATIONALE the server
+           does not state. Its rule is `class='private'` and nothing else
+           (D-2026-07-06-B); it offers no theory about sharing, and neither
+           should this sentence. Name the rule and name this memory's kind. -->
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">
+        {t(
+          'memory.encrypt.class-not-eligible',
+          'Only private memories can be encrypted — the server accepts no other kind. This is a {kind} memory.',
+          { kind: g.class ?? 'shared' },
+        )}
+      </p>
+    {:else if !ownerIsViewer}
+      <!-- Owner-only on the server, and this page is reachable by org admins,
+           so the form would otherwise invite a submit that can only be
+           refused (@codex on #884). Said rather than hidden, for the same
+           reason as the class case above.
+
+           No rationale attached, deliberately — and this is the THIRD time in
+           this section that an invented reason had to be removed. It read
+           "because only they can hold the key", which is not the server's
+           rule (it accepts the owner OR an org App key) and not true of keys
+           (anyone can hold one). State what is refused; the server does not
+           explain itself and neither should this. -->
+      <p class="text-sm text-zinc-600 dark:text-zinc-400">
+        {t(
+          'memory.encrypt.owner-only',
+          'Only this memory’s owner can encrypt it.',
+        )}
+      </p>
+    {:else}
+      <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
+        {t(
+          'memory.encrypt.intro',
+          'Encrypting rewrites every node’s content, abstract and data as ciphertext, using a key the server never stores.',
+        )}
+      </p>
+      <!-- The one thing a user must understand before acting, stated before the
+           form rather than in a confirmation after it. There is no
+           decryptMemory and the server cannot recover the content. -->
+      <p class="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+        {t(
+          'memory.encrypt.one-way',
+          'This cannot be undone, and it cannot be recovered. If you lose the passphrase or key, the content of this memory is gone — there is no reset and no support path.',
+        )}
+      </p>
+
+      {#if encryptBlockedByIndex}
+        <!-- Not a choice we are presenting: the FR-026 acknowledgement that
+             would allow encrypting an indexed memory can only be recorded once
+             the memory is ALREADY encrypted, so disabling the index first is
+             the only order that works. It is also the clean one — disabling
+             deletes the stored vectors, so nothing derived from the plaintext
+             survives. -->
+        <p class="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+          {t(
+            'memory.encrypt.disable-index-first',
+            'Turn off the vector index above before encrypting. Disabling it deletes the stored vectors, which is what keeps embeddings built from the readable content from outliving the encryption.',
+          )}
+        </p>
+      {:else}
+        <form method="POST" action="?/encrypt" use:encryptEnhance class="space-y-4">
+          <input type="hidden" name="_kind" value="encryptMemory" />
+          <input type="hidden" name="mode" value={$encryptForm.mode} />
+
+          <div id="encrypt-key-fields" class="space-y-4">
+          {#if $encryptForm.mode === 'passphrase'}
+            <div>
+              <label for="encrypt-passphrase" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                {t('memory.encrypt.passphrase', 'Passphrase')}
+              </label>
+              <!-- autocomplete="new-password" so a password manager does not
+                   file this under the site as a login credential: it is a key
+                   for one memory, not a way back into the account. -->
+              <input
+                id="encrypt-passphrase"
+                name="passphrase"
+                type="password"
+                autocomplete="new-password"
+                spellcheck="false"
+                bind:value={$encryptForm.passphrase}
+                aria-invalid={$encryptErrors.passphrase ? 'true' : undefined}
+                aria-describedby={$encryptErrors.passphrase
+                  ? 'encrypt-passphrase-error encrypt-passphrase-hint'
+                  : 'encrypt-passphrase-hint'}
+                class={inputClass}
+              />
+              <p id="encrypt-passphrase-hint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                {t('memory.encrypt.passphrase-hint', 'At least {min} characters. Store it somewhere you will still have it next year.', { min: PASSPHRASE_MIN })}
+              </p>
+              {#if $encryptErrors.passphrase}
+                <p id="encrypt-passphrase-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{$encryptErrors.passphrase}</p>
+              {/if}
+            </div>
+
+            <div>
+              <label for="encrypt-passphrase-confirm" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                {t('memory.encrypt.passphrase-confirm', 'Repeat passphrase')}
+              </label>
+              <input
+                id="encrypt-passphrase-confirm"
+                name="passphraseConfirm"
+                type="password"
+                autocomplete="new-password"
+                spellcheck="false"
+                bind:value={$encryptForm.passphraseConfirm}
+                aria-invalid={$encryptErrors.passphraseConfirm ? 'true' : undefined}
+                aria-describedby={$encryptErrors.passphraseConfirm ? 'encrypt-passphrase-confirm-error' : undefined}
+                class={inputClass}
+              />
+              {#if $encryptErrors.passphraseConfirm}
+                <p id="encrypt-passphrase-confirm-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{$encryptErrors.passphraseConfirm}</p>
+              {/if}
+            </div>
+          {:else}
+            <div>
+              <label for="encrypt-data-key" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                {t('memory.encrypt.data-key', 'Data key')}
+              </label>
+              <input
+                id="encrypt-data-key"
+                name="dataKey"
+                type="password"
+                autocomplete="new-password"
+                spellcheck="false"
+                bind:value={$encryptForm.dataKey}
+                aria-invalid={$encryptErrors.dataKey ? 'true' : undefined}
+                aria-describedby={$encryptErrors.dataKey
+                  ? 'encrypt-data-key-error encrypt-data-key-hint'
+                  : 'encrypt-data-key-hint'}
+                class={inputClass}
+              />
+              <p id="encrypt-data-key-hint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                {t('memory.encrypt.data-key-hint', 'Base64, decoding to exactly 32 bytes — the same key `hadron memory encrypt --data-key` takes.')}
+              </p>
+              {#if $encryptErrors.dataKey}
+                <p id="encrypt-data-key-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{$encryptErrors.dataKey}</p>
+              {/if}
+            </div>
+          {/if}
+          </div>
+
+          <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input
+              type="checkbox"
+              name="confirmIrreversible"
+              value="true"
+              bind:checked={$encryptForm.confirmIrreversible}
+              aria-invalid={$encryptErrors.confirmIrreversible ? 'true' : undefined}
+              aria-describedby={$encryptErrors.confirmIrreversible ? 'encrypt-confirm-error' : undefined}
+              class="mt-0.5 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-900"
+            />
+            <span>
+              {t(
+                'memory.encrypt.confirm',
+                'I understand this cannot be undone and that the content cannot be recovered without this key.',
+              )}
+            </span>
+          </label>
+          {#if $encryptErrors.confirmIrreversible}
+            <p id="encrypt-confirm-error" class="text-xs text-red-600 dark:text-red-400">{$encryptErrors.confirmIrreversible}</p>
+          {/if}
+
+          <div class="flex flex-wrap items-center gap-3">
+            <button
+              type="submit"
+              disabled={$encryptSubmitting}
+              class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50"
+            >
+              {$encryptSubmitting
+                ? t('memory.encrypt.submitting', 'Encrypting...')
+                : t('memory.encrypt.submit', 'Encrypt this memory')}
+            </button>
+            <!-- The data key is depth behind a link, not a second field on the
+                 page: most users want a passphrase, and a raw key is the one
+                 input a browser form handles worst. -->
+            <button
+              type="button"
+              onclick={() => {
+                // Set the one source of truth; `showDataKeyPath` follows.
+                $encryptForm.mode = showDataKeyPath ? 'passphrase' : 'dataKey';
+                // Switching paths discards whatever was typed into the other
+                // one, so a secret cannot ride along in a field the submit no
+                // longer names.
+                clearSecretFields();
+              }}
+              aria-expanded={showDataKeyPath}
+              aria-controls="encrypt-key-fields"
+              class="text-xs text-indigo-600 underline hover:text-indigo-500 dark:text-indigo-400"
+            >
+              {showDataKeyPath
+                ? t('memory.encrypt.use-passphrase', 'Use a passphrase instead')
+                : t('memory.encrypt.use-data-key', 'I have a data key')}
+            </button>
+          </div>
+        </form>
+      {/if}
+
+      {#if encryptTransportError}
+        <p role="alert" class="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          {encryptTransportError}
+        </p>
+      {/if}
+
+      {#if encryptError}
+        <!-- Inserted after a submit, so it needs announcing: role="alert" for
+             the refusal, role="status" for the success, matching the nine
+             live regions already on this page (@copilot on #884). -->
+        <p role="alert" class="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300">
+          {encryptError}
+        </p>
+      {/if}
+    {/if}
+
+    {#if encryptSuccess}
+      <p role="status" class="mt-3 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+        {encryptSuccess}
+      </p>
+    {/if}
   </section>
 
   <!-- Spec 013: Danger zone — soft-delete affordance for authorized users.
