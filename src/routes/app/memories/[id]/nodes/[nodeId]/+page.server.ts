@@ -455,10 +455,12 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
  * #927 — the inline Content and Abstract saves.
  *
  * The editor posts the `Node.revision` it opened on, and the write sends it as
- * `expectedRevision` (hadron-server#937): the server refuses atomically, with
- * NODE_WRITE_CONFLICT, when anything wrote the node since. Before this the
- * whole editor buffer went out unconditioned, and a stale one silently replaced
- * newer content (seen in production, a user editing alongside an agent).
+ * `expectedRevision` (hadron-server#937): the server refuses the proposed edit
+ * with NODE_WRITE_CONFLICT when anything wrote the node since. Raw-drift
+ * reconciliation can itself advance the stored revision while refusing the edit
+ * (hadron-server#1458). Before this the whole editor buffer went out
+ * unconditioned, and a stale one silently replaced newer content (seen in
+ * production, a user editing alongside an agent).
  *
  * A save without a revision is refused rather than sent unguarded: an action
  * that cannot tell whether it overwrites someone does not guess (the same rule
