@@ -11,7 +11,9 @@
  * - an id whose read SUCCEEDED is never asked again, even if the roster still
  *   lacks it (a worker of another App, say) — one read, not one per poll;
  * - an id whose read FAILED is released, so the next poll retries (@codex on
- *   #908: a transient failure must not leave a worker chip-less until reload);
+ *   #908: a transient failure must not leave a worker chip-less until reload).
+ *   #1536: keep that id pending even when later forward polls carry no copy of
+ *   its message, so the retry can run against an empty page;
  * - reads that overlap are applied IN ORDER: a result older than one already
  *   applied is dropped (resolves null), so a slow early read can never
  *   replace a newer roster that holds a worker the early one predates (@codex
@@ -31,6 +33,7 @@ export type FetchRoster = () => Promise<RosterEntry[] | null>;
 
 export function createRosterRefresher(fetchRoster: FetchRoster) {
   const asked = new Set<string>();
+  const pending = new Set<string>();
   let issued = 0;
   let applied = 0;
   return {
@@ -43,7 +46,9 @@ export function createRosterRefresher(fetchRoster: FetchRoster) {
       items: Array<Pick<TeamChatMessage, 'authorWorkerId'>>,
       knownIds: ReadonlySet<string>,
     ): Promise<RosterEntry[] | null> {
-      const unknown = unknownWorkerIds(items, knownIds).filter((id) => !asked.has(id));
+      for (const id of unknownWorkerIds(items, knownIds)) pending.add(id);
+      for (const id of pending) if (knownIds.has(id)) pending.delete(id);
+      const unknown = [...pending].filter((id) => !asked.has(id));
       if (unknown.length === 0) return null;
       for (const id of unknown) asked.add(id);
       const mine = ++issued;
@@ -58,8 +63,12 @@ export function createRosterRefresher(fetchRoster: FetchRoster) {
         return null;
       }
       // A newer read already landed: this one is stale, so it is not applied.
-      if (mine < applied) return null;
+      if (mine < applied) {
+        for (const id of unknown) asked.delete(id);
+        return null;
+      }
       applied = mine;
+      for (const id of unknown) pending.delete(id);
       return roster;
     },
   };

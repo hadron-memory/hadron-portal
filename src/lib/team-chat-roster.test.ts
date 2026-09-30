@@ -31,7 +31,9 @@ describe('createRosterRefresher', () => {
       .mockResolvedValueOnce(ROSTER);
     const r = createRosterRefresher(fetchRoster);
     expect(await r.refreshFor([m('new')], new Set())).toBeNull();
-    expect(await r.refreshFor([m('new')], new Set())).toEqual(ROSTER);
+    // Forward polling no longer repeats the message that introduced this
+    // worker; an empty later page still has to retry the pending lookup.
+    expect(await r.refreshFor([], new Set())).toEqual(ROSTER);
     expect(fetchRoster).toHaveBeenCalledTimes(2);
   });
 

@@ -24,11 +24,15 @@
   // one. Measured under #754: one refetch in 20s where three were due, because
   // the 8s clock kept resetting. A prop that changes identity every render is
   // not a callback, it is a dependency.
-  const refreshTeamChat = async () => {
-    const res = await fetch(`/app/apps/${app.id}/team-chat`);
+  const refreshTeamChat = async (sinceSeq?: number) => {
+    const cursor = sinceSeq === undefined ? '' : `?sinceSeq=${sinceSeq}`;
+    const res = await fetch(`/app/apps/${app.id}/team-chat${cursor}`);
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
     const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
-    void refreshRosterFor(body.items);
+    // The initial page can contain workers whose roster lookup failed. Later
+    // forward pages may be empty, so keep seeding those bounded first-page
+    // authors while the refresher retries its pending IDs.
+    void refreshRosterFor([...(data.teamChatMessages ?? []), ...body.items]);
     return body;
   };
   // #793: the page BEFORE a seq. Same endpoint, same degraded-read contract —

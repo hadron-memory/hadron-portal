@@ -4,6 +4,27 @@ import type { TeamChatMessage } from '$lib/types';
 export const TEAM_CHAT_POLL_MS = 8000;
 
 /**
+ * Reconcile a `sinceSeq` page's cursor-scoped count with the full thread count.
+ * `pending` is the unread remainder reported by the previous forward page.
+ * Subtracting it avoids counting the same backlog again on each poll; newly
+ * posted messages increase `pageTotal` and therefore the full count. The
+ * server counts before fetching rows, so a concurrent post can appear in the
+ * page but not its count. The returned rows are the minimum true count.
+ */
+export function forwardPageCount(
+  fullTotal: number,
+  pending: number,
+  pageTotal: number,
+  pageLength: number,
+): { total: number; pending: number } {
+  const counted = Math.max(pageTotal, pageLength);
+  return {
+    total: fullTotal + counted - pending,
+    pending: counted - pageLength,
+  };
+}
+
+/**
  * Should the transcript stick to the bottom after an update?
  *
  * A chat scrolls to the newest message — but only for a reader who is already
@@ -68,12 +89,9 @@ export function scrollTopAfterPrepend(
 /**
  * Union a polled transcript window into the one already on screen (#793).
  *
- * **The poll returns a WINDOW, not the whole thread**, and today the thread
- * assigns it wholesale (`shownMessages = polled?.items ?? messages`). That is
- * correct only while the window and the display are the same set. The moment a
- * reader pages backwards, the next 8s tick would replace their loaded history
- * with the tail — destroying the scrollback and, because the array identity
- * changes, yanking them to the bottom. Every 8 seconds.
+ * **The poll returns a WINDOW, not the whole thread**. Assigning it wholesale
+ * would destroy any history a reader loaded by scrolling back. The component
+ * accumulates each bounded forward page into the displayed transcript.
  *
  * So the poll must MERGE. This is
  * `hrn:node:hadronmemory.com:hadron-portal:findings:adding-a-refresh-breaks-what-assumed-user-driven-change`

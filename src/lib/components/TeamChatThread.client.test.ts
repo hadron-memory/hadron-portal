@@ -4,7 +4,7 @@
  * CLIENT lane: the thread builds its rows after mount, and what matters is the
  * rendered header of each message.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -99,6 +99,103 @@ describe('TeamChatThread — the URN slot (#855)', () => {
     // The chip itself is a real link, reachable by Tab, to the URN resolver —
     // which redirects to the worker's profile.
     expect(slot.querySelector('a')!.getAttribute('href')).toBe(`/app/u/${DARA}`);
+  });
+});
+
+describe('TeamChatThread — bounded scroll-back (#1536)', () => {
+  it('keeps loading older 20-message pages when the initial page is too short to scroll', async () => {
+    setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
+    const postForm = await superValidate(zod4(postTeamChatMessageSchema), { errors: false });
+    const onLoadOlder = vi.fn(async (beforeSeq: number) => ({
+      items: Array.from({ length: 20 }, (_, i) => message(beforeSeq - 20 + i, {})),
+      total: beforeSeq - 1, // cursor-scoped, never the full-thread count
+    }));
+    const m = mountComponent(TeamChatThread as never, {
+      messages: Array.from({ length: 20 }, (_, i) => message(41 + i, {})),
+      total: 60,
+      postForm,
+      onLoadOlder,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+
+    const olderButton = () => Array.from(m.target.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Load earlier messages'));
+    expect(olderButton()).toBeDefined();
+    olderButton()!.click();
+    await vi.waitFor(() => expect(rowOf(m.target, 21)).not.toBeNull());
+    expect(onLoadOlder).toHaveBeenNthCalledWith(1, 41);
+    expect(olderButton()).toBeDefined();
+
+    olderButton()!.click();
+    await vi.waitFor(() => expect(rowOf(m.target, 1)).not.toBeNull());
+    expect(onLoadOlder).toHaveBeenNthCalledWith(2, 21);
+    expect(olderButton()).toBeUndefined();
+    expect(m.target.textContent).toContain('Start of the conversation');
+  });
+
+  it('keeps scroll-back available when a concurrent post made the tail count one low', async () => {
+    setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
+    const postForm = await superValidate(zod4(postTeamChatMessageSchema), { errors: false });
+    const onLoadOlder = vi.fn(async () => ({ items: [message(1, {})], total: 1 }));
+    const m = mountComponent(TeamChatThread as never, {
+      messages: Array.from({ length: 20 }, (_, i) => message(2 + i, {})),
+      total: 20, // count happened before #21 was posted
+      postForm,
+      onLoadOlder,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+
+    const button = Array.from(m.target.querySelectorAll('button')).find((el) => el.textContent?.includes('Load earlier messages'));
+    expect(button).toBeDefined();
+    button!.click();
+    await vi.waitFor(() => expect(rowOf(m.target, 1)).not.toBeNull());
+    expect(onLoadOlder).toHaveBeenCalledWith(2);
+  });
+});
+
+describe('TeamChatThread — bounded refresh (#1536)', () => {
+  it('advances a forward cursor through a burst without leaving a gap', async () => {
+    setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
+    const postForm = await superValidate(zod4(postTeamChatMessageSchema), { errors: false });
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    vi.useFakeTimers();
+    try {
+      const onRefresh = vi.fn(async (sinceSeq?: number) => {
+        if (sinceSeq === 20) return {
+          items: Array.from({ length: 20 }, (_, i) => message(21 + i, {})), total: 25, loadFailed: false,
+        };
+        if (sinceSeq === 40) return {
+          items: Array.from({ length: 5 }, (_, i) => message(41 + i, {})), total: 5, loadFailed: false,
+        };
+        throw new Error(`unexpected cursor ${sinceSeq}`);
+      });
+      const m = mountComponent(TeamChatThread as never, {
+        messages: Array.from({ length: 20 }, (_, i) => message(1 + i, {})),
+        total: 20,
+        postForm,
+        onRefresh,
+        onLoadOlder: vi.fn(async () => ({ items: [], total: 0 })),
+        pollMs: 100,
+      } as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      await vi.advanceTimersByTimeAsync(100);
+      await tick(2);
+      expect(onRefresh).toHaveBeenNthCalledWith(1, 20);
+      expect(rowOf(m.target, 40)).not.toBeNull();
+      expect(m.target.textContent).toContain('Loading newer messages…');
+      expect(m.target.textContent).not.toContain('Load earlier messages');
+      await vi.advanceTimersByTimeAsync(100);
+      await tick(2);
+      expect(onRefresh).toHaveBeenNthCalledWith(2, 40);
+      expect(rowOf(m.target, 45)).not.toBeNull();
+      expect(Array.from(m.target.querySelectorAll('span.font-mono')).filter((el) => /^#\d+$/.test(el.textContent ?? ''))).toHaveLength(45);
+    } finally {
+      vi.useRealTimers();
+      Reflect.deleteProperty(document, 'hidden');
+    }
   });
 });
 
