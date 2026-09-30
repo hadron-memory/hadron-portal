@@ -19,6 +19,7 @@
   import type { PageData, ActionData } from './$types';
   import {
     addAgentMemorySchema,
+    agentRegisterDefaultsSchema,
     agentSettingsSchema,
     deleteAgentSchema,
     removeAgentMemorySchema,
@@ -26,11 +27,13 @@
   } from './schema';
 
   type AgentSettingsForm = Infer<typeof agentSettingsSchema, 'zod4'>;
+  type AgentRegisterDefaultsForm = Infer<typeof agentRegisterDefaultsSchema, 'zod4'>;
   type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
   type UpdateAgentMemoryRoleForm = Infer<typeof updateAgentMemoryRoleSchema, 'zod4'>;
   type RemoveAgentMemoryForm = Infer<typeof removeAgentMemorySchema, 'zod4'>;
   type DeleteAgentForm = Infer<typeof deleteAgentSchema, 'zod4'>;
   type AgentSettingsSuperform = SuperValidated<AgentSettingsForm, App.Superforms.Message, AgentSettingsForm>;
+  type AgentRegisterDefaultsSuperform = SuperValidated<AgentRegisterDefaultsForm, App.Superforms.Message, AgentRegisterDefaultsForm>;
   type AddAgentMemorySuperform = SuperValidated<AddAgentMemoryForm, App.Superforms.Message, AddAgentMemoryForm>;
   type UpdateAgentMemoryRoleSuperform = SuperValidated<UpdateAgentMemoryRoleForm, App.Superforms.Message, UpdateAgentMemoryRoleForm>;
   type RemoveAgentMemorySuperform = SuperValidated<RemoveAgentMemoryForm, App.Superforms.Message, RemoveAgentMemoryForm>;
@@ -217,6 +220,58 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
   });
+  const initialRegisterDefaultsForm = untrack(() => submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults') as AgentRegisterDefaultsSuperform | null ?? data.registerDefaultsForm);
+  const {
+    form: registerDefaultsForm,
+    message: registerDefaultsMessage,
+    submitting: registerDefaultsSubmitting,
+    enhance: registerDefaultsEnhance,
+    isTainted: registerDefaultsIsTainted,
+    reset: registerDefaultsReset,
+  } = superForm<AgentRegisterDefaultsForm, App.Superforms.Message, AgentRegisterDefaultsForm>(initialRegisterDefaultsForm, {
+    validators: zod4Client(agentRegisterDefaultsSchema),
+    validationMethod: 'oninput',
+    clearOnSubmit: 'none',
+    // The default (true) restores the PAGE-LOAD value after a successful save,
+    // so the box showed the opposite of what was just saved (#971 QA). Keep the
+    // returned form, which carries the saved value and is untainted on success.
+    resetForm: false,
+  });
+  // #942: this component is reused across /app/agents/[id] navigations.
+  // - Another AGENT: reset to its value, dropping A's edits and A's banner, so
+  //   A's value can never post to B.
+  // - The SAME agent re-read (another form on the page saved): reseed only a
+  //   clean form, so an unsaved change here survives (#971 Codex P2). A save of
+  //   THIS form arrives untainted with the saved value, so it keeps its "Saved".
+  // - The FIRST run is skipped: the store was just seeded, either from the
+  //   loader or from a full-page (no-JS) submission's action form, and the
+  //   latter must keep the value the user tried to save beside its error
+  //   (#971 Codex P2).
+  let registerDefaultsAgentId = untrack(() => data.agent.id);
+  let registerDefaultsSeeded = false;
+  $effect(() => {
+    const seeded = data.registerDefaults?.mentionOnly ?? false;
+    const agentId = data.agent.id;
+    untrack(() => {
+      if (!registerDefaultsSeeded) {
+        registerDefaultsSeeded = true;
+      } else if (agentId !== registerDefaultsAgentId) {
+        registerDefaultsAgentId = agentId;
+        registerDefaultsReset({ data: { mentionOnly: seeded }, newState: { mentionOnly: seeded } });
+      } else if (!registerDefaultsIsTainted()) {
+        registerDefaultsForm.update((current) => ({ ...current, mentionOnly: seeded }), { taint: false });
+      }
+    });
+  });
+  // "Saved" describes the value that was saved. Once the box is edited again it
+  // would sit beside an unsaved value, so an edit clears it (#971 Codex P2).
+  // An error stays: it still describes the last attempt.
+  function clearSavedBanner() {
+    if ($registerDefaultsMessage?.type === 'success') registerDefaultsMessage.set(undefined);
+  }
+  const registerDefaultsError = $derived($registerDefaultsMessage?.type === 'error' ? $registerDefaultsMessage.text : null);
+  const registerDefaultsSuccess = $derived($registerDefaultsMessage?.type === 'success' ? $registerDefaultsMessage.text : null);
+
   const initialAddMemoryForm = untrack(() => submittedForm<AddAgentMemoryForm>(form, 'addMemory') as AddAgentMemorySuperform | null ?? data.addMemoryForm);
   const {
     form: addMemoryForm,
@@ -360,6 +415,12 @@
       activeTab = 'settings';
       confirmDelete = true;
     }
+  });
+  // #942: a full-page (no-JS) save of the register default comes back as a
+  // fresh page on Profile; open Settings so its result and the attempted value
+  // are visible, as the delete form above does (#971 Codex P2).
+  $effect(() => {
+    if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults')) activeTab = 'settings';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -1262,6 +1323,39 @@
               <span class="text-sm text-zinc-900 dark:text-white">{new Date(agent.createdAt).toLocaleDateString()}</span>
             </div>
           </div>
+        {/if}
+      </section>
+
+      <!-- #942: how this agent starts out in an App's default channel. Saved on
+           its own (only registerDefaults is sent), so it never rides along
+           with, or blocks, the Agent form above. -->
+      <section class="max-w-lg" aria-labelledby="registerDefaultsHeading">
+        <h2 id="registerDefaultsHeading" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('agent.register-defaults.heading', 'Channel attendance')}</h2>
+        <p class="mb-3 text-sm text-zinc-500">{t('agent.register-defaults.help', 'When this agent is installed into an App, it’s added to the App’s default channel. This sets what counts as new for it there. It applies only to attendance created from now on. Existing attendance is edited on each App’s Channels page. Attendance never gives access to a channel’s memory.')}</p>
+        {#if data.registerDefaults === null}
+          <p role="alert" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">{t('agent.register-defaults.load-failed', 'The current setting could not be loaded. Reload the page to try again.')}</p>
+        {:else}
+          <form method="POST" action="?/updateRegisterDefaults" use:registerDefaultsEnhance novalidate
+            class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            <input type="hidden" name="_kind" value={$registerDefaultsForm._kind} />
+            <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+              <input type="checkbox" name="mentionOnly" bind:checked={$registerDefaultsForm.mentionOnly} onchange={clearSavedBanner} class="mt-0.5" aria-describedby="registerDefaultsMentionHelp" />
+              <span>
+                {t('app.channels.register.mentions.only', 'Only when mentioned')}
+                <span id="registerDefaultsMentionHelp" class="block text-xs text-zinc-500">{$registerDefaultsForm.mentionOnly
+                  ? t('agent.register-defaults.mention-only.on', 'New installs count only messages that mention this agent.')
+                  : t('agent.register-defaults.mention-only.off', 'New installs count every message in the default channel.')}</span>
+              </span>
+            </label>
+            {#if registerDefaultsError}
+              <p role="alert" class="text-sm text-red-600 dark:text-red-400">{registerDefaultsError}</p>
+            {:else if registerDefaultsSuccess}
+              <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{registerDefaultsSuccess}</p>
+            {/if}
+            <button type="submit" disabled={$registerDefaultsSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+              {$registerDefaultsSubmitting ? t('agent.register-defaults.saving', 'Saving…') : t('agent.register-defaults.save', 'Save')}
+            </button>
+          </form>
         {/if}
       </section>
 

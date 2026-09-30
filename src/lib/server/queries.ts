@@ -1545,6 +1545,22 @@ export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #942: the defaults an install-created register row starts with (spec 049
+// Phase 5). Kept out of AgentFields so the many routes sharing that fragment
+// don't select a field they never render; only the agent Settings tab reads it.
+export const AGENT_REGISTER_DEFAULTS_QUERY = /* GraphQL */ `
+  query AgentRegisterDefaults($ref: ID!) {
+    agent(ref: $ref) { id registerDefaults { mentionOnly } }
+  }
+`;
+
+// Sends ONLY registerDefaults, so saving it can't touch any other agent setting.
+export const UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentRegisterDefaults($ref: ID!, $registerDefaults: RegisterDefaultsInput!) {
+    updateAgent(ref: $ref, registerDefaults: $registerDefaults) { id registerDefaults { mentionOnly } }
+  }
+`;
+
 export const DELETE_AGENT_MUTATION = /* GraphQL */ `
   mutation DeleteAgent($ref: ID!) { deleteAgent(ref: $ref) }
 `;

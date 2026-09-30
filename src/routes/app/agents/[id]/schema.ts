@@ -34,6 +34,13 @@ export const agentSettingsSchema = z.object({
   personaRole: z.string().trim().default(''),
 });
 
+// #942: how the register row an App install creates for this agent starts.
+// An unchecked checkbox is absent from the POST, which parses as false.
+export const agentRegisterDefaultsSchema = z.object({
+  _kind: z.literal('registerDefaults').default('registerDefaults'),
+  mentionOnly: z.boolean().default(false),
+});
+
 export const addAgentMemorySchema = z.object({
   _kind: z.literal('addMemory').default('addMemory'),
   memoryId: z.string().trim().min(1, 'Select a memory.').prefault(''),
@@ -62,6 +69,7 @@ export const deleteAgentSchema = z.object({
 });
 
 export type AgentSettingsSchema = typeof agentSettingsSchema;
+export type AgentRegisterDefaultsSchema = typeof agentRegisterDefaultsSchema;
 export type AddAgentMemorySchema = typeof addAgentMemorySchema;
 export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;
 export type RemoveAgentMemorySchema = typeof removeAgentMemorySchema;
