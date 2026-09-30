@@ -147,6 +147,20 @@ describe('agent Settings — register default (#942)', () => {
     }
   });
 
+  it('editing again after a save clears "Saved", which no longer describes the box (#971 Codex P2)', async () => {
+    const props = reactiveProps({ data: await pageData('a', { mentionOnly: false }), form: null } as Record<string, unknown>);
+    const root = await mountSettings(props);
+    box(root)!.click();
+    flushSync();
+    await afterSuccessfulSave(props, true);
+    expect(root.textContent).toContain('Saved. Future installs use this.');
+
+    box(root)!.click(); // a second, unsaved edit
+    flushSync();
+    expect(box(root)!.checked).toBe(false);
+    expect(root.textContent).not.toContain('Saved. Future installs use this.');
+  });
+
   it('an unsaved change survives a reload caused by another form on the page (#971 Codex P2)', async () => {
     const props = reactiveProps({ data: await pageData('a', { mentionOnly: false }), form: null } as Record<string, unknown>);
     const root = await mountSettings(props);

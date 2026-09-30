@@ -263,6 +263,12 @@
       }
     });
   });
+  // "Saved" describes the value that was saved. Once the box is edited again it
+  // would sit beside an unsaved value, so an edit clears it (#971 Codex P2).
+  // An error stays: it still describes the last attempt.
+  function clearSavedBanner() {
+    if ($registerDefaultsMessage?.type === 'success') registerDefaultsMessage.set(undefined);
+  }
   const registerDefaultsError = $derived($registerDefaultsMessage?.type === 'error' ? $registerDefaultsMessage.text : null);
   const registerDefaultsSuccess = $derived($registerDefaultsMessage?.type === 'success' ? $registerDefaultsMessage.text : null);
 
@@ -1327,7 +1333,7 @@
             class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
             <input type="hidden" name="_kind" value={$registerDefaultsForm._kind} />
             <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-              <input type="checkbox" name="mentionOnly" bind:checked={$registerDefaultsForm.mentionOnly} class="mt-0.5" aria-describedby="registerDefaultsMentionHelp" />
+              <input type="checkbox" name="mentionOnly" bind:checked={$registerDefaultsForm.mentionOnly} onchange={clearSavedBanner} class="mt-0.5" aria-describedby="registerDefaultsMentionHelp" />
               <span>
                 {t('app.channels.register.mentions.only', 'Only when mentioned')}
                 <span id="registerDefaultsMentionHelp" class="block text-xs text-zinc-500">{$registerDefaultsForm.mentionOnly
