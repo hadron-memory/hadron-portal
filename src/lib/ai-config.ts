@@ -1,10 +1,22 @@
-import type { AIProvider } from './types';
+import type { AIProvider, AiConfigProvider } from './types';
+import { t } from './i18n/t';
 
 export const AI_PROVIDERS: { value: AIProvider; label: string }[] = [
   { value: 'anthropic', label: 'Anthropic (Claude)' },
   { value: 'openai', label: 'OpenAI' },
   { value: 'glm', label: 'GLM (z.ai)' },
   { value: 'bedrock', label: 'AWS Bedrock' },
+];
+
+/**
+ * The AI-config picker's providers: the portal's own, plus server#1389's
+ * `openai-compatible`, a host the operator names by endpoint (vLLM, Ollama,
+ * OpenRouter …). Only configs may name it; the portal's own client can't.
+ */
+export const AI_CONFIG_PROVIDERS: { value: AiConfigProvider; label: string }[] = [
+  ...AI_PROVIDERS,
+  // Unlike the brand names above, this label is words, so it is translatable.
+  { value: 'openai-compatible', label: t('ai-config.provider.openai-compatible', 'OpenAI-compatible (your endpoint)') },
 ];
 
 export const DEFAULT_MODELS: Record<AIProvider, string> = {

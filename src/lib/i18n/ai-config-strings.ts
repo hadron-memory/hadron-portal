@@ -59,7 +59,36 @@ export const aiConfigStrings = {
   encryptedNote: (): string =>
     t('ai-config.encrypted-note', "Encrypted at rest with the Hadron server's master key."),
 
+  // server#1373: endpoint, wire protocol, tool calling.
+  endpointLabel: (): string => t('ai-config.endpoint-label', 'Endpoint'),
+  endpointDefaultHint: (url: string): string =>
+    t('ai-config.endpoint-default-hint', 'Leave empty to use the provider default: {url}', { url }),
+  endpointRequiredHint: (): string =>
+    t('ai-config.endpoint-required-hint', 'Required: the base URL of the compatible host, e.g. https://llm.example.com/v1.'),
+  endpointCustomHint: (): string =>
+    t('ai-config.endpoint-custom-hint', 'A custom endpoint needs this configuration’s own API key (any placeholder for a host that doesn’t check one).'),
+  endpointColumn: (): string => t('ai-config.column.endpoint', 'Endpoint'),
+  apiStyleLabel: (): string => t('ai-config.api-style-label', 'Protocol'),
+  apiStyleDefault: (style: string): string =>
+    t('ai-config.api-style-default', 'Provider default ({style})', { style }),
+  apiStyleChat: (): string => t('ai-config.api-style.chat', 'Chat Completions'),
+  apiStyleResponses: (): string => t('ai-config.api-style.responses', 'Responses'),
+  toolCallingLabel: (): string => t('ai-config.tool-calling-label', 'This host supports tool calling'),
+  toolCallingHint: (): string =>
+    t('ai-config.tool-calling-hint', 'Off by default: many compatible hosts don’t do tools. Turn it on only once you know this one does.'),
+  keyRequiredNote: (): string =>
+    t('ai-config.key-required-note', 'Required: this configuration needs its own key.'),
+
   // Validation / errors.
+  endpointNotUrl: (): string =>
+    t('ai-config.endpoint-not-url', 'The endpoint must be a full URL, like https://api.example.com/v1.'),
+  endpointBadScheme: (): string => t('ai-config.endpoint-bad-scheme', 'The endpoint must start with https://.'),
+  endpointRequired: (): string =>
+    t('ai-config.endpoint-required', 'An OpenAI-compatible provider needs an endpoint.'),
+  keyRequired: (): string =>
+    t('ai-config.key-required', 'This configuration needs its own API key.'),
+  testSaveFirst: (): string =>
+    t('ai-config.test-save-first', 'Save this configuration first, then Test it: the server tests it with the endpoint a run uses.'),
   invalidName: (): string =>
     t('ai-config.invalid-name', 'Name must be 1–64 characters of a–z, 0–9, “-” or “_”.'),
   modelRequired: (): string => t('ai-config.model-required', 'Provider and model are required.'),

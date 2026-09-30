@@ -1758,6 +1758,10 @@ export const AI_SERVICE_CONFIG_FIELDS = /* GraphQL */ `
     ownerId
     provider
     model
+    endpoint
+    effectiveEndpoint
+    apiStyle
+    effectiveApiStyle
     hasApiKey
     apiKeyPreview
     params
@@ -1785,11 +1789,13 @@ export const CREATE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   ${AI_SERVICE_CONFIG_FIELDS}
   mutation CreateAiServiceConfig(
     $ownerType: AiConfigOwnerType!, $ownerId: ID!, $name: String!,
-    $provider: String!, $model: String!, $apiKey: String, $params: JSON, $enabled: Boolean
+    $provider: String!, $model: String!, $apiKey: String, $params: JSON, $enabled: Boolean,
+    $endpoint: String, $apiStyle: AiApiStyle
   ) {
     createAiServiceConfig(
       ownerType: $ownerType, ownerId: $ownerId, name: $name,
-      provider: $provider, model: $model, apiKey: $apiKey, params: $params, enabled: $enabled
+      provider: $provider, model: $model, apiKey: $apiKey, params: $params, enabled: $enabled,
+      endpoint: $endpoint, apiStyle: $apiStyle
     ) {
       ...AiServiceConfigFields
     }
@@ -1800,14 +1806,27 @@ export const UPDATE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   ${AI_SERVICE_CONFIG_FIELDS}
   mutation UpdateAiServiceConfig(
     $id: ID!, $name: String, $provider: String, $model: String,
-    $apiKey: String, $params: JSON, $enabled: Boolean
+    $apiKey: String, $params: JSON, $enabled: Boolean,
+    $endpoint: String, $apiStyle: AiApiStyle
   ) {
     updateAiServiceConfig(
       id: $id, name: $name, provider: $provider, model: $model,
-      apiKey: $apiKey, params: $params, enabled: $enabled
+      apiKey: $apiKey, params: $params, enabled: $enabled,
+      endpoint: $endpoint, apiStyle: $apiStyle
     ) {
       ...AiServiceConfigFields
     }
+  }
+`;
+
+/**
+ * server#1373: the known endpoints for a provider, from the server's single
+ * suggestion list. The default is marked; `note` says what the URL doesn't
+ * (for Z.ai, which plan it bills).
+ */
+export const AI_PROVIDER_ENDPOINTS_QUERY = /* GraphQL */ `
+  query AiProviderEndpoints($provider: String!) {
+    aiProviderEndpoints(provider: $provider) { url label isDefault note }
   }
 `;
 
