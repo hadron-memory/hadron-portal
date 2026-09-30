@@ -101,14 +101,17 @@
   // The server's suggestion list for the chosen provider. A stale reply (the
   // provider changed while it was in flight) is dropped, and a failed read is
   // just no suggestions: the field still takes any URL.
+  //
+  // EVERY transition, Bedrock and a closed form included, clears the list and
+  // invalidates the request in flight first. Otherwise the previous provider's
+  // URLs stay offered until the new reply lands, and a late reply could refill
+  // the list after a switch to Bedrock (#951 Codex P2).
   let endpointsSeq = 0;
   $effect(() => {
     const provider = providerInput;
-    if (!formOpen || provider === 'bedrock') {
-      knownEndpoints = [];
-      return;
-    }
     const seq = ++endpointsSeq;
+    knownEndpoints = [];
+    if (!formOpen || provider === 'bedrock') return;
     post({ action: 'endpoints', provider })
       .then((r) => {
         if (seq === endpointsSeq) knownEndpoints = (r.endpoints as KnownEndpoint[]) ?? [];

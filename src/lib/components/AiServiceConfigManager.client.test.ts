@@ -295,3 +295,53 @@ describe('Test with the Model field cleared', () => {
     expect(posts.filter((p) => p.action === 'testSaved')).toHaveLength(0);
   });
 });
+
+describe('endpoint suggestions follow the provider (#951 Codex P2)', () => {
+  /** Endpoints replies for `held` providers wait until released; everything else answers at once. */
+  function holdEndpoints(held: string[]) {
+    const release = new Map<string, (urls: string[]) => void>();
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body) as Record<string, unknown>;
+      posts.push(body);
+      if (body.action === 'endpoints' && held.includes(String(body.provider))) {
+        const urls = await new Promise<string[]>((r) => release.set(String(body.provider), r));
+        return { ok: true, json: async () => ({ endpoints: urls.map((url) => ({ url, label: url, isDefault: true, note: null })) }) } as Response;
+      }
+      const reply = body.action === 'endpoints' ? { endpoints: body.provider === 'glm' ? GLM_ENDPOINTS : [] } : { ok: true };
+      return { ok: true, json: async () => reply } as Response;
+    }));
+    return release;
+  }
+  const offered = (root: HTMLElement) =>
+    [...root.querySelectorAll('#ac-endpoint-options option')].map((o) => o.getAttribute('value'));
+
+  it('switching provider drops the previous provider’s URLs at once, not when the new reply lands', async () => {
+    holdEndpoints(['openai']);
+    const root = await open({ configs: [config()] });
+    button(root, 'Edit').click();
+    await settle();
+    expect(offered(root)).toEqual(GLM_ENDPOINTS.map((e) => e.url));
+
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai'); // reply still in flight
+    await settle();
+    expect(offered(root)).toEqual([]);
+    expect($(root, '#ac-endpoint-hint')?.textContent ?? '').not.toContain('api.z.ai');
+  });
+
+  it('a reply that lands after a switch to Bedrock never reappears', async () => {
+    const release = holdEndpoints(['openai', 'openai-compatible']);
+    const root = await open({ configs: [config()] });
+    button(root, 'Edit').click();
+    await settle();
+
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai'); // in flight
+    await settle();
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'bedrock');
+    await settle();
+    release.get('openai')!(['https://stale.example/v1']); // the late openai reply
+    await settle();
+    set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai-compatible'); // its own reply held
+    await settle();
+    expect(offered(root)).not.toContain('https://stale.example/v1');
+  });
+});
