@@ -7,7 +7,7 @@ import {
 } from '$lib/server/queries';
 import { resolveTesterSystemMemory } from '$lib/server/agent-tester/resolve-agent';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
-import { publicChatError } from '$lib/server/llm/chatError.js';
+import { ChatError, publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import {
   decodeFixture,
@@ -282,7 +282,7 @@ async function runOneFixture(
   // ends the chat, there can be no such reply or verdict to compare or save.
   // The caller isolates this as one fixture error and continues the batch.
   if (welcomeTurn.chatEnded) {
-    throw new Error('Chat ended during the welcome turn before the fixture message was sent.');
+    throw new ChatError('fixtureEndedWelcome');
   }
 
   const t = await runChatTurn({ token, agentId, chatId, userMessage: turn.user });

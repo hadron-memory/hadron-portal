@@ -150,6 +150,16 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     expect(body.results[0].error).toBe('Chat request failed. Please try again.');
     expect(JSON.stringify(body)).not.toContain('sk-synthetic-966');
   });
+  it('does not trust a provider error that repeats the ended-welcome reason', async () => {
+    setupChat({ nodes: [fixtureNode('fixtures:abc')] });
+    mockRunChatTurn.mockReset().mockRejectedValueOnce(
+      new Error('Chat ended during the welcome turn before the fixture message was sent.'),
+    );
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'agent-aaa', fixtureLoc: 'fixtures:abc' } }));
+    const body = await res.json();
+    expect(body.results[0].error).toBe('Chat request failed. Please try again.');
+  });
   it('replays a fixture for the caller\'s personal agent', async () => {
     setupChat({ nodes: [fixtureNode('fixtures:abc')], agentScope: 'personal' });
     const POST = await importPOST();
