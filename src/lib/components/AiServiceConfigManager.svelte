@@ -284,20 +284,29 @@
     );
   }
   /**
-   * Whether the params Save would write differ from the saved config's. Save's
-   * own computation (the JSON field, plus Bedrock's region and openai-compatible's
-   * tool-calling toggle), so the two can't disagree. Unparseable JSON counts as edited.
+   * The params Save writes: the JSON field, plus Bedrock's region (so the region
+   * dropdown round-trips; the masked list never returns the key it's encoded
+   * in) and openai-compatible's tool-calling toggle. Save, Test and
+   * paramsEdited all use this, so they can't disagree.
    */
-  function paramsEdited(c: AiServiceConfig): boolean {
+  function formParams(): { ok: true; value: Record<string, unknown> | null } | { ok: false; error: string } {
     const parsed = parseParamsText(paramsText);
-    if (!parsed.ok) return true;
-    const next =
-      providerInput === 'bedrock'
-        ? { ...parsed.value, bedrockRegion }
-        : providerInput === 'openai-compatible'
-          ? { ...parsed.value, toolCalling }
-          : parsed.value;
-    return canonicalJson(next ?? null) !== canonicalJson(c.params ?? null);
+    if (!parsed.ok) return parsed;
+    return {
+      ok: true,
+      value:
+        providerInput === 'bedrock'
+          ? { ...parsed.value, bedrockRegion }
+          : providerInput === 'openai-compatible'
+            ? { ...parsed.value, toolCalling }
+            : parsed.value,
+    };
+  }
+  /** Whether the params Save would write differ from the saved config's. Unparseable JSON counts as edited. */
+  function paramsEdited(c: AiServiceConfig): boolean {
+    const next = formParams();
+    if (!next.ok) return true;
+    return canonicalJson(next.value ?? null) !== canonicalJson(c.params ?? null);
   }
 
   async function post(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -321,15 +330,11 @@
       error = s.modelRequired();
       return;
     }
-    const params = parseParamsText(paramsText);
+    const params = formParams();
     if (!params.ok) {
       error = params.error;
       return;
     }
-    // Persist the bedrock region in params so the region dropdown round-trips
-    // on a later edit — the masked list never returns the key, so the region
-    // (also encoded into the key) can't be recovered from there. Server params
-    // validation is passthrough, so the extra key is preserved untouched.
     const endpointErr = endpointShapeError(endpointInput);
     if (endpointErr) {
       error = endpointErr;
@@ -339,12 +344,7 @@
       error = s.endpointRequired();
       return;
     }
-    const paramsValue =
-      providerInput === 'bedrock'
-        ? { ...params.value, bedrockRegion }
-        : providerInput === 'openai-compatible'
-          ? { ...params.value, toolCalling }
-          : params.value;
+    const paramsValue = params.value;
     const enteredKey = resolveKeyInput({
       provider: providerInput,
       apiKey: apiKeyInput,
@@ -432,7 +432,7 @@
         // server's own run path (server#1378). The stored key stays there.
         // Only what the user changed or typed rides along as an override,
         // which is tested and never saved.
-        const override: Record<string, string | null> = {};
+        const override: Record<string, unknown> = {};
         if (providerInput !== editing.provider) override.provider = providerInput;
         if (modelInput.trim() && modelInput.trim() !== editing.model) override.model = modelInput.trim();
         // The credential Save would leave, by Save's own rule: "Remove the
@@ -446,21 +446,20 @@
         if (endpoint !== undefined) override.endpoint = endpoint;
         const apiStyle = fieldChange<AiApiStyle>(editing.apiStyle, apiStyleInput);
         if (apiStyle !== undefined) override.apiStyle = apiStyle;
+        // Edited params ride along exactly as Save would write them
+        // (hadron-server#1413: override.params; null = cleared), so Test checks
+        // the config shown, tool-calling toggle included (#951 Codex P2).
+        // Unparseable JSON is refused like Save refuses it, before any request.
+        if (paramsEdited(editing)) {
+          const params = formParams();
+          if (!params.ok) {
+            error = params.error;
+            return;
+          }
+          override.params = params.value;
+        }
         const res = (await post({ action: 'testSaved', id: editing.id, override })) as { result: AiConfigTestResult };
         testResult = testResultView(res.result);
-        // The saved-config Test can't carry Parameters: the server's test
-        // override has no params (hadron-server AiServiceConfigTestOverride).
-        // When the form's params differ from the saved ones, say plainly that
-        // the SAVED params were used, rather than imply the edits were tested.
-        if (paramsEdited(editing)) {
-          testResult = {
-            ...testResult,
-            details: [
-              ...testResult.details,
-              t('ai-config.test.params-not-tested', 'Your edited Parameters weren’t part of this test; the saved ones were used. Save to test them.'),
-            ],
-          };
-        }
       } else if (!inlineTestable({ provider: providerInput, endpoint: endpointInput, apiStyle: apiStyleInput })) {
         // The portal's own client would test a different host than a run uses.
         error = s.testSaveFirst();

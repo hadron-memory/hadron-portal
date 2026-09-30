@@ -253,33 +253,71 @@ describe('Test with "Remove the stored key" ticked', () => {
   });
 });
 
-describe('Test with edited Parameters', () => {
-  const NOTE = 'Your edited Parameters weren’t part of this test';
+describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () => {
+  const testSavedOverride = () => posts.find((p) => p.action === 'testSaved')!.override as Record<string, unknown>;
+  function typeParams(root: HTMLElement, text: string) {
+    const params = $<HTMLTextAreaElement>(root, '#ac-params')!;
+    params.value = text;
+    params.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+  }
 
-  it('says the saved params were used when the form’s params differ', async () => {
+  it('tests the edited params, exactly as Save would write them', async () => {
     const root = await open({ configs: [config({ params: { maxTokens: 100 } })] });
     button(root, 'Edit').click();
     await settle();
-    const params = $<HTMLTextAreaElement>(root, '#ac-params')!;
-    params.value = '{"maxTokens": 500}';
-    params.dispatchEvent(new Event('input', { bubbles: true }));
+    typeParams(root, '{"maxTokens": 500}');
+    button(root, 'Test').click();
+    await settle();
+    expect(testSavedOverride().params).toEqual({ maxTokens: 500 });
+    expect(root.textContent).not.toContain('weren’t part of this test');
+  });
+
+  it('a flipped tool-calling toggle is tested, not the stored flag', async () => {
+    const root = await open({
+      configs: [config({ provider: 'openai-compatible', endpoint: 'https://llm.example.com/v1', params: { toolCalling: true, maxTokens: 100 } })],
+    });
+    button(root, 'Edit').click();
+    await settle();
+    root.querySelector<HTMLInputElement>('input[aria-describedby="ac-tool-calling-hint"]')!.click();
     flushSync();
     button(root, 'Test').click();
     await settle();
-    expect(root.textContent).toContain(NOTE);
+    expect(testSavedOverride().params).toEqual({ toolCalling: false, maxTokens: 100 });
   });
 
-  it('says nothing when the params are unchanged, including a tool-calling config whose flag lives in the toggle', async () => {
+  it('cleared params are sent as null (the provider defaults), not omitted', async () => {
+    const root = await open({ configs: [config({ params: { maxTokens: 100 } })] });
+    button(root, 'Edit').click();
+    await settle();
+    typeParams(root, '');
+    button(root, 'Test').click();
+    await settle();
+    const override = testSavedOverride();
+    expect('params' in override).toBe(true);
+    expect(override.params).toBeNull();
+  });
+
+  it('unchanged params are omitted, so the saved ones are used', async () => {
     const root = await open({
-      ownerType: 'ORGANIZATION',
       configs: [config({ provider: 'openai-compatible', endpoint: 'https://llm.example.com/v1', params: { toolCalling: true, maxTokens: 100 } })],
     });
     button(root, 'Edit').click();
     await settle();
     button(root, 'Test').click();
     await settle();
-    expect(posts.some((p) => p.action === 'testSaved')).toBe(true);
-    expect(root.textContent).not.toContain(NOTE);
+    expect('params' in testSavedOverride()).toBe(false);
+  });
+
+  it('unparseable params are refused like Save refuses them, before any request', async () => {
+    const root = await open({ configs: [config({ params: { maxTokens: 100 } })] });
+    button(root, 'Edit').click();
+    await settle();
+    typeParams(root, '{nope');
+    button(root, 'Test').click();
+    await settle();
+    expect(root.textContent).toContain('Params must be valid JSON.');
+    expect(posts.some((p) => p.action === 'testSaved')).toBe(false);
   });
 });
 

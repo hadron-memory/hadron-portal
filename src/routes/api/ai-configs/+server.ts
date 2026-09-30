@@ -62,6 +62,8 @@ interface Body {
     apiKey?: string | null;
     endpoint?: string | null;
     apiStyle?: 'CHAT_COMPLETIONS' | 'RESPONSES' | null;
+    // hadron-server#1413: edited params to test; null = cleared. Absent = saved.
+    params?: Record<string, unknown> | null;
   };
 }
 
@@ -201,6 +203,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         // An explicit null is "test without the stored key" (Remove the stored
         // key ticked), not "unchanged": pass it through rather than drop it.
         ...(o.apiKey === null ? { apiKey: null } : {}),
+        // Absent keeps the saved params; null is a real edit (cleared), so it
+        // passes through like the key's null.
+        ...('params' in o ? { params: o.params ?? null } : {}),
       };
       try {
         const data = await client.request<{ testAiServiceConfig: AiConfigTestResult }>(TEST_AI_SERVICE_CONFIG_MUTATION, {
