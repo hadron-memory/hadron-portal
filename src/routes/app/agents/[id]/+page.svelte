@@ -226,25 +226,33 @@
     message: registerDefaultsMessage,
     submitting: registerDefaultsSubmitting,
     enhance: registerDefaultsEnhance,
+    isTainted: registerDefaultsIsTainted,
+    reset: registerDefaultsReset,
   } = superForm<AgentRegisterDefaultsForm, App.Superforms.Message, AgentRegisterDefaultsForm>(initialRegisterDefaultsForm, {
     validators: zod4Client(agentRegisterDefaultsSchema),
     validationMethod: 'oninput',
     clearOnSubmit: 'none',
+    // The default (true) restores the PAGE-LOAD value after a successful save,
+    // so the box showed the opposite of what was just saved (#971 QA). Keep the
+    // returned form, which carries the saved value and is untainted on success.
+    resetForm: false,
   });
-  // #942: this component is reused across /app/agents/[id] navigations, so the
-  // store is reseeded whenever the loader re-reads the default — otherwise
-  // agent A's value would sit in a form that posts to agent B. The banner is
-  // cleared only when the AGENT changes: a save's own reload re-reads the same
-  // agent and must keep its "Saved".
+  // #942: this component is reused across /app/agents/[id] navigations.
+  // - Another AGENT: reset to its value, dropping A's edits and A's banner, so
+  //   A's value can never post to B.
+  // - The SAME agent re-read (another form on the page saved): reseed only a
+  //   clean form, so an unsaved change here survives (#971 Codex P2). A save of
+  //   THIS form arrives untainted with the saved value, so it keeps its "Saved".
   let registerDefaultsAgentId = untrack(() => data.agent.id);
   $effect(() => {
     const seeded = data.registerDefaults?.mentionOnly ?? false;
     const agentId = data.agent.id;
     untrack(() => {
-      registerDefaultsForm.update((current) => ({ ...current, mentionOnly: seeded }), { taint: false });
       if (agentId !== registerDefaultsAgentId) {
         registerDefaultsAgentId = agentId;
-        registerDefaultsMessage.set(undefined);
+        registerDefaultsReset({ data: { mentionOnly: seeded }, newState: { mentionOnly: seeded } });
+      } else if (!registerDefaultsIsTainted()) {
+        registerDefaultsForm.update((current) => ({ ...current, mentionOnly: seeded }), { taint: false });
       }
     });
   });
