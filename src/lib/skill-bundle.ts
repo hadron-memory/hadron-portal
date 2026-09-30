@@ -239,10 +239,27 @@ export interface SkillDownload {
  * The duplicate-name refusal does not apply: one entry cannot collide with
  * itself, and a collision with another node is the server's `collision` class.
  */
-export function planSkillDownload(entry: JudgedEntry | undefined, host: SkillBundleHost): SkillDownload {
+/**
+ * What `selectedSkillFilePlan` says about a selected task it returns no entry
+ * for (server#1409): unavailable, or no declaration for this host.
+ */
+export interface SelectionResult {
+  ref: string;
+  nodeId: string | null;
+  action: string;
+  reason: { code: string; message: string };
+}
+
+export function planSkillDownload(
+  entry: JudgedEntry | undefined,
+  host: SkillBundleHost,
+  selection?: SelectionResult,
+): SkillDownload {
   const none = (reasons: string[]): SkillDownload => ({ files: {}, filename: null, reasons });
   const hostName = hostLabel(host);
   if (!entry) {
+    // The server's own words when it said why it planned nothing for the task.
+    if (selection?.reason.message) return none([selection.reason.message]);
     return none([t('skill-bundle.single.not-in-plan', 'The export plan has no {host} entry for this task. Its export may have been switched off since this page loaded; reload the page to see its current state.', { host: hostName })]);
   }
   if (entry.class === 'disabled') {

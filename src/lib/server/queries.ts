@@ -2842,14 +2842,18 @@ export const MEMORY_REF_ID_QUERY = /* GraphQL */ `
 `;
 
 /**
- * #911 — the EXPORT plan as the single-skill endpoint reads it: only the
- * entry fields that judge one task. The org report's query also selects the
- * unrecognized-key report, the scan counts and each entry's URN, none of
- * which a one-skill download renders (@codex on #912).
+ * #911 — the EXPORT plan for ONE selected task, as the single-skill endpoint
+ * reads it: only the entry fields that judge one task, plus what the server
+ * says about a selected task it will not export.
+ *
+ * server#1409 (#1406): `selectedSkillFilePlan` plans exactly the named node and
+ * judges its name against a COMPLETE collision census, across memories and
+ * orgs (`hrn:node:hadronmemory.com:specs:cor:agt:030:06`). The old `skillPlan(memories: [node.memoryId])`
+ * judged collisions within that one memory only.
  */
-export const SKILL_PLAN_SINGLE_QUERY = /* GraphQL */ `
-  query SkillPlanSingle($host: String!, $memories: [String!]!) {
-    skillPlan(input: { intent: EXPORT, host: $host, memories: $memories }) {
+export const SKILL_SELECTED_PLAN_QUERY = /* GraphQL */ `
+  query SkillSelectedPlan($host: String!, $nodes: [String!]!) {
+    selectedSkillFilePlan(input: { host: $host, nodes: $nodes }) {
       entries {
         nodeId
         name
@@ -2865,6 +2869,15 @@ export const SKILL_PLAN_SINGLE_QUERY = /* GraphQL */ `
         findings {
           rule
           severity
+          message
+        }
+      }
+      selectionResults {
+        ref
+        nodeId
+        action
+        reason {
+          code
           message
         }
       }
