@@ -136,6 +136,16 @@ function mockHappyPath() {
 }
 
 describe('POST /api/agent-chat/test-run', () => {
+  it('does not echo a provider error from the welcome turn', async () => {
+    mockRequest.mockResolvedValueOnce({ startChat: {
+      chatId: 'c', systemMessage: '', tools: null, conversationName: null, stageName: null,
+    } });
+    mockRunChatTurn.mockRejectedValueOnce(new Error('Authorization: Bearer sk-synthetic-966'));
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { agentId: 'a', message: 'hello' } }));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Chat request failed. Please try again.', code: 'failed' });
+  });
   it('401 when no auth token', async () => {
     const POST = await importPOST();
     const res = await POST(ev({ body: { agentId: 'a', message: 'hi' }, token: null }));

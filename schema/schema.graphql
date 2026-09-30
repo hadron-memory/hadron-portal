@@ -1,4 +1,4 @@
-# Exported from hadron-server 163e1816e6526054edde74bfcc23458abb416fa6 (origin/main, 2026-09-27T12:32:44-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 31a50294658938b85b15a23e37dc562a6d83d057 (31a50294658938b85b15a23e37dc562a6d83d057, 2026-09-29T09:20:26-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -137,11 +137,6 @@ type Agent {
   orgGrants: [AgentOrgGrant!]!
   organizationId: String
 
-  """
-  Persona identity TEMPLATE ('You are {{name}}, ...'); {{name}}/{{role}} are bound at casting time (Worker.prompt returns the bound result).
-  """
-  personaPrompt: String
-
   """Persona role - free string with conventions ('backend-engineer')."""
   personaRole: String
   properties: JSON
@@ -152,6 +147,10 @@ type Agent {
   registerDefaults: RegisterDefaults!
   surfaces: [String!]!
   systemMemoryId: String
+
+  """
+  Templated Agent prompt. {{name}}/{{role}} bind to the Agent in chats or the named Worker in briefings.
+  """
   systemPrompt: String
   type: AgentType!
   urn: String!
@@ -1269,7 +1268,7 @@ type CastWorkerPreview {
   agentName: String!
 
   """
-  Whether the agent's personaPrompt binds {{name}} — a nameless template silently produces workers whose prompt never names them. Null when the agent has no template.
+  Whether the agent's systemPrompt binds {{name}} — a nameless template silently produces workers whose prompt never names them. Null when the agent has no template.
   """
   hasNamePlaceholder: Boolean
 
@@ -3691,13 +3690,13 @@ type Mutation {
   v2 — no @ sigil) and its system memory is user-owned too. Exactly one owner
   (org XOR user).
   
-  personaRole / personaPrompt are the persona dressing (cor:agt:020:01) —
-  the reusable role plus the '{{name}}'-templated identity prompt. The NAMED
+  personaRole and systemPrompt are the persona dressing (cor:agt:020:01) —
+  the reusable role plus the '{{name}}'-templated prompt. The NAMED
   identity is a Worker, cast with castWorker; names never live on agents.
   
   orgId accepts the org's ID or URN.
   """
-  createAgent(description: String, name: String!, orgId: ID, personaPrompt: String, personaRole: String, surfaces: [String!], systemMemoryId: String, systemPrompt: String, type: AgentType, visibility: AgentVisibility): Agent!
+  createAgent(description: String, name: String!, orgId: ID, personaRole: String, surfaces: [String!], systemMemoryId: String, systemPrompt: String, type: AgentType, visibility: AgentVisibility): Agent!
 
   """
   Subscribe an organization to a PUBLIC Agent without creating an App.
@@ -4825,11 +4824,11 @@ type Mutation {
   linkMemoryToUser(dataKey: String, externalUserId: String!, memoryId: ID!): Memory!
 
   """
-  #1353 internal pilot: explicitly advance the cursor owned by one exact,
+  #1353: explicitly advance the cursor owned by one exact,
   caller-owned live Worker session on one readable registered Channel.
-  Shares the MCP mark-read gate; unlike advanceChannelReadState this door is
-  operator+App pilot-gated and session-pinned. Monotonic; a seq beyond the
-  captured Channel watermark is refused.
+  Shares the MCP mark-read helper; unlike advanceChannelReadState this door
+  requires that session. Monotonic; a seq beyond the captured Channel
+  watermark is refused.
   """
   markOwnTeamChatRead(appRef: ID!, channelRef: ID!, seq: Int!, sessionRef: ID!): OwnTeamChatReadState!
 
@@ -5442,14 +5441,14 @@ type Mutation {
   """
   Update an Agent.
   
-  urn renames the slug (org-owned agents only). personaRole / personaPrompt
-  are the persona dressing (cor:agt:020:01); explicit null or blank clears,
-  omitted preserves. Worker castings referencing this agent are unaffected —
+  urn renames the slug (org-owned agents only). personaRole is normalized
+  (explicit null or blank clears, omitted preserves). Worker castings
+  referencing this agent are unaffected —
   the named identity lives on the Worker.
   
   Accepts the entity's ID or URN.
   """
-  updateAgent(description: String, listedOnMarketplace: Boolean, name: String, personaPrompt: String, personaRole: String, ref: ID!, registerDefaults: RegisterDefaultsInput, surfaces: [String!], systemMemoryId: String, systemPrompt: String, type: AgentType, urn: String, visibility: AgentVisibility): Agent!
+  updateAgent(description: String, listedOnMarketplace: Boolean, name: String, personaRole: String, ref: ID!, registerDefaults: RegisterDefaultsInput, surfaces: [String!], systemMemoryId: String, systemPrompt: String, type: AgentType, urn: String, visibility: AgentVisibility): Agent!
 
   """
   Update an Agent's AI provider config. Key is encrypted at rest.
@@ -5916,7 +5915,7 @@ type Mutation {
   `promptOverride` is the per-worker escape hatch (cor:agt:020:01), but it
   could only be set at CASTING time — fixing a casting's individuality at the
   one moment nobody yet knows what makes it individual. The role agent's
-  `personaPrompt` cannot stand in (it is SHARED by every casting of that
+  `systemPrompt` cannot stand in (it is SHARED by every casting of that
   role), and re-casting is barred by `WORKER_IN_USE` for any worker that has
   done work — precisely the ones with an identity to record.
   
@@ -7163,6 +7162,8 @@ type Query {
   appRef → App.defaultChannel convenience over this. Authorization is the
   host App's team-chat read gate; a Channel you may not read — or one that
   does not exist — is CHANNEL_NOT_FOUND, identically.
+  TeamChatMessagesPage.total has the same cursor- and mention-filtered
+  meaning as for teamChatMessages, before paging.
   """
   channelMessages(beforeSeq: Int, channelRef: ID!, limit: Int, mentionsRef: ID, offset: Int, sinceSeq: Int): TeamChatMessagesPage!
 
@@ -8164,16 +8165,31 @@ type Query {
   slackConnections(limit: Int, offset: Int, orgId: ID): SlackConnectionsPage!
 
   """
-  #1353 internal pilot: compact attention for this operator's LIVE Workers.
-  The signed token is a pure poll watermark and never changes read state.
-  Omit since for all current unread. since:"now" is refused: discarding a
-  backlog requires the separate preview + confirmed switchover.
-  
-  A router must adopt the returned token only after EVERY listed nudge was
-  accepted. On any partial failure retain the prior token; retries can
-  duplicate a nudge but cannot silently lose one.
+  #1353 v1 attention query, retired by #1384. This field always returns
+  UPGRADE_REQUIRED; use teamAttentionPage for bounded polling. Pass an
+  existing v1 since token to teamAttentionPage to carry its watermark
+  forward. Neither operation changes read state.
   """
   teamAttention(appRef: ID!, since: String): TeamAttentionResult!
+
+  """
+  #1384 paged (v2) attention poll — the bounded successor to teamAttention
+  (v1 answers UPGRADE_REQUIRED). Each call decrypts at most scanLimit rows
+  and emits at most limit Worker/Channel pairs; continue with page while
+  nextPage is present. The final page alone carries adoptableSince — adopt
+  it only after EVERY listed nudge was accepted; on any partial failure
+  retain the prior watermark and restart the scan (duplicates, never loss).
+  An existing v1 since token starts a scan, carrying the watermark forward.
+  Never changes read state.
+  """
+  teamAttentionPage(appRef: ID!, limit: Int, page: String, scanLimit: Int, since: String): TeamAttentionPage!
+
+  """
+  #1384 paged switchover preview — same bounded scan as teamAttentionPage,
+  full-backlog accounting. The apply proof exists ONLY on the final page of
+  a completed preview; confirmTeamAttentionSwitchover (apply) is unchanged.
+  """
+  teamAttentionPreviewPage(appRef: ID!, limit: Int, page: String, scanLimit: Int): TeamAttentionPreviewPage!
 
   """
   Preview the explicit baseline switchover for the operator's current live
@@ -8190,6 +8206,8 @@ type Query {
   messages with seq STRICTLY LESS than it are considered, and the NEWEST
   limit of those come back -- the page immediately before the cursor, still
   ascending. The two compose, so passing both reads a bounded slice.
+  TeamChatMessagesPage.total counts that cursor range and the mentionsRef
+  filter before paging, not the whole team-chat history.
   offset is IGNORED when beforeSeq is given: a cursor exists precisely
   because a position is unstable while workers keep posting, and honouring
   both would put that race back. mentionsRef filters to messages whose stored envelope mentions the
@@ -8989,12 +9007,37 @@ type SearchReplaceResult {
   """Nodes with at least one replacement."""
   nodesChanged: Int!
 
-  """Nodes the selection resolved to (after auth + prefix filtering)."""
+  """Selected nodes whose requested text fields were actually inspected."""
   nodesScanned: Int!
+
+  """
+  Unique authorized nodes selected before bulk-write protections are applied.
+  """
+  nodesSelected: Int!
+
+  """Selected nodes protected from inspection and replacement."""
+  nodesSkipped: Int!
 
   """Per-node breakdown; only nodes with at least one match are listed."""
   results: [SearchReplaceNodeResult!]!
+
+  """
+  Mutually exclusive skip reasons. Governance takes precedence over Channel
+  address protection, so a node carrying both signals counts once as governed.
+  """
+  skipCounts: SearchReplaceSkipCounts!
   totalReplacements: Int!
+}
+
+"""
+Mutually exclusive reasons selected nodes were protected from bulk replacement.
+"""
+type SearchReplaceSkipCounts {
+  """Governed nodes of any kind. This is not a spec-only count."""
+  governed: Int!
+
+  """Nodes at or below a Channel address."""
+  protectedAddress: Int!
 }
 
 """
@@ -9405,7 +9448,7 @@ type SkillPlan {
   judged: Int!
 
   """
-  True for explicit individual-file selection: unselected files are not classified as orphans.
+  True for scoped or selected exports: out-of-selection files are not classified as orphans.
   """
   orphanAssessmentSkipped: Boolean!
   orphans: [SkillOrphan!]!
@@ -9417,6 +9460,9 @@ type SkillPlan {
   corpus it was denied.
   """
   scanned: Int!
+
+  """Non-null only when EXPORT selected a persisted Scope."""
+  scopeSelection: SkillPlanScopeSelection
 
   """
   Opaque unavailable refs and selected nodes with no declaration for this host.
@@ -9460,6 +9506,11 @@ type SkillPlanEntry {
   nodeId: String!
 
   """
+  Why an enabled source is out of export in STATUS or EXPORT, or null when this category does not apply. Separate from the planned filesystem action.
+  """
+  outOfExportReason: String
+
+  """
   True when the file exists and does not parse. Reported identically by status and export.
   """
   parseFailure: Boolean!
@@ -9491,8 +9542,15 @@ input SkillPlanInput {
   host: String
   intent: SkillPlanIntent!
 
-  """Memory refs to scan. Omitted means every memory the caller can read."""
+  """
+  Memory refs for LINT/STATUS only. EXPORT refuses this field, even an empty list.
+  """
   memories: [String!]
+
+  """
+  Persisted Scope ID for a narrowed EXPORT. Omit for unscoped export; explicit null refuses. Membership is resolved afresh for each call.
+  """
+  scopeRef: ID
 }
 
 """
@@ -9511,6 +9569,17 @@ enum SkillPlanIntent {
 
   """Classes and findings for files the client found. Never returns a body."""
   STATUS
+}
+
+"""The live, access-intersected Scope selection used by this EXPORT plan."""
+type SkillPlanScopeSelection {
+  droppedCount: Int!
+
+  """Stable digest for comparing separate host plans from one export."""
+  fingerprint: String!
+  id: ID!
+  name: String!
+  readableMemoryCount: Int!
 }
 
 """A node carrying one or more exports keys that name no host (#1292)."""
@@ -9640,6 +9709,58 @@ type TeamAttentionChannel {
   unreadMentions: Int!
 }
 
+type TeamAttentionPage {
+  """
+  FINAL PAGE ONLY: a since-watermark token (same shape v1 issued) to adopt
+  after every listed nudge was accepted. Never present while scanComplete
+  is false.
+  """
+  adoptableSince: String
+  items: [TeamAttentionPageItem!]!
+
+  """Continuation for the next pull; null on the final page."""
+  nextPage: String
+
+  """
+  False while any Channel is unfinished or queued items remain undelivered.
+  """
+  scanComplete: Boolean!
+}
+
+"""
+#1384 paged (v2): one bounded slice of an attention scan. Counts are exact
+for the captured (seen, head] range of the issuing scan only, and items are
+emitted solely from Channels that scan has exhausted.
+"""
+type TeamAttentionPageItem {
+  channel: ID!
+  channelName: String!
+  firstUnreadSeq: Int
+  lastRelevantSeq: Int
+
+  """The frozen Channel head this item's counts are exact for."""
+  lastSeq: Int!
+  unread: Int!
+  unreadMentions: Int!
+  worker: ID!
+  workerName: String!
+  workerUrn: String
+}
+
+type TeamAttentionPreviewPage {
+  expiresAt: DateTime
+  items: [TeamAttentionPageItem!]!
+  nextPage: String
+
+  """
+  FINAL PAGE ONLY: the short-lived switchover proof (frozen heads). An
+  incomplete preview never carries one, so a partial preview can never
+  silently discard an unscanned backlog.
+  """
+  proof: String
+  scanComplete: Boolean!
+}
+
 type TeamAttentionResult {
   """
   Opaque signed snapshot. Adopt it only after every listed nudge is accepted.
@@ -9743,6 +9864,12 @@ type TeamChatMessage {
 
 type TeamChatMessagesPage {
   items: [TeamChatMessage!]!
+
+  """
+  Number of canonical messages matching this read's sinceSeq/beforeSeq cursor
+  range and mentionsRef filter, before limit/offset. It is not the total
+  number of messages in the chat or Channel when a cursor/filter is present.
+  """
   total: Int!
 }
 
@@ -9764,15 +9891,15 @@ type TeamCollectionsPayload {
 A role definition (#960): the roles:<role> node in the Team Agent's system
 memory. #1050: it carries no name register — a role is a definition, not an
 allocation pool.
-The persona prompt template is NOT here — with the Worker model (#974) it
-lives on the role-agent as dressing (personaRole + personaPrompt); roleAgent
+The prompt template is NOT here — with the Worker model (#974) it
+lives on the role-agent (personaRole + systemPrompt); roleAgent
 points at it.
 """
 type TeamRole {
   description: String
 
   """
-  Whether the role-agent's personaPrompt binds {{name}} — the check that
+  Whether the role-agent's systemPrompt binds {{name}} — the check that
   finds templates which silently produce nameless workers (role-agents
   authored before any guard existed). Null when no single role-agent
   resolves. Computed even when roleAgent itself is masked: it discloses one
@@ -10431,7 +10558,7 @@ type Worker {
   portalUrl: String
 
   """
-  The worker's boot prompt, resolved: the agent's personaPrompt template
+  The worker's boot prompt, resolved: the agent's systemPrompt template
   with {{name}}/{{role}} bound, then promptOverride appended as its own
   paragraph. Null when the agent carries no template and the worker no
   override.

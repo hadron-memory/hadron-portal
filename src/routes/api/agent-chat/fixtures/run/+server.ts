@@ -1,13 +1,13 @@
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
 import {
-  ORGANIZATIONS_QUERY,
   GRAPH_NODES_QUERY,
   START_CHAT_MUTATION,
   UPDATE_NODE_MUTATION,
   NODE_BY_ID_QUERY,
 } from '$lib/server/queries';
+import { resolveTesterSystemMemory } from '$lib/server/agent-tester/resolve-agent';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import {
   decodeFixture,
@@ -21,7 +21,6 @@ import { judgeAgentReply, judgeVerdict } from '$lib/server/agent-tester/llm-judg
 import { describeRegexFailure, type Verdict } from '$lib/server/agent-tester/verdict';
 import { testRegexSafely } from '$lib/server/safe-regex';
 import { rateLimitResponse } from '$lib/server/rate-limit';
-import type { Organization } from '$lib/types';
 import type { RequestHandler } from './$types';
 
 /**
@@ -64,16 +63,8 @@ async function resolveAgent(token: string, agentId: string): Promise<{
   agentId: string;
   systemMemoryId: string;
 } | null> {
-  const orgs = await fetchAllItems<Organization>(gqlClient(token), ORGANIZATIONS_QUERY, 'organizations');
-  for (const o of orgs) {
-    const a = (o.agents ?? []).find((x) => x.id === agentId);
-    if (a) {
-      const memId = (a as unknown as { systemMemoryId?: string | null }).systemMemoryId ?? null;
-      if (!memId) return null;
-      return { agentId, systemMemoryId: memId };
-    }
-  }
-  return null;
+  const systemMemoryId = await resolveTesterSystemMemory(gqlClient(token), agentId);
+  return systemMemoryId ? { agentId, systemMemoryId } : null;
 }
 
 interface RunBody {
@@ -147,7 +138,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       errored++;
       result = {
         fixtureLoc: t.loc,
-        error: e instanceof Error ? e.message : 'Run failed',
+        error: publicChatError(e).message,
       };
     }
     results.push(result);
@@ -286,6 +277,13 @@ async function runOneFixture(
       tools: startResult.startChat.tools,
     },
   });
+
+  // A fixture asserts the reply to its user message. Once the welcome turn
+  // ends the chat, there can be no such reply or verdict to compare or save.
+  // The caller isolates this as one fixture error and continues the batch.
+  if (welcomeTurn.chatEnded) {
+    throw new Error('Chat ended during the welcome turn before the fixture message was sent.');
+  }
 
   const t = await runChatTurn({ token, agentId, chatId, userMessage: turn.user });
 

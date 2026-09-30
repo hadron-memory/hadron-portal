@@ -35,6 +35,8 @@
       // The "no worker" badge is the only marker of the one category it exists
       // to mark, and it lives in the cell rather than in the accessor.
       workerName: (r) => (attributed(r) ? null : tt('app.worklog.no-worker', 'no worker')),
+      // A record with no model shows "Not recorded", and search finds it by that.
+      model: (r) => (r.model ? null : tt('app.worklog.model.none', 'Not recorded')),
       // The Artifact cell renders TWO things the `ref` accessor does not: the
       // title, which is usually the most recognisable description of a record,
       // and the fan-out label, which is the answer the worklog exists to give.
@@ -178,6 +180,16 @@
       size: 320,
     },
     { accessorKey: 'tool', id: 'tool', header: t('app.worklog.col.tool', 'Tool'), size: 120 },
+    {
+      // The LLM model that did the work (hadron-server#1398). Distinct from
+      // Tool, which is where the ARTIFACT lives (github …). The value is the
+      // record's own snapshot: never inferred from the worker, its role agent
+      // or the provider.
+      accessorFn: (r) => r.model ?? '',
+      id: 'model',
+      header: t('app.worklog.col.model', 'Model'),
+      size: 200,
+    },
     {
       accessorKey: 'sessionId',
       id: 'sessionId',
@@ -423,6 +435,18 @@
           </div>
           {#if title}
             <div class="truncate text-xs text-zinc-500 dark:text-zinc-400" {title}>{title}</div>
+          {/if}
+        {:else if c.column.id === 'model'}
+          {#if row.model}
+            <span class="block truncate font-mono text-xs text-zinc-700 dark:text-zinc-200" title={row.model}>{row.model}</span>
+          {:else}
+            <!-- Null is "unknown at record time": the record predates the
+                 field, or nothing reported a model. Never the worker's current
+                 model, which may not be the one that did this work. -->
+            <span
+              class="block truncate text-xs italic text-zinc-400"
+              title={t('app.worklog.model.none.hint', 'No model was recorded with this entry. It predates model tracking, or its session reported none.')}
+            >{t('app.worklog.model.none', 'Not recorded')}</span>
           {/if}
         {:else if c.column.id === 'sessionId'}
           <!-- The id is shown even when the worker session is not readable by

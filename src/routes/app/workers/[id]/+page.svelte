@@ -79,7 +79,7 @@
   /** The agent's RAW template. Null when the agent has none, OR when the agent
    *  read gate denies it — the composed prompt sits behind the worker gate, so
    *  the two can disagree and the panel distinguishes them. */
-  const inheritedTemplate = $derived(data.worker.agent?.personaPrompt ?? null);
+  const inheritedTemplate = $derived(data.worker.agent?.systemPrompt ?? null);
 
   function renderMarkdown(text: string): string {
     // DOMPurify needs a real DOM and cannot run under SSR, so emit nothing

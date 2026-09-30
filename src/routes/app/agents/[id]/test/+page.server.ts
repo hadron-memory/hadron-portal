@@ -1,36 +1,24 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
-import { AI_CONFIG_READINESS_QUERY, ORGANIZATIONS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
+import { AI_CONFIG_READINESS_QUERY, GRAPH_NODES_QUERY } from '$lib/server/queries';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
-import { requireNonConsumer } from '$lib/server/guards';
+import {
+  EFFECTIVE_ENDPOINT_UNSUPPORTED,
+  isMissingEffectiveEndpoint,
+  portalRuntimeRefusal,
+} from '$lib/server/llm/agentChatLlm';
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
-import type { Agent, Organization } from '$lib/types';
+import { resolveTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import type { PageServerLoad } from './$types';
 
-// Spec 019 — Agent Chat Tester. The loader resolves the agent through
-// the same organizations[*].agents scan the spec-018-fixed detail
-// loader uses; failure modes are inherited (404 no-leak, no silent
-// catch on the orgs query). Fixtures list is empty in US1 — US3
-// will populate it from `fixtures:*` system-memory nodes.
-export const load: PageServerLoad = async ({ params, locals, parent }) => {
-  await requireNonConsumer(parent);
+// Spec 019 — Agent Chat Tester. Organization agents come from the caller's
+// organizations; user-owned agents come from the server's ownedByMe scope.
+// Neither list includes an unrelated private agent, so misses share one 404.
+export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
-
-  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
-
-  let agent: Agent | null = null;
-  let org: Organization | null = null;
-  for (const o of orgs) {
-    const found = (o.agents ?? []).find((a) => a.id === params.id);
-    if (found) {
-      agent = found;
-      org = o;
-      break;
-    }
-  }
-
-  if (!agent || !org) throw error(404, 'Agent not found or no longer available');
+  const resolved = await resolveTesterAgent(client, params.id);
+  if (!resolved) throw error(404, 'Agent not found or no longer available');
+  const { agent, org } = resolved;
 
   // #928: readiness is what the tester's RUNTIME would resolve, asked of the
   // same resolver. It used to be `Agent.hasAiApiKey`, which sees only the
@@ -43,7 +31,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // system memory (Q1 = B). Decode each and surface summaries.
   // Malformed fixtures decode to null and are skipped silently here —
   // T032's FixtureList can show an inline error tile if needed.
-  const systemMemoryId = (agent as unknown as { systemMemoryId?: string | null }).systemMemoryId ?? null;
+  const systemMemoryId = agent.systemMemoryId ?? null;
   let fixtures: FixtureSummary[] = [];
   if (systemMemoryId) {
     // Scope to the agent's system memory. findNodes hides class:'system'
@@ -71,6 +59,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
 /**
  * #928 — whether the tester can run, by the runtime's own resolution.
+ * (#958: including the runtime's endpoint check — a config it would refuse is
+ * `unavailable`, with the runtime's message.)
  *
  * - `ready`: a config resolves. Which level it came from is reported, since an
  *   inherited config is the case the old check got wrong.
@@ -90,14 +80,20 @@ export type LlmReadiness =
 async function llmReadiness(client: ReturnType<typeof gqlClient>, agentId: string): Promise<LlmReadiness> {
   try {
     const r = await client.request<{
-      resolveAIConfig: { name: string; ownerType: string; provider: string; model: string };
+      resolveAIConfig: { name: string; ownerType: string; provider: string; model: string; effectiveEndpoint: string | null };
     }>(AI_CONFIG_READINESS_QUERY, { name: 'default', agentRef: agentId });
-    return { status: 'ready', ...r.resolveAIConfig };
+    const { effectiveEndpoint, ...config } = r.resolveAIConfig;
+    // #958: a config the runtime would refuse is not ready, in the runtime's
+    // own words, so the two still cannot disagree (#928).
+    const refusal = portalRuntimeRefusal({ provider: config.provider, effectiveEndpoint });
+    if (refusal) return { status: 'unavailable', detail: refusal };
+    return { status: 'ready', ...config };
   } catch (e: unknown) {
     // Only the SERVER's answer is shown. A transport failure's message is not:
     // graphql-request packs the request into it (the #468 leak), so it gets
     // the page's generic copy instead (@copilot on #932).
     const detail = serverErrorMessage(e);
+    if (detail !== null && isMissingEffectiveEndpoint(detail)) return { status: 'unavailable', detail: EFFECTIVE_ENDPOINT_UNSUPPORTED };
     if (extractGqlErrorCode(e) === 'NoAiConfigAvailableError') return { status: 'not-configured', detail };
     // A refusal the server gave (a non-admin's Forbidden) is an expected
     // answer, not an outage; only a failure to get one is logged.

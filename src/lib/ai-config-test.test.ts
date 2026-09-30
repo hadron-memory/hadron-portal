@@ -48,13 +48,14 @@ describe('testResultView', () => {
     ['NO_API_KEY', false, /no key stored/, /^Would call /],
     ['KEY_UNREADABLE', false, /Re-enter it/, /^Would call /],
     ['QUOTA_EXCEEDED', false, /no test call was made/, /^Would call /],
-    ['LLM_CALL_FAILED', true, /didn’t answer this time: 503.*Try again/, /^Called /],
-    ['LLM_CALL_FAILED', false, /refused the call: 503/, /^Called /],
-    ['SOMETHING_NEW', false, /^503 upstream$/, /^Would call /],
+    ['LLM_CALL_FAILED', true, /didn’t answer this time.*Try again/, /^Called /],
+    ['LLM_CALL_FAILED', false, /provider call failed/i, /^Called /],
+    ['SOMETHING_NEW', false, /^The test failed\.$/, /^Would call /],
   ] as const)('failure %s (transient=%s)', (code, transient, headline, where) => {
     const v = testResultView(result({ ok: false, reply: null, error: { code, message: '503 upstream', transient } }));
     expect(v.ok).toBe(false);
     expect(v.headline).toMatch(headline);
+    expect(v.headline).not.toContain('503 upstream');
     expect(v.details[0]).toMatch(where);
   });
 });

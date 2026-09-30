@@ -32,6 +32,8 @@
     stageTransitions: Array<{ step: number; newStage: string | null; conversationHandoff: string | null }>;
     conversationsVisited: string[];
     totalTurns: number;
+    endedAtStep: number | null;
+    skippedMessages: number;
   }
 
   let result = $state<ScriptResult | null>(null);
@@ -231,6 +233,15 @@
       {/if}
 
       {#if result}
+        {#if result.skippedMessages > 0}
+          <p class="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            {#if result.endedAtStep === 0}
+              {t('agent-tester.persona.ended-during-welcome', 'Chat ended during the welcome turn. {count} scripted message(s) were not sent.', { count: result.skippedMessages })}
+            {:else}
+              {t('agent-tester.persona.ended-during-script', 'Chat ended after step {step}. {count} scripted message(s) were not sent.', { step: result.endedAtStep, count: result.skippedMessages })}
+            {/if}
+          </p>
+        {/if}
         <!-- Pass/fail summary -->
         <div
           class="rounded-md border p-3 text-sm {result.pass

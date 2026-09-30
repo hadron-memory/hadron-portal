@@ -86,15 +86,10 @@ export const AGENT_FIELDS = /* GraphQL */ `
     visibility
     type
     surfaces
-    # #974 (hrn:node:hadronmemory.com:specs:cor:agt:020 v0.0.3): persona dressing on a reusable role-actor.
-    # personaPrompt is a TEMPLATE (name/role bound when the agent is cast as a
-    # Worker); the named individual is the Worker, not the Agent. personaName
-    # was dropped from the schema with the Worker model — do not reintroduce it
-    # (selecting an unknown field fails the whole request).
-    # NB: no backticks in this file's GraphQL comments — the operations are
-    # template literals, so a backtick terminates the string (portal#715).
+    # #1241: systemPrompt is shared by chat and Worker briefing. The server
+    # binds name/role placeholders for each Worker; the named individual is
+    # the Worker, not this reusable role Agent.
     personaRole
-    personaPrompt
     properties
     # 036-ai-service-config: hasAiApiKey is the server shim for "the agent's
     # 'default' config has a key" — kept for the Chat-tab readiness gate (any
@@ -935,7 +930,7 @@ export const WORKER_QUERY = /* GraphQL */ `
       # worker's own (maySeeWorkerInternals) — so a caller who can read the
       # briefing may still get null here. Render that as "not visible to you",
       # never as "no template".
-      agent { personaPrompt }
+      agent { systemPrompt }
       # The resolved boot briefing (#737): the agent's template with
       # {{name}}/{{role}} bound, plus any per-worker override. The most literal
       # answer to "who is this" — it is the worker's operating instructions in
@@ -1545,8 +1540,8 @@ export const AGENT_QUERY = /* GraphQL */ `
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String, $personaPrompt: String) {
-    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole, personaPrompt: $personaPrompt) { ...AgentFields }
+  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String) {
+    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole) { ...AgentFields }
   }
 `;
 
@@ -1831,6 +1826,10 @@ export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
       model
       apiKey
       params
+      # #1373: where a request for this config is meant to go. The portal
+      # runtime refuses a config whose endpoint isn't a host it calls
+      # (portalRuntimeRefusal) rather than run it elsewhere with its key.
+      effectiveEndpoint
     }
   }
 `;
@@ -1849,6 +1848,9 @@ export const AI_CONFIG_READINESS_QUERY = /* GraphQL */ `
       ownerType
       provider
       model
+      # #958: the runtime also refuses a config by where it sends requests
+      # (portalRuntimeRefusal), so readiness asks the same question.
+      effectiveEndpoint
     }
   }
 `;
@@ -2538,6 +2540,9 @@ export const TEAM_WORK_ITEMS_QUERY = /* GraphQL */ `
         action
         at
         detail
+        # hadron-server#1398: the LLM model snapshotted at record time. Null =
+        # unknown (predates the field, or none was reported). Never backfilled.
+        model
       }
       total
     }

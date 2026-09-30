@@ -226,7 +226,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
       personaRole: agent.personaRole ?? '',
-      personaPrompt: agent.personaPrompt ?? '',
     }, agentSettingsFormAdapter, { errors: false }),
     superValidate<AddAgentMemoryForm>(
       { memoryId: '', role: 'read' },
@@ -289,14 +288,12 @@ export const actions: Actions = {
     // resolver skip the field; a real first-attach still sends the id.
     const systemMemoryId = form.data.systemMemoryId || undefined;
     const visibility = form.data.visibility || undefined;
-    // #712: send persona fields VERBATIM, including ''. Unlike systemMemoryId,
-    // blank is not "no opinion" here — the server normalizes blank-after-trim
-    // to null, which is how the user clears a persona field from this form.
-    const { personaRole, personaPrompt } = form.data;
+    // #712: send the role VERBATIM, including ''. Blank clears it server-side.
+    const { personaRole } = form.data;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
         ref: params.id, name, urn: urnSlug, description, systemPrompt, systemMemoryId, visibility,
-        personaRole, personaPrompt,
+        personaRole,
       });
 
       // If a system memory was selected, ensure it has the chatbot scaffold
