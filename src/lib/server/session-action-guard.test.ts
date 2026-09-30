@@ -71,6 +71,12 @@ describe('sessionActionGuard (#974)', () => {
     expect(r.resolved).toBe(0);
   });
 
+  it('a hand-rolled fetch(\'?/reorder\') (no header, accept */*) is still an action (#975 Codex P2)', async () => {
+    const r = await run(event('/app/memories/m/nodes/n?/reorder', { headers: { accept: '*/*' } }));
+    expect(r.redirect).toEqual({ status: 303, location: `/signin?redirect=${encodeURIComponent('/app/memories/m/nodes/n')}` });
+    expect(r.resolved).toBe(0);
+  });
+
   it('a signed-in action runs', async () => {
     const r = await run(event('/app/apps/a1?/postTeamChatMessage', { user: true }));
     expect(r.redirect).toBeNull();

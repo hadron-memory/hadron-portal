@@ -28,12 +28,18 @@ import { withQuery } from '$lib/safeRedirect';
  *
  * - An enhanced submit sends `x-sveltekit-action: true`; SvelteKit itself
  *   routes that to the page's actions, never an endpoint.
+ * - A named action (`?/name`) is a page action however it was sent.
  * - A no-JS submit is a browser navigation, which asks for `text/html`. A
- *   `fetch()` accepts any type unless told otherwise, so it never matches.
+ *   `fetch()` to an endpoint accepts any type unless told otherwise, and
+ *   carries no `?/name`, so it never matches.
  */
-export function isFormActionRequest(request: Request): boolean {
+export function isFormActionRequest(request: Request, url: URL = new URL(request.url)): boolean {
   if (request.method !== 'POST') return false;
   if (request.headers.get('x-sveltekit-action') === 'true') return true;
+  // A named action selector (`?/reorder`) only ever addresses a page action:
+  // endpoints don't take one. A hand-rolled `fetch('?/reorder')` sends neither
+  // header below, so this is what recognises it (#975 Codex P2).
+  if ([...new URLSearchParams(url.search).keys()].some((k) => k.startsWith('/'))) return true;
   return (request.headers.get('accept') ?? '').includes('text/html');
 }
 
@@ -58,7 +64,7 @@ export function signinRedirectFor(url: URL): string {
 
 /** True when `event` is an /app form action with no signed-in user. */
 export function isSignedOutAppAction(event: Pick<RequestEvent, 'url' | 'request' | 'locals'>): boolean {
-  return !event.locals.user && isAppPath(event.url.pathname) && isFormActionRequest(event.request);
+  return !event.locals.user && isAppPath(event.url.pathname) && isFormActionRequest(event.request, event.url);
 }
 
 export const sessionActionGuard: Handle = async ({ event, resolve }) => {

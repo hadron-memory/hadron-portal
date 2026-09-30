@@ -11,7 +11,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { displayJson, JsonDraft, submitJsonDraft, type DraftSource } from './json-draft.svelte';
+import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, type DraftSource } from './json-draft.svelte';
 import { parsePropertiesSource, PROPERTIES_MAX, propertiesFingerprint, utf8Length } from './properties-source';
 import Harness from './test/JsonDraftHarness.svelte';
 
@@ -199,6 +199,24 @@ describe('submitJsonDraft — one save, bound to where it started (@codex on #89
     expect(calls[0].url).toBe(url);
     expect(calls[0].body.get('properties')).toBe('{"a":1}');
     expect(calls[0].body.get('baseline')).toBe(await propertiesFingerprint({ x: 1 }));
+  });
+
+  it('an expired session is reported as SIGNED_OUT, not followed, so the draft stays (#974)', async () => {
+    const { fetchImpl } = recorder({ type: 'redirect', status: 303, location: '/signin?redirect=%2Fapp%2Fmemories%2Fm%2Fnodes%2Fa' });
+    expect(await submitJsonDraft({ url: '/app/memories/m/nodes/a?/updateData', field: 'data', text: '[1]', baseline: null, fetchImpl })).toEqual({
+      ok: false,
+      code: SIGNED_OUT,
+      detail: null,
+    });
+  });
+
+  it('any other redirect is still a plain failure', async () => {
+    const { fetchImpl } = recorder({ type: 'redirect', status: 303, location: '/app/memories/m/nodes/b' });
+    expect(await submitJsonDraft({ url: '/x?/updateData', field: 'data', text: '[1]', baseline: null, fetchImpl })).toEqual({
+      ok: false,
+      code: 'failed',
+      detail: null,
+    });
   });
 
   it('returns a refusal as data — code and the server\'s detail — not as an exception', async () => {
