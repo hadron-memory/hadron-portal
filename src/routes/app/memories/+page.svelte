@@ -4,6 +4,7 @@
   // caller via MemoryShare (#778). Both lists use the shared TanStack DataTable.
   import { tick } from 'svelte';
   import { enhance } from '$app/forms';
+  import { page } from '$app/stores';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -136,6 +137,9 @@
 <svelte:head><title>{t('my-memories.title', 'My memories — Hadron')}</title></svelte:head>
 
 <div class="mx-auto max-w-4xl space-y-4 py-6">
+  {#if $page.url.searchParams.get('transferred') === '1'}
+    <p role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{t('memory-transfer.done-other-user', 'Ownership transferred. The receiving user now has access to the memory.')}</p>
+  {/if}
   <div class="flex items-center justify-between gap-3">
     <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('my-memories.heading', 'My memories')}</h1>
     <a
