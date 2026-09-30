@@ -186,6 +186,21 @@ describe('agent Settings — register default (#942)', () => {
     expect(box(root)!.checked).toBe(true);
   });
 
+  it('a full-page submission opens Settings by itself, so its result is visible (#971 Codex P2)', async () => {
+    const failed = await superValidate(
+      { _kind: 'registerDefaults', mentionOnly: true },
+      zod4(agentRegisterDefaultsSchema),
+    );
+    failed.message = { type: 'error', text: 'The default was not saved. Changing it needs the agent’s owner or an organization admin.' };
+    // Mounted WITHOUT clicking the Settings tab.
+    const m = mountComponent(Page as never, { data: await pageData('a', { mentionOnly: false }), form: { form: failed } } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick();
+    flushSync();
+    expect(box(m.target)!.checked).toBe(true);
+    expect(m.target.textContent).toContain('The default was not saved.');
+  });
+
   it('a clean form still follows the server when the same agent is re-read', async () => {
     const props = reactiveProps({ data: await pageData('a', { mentionOnly: false }), form: null } as Record<string, unknown>);
     const root = await mountSettings(props);

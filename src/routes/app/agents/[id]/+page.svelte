@@ -416,6 +416,12 @@
       confirmDelete = true;
     }
   });
+  // #942: a full-page (no-JS) save of the register default comes back as a
+  // fresh page on Profile; open Settings so its result and the attempted value
+  // are visible, as the delete form above does (#971 Codex P2).
+  $effect(() => {
+    if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults')) activeTab = 'settings';
+  });
 
   function submitMemoryRoleChange(e: Event) {
     const select = e.currentTarget as HTMLSelectElement;
