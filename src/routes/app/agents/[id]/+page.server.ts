@@ -6,7 +6,8 @@ import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { t } from '$lib/i18n/t';
 import {
   AGENT_QUERY,
   ORGANIZATIONS_QUERY,
@@ -20,11 +21,14 @@ import {
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
   AI_SERVICE_CONFIGS_QUERY,
+  AGENT_REGISTER_DEFAULTS_QUERY,
+  UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
 } from '$lib/server/queries';
 import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
   addAgentMemorySchema,
+  agentRegisterDefaultsSchema,
   agentSettingsSchema,
   deleteAgentSchema,
   removeAgentMemorySchema,
@@ -43,6 +47,7 @@ const AGENT_ORG_QUERY = /* GraphQL */ `
 `;
 
 const agentSettingsFormAdapter = zod4(agentSettingsSchema);
+const agentRegisterDefaultsFormAdapter = zod4(agentRegisterDefaultsSchema);
 const addAgentMemoryFormAdapter = zod4(addAgentMemorySchema);
 const updateAgentMemoryRoleFormAdapter = zod4(updateAgentMemoryRoleSchema);
 const removeAgentMemoryFormAdapter = zod4(removeAgentMemorySchema);
@@ -114,7 +119,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }>;
   };
 
-  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult] = await Promise.all([
     allMemoryIds.length > 0
       ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
           GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
@@ -151,6 +156,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     !org && agent.visibility !== 'PUBLIC'
       ? fetchOwnedMemoriesLite(locals.token).catch(() => [] as OwnedMemoryLite[])
       : Promise.resolve([] as OwnedMemoryLite[]),
+    // #942: the install-row register default. A failure is null, which the
+    // Settings tab renders as "could not load", never as the default being off.
+    client
+      .request<{ agent: { registerDefaults: { mentionOnly: boolean } } | null }>(
+        AGENT_REGISTER_DEFAULTS_QUERY, { ref: agent.id },
+      )
+      .then((r) => r.agent?.registerDefaults ?? null)
+      .catch(() => null),
   ]);
 
   // An agent can be installed into several apps (as the primary agentId or via
@@ -217,7 +230,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
   }
   orgSystemMemories = sysMemResult;
-  const [form, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
+  const [form, registerDefaultsForm, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
     superValidate({
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
@@ -227,6 +240,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       systemMemoryId: '',
       personaRole: agent.personaRole ?? '',
     }, agentSettingsFormAdapter, { errors: false }),
+    superValidate(
+      { mentionOnly: registerDefaultsResult?.mentionOnly ?? false },
+      agentRegisterDefaultsFormAdapter,
+      { errors: false },
+    ),
     superValidate<AddAgentMemoryForm>(
       { memoryId: '', role: 'read' },
       addAgentMemoryFormAdapter,
@@ -263,6 +281,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
     form,
+    registerDefaults: registerDefaultsResult,
+    registerDefaultsForm,
     addMemoryForm,
     updateMemoryRoleForm,
     removeMemoryForm,
@@ -369,6 +389,34 @@ export const actions: Actions = {
       return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update agent') }, { status: 500 });
+    }
+  },
+
+  // #942: only registerDefaults is sent. The server's updateAgent gate (the
+  // agent's owner, or an org ADMIN) decides; the page offers the control to
+  // everyone who can read the agent, like the other settings.
+  updateRegisterDefaults: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), agentRegisterDefaultsFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION, {
+        ref: params.id,
+        registerDefaults: { mentionOnly: form.data.mentionOnly },
+      });
+      return message(form, { type: 'success', text: t('agent.register-defaults.saved', 'Saved. Future installs use this.') });
+    } catch (e: unknown) {
+      // updateAgent's owner gate refuses with an UNTYPED Error('Forbidden')
+      // (INTERNAL_SERVER_ERROR on the wire), so a refusal can't be told from a
+      // crash by code. The fallback states what saving needs, not why it failed.
+      switch (extractGqlErrorCode(e)) {
+        case 'FORBIDDEN':
+          return message(form, { type: 'error', text: t('agent.register-defaults.error.forbidden', 'Only the agent’s owner or an organization admin can change this.') }, { status: 403 });
+        case 'AGENT_NOT_FOUND':
+          return message(form, { type: 'error', text: t('agent.register-defaults.error.not-found', 'This agent is not available to you.') }, { status: 404 });
+        default:
+          return message(form, { type: 'error', text: t('agent.register-defaults.error.failed', 'The default was not saved. Changing it needs the agent’s owner or an organization admin.') }, { status: 500 });
+      }
     }
   },
 

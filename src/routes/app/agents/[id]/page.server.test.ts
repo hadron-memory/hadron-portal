@@ -19,6 +19,8 @@ import {
   DELETE_AGENT_MUTATION,
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
+  AGENT_REGISTER_DEFAULTS_QUERY,
+  UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
 } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
@@ -107,6 +109,7 @@ function routeMock(opts: {
   nodes?: { data?: unknown; error?: unknown };
   apps?: { data?: unknown; error?: unknown };
   ownedApps?: { data?: unknown; error?: unknown };
+  registerDefaults?: { data?: unknown; error?: unknown };
 }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === AGENT_QUERY) {
@@ -147,6 +150,12 @@ function routeMock(opts: {
     if (query === AGENT_OWNED_APPS_QUERY) {
       const apps = (opts.ownedApps?.data as unknown[]) ?? [];
       return { apps: { items: apps, total: apps.length } };
+    }
+    // #942: routed explicitly — the loader catches its failure into a null
+    // sentinel, so an unmocked query would pass as "could not load".
+    if (query === AGENT_REGISTER_DEFAULTS_QUERY) {
+      if (opts.registerDefaults?.error !== undefined) throw opts.registerDefaults.error;
+      return opts.registerDefaults?.data ?? { agent: { id: 'agent-id-123', registerDefaults: { mentionOnly: false } } };
     }
     throw new Error(`Unexpected query passed to mockRequest`);
   });
@@ -651,5 +660,86 @@ describe('/app/agents/[id] loader — bundles across app OWNERSHIP classes (#714
       description: 'Books meetings',
       via: 'Import',
     });
+  });
+});
+
+// ── #942: the install-row register default ─────────────────────────────────
+
+/** A graphql-request ClientError as the server sends it: a GraphQL errors payload. */
+function gqlError(code: string, message: string) {
+  return Object.assign(new Error(message), {
+    response: { errors: [{ message, extensions: { code } }], status: 200 },
+  });
+}
+
+async function runRegisterDefaults(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.updateRegisterDefaults(actionEv(fields));
+}
+
+describe('/app/agents/[id] register default (#942)', () => {
+  it('loads the current default and seeds the form with it', async () => {
+    routeMock({
+      agent: { data: { agent: personalAgent } },
+      registerDefaults: { data: { agent: { id: 'agent-personal', registerDefaults: { mentionOnly: true } } } },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-personal' }))) as {
+      registerDefaults: { mentionOnly: boolean } | null;
+      registerDefaultsForm: { data: { mentionOnly: boolean } };
+    };
+    expect(result.registerDefaults).toEqual({ mentionOnly: true });
+    expect(result.registerDefaultsForm.data.mentionOnly).toBe(true);
+    expect(mockRequest).toHaveBeenCalledWith(AGENT_REGISTER_DEFAULTS_QUERY, { ref: 'agent-personal' });
+  });
+
+  it('a failed read is the null sentinel, never a default of "off"', async () => {
+    routeMock({
+      agent: { data: { agent: personalAgent } },
+      registerDefaults: { error: new Error('boom') },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-personal' }))) as { registerDefaults: unknown };
+    expect(result.registerDefaults).toBeNull();
+  });
+
+  it('sends ONLY registerDefaults, with a checked box as true', async () => {
+    mockRequest.mockResolvedValue({ updateAgent: { id: 'agent-id-123', registerDefaults: { mentionOnly: true } } });
+    const result = await runRegisterDefaults({ _kind: 'registerDefaults', mentionOnly: 'on' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Saved. Future installs use this.' });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    const [query, vars] = mockRequest.mock.calls[0];
+    expect(query).toBe(UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION);
+    expect(vars).toEqual({ ref: 'agent-id-123', registerDefaults: { mentionOnly: true } });
+  });
+
+  it('an unchecked box (absent from the POST) saves false', async () => {
+    mockRequest.mockResolvedValue({ updateAgent: { id: 'agent-id-123', registerDefaults: { mentionOnly: false } } });
+    await runRegisterDefaults({ _kind: 'registerDefaults' });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ ref: 'agent-id-123', registerDefaults: { mentionOnly: false } });
+  });
+
+  it('rejects another form\'s discriminator before calling the API', async () => {
+    const result = await runRegisterDefaults({ _kind: 'agentSettings', mentionOnly: 'on' });
+    expect(superFormFrom(result)?.valid).toBe(false);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('the untyped owner-gate refusal gets the fixed message, never the server text', async () => {
+    mockRequest.mockRejectedValue(gqlError('INTERNAL_SERVER_ERROR', 'Forbidden'));
+    const result = await runRegisterDefaults({ _kind: 'registerDefaults', mentionOnly: 'on' });
+    const msg = superFormFrom(result)?.message as { type: string; text: string };
+    expect(msg.type).toBe('error');
+    expect(msg.text).toBe('The default was not saved. Changing it needs the agent’s owner or an organization admin.');
+    expect(msg.text).not.toContain('Forbidden');
+  });
+
+  it('maps a typed FORBIDDEN and AGENT_NOT_FOUND to their own messages', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'Forbidden'));
+    const forbidden = await runRegisterDefaults({ _kind: 'registerDefaults' });
+    expect((superFormFrom(forbidden)?.message as { text: string }).text).toBe('Only the agent’s owner or an organization admin can change this.');
+    mockRequest.mockRejectedValueOnce(gqlError('AGENT_NOT_FOUND', 'AGENT_NOT_FOUND: agent-id-123'));
+    const missing = await runRegisterDefaults({ _kind: 'registerDefaults' });
+    expect((superFormFrom(missing)?.message as { text: string }).text).toBe('This agent is not available to you.');
   });
 });
