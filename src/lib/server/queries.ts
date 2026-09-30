@@ -1277,7 +1277,7 @@ export const CREATE_PERSONAL_MEMORY_MUTATION = /* GraphQL */ `
 export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation UpdateMemory(
-    $id: ID!, $name: String, $urn: String, $organizationId: ID, $shortDescription: String, $description: String,
+    $id: ID!, $name: String, $urn: String, $shortDescription: String, $description: String,
     $tags: [String!], $license: String,
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
@@ -1288,7 +1288,7 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
     $schema: JSON
   ) {
     updateMemory(
-      id: $id, name: $name, urn: $urn, organizationId: $organizationId, shortDescription: $shortDescription, description: $description,
+      id: $id, name: $name, urn: $urn, shortDescription: $shortDescription, description: $description,
       tags: $tags, license: $license,
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
@@ -1299,6 +1299,33 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
       chunkTokens: $chunkTokens, chunkOverlap: $chunkOverlap, forceFixedSize: $forceFixedSize,
       schema: $schema
     ) { ...MemoryFields }
+  }
+`;
+
+// hadron-server#1481: preview and apply share this mutation. Apply always
+// supplies expectedNewUrn from the preview so a changed destination URN is
+// rejected as STALE_TRANSFER_PREVIEW instead of silently choosing a new one.
+export const TRANSFER_MEMORY_OWNERSHIP_MUTATION = /* GraphQL */ `
+  mutation TransferMemoryOwnership(
+    $memoryRef: ID!, $orgRef: ID, $userRef: ID, $targetClass: MemoryClass!,
+    $expectedNewUrn: String, $resetGroupMembers: Boolean!, $dryRun: Boolean!
+  ) {
+    transferMemoryOwnership(
+      memoryRef: $memoryRef, orgRef: $orgRef, userRef: $userRef,
+      targetClass: $targetClass, expectedNewUrn: $expectedNewUrn,
+      resetGroupMembers: $resetGroupMembers, dryRun: $dryRun
+    ) {
+      memoryId oldUrn newUrn fromOwner toOwner currentClass targetClass
+      canApply applied
+      dependents { kind count handling }
+      blockers { code message }
+    }
+  }
+`;
+
+export const MEMORY_TRANSFER_ACCESS_QUERY = /* GraphQL */ `
+  query MemoryTransferAccess($user: ID!, $resource: ID!) {
+    effectiveAccess(user: $user, resource: $resource) { canDelete }
   }
 `;
 

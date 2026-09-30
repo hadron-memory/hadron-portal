@@ -67,6 +67,9 @@ async function renderSettings(opts: {
   formVectorIndexEnabled?: boolean;
   /** An `ActionData`-shaped result from a previous submit, if any. */
   actionData?: unknown;
+  graphOverrides?: Partial<Memory>;
+  transferCanDelete?: boolean;
+  ownerUserId?: string | null;
 }) {
   // A full `Memory`, not a cast partial. The page reads far more of it than
   // this test cares about, and a cast would let the next field it learns to
@@ -106,6 +109,7 @@ async function renderSettings(opts: {
     lastSyncedAt: null,
     createdAt: '1789430400000',
     updatedAt: '1789430400000',
+    ...opts.graphOverrides,
   };
 
   const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
@@ -145,12 +149,13 @@ async function renderSettings(opts: {
       data: {
         graph,
         user: opts.user ?? OWNER,
-        ownerUserId: OWNER_ID,
-        owner: { id: OWNER_ID, handle: 'holger', name: 'Holger' },
+        ownerUserId: opts.ownerUserId === undefined ? OWNER_ID : opts.ownerUserId,
+        owner: opts.ownerUserId === null ? null : { id: OWNER_ID, handle: 'holger', name: 'Holger' },
         org: opts.orgRole
           ? { id: 'org-1', members: [{ user: { id: (opts.user ?? OWNER).id }, role: opts.orgRole }] }
           : null,
         allOrgs: [],
+        transferCanDelete: opts.transferCanDelete ?? false,
         form,
         vectorForm,
         schemaForm,
@@ -161,6 +166,56 @@ async function renderSettings(opts: {
     },
   }).body;
 }
+
+describe('#969 transfer control and preview', () => {
+  const transfer = {
+    memoryId: 'mem-1', oldUrn: 'hrn:mem:acme.com:docs', newUrn: 'hrn:mem:other.org:docs',
+    fromOwner: 'org-1', toOwner: 'org-2', currentClass: 'knowledge', targetClass: 'knowledge',
+    dependents: [{ kind: 'Nodes', count: 2, handling: 'CARRY' }],
+    blockers: [{ code: 'MEMORY_TRANSFER_DEPENDENTS', message: 'Remove a share first.' }],
+    canApply: false, applied: false,
+  };
+  const selection = { destinationKind: 'org', destinationRef: 'org-2', targetClass: 'knowledge', resetGroupMembers: false };
+
+  it('offers transfer to the owner of a user-owned knowledge memory', async () => {
+    const html = await renderSettings({ savedVectorIndexEnabled: false, graphOverrides: { organizationId: null, userId: null }, ownerUserId: null, transferCanDelete: true });
+    expect(html).toContain('?/previewTransfer');
+  });
+
+  it('offers transfer to an org contributor with a memory.delete grant', async () => {
+    const html = await renderSettings({ savedVectorIndexEnabled: false, user: STRANGER, orgRole: 'READER', transferCanDelete: true, graphOverrides: { userId: null }, ownerUserId: null });
+    expect(html).toContain('?/previewTransfer');
+  });
+
+  it('withholds transfer from a personal-memory grantee, even with an admin role', async () => {
+    const html = await renderSettings({
+      savedVectorIndexEnabled: false, user: { ...STRANGER, roles: ['ADMIN'] }, orgRole: 'ADMIN',
+      graphOverrides: { class: 'personal', organizationId: null, userId: OWNER_ID },
+      transferCanDelete: true,
+    });
+    expect(html).not.toContain('?/previewTransfer');
+  });
+
+  it('shows the new URN and dependent disposition while blocking apply', async () => {
+    const html = await renderSettings({
+      savedVectorIndexEnabled: false, orgRole: 'ADMIN', graphOverrides: { userId: null }, ownerUserId: null,
+      actionData: { _kind: 'previewTransfer', transferSelection: selection, transferPreview: transfer },
+    });
+    expect(html).toContain('hrn:mem:other.org:docs');
+    expect(html).toContain('Carry');
+    expect(html).toContain('Remove a share first.');
+    expect(html).not.toContain('?/applyTransfer');
+  });
+
+  it('offers apply only for a clear preview', async () => {
+    const html = await renderSettings({
+      savedVectorIndexEnabled: false, orgRole: 'ADMIN', graphOverrides: { userId: null }, ownerUserId: null,
+      actionData: { _kind: 'previewTransfer', transferSelection: selection, transferPreview: { ...transfer, blockers: [], canApply: true } },
+    });
+    expect(html).toContain('?/applyTransfer');
+    expect(html).toContain('hrn:mem:other.org:docs');
+  });
+});
 
 /** An `ActionData`-shaped result from the retryFailedEmbeddings action. */
 async function retryResult(extra: Record<string, unknown>) {

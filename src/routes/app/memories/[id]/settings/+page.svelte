@@ -6,12 +6,17 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import DataTable from '$lib/components/table/DataTable.svelte';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import type { PortalColumnDef } from '$lib/table/features';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import { t } from '$lib/i18n/t';
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { PageData, ActionData } from './$types';
+  import type { MemoryOwnerTransferPreview } from './+page.server';
   import {
     deleteMemorySchema,
     memorySchemaSettingsSchema,
@@ -69,6 +74,77 @@
         ? !!data.user?.id && data.user.id === g.userId
         : myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'),
   );
+
+  // The server repeats both source and destination authorization at preview
+  // and apply. These gates only avoid presenting a dead control. A strict
+  // personal/private owner is the one exception to platform-admin override.
+  const platformAdmin = $derived(data.user?.roles?.includes('ADMIN') || data.user?.roles?.includes('OWNER'));
+  const canTransfer = $derived(
+    !isAgentSystem && g.class !== 'app' &&
+      (isOwnerOnly ? ownerIsViewer :
+        data.transferCanDelete || (g.organizationId !== null && (platformAdmin || myMember?.role === 'ADMIN' || myMember?.role === 'OWNER'))),
+  );
+  const destinationOrgs = $derived(
+    data.allOrgs.filter((org) =>
+      org.id !== g.organizationId &&
+      (platformAdmin || org.members?.some((member) => member.user?.id === data.user?.id && (member.role === 'ADMIN' || member.role === 'OWNER'))),
+    ),
+  );
+  type TransferSelection = { destinationKind: 'org' | 'user'; destinationRef: string; targetClass: 'knowledge' | 'group' | 'personal' | 'private'; resetGroupMembers: boolean };
+  type TransferAction = { _kind?: string; transferSelection?: TransferSelection; transferPreview?: MemoryOwnerTransferPreview; transferError?: string };
+  const transferAction = $derived(form as TransferAction | null);
+  const transferPreview = $derived(transferAction?._kind === 'previewTransfer' && transferAction.transferPreview?.memoryId === g.id ? transferAction.transferPreview : null);
+  const transferError = $derived(
+    transferAction?._kind === 'previewTransfer' || transferAction?._kind === 'applyTransfer'
+      ? transferAction.transferError ?? null : null,
+  );
+  const selection = untrack(() => (form as TransferAction | null)?.transferSelection);
+  const defaultDestination = untrack(() => destinationOrgs[0]?.id);
+  const defaultTransferKind = 'org' as const;
+  let transferKind = $state<TransferSelection['destinationKind']>(selection?.destinationKind ?? defaultTransferKind);
+  let transferRef = $state(untrack(() => selection?.destinationRef ?? (defaultTransferKind === 'org' ? defaultDestination ?? '' : data.user?.id ?? '')));
+  let transferClass = $state<TransferSelection['targetClass']>(selection?.targetClass ?? (defaultTransferKind === 'org' ? 'knowledge' : 'personal'));
+  let resetGroupMembers = $state(selection?.resetGroupMembers ?? false);
+  let transferFilter = $state('');
+  function pickTransferKind(event: Event) {
+    transferKind = (event.currentTarget as HTMLSelectElement).value as TransferSelection['destinationKind'];
+    transferRef = transferKind === 'org' ? destinationOrgs[0]?.id ?? '' : data.user?.id ?? '';
+    transferClass = transferKind === 'org' ? 'knowledge' : 'personal';
+  }
+  // SvelteKit reuses this page on a [id] navigation. Reset the raw transfer
+  // fields so a destination from memory A cannot be submitted on memory B.
+  let seededTransferId = untrack(() => g.id);
+  $effect(() => {
+    if (g.id === seededTransferId) return;
+    seededTransferId = g.id;
+    transferKind = 'org';
+    transferRef = destinationOrgs[0]?.id ?? '';
+    transferClass = 'knowledge';
+    resetGroupMembers = false;
+  });
+  function transferHandlingLabel(value: MemoryOwnerTransferPreview['dependents'][number]['handling']) {
+    switch (value) {
+      case 'CARRY': return t('memory-transfer.carry', 'Carry');
+      case 'REFUSE': return t('memory-transfer.refuse', 'Refuse');
+      case 'REMOVE': return t('memory-transfer.remove', 'Remove');
+      case 'CREATE': return t('memory-transfer.create', 'Create');
+    }
+  }
+  const transferColumns: PortalColumnDef<MemoryOwnerTransferPreview['dependents'][number]>[] = [
+    { accessorKey: 'kind', header: t('memory-transfer.dependent', 'Dependent'), enableHiding: false, size: 240 },
+    { accessorKey: 'count', header: t('memory-transfer.count', 'Count'), enableHiding: false, size: 90 },
+    { accessorKey: 'handling', header: t('memory-transfer.handling', 'Handling'), enableHiding: false, size: 130 },
+  ];
+  const transferTable = createSvelteTable<MemoryOwnerTransferPreview['dependents'][number]>({
+    get data() { return transferPreview?.dependents ?? []; },
+    columns: transferColumns,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: { get globalFilter() { return transferFilter; } },
+    onGlobalFilterChange: (value) => { transferFilter = typeof value === 'function' ? value(transferFilter) : value; },
+    globalFilterFn: makeGlobalFilterFn({ handling: (value) => transferHandlingLabel(value as MemoryOwnerTransferPreview['dependents'][number]['handling']) }),
+    initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
+  });
 
   // #695 / @codex P2 on #837 — who may re-drive failed embeddings.
   //
@@ -435,20 +511,10 @@
             <input id="displayName" name="displayName" type="text" bind:value={$settingsForm.displayName} {...$settingsConstraints.displayName} class={inputClass} />
           </div>
 
-          <!-- #260: org is no longer in the URL; submit the current org id so
-               the server can skip a no-op transfer when the select is absent. -->
+          <!-- Legacy form fields are retained for old submissions; ownership
+               changes now use the dedicated preview/apply action below. -->
           <input type="hidden" name="currentOrganizationId" value={$settingsForm.currentOrganizationId} />
-
-          {#if (data as any).allOrgs && (data as any).allOrgs.length > 1}
-            <div>
-              <label for="organizationId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Organization</label>
-              <select id="organizationId" name="organizationId" bind:value={$settingsForm.organizationId} class={inputClass}>
-                {#each (data as any).allOrgs as org (org.id)}
-                  <option value={org.id}>{org.name} ({org.urn})</option>
-                {/each}
-              </select>
-            </div>
-          {/if}
+          <input type="hidden" name="organizationId" value={$settingsForm.organizationId} />
 
           <div>
             <label for="urnSlugInput" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">URN</label>
@@ -928,6 +994,106 @@
       {/if}
     </form>
   </section>
+
+  {#if canTransfer}
+    <section class="max-w-3xl border-t border-zinc-200 pt-6 dark:border-zinc-800" aria-labelledby="transfer-title">
+      <h3 id="transfer-title" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('memory-transfer.heading', 'Transfer ownership')}</h3>
+      {#if $page.url.searchParams.get('transferred') === '1'}
+        <p role="status" class="mb-4 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{t('memory-transfer.done', 'Ownership transferred. The old URN still resolves.')}</p>
+      {/if}
+      <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+        {t('memory-transfer.intro', 'Preview the new URN and dependent records before moving this memory. The destination must be an organization you administer or your own user account.')}
+      </p>
+      {#if transferError}
+        <p role="alert" class="mb-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{transferError}</p>
+      {/if}
+      {#if transferPreview}
+        <div class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div><p class="mb-1 text-xs text-zinc-500">{t('memory-transfer.current-urn', 'Current URN')}</p><Urn value={transferPreview.oldUrn} type="mem" label={t('memory-transfer.current-urn', 'Current URN')} /></div>
+            <div><p class="mb-1 text-xs text-zinc-500">{t('memory-transfer.new-urn', 'New URN')}</p><Urn value={transferPreview.newUrn} type="mem" label={t('memory-transfer.new-urn', 'New URN')} /></div>
+          </div>
+          <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('memory-transfer.class-change', 'Class: {from} → {to}', { from: transferPreview.currentClass, to: transferPreview.targetClass })}</p>
+          <h4 class="text-sm font-medium text-zinc-900 dark:text-white">{t('memory-transfer.dependents', 'Dependent records')}</h4>
+          <DataTable table={transferTable} listKey="memory:transfer-dependents" searchPlaceholder={t('memory-transfer.search', 'Search dependents…')} searchAriaLabel={t('memory-transfer.search', 'Search dependents…')} bind:globalFilter={transferFilter} maxHeight="320px">
+            {#snippet cell(cell, row)}
+              {#if cell.column.id === 'handling'}
+                <span class={row.handling === 'REFUSE' ? 'text-red-600' : 'text-zinc-700 dark:text-zinc-300'}>{transferHandlingLabel(row.handling)}</span>
+              {:else}
+                {cell.getValue()}
+              {/if}
+            {/snippet}
+          </DataTable>
+          {#if transferPreview.blockers.length > 0}
+            <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+              <p class="font-medium">{t('memory-transfer.blocked', 'Transfer cannot be applied yet:')}</p>
+              {#each transferPreview.blockers as blocker (blocker.code + blocker.message)}
+                <p>{blocker.message}</p>
+              {/each}
+            </div>
+          {/if}
+          <div class="flex flex-wrap gap-3">
+            {#if transferPreview.canApply && transferAction?.transferSelection}
+              <form method="POST" action="?/applyTransfer">
+                <input type="hidden" name="_kind" value="applyTransfer" />
+                <input type="hidden" name="destinationKind" value={transferAction.transferSelection.destinationKind} />
+                <input type="hidden" name="destinationRef" value={transferAction.transferSelection.destinationRef} />
+                <input type="hidden" name="targetClass" value={transferAction.transferSelection.targetClass} />
+                <input type="hidden" name="resetGroupMembers" value={String(transferAction.transferSelection.resetGroupMembers)} />
+                <input type="hidden" name="expectedNewUrn" value={transferPreview.newUrn} />
+                <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">{t('memory-transfer.apply', 'Apply transfer')}</button>
+              </form>
+            {/if}
+            <a href={$page.url.pathname} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{t('memory-transfer.change', 'Change destination')}</a>
+          </div>
+        </div>
+      {:else}
+        <form method="POST" action="?/previewTransfer" class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+          <input type="hidden" name="_kind" value="previewTransfer" />
+          <div>
+            <label for="transfer-kind" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('memory-transfer.destination-kind', 'Destination type')}</label>
+            <select id="transfer-kind" name="destinationKind" value={transferKind} onchange={pickTransferKind} class={inputClass} required>
+              <option value="org">{t('memory-transfer.organization', 'Organization')}</option>
+              {#if !isOwnerOnly}<option value="user">{t('memory-transfer.user', 'User account')}</option>{/if}
+            </select>
+          </div>
+          <div>
+            <label for="transfer-ref" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('memory-transfer.destination-ref', 'Destination URN or ID')}</label>
+            <input id="transfer-ref" name="destinationRef" type="text" list={transferKind === 'org' ? 'transfer-orgs' : 'transfer-users'} bind:value={transferRef} class={inputClass} required autocomplete="off" />
+            <datalist id="transfer-orgs">
+              {#each destinationOrgs as org (org.id)}
+                <option value={org.urn}>{org.name}</option>
+              {/each}
+            </datalist>
+            <datalist id="transfer-users">
+              {#if data.user?.handle}<option value={`hrn:user:${data.user.handle}`}>{t('memory-transfer.my-account', 'My account')}</option>{/if}
+            </datalist>
+            <p class="mt-1 text-xs text-zinc-500">{t('memory-transfer.destination-hint', 'Organization suggestions are shown above; you can enter another URN or ID. User transfers require your own account unless you are a platform administrator.')}</p>
+          </div>
+          <div>
+            <label for="transfer-class" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('memory-transfer.target-class', 'Target class')}</label>
+            <select id="transfer-class" name="targetClass" bind:value={transferClass} class={inputClass} required>
+              {#if transferKind === 'org'}
+                <option value="knowledge">{t('memory-transfer.knowledge', 'Knowledge')}</option>
+                <option value="group">{t('memory-transfer.group', 'Group')}</option>
+              {:else}
+                <option value="personal">{t('memory-transfer.personal', 'Personal')}</option>
+                <option value="private">{t('memory-transfer.private', 'Private')}</option>
+              {/if}
+            </select>
+            <p class="mt-1 text-xs text-zinc-500">{transferKind === 'org' ? t('memory-transfer.org-class-hint', 'Organization memories use the knowledge or group class.') : t('memory-transfer.user-class-hint', 'User memories use the personal or private class.')}</p>
+          </div>
+          {#if g.class === 'group'}
+            <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+              <input type="checkbox" name="resetGroupMembers" value="true" bind:checked={resetGroupMembers} class="mt-1" />
+              <span>{t('memory-transfer.reset-members', 'Revoke all current group members as part of this transfer. The receiving administrator becomes the first group owner if the destination is a group.')}</span>
+            </label>
+          {/if}
+          <button type="submit" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600">{t('memory-transfer.preview', 'Preview transfer')}</button>
+        </form>
+      {/if}
+    </section>
+  {/if}
 
   <!-- Spec 013: Danger zone — soft-delete affordance for authorized users.
        Server-side authz is the trust boundary; the {#if canDelete} hide is
