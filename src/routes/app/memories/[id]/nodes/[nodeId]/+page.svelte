@@ -3112,7 +3112,14 @@
                 try {
                   const fd = new FormData();
                   fd.set('updates', JSON.stringify(updates));
-                  const res = await fetch('?/reorder', { method: 'POST', body: fd });
+                  // The action header makes the reply an ActionResult for sure,
+                  // not whatever content negotiation picks (#975 Codex P2), as
+                  // the other hand-rolled action clients do.
+                  const res = await fetch('?/reorder', {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'x-sveltekit-action': 'true' },
+                  });
                   if (!res.ok) throw new Error('Reorder failed');
                   // #974: an expired session answers with a sign-in redirect.
                   // Nothing typed is lost by following it: the order is a drag.
