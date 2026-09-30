@@ -23,6 +23,7 @@
 import { untrack } from 'svelte';
 import { deserialize } from '$app/forms';
 import { canonicalJson, jsonFingerprint, PROPERTIES_MAX, utf8Length } from './properties-source';
+import { signinRedirectLocation } from '$lib/forms/signin-redirect';
 
 /** Which node, and the stored value of the field this draft edits. */
 export interface DraftSource {
@@ -169,6 +170,9 @@ export function syncDraftWith(draft: JsonDraft, getSource: () => DraftSource): v
 
 export type SubmitResult = { ok: true } | { ok: false; code: string; detail: string | null };
 
+/** A save refused because the session expired (#974); the caller keeps the draft. */
+export const SIGNED_OUT = 'signed-out';
+
 /**
  * POST one Source save to `url` — the ORIGINATING node's absolute action URL,
  * fixed by the caller before anything is awaited (@codex on #893). A relative
@@ -215,6 +219,9 @@ export async function postSourceSave(opts: {
   });
   const result = deserialize(await res.text());
   if (result.type === 'success') return { ok: true };
+  // #974: the session expired. Report it rather than follow the redirect, which
+  // would navigate away and throw the typed draft with it.
+  if (signinRedirectLocation(result)) return { ok: false, code: SIGNED_OUT, detail: null };
   if (result.type === 'failure') {
     const f = (result.data as Record<string, { code: string; detail: string | null } | undefined> | undefined)?.[
       `${opts.field}Failed`

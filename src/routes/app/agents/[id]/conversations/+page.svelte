@@ -1,5 +1,8 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
+  import { deserialize } from '$app/forms';
+  import { signinRedirectLocation } from '$lib/forms/signin-redirect';
+  import { goto } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -505,7 +508,14 @@
       method: 'POST',
       body: fd,
       headers: { 'x-sveltekit-action': 'true' },
-    }).catch((err) => console.warn('[conversation-canvas] position save failed:', err));
+    })
+      // #974: an expired session answers with a sign-in redirect. A dragged
+      // position is all this carries, so following it loses nothing typed.
+      .then(async (res) => {
+        const signin = signinRedirectLocation(deserialize(await res.text()));
+        if (signin) await goto(signin);
+      })
+      .catch((err) => console.warn('[conversation-canvas] position save failed:', err));
   }
 
   const inputClass = "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500";

@@ -1,7 +1,9 @@
 <script lang="ts">
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
-  import { displayJson, JsonDraft, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
+  import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
+  import { deserialize } from '$app/forms';
+  import { signinRedirectLocation } from '$lib/forms/signin-redirect';
   import { submitTextDraft, syncTextDraftWith, TextDraft } from '$lib/text-draft.svelte';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
   import { onMount, untrack } from 'svelte';
@@ -147,8 +149,19 @@
    * another field (tags, data, the other text) reloads to a draft that can
    * simply be saved again.
    */
+  // #974: the session expired while editing. Say so, and say the draft is kept:
+  // following the sign-in redirect would have navigated away and lost it.
+  function signedOutSaveText(): string {
+    return t(
+      'node.save.signed-out',
+      'Your session has expired, so this was not saved. Your edit is still here: copy it or keep this tab open, sign in again in a new tab, then save again.',
+    );
+  }
+
   function textSaveErrorText(code: string, detail: string | null, fieldChanged: boolean): string {
     switch (code) {
+      case SIGNED_OUT:
+        return signedOutSaveText();
       case 'changed':
         // Only the reload can say THIS text moved; the conflict itself is not
         // necessarily a revision mismatch (a concurrent move answers the same).
@@ -486,6 +499,8 @@
 
   function dataSourceErrorText(code: string, detail?: string | null): string {
     switch (code) {
+      case SIGNED_OUT:
+        return signedOutSaveText();
       case 'empty':
         return t('node.data.source.empty', 'Enter a JSON value to save.');
       case 'top-level-null':
@@ -1238,6 +1253,8 @@
 
   function propertiesSourceErrorText(code: string, detail?: string | null): string {
     switch (code) {
+      case SIGNED_OUT:
+        return signedOutSaveText();
       case 'empty':
         return t('node.properties.source.empty', 'Enter a JSON object — {} removes every property.');
       case 'too-large':
@@ -3095,8 +3112,22 @@
                 try {
                   const fd = new FormData();
                   fd.set('updates', JSON.stringify(updates));
-                  const res = await fetch('?/reorder', { method: 'POST', body: fd });
+                  // The action header makes the reply an ActionResult for sure,
+                  // not whatever content negotiation picks (#975 Codex P2), as
+                  // the other hand-rolled action clients do.
+                  const res = await fetch('?/reorder', {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'x-sveltekit-action': 'true' },
+                  });
                   if (!res.ok) throw new Error('Reorder failed');
+                  // #974: an expired session answers with a sign-in redirect.
+                  // Nothing typed is lost by following it: the order is a drag.
+                  const signin = signinRedirectLocation(deserialize(await res.text()));
+                  if (signin) {
+                    await goto(signin);
+                    return;
+                  }
                   await invalidateAll();
                 } catch (err) {
                   childDragError = err instanceof Error ? err.message : 'Reorder failed';
