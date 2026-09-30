@@ -191,6 +191,7 @@ describe.each([
   });
 
   it('raw drift refuses the edit even when the supplied token equals the reconciliation revision', async () => {
+    // Pins the fake's #1458 server contract; the portal only maps its refusal.
     reconcileBeforeNextGuardedSave = () => {
       stored.tags = [...stored.tags, 'reconciled'];
     };
