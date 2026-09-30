@@ -1215,13 +1215,18 @@ export const CREATE_USER_INVITATION_MUTATION = /* GraphQL */ `
   }
 `;
 
+// P1-c of hadron-server#1523 (team chat #5308/#5313): invitation(slug) is
+// readable by anyone holding the slug, signed in or not. Select ONLY what
+// /invite/[token] renders: no ids, no invitee identity, no org URN, nothing
+// the server has to project for a stranger. These names are also the contract
+// for the server's sanitized invite projection, so this query validates
+// against the current server and the sanitized one alike.
 export const INVITATION_QUERY = /* GraphQL */ `
   query Invitation($slug: String!) {
     invitation(slug: $slug) {
-      id slug memberRole name email githubUsername
-      maxActivations activationCount expiresAt createdAt
-      sender { id name githubUsername }
-      organization { id name urn }
+      memberRole maxActivations activationCount expiresAt
+      sender { name githubUsername }
+      organization { name }
     }
   }
 `;

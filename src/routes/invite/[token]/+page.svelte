@@ -14,11 +14,11 @@
   type InviteEmailSuperform = SuperValidated<InviteEmailForm, App.Superforms.Message, InviteEmailForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
+  // Exactly INVITATION_QUERY's selection (see its comment on why it's minimal).
   const inv = $derived(data.invitation as {
-    organization?: { name: string; urn: string };
-    sender?: { name?: string; githubUsername?: string };
+    organization?: { name: string } | null;
+    sender?: { name?: string | null; githubUsername?: string | null } | null;
     memberRole: string;
-    name?: string;
     expiresAt?: string;
     activationCount: number;
     maxActivations?: number;
