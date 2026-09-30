@@ -160,6 +160,18 @@ describe('agent Settings — register default (#942)', () => {
     expect(box(root)!.checked).toBe(true);
   });
 
+  it('a failed full-page (no-JS) save keeps the attempted value beside its error (#971 Codex P2)', async () => {
+    const failed = await superValidate(
+      { _kind: 'registerDefaults', mentionOnly: true },
+      zod4(agentRegisterDefaultsSchema),
+    );
+    failed.message = { type: 'error', text: 'The default was not saved. Changing it needs the agent’s owner or an organization admin.' };
+    // Stored value is false; the user tried to save true and was refused.
+    const root = await mountSettings({ data: await pageData('a', { mentionOnly: false }), form: { form: failed } });
+    expect(root.textContent).toContain('The default was not saved.');
+    expect(box(root)!.checked).toBe(true);
+  });
+
   it('a clean form still follows the server when the same agent is re-read', async () => {
     const props = reactiveProps({ data: await pageData('a', { mentionOnly: false }), form: null } as Record<string, unknown>);
     const root = await mountSettings(props);

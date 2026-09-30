@@ -243,12 +243,19 @@
   // - The SAME agent re-read (another form on the page saved): reseed only a
   //   clean form, so an unsaved change here survives (#971 Codex P2). A save of
   //   THIS form arrives untainted with the saved value, so it keeps its "Saved".
+  // - The FIRST run is skipped: the store was just seeded, either from the
+  //   loader or from a full-page (no-JS) submission's action form, and the
+  //   latter must keep the value the user tried to save beside its error
+  //   (#971 Codex P2).
   let registerDefaultsAgentId = untrack(() => data.agent.id);
+  let registerDefaultsSeeded = false;
   $effect(() => {
     const seeded = data.registerDefaults?.mentionOnly ?? false;
     const agentId = data.agent.id;
     untrack(() => {
-      if (agentId !== registerDefaultsAgentId) {
+      if (!registerDefaultsSeeded) {
+        registerDefaultsSeeded = true;
+      } else if (agentId !== registerDefaultsAgentId) {
         registerDefaultsAgentId = agentId;
         registerDefaultsReset({ data: { mentionOnly: seeded }, newState: { mentionOnly: seeded } });
       } else if (!registerDefaultsIsTainted()) {
