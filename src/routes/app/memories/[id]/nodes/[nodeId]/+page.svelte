@@ -7,7 +7,6 @@
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import DOMPurify from 'dompurify';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -44,7 +43,7 @@
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
-  import { wikilinkExtension } from '$lib/markdown/wikilink';
+  import { createNodeMarkdownRenderer, renderNodeMarkdown } from '$lib/markdown/node-renderer';
   import { t } from '$lib/i18n/t';
   import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
   import { declaredObjectType, readMemorySchema } from '$lib/schema/memory-schema';
@@ -374,28 +373,17 @@
   // Shared renderer for both content and abstract. The Marked instance is
   // rebuilt whenever the resolution map changes (a save can add or fix a
   // wikilink) — the extension closes over that map. Portal Invariant P4:
-  // markdown → HTML → DOMPurify before insertion — escaping raw-HTML tokens
-  // alone leaves anchor-based vectors (e.g. javascript: URLs) through.
+  // markdown → HTML → DOMPurify before insertion, including authored HTML.
   const markedInstance = $derived.by(() => {
     // `markedReady` is the reactive half of the dynamic import — MarkedClass
     // is a plain binding, so reading it alone would memoize this at null.
     if (!markedReady || !MarkedClass) return null;
-    return new MarkedClass({
-      extensions: [wikilinkExtension(wikilinks, wikilinkStrings)],
-      renderer: {
-        html(token: { text: string }) {
-          return token.text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-        },
-      },
-    });
+    return createNodeMarkdownRenderer(MarkedClass, wikilinks, wikilinkStrings);
   });
 
   function renderMarkdown(src: string): string {
     if (!markedInstance) return '';
-    return DOMPurify.sanitize(markedInstance.parse(src, { async: false }) as string);
+    return renderNodeMarkdown(markedInstance, src);
   }
 
   let renderedAbstractHtml = $state('');

@@ -1,13 +1,12 @@
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
 import {
-  ORGANIZATIONS_QUERY,
   CREATE_NODE_MUTATION,
   UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
   GRAPH_NODES_QUERY,
   NODE_QUERY,
 } from '$lib/server/queries';
+import { resolveTesterSystemMemory } from '$lib/server/agent-tester/resolve-agent';
 import {
   newFixtureRecord,
   encodeFixture,
@@ -19,7 +18,6 @@ import {
   type RouteTrace,
 } from '$lib/server/agent-tester/fixture-codec';
 import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
-import type { Organization } from '$lib/types';
 import type { RequestHandler } from './$types';
 
 /**
@@ -33,28 +31,16 @@ import type { RequestHandler } from './$types';
  * - POST                   → create OR update (idempotent by fixtureLoc)
  * - DELETE                 → soft-delete by fixtureLoc + agentId
  *
- * Auth: 401 without a token; 404 (no leak) if the agent is not in the
- * caller's direct org memberships.
+ * Auth: 401 without a token; 404 (no leak) unless the agent is in the
+ * caller's organization scope or owned personal-agent scope.
  */
 
-// Resolve the agent + its system memory id with the spec-018-style
-// membership gate. Returns null when the agent is not visible to the
-// caller (the route then 404s).
 async function resolveAgent(token: string, agentId: string): Promise<{
   agentId: string;
   systemMemoryId: string;
 } | null> {
-  const client = gqlClient(token);
-  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
-  for (const o of orgs) {
-    const found = (o.agents ?? []).find((a) => a.id === agentId);
-    if (found) {
-      const systemMemoryId = (found as unknown as { systemMemoryId?: string | null }).systemMemoryId ?? null;
-      if (!systemMemoryId) return null; // no place to store fixtures
-      return { agentId, systemMemoryId };
-    }
-  }
-  return null;
+  const systemMemoryId = await resolveTesterSystemMemory(gqlClient(token), agentId);
+  return systemMemoryId ? { agentId, systemMemoryId } : null;
 }
 
 // ── GET ─────────────────────────────────────────────────────────────────────

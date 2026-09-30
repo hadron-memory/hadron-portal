@@ -309,7 +309,6 @@
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
       personaRole: agent.personaRole ?? '',
-      personaPrompt: agent.personaPrompt ?? '',
     }), { taint: false });
     isEditing = true;
   }
@@ -632,12 +631,6 @@
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">{t('agent.persona.role', 'Persona role')}</span>
               <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
-            </div>
-          {/if}
-          {#if agent.personaPrompt}
-            <div class="px-5 py-3">
-              <span class="text-sm text-zinc-500">{t('agent.persona.prompt', 'Persona prompt template')}</span>
-              <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.personaPrompt}</p>
             </div>
           {/if}
           {#if agent.systemMemoryId}
@@ -1166,8 +1159,8 @@
             </div>
             <div>
               <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent" bind:value={$agentSettingsForm.systemPrompt} class={inputClass}></textarea>
-              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each agent chat.</p>
+              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder={t('agent.system-prompt.placeholder', 'Instructions shared by chats and workers')} bind:value={$agentSettingsForm.systemPrompt} class={inputClass}></textarea>
+              <p class="mt-1 text-xs text-zinc-400">{t('agent.system-prompt.help', 'Shared by agent chats and workers cast from this agent. In a worker briefing, {{name}} and {{role}} are filled in; each worker can add a prompt override.')}</p>
             </div>
             <div>
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
@@ -1211,23 +1204,13 @@
                 <p class="mt-1 text-xs text-zinc-400">Memory the agent uses for conversations, automations, and other tasks.</p>
               </div>
             {/if}
-            <!-- #974 persona DRESSING (hrn:node:hadronmemory.com:specs:cor:agt:020:01). An agent is a reusable
-                 ROLE-ACTOR ("backend-engineer"), not a named individual: the
-                 name belongs to a Worker cast into an App. These two fields are
-                 the template that every casting of this agent shares. Blank
-                 clears the field server-side, so an ordinary agent just leaves
-                 them empty. -->
+            <!-- The role belongs to the reusable Agent; the shared template
+                 now lives in systemPrompt (#1241). -->
             <div>
               <label for="editPersonaRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('agent.persona.role', 'Persona role')}</label>
               <input id="editPersonaRole" name="personaRole" type="text" placeholder="backend-engineer" bind:value={$agentSettingsForm.personaRole}
                 aria-describedby="editPersonaRoleHelp" class={inputClass} />
               <p id="editPersonaRoleHelp" class="mt-1 text-xs text-zinc-400">{t('agent.persona.role.help', 'Free-form role, by convention a slug like backend-engineer. Casting an agent into an App defaults the worker’s role to this.')}</p>
-            </div>
-            <div>
-              <label for="editPersonaPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('agent.persona.prompt', 'Persona prompt template')}</label>
-              <textarea id="editPersonaPrompt" name="personaPrompt" rows="4" placeholder="You are {'{{name}}'}, a {'{{role}}'} on this team." bind:value={$agentSettingsForm.personaPrompt}
-                aria-describedby="editPersonaPromptHelp" class={inputClass}></textarea>
-              <p id="editPersonaPromptHelp" class="mt-1 text-xs text-zinc-400">{t('agent.persona.prompt.help', 'Identity template shared by every casting of this agent. {{name}} and {{role}} are bound when a worker is cast; a worker can append its own prompt override.')}</p>
             </div>
             <div class="flex gap-3">
               <button type="submit" disabled={$agentSettingsSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">{$agentSettingsSubmitting ? 'Saving...' : 'Save'}</button>
@@ -1256,12 +1239,6 @@
               <div class="flex items-center justify-between px-5 py-3">
                 <span class="text-sm text-zinc-500">{t('agent.persona.role', 'Persona role')}</span>
                 <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
-              </div>
-            {/if}
-            {#if agent.personaPrompt}
-              <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">{t('agent.persona.prompt', 'Persona prompt template')}</span>
-                <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.personaPrompt}</p>
               </div>
             {/if}
             {#if agent.systemMemoryId}

@@ -5,8 +5,14 @@ import {
   PROCESS_CHAT_RESPONSE_MUTATION,
   SAVE_CHAT_SUMMARY_MUTATION,
 } from '$lib/server/queries';
-import { callAgentChatLlm, type HadronTool } from './agentChatLlm.js';
+import {
+  callAgentChatLlm,
+  isMissingEffectiveEndpoint,
+  portalRuntimeRefusal,
+  type HadronTool,
+} from './agentChatLlm.js';
 import type { AIProvider } from '$lib/types';
+import { ChatError, publicChatError } from './chatError.js';
 
 /** Result of a single chat turn surfaced to the frontend. */
 export interface ChatTurnResult {
@@ -33,26 +39,34 @@ export async function fetchAgentAIConfig(
   // decrypted key. `resolveAIConfig` throws NoAiConfigAvailableError when
   // nothing resolves — translate that into the "configure a provider"
   // guidance, but let auth/transport errors propagate untouched.
+  let resolved: { provider: string; apiKey: string; model: string; effectiveEndpoint: string | null };
   try {
     const result = await gqlClient(token).request<{
-      resolveAIConfig: { provider: string; apiKey: string; model: string };
+      resolveAIConfig: { provider: string; apiKey: string; model: string; effectiveEndpoint: string | null };
     }>(RESOLVE_AI_CONFIG_QUERY, {
       name: opts?.configName ?? 'default',
       appRef: opts?.appId ?? undefined,
       agentRef: agentId,
     });
-    return {
-      provider: result.resolveAIConfig.provider as AIProvider,
-      apiKey: result.resolveAIConfig.apiKey,
-      model: result.resolveAIConfig.model,
-    };
+    resolved = result.resolveAIConfig;
   } catch (e) {
     const msg = e instanceof Error ? e.message : '';
     if (msg.includes('NoAiConfigAvailable') || /no ai config|not configured/i.test(msg)) {
-      throw new Error('Agent has no LLM provider configured. Set one in agent settings first.');
+      throw new ChatError('noConfig');
     }
+    // A server without #1373 can't say where a config goes, so nothing is run.
+    if (isMissingEffectiveEndpoint(msg)) throw new ChatError('oldServer');
     throw e;
   }
+  // Stopgap (Holger, 2026-09-27): never run a config somewhere other than where
+  // it's meant to go, with its key. Refused BEFORE the key is handed to anything.
+  const refusal = portalRuntimeRefusal(resolved);
+  if (refusal) throw new ChatError('configUnsupported');
+  return {
+    provider: resolved.provider as AIProvider,
+    apiKey: resolved.apiKey,
+    model: resolved.model,
+  };
 }
 
 /**
@@ -166,7 +180,7 @@ export async function runChatTurn(args: {
           await client.request(SAVE_CHAT_SUMMARY_MUTATION, { chatId, summary });
         }
       } catch (err) {
-        console.warn('[agent-chat] summarization failed:', err);
+        console.warn('[agent-chat] summarization failed:', publicChatError(err).code);
       }
     })();
   }

@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import {
   CREATE_AI_SERVICE_CONFIG_MUTATION,
   UPDATE_AI_SERVICE_CONFIG_MUTATION,
@@ -10,6 +10,8 @@ import {
 } from '$lib/server/queries';
 import { inlineTestable } from '$lib/components/ai-config-manager';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
+import { publicChatError } from '$lib/server/llm/chatError.js';
+import { t } from '$lib/i18n/t';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { AIProvider, AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 import type { AiConfigTestResult } from '$lib/ai-config-test';
@@ -117,7 +119,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.createAiServiceConfig });
       } catch (e) {
-        return json({ error: extractGqlError(e, 'Failed to create AI config') }, { status: 400 });
+        const code = extractGqlErrorCode(e);
+        if (code === 'DuplicateAiServiceConfigNameError') {
+          return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
+        }
+        if (code === 'AiConfigValidationError') {
+          return json({ error: t('ai-config.error.invalid', 'AI configuration is invalid. Check the name, provider settings, model, and API key.') }, { status: 400 });
+        }
+        return json({ error: t('ai-config.error.create-failed', 'Failed to create AI configuration.') }, { status: 500 });
       }
     }
 
@@ -152,7 +161,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         );
         return json({ ok: true, config: data.updateAiServiceConfig });
       } catch (e) {
-        return json({ error: extractGqlError(e, 'Failed to update AI config') }, { status: 400 });
+        const code = extractGqlErrorCode(e);
+        if (code === 'DuplicateAiServiceConfigNameError') {
+          return json({ error: t('ai-config.error.duplicate-name', 'An AI configuration with this name already exists for this owner.') }, { status: 409 });
+        }
+        if (code === 'AiConfigValidationError') {
+          return json({ error: t('ai-config.error.invalid', 'AI configuration is invalid. Check the name, provider settings, model, and API key.') }, { status: 400 });
+        }
+        return json({ error: t('ai-config.error.update-failed', 'Failed to update AI configuration.') }, { status: 500 });
       }
     }
 
@@ -163,8 +179,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       try {
         await client.request(DELETE_AI_SERVICE_CONFIG_MUTATION, { id: body.id });
         return json({ ok: true });
-      } catch (e) {
-        return json({ error: extractGqlError(e, 'Failed to delete AI config') }, { status: 400 });
+      } catch {
+        return json({ error: t('ai-config.error.delete-failed', 'Failed to delete AI configuration.') }, { status: 500 });
       }
     }
 
@@ -191,12 +207,21 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           id: body.id,
           override: Object.keys(override).length > 0 ? override : null,
         });
-        return json({ result: data.testAiServiceConfig });
+        const result = data.testAiServiceConfig;
+        // The server's structured failure may still contain raw provider text
+        // on an older deployment. Keep only a known code and fixed message.
+        const code = result.error?.code;
+        const safeCode = code === 'NO_API_KEY' || code === 'KEY_UNREADABLE' || code === 'QUOTA_EXCEEDED' || code === 'CONFIG_INVALID' || code === 'LLM_CALL_FAILED'
+          ? code : 'TEST_FAILED';
+        return json({ result: result.error ? {
+          ...result,
+          error: { code: safeCode, message: t('ai-config.error.test-failed', 'The test could not run.'), transient: result.error.transient === true },
+        } : result });
       } catch (e) {
         if (extractGqlErrorCode(e) === 'RATE_LIMITED') {
           return json({ error: 'Too many tests just now. Wait a minute and try again.' }, { status: 429 });
         }
-        return json({ error: extractGqlError(e, 'The test could not run.') }, { status: 400 });
+        return json({ error: t('ai-config.error.test-failed', 'The test could not run.') }, { status: 500 });
       }
     }
 
@@ -251,7 +276,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           usage: llmResult.usage,
         });
       } catch (e) {
-        return json({ ok: false, error: e instanceof Error ? e.message : 'LLM call failed' });
+        const safe = publicChatError(e);
+        return json({ ok: false, error: safe.message, code: safe.code });
       }
     }
 

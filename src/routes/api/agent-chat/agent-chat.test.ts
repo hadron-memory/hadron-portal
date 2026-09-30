@@ -240,7 +240,7 @@ describe('POST /api/agent-chat/start', () => {
     expect(res.status).toBe(400);
     const body = await jsonOf(res);
     expect(body.error).toBe('shared-chat-requires-app-context');
-    expect(body.message).toMatch(/not a member/i);
+    expect(body.message).toMatch(/requires membership/i);
   });
 
   // hadron-server's `ChatScopeError` extends GraphQLError so Apollo
@@ -336,7 +336,29 @@ describe('POST /api/agent-chat/start', () => {
     const { POST } = await import('./start/+server');
     const res = await POST(ev({ body: { agentId: 'a1' } }));
     expect(res.status).toBe(500);
-    expect((await jsonOf(res)).error).toBe('graphql boom');
+    expect((await jsonOf(res)).error).toBe('Chat request failed. Please try again.');
+  });
+
+  it('never echoes an unexpected start error or failed welcome to JSON or logs', async () => {
+    const sentinel = 'sk-synthetic-966';
+    mockRequest.mockRejectedValueOnce(new Error(`Authorization: Bearer ${sentinel}`));
+    const { POST } = await import('./start/+server');
+    const rejected = await POST(ev({ body: { agentId: 'a1' } }));
+    expect(JSON.stringify(await jsonOf(rejected))).not.toContain(sentinel);
+
+    mockRequest.mockResolvedValueOnce({ startChat: {
+      chatId: 'c', systemMessage: '', tools: null, conversationName: null, stageName: null,
+    } });
+    mockRunChatTurn.mockRejectedValueOnce(new Error(`Authorization: Bearer ${sentinel}`));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const created = await POST(ev({ body: { agentId: 'a1' } }));
+      expect(created.status).toBe(200);
+      expect(JSON.stringify(await jsonOf(created))).not.toContain(sentinel);
+      expect(JSON.stringify(warn.mock.calls)).not.toContain(sentinel);
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   // Spec 016 — welcome turn is best-effort. startChat must succeed and
@@ -355,7 +377,7 @@ describe('POST /api/agent-chat/start', () => {
       },
     });
     mockRunChatTurn.mockRejectedValueOnce(
-      new Error('Agent has no LLM provider configured. Set one in agent settings first.'),
+      new (await import('$lib/server/llm/chatError.js')).ChatError('noConfig'),
     );
     const { POST } = await import('./start/+server');
     const res = await POST(ev({ body: { agentId: 'a1' } }));
@@ -432,7 +454,14 @@ describe('POST /api/agent-chat/turn', () => {
     const { POST } = await import('./turn/+server');
     const res = await POST(ev({ body: { agentId: 'a', chatId: 'c', userMessage: 'x' } }));
     expect(res.status).toBe(500);
-    expect((await jsonOf(res)).error).toBe('provider timeout');
+    expect(await jsonOf(res)).toEqual({ error: 'Chat request failed. Please try again.', code: 'failed' });
+  });
+
+  it('keeps unexpected provider text out of a turn response', async () => {
+    mockRunChatTurn.mockRejectedValueOnce(new Error('Authorization: Bearer sk-synthetic-966'));
+    const { POST } = await import('./turn/+server');
+    const res = await POST(ev({ body: { agentId: 'a', chatId: 'c', userMessage: 'x' } }));
+    expect(await jsonOf(res)).toEqual({ error: 'Chat request failed. Please try again.', code: 'failed' });
   });
 
   it('includes conversationHandoff and onTrack in the response', async () => {

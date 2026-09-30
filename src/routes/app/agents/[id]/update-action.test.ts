@@ -74,41 +74,41 @@ describe('agent update action (#488)', () => {
 });
 
 /**
- * #712 — the persona fields are the MIRROR IMAGE of systemMemoryId above:
- * blank is a real value here (the server normalizes blank-after-trim to null,
- * which is how the user clears one), so '' must be SENT, not omitted.
- *
- * #974 narrowed the set to the DRESSING pair: `personaName` was dropped from the
- * schema when the Worker model made the named individual a Worker rather than an
- * Agent. Sending it would fail the whole mutation (an unknown variable is a
- * validation error, not an ignored field), which is what the last case pins.
+ * #1241 keeps the role as Agent dressing and moves its shared template into
+ * systemPrompt. The removed personaPrompt argument must never reach GraphQL.
  */
-describe('agent update action — persona dressing (#712, #974)', () => {
-  it('sends persona fields through', async () => {
+describe('agent update action — shared prompt and persona role (#1241)', () => {
+  it('preserves every prompt byte when saving an unrelated role edit', async () => {
+    const migratedPrompt = '  Persona template.\n\nSystem guidance.\n';
+    await runUpdate({
+      name: 'Agent', urnSlug: 'agent', personaRole: 'staff-assistant',
+      systemPrompt: migratedPrompt,
+    });
+    expect(updateAgentVariables().systemPrompt).toBe(migratedPrompt);
+  });
+
+  it('sends the shared prompt and role through', async () => {
     await runUpdate({
       name: 'Backend Engineer', urnSlug: 'backend-engineer',
-      personaRole: 'backend-engineer', personaPrompt: 'You are {{name}}, a {{role}}.',
+      personaRole: 'backend-engineer', systemPrompt: 'You are {{name}}, a {{role}}.',
     });
     expect(updateAgentVariables()).toMatchObject({
       personaRole: 'backend-engineer',
-      personaPrompt: 'You are {{name}}, a {{role}}.',
+      systemPrompt: 'You are {{name}}, a {{role}}.',
     });
   });
 
-  it('sends EMPTY persona fields as "" so the server clears them', async () => {
-    await runUpdate({ name: 'Agent', urnSlug: 'agent', personaRole: '', personaPrompt: '' });
+  it('sends an empty role to clear it and null for an empty shared prompt', async () => {
+    await runUpdate({ name: 'Agent', urnSlug: 'agent', personaRole: '', systemPrompt: '' });
     const vars = updateAgentVariables();
     expect(vars.personaRole).toBe('');
-    expect(vars.personaPrompt).toBe('');
+    expect(vars.systemPrompt).toBeNull();
   });
 
-  it('never sends personaName — the field is gone from the schema (#974)', async () => {
+  it('never sends the removed personaPrompt field', async () => {
     await runUpdate({ name: 'Agent', urnSlug: 'agent', personaRole: 'backend-engineer' });
-    expect(updateAgentVariables()).not.toHaveProperty('personaName');
-    // Match the VARIABLE and ARGUMENT spellings, not the bare word: the
-    // document embeds AGENT_FIELDS, whose comments still mention the retired
-    // field by name to warn the next editor off it.
-    expect(UPDATE_AGENT_MUTATION).not.toMatch(/\$personaName\b/);
-    expect(UPDATE_AGENT_MUTATION).not.toMatch(/\bpersonaName\s*:/);
+    expect(updateAgentVariables()).not.toHaveProperty('personaPrompt');
+    expect(UPDATE_AGENT_MUTATION).not.toMatch(/\$personaPrompt\b/);
+    expect(UPDATE_AGENT_MUTATION).not.toMatch(/\bpersonaPrompt\s*:/);
   });
 });

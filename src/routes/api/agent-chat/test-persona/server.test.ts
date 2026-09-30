@@ -84,6 +84,14 @@ const body = {
 };
 
 describe('POST /api/agent-chat/test-persona', () => {
+  it('does not echo a provider error from a scripted turn', async () => {
+    mockHappyPath();
+    mockRunChatTurn.mockRejectedValueOnce(new Error('Authorization: Bearer sk-synthetic-966'));
+    const POST = await importPOST();
+    const res = await POST(ev({ body }));
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: 'Chat request failed. Please try again.', code: 'failed' });
+  });
   it('starts the chat as a private test run (#898)', async () => {
     mockHappyPath();
     const POST = await importPOST();
@@ -114,6 +122,60 @@ describe('POST /api/agent-chat/test-persona', () => {
     expect(report.chatId).toBe('chat-1');
     expect(report.personaName).toBe('Newcomer');
     expect(report.pass).toBe(true);
+    expect(report.endedAtStep).toBeNull();
+    expect(report.skippedMessages).toBe(0);
+  });
+
+  it('stops before the opening message when the welcome ends the chat', async () => {
+    mockHappyPath();
+    mockRunChatTurn.mockResolvedValueOnce({
+      ...turn('Goodbye.'),
+      chatEnded: true,
+      stageTransitioned: true,
+      newStageName: 'done',
+      conversationHandoff: 'finished',
+    });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { ...body, expectedConversations: ['setup', 'finished'] } }));
+    const report = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockRunChatTurn).toHaveBeenCalledTimes(1);
+    expect(mockRunChatTurn.mock.calls[0][0].userMessage).toBeNull();
+    expect(report.turns).toEqual([expect.objectContaining({ step: 0, role: 'assistant', message: 'Goodbye.' })]);
+    expect(report.stageTransitions).toEqual([{ step: 0, newStage: 'done', conversationHandoff: 'finished' }]);
+    expect(report.conversationsVisited).toEqual(['setup', 'finished']);
+    expect(report.totalTurns).toBe(1);
+    expect(report.endedAtStep).toBe(0);
+    expect(report.skippedMessages).toBe(2);
+    expect(report.pass).toBe(true);
+    expect(report.issues).toEqual([]);
+  });
+
+  it('still fails an unmet conversation expectation when the welcome ends the chat', async () => {
+    mockHappyPath();
+    mockRunChatTurn.mockResolvedValueOnce({ ...turn('Goodbye.'), chatEnded: true });
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { ...body, expectedConversations: ['later'] } }));
+    const report = await res.json();
+
+    expect(mockRunChatTurn).toHaveBeenCalledTimes(1);
+    expect(report.endedAtStep).toBe(0);
+    expect(report.skippedMessages).toBe(2);
+    expect(report.pass).toBe(false);
+    expect(report.issues).toEqual(['Expected conversation "later" was not visited.']);
+  });
+
+  it('scores unmet conversation expectations when the welcome does not end the chat', async () => {
+    mockHappyPath();
+    const POST = await importPOST();
+    const res = await POST(ev({ body: { ...body, expectedConversations: ['setup', 'later'] } }));
+    const report = await res.json();
+
+    expect(mockRunChatTurn).toHaveBeenCalledTimes(3);
+    expect(report.skippedMessages).toBe(0);
+    expect(report.pass).toBe(false);
+    expect(report.issues).toEqual(['Expected conversation "later" was not visited.']);
   });
 
   it('sends a null conversationName when none is given', async () => {

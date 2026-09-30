@@ -40,6 +40,7 @@ function item(over: Partial<TeamWorkItem> = {}): TeamWorkItem {
     action: 'merged',
     at: '2026-09-06T08:00:00.000Z',
     detail: null,
+    model: null,
     ...over,
   } as TeamWorkItem;
 }
@@ -172,5 +173,41 @@ describe('the Artifact cell renders two things its accessor does not (@codex on 
     const filter = makeGlobalFilterFn<TeamWorkItem>({}, worklogSearchExtras(() => new Map()));
     const r = { getValue: () => 'owner/repo#7', original: item({ ref: 'owner/repo#7' }) };
     expect(filter(r, 'ref', 'worker sessions')).toBe(false);
+  });
+});
+
+describe('the Model column (portal#952, hadron-server#1398)', () => {
+  // One worker, one session, a model switch mid-session, plus a legacy record.
+  const mixed = [
+    item({ nodeId: 'a', ref: 'o/r#1', model: 'claude-opus-5-5' }),
+    item({ nodeId: 'b', ref: 'o/r#2', model: 'glm-5.1' }),
+    item({ nodeId: 'c', ref: 'o/r#3', model: null }),
+  ];
+
+  it('shows each record’s own model, and "Not recorded" for none, never another row’s model', () => {
+    const html = rows(mixed);
+    expect(html).toContain('claude-opus-5-5');
+    expect(html).toContain('glm-5.1');
+    expect(html).toContain('Not recorded');
+    // The legacy row's cell is exactly "Not recorded", not the session's other models.
+    const cells = html.split('<tr').filter((r) => r.includes('o/r#3'));
+    expect(cells).toHaveLength(1);
+    expect(cells[0]).not.toMatch(/claude-opus-5-5|glm-5\.1/);
+  });
+
+  it('keeps Tool (where the artifact lives) apart from Model (what did the work)', () => {
+    const html = rows([item({ tool: 'github', model: 'claude-opus-5-5' })]);
+    expect(html).toContain('>github<');
+    expect(html).toMatch(/>claude-opus-5-5</);
+  });
+
+  it('search finds a record by its model, and a record with none by "Not recorded"', () => {
+    const filter = makeGlobalFilterFn<TeamWorkItem>({}, worklogSearchExtras(() => new Map()));
+    const withModel = { getValue: () => 'claude-opus-5-5', original: mixed[0] };
+    const without = { getValue: () => '', original: mixed[2] };
+    expect(filter(withModel, 'model', 'opus-5')).toBe(true);
+    expect(filter(without, 'model', 'not recorded')).toBe(true);
+    // And the other direction: a recorded model is not "Not recorded".
+    expect(filter(withModel, 'model', 'not recorded')).toBe(false);
   });
 });
