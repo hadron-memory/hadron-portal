@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Kind, parse, type SelectionSetNode } from 'graphql';
 import { ACCEPT_INVITATION_MUTATION, INVITATION_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -211,25 +212,49 @@ describe('invite accept action', () => {
 });
 
 describe('INVITATION_QUERY selects only what the invite page renders (hadron-server#1523 P1-c)', () => {
-  /** Field names selected anywhere in the document, with the op name and args stripped. */
-  const selected = () =>
-    new Set(
-      INVITATION_QUERY.replace(/query\s+\w+\([^)]*\)/, '')
-        .replace(/invitation\([^)]*\)/, 'invitation')
-        .match(/[A-Za-z_]\w*/g),
-    );
-
-  it('selects the rendered fields', () => {
-    const s = selected();
-    for (const f of ['memberRole', 'maxActivations', 'activationCount', 'expiresAt', 'sender', 'organization', 'name', 'githubUsername']) {
-      expect(s.has(f), f).toBe(true);
+  /**
+   * Every selected field as a PATH from the operation root (`invitation.sender.name`),
+   * from the parsed document. Paths, not bare names: `sender.name` is allowed and
+   * the invitee's own top-level `name` is not, and a flat name set can't tell
+   * them apart (#977 Codex P2).
+   */
+  function selectedPaths(): string[] {
+    const paths: string[] = [];
+    const walk = (set: SelectionSetNode | undefined, prefix: string) => {
+      for (const sel of set?.selections ?? []) {
+        if (sel.kind !== Kind.FIELD) throw new Error(`unexpected ${sel.kind} in INVITATION_QUERY`);
+        const path = prefix ? `${prefix}.${sel.name.value}` : sel.name.value;
+        paths.push(path);
+        walk(sel.selectionSet, path);
+      }
+    };
+    for (const def of parse(INVITATION_QUERY).definitions) {
+      if (def.kind === Kind.OPERATION_DEFINITION) walk(def.selectionSet, '');
     }
+    return paths.sort();
+  }
+
+  it('selects exactly the fields the page renders, at the level it renders them', () => {
+    expect(selectedPaths()).toEqual(
+      [
+        'invitation',
+        'invitation.activationCount',
+        'invitation.expiresAt',
+        'invitation.maxActivations',
+        'invitation.memberRole',
+        'invitation.organization',
+        'invitation.organization.name',
+        'invitation.sender',
+        'invitation.sender.githubUsername',
+        'invitation.sender.name',
+      ].sort(),
+    );
   });
 
-  it('selects no identifier, invitee identity, URN or policy a slug holder could harvest', () => {
-    const s = selected();
-    for (const f of ['id', 'slug', 'email', 'urn', 'policy', 'roles', 'createdAt', 'members', 'agents']) {
-      expect(s.has(f), f).toBe(false);
+  it('would catch the invitee\'s own identity coming back at the top level', () => {
+    const paths = selectedPaths();
+    for (const leak of ['invitation.name', 'invitation.email', 'invitation.githubUsername', 'invitation.id', 'invitation.slug']) {
+      expect(paths, leak).not.toContain(leak);
     }
   });
 });
