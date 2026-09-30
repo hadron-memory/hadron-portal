@@ -16,7 +16,7 @@ vi.mock('$lib/server/emailLogin', () => ({
 }));
 
 const fakeInvitation = {
-  organization: { name: 'Acme', urn: 'hrn:org:acme' },
+  organization: { name: 'Acme' },
   sender: { name: 'Ada', githubUsername: 'ada-dev' },
   memberRole: 'READER',
   name: 'Grace',
@@ -207,5 +207,29 @@ describe('invite accept action', () => {
       actions.accept(actionEvent({}, { user: { id: 'user-1' }, authToken: 'test-token' })),
     ).rejects.toMatchObject({ status: 303, location: '/app/dashboard' });
     expect(mockRequest).toHaveBeenCalledWith(ACCEPT_INVITATION_MUTATION, { slug: 'invite-token' });
+  });
+});
+
+describe('INVITATION_QUERY selects only what the invite page renders (hadron-server#1523 P1-c)', () => {
+  /** Field names selected anywhere in the document, with the op name and args stripped. */
+  const selected = () =>
+    new Set(
+      INVITATION_QUERY.replace(/query\s+\w+\([^)]*\)/, '')
+        .replace(/invitation\([^)]*\)/, 'invitation')
+        .match(/[A-Za-z_]\w*/g),
+    );
+
+  it('selects the rendered fields', () => {
+    const s = selected();
+    for (const f of ['memberRole', 'maxActivations', 'activationCount', 'expiresAt', 'sender', 'organization', 'name', 'githubUsername']) {
+      expect(s.has(f), f).toBe(true);
+    }
+  });
+
+  it('selects no identifier, invitee identity, URN or policy a slug holder could harvest', () => {
+    const s = selected();
+    for (const f of ['id', 'slug', 'email', 'urn', 'policy', 'roles', 'createdAt', 'members', 'agents']) {
+      expect(s.has(f), f).toBe(false);
+    }
   });
 });
