@@ -288,8 +288,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
           provider: body.provider,
         });
         return json({ endpoints: data.aiProviderEndpoints });
-      } catch (e) {
-        return json({ error: extractGqlError(e, 'Could not load the known endpoints.') }, { status: 400 });
+      } catch {
+        // #967: never echo the server's error text from this route.
+        return json({ error: t('ai-config.error.endpoints-failed', 'Could not load the known endpoints.') }, { status: 400 });
       }
     }
 

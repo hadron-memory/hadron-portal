@@ -337,6 +337,16 @@ describe('POST /api/ai-configs', () => {
     expect((await POST(ev({ body: { action: 'endpoints' } }))).status).toBe(400);
   });
 
+  it('endpoints: a server failure returns a fixed message, never the server’s text (#967)', async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('raw'), { response: { errors: [{ message: 'Authorization: Bearer sk-leak' }] } }),
+    );
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'endpoints', provider: 'glm' } }));
+    expect(res.status).toBe(400);
+    expect((await jsonOf(res)).error).toBe('Could not load the known endpoints.');
+  });
+
   it('rejects unknown actions', async () => {
     const { POST } = await import('./+server');
     const res = await POST(ev({ body: { action: 'explode' } }));
