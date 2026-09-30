@@ -764,7 +764,14 @@
                   {#each agent.imports ?? [] as imp (imp.importedAgentId)}
                     <li class="text-sm text-zinc-900 dark:text-white">
                       <span class="text-zinc-400">{imp.position}.</span>
-                      <a href="/app/agents/{imp.importedAgentId}" class="text-indigo-500 hover:underline dark:text-indigo-400">{imp.importedAgent.name}</a>
+                      <!-- hadron-server#1526: importedAgent is null when the viewer may not
+                           read that Agent. The import still exists, so the row stays,
+                           unlinked, since its page would refuse them anyway. -->
+                      {#if imp.importedAgent}
+                        <a href="/app/agents/{imp.importedAgentId}" class="text-indigo-500 hover:underline dark:text-indigo-400">{imp.importedAgent.name}</a>
+                      {:else}
+                        <span class="text-zinc-500 italic">{t('agent.imports.unreadable', 'An agent you can’t view')}</span>
+                      {/if}
                       {#if imp.required}
                         <span class="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-xs text-amber-700 dark:bg-amber-900 dark:text-amber-300">required</span>
                       {:else}

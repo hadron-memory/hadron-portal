@@ -14,6 +14,7 @@ import {
 import type { Attendee } from '$lib/register/types';
 import type { Channel, RegisterEntry } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { readableInstalledAgents, type InstalledAgent } from '$lib/app-installed-agents';
 
 /**
  * #942 — an organization's Channels and its OWN register rows (org-owned
@@ -73,7 +74,7 @@ async function loadOrgAttendees(
     // would rebuild the unbounded burst this bound exists to prevent (Codex).
     const [workers, installed] = await Promise.allSettled([
       fetchAllItems<OrgWorker>(client, WORKERS_QUERY, 'workers', { appRef: app.id, includeRetired: true }),
-      client.request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string } }> } | null }>(
+      client.request<{ app: { appAgents: Array<{ agent: InstalledAgent | null }> } | null }>(
         APP_INSTALLED_AGENTS_QUERY,
         { ref: app.id },
       ),
@@ -82,7 +83,7 @@ async function loadOrgAttendees(
       console.warn(`[org-channels] roster read failed for app ${app.id}:`, workers.status === 'rejected' ? workers.reason : (installed as PromiseRejectedResult).reason);
       return { app, workers: [] as OrgWorker[], agents: [] as Array<{ id: string; name: string; urn: string }>, failed: true };
     }
-    return { app, workers: workers.value, agents: installed.value.app?.appAgents.map((a) => a.agent) ?? [], failed: false };
+    return { app, workers: workers.value, agents: readableInstalledAgents(installed.value.app?.appAgents), failed: false };
   });
   // An App's display name alone can repeat within an org; when it does, its URN
   // joins the label so the options stay distinct. The App URN is also kept on
