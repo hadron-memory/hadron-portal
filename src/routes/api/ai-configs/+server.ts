@@ -12,6 +12,7 @@ import { inlineTestable } from '$lib/components/ai-config-manager';
 import { callAgentChatLlm } from '$lib/server/llm/agentChatLlm.js';
 import { publicChatError } from '$lib/server/llm/chatError.js';
 import { t } from '$lib/i18n/t';
+import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { AIProvider, AiConfigOwnerType, AiServiceConfig } from '$lib/types';
 import type { AiConfigTestResult } from '$lib/ai-config-test';
@@ -252,10 +253,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         // isn't the server's default), so for these it would test something
         // other than what a run does. The form doesn't offer it; refuse anyway.
         if (!inlineTestable({ provider, endpoint: body.endpoint ?? '', apiStyle: body.apiStyle ?? '' })) {
-          return json(
-            { error: 'Save this configuration first, then Test it: the server tests it with the endpoint a run uses.' },
-            { status: 400 },
-          );
+          // The component's own string, so the two can't drift (#951 Codex P2).
+          return json({ error: aiConfigStrings.testSaveFirst() }, { status: 400 });
         }
       } else {
         return json(
