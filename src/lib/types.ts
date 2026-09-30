@@ -131,13 +131,14 @@ export interface InstallationPolicy {
 export interface AgentImport {
   parentAgentId: string;
   importedAgentId: string;
+  // Nullable since hadron-server#1526: only when the caller may read that Agent.
   importedAgent: {
     id: string;
     urn: string;
     name: string;
     description?: string | null;
     personaRole?: string | null;
-  };
+  } | null;
   position: number;
   required: boolean;
   createdAt: string;

@@ -56,7 +56,8 @@ function route(opts: {
   rows?: unknown[];
   apps?: Array<{ id: string; name: string; urn?: string }>;
   workers?: Record<string, unknown[]>;
-  agents?: Record<string, Array<{ id: string; name: string; urn: string }>>;
+  /** `null` is an installed Agent the caller may not read (hadron-server#1526). */
+  agents?: Record<string, Array<{ id: string; name: string; urn: string } | null>>;
   members?: Array<{ role: string; user: { id: string } }> | Error;
   registerFails?: boolean;
   /** The org's App list itself fails. */
@@ -176,6 +177,16 @@ describe('load', () => {
       expect.objectContaining({ id: 'ag-1', kind: 'agent' }),
     ]);
     expect(sent(WORKERS_QUERY).every((v) => v.includeRetired === true)).toBe(true);
+  });
+
+  it('an installed Agent the caller may not read (null, hadron-server#1526) is left out, and the page still loads', async () => {
+    route({
+      apps: [{ id: 'app-a', name: 'Team A' }],
+      workers: { 'app-a': [] },
+      agents: { 'app-a': [null, { id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' }] },
+    });
+    const data = await load();
+    expect(data.attendees).toEqual([expect.objectContaining({ id: 'ag-1', kind: 'agent' })]);
   });
 
   it('two Apps sharing a name stay distinguishable: the App URN joins the label, and rides on the attendee', async () => {

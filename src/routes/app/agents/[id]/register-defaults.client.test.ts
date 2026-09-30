@@ -14,58 +14,14 @@ import { page, resetStubPage } from '$lib/test/stubs/app-stores';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import Page from './+page.svelte';
-import {
-  addAgentMemorySchema,
-  agentRegisterDefaultsSchema,
-  agentSettingsSchema,
-  deleteAgentSchema,
-  removeAgentMemorySchema,
-  updateAgentMemoryRoleSchema,
-} from './schema';
+import { pageData } from './page-fixture';
+import { agentRegisterDefaultsSchema } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   resetStubPage();
 });
-
-function agent(id: string) {
-  return {
-    id, organizationId: null, urn: `hrn:agent:ada:${id}`, name: `Agent ${id}`, description: null,
-    systemPrompt: null, systemMemoryId: null, visibility: 'PERSONAL', type: 'ASSISTANT', surfaces: [],
-    personaRole: null, properties: null, hasAiApiKey: false, memoryItems: [], imports: [],
-    memoryProvisioning: null, installationPolicy: null, createdAt: '2026-09-01T00:00:00Z',
-  };
-}
-
-async function pageData(id: string, registerDefaults: { mentionOnly: boolean } | null) {
-  return {
-    agent: agent(id),
-    org: null,
-    agentNodes: [],
-    installedApps: [],
-    bundledAgents: [],
-    allOrgs: [],
-    orgSystemMemories: [],
-    personalMemories: [],
-    agentConfigs: [],
-    configsError: false,
-    currentUserId: 'user-1',
-    form: await superValidate(
-      { name: `Agent ${id}`, urnSlug: id, description: '', systemPrompt: '', visibility: 'PERSONAL', systemMemoryId: '', personaRole: '' },
-      zod4(agentSettingsSchema), { errors: false },
-    ),
-    registerDefaults,
-    registerDefaultsForm: await superValidate(
-      { mentionOnly: registerDefaults?.mentionOnly ?? false },
-      zod4(agentRegisterDefaultsSchema), { errors: false },
-    ),
-    addMemoryForm: await superValidate(zod4(addAgentMemorySchema), { errors: false }),
-    updateMemoryRoleForm: await superValidate(zod4(updateAgentMemoryRoleSchema), { errors: false }),
-    removeMemoryForm: await superValidate(zod4(removeAgentMemorySchema), { errors: false }),
-    deleteForm: await superValidate(zod4(deleteAgentSchema), { errors: false }),
-  };
-}
 
 async function mountSettings(props: Record<string, unknown>) {
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;

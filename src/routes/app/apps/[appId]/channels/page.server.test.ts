@@ -51,6 +51,8 @@ function channel(over: Record<string, unknown> = {}) {
 
 function route(opts: {
   app?: Record<string, unknown> | null;
+  /** AppAgent rows; `agent: null` is an installed Agent the caller may not read (hadron-server#1526). */
+  installed?: Array<{ agent: { id: string; name: string; urn: string } | null }>;
   channels?: unknown[];
   canWrite?: Record<string, boolean | Error>;
   create?: unknown;
@@ -93,7 +95,9 @@ function route(opts: {
     if (doc === WORKERS_QUERY) {
       return { workers: page(opts.workers ?? [{ id: 'w-ada', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator' }], vars) };
     }
-    if (doc === APP_INSTALLED_AGENTS_QUERY) return { app: { id: 'app-1', appAgents: [{ agent: { id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' } }] } };
+    if (doc === APP_INSTALLED_AGENTS_QUERY) {
+      return { app: { id: 'app-1', appAgents: opts.installed ?? [{ agent: { id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' } }] } };
+    }
     if (doc === SELF_CAN_MANAGE_QUERY) {
       // An App is audited by its hrn:app: URN; a bare id is an AiServiceConfig id.
       if (!(vars.resource as string).startsWith('hrn:app:')) throw refusal(`No AiServiceConfig ${vars.resource}`, 'NOT_FOUND');
@@ -165,6 +169,12 @@ describe('load', () => {
     route({ channels: [channel()], canWrite: { [SHARED.urn]: new Error('boom') } });
     expect((await load()).canWrite['mem-shared']).toBeNull();
     warn.mockRestore();
+  });
+
+  it('an installed Agent the caller may not read (null, hadron-server#1526) is left out, not dereferenced', async () => {
+    route({ installed: [{ agent: null }, { agent: { id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' } }] });
+    const data = await load();
+    expect(data.attendees.filter((a) => a.kind === 'agent').map((a) => a.id)).toEqual(['ag-1']);
   });
 
   it('an App the caller cannot see is a 404', async () => {
