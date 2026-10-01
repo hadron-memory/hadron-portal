@@ -5,7 +5,7 @@
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { scopedActionError } from '$lib/forms/scoped-message';
-  import { submittedForm } from '$lib/forms/submitted-form';
+  import { failedSubmission } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
   import Urn from '$lib/components/Urn.svelte';
@@ -100,7 +100,11 @@
 
   const initialPostForm = untrack(
     () =>
-      (submittedForm<PostTeamChatMessageForm>(form, 'postTeamChatMessage') as PostTeamChatMessageSuperform | null) ??
+      // #957: only a FAILED post's draft is carried over. A successful one's
+      // action data holds the body just sent, and seeding from it re-filled the
+      // composer with that message on every remount (tab switch) — and made it
+      // the value `resetForm` restored after the next post.
+      (failedSubmission<PostTeamChatMessageForm>(form, 'postTeamChatMessage') as PostTeamChatMessageSuperform | null) ??
       postForm,
   );
   const {
@@ -109,6 +113,7 @@
     message: postMessage,
     submitting: postSubmitting,
     enhance: postEnhance,
+    reset: resetPost,
   } = superForm<PostTeamChatMessageForm, App.Superforms.Message, PostTeamChatMessageForm>(
     initialPostForm,
     {
@@ -125,6 +130,11 @@
         // message, which the user has no way to notice.
         if (f.valid && f.message?.type !== 'error') {
           replyTo = null;
+          // #957: `resetForm` has just reset to the form's INITIAL data, which is
+          // a failed post's draft when the composer was seeded from one. Re-base
+          // the initial state on the empty form, so a sent message never comes
+          // back — now or on a later reset.
+          resetPost({ newState: postForm.data, keepMessage: true });
           // #754: your own message always scrolls into view. Posting is an
           // explicit "I am at the end of this conversation", so re-arm the
           // stickiness the reader may have dropped by scrolling up to quote

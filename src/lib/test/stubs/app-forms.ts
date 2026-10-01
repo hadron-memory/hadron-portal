@@ -10,7 +10,14 @@
  * assert what the DOM OFFERS (which form, carrying which values), never what a
  * submit would do. A stub that pretended to submit would be asserting against
  * itself.
+ *
+ * The one exception is `submitEnhancedWithResult` (#957). It still makes no
+ * request, but it hands superforms a server result the TEST chose, and
+ * `applyAction` records that result as the page's action data, as kit does.
+ * What the form then does is superforms' own code, not this stub's.
  */
+import { page } from './app-stores';
+
 /**
  * The submit callback superforms handed kit for each enhanced form, RECORDED,
  * never run by this stub (portal#942). Superforms does its client-side
@@ -52,7 +59,49 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
   return { cancelled };
 }
 
-export function applyAction(): Promise<void> {
+/**
+ * #957 — like `submitEnhanced`, then hand superforms the ActionResult the
+ * server answered with, through the result handler its submit callback
+ * returned. What runs is superforms' own code (reset, `onUpdate(d)`, rebind),
+ * given a result a test chose; no request is made, and nothing here decides
+ * what the form does with it.
+ */
+export async function submitEnhancedWithResult(
+  form: HTMLFormElement,
+  result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> },
+): Promise<{ cancelled: boolean }> {
+  const submit = enhanced.get(form);
+  if (!submit) throw new Error('submitEnhancedWithResult: this form was never enhanced');
+  let cancelled = false;
+  const action = new URL(form.action || 'http://localhost/');
+  const formData = new FormData(form);
+  const handler = await submit({
+    action,
+    formData,
+    formElement: form,
+    controller: new AbortController(),
+    submitter: form.querySelector('[type="submit"]'),
+    cancel: () => {
+      cancelled = true;
+    },
+  });
+  if (cancelled) return { cancelled };
+  if (typeof handler !== 'function') throw new Error('submitEnhancedWithResult: superforms returned no result handler');
+  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+  return { cancelled };
+}
+
+/**
+ * What kit's `applyAction` does with a success/failure result: it becomes the
+ * page's action data. Superforms (applyAction: true, its default) reacts to
+ * that page update, not to its own result handler, so without this nothing
+ * downstream of a submit ever runs (#957). A no-op for other result types, and
+ * never reached unless a test drives a result through `submitEnhancedWithResult`.
+ */
+export function applyAction(result?: { type?: string; status?: number; data?: unknown }): Promise<void> {
+  if (result && (result.type === 'success' || result.type === 'failure')) {
+    page.update((p) => ({ ...p, form: result.data ?? null, status: result.status ?? 200 }));
+  }
   return Promise.resolve();
 }
 
