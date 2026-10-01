@@ -34,6 +34,11 @@ export const load: PageServerLoad = async ({ locals }) => {
     loadFailed: owned.status === 'rejected',
     sharedMemories: shared.status === 'fulfilled' ? shared.value : ([] as SharedMemory[]),
     sharedLoadFailed: shared.status === 'rejected',
+    // #871: the server returns BOTH lists empty for an impersonated (support)
+    // session on purpose, so a support session can't read someone's personal
+    // holdings (hadron-server#876: ownedByMe / sharedWithMe drop to empty). The
+    // page says so instead of showing the ordinary "you have none" empty state.
+    impersonating: locals.impersonation !== null && locals.impersonation !== undefined,
   };
 };
 

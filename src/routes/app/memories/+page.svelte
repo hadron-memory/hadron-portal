@@ -18,6 +18,8 @@
   const loadFailed = $derived(data.loadFailed === true);
   const sharedMemories = $derived(data.sharedMemories ?? []);
   const sharedLoadFailed = $derived(data.sharedLoadFailed === true);
+  // #871: under impersonation both lists are empty BY DESIGN (see the loader).
+  const impersonating = $derived(data.impersonating === true);
 
   // #649: "Leave" (remove a memory someone shared with you). The row's form
   // POSTs ?/leaveShare; while in flight we disable that row's button, and a
@@ -142,10 +144,14 @@
   {/if}
   <div class="flex items-center justify-between gap-3">
     <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{t('my-memories.heading', 'My memories')}</h1>
-    <a
-      href="/app/memories/new"
-      class="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-500"
-    >{t('my-memories.new', 'New memory')}</a>
+    <!-- #871: a support session is read-only server-side, so creating would
+         open a form whose save cannot succeed. -->
+    {#if !impersonating}
+      <a
+        href="/app/memories/new"
+        class="rounded-lg bg-indigo-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+      >{t('my-memories.new', 'New memory')}</a>
+    {/if}
   </div>
 
   <!-- Tabs (ARIA tab pattern) -->
@@ -186,8 +192,15 @@
         </div>
       {:else if myRows.length === 0}
         <div class="rounded-xl border border-dashed border-zinc-300 bg-white p-10 text-center dark:border-zinc-700 dark:bg-zinc-900">
-          <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('my-memories.empty', "You don't have any memories yet.")}</p>
-          <a href="/app/memories/new" class="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('my-memories.empty-cta', 'Create your first memory')}</a>
+          {#if impersonating}
+            <!-- #871: says WHY the list is empty, and promises nothing about
+                 what it would hold, nor who else may access a memory
+                 (hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee). -->
+            <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('my-memories.empty.support-session', 'Personal memories aren’t shown in a support session, so this list is always empty here, whether or not this account has any.')}</p>
+          {:else}
+            <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('my-memories.empty', "You don't have any memories yet.")}</p>
+            <a href="/app/memories/new" class="mt-4 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('my-memories.empty-cta', 'Create your first memory')}</a>
+          {/if}
         </div>
       {:else}
         <DataTable
@@ -221,7 +234,11 @@
         </div>
       {:else if sharedRows.length === 0}
         <div class="rounded-xl border border-dashed border-zinc-300 bg-white p-10 text-center dark:border-zinc-700 dark:bg-zinc-900">
-          <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('my-memories.shared.empty', 'No one has shared a memory with you yet.')}</p>
+          {#if impersonating}
+            <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('my-memories.shared.empty.support-session', 'Memories shared with this account aren’t shown in a support session, so this list is always empty here, whether or not any have been shared.')}</p>
+          {:else}
+            <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('my-memories.shared.empty', 'No one has shared a memory with you yet.')}</p>
+          {/if}
         </div>
       {:else}
         {#if leaveError}

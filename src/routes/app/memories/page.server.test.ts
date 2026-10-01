@@ -141,3 +141,25 @@ describe('/app/memories leaveShare action', () => {
     expect(res.data.leaveError).toBeTruthy();
   });
 });
+
+describe('/app/memories under impersonation (#871)', () => {
+  it('flags a support session, so the page can explain its empty lists', async () => {
+    mockOwned.mockResolvedValue([]);
+    mockShared.mockResolvedValue([]);
+    const load = await importLoad();
+    const ev = {
+      locals: { token: 't', impersonation: { sessionId: 's', actorUserId: 'admin', orgId: 'o', expiresAt: Date.now() + 60_000 } },
+    } as unknown as Parameters<typeof load>[0];
+    expect(((await load(ev)) as { impersonating: boolean }).impersonating).toBe(true);
+  });
+
+  it('is not a support session when there is no impersonation, null or absent', async () => {
+    mockOwned.mockResolvedValue([]);
+    mockShared.mockResolvedValue([]);
+    const load = await importLoad();
+    for (const impersonation of [null, undefined]) {
+      const ev = { locals: { token: 't', impersonation } } as unknown as Parameters<typeof load>[0];
+      expect(((await load(ev)) as { impersonating: boolean }).impersonating).toBe(false);
+    }
+  });
+});
