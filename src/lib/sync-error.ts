@@ -36,7 +36,10 @@ export function classifyGitFailure(text: string | null | undefined): GitFailure 
   const s = text?.trim() ?? '';
   if (!s) return 'unknown';
   if (s.startsWith(REVIEW_REQUIRED_CODE)) return 'review-required';
-  if (/\[rejected\]|non-fast-forward|updates were rejected|failed to push some refs/i.test(s)) return 'push-rejected';
+  // Any refused push: a stale branch, a pre-receive hook or a protected branch
+  // all end in "failed to push some refs" (Gene, #989). Their causes can't be
+  // told apart reliably, so this is ONE kind with cause-agnostic copy.
+  if (/\[(remote )?rejected\]|non-fast-forward|updates were rejected|failed to push some refs|pre-receive hook declined|protected branch/i.test(s)) return 'push-rejected';
   if (/remote branch \S+ not found|couldn'?t find remote ref|pathspec .* did not match|invalid reference/i.test(s)) return 'branch-not-found';
   if (/authentication failed|could not read (username|password)|permission to \S+ denied|invalid username or password|returned error: 403|terminal prompts disabled/i.test(s)) return 'auth-failed';
   if (/repository .*not found|does not appear to be a git repository|returned error: 404/i.test(s)) return 'repo-not-found';
@@ -59,7 +62,9 @@ export function gitFailureText(kind: GitFailure, op: 'sync' | 'push'): string {
     case 'auth-failed':
       return t('sync-error.auth-failed', 'Hadron couldn’t sign in to the repository. Its access to the repository may have been removed or expired.');
     case 'push-rejected':
-      return t('sync-error.push-rejected', 'The push was rejected because the branch has changes this memory doesn’t have yet. Sync from Git first, then push again.');
+      // Cause-agnostic on purpose: this can be a stale branch OR a repository
+      // rule, and the fixed copy must not assert either (Ada #6035, Gene #6018).
+      return t('sync-error.push-rejected', 'The repository rejected the push. Either the branch has changes this memory doesn’t have yet, in which case sync from Git and push again, or the repository’s rules (such as branch protection or a server-side hook) don’t allow this push.');
     case 'network':
       return t('sync-error.network', 'Hadron couldn’t reach the repository. Try again shortly.');
     default:

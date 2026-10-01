@@ -15,6 +15,9 @@ describe('classifyGitFailure (#988)', () => {
     ['fatal: unable to access …: The requested URL returned error: 404', 'repo-not-found'],
     ['fatal: unable to access …: Could not resolve host: github.com', 'network'],
     [' ! [rejected]        main -> main (non-fast-forward)\nerror: failed to push some refs', 'push-rejected'],
+    // A policy denial ends the same way and must land in the same kind (Gene, #989).
+    [' ! [remote rejected] main -> main (pre-receive hook declined)\nerror: failed to push some refs', 'push-rejected'],
+    ['remote: error: GH006: Protected branch update failed for refs/heads/main.', 'push-rejected'],
     ['something nobody anticipated', 'unknown'],
     ['', 'unknown'],
   ];
@@ -47,6 +50,15 @@ describe('gitFailureMessage never echoes the server text (#988, Codex P1 on #989
       });
     }
   }
+
+  it('a rejected push names no single cause: a stale branch and a policy denial read the same (#989)', () => {
+    const stale = gitFailureMessage(' ! [rejected] main -> main (non-fast-forward)\nerror: failed to push some refs', 'push');
+    const policy = gitFailureMessage(' ! [remote rejected] main -> main (pre-receive hook declined)\nerror: failed to push some refs', 'push');
+    expect(policy).toBe(stale);
+    expect(policy).not.toMatch(/rejected because/i);
+    expect(policy).toContain('sync from Git');
+    expect(policy).toContain('rules');
+  });
 
   it('an unknown failure says why there are no details, per operation', () => {
     expect(gitFailureText('unknown', 'sync')).toContain('The last sync failed.');
