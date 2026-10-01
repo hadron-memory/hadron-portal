@@ -354,7 +354,7 @@
               <p class="text-xs text-red-700 dark:text-red-300">
                 {row.isDefault
                   ? t('app.channels.delete.default-warning', 'This is the App’s team chat. Deleting it unlinks it from the App: workers can no longer post to the team chat until a new default is set up.')
-                  : t('app.channels.delete.warning', 'Delete this channel and its messages? Its address stays reserved.')}
+                  : t('app.channels.delete.warning', 'Delete this channel and its messages? The messages won’t come back, even if you create a channel at this address again later.')}
               </p>
               <div class="flex gap-2">
                 <button type="submit" disabled={$deleting} class="rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50">{t('app.channels.delete.confirm', 'Delete')}</button>

@@ -154,6 +154,15 @@ describe('Channels page', () => {
     expect(cancelled).toBe(false);
   });
 
+  it('the delete confirmation does not claim the address stays reserved: the server allows reusing it (#985)', async () => {
+    const { target } = await mountPage([channel(), channel({ id: 'ch-x', name: 'Other', loc: 'chats:x', chatRootUrn: 'hrn:node:acme.com:team-shared:chats:x' })]);
+    [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Delete')[1].click();
+    await tick(3);
+    const text = target.querySelector('form[action="?/deleteChannel"]')!.textContent!;
+    expect(text).toContain('The messages won’t come back');
+    expect(text).not.toMatch(/reserved/i);
+  });
+
   it('Remove → confirm on a register row actually submits (Chip, #2185)', async () => {
     const appRows = [{
       id: 're-1', ownerType: 'APP', ownerId: 'app-1', appId: 'app-1', organizationId: null, channelId: 'ch-team',
