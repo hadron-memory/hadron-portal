@@ -32,7 +32,10 @@ describe('/app/memories empty states (#871)', () => {
     expect(root.textContent).toContain('Personal memories aren’t shown in a support session');
     expect(root.textContent).toContain('whether or not this account has any');
     expect(root.textContent).not.toContain("You don't have any memories yet.");
-    expect(root.querySelector('#panel-mine a[href="/app/memories/new"]')).toBeNull();
+    // Page-wide: neither the header "New memory" nor the empty-state CTA (#983 review).
+    expect(root.querySelectorAll('a[href="/app/memories/new"]')).toHaveLength(0);
+    // No claim about who else can reach a memory: personal memories can be shared.
+    expect(root.textContent).not.toContain('private to their owner');
 
     tabButton(root, 'shared with me').click();
     flushSync();
@@ -44,6 +47,7 @@ describe('/app/memories empty states (#871)', () => {
     const root = await mountPage(false);
     expect(root.textContent).toContain("You don't have any memories yet.");
     expect(root.querySelector('#panel-mine a[href="/app/memories/new"]')).not.toBeNull();
+    expect(root.querySelectorAll('a[href="/app/memories/new"]')).toHaveLength(2); // header + empty-state CTA
     expect(root.textContent).not.toContain('support session');
 
     tabButton(root, 'shared with me').click();
