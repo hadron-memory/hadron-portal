@@ -17,7 +17,8 @@
  * - reads that overlap are applied IN ORDER: a result older than one already
  *   applied is dropped (resolves null), so a slow early read can never
  *   replace a newer roster that holds a worker the early one predates (@codex
- *   on #908). Its ids stay asked — the newer roster already covers them.
+ *   on #908). Its ids are released for a later retry if the newer roster did
+ *   not cover them.
  */
 import { unknownWorkerIds } from '$lib/components/team-chat-thread';
 import type { TeamChatMessage } from '$lib/types';

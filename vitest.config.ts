@@ -73,6 +73,7 @@ export default defineConfig({
             '$app/environment': resolve(__dirname, 'src/lib/test/stubs/app-environment.ts'),
             '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
             '$app/forms': resolve(__dirname, 'src/lib/test/stubs/app-forms.ts'),
+            '$env/dynamic/public': resolve(__dirname, 'src/lib/test/stubs/env-dynamic-public.ts'),
           },
         },
       },

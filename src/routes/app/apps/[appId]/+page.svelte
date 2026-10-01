@@ -124,7 +124,9 @@
   // it. `refreshRosterFor` re-reads the roster (team-chat/authors) only then. The
   // refreshed roster is kept with the `data.staff` it superseded and used only
   // while that is still the page's roster, so a later page load wins.
-  let rosterRefresh = $state<{ basedOn: Worker[] | null; workers: RosterEntry[] } | null>(null);
+  // `basedOn` is an identity token for the loader's staff array. Deep `$state`
+  // proxies it, so the comparison below would reject every successful refresh.
+  let rosterRefresh = $state.raw<{ basedOn: Worker[] | null; workers: RosterEntry[] } | null>(null);
   const roster = $derived<RosterEntry[] | null>(
     rosterRefresh && rosterRefresh.basedOn === staff
       ? rosterRefresh.workers
