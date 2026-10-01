@@ -18,6 +18,7 @@ import {
   pushMemoryIntegrationSchema,
   syncMemoryIntegrationSchema,
 } from './schema';
+import { syncErrorView } from '$lib/sync-error';
 
 const memoryIntegrationFormAdapter = zod4(memoryIntegrationSchema);
 const pushMemoryIntegrationFormAdapter = zod4(pushMemoryIntegrationSchema);
@@ -106,13 +107,39 @@ export const actions: Actions = {
     );
     if (!form.valid) return fail(400, { form });
 
+    // #988: the outcome follows what the server RETURNED, never the mere
+    // absence of an error: a sync that stops early comes back still SYNCING
+    // (review:diagnostic-message-must-not-guarantee). And a failure's text is
+    // the raw git error, which can carry a tokenized remote URL, so it is
+    // never shown as-is: a typed reason gets product copy, anything else is
+    // redacted ($lib/sync-error).
     try {
-      await gqlClient(locals.token).request(SYNC_MEMORY_MUTATION, { id: params.id });
-      return message(form, { type: 'success', text: t('integrations.synced', 'Memory synced.') });
+      const res = await gqlClient(locals.token).request<{ syncMemory: { syncStatus?: string | null } | null }>(
+        SYNC_MEMORY_MUTATION,
+        { id: params.id },
+      );
+      if (res.syncMemory?.syncStatus === 'OK') {
+        return message(form, { type: 'success', text: t('integrations.synced', 'Memory synced.') });
+      }
+      return message(form, {
+        type: 'success',
+        text: t('integrations.sync-not-finished', 'The sync didn’t finish (status: {status}). Check the status again shortly.', {
+          status: res.syncMemory?.syncStatus ?? '—',
+        }),
+      });
     } catch (e: unknown) {
+      const view = syncErrorView(extractGqlError(e, ''));
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Sync failed') },
+        {
+          type: 'error',
+          text:
+            view.kind === 'review-required'
+              ? t('integrations.sync-review-required', 'This sync was held for review: some files that this memory’s nodes came from are missing from the branch it syncs from, so nothing was deleted. Set the Read branch if it should sync from a different branch.')
+              : view.detail
+                ? t('integrations.sync-failed.detail', 'Sync failed: {detail}', { detail: view.detail })
+                : t('integrations.sync-failed', 'Sync failed.'),
+        },
         { status: 500 },
       );
     }

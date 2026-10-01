@@ -5,6 +5,7 @@
   // deferred (flagged below).
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
+  import SyncErrorDetail from '$lib/components/SyncErrorDetail.svelte';
 
   let { data }: { data: PageData } = $props();
   const g = $derived(data.graph);
@@ -113,6 +114,9 @@
           <span class={rowLabel}>{t('memory-info.sync-status', 'Sync status')}</span>
           <span class={rowValue}>{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {fmtDate(g.lastSyncedAt)}{/if}</span>
         </div>
+        {#if g.syncStatus === 'ERROR'}
+          <SyncErrorDetail syncError={g.syncError} />
+        {/if}
       {/if}
     </div>
   </section>

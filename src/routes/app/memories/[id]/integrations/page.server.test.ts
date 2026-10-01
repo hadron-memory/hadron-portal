@@ -228,7 +228,7 @@ describe('memory integrations update action', () => {
 
 describe('memory integrations command actions', () => {
   it('syncs the memory', async () => {
-    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'memory-1' } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'memory-1', syncStatus: 'OK' } });
 
     const { actions } = await importMod();
     const result = await actions.sync(commandEvent());
@@ -254,7 +254,36 @@ describe('memory integrations command actions', () => {
     const result = await actions.sync(commandEvent());
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'rate limit' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Sync failed: rate limit' });
+  });
+
+  // #988
+  it('does not claim "synced" when the returned memory is still SYNCING', async () => {
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'memory-1', syncStatus: 'SYNCING' } });
+    const { actions } = await importMod();
+    const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { text: string };
+    expect(msg.text).not.toBe('Memory synced.');
+    expect(msg.text).toContain('didn’t finish');
+    expect(msg.text).toContain('SYNCING');
+  });
+
+  it('never shows a credential from the raw git error', async () => {
+    mockRequest.mockRejectedValueOnce(new Error(
+      'Command failed: git clone --branch nope -- https://x-access-token:ghs_SECRETsecretSECRET123456@github.com/acme/repo.git /tmp/x\nfatal: Remote branch nope not found',
+    ));
+    const { actions } = await importMod();
+    const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { type: string; text: string };
+    expect(msg.type).toBe('error');
+    expect(msg.text).not.toContain('ghs_SECRET');
+    expect(msg.text).toContain('https://***@github.com/acme/repo.git');
+  });
+
+  it('gives the review hold product copy, not the server prose', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('GIT_SYNC_REVIEW_REQUIRED: 3 repo-owned node(s) are absent from the default read branch'));
+    const { actions } = await importMod();
+    const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { text: string };
+    expect(msg.text).toContain('held for review');
+    expect(msg.text).not.toContain('GIT_SYNC_REVIEW_REQUIRED');
   });
 
   it('pushes the memory to Git', async () => {
