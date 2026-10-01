@@ -51,6 +51,7 @@ function channel(over: Record<string, unknown> = {}) {
 
 function route(opts: {
   app?: Record<string, unknown> | null;
+  appReadError?: Error;
   /** AppAgent rows; `agent: null` is an installed Agent the caller may not read (hadron-server#1526). */
   installed?: Array<{ agent: { id: string; name: string; urn: string } | null }>;
   channels?: unknown[];
@@ -75,7 +76,10 @@ function route(opts: {
     return { total: all.length, items: all.slice(offset, offset + limit) };
   };
   mockRequest.mockImplementation(async (doc: string, vars: Record<string, unknown>) => {
-    if (doc === APP_CHANNELS_APP_QUERY) return { app };
+    if (doc === APP_CHANNELS_APP_QUERY) {
+      if (opts.appReadError) throw opts.appReadError;
+      return { app };
+    }
     if (doc === APP_CHANNELS_QUERY) return { channels: page(opts.channels ?? [], vars) };
     if (doc === APP_SHARED_MEMORY_QUERY) return { app: app && { id: app.id, sharedMemory: app.sharedMemory } };
     if (doc === SELF_CAN_WRITE_QUERY) {
@@ -179,7 +183,32 @@ describe('load', () => {
 
   it('an App the caller cannot see is a 404', async () => {
     route({ app: null });
-    await expect(load()).rejects.toMatchObject({ status: 404 });
+    await expect(load()).rejects.toMatchObject({ status: 404, body: { message: 'App not found' } });
+  });
+
+  it.each([['FORBIDDEN', 'Forbidden'], ['NOT_FOUND', 'App not found']])(
+    'a typed %s refusal on the App read is the same 404 as a missing App',
+    async (code, reason) => {
+      route({ appReadError: refusal(reason, code) });
+      await expect(load()).rejects.toMatchObject({ status: 404, body: { message: 'App not found' } });
+    },
+  );
+
+  it('does not turn an internal GraphQL error or a transport failure into a false 404', async () => {
+    const internal = refusal('Resolver failed', 'INTERNAL_SERVER_ERROR');
+    route({ appReadError: internal });
+    await expect(load()).rejects.toBe(internal);
+
+    const transport = new ClientError(
+      { status: 502, headers: new Headers() } as ConstructorParameters<typeof ClientError>[0],
+      { query: '', variables: {} },
+    );
+    route({ appReadError: transport });
+    await expect(load()).rejects.toBe(transport);
+
+    const untyped = new Error('Forbidden');
+    route({ appReadError: untyped });
+    await expect(load()).rejects.toBe(untyped);
   });
 
   it('never calls anything that marks messages read', async () => {
@@ -363,6 +392,14 @@ describe('load: who takes part (#942 slice 3)', () => {
 });
 
 describe('attendance actions', () => {
+  it('maps a typed FORBIDDEN attendance add to permission copy, not the raw server word', async () => {
+    route({ reg: { create: refusal('Forbidden', 'FORBIDDEN') } });
+    const r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-x', attendee: 'w-ada', role: 'WATCH', description: '' });
+    expect(r.status).toBe(400);
+    expect(msg(r)).toEqual({ type: 'error', text: 'You can’t change attendance for these channels.' });
+    expect(sent(CREATE_REGISTER_ENTRY_MUTATION)).toHaveLength(1);
+  });
+
   it('add: owner is THIS App, and the attendee, mode, mention-only and note are sent as chosen', async () => {
     route({ reg: { create: { createRegisterEntry: { id: 're-new' } } } });
     const r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-x', attendee: 'w-ada', role: 'WATCH', mentionOnly: 'on', description: 'triage' });
