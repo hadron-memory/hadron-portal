@@ -228,7 +228,7 @@ describe('memory integrations update action', () => {
 
 describe('memory integrations command actions', () => {
   it('syncs the memory', async () => {
-    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'memory-1' } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'memory-1', syncStatus: 'OK' } });
 
     const { actions } = await importMod();
     const result = await actions.sync(commandEvent());
@@ -254,7 +254,52 @@ describe('memory integrations command actions', () => {
     const result = await actions.sync(commandEvent());
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'rate limit' });
+    // An unrecognised failure gets generic copy, never the server's text (#988).
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error' });
+    expect((superFormFrom(result)?.message as { text: string }).text).toContain('The last sync failed.');
+    expect((superFormFrom(result)?.message as { text: string }).text).not.toContain('rate limit');
+  });
+
+  // #988
+  it('does not claim "synced" when the returned memory is still SYNCING', async () => {
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'memory-1', syncStatus: 'SYNCING' } });
+    const { actions } = await importMod();
+    const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { text: string };
+    expect(msg.text).not.toBe('Memory synced.');
+    expect(msg.text).toContain('didn’t finish');
+    expect(msg.text).toContain('SYNCING');
+  });
+
+  it('never shows a credential from the raw git error', async () => {
+    mockRequest.mockRejectedValueOnce(new Error(
+      'Command failed: git clone --branch nope -- https://x-access-token:ghs_SECRETsecretSECRET123456@github.com/acme/repo.git /tmp/x\nfatal: Remote branch nope not found',
+    ));
+    const { actions } = await importMod();
+    const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { type: string; text: string };
+    expect(msg.type).toBe('error');
+    expect(msg.text).not.toContain('ghs_SECRET');
+    expect(msg.text).not.toContain('github.com');
+    expect(msg.text).toContain('doesn’t exist in its repository');
+  });
+
+  it('gives the review hold product copy, not the server prose', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('GIT_SYNC_REVIEW_REQUIRED: 3 repo-owned node(s) are absent from the default read branch'));
+    const { actions } = await importMod();
+    const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { text: string };
+    expect(msg.text).toContain('held for review');
+    expect(msg.text).not.toContain('GIT_SYNC_REVIEW_REQUIRED');
+  });
+
+  it('pushToGit never shows a credential from the raw git error (#988, Chip/Gene on #989)', async () => {
+    mockRequest.mockRejectedValueOnce(new Error(
+      'Git setup failed: Command failed: git push https://x-access-token:ghs_PUSHsecretPUSHsecret99@github.com/acme/repo.git main',
+    ));
+    const { actions } = await importMod();
+    const msg = superFormFrom(await actions.pushToGit(commandEvent()))?.message as { type: string; text: string };
+    expect(msg.type).toBe('error');
+    expect(msg.text).not.toContain('ghs_PUSH');
+    expect(msg.text).not.toContain('github.com');
+    expect(msg.text).toContain('Push to Git failed.');
   });
 
   it('pushes the memory to Git', async () => {
@@ -284,6 +329,9 @@ describe('memory integrations command actions', () => {
     const result = await actions.pushToGit(commandEvent());
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'push rejected' });
+    // Unrecognised text: generic copy, never the server's words (#988).
+    expect((superFormFrom(result)?.message as { type: string; text: string }).type).toBe('error');
+    expect((superFormFrom(result)?.message as { text: string }).text).toContain('Push to Git failed.');
+    expect((superFormFrom(result)?.message as { text: string }).text).not.toContain('push rejected');
   });
 });

@@ -213,8 +213,9 @@ describe('memories-list syncAll action', () => {
         ],
       },
     });
-    mockRequest.mockResolvedValueOnce({});
-    mockRequest.mockResolvedValueOnce({});
+    // The real SYNC_MEMORY_MUTATION response carries MemoryFields' syncStatus.
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'OK' } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-3', syncStatus: 'OK' } });
 
     const result = await runAction('syncAll', {});
 
@@ -254,7 +255,7 @@ describe('memories-list syncAll action', () => {
         ],
       },
     });
-    mockRequest.mockResolvedValueOnce({});
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'OK' } });
     mockRequest.mockRejectedValueOnce(new Error('nope'));
 
     const result = (await runAction('syncAll', {})) as {
@@ -263,7 +264,28 @@ describe('memories-list syncAll action', () => {
     };
 
     expect(result.status).toBe(500);
-    expect(result.data.form.message).toEqual({ type: 'error', text: 'Sync errors: Git Two: nope' });
+    expect(result.data.form.message.type).toBe('error');
+    expect(result.data.form.message.text).toContain('Git Two: The last sync failed.');
+    expect(result.data.form.message.text).not.toContain('nope');
+  });
+
+  it('never shows a credential from a member memory’s raw git error (#988, Gene on #989)', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'mem-1', name: 'Git One', source: { type: 'git' } }] } });
+    mockRequest.mockRejectedValueOnce(new Error(
+      'Command failed: git clone --branch nope -- https://x-access-token:ghs_ORGsecretORGsecret77@github.com/acme/r.git /tmp\nfatal: Remote branch nope not found',
+    ));
+    const result = (await runAction('syncAll', {})) as { data: { form: { message: { text: string } } } };
+    expect(result.data.form.message.text).not.toContain('ghs_ORG');
+    expect(result.data.form.message.text).not.toContain('github.com');
+    expect(result.data.form.message.text).toContain('Git One:');
+  });
+
+  it('does not claim "all synced" when a sync came back unfinished (#988)', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'mem-1', name: 'Git One', source: { type: 'git' } }] } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'SYNCING' } });
+    const result = (await runAction('syncAll', {})) as { form: { message: { text: string } } };
+    expect(result.form.message.text).not.toBe('All memories synced.');
+    expect(result.form.message.text).toContain('Git One');
   });
 
   it('returns a typed error when listing sync candidates fails', async () => {

@@ -26,6 +26,7 @@ import {
   syncOrgMemoriesSchema,
   unsubscribeOrgMemorySchema,
 } from './schema';
+import { gitFailureMessage } from '$lib/sync-error';
 
 type DeleteOrgMemoryForm = Infer<typeof deleteOrgMemorySchema, 'zod4'>;
 type OrgMemorySubscribeForm = Infer<typeof orgMemorySubscribeSchema, 'zod4'>;
@@ -167,17 +168,32 @@ export const actions: Actions = {
     }
 
     const memories = data.organization.memories ?? [];
+    // #988: a failure's text is the raw git error, which can carry
+    // credentials (hadron-server#1578), so each is classified into fixed copy
+    // and never shown. "All synced" is claimed only when every sync came back
+    // OK; one that stopped early returns still SYNCING.
     const errors: string[] = [];
+    const unfinished: string[] = [];
     for (const m of memories) {
       if (!m.source) continue;
       try {
-        await client.request(SYNC_MEMORY_MUTATION, { id: m.id });
+        const res = await client.request<{ syncMemory: { syncStatus?: string | null } | null }>(SYNC_MEMORY_MUTATION, { id: m.id });
+        if (res.syncMemory?.syncStatus !== 'OK') unfinished.push(m.name);
       } catch (e: unknown) {
-        errors.push(`${m.name}: ${extractGqlError(e, 'sync failed')}`);
+        errors.push(`${m.name}: ${gitFailureMessage(extractGqlError(e, ''), 'sync')}`);
       }
     }
     if (errors.length) {
-      return message(form, { type: 'error', text: `Sync errors: ${errors.join('; ')}` }, { status: 500 });
+      return message(form, {
+        type: 'error',
+        text: t('org-memories.sync-errors', 'Sync errors: {errors}', { errors: errors.join(' · ') }),
+      }, { status: 500 });
+    }
+    if (unfinished.length) {
+      return message(form, {
+        type: 'success',
+        text: t('org-memories.sync-not-finished', 'Some syncs didn’t finish yet: {names}. Check their status again shortly.', { names: unfinished.join(', ') }),
+      });
     }
     return message(form, { type: 'success', text: t('org-memories.synced', 'All memories synced.') });
   },

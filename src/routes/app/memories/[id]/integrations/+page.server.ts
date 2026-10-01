@@ -18,6 +18,7 @@ import {
   pushMemoryIntegrationSchema,
   syncMemoryIntegrationSchema,
 } from './schema';
+import { gitFailureMessage } from '$lib/sync-error';
 
 const memoryIntegrationFormAdapter = zod4(memoryIntegrationSchema);
 const pushMemoryIntegrationFormAdapter = zod4(pushMemoryIntegrationSchema);
@@ -106,15 +107,28 @@ export const actions: Actions = {
     );
     if (!form.valid) return fail(400, { form });
 
+    // #988: the outcome follows what the server RETURNED, never the mere
+    // absence of an error: a sync that stops early comes back still SYNCING
+    // (hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee).
+    // A failure's text is the raw git error, which can carry credentials
+    // (hadron-server#1578), so it is classified into fixed copy and never
+    // shown ($lib/sync-error).
     try {
-      await gqlClient(locals.token).request(SYNC_MEMORY_MUTATION, { id: params.id });
-      return message(form, { type: 'success', text: t('integrations.synced', 'Memory synced.') });
-    } catch (e: unknown) {
-      return message(
-        form,
-        { type: 'error', text: extractGqlError(e, 'Sync failed') },
-        { status: 500 },
+      const res = await gqlClient(locals.token).request<{ syncMemory: { syncStatus?: string | null } | null }>(
+        SYNC_MEMORY_MUTATION,
+        { id: params.id },
       );
+      if (res.syncMemory?.syncStatus === 'OK') {
+        return message(form, { type: 'success', text: t('integrations.synced', 'Memory synced.') });
+      }
+      return message(form, {
+        type: 'success',
+        text: t('integrations.sync-not-finished', 'The sync didn’t finish (status: {status}). Check the status again shortly.', {
+          status: res.syncMemory?.syncStatus ?? '—',
+        }),
+      });
+    } catch (e: unknown) {
+      return message(form, { type: 'error', text: gitFailureMessage(extractGqlError(e, ''), 'sync') }, { status: 500 });
     }
   },
 
@@ -129,11 +143,8 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(PUSH_MEMORY_TO_GIT_MUTATION, { id: params.id });
       return message(form, { type: 'success', text: t('integrations.pushed', 'Pushed to Git.') });
     } catch (e: unknown) {
-      return message(
-        form,
-        { type: 'error', text: extractGqlError(e, 'Push to Git failed') },
-        { status: 500 },
-      );
+      // #988: the push path uses the same tokenized remote (hadron-server#1578).
+      return message(form, { type: 'error', text: gitFailureMessage(extractGqlError(e, ''), 'push') }, { status: 500 });
     }
   },
 };

@@ -13,6 +13,7 @@
     pushMemoryIntegrationSchema,
     syncMemoryIntegrationSchema,
   } from './schema';
+  import SyncErrorDetail from '$lib/components/SyncErrorDetail.svelte';
 
   type MemoryIntegrationForm = Infer<typeof memoryIntegrationSchema, 'zod4'>;
   type PushMemoryIntegrationForm = Infer<typeof pushMemoryIntegrationSchema, 'zod4'>;
@@ -175,6 +176,9 @@
         <span class="text-sm text-zinc-500">{t('integrations.status', 'Status')}</span>
         <span class="text-sm font-medium text-zinc-900 dark:text-white">{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {fmtDate(g.lastSyncedAt)}{/if}</span>
       </div>
+      {#if g.syncStatus === 'ERROR'}
+        <SyncErrorDetail syncError={g.syncError} />
+      {/if}
     </div>
     <div class="mt-4 flex gap-3">
       <form method="POST" action="?/sync" use:syncEnhance novalidate>
