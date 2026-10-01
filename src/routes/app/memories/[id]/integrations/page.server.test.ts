@@ -254,7 +254,10 @@ describe('memory integrations command actions', () => {
     const result = await actions.sync(commandEvent());
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Sync failed: rate limit' });
+    // An unrecognised failure gets generic copy, never the server's text (#988).
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error' });
+    expect((superFormFrom(result)?.message as { text: string }).text).toContain('The last sync failed.');
+    expect((superFormFrom(result)?.message as { text: string }).text).not.toContain('rate limit');
   });
 
   // #988
@@ -275,7 +278,8 @@ describe('memory integrations command actions', () => {
     const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { type: string; text: string };
     expect(msg.type).toBe('error');
     expect(msg.text).not.toContain('ghs_SECRET');
-    expect(msg.text).toContain('https://***@github.com/acme/repo.git');
+    expect(msg.text).not.toContain('github.com');
+    expect(msg.text).toContain('doesn’t exist in its repository');
   });
 
   it('gives the review hold product copy, not the server prose', async () => {
@@ -284,6 +288,18 @@ describe('memory integrations command actions', () => {
     const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { text: string };
     expect(msg.text).toContain('held for review');
     expect(msg.text).not.toContain('GIT_SYNC_REVIEW_REQUIRED');
+  });
+
+  it('pushToGit never shows a credential from the raw git error (#988, Chip/Gene on #989)', async () => {
+    mockRequest.mockRejectedValueOnce(new Error(
+      'Git setup failed: Command failed: git push https://x-access-token:ghs_PUSHsecretPUSHsecret99@github.com/acme/repo.git main',
+    ));
+    const { actions } = await importMod();
+    const msg = superFormFrom(await actions.pushToGit(commandEvent()))?.message as { type: string; text: string };
+    expect(msg.type).toBe('error');
+    expect(msg.text).not.toContain('ghs_PUSH');
+    expect(msg.text).not.toContain('github.com');
+    expect(msg.text).toContain('Push to Git failed.');
   });
 
   it('pushes the memory to Git', async () => {
@@ -313,6 +329,9 @@ describe('memory integrations command actions', () => {
     const result = await actions.pushToGit(commandEvent());
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'push rejected' });
+    // Unrecognised text: generic copy, never the server's words (#988).
+    expect((superFormFrom(result)?.message as { type: string; text: string }).type).toBe('error');
+    expect((superFormFrom(result)?.message as { text: string }).text).toContain('Push to Git failed.');
+    expect((superFormFrom(result)?.message as { text: string }).text).not.toContain('push rejected');
   });
 });
