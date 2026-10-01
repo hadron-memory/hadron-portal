@@ -930,7 +930,6 @@
   let downloading = $state(false);
   let agentToolsForm = $state<HTMLFormElement>();
   let selectedTools = $derived(new Set(app.agentTools ?? []));
-  let withClientApp = $state(false);
   let newKeyLabel = $state('');
   let memoriesOpen = $state(false);
 
@@ -974,15 +973,13 @@
   }
 
   // ── Per-tool MCP config generators ────────────────────────────────────
+  // #990: hadron-client is retired, so setup always talks to the server
+  // directly; the old "With Client App" mode (localhost:3200, client hooks)
+  // is gone.
   const serverUrl = env.PUBLIC_SERVER_URL ?? 'http://localhost:4000';
-  const clientAppUrl = 'http://localhost:3200';
-  const mcpBaseUrl = $derived(withClientApp ? clientAppUrl : serverUrl);
-  const mcpUrl = $derived(mcpBaseUrl.includes('localhost') ? mcpBaseUrl + '/mcp' : mcpBaseUrl.replace(/\/$/, '') + '/mcp');
+  const mcpUrl = $derived(serverUrl.includes('localhost') ? serverUrl + '/mcp' : serverUrl.replace(/\/$/, '') + '/mcp');
 
-  function claudeCodeMcpConfig(url: string, apiKey: string, useClientApp: boolean) {
-    if (useClientApp) {
-      return { mcpServers: { hadron: { command: 'hadron-client', args: ['stdio'], env: { HADRON_CLIENT_KEY: apiKey } } } };
-    }
+  function claudeCodeMcpConfig(url: string, apiKey: string) {
     return { mcpServers: { hadron: { type: 'http', url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
   }
   function copilotMcpConfig(url: string, apiKey: string) {
@@ -996,14 +993,6 @@
   }
   function antigravityMcpConfig(url: string, apiKey: string) {
     return { mcpServers: { hadron: { serverUrl: url, headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } } } };
-  }
-  function claudeCodeHooksConfig() {
-    return { hooks: {
-      SessionStart: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/session-start`, timeout: 5 }] }],
-      UserPromptSubmit: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/before-prompt`, timeout: 5 }] }],
-      PostToolUse: [{ matcher: 'mcp__hadron', hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/after-tool`, timeout: 5 }] }],
-      PostCompact: [{ hooks: [{ type: 'http', url: `${clientAppUrl}/hooks/post-compact`, timeout: 5 }] }],
-    }};
   }
 
   const INSTRUCTIONS_MD = hadronInstructions;
@@ -1023,10 +1012,7 @@
         license: 'MIT',
         keywords: ['hadron', 'memory', 'knowledge-graph', 'mcp'],
       };
-      if (withClientApp) {
-        pluginManifest.hooks = claudeCodeHooksConfig().hooks;
-      }
-      const mcpConfig = claudeCodeMcpConfig(url, apiKey, withClientApp);
+      const mcpConfig = claudeCodeMcpConfig(url, apiKey);
       const marketplaceManifest = {
         name: 'hadron',
         owner: { name: 'Baragaun', email: 'help@hadronmemory.com' },
@@ -1069,7 +1055,7 @@
     }
 
     if (tools.includes('CLAUDE_CODE'))
-      zip.file('.mcp.json', JSON.stringify(claudeCodeMcpConfig(url, apiKey, withClientApp), null, 2));
+      zip.file('.mcp.json', JSON.stringify(claudeCodeMcpConfig(url, apiKey), null, 2));
     if (tools.includes('COPILOT'))
       zip.file('.vscode/mcp.json', JSON.stringify(copilotMcpConfig(url, apiKey), null, 2));
     if (tools.includes('CURSOR'))
@@ -1084,12 +1070,6 @@
       zip.file('global-configs/windsurf-mcp_config.json', JSON.stringify(windsurfMcpConfig(url, apiKey), null, 2));
     if (tools.includes('ANTIGRAVITY'))
       zip.file('global-configs/antigravity-mcp_config.json', JSON.stringify(antigravityMcpConfig(url, apiKey), null, 2));
-
-    if (withClientApp) {
-      if (tools.includes('CLAUDE_CODE'))
-        zip.file('.claude/settings.json', JSON.stringify(claudeCodeHooksConfig(), null, 2));
-      zip.file('.hadron/config.json', JSON.stringify({ appKey: apiKey, defaultLevel: 'guided' }, null, 2));
-    }
 
     zip.file('.hadron/INSTRUCTIONS.md', INSTRUCTIONS_MD);
 
@@ -1113,18 +1093,9 @@
     ].join('\n');
     zip.file('.hadron/config.yml', configYml);
 
-    zip.file('bin/hadron-client',
-`#!/usr/bin/env bash
-# Hadron Client launcher — place this on your PATH (e.g. ~/bin or /usr/local/bin)
-# Requires: Node.js >= 20, hadron-client repo cloned and built
-
-HADRON_CLIENT_DIR="\${HADRON_CLIENT_DIR:-\$HOME/src/hadron-memory/hadron-client}"
-node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
-`);
-
     const hasGlobalTools = tools.includes('WINDSURF') || tools.includes('ANTIGRAVITY');
     const readmeLines = [
-      '# Hadron Client Setup',
+      '# Hadron Setup',
       '',
       '## Client Key',
       '',
@@ -1134,31 +1105,8 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       '',
       '> **Keep your client key safe and do not share it with others!**',
       '',
-      '## Prerequisites',
-      '',
-      '1. **Node.js >= 20** installed',
-      '2. **Clone and build hadron-client:**',
-      '   ```bash',
-      '   git clone https://github.com/hadron-memory/hadron-client.git ~/src/hadron-memory/hadron-client',
-      '   cd ~/src/hadron-memory/hadron-client',
-      '   npm install && npm run build',
-      '   ```',
-      '3. **Install the `hadron-client` command** — copy the wrapper script to a directory on your PATH:',
-      '   ```bash',
-      '   cp bin/hadron-client ~/bin/hadron-client   # or /usr/local/bin/',
-      '   chmod +x ~/bin/hadron-client',
-      '   ```',
-      '   If your hadron-client repo is not at `~/src/hadron-memory/hadron-client`,',
-      '   set `HADRON_CLIENT_DIR` in the script or your shell profile.',
-      '',
-      '## To upgrade',
-      '',
-      '```bash',
-      '~/src/hadron-memory/hadron-client/bin/upgrade.sh',
-      '```',
-      '',
-      'Then restart your AI coding tool (or reconnect MCP) to pick up changes.',
-      '',
+      // #990: the configs below talk to the Hadron server directly; nothing
+      // needs installing first (hadron-client is retired).
       '## Project Setup',
       '',
       '### Hadron config',
@@ -1190,20 +1138,13 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
       if (tools.includes('ANTIGRAVITY'))
         readmeLines.push('', '**Antigravity:** Merge into `~/.antigravity/mcp_config.json`');
     }
-    if (withClientApp) readmeLines.push(
-      '', '### Hadron Client App', '',
-      'The client app provides hooks for session tracking and context recovery.',
-      '1. Copy `.hadron/config.json` to your project',
-      '2. Start the client app: `hadron-client start`',
-      '3. Copy `.claude/settings.json` to your project (hooks config)',
-    );
     zip.file('README.md', readmeLines.join('\n'));
 
     const blob = await zip.generateAsync({ type: 'blob' });
     const dlUrl = URL.createObjectURL(blob);
     const a = document.createElement('a');
     const safeName = sanitizeLabel(keyLabel);
-    a.href = dlUrl; a.download = `hadron-client-config-${safeName}.zip`; a.click();
+    a.href = dlUrl; a.download = `hadron-setup-${safeName}.zip`; a.click();
     URL.revokeObjectURL(dlUrl);
   }
 
@@ -2628,18 +2569,6 @@ node "\$HADRON_CLIENT_DIR/dist/cli.js" "$@"
                   {/each}
                 </div>
               </form>
-            </div>
-
-            <div class="flex items-center gap-4">
-              <span class="text-sm font-medium text-zinc-700 dark:text-zinc-300">Client mode:</span>
-              <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-                <input type="radio" name="clientMode" checked={withClientApp} onchange={() => { withClientApp = true; }} class="text-indigo-500 focus:ring-indigo-500" />
-                With Client App
-              </label>
-              <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300 cursor-pointer">
-                <input type="radio" name="clientMode" checked={!withClientApp} onchange={() => { withClientApp = false; }} class="text-indigo-500 focus:ring-indigo-500" />
-                Direct
-              </label>
             </div>
 
             <button onclick={downloadSetupZip} disabled={downloading || !canDownload}
