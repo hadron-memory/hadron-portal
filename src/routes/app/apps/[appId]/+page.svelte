@@ -24,11 +24,15 @@
   // one. Measured under #754: one refetch in 20s where three were due, because
   // the 8s clock kept resetting. A prop that changes identity every render is
   // not a callback, it is a dependency.
-  const refreshTeamChat = async () => {
-    const res = await fetch(`/app/apps/${app.id}/team-chat`);
+  const refreshTeamChat = async (sinceSeq?: number) => {
+    const cursor = sinceSeq === undefined ? '' : `?sinceSeq=${sinceSeq}`;
+    const res = await fetch(`/app/apps/${app.id}/team-chat${cursor}`);
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
     const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
-    void refreshRosterFor(body.items);
+    // The initial page can contain workers whose roster lookup failed. Later
+    // forward pages may be empty, so keep seeding those bounded first-page
+    // authors while the refresher retries its pending IDs.
+    void refreshRosterFor([...(data.teamChatMessages ?? []), ...body.items]);
     return body;
   };
   // #793: the page BEFORE a seq. Same endpoint, same degraded-read contract —
@@ -120,7 +124,9 @@
   // it. `refreshRosterFor` re-reads the roster (team-chat/authors) only then. The
   // refreshed roster is kept with the `data.staff` it superseded and used only
   // while that is still the page's roster, so a later page load wins.
-  let rosterRefresh = $state<{ basedOn: Worker[] | null; workers: RosterEntry[] } | null>(null);
+  // `basedOn` is an identity token for the loader's staff array. Deep `$state`
+  // proxies it, so the comparison below would reject every successful refresh.
+  let rosterRefresh = $state.raw<{ basedOn: Worker[] | null; workers: RosterEntry[] } | null>(null);
   const roster = $derived<RosterEntry[] | null>(
     rosterRefresh && rosterRefresh.basedOn === staff
       ? rosterRefresh.workers

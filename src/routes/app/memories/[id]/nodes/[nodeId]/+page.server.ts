@@ -7,7 +7,8 @@ import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY } from '$lib/server/queries';
+import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
@@ -279,6 +280,37 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     }
   })();
 
+  // #914: authorship + advisory content validation, for the node and for its
+  // History rows. Each is its OWN streamed read (see NODE_PROVENANCE_QUERY for
+  // why it never rides on the node or history reads), and a failure resolves to
+  // { ok: false } so the display says "couldn't load" instead of guessing.
+  const provenance = (async (): Promise<ProvenanceResult<NodeProvenance>> => {
+    try {
+      const r = await gqlClient(locals.token).request<{ node: NodeProvenance | null }>(
+        NODE_PROVENANCE_QUERY,
+        { ref: node.id },
+      );
+      // Read AFTER the node, so a concurrent edit can land in between: shown
+      // only when it describes the revision this page rendered.
+      return r?.node ? bindToRevision({ ok: true, value: r.node }, node.revision) : { ok: false };
+    } catch (e) {
+      console.warn('[node-detail] provenance failed:', e);
+      return { ok: false };
+    }
+  })();
+  const revisionProvenance = (async (): Promise<ProvenanceResult<NodeProvenance[]>> => {
+    try {
+      const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeProvenance[] }>(
+        NODE_REVISIONS_PROVENANCE_QUERY,
+        { nodeRef: node.id, limit: 100 },
+      );
+      return { ok: true, value: r?.nodeRevisions ?? [] };
+    } catch (e) {
+      console.warn('[node-detail] revision provenance failed:', e);
+      return { ok: false };
+    }
+  })();
+
   // A chat node (`nodeType: 'chat'`, or the legacy `team-chat` tag) is readable
   // two ways: as a node (the usual tabs) and as a chat thread. The Chat tab
   // renders the same bubbles as the standalone /chat view, so it is the node's
@@ -405,6 +437,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     testFlowApps,
     memories,
     revisions,
+    provenance,
+    revisionProvenance,
     moveForm,
     testFlowForm,
     deleteForm,
@@ -421,10 +455,12 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
  * #927 — the inline Content and Abstract saves.
  *
  * The editor posts the `Node.revision` it opened on, and the write sends it as
- * `expectedRevision` (hadron-server#937): the server refuses atomically, with
- * NODE_WRITE_CONFLICT, when anything wrote the node since. Before this the
- * whole editor buffer went out unconditioned, and a stale one silently replaced
- * newer content (seen in production, a user editing alongside an agent).
+ * `expectedRevision` (hadron-server#937): the server refuses the proposed edit
+ * with NODE_WRITE_CONFLICT when anything wrote the node since. Raw-drift
+ * reconciliation can itself advance the stored revision while refusing the edit
+ * (hadron-server#1458). Before this the whole editor buffer went out
+ * unconditioned, and a stale one silently replaced newer content (seen in
+ * production, a user editing alongside an agent).
  *
  * A save without a revision is refused rather than sent unguarded: an action
  * that cannot tell whether it overwrites someone does not guess (the same rule

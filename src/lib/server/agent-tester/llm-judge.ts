@@ -19,6 +19,8 @@ import { generateText } from 'ai';
 import type { Verdict } from '$lib/server/agent-tester/verdict';
 import { fetchAgentAIConfig } from '$lib/server/llm/agentChatTurn.js';
 import { createLanguageModel } from '$lib/server/llm/agentChatLlm.js';
+import { publicChatError } from '$lib/server/llm/chatError.js';
+import { t } from '$lib/i18n/t';
 
 export interface JudgeResult {
   /** 0..1 inclusive; null if the judge couldn't be reached or returned non-JSON. */
@@ -126,7 +128,7 @@ export async function judgeAgentReply(args: JudgeAgentReplyArgs): Promise<JudgeR
     const ai = await fetchAgentAIConfig(token, agentId);
     const model = createLanguageModel(ai.provider, ai.apiKey, ai.model);
     if (!model) {
-      return { score: null, rationale: `judge unreachable (unsupported provider ${ai.provider})` };
+      return { score: null, rationale: t('agent-chat.judge.unsupported-provider', 'judge unreachable (unsupported provider)') };
     }
     const result = await generateText({
       model,
@@ -135,8 +137,8 @@ export async function judgeAgentReply(args: JudgeAgentReplyArgs): Promise<JudgeR
     });
     return parseJudgeResponse(result.text);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'unknown error';
-    return { score: null, rationale: `judge unreachable (${msg})` };
+    const safe = publicChatError(e);
+    return { score: null, rationale: t('agent-chat.judge.unreachable', 'judge unreachable ({code})', { code: safe.code }) };
   }
 }
 

@@ -99,13 +99,9 @@ export interface Agent {
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
-  // #974 (hrn:node:hadronmemory.com:specs:cor:agt:020 v0.0.3): persona is *dressing* on any Agent, not an
-  // identity — the Agent is the reusable role-actor ("backend-engineer") and
-  // `personaPrompt` is a TEMPLATE ({{name}}/{{role}} bound at casting time).
-  // The named individual is a Worker (see below); `Agent.personaName` was
-  // dropped from the schema with the Worker model.
+  // The role is dressing on the reusable Agent; systemPrompt supplies the
+  // shared template for chats and bound Worker briefings (#1241).
   personaRole?: string | null;
-  personaPrompt?: string | null;
   // 036-ai-service-config: server shim — true when the agent's `default`
   // config has a key. Used by the Chat-tab readiness gate.
   hasAiApiKey?: boolean;
@@ -135,13 +131,14 @@ export interface InstallationPolicy {
 export interface AgentImport {
   parentAgentId: string;
   importedAgentId: string;
+  // Nullable since hadron-server#1526: only when the caller may read that Agent.
   importedAgent: {
     id: string;
     urn: string;
     name: string;
     description?: string | null;
     personaRole?: string | null;
-  };
+  } | null;
   position: number;
   required: boolean;
   createdAt: string;
@@ -263,6 +260,13 @@ export interface TeamWorkItem {
   at: string;
   /** Display extras (title, URL). Documented as never filtered on. */
   detail: Record<string, unknown> | null;
+  /**
+   * hadron-server#1398: the LLM model that produced the work, snapshotted when
+   * the record was made (an explicit report, else the recording session's
+   * model). Null means unknown at record time. It is never backfilled and must
+   * never be filled from the worker's CURRENT model.
+   */
+  model: string | null;
 }
 
 export interface App {
@@ -368,7 +372,7 @@ export interface Worker {
     urn: string;
     personaRole?: string | null;
     /**
-     * #1010 — the agent's RAW persona template, selected only by
+     * #1010/#1241 — the agent's RAW shared prompt template, selected only by
      * WORKER_QUERY and never by WorkerFields (which feeds the Staff
      * roster, where a template per row is the hadron-cli#459 mistake).
      *
@@ -378,7 +382,7 @@ export interface Worker {
      * different gate from the one guarding the composed `prompt`, so a
      * caller can legitimately have one and not the other.
      */
-    personaPrompt?: string | null;
+    systemPrompt?: string | null;
   } | null;
   /**
    * Retirement instant — a retired worker stops authoring and takes no new
@@ -573,6 +577,8 @@ export interface NodeEdge {
 // revision (Display) query — optional here.
 export interface NodeRevision {
   id: string;
+  // #914 (#696): the revision this snapshots. Null on legacy rows.
+  revNo?: number | null;
   nodeId?: string;
   loc: string;
   name: string;
@@ -801,13 +807,28 @@ export interface AppAIConfig {
 
 export type AiConfigOwnerType = 'HADRON_SERVER' | 'ORGANIZATION' | 'APP' | 'AGENT';
 
+/**
+ * A provider an AiServiceConfig may name: the portal's own `AIProvider`s plus
+ * `openai-compatible` (server#1389), which the portal's LLM client can't
+ * speak. Kept apart so nothing that calls that client can be handed one.
+ */
+export type AiConfigProvider = AIProvider | 'openai-compatible';
+
 export interface AiServiceConfig {
   id: string;
   name: string;
   ownerType: AiConfigOwnerType;
   ownerId: string;
-  provider: AIProvider;
+  provider: AiConfigProvider;
   model: string;
+  /** server#1373: the base URL as stored; null = the provider default. */
+  endpoint: string | null;
+  /** Where a request actually goes: endpoint, else the default. Null only for bedrock. */
+  effectiveEndpoint: string | null;
+  /** The wire protocol as stored; null = the provider default. OpenAI-style providers only. */
+  apiStyle: 'CHAT_COMPLETIONS' | 'RESPONSES' | null;
+  /** The protocol a request actually uses; null for single-protocol providers. */
+  effectiveApiStyle: 'CHAT_COMPLETIONS' | 'RESPONSES' | null;
   hasApiKey: boolean;
   apiKeyPreview: string | null;
   params: Record<string, unknown> | null;

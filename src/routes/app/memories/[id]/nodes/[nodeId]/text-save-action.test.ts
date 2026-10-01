@@ -2,12 +2,12 @@
  * #927 — the inline Content and Abstract saves carry the revision the editor
  * opened on, and a conflict keeps the user's draft.
  *
- * The fake server below honours `expectedRevision` the way hadron-server#937
- * specifies it: a mismatch refuses with NODE_WRITE_CONFLICT and writes nothing;
- * an omitted guard is last-write-wins. The stale-editor scenario is run in BOTH
- * directions — the guarded save is refused, and the same stale save without the
- * guard would have overwritten — so the test cannot pass on a fake that never
- * enforces anything.
+ * The fake server below honours `expectedRevision`: a mismatch refuses the
+ * proposed edit with NODE_WRITE_CONFLICT; an omitted guard is last-write-wins.
+ * The stale-editor scenario runs in BOTH directions so the test cannot pass on
+ * a fake that never enforces the guard. A separate raw-drift scenario models
+ * hadron-server#1458: reconciliation can advance the stored revision before
+ * refusing the proposed edit, so a conflict does not mean nothing was written.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NODE_BY_ID_QUERY, UPDATE_NODE_MUTATION } from '$lib/server/queries';
@@ -27,6 +27,7 @@ vi.mock('$app/forms', () => ({ deserialize: vi.fn() }));
 
 /** One stored node, advanced a revision per successful write. */
 let stored: { id: string; memoryId: string; loc: string; tags: string[]; content: string | null; abstract: string | null; revision: number };
+let reconcileBeforeNextGuardedSave: (() => void) | null;
 
 function gqlError(code: string, message = code) {
   return Object.assign(new Error(message), { response: { errors: [{ message, extensions: { code } }] } });
@@ -35,9 +36,17 @@ function gqlError(code: string, message = code) {
 beforeEach(() => {
   mockRequest.mockReset();
   stored = { id: 'pk', memoryId: 'mem-1', loc: 'notes', tags: ['keep'], content: 'v1', abstract: 'a1', revision: 1 };
+  reconcileBeforeNextGuardedSave = null;
   mockRequest.mockImplementation(async (query: unknown, vars: { input?: Record<string, unknown> }) => {
     if (query === NODE_BY_ID_QUERY) return { node: { ...stored, role: null, isRunnable: null } };
     const input = vars.input!;
+    if (input.expectedRevision !== undefined && reconcileBeforeNextGuardedSave) {
+      const reconcile = reconcileBeforeNextGuardedSave;
+      reconcileBeforeNextGuardedSave = null;
+      reconcile();
+      stored.revision++;
+      throw gqlError('NODE_WRITE_CONFLICT', 'The node changed since it was read.');
+    }
     if (input.expectedRevision !== undefined && input.expectedRevision !== stored.revision) {
       throw gqlError('NODE_WRITE_CONFLICT', 'The node changed since it was read.');
     }
@@ -65,6 +74,12 @@ function openEditor(field: 'content' | 'abstract') {
   draft.reseed({ id: stored.id, value: stored[field], revision: stored.revision });
   draft.ensureSeeded();
   return draft;
+}
+
+async function refreshEditor(editor: TextDraft, field: 'content' | 'abstract') {
+  const { gqlClient } = await import('$lib/server/api');
+  const { node } = (await gqlClient('tok').request(NODE_BY_ID_QUERY, { ref: stored.id })) as { node: typeof stored };
+  editor.sync({ id: node.id, value: node[field], revision: node.revision });
 }
 
 const writes = () => mockRequest.mock.calls.filter(([q]) => q !== NODE_BY_ID_QUERY);
@@ -116,7 +131,83 @@ describe.each([
     expect(stored[field]).toBe(editorA.text);
   });
 
-  it('refuses a save that carries no revision, and writes nothing', async () => {
+  it('raw drift: a refused edit can advance revision, then a fresh read permits a second user save if this field is unchanged', async () => {
+    const editor = openEditor(field);
+    editor.text = 'my edit';
+    reconcileBeforeNextGuardedSave = () => {
+      stored.tags = [...stored.tags, 'reconciled'];
+    };
+
+    const first = (await save(action, { [field]: editor.text, expectedRevision: String(editor.baseRevision) })) as {
+      status: number;
+      data: Record<string, unknown>;
+    };
+    expect(first.status).toBe(409);
+    expect(first.data).toEqual({ [`${field}Failed`]: { code: 'changed', detail: 'The node changed since it was read.' } });
+    expect(writes()).toHaveLength(1);
+    expect((writes()[0][1] as { input: { expectedRevision: number } }).input.expectedRevision).toBe(1);
+    expect(stored[field]).toBe(field === 'content' ? 'v1' : 'a1'); // proposed text was not applied
+    expect(stored.tags).toEqual(['keep', 'reconciled']); // reconciliation did write
+    expect(stored.revision).toBe(2);
+
+    await refreshEditor(editor, field);
+    expect(editor.text).toBe('my edit');
+    expect(editor.dirty).toBe(true);
+    expect(editor.baseRevision).toBe(2);
+    expect(editor.isBehind(stored[field])).toBe(false);
+    expect(writes()).toHaveLength(1); // the read does not retry the edit
+
+    expect(await save(action, { [field]: editor.text, expectedRevision: String(editor.baseRevision) })).toEqual({
+      [`${field}Saved`]: true,
+    });
+    expect(writes()).toHaveLength(2);
+    expect((writes()[1][1] as { input: { expectedRevision: number } }).input.expectedRevision).toBe(2);
+    expect(stored[field]).toBe('my edit');
+    expect(stored.revision).toBe(3);
+  });
+
+  it('raw drift in the edited field keeps the dirty draft and its stale revision after refresh', async () => {
+    const editor = openEditor(field);
+    editor.text = 'my edit';
+    reconcileBeforeNextGuardedSave = () => {
+      stored[field] = 'reconciled text';
+    };
+
+    const first = (await save(action, { [field]: editor.text, expectedRevision: String(editor.baseRevision) })) as {
+      status: number;
+      data: Record<string, unknown>;
+    };
+    expect(first.status).toBe(409);
+    expect(first.data).toEqual({ [`${field}Failed`]: { code: 'changed', detail: 'The node changed since it was read.' } });
+    expect(stored[field]).toBe('reconciled text');
+    expect(stored.revision).toBe(2);
+
+    await refreshEditor(editor, field);
+    expect(editor.text).toBe('my edit');
+    expect(editor.dirty).toBe(true);
+    expect(editor.baseRevision).toBe(1);
+    expect(editor.isBehind(stored[field])).toBe(true);
+    expect(writes()).toHaveLength(1); // no silent overwrite or automatic retry
+  });
+
+  it('raw drift refuses the edit even when the supplied token equals the reconciliation revision', async () => {
+    // Pins the fake's #1458 server contract; the portal only maps its refusal.
+    reconcileBeforeNextGuardedSave = () => {
+      stored.tags = [...stored.tags, 'reconciled'];
+    };
+
+    const out = (await save(action, { [field]: 'my edit', expectedRevision: '2' })) as {
+      status: number;
+      data: Record<string, unknown>;
+    };
+    expect(out.status).toBe(409);
+    expect(out.data).toEqual({ [`${field}Failed`]: { code: 'changed', detail: 'The node changed since it was read.' } });
+    expect(stored.revision).toBe(2);
+    expect(stored[field]).toBe(field === 'content' ? 'v1' : 'a1');
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('refuses a save that carries no revision before making a server request', async () => {
     for (const bad of [undefined, '', '0', '-1', '1.5', 'abc', '2147483648']) {
       mockRequest.mockClear();
       const form: Record<string, string> = { [field]: 'x' };

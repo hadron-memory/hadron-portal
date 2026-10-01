@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { Kind, parse, type SelectionSetNode } from 'graphql';
 import { ACCEPT_INVITATION_MUTATION, INVITATION_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -16,7 +17,7 @@ vi.mock('$lib/server/emailLogin', () => ({
 }));
 
 const fakeInvitation = {
-  organization: { name: 'Acme', urn: 'hrn:org:acme' },
+  organization: { name: 'Acme' },
   sender: { name: 'Ada', githubUsername: 'ada-dev' },
   memberRole: 'READER',
   name: 'Grace',
@@ -207,5 +208,53 @@ describe('invite accept action', () => {
       actions.accept(actionEvent({}, { user: { id: 'user-1' }, authToken: 'test-token' })),
     ).rejects.toMatchObject({ status: 303, location: '/app/dashboard' });
     expect(mockRequest).toHaveBeenCalledWith(ACCEPT_INVITATION_MUTATION, { slug: 'invite-token' });
+  });
+});
+
+describe('INVITATION_QUERY selects only what the invite page renders (hadron-server#1523 P1-c)', () => {
+  /**
+   * Every selected field as a PATH from the operation root (`invitation.sender.name`),
+   * from the parsed document. Paths, not bare names: `sender.name` is allowed and
+   * the invitee's own top-level `name` is not, and a flat name set can't tell
+   * them apart (#977 Codex P2).
+   */
+  function selectedPaths(): string[] {
+    const paths: string[] = [];
+    const walk = (set: SelectionSetNode | undefined, prefix: string) => {
+      for (const sel of set?.selections ?? []) {
+        if (sel.kind !== Kind.FIELD) throw new Error(`unexpected ${sel.kind} in INVITATION_QUERY`);
+        const path = prefix ? `${prefix}.${sel.name.value}` : sel.name.value;
+        paths.push(path);
+        walk(sel.selectionSet, path);
+      }
+    };
+    for (const def of parse(INVITATION_QUERY).definitions) {
+      if (def.kind === Kind.OPERATION_DEFINITION) walk(def.selectionSet, '');
+    }
+    return paths.sort();
+  }
+
+  it('selects exactly the fields the page renders, at the level it renders them', () => {
+    expect(selectedPaths()).toEqual(
+      [
+        'invitation',
+        'invitation.activationCount',
+        'invitation.expiresAt',
+        'invitation.maxActivations',
+        'invitation.memberRole',
+        'invitation.organization',
+        'invitation.organization.name',
+        'invitation.sender',
+        'invitation.sender.githubUsername',
+        'invitation.sender.name',
+      ].sort(),
+    );
+  });
+
+  it('would catch the invitee\'s own identity coming back at the top level', () => {
+    const paths = selectedPaths();
+    for (const leak of ['invitation.name', 'invitation.email', 'invitation.githubUsername', 'invitation.id', 'invitation.slug']) {
+      expect(paths, leak).not.toContain(leak);
+    }
   });
 });

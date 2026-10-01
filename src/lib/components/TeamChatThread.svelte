@@ -24,6 +24,7 @@
   import { clampProbe } from './clamp-probe';
   import {
     TEAM_CHAT_POLL_MS,
+    forwardPageCount,
     isAtBottom,
     mergeTranscript,
     scrollTopAfterPrepend,
@@ -71,13 +72,13 @@
     form?: unknown;
     action?: string;
     heightClass?: string;
-    /** #754/#785: fetch the transcript afresh. The route supplies this — it
+    /** #754/#785: fetch a bounded forward page after `sinceSeq`. The route supplies this — it
      *  owns HOW to read (an isolated endpoint), this component owns WHEN (the
      *  timer, the visibility gate) and what to do with the answer. Returning
      *  the data rather than invalidating is the whole point of #785: a tick
      *  must not be able to re-run the page's fatal load paths. Omit to disable
      *  polling entirely. */
-    onRefresh?: () => Promise<{ items: TeamChatMessage[]; total: number; loadFailed: boolean } | null>;
+    onRefresh?: (sinceSeq?: number) => Promise<{ items: TeamChatMessage[]; total: number; loadFailed: boolean } | null>;
     /** Poll period in ms; 0 or less disables the timer. */
     pollMs?: number;
     /**
@@ -154,10 +155,8 @@
   // invalidating the page load; `null` until a poll has produced one, so the
   // PROP is the fallback rather than a value captured at construction.
   //
-  // #793: this now holds the ACCUMULATED transcript, not the latest window —
-  // each tick merges its window into it at the poll site below, seeded from the
-  // prop on the first tick. The name is kept because the ORIGIN is still "what
-  // polling produced"; what changed is that it grows rather than being replaced.
+  // This holds the ACCUMULATED transcript: bounded forward polls and backward
+  // pages merge into it, seeded from the prop on the first update.
   //
   // FRESH PAGE DATA ALWAYS WINS. `dataGeneration` is bumped whenever the prop
   // changes (navigation, or the `invalidateAll` a successful post does) and a
@@ -168,6 +167,10 @@
   // briefly render the previous App's thread (Codex on #786). The invalidation
   // #754 used had no such window; isolating the read created one.
   let polled = $state<{ items: readonly TeamChatMessage[]; total: number } | null>(null);
+  // The server's `sinceSeq` total is cursor-scoped. Keep the unreceived part
+  // of the previous page so each subsequent poll adds only genuinely new posts
+  // to the full-thread count (including posts made while catching up).
+  let pendingNewerCount = $state(0);
   let dataGeneration = $state(0);
   $effect(() => {
     // Depend on BOTH props; do not read `polled` or `dataGeneration` here, or
@@ -178,18 +181,19 @@
     untrack(() => {
       dataGeneration += 1;
       polled = null;
+      pendingNewerCount = 0;
     });
   });
   // #793: a plain read, because the accumulation happens at the POLL SITE. The
   // merge deliberately does not live here — a `$derived` re-runs on every
   // dependency change, so folding each window in from this side would recompute
   // the whole union per render and, worse, would only ever see the LATEST
-  // window, which is the hole @codex found on #796: prop 1–200 merged against a
-  // later 202–401 loses 201, because it belongs to neither input.
+  // window, which is the hole @codex found on #796: prop 1–20 merged against a
+  // later 22–41 loses 21, because it belongs to neither input.
   const shownMessages = $derived(polled?.items ?? messages);
   // `total` is the SERVER's count of the whole thread, not of what is loaded, so
-  // it is taken rather than merged — a union of two windows says nothing about
-  // how many messages exist beyond them.
+  // it is taken rather than derived from the loaded rows — a union of windows
+  // says nothing about how many messages exist beyond them.
   const shownTotal = $derived(polled?.total ?? total);
   // A successful poll RECOVERS the view from a failed initial load. `loadError`
   // is a prop, so nothing else can clear it now that a tick no longer refreshes
@@ -205,23 +209,34 @@
   // replacing it, so loading history and polling for new messages cannot fight.
   let loadingOlder = $state(false);
   let olderExhausted = $state(false);
+  // The full count can include newer messages still waiting for a forward
+  // poll. Track the older side from the tail and backward-page counts instead.
+  let olderRemainingCount = $state(0);
+  const shownOlderRemaining = $derived(polled === null ? Math.max(0, total - messages.length) : olderRemainingCount);
   $effect(() => {
     messages;
-    untrack(() => { olderExhausted = false; });
+    total;
+    untrack(() => {
+      olderExhausted = false;
+      olderRemainingCount = Math.max(0, total - messages.length);
+    });
   });
   // The cursor is the LOWEST seq on screen. No arithmetic and no stored offset:
   // whatever is at the top of the thread is exactly what the next page must
   // come before, and it stays correct however the window was assembled.
   const oldestSeq = $derived(shownMessages.length > 0 ? shownMessages[0].seq : null);
+  // The server counts before fetching the page. A post between those queries
+  // can make total === page length even though an older message exists. A seq
+  // above 1 permits one backward probe; an empty response marks exhaustion.
   const canLoadOlder = $derived(
-    !!onLoadOlder && !olderExhausted && oldestSeq !== null && shownMessages.length < shownTotal,
+    !!onLoadOlder && !olderExhausted && oldestSeq !== null && (shownOlderRemaining > 0 || oldestSeq > 1),
   );
 
   const LOAD_OLDER_THRESHOLD_PX = 400;
 
-  async function maybeLoadOlder() {
+  async function maybeLoadOlder(force = false) {
     if (!messagesEl || loadingOlder || !canLoadOlder) return;
-    if (messagesEl.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
+    if (!force && messagesEl.scrollTop > LOAD_OLDER_THRESHOLD_PX) return;
     loadingOlder = true;
     const cursor = oldestSeq!;
     // #793 (@codex on PR #799): the generation this request belongs to. The
@@ -237,6 +252,7 @@
       if (untrack(() => dataGeneration) !== startedAt) return; // a different thread now
       if (page.items.length === 0) {
         olderExhausted = true;
+        olderRemainingCount = 0;
         return;
       }
       // #793 (@codex P1 on PR #799): keep the EXISTING total. `beforeSeq` scopes
@@ -245,12 +261,13 @@
       // seq 2. Assigning it here shrinks `shownTotal` below `shownMessages
       // .length`, `canLoadOlder` goes false, and the oldest messages become
       // unreachable — on a 500-message thread, seq 1–100 after two pages.
-      // The full-thread count comes from the tail read and the poll, and only
-      // from them.
+      // The full-thread count comes from the tail and reconciled forward
+      // pages, never from this backward page.
       polled = {
         items: mergeTranscript(untrack(() => polled)?.items ?? messages, page.items),
         total: untrack(() => polled)?.total ?? total,
       };
+      olderRemainingCount = Math.max(0, page.total - page.items.length);
       // #793 (@copilot on PR #799): measure AFTER the await, immediately before
       // the paint that applies the prepend. Capturing before the request would
       // fold in any growth that happened WHILE it was in flight — a poll
@@ -267,8 +284,8 @@
   }
 
   const bySeq = $derived(indexBySeq(shownMessages));
-  // The page cap is applied server-side, so a transcript can be a suffix of the
-  // real thread. Say so rather than letting a partial view read as complete.
+  // The page cap is applied server-side, so the loaded transcript may cover
+  // only part of the thread. Say so rather than implying it is complete.
   const truncated = $derived(shownTotal > shownMessages.length);
 
   function renderMarkdown(text: string): string {
@@ -300,7 +317,10 @@
   // scrolling. Without it, scrolling would re-run the effect and scroll them
   // back down — a scroll position that fights the person holding the mouse.
   let stickToBottom = $state(true);
+  let lastScrollTop = 0;
   function onTranscriptScroll() {
+    const movedUp = !!messagesEl && messagesEl.scrollTop < lastScrollTop;
+    lastScrollTop = messagesEl?.scrollTop ?? 0;
     stickToBottom = isAtBottom(messagesEl);
     // #793: the SAME handler drives both ends of the thread — stickiness at the
     // bottom, paging at the top. Two `onscroll` bindings would silently keep
@@ -308,7 +328,10 @@
     // function existed, nothing called it, and no test could see the difference
     // because this component's behaviour is not reachable from an SSR render
     // (#795).
-    void maybeLoadOlder();
+    // Only a reader's move toward history starts scroll-back. The initial
+    // scroll-to-bottom and the anchor adjustment after a prepend move downward;
+    // neither should turn the one-page first paint into an eager history walk.
+    if (movedUp) void maybeLoadOlder();
   }
 
   $effect(() => {
@@ -353,9 +376,8 @@
     // stack them, and the slow case is exactly the case where piling on more is
     // worst (Copilot on #784). Under #754 each tick was a full page load, which
     // is what made this urgent; #785 cut it to one endpoint read, so the guard
-    // is cheaper to violate than it was — and still right, because a thread past
-    // the page cap costs `loadTeamChatTail` two round trips and a slow server is
-    // the condition that produces the pile-up in the first place.
+    // is cheaper to violate than it was — and still right, because a slow
+    // server would otherwise let overlapping polls pile up.
     let inFlight = false;
     const fire = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
@@ -371,27 +393,28 @@
       // The generation this request belongs to. If fresh page data lands while
       // it is in flight, the answer below is stale and must be dropped.
       const startedAt = untrack(() => dataGeneration);
+      const sinceSeq = untrack(() => (polled?.items ?? messages).at(-1)?.seq);
       try {
-        const next = await onRefresh!();
+        const next = await onRefresh!(sinceSeq);
         // A degraded read (`loadFailed`) is NOT an empty thread. Applying it
         // would blank a transcript the reader is looking at because one tick
         // failed — the loud-error-over-silent-fallback rule, and
         // `hrn:node:hadronmemory.com:hadron-portal:review:a-fallback-asserts-what-it-was-written-for`: `items: []`
         // means "we could not read", not "there are no messages".
         if (next && !next.loadFailed && untrack(() => dataGeneration) === startedAt) {
-          // #793 (@codex on #796): ACCUMULATE. Merging each window against the
-          // static prop instead of against what previous polls built leaves a
-          // HOLE the moment the tail advances past the window: prop 1–200, a
-          // later tick returning 202–401, and message 201 belongs to neither
-          // input — gone from an append-only thread.
-          //
-          // So the accumulated transcript is the left input, seeded from the
-          // prop on the first tick. `dataGeneration` still clears it whenever
-          // fresh page data lands, so this accumulates within a page load and
-          // never across one.
+          // ACCUMULATE against the last displayed page. A forward cursor makes
+          // a small poll window continuous even when a hidden tab missed more
+          // than 20 posts. `dataGeneration` still clears it on fresh page data.
+          const previous = untrack(() => polled);
+          const items = mergeTranscript(previous?.items ?? messages, next.items);
+          const counts = sinceSeq === undefined
+            ? { total: next.total, pending: 0 } // failed initial read recovered via tail
+            : forwardPageCount(previous?.total ?? total, untrack(() => pendingNewerCount), next.total, next.items.length);
+          if (sinceSeq === undefined) olderRemainingCount = Math.max(0, next.total - next.items.length);
+          pendingNewerCount = counts.pending;
           polled = {
-            items: mergeTranscript(untrack(() => polled)?.items ?? messages, next.items),
-            total: next.total,
+            items,
+            total: Math.max(items.length, counts.total),
           };
         }
       } catch (e) {
@@ -485,7 +508,7 @@
   // Long messages are CLAMPED to a fixed height and opened per message. Posts
   // in this chat are engineering reports — tables, headings, three or four
   // screens each — and rendering every one at full height is most of why a
-  // 200-message window scrolls through 180,000px. The clamp is CSS (`max-h-80`
+  // long transcript scrolls through many screens. The clamp is CSS (`max-h-80`
   // while not expanded); `overflowing` only decides whether to OFFER "Show
   // more", and `clampProbe` measures it rather than guessing from the body
   // length. Both keyed by nodeId, which is stable across polls and paging.
@@ -567,12 +590,17 @@
     <!-- #793: which of three states the top of the thread is in. Without this,
          "nothing above" and "more, not fetched yet" look identical. -->
     {#if canLoadOlder}
-      <p class="py-1 text-center text-xs text-zinc-500 dark:text-zinc-400">
+      <button
+        type="button"
+        class="mx-auto block py-1 text-center text-xs text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+        disabled={loadingOlder}
+        onclick={() => void maybeLoadOlder(true)}
+      >
         {loadingOlder
           ? t('team-chat.loading-older', 'Loading earlier messages…')
-          : t('team-chat.scroll-for-older', 'Scroll up for earlier messages')}
-      </p>
-    {:else if shownMessages.length > 0 && shownMessages.length >= shownTotal}
+          : t('team-chat.load-older', 'Load earlier messages')}
+      </button>
+    {:else if shownMessages.length > 0 && shownOlderRemaining === 0}
       <p class="py-1 text-center text-xs text-zinc-500 dark:text-zinc-400">
         {t('team-chat.start-of-conversation', 'Start of the conversation')}
       </p>
@@ -597,8 +625,12 @@
     {:else}
       {#if truncated}
         <p class="text-center text-xs text-zinc-500 dark:text-zinc-400">
-          {t('app.team-chat.truncated', 'Showing the most recent messages of')}
-          {shownTotal}.
+          {#if pendingNewerCount > 0}
+            {t('app.team-chat.catching-up', 'Loading newer messages…')}
+          {:else}
+            {t('app.team-chat.truncated', 'Showing the most recent messages of')}
+            {shownTotal}.
+          {/if}
         </p>
       {/if}
       {#each rows as row (row.msg.nodeId)}

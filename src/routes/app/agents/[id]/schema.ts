@@ -24,18 +24,21 @@ export const agentSettingsSchema = z.object({
   name: z.string().trim().min(1, 'Name is required.'),
   urnSlug: agentSlugField(),
   description: z.string().trim().default(''),
-  systemPrompt: z.string().trim().default(''),
+  // Prompt text is stored verbatim by the server. Trimming here would rewrite
+  // migrated prompts when saving an unrelated Agent setting (#1241).
+  systemPrompt: z.string().default(''),
   visibility: z.enum(['PERSONAL', 'ORGANIZATION', 'PUBLIC']).default('ORGANIZATION'),
   systemMemoryId: z.string().trim().default(''),
-  // Persona DRESSING (#974, hrn:node:hadronmemory.com:specs:cor:agt:020:01) — the reusable role-actor's role
-  // string and prompt TEMPLATE, not an identity. `personaName` is gone with the
-  // Worker model: the named individual is a Worker cast into an App, named
-  // there. All optional: an ordinary agent leaves them blank, and
-  // blank-after-trim CLEARS the field server-side (normalizePersonaField), so
-  // '' is a meaningful value here — it must reach updateAgent as '' rather than
-  // being omitted like systemMemoryId.
+  // The role remains distinct from the shared systemPrompt (#1241). An empty
+  // role is a meaningful clear, so send it rather than omitting it.
   personaRole: z.string().trim().default(''),
-  personaPrompt: z.string().trim().default(''),
+});
+
+// #942: how the register row an App install creates for this agent starts.
+// An unchecked checkbox is absent from the POST, which parses as false.
+export const agentRegisterDefaultsSchema = z.object({
+  _kind: z.literal('registerDefaults').default('registerDefaults'),
+  mentionOnly: z.boolean().default(false),
 });
 
 export const addAgentMemorySchema = z.object({
@@ -66,6 +69,7 @@ export const deleteAgentSchema = z.object({
 });
 
 export type AgentSettingsSchema = typeof agentSettingsSchema;
+export type AgentRegisterDefaultsSchema = typeof agentRegisterDefaultsSchema;
 export type AddAgentMemorySchema = typeof addAgentMemorySchema;
 export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;
 export type RemoveAgentMemorySchema = typeof removeAgentMemorySchema;

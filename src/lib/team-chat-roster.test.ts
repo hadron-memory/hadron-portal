@@ -31,7 +31,9 @@ describe('createRosterRefresher', () => {
       .mockResolvedValueOnce(ROSTER);
     const r = createRosterRefresher(fetchRoster);
     expect(await r.refreshFor([m('new')], new Set())).toBeNull();
-    expect(await r.refreshFor([m('new')], new Set())).toEqual(ROSTER);
+    // Forward polling no longer repeats the message that introduced this
+    // worker; an empty later page still has to retry the pending lookup.
+    expect(await r.refreshFor([], new Set())).toEqual(ROSTER);
     expect(fetchRoster).toHaveBeenCalledTimes(2);
   });
 
@@ -55,6 +57,25 @@ describe('createRosterRefresher', () => {
     expect(await newer).toEqual(both);
     releases[0]([{ id: 'a', urn: 'hrn:worker:acme.com:team:a' }]); // #1 lands late, without b
     expect(await older).toBeNull(); // dropped, not applied over the newer roster
+  });
+
+  it('retries an id from a stale earlier read when the newer roster did not include it', async () => {
+    const releases: Array<(v: RosterEntry[]) => void> = [];
+    const fetchRoster = vi.fn(() => new Promise<RosterEntry[]>((res) => releases.push(res)));
+    const r = createRosterRefresher(fetchRoster);
+    const older = r.refreshFor([m('a')], new Set());
+    const newer = r.refreshFor([m('b')], new Set());
+    const b = [{ id: 'b', urn: 'hrn:worker:acme.com:team:b' }];
+    releases[1](b);
+    expect(await newer).toEqual(b);
+    releases[0]([{ id: 'a', urn: 'hrn:worker:acme.com:team:a' }]);
+    expect(await older).toBeNull();
+
+    const retry = r.refreshFor([], new Set(['b']));
+    expect(fetchRoster).toHaveBeenCalledTimes(3);
+    const both = [...b, { id: 'a', urn: 'hrn:worker:acme.com:team:a' }];
+    releases[2](both);
+    expect(await retry).toEqual(both);
   });
 
   it('an older success still applies when the NEWER read failed', async () => {

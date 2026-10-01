@@ -1,14 +1,14 @@
 /**
  * #911 — the node page's single-skill download endpoint.
  *
- * Pinned in the strong forms: the plan is issued for the FETCHED node's memory,
- * not the URL's (#237), and never with an empty `memories` (which the server
- * reads as every memory the caller can read); the entry is chosen by node id,
- * so a sibling in the same memory is never shipped instead.
+ * Pinned in the strong forms: the plan is issued for exactly the FETCHED node
+ * (server#1409 `selectedSkillFilePlan`, whose collision census is complete),
+ * the URL's memory must be that node's (#237), and the entry is chosen by node
+ * id, so a sibling is never shipped instead.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
-import { MEMORY_REF_ID_QUERY, NODE_MEMORY_REF_QUERY, SKILL_PLAN_SINGLE_QUERY } from '$lib/server/queries';
+import { MEMORY_REF_ID_QUERY, NODE_MEMORY_REF_QUERY, SKILL_SELECTED_PLAN_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -55,22 +55,23 @@ function resolveMemory(ref: string) {
   return null;
 }
 
-function route(opts: { node?: unknown; nodeThrows?: boolean; entries?: unknown[]; planThrows?: boolean }) {
+function route(opts: { node?: unknown; nodeThrows?: boolean; entries?: unknown[]; selectionResults?: unknown[]; planThrows?: boolean }) {
   mockRequest.mockImplementation(async (query: string, vars: { ref?: string }) => {
     if (query === NODE_MEMORY_REF_QUERY) {
       if (opts.nodeThrows) throw new Error('node read down');
       return { node: opts.node === undefined ? { id: 'node-1', memoryId: 'mem-1', isRunnable: true } : opts.node };
     }
     if (query === MEMORY_REF_ID_QUERY) return { memory: resolveMemory(vars.ref ?? '') };
-    if (query === SKILL_PLAN_SINGLE_QUERY) {
+    if (query === SKILL_SELECTED_PLAN_QUERY) {
       if (opts.planThrows) throw new Error('boom');
-      // Only what SKILL_PLAN_SINGLE_QUERY selects: no urn, no report.
+      // Only what SKILL_SELECTED_PLAN_QUERY selects: no urn, no report.
       return {
-        skillPlan: {
+        selectedSkillFilePlan: {
           entries: (opts.entries ?? []).map((e) => {
             const { urn: _urn, ...rest } = e as Record<string, unknown>;
             return rest;
           }),
+          selectionResults: opts.selectionResults ?? [],
         },
       };
     }
@@ -78,7 +79,7 @@ function route(opts: { node?: unknown; nodeThrows?: boolean; entries?: unknown[]
   });
 }
 
-const planCalls = () => mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_SINGLE_QUERY);
+const planCalls = () => mockRequest.mock.calls.filter(([q]) => q === SKILL_SELECTED_PLAN_QUERY);
 
 describe('POST …/nodes/[nodeId]/skill — refusals before any plan', () => {
   it('refuses an anonymous request without calling the API', async () => {
@@ -118,7 +119,7 @@ describe('POST …/nodes/[nodeId]/skill — refusals before any plan', () => {
     const r = await post({ host: 'claudeSkill' }, 'tok', 'node-1', MEM_1_URN);
     expect(r.status).toBe(200);
     expect(r.body.filename).toBe('drive-pr-home.zip');
-    expect(planCalls().map(([, v]) => v)).toEqual([{ host: 'claudeSkill', memories: ['mem-1'] }]);
+    expect(planCalls().map(([, v]) => v)).toEqual([{ host: 'claudeSkill', nodes: ['node-1'] }]);
   });
 
   it('refuses a memory ref that resolves to nothing, and plans nothing', async () => {
@@ -138,14 +139,16 @@ describe('POST …/nodes/[nodeId]/skill — refusals before any plan', () => {
 });
 
 describe('POST …/nodes/[nodeId]/skill — the plan and the file', () => {
-  it('resolves the node by the URL ref, then plans exactly the FETCHED node\'s memory for the host asked', async () => {
+  it('resolves the node by the URL ref, then plans exactly the FETCHED node, by id, for the host asked', async () => {
     route({ entries: [entry()] });
     await post({ host: 'codexSkill' }, 'tok', 'hrn:node:acme.com:ops:tasks:drive-pr-home');
     expect(mockRequest.mock.calls.find(([q]) => q === NODE_MEMORY_REF_QUERY)?.[1]).toEqual({
       ref: 'hrn:node:acme.com:ops:tasks:drive-pr-home',
     });
     expect(mockRequest.mock.calls.find(([q]) => q === MEMORY_REF_ID_QUERY)?.[1]).toEqual({ ref: 'mem-1' });
-    expect(planCalls().map(([, v]) => v)).toEqual([{ host: 'codexSkill', memories: ['mem-1'] }]);
+    // server#1409: the selected-file plan, naming the node, never a memory scope
+    // (whose collision census would be that memory alone).
+    expect(planCalls().map(([, v]) => v)).toEqual([{ host: 'codexSkill', nodes: ['node-1'] }]);
   });
 
   it('returns <name>.zip holding <name>/SKILL.md, the server body verbatim', async () => {
@@ -179,6 +182,36 @@ describe('POST …/nodes/[nodeId]/skill — the plan and the file', () => {
     const r = await post({ host: 'claudeSkill' });
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ host: 'claudeSkill', filename: null, zipBase64: null, reasons: ['needs a description'] });
+  });
+
+  it('a selected task with no declaration for this host says so in the SERVER\'s words', async () => {
+    const msg = 'This task has no declaration for this host; its installed files are unchanged.';
+    route({ entries: [], selectionResults: [{ ref: 'node-1', nodeId: 'node-1', action: 'SKIP', reason: { code: 'host-not-declared', message: msg } }] });
+    const r = await post({ host: 'codexSkill' });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({ host: 'codexSkill', filename: null, zipBase64: null, reasons: [msg] });
+  });
+
+  it('a selected task the server calls unavailable ships nothing, with its reason', async () => {
+    route({ entries: [], selectionResults: [{ ref: 'node-1', nodeId: null, action: 'FAIL', reason: { code: 'node-unavailable', message: 'The named task is unavailable.' } }] });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.body).toMatchObject({ filename: null, zipBase64: null, reasons: ['The named task is unavailable.'] });
+  });
+
+  it('a cross-memory name collision the server found refuses the download with its finding', async () => {
+    // What the complete census adds over the old one-memory plan: the server
+    // withholds the body and says why; the route ships nothing.
+    route({
+      entries: [entry({
+        class: 'collision',
+        renderedBody: null,
+        exportPlan: { action: 'REFUSE', reasons: [{ code: 'skill-name-collision', message: 'drive-pr-home is also declared in hrn:mem:other.org:ops.' }] },
+        findings: [{ rule: 'skill-name-collision', severity: 'error', message: 'drive-pr-home is also declared in hrn:mem:other.org:ops.' }],
+      })],
+    });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.body.zipBase64).toBeNull();
+    expect(r.body.reasons.join(' ')).toContain('also declared in hrn:mem:other.org:ops');
   });
 
   it('sends no archive when the plan has no entry for the node', async () => {

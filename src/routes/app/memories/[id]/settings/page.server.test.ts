@@ -641,11 +641,10 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
     expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 
-  it('skips the pre-check when the org is also changing (candidate head would differ)', async () => {
-    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+  it('refuses the old organization field so updateMemory cannot bypass transfer preview', async () => {
     const actions = await importActions();
 
-    await actions.update(updateEv({
+    const result = await actions.update(updateEv({
       urnSlug: 'renamed',
       originalUrnSlug: 'experiments',
       currentUrn: 'hrn:memory:hadronmemory.com::experiments',
@@ -653,11 +652,8 @@ describe('memory-detail `update` action — URN collision pre-check', () => {
       currentOrganizationId: 'old-org',
     }));
 
-    // Only updateMemory ran — no resolveUrn pre-check.
-    expect(mockRequest).toHaveBeenCalledTimes(1);
-    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
-    expect(vars.urn).toBe('renamed');
-    expect(vars.organizationId).toBe('new-org');
+    expect((result as { status: number }).status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it('skips the pre-check when the slug is unchanged', async () => {
@@ -805,6 +801,7 @@ describe('memory settings load — the owner (#652)', () => {
     return (await load(ev(graph))) as {
       owner: { id: string; handle: string | null; urn: string | null } | null;
       ownerUserId: string | null;
+      transferCanDelete: boolean;
     };
   }
 
@@ -831,10 +828,25 @@ describe('memory settings load — the owner (#652)', () => {
     // `chk_memory_owner_xor` — org and user ownership are mutually exclusive,
     // so a null userId means there is no user owner to look up. Issuing the
     // query anyway would be a request with a null ref on every org memory.
+    mockRequest.mockResolvedValueOnce({ effectiveAccess: { canDelete: false } });
     const res = await runLoad(personal({ class: 'knowledge', organizationId: 'org-1', userId: null }));
     expect(res.ownerUserId).toBeNull();
     expect(res.owner).toBeNull();
-    expect(mockRequest).not.toHaveBeenCalled();
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest.mock.calls[0]![1]).toEqual({ user: 'viewer-1', resource: 'mem-1' });
+  });
+
+  it('uses the effective memory.delete capability for a granted contributor', async () => {
+    mockRequest.mockResolvedValueOnce({ effectiveAccess: { canDelete: true } });
+    const res = await runLoad(personal({ class: 'knowledge', organizationId: 'org-1', userId: null }));
+    expect(res.transferCanDelete).toBe(true);
+  });
+
+  it('reads the owner capability for a user-owned knowledge memory', async () => {
+    mockRequest.mockResolvedValueOnce({ effectiveAccess: { canDelete: true } });
+    const res = await runLoad(personal({ class: 'knowledge', organizationId: null, userId: null }));
+    expect(res.transferCanDelete).toBe(true);
+    expect(mockRequest.mock.calls[0]![1]).toEqual({ user: 'viewer-1', resource: 'mem-1' });
   });
 
   it('reports null rather than throwing when the owner read fails', async () => {

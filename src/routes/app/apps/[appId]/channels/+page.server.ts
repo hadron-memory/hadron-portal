@@ -119,6 +119,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 export type { Attendee } from '$lib/register/types';
 import type { Attendee } from '$lib/register/types';
+import { readableInstalledAgents, type InstalledAgent } from '$lib/app-installed-agents';
 
 /**
  * #942 slice 3: the register rows this App owns, the organization's rows
@@ -157,7 +158,7 @@ async function loadRegister(
         'workers',
         { appRef: app.id, includeRetired: true },
       ),
-      client.request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string } }> } | null }>(
+      client.request<{ app: { appAgents: Array<{ agent: InstalledAgent | null }> } | null }>(
         APP_INSTALLED_AGENTS_QUERY,
         { ref: app.id },
       ),
@@ -173,7 +174,7 @@ async function loadRegister(
     ]);
     const attendees: Attendee[] = [
       ...workers.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role, retired: !!w.retiredAt })),
-      ...(installed.app?.appAgents ?? []).map((a) => ({ id: a.agent.id, name: a.agent.name, urn: a.agent.urn, kind: 'agent' as const })),
+      ...readableInstalledAgents(installed.app?.appAgents).map((a) => ({ id: a.id, name: a.name, urn: a.urn, kind: 'agent' as const })),
     ];
     // The org's rows span every App it owns. Only those naming one of THIS
     // App's Channels belong on this page; a row for another App's Channel

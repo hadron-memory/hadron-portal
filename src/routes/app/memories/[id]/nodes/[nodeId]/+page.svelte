@@ -1,13 +1,14 @@
 <script lang="ts">
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
-  import { displayJson, JsonDraft, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
+  import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
+  import { deserialize } from '$app/forms';
+  import { signinRedirectLocation } from '$lib/forms/signin-redirect';
   import { submitTextDraft, syncTextDraftWith, TextDraft } from '$lib/text-draft.svelte';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
   import { onMount, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import DOMPurify from 'dompurify';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -23,6 +24,18 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import NodeSkillExport from '$lib/components/NodeSkillExport.svelte';
   import NodeRoleValue from '$lib/components/NodeRoleValue.svelte';
+  import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
+  import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
+  import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
+  import {
+    authorshipSearchText,
+    authorshipView,
+    provenanceById,
+    validationText,
+    validationView,
+    type NodeProvenance,
+    type ProvenanceResult,
+  } from '$lib/node-provenance';
   import NodeRoleInput from '$lib/components/NodeRoleInput.svelte';
   import { metaSavedDespiteFailure, nodeMetaReseed, nodeMetaSeedKey } from '$lib/node-meta-seed';
   import { skillExportMenuHosts } from '$lib/skill-export';
@@ -32,7 +45,7 @@
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
-  import { wikilinkExtension } from '$lib/markdown/wikilink';
+  import { createNodeMarkdownRenderer, renderNodeMarkdown } from '$lib/markdown/node-renderer';
   import { t } from '$lib/i18n/t';
   import { NODE_TYPES, isCanonicalNodeType } from '$lib/node-types';
   import { declaredObjectType, readMemorySchema } from '$lib/schema/memory-schema';
@@ -136,8 +149,19 @@
    * another field (tags, data, the other text) reloads to a draft that can
    * simply be saved again.
    */
+  // #974: the session expired while editing. Say so, and say the draft is kept:
+  // following the sign-in redirect would have navigated away and lost it.
+  function signedOutSaveText(): string {
+    return t(
+      'node.save.signed-out',
+      'Your session has expired, so this was not saved. Your edit is still here: copy it or keep this tab open, sign in again in a new tab, then save again.',
+    );
+  }
+
   function textSaveErrorText(code: string, detail: string | null, fieldChanged: boolean): string {
     switch (code) {
+      case SIGNED_OUT:
+        return signedOutSaveText();
       case 'changed':
         // Only the reload can say THIS text moved; the conflict itself is not
         // necessarily a revision mismatch (a concurrent move answers the same).
@@ -362,28 +386,17 @@
   // Shared renderer for both content and abstract. The Marked instance is
   // rebuilt whenever the resolution map changes (a save can add or fix a
   // wikilink) — the extension closes over that map. Portal Invariant P4:
-  // markdown → HTML → DOMPurify before insertion — escaping raw-HTML tokens
-  // alone leaves anchor-based vectors (e.g. javascript: URLs) through.
+  // markdown → HTML → DOMPurify before insertion, including authored HTML.
   const markedInstance = $derived.by(() => {
     // `markedReady` is the reactive half of the dynamic import — MarkedClass
     // is a plain binding, so reading it alone would memoize this at null.
     if (!markedReady || !MarkedClass) return null;
-    return new MarkedClass({
-      extensions: [wikilinkExtension(wikilinks, wikilinkStrings)],
-      renderer: {
-        html(token: { text: string }) {
-          return token.text
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-        },
-      },
-    });
+    return createNodeMarkdownRenderer(MarkedClass, wikilinks, wikilinkStrings);
   });
 
   function renderMarkdown(src: string): string {
     if (!markedInstance) return '';
-    return DOMPurify.sanitize(markedInstance.parse(src, { async: false }) as string);
+    return renderNodeMarkdown(markedInstance, src);
   }
 
   let renderedAbstractHtml = $state('');
@@ -486,6 +499,8 @@
 
   function dataSourceErrorText(code: string, detail?: string | null): string {
     switch (code) {
+      case SIGNED_OUT:
+        return signedOutSaveText();
       case 'empty':
         return t('node.data.source.empty', 'Enter a JSON value to save.');
       case 'top-level-null':
@@ -1238,6 +1253,8 @@
 
   function propertiesSourceErrorText(code: string, detail?: string | null): string {
     switch (code) {
+      case SIGNED_OUT:
+        return signedOutSaveText();
       case 'empty':
         return t('node.properties.source.empty', 'Enter a JSON object — {} removes every property.');
       case 'too-large':
@@ -1579,6 +1596,57 @@
     });
   });
 
+  // #914: authorship + advisory validation. Both are streamed and resolve to a
+  // result that may be { ok: false }. Each resolution is checked against the
+  // promise now current, so a late answer for the node the reader navigated
+  // away from can't land on this one.
+  let provenance = $state<ProvenanceResult<NodeProvenance> | null>(null);
+  $effect(() => {
+    const p = data.provenance;
+    provenance = null;
+    p.then((res) => {
+      if (data.provenance === p) provenance = res;
+    });
+  });
+  let revisionProvenance = $state<ProvenanceResult<Map<string, NodeProvenance>> | null>(null);
+  $effect(() => {
+    const p = data.revisionProvenance;
+    revisionProvenance = null;
+    p.then((res) => {
+      if (data.revisionProvenance !== p) return;
+      revisionProvenance = res.ok ? { ok: true, value: provenanceById(res.value) } : { ok: false };
+    });
+  });
+
+  // A History row with its provenance: null while loading, { ok: false } when
+  // the read failed or didn't cover the row.
+  type HistoryRow = NodeRevision & { provenance: ProvenanceResult<NodeProvenance> | null };
+  const historyRows = $derived<HistoryRow[]>(
+    revisionRows.map((r) => {
+      if (!revisionProvenance) return { ...r, provenance: null };
+      const p = revisionProvenance.ok ? revisionProvenance.value.get(r.id) : undefined;
+      return { ...r, provenance: p ? { ok: true, value: p } : { ok: false } };
+    }),
+  );
+  function historyAuthorship(r: HistoryRow) {
+    return r.provenance?.ok ? authorshipView(r.provenance.value.authorship) : null;
+  }
+  function historyValidation(r: HistoryRow) {
+    if (!r.provenance) return null;
+    return validationView(r.provenance.ok ? { ok: true, value: r.provenance.value.contentValidation } : { ok: false });
+  }
+  // What the Authorship and Validation cells show, as text (URN chips included),
+  // so search matches it.
+  function historyAuthorshipText(r: HistoryRow): string {
+    if (!r.provenance) return '';
+    const v = historyAuthorship(r);
+    return v ? authorshipSearchText(v) : t('node.provenance.unavailable', "Couldn't load");
+  }
+  function historyValidationText(r: HistoryRow): string {
+    const v = historyValidation(r);
+    return v ? validationText(v) : '';
+  }
+
   // Editor display (#620 contract): resolved handle, else identity string.
   function editorLabel(r: NodeRevision): string {
     return r.editedByUser?.handle ? `@${r.editedByUser.handle}` : (r.editedByInfo ?? '—');
@@ -1597,18 +1665,23 @@
   }
 
   let revisionFilter = $state('');
-  const revisionColumns: PortalColumnDef<NodeRevision>[] = [
+  const revisionColumns: PortalColumnDef<HistoryRow>[] = [
     { accessorFn: (r) => revisionDateMs(r.createdAt), id: 'when', header: t('node.history.col.when', 'When'), size: 200 },
+    // #914: the revision number this row snapshots (null on legacy rows).
+    { accessorFn: (r) => r.revNo ?? null, id: 'rev', header: t('node.history.col.rev', 'Rev'), size: 96 },
     { accessorFn: (r) => r.revLabel ?? '', id: 'label', header: t('node.history.col.label', 'Label'), size: 280 },
     // #620: changed fields (empty on legacy rows). Filterable by field name.
     { accessorFn: (r) => (r.changes ?? []).join(' '), id: 'changes', header: t('node.history.col.changes', 'Changes'), enableSorting: false, size: 220 },
     // Filterable by handle / identity string.
     { accessorFn: (r) => editorLabel(r), id: 'editedBy', header: t('node.history.col.edited-by', 'Edited by'), size: 220 },
+    // #914: the snapshot's own recorded authorship and validation, never today's.
+    { accessorFn: (r) => historyAuthorshipText(r), id: 'authorship', header: t('node.history.col.authorship', 'Authorship'), enableSorting: false, size: 240 },
+    { accessorFn: (r) => historyValidationText(r), id: 'validation', header: t('node.history.col.validation', 'Validation'), enableSorting: false, size: 140 },
     { id: 'actions', header: '', enableSorting: false, enableHiding: false, size: 56 },
   ];
-  const revisionTable = createSvelteTable<NodeRevision>({
+  const revisionTable = createSvelteTable<HistoryRow>({
     get data() {
-      return revisionRows;
+      return historyRows;
     },
     columns: revisionColumns,
     enableMultiSort: false,
@@ -1628,7 +1701,7 @@
     // rebuilding it from the epoch, which would be a second definition of what
     // the cell shows; the raw ISO rides along, and it is also the cell's own
     // `title`, so a reader can search what the tooltip shows them.
-    globalFilterFn: makeGlobalFilterFn<NodeRevision>({}, {
+    globalFilterFn: makeGlobalFilterFn<HistoryRow>({}, {
       when: (row) => `${new Date(row.createdAt).toLocaleString()} ${row.createdAt}`,
     }),
     initialState: {
@@ -3039,8 +3112,22 @@
                 try {
                   const fd = new FormData();
                   fd.set('updates', JSON.stringify(updates));
-                  const res = await fetch('?/reorder', { method: 'POST', body: fd });
+                  // The action header makes the reply an ActionResult for sure,
+                  // not whatever content negotiation picks (#975 Codex P2), as
+                  // the other hand-rolled action clients do.
+                  const res = await fetch('?/reorder', {
+                    method: 'POST',
+                    body: fd,
+                    headers: { 'x-sveltekit-action': 'true' },
+                  });
                   if (!res.ok) throw new Error('Reorder failed');
+                  // #974: an expired session answers with a sign-in redirect.
+                  // Nothing typed is lost by following it: the order is a drag.
+                  const signin = signinRedirectLocation(deserialize(await res.text()));
+                  if (signin) {
+                    await goto(signin);
+                    return;
+                  }
                   await invalidateAll();
                 } catch (err) {
                   childDragError = err instanceof Error ? err.message : 'Reorder failed';
@@ -3256,6 +3343,18 @@
               {:else}
                 <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{r.editedByInfo ?? '—'}</span>
               {/if}
+            {:else if cell.column.id === 'rev'}
+              <span class="tabular-nums text-zinc-600 dark:text-zinc-400">{r.revNo ?? '—'}</span>
+            {:else if cell.column.id === 'authorship'}
+              {@const a = historyAuthorship(r)}
+              {#if a}
+                <NodeAuthorshipText view={a} compact />
+              {:else if r.provenance}
+                <span class="text-sm italic text-zinc-500 dark:text-zinc-400">{historyAuthorshipText(r)}</span>
+              {/if}
+            {:else if cell.column.id === 'validation'}
+              {@const v = historyValidation(r)}
+              {#if v}<NodeValidationBadge view={v} compact />{/if}
             {:else if cell.column.id === 'actions'}
               <button type="button" onclick={(e) => openHistoryMenu(e, r)} aria-haspopup="menu"
                 aria-label={t('node.history.row-actions', 'Revision actions')}
@@ -3408,6 +3507,7 @@
                 <span class="shrink-0 text-sm text-zinc-500">{t('node.role.label', 'Role')}</span>
                 <NodeRoleValue role={node.role} />
               </div>
+              <NodeProvenanceRows result={provenance} revision={node.revision} />
               {#if node.objectType}
                 <div class="flex items-center justify-between gap-4 px-5 py-3">
                   <span class="shrink-0 text-sm text-zinc-500">{t('node.object-type.label', 'Object type')}</span>

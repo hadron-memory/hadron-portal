@@ -26,7 +26,15 @@ vi.mock('$lib/server/llm/agentChatLlm.js', () => ({
   createLanguageModel: vi.fn(),
 }));
 
-const { parseJudgeResponse, judgeVerdict, extractFirstJsonObject } = await import('./llm-judge');
+const { parseJudgeResponse, judgeVerdict, extractFirstJsonObject, judgeAgentReply } = await import('./llm-judge');
+
+it('keeps config/provider errors out of judge rationale', async () => {
+  const { fetchAgentAIConfig } = await import('$lib/server/llm/agentChatTurn.js');
+  vi.mocked(fetchAgentAIConfig).mockRejectedValueOnce(new Error('Authorization: Bearer sk-synthetic-966'));
+  const result = await judgeAgentReply({ token: 'test', agentId: 'agent', reply: 'hello', criterion: 'greet' });
+  expect(result.score).toBeNull();
+  expect(result.rationale).toBe('judge unreachable (failed)');
+});
 
 describe('extractFirstJsonObject — bracket-balanced extraction', () => {
   it('returns null when no braces are present', () => {

@@ -532,47 +532,31 @@ export async function postChatMessage(
 // share ONE definition — #785. Two copies of the paging rule below is exactly
 // the drift its own comment warns about.
 
-// The server caps `teamChatMessages` at 200.
-const TEAM_CHAT_PAGE_SIZE = 200;
+// Keep the first paint, each poll, and each scroll-back request bounded.
+const TEAM_CHAT_PAGE_SIZE = 20;
+// GraphQL Int's upper bound. `beforeSeq` already selects the newest page on
+// deployed servers, independent of whether a cursor-less read defaults to the
+// oldest or newest page during the server #1536 rollout.
+const TEAM_CHAT_TAIL_CURSOR = 2147483647;
 
 /**
  * Load the NEWEST page of a team chat.
  *
- * `teamChatMessages` is seq-ordered ASCENDING with an offset cursor, so
- * `limit: 200` with no offset returns the OLDEST 200 — the opposite of what a
- * chat transcript wants. Past 200 messages that silently pins the view to the
- * start of history: every new post lands off-page, including the one the user
- * just made (the composer invalidates and re-reads), and the tab would still
- * caption it "showing the most recent messages". A chat that eats your own
- * message while claiming to be current is worse than one that fails.
- *
- * So: page once, and if the server's `total` says there is more, ask again for
- * the tail. One round trip in the common case, two only for a chat past the
- * cap, and correct in both. Caught by Codex on PR #738.
+ * `beforeSeq` selects the newest page below a cursor, ascending for display.
+ * A cursor-less read used to return the oldest page (#738); the server #1536
+ * default is changing. Keeping this explicit cursor makes the portal's single
+ * bounded request behave the same before and after that rollout.
  */
 export async function loadTeamChatTail(
   client: GraphQLClient,
   appRef: string,
 ): Promise<{ items: TeamChatMessage[]; total: number }> {
-  const first = await client
+  return client
     .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
       TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, limit: TEAM_CHAT_PAGE_SIZE },
+      { appRef, beforeSeq: TEAM_CHAT_TAIL_CURSOR, limit: TEAM_CHAT_PAGE_SIZE },
     )
     .then((r) => r.teamChatMessages);
-
-  if (first.total <= first.items.length) return first;
-
-  const offset = Math.max(0, first.total - TEAM_CHAT_PAGE_SIZE);
-  const tail = await client
-    .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
-      TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, limit: TEAM_CHAT_PAGE_SIZE, offset },
-    )
-    .then((r) => r.teamChatMessages);
-  // `total` from the tail read, not the first: messages can be posted between
-  // the two requests, and the later count is the one that matches this page.
-  return tail;
 }
 
 /**
@@ -583,10 +567,8 @@ export async function loadTeamChatTail(
  * cursor are considered, and the NEWEST of those come back — which is exactly a
  * scroll-up page, in the order the thread renders.
  *
- * This is why the tail read above still needs its two-request dance and this
- * does not: the tail has no cursor to start from, so it must locate the end via
- * `total`. Once a reader has a message on screen they have a cursor, and the
- * arithmetic disappears.
+ * The tail read uses a high cursor to get the same backward selection; once a
+ * reader has a message on screen, the lowest shown seq is the next cursor.
  *
  * Deliberately NOT `offset`. The server ignores offset when beforeSeq is given,
  * and on this surface that matters more than anywhere: the team chat is written
@@ -604,6 +586,25 @@ export async function loadTeamChatOlder(
     .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
       TEAM_CHAT_MESSAGES_QUERY,
       { appRef, beforeSeq, limit },
+    )
+    .then((r) => r.teamChatMessages);
+}
+
+/**
+ * One forward page after the newest message already on screen. A small tail
+ * poll can jump over messages if more than one page arrives while the tab is
+ * hidden; `sinceSeq` advances through that backlog without inventing a gap.
+ * Its `total` counts messages AFTER the cursor, not the whole thread.
+ */
+export async function loadTeamChatNewer(
+  client: GraphQLClient,
+  appRef: string,
+  sinceSeq: number,
+): Promise<{ items: TeamChatMessage[]; total: number }> {
+  return client
+    .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
+      TEAM_CHAT_MESSAGES_QUERY,
+      { appRef, sinceSeq, limit: TEAM_CHAT_PAGE_SIZE },
     )
     .then((r) => r.teamChatMessages);
 }

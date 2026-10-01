@@ -1,6 +1,7 @@
 import { gqlClient } from '$lib/server/api';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import { judgeAgentReply, judgeVerdict } from '$lib/server/agent-tester/llm-judge';
 import { describeRegexFailure, type Verdict } from '$lib/server/agent-tester/verdict';
@@ -161,9 +162,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       assertion,
     }, 200);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Test run failed';
-    const status = msg.includes('no LLM provider') ? 409 : 500;
-    return json({ error: msg }, status);
+    const safe = publicChatError(e);
+    return json({ error: safe.message, code: safe.code }, safe.status);
   }
 };
 

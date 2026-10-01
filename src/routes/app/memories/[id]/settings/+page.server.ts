@@ -13,6 +13,8 @@ import {
   RETRY_FAILED_EMBEDDINGS_MUTATION,
   ORGANIZATIONS_QUERY,
   RESOLVE_URN_QUERY,
+  TRANSFER_MEMORY_OWNERSHIP_MUTATION,
+  MEMORY_TRANSFER_ACCESS_QUERY,
   USER_PROFILE_QUERY,
 } from '$lib/server/queries';
 import { toBareMemorySlugInput } from '$lib/urn/form-validation';
@@ -23,6 +25,8 @@ import {
   memorySchemaSettingsSchema,
   memorySettingsSchema,
   retryFailedEmbeddingsSchema,
+  previewTransferSchema,
+  applyTransferSchema,
   vectorIndexSettingsSchema,
 } from './schema';
 
@@ -36,6 +40,20 @@ type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
 type MemorySchemaSettingsForm = Infer<typeof memorySchemaSettingsSchema, 'zod4'>;
 type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
 type RetryFailedEmbeddingsForm = Infer<typeof retryFailedEmbeddingsSchema, 'zod4'>;
+
+export type MemoryOwnerTransferPreview = {
+  memoryId: string;
+  oldUrn: string;
+  newUrn: string;
+  fromOwner: string;
+  toOwner: string;
+  currentClass: string;
+  targetClass: string;
+  dependents: { kind: string; count: number; handling: 'CARRY' | 'REFUSE' | 'REMOVE' | 'CREATE' }[];
+  blockers: { code: string; message: string }[];
+  canApply: boolean;
+  applied: boolean;
+};
 
 // FR-026: enabling the vector index on an encrypted memory without
 // acknowledging the embedding-inversion disclosure fails with this code.
@@ -93,7 +111,7 @@ function settingsFormDefaults(memory: Memory) {
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
   await requireNonConsumer(parent);
-  const { graph } = await parent();
+  const { graph, user } = await parent();
   const allOrgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_QUERY, 'organizations')
     .catch(() => [] as Organization[]);
 
@@ -123,6 +141,19 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
           return null;
         })
     : null;
+  // transferMemoryOwnership's org source gate uses memory.delete, which may
+  // come from a live PrincipalGrant as well as ADMIN/OWNER membership. The
+  // effective-access audit exposes that capability; a group-class admin is
+  // also covered by the direct org-role gate in the component because the
+  // audit can under-report group administration.
+  const transferCanDelete = user?.id && graph.class !== 'system' && graph.class !== 'app' && graph.class !== 'personal' && graph.class !== 'private'
+    ? await gqlClient(locals.token).request<{ effectiveAccess: { canDelete: boolean } }>(
+        MEMORY_TRANSFER_ACCESS_QUERY, { user: user.id, resource: graph.id },
+      ).then((data) => data.effectiveAccess.canDelete).catch((e: unknown) => {
+        console.warn(`[memory-settings] transfer access lookup failed for ${graph.id}:`, e);
+        return false;
+      })
+    : false;
   const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
     superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false }),
     superValidate<VectorIndexSettingsForm>(
@@ -149,7 +180,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
     ),
     superValidate<RetryFailedEmbeddingsForm>({}, retryFailedEmbeddingsFormAdapter, { errors: false }),
   ]);
-  return { allOrgs, owner, ownerUserId, form, vectorForm, schemaForm, deleteForm, retryEmbedsForm };
+  return { allOrgs, owner, ownerUserId, transferCanDelete, form, vectorForm, schemaForm, deleteForm, retryEmbedsForm };
 };
 
 export const actions: Actions = {
@@ -172,29 +203,27 @@ export const actions: Actions = {
     // unchanged resubmit was failing FR-020 validation server-side.
     const originalUrnSlug = toBareMemorySlugInput(form.data.originalUrnSlug) || undefined;
     const urnChanged = urnSlug !== undefined && urnSlug !== originalUrnSlug;
-    const newOrgId = form.data.organizationId || undefined;
-    // #260: the org is no longer in the URL, so the no-op-transfer guard
-    // compares against the memory's current org id submitted as a hidden field.
-    const currentOrgId = form.data.currentOrganizationId || undefined;
-    const orgChanged = !!newOrgId && newOrgId !== currentOrgId;
+    // #969: an old or tampered edit form cannot use updateMemory's legacy
+    // organizationId argument to bypass the ownership-transfer preview.
+    if (form.data.organizationId && form.data.organizationId !== form.data.currentOrganizationId) {
+      return setError(form, 'organizationId', t('memory-transfer.use-preview', 'Use Transfer ownership to preview this change.'), { status: 400 });
+    }
     const tagsRaw = form.data.tags;
     const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : [];
 
-    // Pre-flight URN-collision check: when the slug changed within the same org,
+    // Pre-flight URN-collision check: when the slug changed,
     // compose the candidate URN (current `hrn:memory:<org>::` head + new slug)
     // and verify no OTHER memory already owns it, so the user gets a friendly
     // message instead of the server's raw unique-constraint error. The check is
     // a UX nicety; the server's uniqueness enforcement is still the trust
-    // boundary (and backstops the org-transfer case we skip here, where the
-    // candidate URN's org head would differ from the current one).
+    // boundary.
     //
     // TODO(#390, hadron-server#355): once the server ships `resourceExists(urn, type)`,
     // swap `resolveUrn` for it here. It's a direct DB existence boolean (not
     // authz-scoped like resolveUrn), so it would also catch a collision with a
-    // memory in an org the user can't see — letting us drop the `!orgChanged`
-    // skip and check the org-transfer case too.
+    // memory in an org the user can't see.
     const currentUrn = form.data.currentUrn;
-    if (urnChanged && !orgChanged && currentUrn.includes('::')) {
+    if (urnChanged && currentUrn.includes('::')) {
       // Replace ONLY the slug segment, keeping the `hrn:memory:<org>` head and
       // any trailing role-marker segment (e.g. `…::<slug>::system`) intact — so
       // the pre-check queries the exact URN the rename would produce, not a
@@ -228,7 +257,6 @@ export const actions: Actions = {
         id: params.id,
         name: displayName,
         urn: urnChanged ? urnSlug : undefined,
-        organizationId: newOrgId && newOrgId !== currentOrgId ? newOrgId : undefined,
         shortDescription: form.data.shortDescription || null,
         description: form.data.description || null,
         tags,
@@ -250,6 +278,65 @@ export const actions: Actions = {
     } catch (e: unknown) {
       return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update' }, { status: 500 });
     }
+  },
+
+  previewTransfer: async ({ request, params, locals }) => {
+    const parsed = previewTransferSchema.safeParse(Object.fromEntries(await request.formData()));
+    if (!parsed.success) return fail(400, { _kind: 'previewTransfer' as const, transferError: t('memory-transfer.invalid-selection', 'Choose a destination and memory class.') });
+    const { _kind: _ignored, ...selection } = parsed.data;
+    try {
+      const response = await gqlClient(locals.token).request<{ transferMemoryOwnership: MemoryOwnerTransferPreview }>(
+        TRANSFER_MEMORY_OWNERSHIP_MUTATION,
+        {
+          memoryRef: params.id,
+          orgRef: selection.destinationKind === 'org' ? selection.destinationRef : undefined,
+          userRef: selection.destinationKind === 'user' ? selection.destinationRef : undefined,
+          targetClass: selection.targetClass,
+          resetGroupMembers: selection.resetGroupMembers,
+          dryRun: true,
+        },
+      );
+      return { _kind: 'previewTransfer' as const, transferSelection: selection, transferPreview: response.transferMemoryOwnership };
+    } catch (e: unknown) {
+      return fail(400, { _kind: 'previewTransfer' as const, transferSelection: selection, transferError: extractGqlError(e, t('memory-transfer.preview-failed', 'Could not preview ownership transfer.')) });
+    }
+  },
+
+  applyTransfer: async ({ request, params, locals }) => {
+    const parsed = applyTransferSchema.safeParse(Object.fromEntries(await request.formData()));
+    if (!parsed.success) return fail(400, { _kind: 'applyTransfer' as const, transferError: t('memory-transfer.preview-required', 'Preview the transfer before applying it.') });
+    const { _kind: _ignored, expectedNewUrn, ...selection } = parsed.data;
+    try {
+      const { transferMemoryOwnership: result } = await gqlClient(locals.token).request<{ transferMemoryOwnership: MemoryOwnerTransferPreview }>(
+        TRANSFER_MEMORY_OWNERSHIP_MUTATION,
+        {
+          memoryRef: params.id,
+          orgRef: selection.destinationKind === 'org' ? selection.destinationRef : undefined,
+          userRef: selection.destinationKind === 'user' ? selection.destinationRef : undefined,
+          targetClass: selection.targetClass,
+          resetGroupMembers: selection.resetGroupMembers,
+          dryRun: false,
+          expectedNewUrn,
+        },
+      );
+      // A platform admin may transfer an org memory to another user. Its new
+      // personal/private owner is then the only reader, so this detail page
+      // cannot render the initiating admin's success page.
+      if (selection.destinationKind === 'user' && result.toOwner !== locals.user?.id) {
+        redirect(303, '/app/memories?transferred=1');
+      }
+    } catch (e: unknown) {
+      if (isRedirect(e)) throw e;
+      const stale = extractGqlErrorCode(e) === 'STALE_TRANSFER_PREVIEW';
+      return fail(stale ? 409 : 400, {
+        _kind: 'applyTransfer' as const,
+        transferSelection: selection,
+        transferError: stale
+          ? t('memory-transfer.stale', 'The destination URN changed since this preview. Preview again before applying.')
+          : extractGqlError(e, t('memory-transfer.apply-failed', 'Could not transfer ownership.')),
+      });
+    }
+    redirect(303, `/app/memories/${encodeURIComponent(params.id)}/settings?transferred=1`);
   },
 
   // Spec 033 §2/§3 — vector-index config lives in its own action (not the

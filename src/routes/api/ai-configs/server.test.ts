@@ -119,16 +119,45 @@ describe('POST /api/ai-configs', () => {
     expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'c9' });
   });
 
-  it('surfaces the server error message (e.g. duplicate name)', async () => {
+  it('maps a typed duplicate-name error without echoing the server message', async () => {
     mockRequest.mockRejectedValueOnce({
-      response: { errors: [{ message: 'A config named "default" already exists for this owner.' }] },
+      response: { errors: [{ message: 'A config named "default" already exists for this owner.', extensions: { code: 'DuplicateAiServiceConfigNameError' } }] },
     });
     const { POST } = await import('./+server');
     const res = await POST(
       ev({ body: { action: 'create', ownerType: 'ORGANIZATION', ownerId: 'o1', name: 'default', provider: 'openai', model: 'gpt-4o' } }),
     );
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
     expect((await jsonOf(res)).error).toMatch(/already exists/);
+  });
+
+  const configWrites = [
+    { action: 'create', ownerType: 'ORGANIZATION', ownerId: 'o1', name: 'default', provider: 'openai', model: 'gpt-4o' },
+    { action: 'update', id: 'c1', params: { temperature: 3 } },
+  ];
+
+  it.each(configWrites)('$action: maps typed validation to a safe 400', async (body) => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Authorization: Bearer sk-synthetic-966', extensions: { code: 'AiConfigValidationError' } }] },
+    });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body }));
+    expect(res.status).toBe(400);
+    expect(await jsonOf(res)).toEqual({
+      error: 'AI configuration is invalid. Check the name, provider settings, model, and API key.',
+    });
+  });
+
+  it.each(configWrites)('$action: keeps an unknown GraphQL error generic', async (body) => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Authorization: Bearer sk-synthetic-966', extensions: { code: 'UNKNOWN_ERROR' } }] },
+    });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body }));
+    expect(res.status).toBe(500);
+    expect(await jsonOf(res)).toEqual({
+      error: body.action === 'create' ? 'Failed to create AI configuration.' : 'Failed to update AI configuration.',
+    });
   });
 
   it('test (inline): forwards the in-form key to the LLM and returns the reply', async () => {
@@ -180,6 +209,18 @@ describe('POST /api/ai-configs', () => {
     expect(mockCallAgentChatLlm).not.toHaveBeenCalled();
   });
 
+  it('testSaved: replaces an older server response that echoes a provider credential', async () => {
+    mockRequest.mockResolvedValueOnce({ testAiServiceConfig: {
+      ...RESULT, ok: false, reply: null,
+      error: { code: 'LLM_CALL_FAILED', message: 'Authorization: Bearer sk-synthetic-966', transient: false },
+    } });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'testSaved', id: 'cfg-org-1' } }));
+    const body = await jsonOf(res);
+    expect(body.result.error).toEqual({ code: 'LLM_CALL_FAILED', message: 'The test could not run.', transient: false });
+    expect(JSON.stringify(body)).not.toContain('sk-synthetic-966');
+  });
+
   it('testSaved: forwards only the values the user changed or typed', async () => {
     mockRequest.mockResolvedValueOnce({ testAiServiceConfig: RESULT });
     const { POST } = await import('./+server');
@@ -194,6 +235,15 @@ describe('POST /api/ai-configs', () => {
     expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'c1', override: { apiKey: null } });
   });
 
+  it('testSaved: forwards edited params, and a cleared (null) set, to the override (hadron-server#1413)', async () => {
+    mockRequest.mockResolvedValue({ testAiServiceConfig: RESULT });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'testSaved', id: 'c1', override: { params: { toolCalling: false, maxTokens: 100 } } } }));
+    expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'c1', override: { params: { toolCalling: false, maxTokens: 100 } } });
+    await POST(ev({ body: { action: 'testSaved', id: 'c1', override: { params: null } } }));
+    expect(mockRequest.mock.calls[1][1]).toEqual({ id: 'c1', override: { params: null } });
+  });
+
   it('testSaved: needs an id, and RATE_LIMITED is a 429 in words', async () => {
     const { POST } = await import('./+server');
     expect((await POST(ev({ body: { action: 'testSaved' } }))).status).toBe(400);
@@ -205,8 +255,8 @@ describe('POST /api/ai-configs', () => {
     expect((await jsonOf(res)).error).toMatch(/Wait a minute/);
   });
 
-  it('test: surfaces LLM errors as ok:false (HTTP 200)', async () => {
-    mockCallAgentChatLlm.mockRejectedValueOnce(new Error('401 invalid api key'));
+  it('test: keeps a provider-echoed key out of the response (HTTP 200)', async () => {
+    mockCallAgentChatLlm.mockRejectedValueOnce(new Error('401 Authorization: Bearer sk-synthetic-966'));
     const { POST } = await import('./+server');
     const res = await POST(
       ev({ body: { action: 'test', provider: 'anthropic', model: 'claude-x', apiKey: 'bad' } }),
@@ -214,7 +264,96 @@ describe('POST /api/ai-configs', () => {
     expect(res.status).toBe(200);
     const body = await jsonOf(res);
     expect(body.ok).toBe(false);
-    expect(body.error).toMatch(/invalid api key/);
+    expect(body).toEqual({ ok: false, error: 'Chat request failed. Please try again.', code: 'failed' });
+  });
+
+  it('testSaved: keeps a provider-echoed key out of GraphQL errors', async () => {
+    mockRequest.mockRejectedValueOnce(Object.assign(new Error('request failed'), {
+      response: { errors: [{ message: '401 Authorization: Bearer sk-synthetic-966', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
+    }));
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'testSaved', id: 'config-1' } }));
+    expect(res.status).toBe(500);
+    expect(await jsonOf(res)).toEqual({ error: 'The test could not run.' });
+  });
+
+  // ── server#1373: endpoint / apiStyle, three-way ──────────────────────────
+  it('create: forwards endpoint and apiStyle; an empty one is omitted (provider default)', async () => {
+    mockRequest.mockResolvedValue({ createAiServiceConfig: { id: 'c1' } });
+    const { POST } = await import('./+server');
+    const base = { action: 'create', ownerType: 'ORGANIZATION', ownerId: 'o1', name: 'default', provider: 'openai-compatible', model: 'm', apiKey: 'k' };
+    await POST(ev({ body: { ...base, endpoint: 'https://llm.example.com/v1', apiStyle: 'RESPONSES' } }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ endpoint: 'https://llm.example.com/v1', apiStyle: 'RESPONSES' });
+    await POST(ev({ body: { ...base, provider: 'openai', endpoint: '', apiStyle: null } }));
+    expect(mockRequest.mock.calls[1][1].endpoint).toBeUndefined();
+    expect(mockRequest.mock.calls[1][1].apiStyle).toBeUndefined();
+  });
+
+  it('update: an ABSENT endpoint/apiStyle is unchanged, null clears, a value sets', async () => {
+    mockRequest.mockResolvedValue({ updateAiServiceConfig: { id: 'c1' } });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'update', id: 'c1', model: 'm' } }));
+    expect('endpoint' in mockRequest.mock.calls[0][1]).toBe(false);
+    expect('apiStyle' in mockRequest.mock.calls[0][1]).toBe(false);
+    await POST(ev({ body: { action: 'update', id: 'c1', endpoint: null, apiStyle: null } }));
+    expect(mockRequest.mock.calls[1][1]).toMatchObject({ endpoint: null, apiStyle: null });
+    await POST(ev({ body: { action: 'update', id: 'c1', endpoint: 'https://api.z.ai/api/coding/paas/v4' } }));
+    expect(mockRequest.mock.calls[2][1]).toMatchObject({ endpoint: 'https://api.z.ai/api/coding/paas/v4' });
+    expect('apiStyle' in mockRequest.mock.calls[2][1]).toBe(false);
+  });
+
+  it('update: ABSENT params are unchanged, null CLEARS them, a value replaces them (#951)', async () => {
+    mockRequest.mockResolvedValue({ updateAiServiceConfig: { id: 'c1' } });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'update', id: 'c1', model: 'm' } }));
+    expect('params' in mockRequest.mock.calls[0][1]).toBe(false);
+    // The null must survive as null: omitting it would keep stale stored params.
+    await POST(ev({ body: { action: 'update', id: 'c1', provider: 'glm', params: null } }));
+    expect(mockRequest.mock.calls[1][1]).toHaveProperty('params', null);
+    await POST(ev({ body: { action: 'update', id: 'c1', params: { temperature: 0.2 } } }));
+    expect(mockRequest.mock.calls[2][1]).toHaveProperty('params', { temperature: 0.2 });
+  });
+
+  it('testSaved: an edited endpoint/apiStyle rides the override, null included', async () => {
+    mockRequest.mockResolvedValueOnce({ testAiServiceConfig: RESULT });
+    const { POST } = await import('./+server');
+    await POST(ev({ body: { action: 'testSaved', id: 'c1', override: { endpoint: null, apiStyle: 'CHAT_COMPLETIONS' } } }));
+    expect(mockRequest.mock.calls[0][1]).toEqual({ id: 'c1', override: { endpoint: null, apiStyle: 'CHAT_COMPLETIONS' } });
+  });
+
+  it('test (inline): refused for a host the portal client would get wrong; no LLM call', async () => {
+    const { POST } = await import('./+server');
+    for (const body of [
+      { provider: 'openai-compatible', endpoint: 'https://llm.example.com/v1' },
+      { provider: 'glm' }, // the portal's glm host is the Coding Plan, not the server default
+      { provider: 'openai', endpoint: 'https://proxy.example.com/v1' },
+      { provider: 'openai', apiStyle: 'CHAT_COMPLETIONS' },
+    ]) {
+      const res = await POST(ev({ body: { action: 'test', model: 'm', apiKey: 'k', ...body } }));
+      expect(res.status).toBe(400);
+      expect((await jsonOf(res)).error).toMatch(/Save this configuration first/);
+    }
+    expect(mockCallAgentChatLlm).not.toHaveBeenCalled();
+  });
+
+  it('endpoints: reads the server’s suggestion list for the provider', async () => {
+    const list = [{ url: 'https://api.z.ai/api/paas/v4', label: 'Z.ai (general)', isDefault: true, note: 'Pay-as-you-go' }];
+    mockRequest.mockResolvedValueOnce({ aiProviderEndpoints: list });
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'endpoints', provider: 'glm' } }));
+    expect((await jsonOf(res)).endpoints).toEqual(list);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ provider: 'glm' });
+    expect((await POST(ev({ body: { action: 'endpoints' } }))).status).toBe(400);
+  });
+
+  it('endpoints: a server failure returns a fixed message, never the server’s text (#967)', async () => {
+    mockRequest.mockRejectedValueOnce(
+      Object.assign(new Error('raw'), { response: { errors: [{ message: 'Authorization: Bearer sk-leak' }] } }),
+    );
+    const { POST } = await import('./+server');
+    const res = await POST(ev({ body: { action: 'endpoints', provider: 'glm' } }));
+    expect(res.status).toBe(400);
+    expect((await jsonOf(res)).error).toBe('Could not load the known endpoints.');
   });
 
   it('rejects unknown actions', async () => {

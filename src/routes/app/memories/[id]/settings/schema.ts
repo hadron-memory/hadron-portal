@@ -136,6 +136,24 @@ export const deleteMemorySchema = z.object({
   organizationId: z.string().trim().default(''),
 });
 
+// #969: the preview form and its apply form carry the same selection. The
+// action discriminator prevents a sibling form's fields being accepted here.
+const transferSelection = {
+  destinationKind: z.enum(['org', 'user']),
+  destinationRef: z.string().trim().min(1),
+  targetClass: z.enum(['knowledge', 'group', 'personal', 'private']),
+  resetGroupMembers: booleanString.default(false),
+};
+export const previewTransferSchema = z.object({
+  _kind: z.literal('previewTransfer'),
+  ...transferSelection,
+});
+export const applyTransferSchema = z.object({
+  _kind: z.literal('applyTransfer'),
+  ...transferSelection,
+  expectedNewUrn: z.string().trim().min(1),
+});
+
 export type MemorySettingsSchema = typeof memorySettingsSchema;
 export type VectorIndexSettingsSchema = typeof vectorIndexSettingsSchema;
 export type MemorySchemaSettingsSchema = typeof memorySchemaSettingsSchema;

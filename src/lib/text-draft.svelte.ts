@@ -3,9 +3,11 @@
  * each one is based on.
  *
  * A save sends that revision as `expectedRevision` (hadron-server#937), so the
- * server refuses it atomically when anything else wrote the node since the
- * editor opened. Before #927 the page sent the whole editor buffer with no
- * precondition, and a stale buffer silently replaced newer content.
+ * server refuses the proposed edit when anything else wrote the node since
+ * the editor opened. A refusal may still reconcile raw drift and advance the
+ * stored revision (hadron-server#1458). Before #927 the page sent the whole
+ * editor buffer with no precondition, and a stale buffer silently replaced
+ * newer content.
  *
  * The rules mirror `JsonDraft` (json-draft.svelte.ts), plus one for the
  * revision:

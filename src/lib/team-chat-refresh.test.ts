@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   TEAM_CHAT_POLL_MS,
+  forwardPageCount,
   isAtBottom,
   mergeTranscript,
   scrollTopAfterPrepend,
@@ -55,6 +56,28 @@ describe('isAtBottom', () => {
   });
 });
 
+describe('forwardPageCount', () => {
+  it('does not double-count backlog while successive 20-message polls catch up', () => {
+    // 100 new posts arrived while hidden. Each response's `total` counts only
+    // messages after its cursor, rather than the full thread.
+    const first = forwardPageCount(500, 0, 100, 20);
+    expect(first).toEqual({ total: 600, pending: 80 });
+    const second = forwardPageCount(first.total, first.pending, 80, 20);
+    expect(second).toEqual({ total: 600, pending: 60 });
+    // Five more posts during catch-up are counted once.
+    const third = forwardPageCount(second.total, second.pending, 65, 20);
+    expect(third).toEqual({ total: 605, pending: 45 });
+  });
+
+  it('counts a row returned after the server count query raced with a post', () => {
+    // The server reports 19 at count time, then returns 20 rows including a
+    // concurrent post. Advancing sinceSeq past that row must not lose one.
+    const raced = forwardPageCount(500, 0, 19, 20);
+    expect(raced).toEqual({ total: 520, pending: 0 });
+    expect(forwardPageCount(raced.total, raced.pending, 0, 0)).toEqual({ total: 520, pending: 0 });
+  });
+});
+
 describe('the refresh contract', () => {
   it('polls in the 5–10s band the issue asked for', () => {
     // #754 scoped this as "refresh interval, not architecture", and the band is
@@ -62,9 +85,8 @@ describe('the refresh contract', () => {
     //
     // This comment used to justify the band by what a tick COST — "each tick
     // re-runs the App page's six-query load". #785 made that false: the tick
-    // reads `team-chat/+server.ts`, which is one `teamChatMessages` request (two
-    // once the thread is past the page cap, since `loadTeamChatTail` pages to
-    // reach the end). So the cost argument is much weaker than it was, and it is
+    // reads `team-chat/+server.ts`, which is one bounded `teamChatMessages`
+    // request regardless of thread length. So the cost argument is weaker, and it is
     // not what holds the band any more — the issue asking for it is.
     expect(TEAM_CHAT_POLL_MS).toBeGreaterThanOrEqual(5000);
     expect(TEAM_CHAT_POLL_MS).toBeLessThanOrEqual(10000);
@@ -120,12 +142,11 @@ describe('scrollTopAfterPrepend', () => {
 });
 
 // #793. The poll returns a WINDOW, not the whole thread. Assigning it wholesale
-// is correct only while the window and the display are the same set — which
-// stops being true the moment a reader pages backwards.
+// would discard loaded scrollback as soon as a reader pages backward.
 describe('mergeTranscript', () => {
-  it('KEEPS loaded scrollback when the poll returns only the tail', () => {
-    // The case the whole function exists for. Reader has paged back to seq 1;
-    // the poll knows about 3–5 only. Replacing would destroy 1–2.
+  it('KEEPS loaded scrollback when a forward poll returns only new messages', () => {
+    // Reader has paged back to seq 1; the poll covers 3–5 only. Replacing
+    // would destroy 1–2.
     const loaded = [msg(1), msg(2), msg(3), msg(4)];
     const tail = [msg(3), msg(4), msg(5)];
     expect(mergeTranscript(loaded, tail).map((m) => m.seq)).toEqual([1, 2, 3, 4, 5]);
@@ -173,9 +194,8 @@ describe('mergeTranscript', () => {
 });
 
 // #793 (@codex on PR #796). The merge is only correct if the ACCUMULATED
-// transcript is the left input on every tick. Merging each window against the
-// static page payload instead leaves a hole the moment the tail advances past
-// the window — and an append-only chat must never lose a message.
+// transcript is the left input on every tick. Merging a later window against
+// only the static page payload loses earlier poll results.
 describe('mergeTranscript — accumulation across successive polls', () => {
   const page = [msg(1), msg(2), msg(3)]; // the page payload: seqs 1–3
   const tick1 = [msg(3), msg(4)]; // window advances

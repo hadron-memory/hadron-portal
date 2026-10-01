@@ -86,15 +86,10 @@ export const AGENT_FIELDS = /* GraphQL */ `
     visibility
     type
     surfaces
-    # #974 (hrn:node:hadronmemory.com:specs:cor:agt:020 v0.0.3): persona dressing on a reusable role-actor.
-    # personaPrompt is a TEMPLATE (name/role bound when the agent is cast as a
-    # Worker); the named individual is the Worker, not the Agent. personaName
-    # was dropped from the schema with the Worker model — do not reintroduce it
-    # (selecting an unknown field fails the whole request).
-    # NB: no backticks in this file's GraphQL comments — the operations are
-    # template literals, so a backtick terminates the string (portal#715).
+    # #1241: systemPrompt is shared by chat and Worker briefing. The server
+    # binds name/role placeholders for each Worker; the named individual is
+    # the Worker, not this reusable role Agent.
     personaRole
-    personaPrompt
     properties
     # 036-ai-service-config: hasAiApiKey is the server shim for "the agent's
     # 'default' config has a key" — kept for the Chat-tab readiness gate (any
@@ -935,7 +930,7 @@ export const WORKER_QUERY = /* GraphQL */ `
       # worker's own (maySeeWorkerInternals) — so a caller who can read the
       # briefing may still get null here. Render that as "not visible to you",
       # never as "no template".
-      agent { personaPrompt }
+      agent { systemPrompt }
       # The resolved boot briefing (#737): the agent's template with
       # {{name}}/{{role}} bound, plus any per-worker override. The most literal
       # answer to "who is this" — it is the worker's operating instructions in
@@ -1220,13 +1215,18 @@ export const CREATE_USER_INVITATION_MUTATION = /* GraphQL */ `
   }
 `;
 
+// P1-c of hadron-server#1523 (team chat #5308/#5313): invitation(slug) is
+// readable by anyone holding the slug, signed in or not. Select ONLY what
+// /invite/[token] renders: no ids, no invitee identity, no org URN, nothing
+// the server has to project for a stranger. These names are also the contract
+// for the server's sanitized invite projection, so this query validates
+// against the current server and the sanitized one alike.
 export const INVITATION_QUERY = /* GraphQL */ `
   query Invitation($slug: String!) {
     invitation(slug: $slug) {
-      id slug memberRole name email githubUsername
-      maxActivations activationCount expiresAt createdAt
-      sender { id name githubUsername }
-      organization { id name urn }
+      memberRole maxActivations activationCount expiresAt
+      sender { name githubUsername }
+      organization { name }
     }
   }
 `;
@@ -1282,7 +1282,7 @@ export const CREATE_PERSONAL_MEMORY_MUTATION = /* GraphQL */ `
 export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
   ${MEMORY_FIELDS}
   mutation UpdateMemory(
-    $id: ID!, $name: String, $urn: String, $organizationId: ID, $shortDescription: String, $description: String,
+    $id: ID!, $name: String, $urn: String, $shortDescription: String, $description: String,
     $tags: [String!], $license: String,
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
@@ -1293,7 +1293,7 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
     $schema: JSON
   ) {
     updateMemory(
-      id: $id, name: $name, urn: $urn, organizationId: $organizationId, shortDescription: $shortDescription, description: $description,
+      id: $id, name: $name, urn: $urn, shortDescription: $shortDescription, description: $description,
       tags: $tags, license: $license,
       category0: $category0, category1: $category1, category2: $category2,
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
@@ -1304,6 +1304,33 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
       chunkTokens: $chunkTokens, chunkOverlap: $chunkOverlap, forceFixedSize: $forceFixedSize,
       schema: $schema
     ) { ...MemoryFields }
+  }
+`;
+
+// hadron-server#1481: preview and apply share this mutation. Apply always
+// supplies expectedNewUrn from the preview so a changed destination URN is
+// rejected as STALE_TRANSFER_PREVIEW instead of silently choosing a new one.
+export const TRANSFER_MEMORY_OWNERSHIP_MUTATION = /* GraphQL */ `
+  mutation TransferMemoryOwnership(
+    $memoryRef: ID!, $orgRef: ID, $userRef: ID, $targetClass: MemoryClass!,
+    $expectedNewUrn: String, $resetGroupMembers: Boolean!, $dryRun: Boolean!
+  ) {
+    transferMemoryOwnership(
+      memoryRef: $memoryRef, orgRef: $orgRef, userRef: $userRef,
+      targetClass: $targetClass, expectedNewUrn: $expectedNewUrn,
+      resetGroupMembers: $resetGroupMembers, dryRun: $dryRun
+    ) {
+      memoryId oldUrn newUrn fromOwner toOwner currentClass targetClass
+      canApply applied
+      dependents { kind count handling }
+      blockers { code message }
+    }
+  }
+`;
+
+export const MEMORY_TRANSFER_ACCESS_QUERY = /* GraphQL */ `
+  query MemoryTransferAccess($user: ID!, $resource: ID!) {
+    effectiveAccess(user: $user, resource: $resource) { canDelete }
   }
 `;
 
@@ -1347,6 +1374,8 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
   query NodeRevisions($nodeRef: ID!, $limit: Int) {
     nodeRevisions(nodeRef: $nodeRef, limit: $limit) {
       id
+      # #914: the revision this snapshots; null on legacy rows.
+      revNo
       loc
       name
       alias
@@ -1371,6 +1400,7 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
   query NodeRevision($revisionId: ID!) {
     nodeRevision(revisionId: $revisionId) {
       id
+      revNo
       nodeId
       loc
       name
@@ -1384,6 +1414,72 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
       revLabel
       changes
       createdAt
+    }
+  }
+`;
+
+// #914 (server #1326): authorship + advisory content validation. Each is read
+// by its OWN query, never folded into the node, History or revision reads:
+// `contentValidation` is NON-NULL, so a resolver error there would null the
+// parent node (or the whole revision list) and take the surface down with it.
+// Apart, a failure costs only this display, which then says "couldn't load".
+// `authorship` also reconciles the node's revision server-side, which is one
+// more reason to keep it off every read that doesn't render it.
+const PROVENANCE_FIELDS = /* GraphQL */ `
+  fragment NodeAuthorshipFields on NodeAuthorship {
+    kind
+    taskRef
+    taskRevision
+    human { handle urn }
+    authoredAt
+  }
+  fragment NodeContentValidationFields on NodeContentValidationStatus {
+    state
+    latestReport {
+      nodeRevision
+      validationTaskRef
+      validationTaskRevision
+      outcome
+      reportedAt
+    }
+  }
+`;
+
+export const NODE_PROVENANCE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeProvenance($ref: ID!) {
+    node(ref: $ref) {
+      id
+      # The revision these stamps describe: the loader shows them only when it
+      # equals the revision the page rendered (bindToRevision).
+      revision
+      authorship { ...NodeAuthorshipFields }
+      contentValidation { ...NodeContentValidationFields }
+    }
+  }
+`;
+
+// Same `limit` as NODE_REVISIONS_QUERY, so every History row has its provenance.
+export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeRevisionsProvenance($nodeRef: ID!, $limit: Int) {
+    nodeRevisions(nodeRef: $nodeRef, limit: $limit) {
+      id
+      revNo
+      authorship { ...NodeAuthorshipFields }
+      contentValidation { ...NodeContentValidationFields }
+    }
+  }
+`;
+
+export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
+  ${PROVENANCE_FIELDS}
+  query NodeRevisionProvenance($revisionId: ID!) {
+    nodeRevision(revisionId: $revisionId) {
+      id
+      revNo
+      authorship { ...NodeAuthorshipFields }
+      contentValidation { ...NodeContentValidationFields }
     }
   }
 `;
@@ -1476,8 +1572,24 @@ export const AGENT_QUERY = /* GraphQL */ `
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String, $personaPrompt: String) {
-    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole, personaPrompt: $personaPrompt) { ...AgentFields }
+  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String) {
+    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole) { ...AgentFields }
+  }
+`;
+
+// #942: the defaults an install-created register row starts with (spec 049
+// Phase 5). Kept out of AgentFields so the many routes sharing that fragment
+// don't select a field they never render; only the agent Settings tab reads it.
+export const AGENT_REGISTER_DEFAULTS_QUERY = /* GraphQL */ `
+  query AgentRegisterDefaults($ref: ID!) {
+    agent(ref: $ref) { id registerDefaults { mentionOnly } }
+  }
+`;
+
+// Sends ONLY registerDefaults, so saving it can't touch any other agent setting.
+export const UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentRegisterDefaults($ref: ID!, $registerDefaults: RegisterDefaultsInput!) {
+    updateAgent(ref: $ref, registerDefaults: $registerDefaults) { id registerDefaults { mentionOnly } }
   }
 `;
 
@@ -1694,6 +1806,10 @@ export const AI_SERVICE_CONFIG_FIELDS = /* GraphQL */ `
     ownerId
     provider
     model
+    endpoint
+    effectiveEndpoint
+    apiStyle
+    effectiveApiStyle
     hasApiKey
     apiKeyPreview
     params
@@ -1721,11 +1837,13 @@ export const CREATE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   ${AI_SERVICE_CONFIG_FIELDS}
   mutation CreateAiServiceConfig(
     $ownerType: AiConfigOwnerType!, $ownerId: ID!, $name: String!,
-    $provider: String!, $model: String!, $apiKey: String, $params: JSON, $enabled: Boolean
+    $provider: String!, $model: String!, $apiKey: String, $params: JSON, $enabled: Boolean,
+    $endpoint: String, $apiStyle: AiApiStyle
   ) {
     createAiServiceConfig(
       ownerType: $ownerType, ownerId: $ownerId, name: $name,
-      provider: $provider, model: $model, apiKey: $apiKey, params: $params, enabled: $enabled
+      provider: $provider, model: $model, apiKey: $apiKey, params: $params, enabled: $enabled,
+      endpoint: $endpoint, apiStyle: $apiStyle
     ) {
       ...AiServiceConfigFields
     }
@@ -1736,14 +1854,27 @@ export const UPDATE_AI_SERVICE_CONFIG_MUTATION = /* GraphQL */ `
   ${AI_SERVICE_CONFIG_FIELDS}
   mutation UpdateAiServiceConfig(
     $id: ID!, $name: String, $provider: String, $model: String,
-    $apiKey: String, $params: JSON, $enabled: Boolean
+    $apiKey: String, $params: JSON, $enabled: Boolean,
+    $endpoint: String, $apiStyle: AiApiStyle
   ) {
     updateAiServiceConfig(
       id: $id, name: $name, provider: $provider, model: $model,
-      apiKey: $apiKey, params: $params, enabled: $enabled
+      apiKey: $apiKey, params: $params, enabled: $enabled,
+      endpoint: $endpoint, apiStyle: $apiStyle
     ) {
       ...AiServiceConfigFields
     }
+  }
+`;
+
+/**
+ * server#1373: the known endpoints for a provider, from the server's single
+ * suggestion list. The default is marked; `note` says what the URL doesn't
+ * (for Z.ai, which plan it bills).
+ */
+export const AI_PROVIDER_ENDPOINTS_QUERY = /* GraphQL */ `
+  query AiProviderEndpoints($provider: String!) {
+    aiProviderEndpoints(provider: $provider) { url label isDefault note }
   }
 `;
 
@@ -1762,6 +1893,10 @@ export const RESOLVE_AI_CONFIG_QUERY = /* GraphQL */ `
       model
       apiKey
       params
+      # #1373: where a request for this config is meant to go. The portal
+      # runtime refuses a config whose endpoint isn't a host it calls
+      # (portalRuntimeRefusal) rather than run it elsewhere with its key.
+      effectiveEndpoint
     }
   }
 `;
@@ -1780,6 +1915,9 @@ export const AI_CONFIG_READINESS_QUERY = /* GraphQL */ `
       ownerType
       provider
       model
+      # #958: the runtime also refuses a config by where it sends requests
+      # (portalRuntimeRefusal), so readiness asks the same question.
+      effectiveEndpoint
     }
   }
 `;
@@ -2469,6 +2607,9 @@ export const TEAM_WORK_ITEMS_QUERY = /* GraphQL */ `
         action
         at
         detail
+        # hadron-server#1398: the LLM model snapshotted at record time. Null =
+        # unknown (predates the field, or none was reported). Never backfilled.
+        model
       }
       total
     }
@@ -2749,14 +2890,18 @@ export const MEMORY_REF_ID_QUERY = /* GraphQL */ `
 `;
 
 /**
- * #911 — the EXPORT plan as the single-skill endpoint reads it: only the
- * entry fields that judge one task. The org report's query also selects the
- * unrecognized-key report, the scan counts and each entry's URN, none of
- * which a one-skill download renders (@codex on #912).
+ * #911 — the EXPORT plan for ONE selected task, as the single-skill endpoint
+ * reads it: only the entry fields that judge one task, plus what the server
+ * says about a selected task it will not export.
+ *
+ * server#1409 (#1406): `selectedSkillFilePlan` plans exactly the named node and
+ * judges its name against a COMPLETE collision census, across memories and
+ * orgs (`hrn:node:hadronmemory.com:specs:cor:agt:030:06`). The old `skillPlan(memories: [node.memoryId])`
+ * judged collisions within that one memory only.
  */
-export const SKILL_PLAN_SINGLE_QUERY = /* GraphQL */ `
-  query SkillPlanSingle($host: String!, $memories: [String!]!) {
-    skillPlan(input: { intent: EXPORT, host: $host, memories: $memories }) {
+export const SKILL_SELECTED_PLAN_QUERY = /* GraphQL */ `
+  query SkillSelectedPlan($host: String!, $nodes: [String!]!) {
+    selectedSkillFilePlan(input: { host: $host, nodes: $nodes }) {
       entries {
         nodeId
         name
@@ -2772,6 +2917,15 @@ export const SKILL_PLAN_SINGLE_QUERY = /* GraphQL */ `
         findings {
           rule
           severity
+          message
+        }
+      }
+      selectionResults {
+        ref
+        nodeId
+        action
+        reason {
+          code
           message
         }
       }

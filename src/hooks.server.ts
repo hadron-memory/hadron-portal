@@ -3,6 +3,7 @@ import { sequence } from '@sveltejs/kit/hooks';
 import { building, dev } from '$app/environment';
 import { env as publicEnv } from '$env/dynamic/public';
 import { appendConnectSrc, resolveAssetStorageOrigin } from '$lib/server/csp';
+import { sessionActionGuard } from '$lib/server/session-action-guard';
 
 /** Decode the JWT payload without verifying the signature.
  *  Verification is the server's responsibility; we just read the claims. */
@@ -131,4 +132,5 @@ const securityHeaders: Handle = async ({ event, resolve }) => {
   return response;
 };
 
-export const handle: Handle = sequence(authHandle, cspAssetStorage, securityHeaders);
+// #974: sessionActionGuard reads what authHandle decided, so it runs right after.
+export const handle: Handle = sequence(authHandle, sessionActionGuard, cspAssetStorage, securityHeaders);

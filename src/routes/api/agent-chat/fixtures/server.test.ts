@@ -4,6 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ORGANIZATIONS_QUERY,
+  MY_AGENTS_QUERY,
   CREATE_NODE_MUTATION,
   UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
@@ -38,17 +39,24 @@ function ev(opts: { url?: string; method?: string; body?: unknown; token?: strin
   } as unknown as Parameters<Awaited<ReturnType<typeof importHandlers>>['GET']>[0];
 }
 
-// Common fixture: a one-org user with one agent that has a system memory.
-function mockResolveAgent() {
+// Common fixture: one accessible agent with a system memory, either through
+// an organization or through the server's personal ownedByMe scope.
+function mockResolveAgent(scope: 'org' | 'personal' = 'org') {
   mockRequest.mockImplementation(async (query: string, vars?: unknown) => {
     if (query === ORGANIZATIONS_QUERY) {
       return {
-        organizations: { items: [
+        organizations: { items: scope === 'org' ? [
           { id: 'org-a', name: 'A', urn: 'u', agents: [
             { id: 'agent-aaa', organizationId: 'org-a', systemMemoryId: 'sys-mem-a' },
           ] },
-        ], total: 1 },
+        ] : [], total: scope === 'org' ? 1 : 0 },
       };
+    }
+    if (query === MY_AGENTS_QUERY) {
+      const agents = scope === 'personal'
+        ? [{ id: 'agent-personal', organizationId: null, systemMemoryId: 'sys-mem-a' }]
+        : [];
+      return { agents: { items: agents, total: agents.length } };
     }
     if (query === GRAPH_NODES_QUERY) {
       return { findNodes: { hits: [
@@ -109,9 +117,10 @@ describe('GET /api/agent-chat/fixtures', () => {
     expect(res.status).toBe(400);
   });
 
-  it('404 (no leak) when agent is not in the caller\'s orgs', async () => {
+  it('404 (no leak) when agent is outside both caller scopes', async () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === ORGANIZATIONS_QUERY) return { organizations: { items: [], total: 0 } };
+      if (query === MY_AGENTS_QUERY) return { agents: { items: [], total: 0 } };
       throw new Error('unexpected');
     });
     const { GET } = await importHandlers();
@@ -132,11 +141,32 @@ describe('GET /api/agent-chat/fixtures', () => {
     expect(body.fixtures[0].label).toBe('one');
     expect(body.fixtures[0].assertionMode).toBeNull();
   });
+
+  it('lists fixtures for the caller\'s personal agent', async () => {
+    mockResolveAgent('personal');
+    const { GET } = await importHandlers();
+    const res = await GET(ev({ method: 'GET', url: 'http://test/api/agent-chat/fixtures?agentId=agent-personal' }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).fixtures).toHaveLength(1);
+  });
 });
 
 // ─── POST ───────────────────────────────────────────────────────────────────
 
 describe('POST /api/agent-chat/fixtures', () => {
+  it('creates a fixture for the caller\'s personal agent', async () => {
+    mockResolveAgent('personal');
+    const { POST } = await importHandlers();
+    const res = await POST(ev({
+      method: 'POST',
+      body: { agentId: 'agent-personal', label: 'personal', turn: { user: 'hello', persona: null, assertion: null } },
+    }));
+    expect(res.status).toBe(200);
+    expect(mockRequest).toHaveBeenCalledWith(CREATE_NODE_MUTATION, expect.objectContaining({
+      input: expect.objectContaining({ memoryId: 'sys-mem-a' }),
+    }));
+  });
+
   it('creates a new fixture (no fixtureLoc supplied → minted)', async () => {
     mockResolveAgent();
     const { POST } = await importHandlers();
@@ -208,6 +238,17 @@ describe('POST /api/agent-chat/fixtures', () => {
 // ─── DELETE ─────────────────────────────────────────────────────────────────
 
 describe('DELETE /api/agent-chat/fixtures', () => {
+  it('deletes a fixture in the caller\'s personal agent memory', async () => {
+    mockResolveAgent('personal');
+    const { DELETE } = await importHandlers();
+    const res = await DELETE(ev({
+      method: 'DELETE',
+      url: 'http://test/api/agent-chat/fixtures?agentId=agent-personal&fixtureLoc=fixtures:abc',
+    }));
+    expect(res.status).toBe(204);
+    expect(mockRequest).toHaveBeenCalledWith(DELETE_NODE_MUTATION, expect.anything());
+  });
+
   it('204 on successful soft-delete', async () => {
     mockResolveAgent();
     const { DELETE } = await importHandlers();
