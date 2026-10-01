@@ -1514,20 +1514,14 @@ describe('worklog loading (#733)', () => {
     expect((r.appChats as { key: string }[]).some((c) => c.key === 'chats:team')).toBe(true);
   });
 });
-// Codex P1 on PR #738. `teamChatMessages` is seq-ordered ASCENDING with an
-// offset cursor, so a bare `limit` returns the OLDEST page. Past the cap that
-// pins the transcript to the start of history and silently swallows every new
-// post — including the one the user just made, since the composer invalidates
-// and re-reads — while the tab captions it "the most recent messages".
-describe('team chat tail paging (#738)', () => {
-  function stubChat(pages: Array<{ items: unknown[]; total: number }>) {
-    let call = 0;
+// The App page opens on one bounded newest page, independent of whether the
+// server's cursor-less default is still oldest-first or has flipped in #1536.
+describe('team chat tail paging (#1536)', () => {
+  function stubChat(page: { items: unknown[]; total: number }) {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
-        const page = pages[Math.min(call, pages.length - 1)];
-        call += 1;
         return Promise.resolve({ teamChatMessages: page });
       }
       return Promise.resolve({ resolveAiServiceConfigs: [] });
@@ -1551,47 +1545,29 @@ describe('team chat tail paging (#738)', () => {
     } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
   }
 
-  it('makes a second request for the tail when the chat exceeds the page cap', async () => {
-    const oldest = Array.from({ length: 200 }, (_, i) => ({ nodeId: `n${i + 1}`, seq: i + 1 }));
-    const newest = Array.from({ length: 200 }, (_, i) => ({ nodeId: `n${i + 301}`, seq: i + 301 }));
-    stubChat([
-      { items: oldest, total: 500 },
-      { items: newest, total: 500 },
-    ]);
+  it('makes one request for the newest 20 even when the chat is long', async () => {
+    const newest = Array.from({ length: 20 }, (_, i) => ({ nodeId: `n${i + 481}`, seq: i + 481 }));
+    stubChat({ items: newest, total: 500 });
 
     const result = await runLoad();
     const chatCalls = mockRequest.mock.calls.filter((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY);
-    expect(chatCalls).toHaveLength(2);
-    // total 500, cap 200 → the last 200 start at offset 300.
-    expect(chatCalls[1][1]).toMatchObject({ offset: 300, limit: 200 });
-    // And the rendered page is the NEWEST one, not the first response.
-    expect((result.teamChatMessages as Array<{ seq: number }>)[0].seq).toBe(301);
+    expect(chatCalls).toHaveLength(1);
+    expect(chatCalls[0][1]).toEqual({ appRef: 'app-1', beforeSeq: 2147483647, limit: 20 });
+    expect((result.teamChatMessages as Array<{ seq: number }>)[0].seq).toBe(481);
+    expect(result.teamChatTotal).toBe(500);
   });
 
-  // The negative case: an implementation that always double-fetched would pass
-  // the test above. A chat inside the cap must cost exactly one request.
-  it('makes only one request when the whole chat fits in one page', async () => {
-    stubChat([{ items: [{ nodeId: 'n1', seq: 1 }], total: 1 }]);
+  it('also makes only one request when the whole chat fits in a page', async () => {
+    stubChat({ items: [{ nodeId: 'n1', seq: 1 }], total: 1 });
     await runLoad();
     expect(mockRequest.mock.calls.filter((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY)).toHaveLength(1);
   });
 
   it('does not re-fetch when the chat is exactly the page size', async () => {
-    const items = Array.from({ length: 200 }, (_, i) => ({ nodeId: `n${i + 1}`, seq: i + 1 }));
-    stubChat([{ items, total: 200 }]);
+    const items = Array.from({ length: 20 }, (_, i) => ({ nodeId: `n${i + 1}`, seq: i + 1 }));
+    stubChat({ items, total: 20 });
     await runLoad();
     expect(mockRequest.mock.calls.filter((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY)).toHaveLength(1);
-  });
-
-  // Messages can land between the two reads, so the tail response's count is
-  // the one that describes the page actually being rendered.
-  it('reports the total from the tail read, not the first', async () => {
-    stubChat([
-      { items: [{ nodeId: 'a', seq: 1 }], total: 500 },
-      { items: [{ nodeId: 'b', seq: 501 }], total: 501 },
-    ]);
-    const result = await runLoad();
-    expect(result.teamChatTotal).toBe(501);
   });
 });
 

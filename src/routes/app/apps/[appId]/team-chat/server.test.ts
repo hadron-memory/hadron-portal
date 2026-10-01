@@ -38,22 +38,17 @@ describe('GET /app/apps/[appId]/team-chat', () => {
     expect(body).toEqual({ items: [msg(1), msg(2)], total: 2, loadFailed: false });
   });
 
-  it('pages to the TAIL of a thread past the server cap', async () => {
-    // Not a re-implementation — this is `loadTeamChatTail`, shared with the
-    // page load. `teamChatMessages` is seq-ASCENDING with an offset cursor, so
-    // a single `limit: 200` returns the OLDEST 200 and pins a long thread to
-    // the start of history, with every new post landing off-page (Codex on
-    // #738). Asserted here because the endpoint is now a second caller, and a
-    // future "simplification" to one round trip would look harmless.
-    mockRequest
-      .mockResolvedValueOnce({ teamChatMessages: { items: [msg(1)], total: 500 } })
-      .mockResolvedValueOnce({ teamChatMessages: { items: [msg(499), msg(500)], total: 500 } });
+  it('reads only the newest page in one request, even for a long thread', async () => {
+    // The explicit backward cursor works before and after server #1536 flips
+    // the cursor-less default, and never fetches the oldest page first.
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(499), msg(500)], total: 500 } });
 
     const { body } = await get();
     expect(body.items).toEqual([msg(499), msg(500)]);
-    expect(mockRequest).toHaveBeenCalledTimes(2);
-    const [, secondVars] = mockRequest.mock.calls[1];
-    expect(secondVars).toMatchObject({ offset: 300, limit: 200 });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest.mock.calls[0][1]).toEqual({
+      appRef: 'app-1', beforeSeq: 2147483647, limit: 20,
+    });
     expect(mockRequest.mock.calls[0][0]).toBe(TEAM_CHAT_MESSAGES_QUERY);
   });
 
@@ -82,10 +77,8 @@ describe('GET /app/apps/[appId]/team-chat', () => {
   });
 });
 
-// #793. The same endpoint serves two reads: the tail (poll, first paint) and
-// the page BEFORE a cursor (scroll-up). One route because both answer "give me
-// a window of this thread", and a second would be a second place to keep the
-// degrade-with-200 contract in step.
+// #793/#1536. The same endpoint serves tail, backward, and forward pages. One
+// route keeps the degraded-read contract in step across all three directions.
 describe('GET /app/apps/[appId]/team-chat — scroll-up via beforeSeq', () => {
   it('asks the server for the page preceding the cursor, in ONE request', async () => {
     mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(8), msg(9)], total: 500 } });
@@ -93,14 +86,12 @@ describe('GET /app/apps/[appId]/team-chat — scroll-up via beforeSeq', () => {
 
     expect(status).toBe(200);
     expect(body).toEqual({ items: [msg(8), msg(9)], total: 500, loadFailed: false });
-    // The tail read pages twice because it has no cursor to start from. This
-    // one has a cursor, so the arithmetic — and the second round trip —
-    // disappear. A regression to the tail path would show up here as 2.
+    // Both directions now use one bounded backward-cursor request.
     expect(mockRequest).toHaveBeenCalledTimes(1);
     expect(mockRequest).toHaveBeenCalledWith(TEAM_CHAT_MESSAGES_QUERY, {
       appRef: 'app-1',
       beforeSeq: 10,
-      limit: 200,
+      limit: 20,
     });
   });
 
@@ -126,11 +117,33 @@ describe('GET /app/apps/[appId]/team-chat — scroll-up via beforeSeq', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('still serves the TAIL when no cursor is given', async () => {
+  it('still serves the TAIL when no cursor is given to the portal endpoint', async () => {
     mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(1)], total: 1 } });
     const { body } = await get();
     expect(body.items).toEqual([msg(1)]);
-    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('beforeSeq');
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ beforeSeq: 2147483647, limit: 20 });
+  });
+});
+
+describe('GET /app/apps/[appId]/team-chat — bounded forward refresh', () => {
+  it('asks for the next 20 after the displayed cursor, preserving the scoped count', async () => {
+    mockRequest.mockResolvedValue({ teamChatMessages: { items: [msg(41), msg(42)], total: 100 } });
+    const { status, body } = await get('app-1', '?sinceSeq=40');
+    expect(status).toBe(200);
+    expect(body).toEqual({ items: [msg(41), msg(42)], total: 100, loadFailed: false });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledWith(TEAM_CHAT_MESSAGES_QUERY, {
+      appRef: 'app-1', sinceSeq: 40, limit: 20,
+    });
+  });
+
+  it('refuses malformed or competing cursors', async () => {
+    for (const search of ['?sinceSeq=0', '?sinceSeq=-1', '?sinceSeq=1.5', '?sinceSeq=Infinity', '?sinceSeq=5&beforeSeq=10']) {
+      const { status, body } = await get('app-1', search);
+      expect(status, search).toBe(400);
+      expect(body.reason, search).toBe('bad-cursor');
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 });
 
