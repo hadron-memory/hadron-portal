@@ -427,9 +427,11 @@
   // and the full view below, which keys on the chat being shown, never opened
   // (@codex on #832). `afterNavigate` is the honest signal, as on the worker
   // detail page: once per navigation, after the new data is applied, and never
-  // on a tab click, which deliberately does not navigate.
+  // on a tab click, which deliberately does not navigate. The full-view flag
+  // also follows real navigation, but not a post's page-data refresh.
   afterNavigate(() => {
     activeTab = (data.initialTab as TabId | null) ?? 'chats';
+    chatMaximized = data.initialChatFullView;
   });
 
   // The team chat MAXIMISED — a fixed overlay over the whole viewport. In the
@@ -445,18 +447,12 @@
   // `replaceState` for the same reason AgentChat syncs `?chat=` that way — a
   // view toggle is UI state, and a navigation would re-run the loader.
   //
-  // Unlike `activeTab`, this is RE-SYNCED from the loader whenever page data
-  // changes: a client-side navigation to a URL without `view=full` (the chat
-  // selector links, a link to another App's chat) must leave the full view,
-  // or the page would render one thing and its URL say another. The toggle
-  // below never re-runs the loader, so it never fights this.
+  // Like `activeTab`, this is re-synced on a REAL navigation, not on every
+  // loader refresh. SvelteKit's shallow `replaceState` changes the address bar
+  // but keeps its internal load URL; the `invalidateAll` after a post can thus
+  // return `initialChatFullView: false` while the visible URL still says
+  // `view=full`. Re-seeding from that refresh exits the full view mid-chat.
   let chatMaximized = $state(untrack(() => data.initialChatFullView));
-  $effect(() => {
-    const fromUrl = data.initialChatFullView;
-    untrack(() => {
-      chatMaximized = fromUrl;
-    });
-  });
   // The overlay exists only where the team chat renders. `?view=full` on any
   // other tab or chat (an App whose first chat is the agent chat, a shared
   // link opened on a non-chats tab) must not lock the page scroll behind a

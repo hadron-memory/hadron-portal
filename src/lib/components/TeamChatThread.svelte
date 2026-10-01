@@ -882,7 +882,7 @@
           id="team-chat-body"
           name="body"
           bind:value={$postFormData.body}
-          placeholder={t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl+Enter to send). Mention a teammate with @name.')}
+          placeholder={t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl/Cmd+Enter to send). Mention a teammate with @name.')}
           rows="3"
           disabled={$postSubmitting}
           onkeydown={handleKeydown}
