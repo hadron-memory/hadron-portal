@@ -59,5 +59,8 @@ describe('gitFailureMessage never echoes the server text (#988, Codex P1 on #989
     expect(out).toContain('held for review');
     expect(out).toContain('Read branch');
     expect(out).not.toContain('GIT_SYNC_REVIEW_REQUIRED');
+    // The only release deletes the held nodes, so the copy must say to keep them first (#1576, Ada #6000).
+    expect(out).toContain('changed nothing');
+    expect(out).toContain('export what you want to keep first');
   });
 });

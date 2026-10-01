@@ -48,7 +48,10 @@ export function classifyGitFailure(text: string | null | undefined): GitFailure 
 export function gitFailureText(kind: GitFailure, op: 'sync' | 'push'): string {
   switch (kind) {
     case 'review-required':
-      return t('sync-error.review-required', 'This sync was held for review: some files that this memory’s nodes came from are missing from the branch it syncs from, so the sync stopped instead of deleting those nodes. If the memory should sync from a different branch, set its Read branch in Integrations, then sync again.');
+      // hadron-server#1576: the hold aborts the whole sync, and the ONLY release
+      // is an explicit Read branch, which authorizes the cleanup that deletes
+      // the held nodes. So the copy must lead with keeping them (Ada #6000).
+      return t('sync-error.review-required', 'This sync was held for review: some nodes this memory took from its repository have no matching file on the repository’s default branch, so the sync stopped and changed nothing. To continue, set the memory’s Read branch in Integrations. The next sync then deletes any nodes whose files aren’t on that branch, so export what you want to keep first.');
     case 'branch-not-found':
       return t('sync-error.branch-not-found', 'The branch this memory uses doesn’t exist in its repository. Check the Read and Write branches in Integrations.');
     case 'repo-not-found':
