@@ -1,4 +1,5 @@
 import { error, fail } from '@sveltejs/kit';
+import { ClientError } from 'graphql-request';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
@@ -73,7 +74,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     data = { app, channels: { total: items.length, items } };
   } catch (e) {
     // An App the caller cannot see answers as a missing one on both fields.
-    if (extractGqlErrorCode(e) === 'NOT_FOUND') throw error(404, 'App not found');
+    const code = e instanceof ClientError && e.response.errors?.length ? extractGqlErrorCode(e) : null;
+    if (code === 'NOT_FOUND' || code === 'FORBIDDEN') throw error(404, 'App not found');
     throw e;
   }
   if (!data.app) throw error(404, 'App not found');

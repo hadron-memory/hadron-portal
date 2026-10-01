@@ -38,6 +38,8 @@ export function registerErrorText(e: unknown, fallback: string, op: 'add' | 'cha
       return op === 'add'
         ? t('app.channels.register.error.add-not-found', 'That channel or attendee is not available to you. Reload the page and pick again.')
         : t('app.channels.register.error.not-found', 'That row is not available to you.');
+    case 'FORBIDDEN':
+      return t('app.channels.register.error.forbidden', 'You can’t change attendance for these channels.');
     default:
       return extractGqlError(e, fallback);
   }
