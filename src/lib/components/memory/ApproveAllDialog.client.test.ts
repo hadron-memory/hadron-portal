@@ -56,6 +56,10 @@ describe('ApproveAllDialog (#992)', () => {
     expect(q(target, 'approve-all-result')!.textContent).toContain('Approved 2 nodes. 1 were already approved.');
     const hrefs = [...target.querySelectorAll('a')].map((el) => el.getAttribute('href'));
     expect(hrefs.some((h) => h?.includes('hrn:node:acme.com:specs-a:cor:x:010'))).toBe(true);
+    // A list of nodes is a DataTable, not a <ul> (@codex on #994).
+    expect(target.querySelector('table')).not.toBeNull();
+    expect(target.querySelector('[aria-label="Search the placeholders Approve all skipped"]')).not.toBeNull();
+    expect(target.querySelector('ul')).toBeNull();
     expect(onapproved).toHaveBeenCalledTimes(1);
   });
 

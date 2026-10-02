@@ -13,7 +13,7 @@
   import { t } from '$lib/i18n/t';
   import { approveAllSummary, approveAllUnconfirmedText, type ApproveMemoryNodesResult } from '$lib/memory-approval';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
-  import Urn from '$lib/components/Urn.svelte';
+  import SkippedPlaceholdersTable from './SkippedPlaceholdersTable.svelte';
 
   let {
     memory,
@@ -92,18 +92,15 @@
 {#if open}
   <div class="fixed inset-0 z-40">
     <button type="button" class="absolute inset-0 cursor-default bg-black/20" aria-label={t('memory-actions.approve-all.close', 'Close approve all dialog')} onclick={() => (open = false)}></button>
-    <div role="dialog" aria-labelledby="approve-all-heading" data-testid="approve-all-dialog" class="absolute right-4 top-24 w-[28rem] max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+    <div role="dialog" aria-labelledby="approve-all-heading" data-testid="approve-all-dialog" class="absolute right-4 top-24 w-[36rem] max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
       <h3 id="approve-all-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('memory-actions.approve-all.heading', 'Approve all nodes')}</h3>
       {#if done}
         {@const r = done}
         <p role="status" data-testid="approve-all-result" class="text-sm text-zinc-700 dark:text-zinc-300">{approveAllSummary(r.result)}</p>
         {#if r.result.skippedPlaceholders.length > 0}
-          <ul class="mt-2 max-h-48 space-y-1 overflow-y-auto">
-            {#each r.result.skippedPlaceholders as loc (loc)}
-              {@const urn = placeholderUrn(r.memoryUrn, loc)}
-              <li>{#if urn}<Urn value={urn} type="node" linked size={10} />{:else}<span class="font-mono text-xs">{loc}</span>{/if}</li>
-            {/each}
-          </ul>
+          <div class="mt-2">
+            <SkippedPlaceholdersTable rows={r.result.skippedPlaceholders.map((loc) => ({ loc, urn: placeholderUrn(r.memoryUrn, loc) }))} />
+          </div>
         {/if}
         <div class="mt-3">
           <button type="button" onclick={() => (open = false)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('memory-actions.approve-all.done', 'Done')}</button>
