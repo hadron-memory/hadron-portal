@@ -9,7 +9,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
 import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
-import { approveRefusalText, bindApprovalToRevision, integrityText, verifyFailureText, type NodeApprovalRead, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
+import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, integrityText, verifyFailureText, type NodeApprovalRead, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
@@ -1164,8 +1164,7 @@ export const actions: Actions = {
       return message(form, { type: 'success', text: t('node.approval.approved-now', 'Revision {rev} approved.', { rev }) });
     } catch (e: unknown) {
       const code = extractGqlErrorCode(e);
-      const status = code === 'FORBIDDEN' ? 403 : code === 'NODE_NOT_FOUND' || code === 'NOT_FOUND' ? 404 : code ? 409 : 500;
-      return message(form, { type: 'error', text: approveRefusalText(code) }, { status });
+      return message(form, { type: 'error', text: approveRefusalText(code) }, { status: approvalRefusalStatus(code) });
     }
   },
 
@@ -1179,12 +1178,17 @@ export const actions: Actions = {
         VERIFY_NODE_QUERY,
         { nodeRef: params.nodeId },
       );
+      const { state, expectedHash, actualHash } = r.verifyNode;
       const { text, problem } = integrityText(r.verifyNode);
-      return message(form, { type: problem ? 'error' : 'success', text });
+      // The hashes ride along so a reader can copy them into a report or a
+      // CLI check. Hex digests, not server prose.
+      return {
+        verifyIntegrity: { state, expectedHash: expectedHash ?? null, actualHash: actualHash ?? null },
+        ...message(form, { type: problem ? 'error' : 'success', text }),
+      };
     } catch (e: unknown) {
       const code = extractGqlErrorCode(e);
-      const status = code === 'FORBIDDEN' ? 403 : code === 'NODE_NOT_FOUND' || code === 'NOT_FOUND' ? 404 : 500;
-      return message(form, { type: 'error', text: verifyFailureText(code) }, { status });
+      return message(form, { type: 'error', text: verifyFailureText(code) }, { status: approvalRefusalStatus(code) });
     }
   },
 

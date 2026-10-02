@@ -28,7 +28,7 @@
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
   import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
-  import { approvalView, type NodeApprovalStatus } from '$lib/node-approval';
+  import { approvalView, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
   import {
     authorshipSearchText,
     authorshipView,
@@ -946,6 +946,12 @@
   const approveActionSuccess = $derived(scopedActionSuccess<NodeApproveForm>(form, 'approveNode', $approveMessage));
   const verifyActionError = $derived(scopedActionError<NodeVerifyForm>(form, 'verifyNode', $verifyMessage, $verifyErrors));
   const verifyActionSuccess = $derived(scopedActionSuccess<NodeVerifyForm>(form, 'verifyNode', $verifyMessage));
+  // The verdict's hashes, only for the verify submit this page is showing.
+  const verifyHashes = $derived.by(() => {
+    if (!submittedForm<NodeVerifyForm>(form, 'verifyNode')) return null;
+    const result = form as { verifyIntegrity?: Pick<NodeIntegrityCheck, 'expectedHash' | 'actualHash'> } | null;
+    return result?.verifyIntegrity ?? null;
+  });
 
   // ── Actions menu (#503) ─────────────────────────────────────────────
   // The header "⋯" menu consolidates node actions; each item flips a panel/
@@ -2066,6 +2072,18 @@
         <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{approveActionError ?? verifyActionError}</p>
       {:else if approveActionSuccess || verifyActionSuccess}
         <p role="status" data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{approveActionSuccess ?? verifyActionSuccess}</p>
+      {/if}
+      {#if verifyHashes && (verifyHashes.expectedHash || verifyHashes.actualHash)}
+        <dl data-testid="verify-hashes" class="mt-1 grid grid-cols-[auto_1fr] gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
+          {#if verifyHashes.expectedHash}
+            <dt>{t('node.approval.verify.expected-hash', 'Approved hash')}</dt>
+            <dd class="select-all break-all font-mono">{verifyHashes.expectedHash}</dd>
+          {/if}
+          {#if verifyHashes.actualHash}
+            <dt>{t('node.approval.verify.actual-hash', 'Current hash')}</dt>
+            <dd class="select-all break-all font-mono">{verifyHashes.actualHash}</dd>
+          {/if}
+        </dl>
       {/if}
       {#if node.description}
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>

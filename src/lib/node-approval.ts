@@ -109,6 +109,27 @@ export function shortHash(hash: string | null | undefined): string {
   return hash.length > 12 ? `${hash.slice(0, 12)}…` : hash;
 }
 
+/**
+ * The HTTP status for a refusal code. Only codes this module has copy for get
+ * a 4xx; anything else is a failure, not a refusal (Gene on #993).
+ */
+export function approvalRefusalStatus(code: string | null | undefined): 403 | 404 | 409 | 423 | 500 {
+  switch (code) {
+    case 'FORBIDDEN':
+      return 403;
+    case 'NODE_NOT_FOUND':
+    case 'NOT_FOUND':
+      return 404;
+    case 'REVISION_MISMATCH':
+    case 'NODE_IS_PLACEHOLDER':
+      return 409;
+    case 'SESSION_EXPIRED':
+      return 423;
+    default:
+      return 500;
+  }
+}
+
 /** Fixed copy for an approveNode refusal, keyed by its GraphQL error code. */
 export function approveRefusalText(code: string | null | undefined): string {
   switch (code) {
@@ -118,8 +139,10 @@ export function approveRefusalText(code: string | null | undefined): string {
       return t('node.approval.refused.revision-mismatch', 'This node changed after you opened it, so nothing was approved. Review the current revision, then approve it.');
     case 'NODE_IS_PLACEHOLDER':
       return t('node.approval.refused.placeholder', 'This node is a reserved placeholder. It has no spec to approve yet.');
+    // Not an expired sign-in: #1592 answers this when an ENCRYPTED memory's
+    // key isn't held for this session, and approving has to hash the plaintext.
     case 'SESSION_EXPIRED':
-      return t('node.approval.refused.session-expired', 'Your session expired. Sign in again to approve.');
+      return t('node.approval.refused.key-unavailable', "This memory is encrypted and its key isn't available to your session right now, so nothing was approved.");
     case 'NODE_NOT_FOUND':
     case 'NOT_FOUND':
       return t('node.approval.refused.not-found', 'This node no longer exists, or you no longer have access to it.');
@@ -164,7 +187,7 @@ export function verifyFailureText(code: string | null | undefined): string {
     case 'FORBIDDEN':
       return t('node.approval.verify-refused.forbidden', "You don't have permission to verify this node.");
     case 'SESSION_EXPIRED':
-      return t('node.approval.verify-refused.session-expired', 'Your session expired. Sign in again to verify.');
+      return t('node.approval.verify-refused.key-unavailable', "This memory is encrypted and its key isn't available to your session right now, so it couldn't be verified.");
     case 'NODE_NOT_FOUND':
     case 'NOT_FOUND':
       return t('node.approval.verify-refused.not-found', 'This node no longer exists, or you no longer have access to it.');

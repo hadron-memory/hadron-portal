@@ -128,6 +128,7 @@ describe('approveNode action', () => {
     ['FORBIDDEN', 403, "You don't have permission to approve"],
     ['NODE_IS_PLACEHOLDER', 409, 'reserved placeholder'],
     ['NODE_NOT_FOUND', 404, 'no longer exists'],
+    ['SESSION_EXPIRED', 423, 'encrypted and its key'],
   ])('%s maps to fixed copy, never the server text', async (code, status, copy) => {
     mockRequest.mockRejectedValue(gqlError(code));
     const r = await runAction('approveNode', { _kind: 'approveNode', revision: '4' });
@@ -136,6 +137,13 @@ describe('approveNode action', () => {
     expect(m.type).toBe('error');
     expect(m.text).toContain(copy);
     expect(m.text).not.toContain('server prose');
+  });
+
+  it('an unrecognised code is a failure (500), not a refusal (Gene on #993)', async () => {
+    mockRequest.mockRejectedValue(gqlError('INTERNAL_SERVER_ERROR'));
+    const r = await runAction('approveNode', { _kind: 'approveNode', revision: '4' });
+    expect(r.status).toBe(500);
+    expect(messageOf(r)).toEqual({ type: 'error', text: "The approval didn't go through. Try again." });
   });
 });
 
@@ -147,6 +155,7 @@ describe('verifyNode action', () => {
     const r = await runAction('verifyNode', { _kind: 'verifyNode' });
     expect(mockRequest).toHaveBeenCalledWith(VERIFY_NODE_QUERY, { nodeRef: 'leaf-pk' });
     expect(messageOf(r)).toEqual({ type: 'success', text: 'Verified: revision 4 matches what was approved.' });
+    expect((r as { verifyIntegrity?: unknown }).verifyIntegrity).toEqual({ state: 'INTACT', expectedHash: 'a', actualHash: 'b' });
   });
 
   it('TAMPERED is an error, naming the approved revision', async () => {
@@ -154,6 +163,13 @@ describe('verifyNode action', () => {
     const m = messageOf(await runAction('verifyNode', { _kind: 'verifyNode' })) as { type: string; text: string };
     expect(m.type).toBe('error');
     expect(m.text).toContain('approved text of revision 3 has changed');
+  });
+
+  it('a locked encrypted memory says so, not "sign in again"', async () => {
+    mockRequest.mockRejectedValue(gqlError('SESSION_EXPIRED'));
+    const r = await runAction('verifyNode', { _kind: 'verifyNode' });
+    expect(r.status).toBe(423);
+    expect((messageOf(r) as { text: string }).text).toContain('encrypted and its key');
   });
 
   it('a failed check says it did not run, without the server text', async () => {
