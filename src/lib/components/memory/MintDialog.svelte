@@ -14,7 +14,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
-  import { findingKindText, mintSummary, mintUnconfirmedText, type MintReport } from '$lib/node-mint';
+  import { findingKindText, isMintReport, mintSummary, mintUnconfirmedText, type MintReport } from '$lib/node-mint';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import MintBlockersTable, { type MintBlockerRow } from './MintBlockersTable.svelte';
 
@@ -34,6 +34,8 @@
   let shown = $state<{ memoryUrn: string; report: MintReport } | null>(null);
   let seq = 0;
 
+  const checkFailedText = () => t('memory.mint.check-failed', "Couldn't check this memory. Try again.");
+
   async function post(dryRun: boolean) {
     const target = { id: memory.id, urn: memory.urn };
     const mine = ++seq;
@@ -47,16 +49,32 @@
       });
       const d = await res.json().catch(() => ({}));
       if (mine !== seq) return;
-      // A refusal can carry a fresh dry-run report (something blocks now).
-      if (d.report) shown = { memoryUrn: target.urn, report: d.report };
+      // Only a well-formed report says anything (Gene on #996): a 200 with no
+      // report is an unknown outcome, not a mint.
+      const report = isMintReport(d.report) ? d.report : null;
       if (!res.ok) {
-        error = typeof d.error === 'string' && res.status !== 401 ? d.error : mintUnconfirmedText();
+        // A refusal may carry a FRESH dry-run report (what blocks now). Any
+        // other failure leaves nothing shown, so an old "ready" report can't
+        // keep Mint enabled after a failed or unknown run.
+        shown = report?.dryRun ? { memoryUrn: target.urn, report } : null;
+        error = typeof d.error === 'string' && res.status !== 401
+          ? d.error
+          : dryRun ? checkFailedText() : mintUnconfirmedText();
         return;
       }
+      if (!report || report.dryRun !== dryRun) {
+        shown = null;
+        error = dryRun ? checkFailedText() : mintUnconfirmedText();
+        return;
+      }
+      shown = { memoryUrn: target.urn, report };
       if (!dryRun) onminted?.();
     } catch {
       // No answer at all: a real run may still have committed.
-      if (mine === seq) error = dryRun ? t('memory.mint.check-failed', "Couldn't check this memory. Try again.") : mintUnconfirmedText();
+      if (mine === seq) {
+        shown = null;
+        error = dryRun ? checkFailedText() : mintUnconfirmedText();
+      }
     } finally {
       if (mine === seq) busy = null;
     }

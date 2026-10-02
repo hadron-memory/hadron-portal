@@ -77,6 +77,15 @@ describe('mint endpoint (#992)', () => {
     expect(body.error).toContain('nothing was minted');
   });
 
+  it('a blocked refusal whose fresh check also fails promises no list', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('SPEC_CORPUS_MINT_BLOCKED')).mockRejectedValueOnce(new Error('down'));
+    const res = await POST(ev({ dryRun: false }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.report).toBeUndefined();
+    expect(body.error).toBe('Something now blocks minting, so nothing was minted. Check again to see what.');
+  });
+
   it.each([
     ['SPEC_CORPUS_BUSY', 503, 'Try again in a moment'],
     ['SPEC_CORPUS_ENCRYPTED_UNSUPPORTED', 422, "can't be minted"],

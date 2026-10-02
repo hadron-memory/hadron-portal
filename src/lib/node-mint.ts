@@ -151,6 +151,19 @@ export function mintFailure(code: string | null | undefined): { status: 403 | 40
   }
 }
 
+/** A response body is a usable mint report only with every field the dialog reads. */
+export function isMintReport(v: unknown): v is MintReport {
+  if (!v || typeof v !== 'object') return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.dryRun === 'boolean' && typeof r.minted === 'boolean' && typeof r.mintedCount === 'number'
+    && typeof r.mintableCount === 'number' && typeof r.openQuestionCount === 'number' && Array.isArray(r.blockers);
+}
+
+/** Copy for a blocked refusal when the fresh list couldn't be fetched either. */
+export function mintBlockedUnlistedText(): string {
+  return t('memory.mint.refused.blocked-unlisted', 'Something now blocks minting, so nothing was minted. Check again to see what.');
+}
+
 export function mintUnconfirmedText(): string {
   return t('memory.mint.unconfirmed', "Minting couldn't be confirmed. It may or may not have gone through. Reload the page to see each node's status before trying again.");
 }

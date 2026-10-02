@@ -131,4 +131,45 @@ describe('MintDialog (#992 slice C)', () => {
     await settle();
     expect(q(target, 'mint-summary')!.textContent).toBe('1 node is ready to mint.');
   });
+
+  // Gene on #996, finding 1: a failed or unknown real run must not leave the
+  // old "ready" report keeping Mint enabled under the warning.
+  it.each([
+    ['no answer', () => Promise.reject(new TypeError('network down'))],
+    ['a 500', () => Promise.resolve(reply(500, { error: 'Minting couldn’t be confirmed. It may or may not have gone through.' }))],
+    ['a 503 busy', () => Promise.resolve(reply(503, { error: 'This memory is being written to right now, so nothing was minted. Try again in a moment.' }))],
+  ])('after %s from a real run, Mint is withdrawn and Check again offered', async (_label, answer) => {
+    fetchMock.mockResolvedValueOnce(reply(200, { report: report() }));
+    const { target } = mountDialog();
+    await settle();
+    expect(q(target, 'mint-submit')).not.toBeNull();
+    fetchMock.mockImplementationOnce(answer);
+    (q(target, 'mint-submit') as HTMLButtonElement).click();
+    await settle();
+    expect(q(target, 'mint-submit')).toBeNull();
+    expect(q(target, 'mint-recheck')).not.toBeNull();
+    expect(q(target, 'mint-summary')).toBeNull();
+  });
+
+  // Gene on #996, finding 2: a 200 with no usable report is not a mint.
+  it('a 200 with no report after a real run is an unknown outcome, not a mint', async () => {
+    fetchMock.mockResolvedValueOnce(reply(200, { report: report() }));
+    const { target, onminted } = mountDialog();
+    await settle();
+    fetchMock.mockResolvedValueOnce(reply(200, {}));
+    (q(target, 'mint-submit') as HTMLButtonElement).click();
+    await settle();
+    expect(onminted).not.toHaveBeenCalled();
+    expect(q(target, 'mint-error')!.textContent).toContain('may or may not have gone through');
+    expect(q(target, 'mint-submit')).toBeNull();
+    expect(q(target, 'mint-recheck')).not.toBeNull();
+  });
+
+  it('a 200 with no report for the check says the check failed, and offers Check again', async () => {
+    fetchMock.mockResolvedValueOnce(reply(200, { report: { dryRun: true } }));
+    const { target } = mountDialog();
+    await settle();
+    expect(q(target, 'mint-error')!.textContent).toBe("Couldn't check this memory. Try again.");
+    expect(q(target, 'mint-recheck')).not.toBeNull();
+  });
 });

@@ -2,7 +2,7 @@ import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { MINT_MEMORY_NODES_MUTATION } from '$lib/server/queries';
-import { mintFailure, type MintFinding, type MintReport } from '$lib/node-mint';
+import { mintBlockedUnlistedText, mintFailure, type MintFinding, type MintReport } from '$lib/node-mint';
 import type { RequestHandler } from './$types';
 
 // #992 slice C: "Mint nodes" from the memory actions menu, posted to like
@@ -54,7 +54,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
         const fresh = await run(true);
         return json({ error: text, report: toReport(fresh.mintMemoryNodes) }, { status });
       } catch {
-        return json({ error: text }, { status });
+        // No fresh list to show, so the copy mustn't promise one (Gene on #996).
+        return json({ error: mintBlockedUnlistedText() }, { status });
       }
     }
     if (status === 500) console.error('[memories/mint] failed:', e);
