@@ -79,6 +79,33 @@ async function loadApproval(): Promise<ProvenanceResult<NodeApprovalStatus>> {
   return data.approval;
 }
 
+describe('node page — approval forms have ids of their own', () => {
+  // Chip's QA on #993: Verify's result never showed, because Superforms ids
+  // come from the schema's shape and the verify form hashed the same as
+  // Duplicate and Convert to task. A form sharing an id gets its result
+  // routed to another form.
+  it('approve and verify ids are unique among every form on the page', async () => {
+    serve(new Map([[NODE_APPROVAL_QUERY, () => ({ node: { id: 'leaf-pk', revision: 4, approvalStatus: APPROVED } })]]));
+    const { load } = await import('./+page.server');
+    const data = (await load(loadEvent())) as unknown as Record<string, { id?: string } | undefined>;
+    const ids = Object.keys(data).filter((k) => k.endsWith('Form')).map((k) => [k, data[k]?.id] as const);
+    for (const own of ['approveForm', 'verifyForm']) {
+      const id = data[own]?.id;
+      expect(id).toBeTruthy();
+      expect(ids.filter(([, other]) => other === id).map(([k]) => k)).toEqual([own]);
+    }
+  });
+
+  it('the actions answer under the same ids', async () => {
+    mockRequest.mockResolvedValue({ verifyNode: { state: 'INTACT', revision: 4, approvedRevision: 4, expectedHash: 'a', actualHash: 'a' } });
+    const v = await runAction('verifyNode', { _kind: 'verifyNode' });
+    expect((v.data?.form ?? v.form as { id?: string } | undefined) as { id?: string }).toMatchObject({ id: 'verifyNode' });
+    mockRequest.mockResolvedValue({ approveNode: { nodeId: 'leaf-pk', approval: { revision: 4, approvedAt: '' } } });
+    const a = await runAction('approveNode', { _kind: 'approveNode', revision: '4' });
+    expect((a.data?.form ?? a.form) as { id?: string }).toMatchObject({ id: 'approveNode' });
+  });
+});
+
 describe('node page — approval status is a streamed read bound to the rendered revision', () => {
   it('shows the status when it describes the rendered revision', async () => {
     serve(new Map([[NODE_APPROVAL_QUERY, () => ({ node: { id: 'leaf-pk', revision: 4, approvalStatus: APPROVED } })]]));

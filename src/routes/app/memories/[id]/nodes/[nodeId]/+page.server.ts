@@ -65,6 +65,12 @@ const nodeUpdateMetaFormAdapter = zod4(nodeUpdateMetaSchema);
 const nodeDuplicateFormAdapter = zod4(nodeDuplicateSchema);
 const nodeApproveFormAdapter = zod4(nodeApproveSchema);
 const nodeVerifyFormAdapter = zod4(nodeVerifySchema);
+// #992 (Chip's QA on #993): Superforms derives a form's id from its schema's
+// SHAPE, and a `_kind`-only schema hashes the same whatever the literal: the
+// verify form shared its id with Duplicate and Convert to task, so its result
+// never reached its own message. Explicit ids keep each form's result its own.
+const APPROVE_FORM_ID = 'approveNode';
+const VERIFY_FORM_ID = 'verifyNode';
 const nodeConvertToTaskFormAdapter = zod4(nodeConvertToTaskSchema);
 const nodeUpdateFlowFormAdapter = zod4(nodeUpdateFlowSchema);
 const nodeUpdateEdgesFormAdapter = zod4(nodeUpdateEdgesSchema);
@@ -433,8 +439,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       edges: JSON.stringify(outgoingEdges),
     }, nodeUpdateEdgesFormAdapter, { errors: false }),
     superValidate<SendChatMessageForm>({}, sendChatMessageFormAdapter, { errors: false }),
-    superValidate<NodeApproveForm>({ revision: node.revision }, nodeApproveFormAdapter, { errors: false }),
-    superValidate<NodeVerifyForm>({}, nodeVerifyFormAdapter, { errors: false }),
+    superValidate<NodeApproveForm>({ revision: node.revision }, nodeApproveFormAdapter, { errors: false, id: APPROVE_FORM_ID }),
+    superValidate<NodeVerifyForm>({}, nodeVerifyFormAdapter, { errors: false, id: VERIFY_FORM_ID }),
   ]);
 
   const wikilinks = await wikilinksPromise;
@@ -1153,7 +1159,7 @@ export const actions: Actions = {
   // redirect; enhance re-runs load, so the badge shows the new approval.
   // Refusals map to fixed copy by code, never the server's prose.
   approveNode: async ({ request, params, locals }) => {
-    const form = await superValidate<NodeApproveForm>(await request.formData(), nodeApproveFormAdapter);
+    const form = await superValidate<NodeApproveForm>(await request.formData(), nodeApproveFormAdapter, { id: APPROVE_FORM_ID });
     if (!form.valid) return fail(400, { form });
     try {
       const r = await gqlClient(locals.token).request<{ approveNode: { approval: { revision: number } | null } }>(
@@ -1171,7 +1177,7 @@ export const actions: Actions = {
   // #992: re-check the approved text against its recorded hash. A read, but
   // an explicit one: it reports a verdict the reader asked for, as a message.
   verifyNode: async ({ request, params, locals }) => {
-    const form = await superValidate<NodeVerifyForm>(await request.formData(), nodeVerifyFormAdapter);
+    const form = await superValidate<NodeVerifyForm>(await request.formData(), nodeVerifyFormAdapter, { id: VERIFY_FORM_ID });
     if (!form.valid) return fail(400, { form });
     try {
       const r = await gqlClient(locals.token).request<{ verifyNode: NodeIntegrityCheck }>(
