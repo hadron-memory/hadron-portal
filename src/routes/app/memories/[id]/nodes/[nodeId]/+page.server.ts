@@ -71,6 +71,11 @@ const nodeVerifyFormAdapter = zod4(nodeVerifySchema);
 // never reached its own message. Explicit ids keep each form's result its own.
 const APPROVE_FORM_ID = 'approveNode';
 const VERIFY_FORM_ID = 'verifyNode';
+// #995: the same collision hid Convert to task's errors, which landed in
+// Duplicate's form (both `_kind`-only). Per
+// hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids.
+const DUPLICATE_FORM_ID = 'duplicateNode';
+const CONVERT_TO_TASK_FORM_ID = 'convertToTask';
 const nodeConvertToTaskFormAdapter = zod4(nodeConvertToTaskSchema);
 const nodeUpdateFlowFormAdapter = zod4(nodeUpdateFlowSchema);
 const nodeUpdateEdgesFormAdapter = zod4(nodeUpdateEdgesSchema);
@@ -428,8 +433,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     superValidate<NodeDeleteForm>({ hard: false }, nodeDeleteFormAdapter, { errors: false }),
     superValidate<NodeCreateParentForm>({ loc: '', name: '' }, nodeCreateParentFormAdapter, { errors: false }),
     superValidate<NodeUpdateMetaForm>(nodeMetaSeed(node), nodeUpdateMetaFormAdapter, { errors: false }),
-    superValidate<NodeDuplicateForm>({}, nodeDuplicateFormAdapter, { errors: false }),
-    superValidate<NodeConvertToTaskForm>({}, nodeConvertToTaskFormAdapter, { errors: false }),
+    superValidate<NodeDuplicateForm>({}, nodeDuplicateFormAdapter, { errors: false, id: DUPLICATE_FORM_ID }),
+    superValidate<NodeConvertToTaskForm>({}, nodeConvertToTaskFormAdapter, { errors: false, id: CONVERT_TO_TASK_FORM_ID }),
     superValidate<NodeUpdateFlowForm>({
       extractionRows: JSON.stringify(flowRows),
       outputWriteTo: output?.writeTo ?? '',
@@ -1010,6 +1015,7 @@ export const actions: Actions = {
     const form = await superValidate<NodeDuplicateForm>(
       await request.formData(),
       nodeDuplicateFormAdapter,
+      { id: DUPLICATE_FORM_ID },
     );
     if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
@@ -1120,6 +1126,7 @@ export const actions: Actions = {
     const form = await superValidate<NodeConvertToTaskForm>(
       await request.formData(),
       nodeConvertToTaskFormAdapter,
+      { id: CONVERT_TO_TASK_FORM_ID },
     );
     if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
