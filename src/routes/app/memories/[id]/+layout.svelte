@@ -9,6 +9,8 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { t } from '$lib/i18n/t';
+  import { approveAllSummary, type ApproveMemoryNodesResult } from '$lib/memory-approval';
+  import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { canSeeShares } from '$lib/memory/can-manage-shares';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
@@ -37,6 +39,8 @@
     { id: 'add-node', label: t('memory-actions.add-node', 'Add node') },
     { id: 'edit', label: t('memory-actions.edit', 'Edit memory') },
     ...(cloneable ? [{ id: 'clone', label: t('memory-actions.clone', 'Clone memory') }] : []),
+    // #992: system memories hold an agent's own state, not specs to approve.
+    ...(g.class !== 'system' ? [{ id: 'approve-all', label: t('memory-actions.approve-all', 'Approve all nodes') }] : []),
     ...(canDelete ? [{ id: 'delete', label: t('memory-actions.delete', 'Delete memory'), danger: true }] : []),
   ]);
 
@@ -62,10 +66,52 @@
       : { org: '', slug: bare };
   }
 
+  // #992: Approve all (approveMemoryNodes). A confirm first: it records the
+  // reader as approver of every unminted node's current revision at once.
+  let approveAllOpen = $state(false);
+  let approvingAll = $state(false);
+  let approveAllError = $state<string | null>(null);
+  let approveAllResult = $state<ApproveMemoryNodesResult | null>(null);
+
+  async function submitApproveAll() {
+    if (approvingAll) return;
+    approvingAll = true;
+    approveAllError = null;
+    try {
+      const res = await fetch(`${basePath}/approve-all`, { method: 'POST' });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.result) {
+        approveAllError = typeof d.error === 'string' && res.status !== 401
+          ? d.error
+          : t('memory.approve-all.refused.unknown', "Approve all didn't go through, and nothing was approved. Try again.");
+        return;
+      }
+      approveAllResult = d.result;
+    } catch {
+      approveAllError = t('memory.approve-all.refused.unknown', "Approve all didn't go through, and nothing was approved. Try again.");
+    } finally {
+      approvingAll = false;
+    }
+  }
+
+  function placeholderUrn(loc: string): string | null {
+    try {
+      return composeNodeUrn(g.urn, loc);
+    } catch {
+      return null;
+    }
+  }
+
   function onMenuSelect(id: string) {
     cloneOpen = false;
     cloneError = null;
+    approveAllOpen = false;
     switch (id) {
+      case 'approve-all':
+        approveAllError = null;
+        approveAllResult = null;
+        approveAllOpen = true;
+        break;
       case 'add-node': goto(`${basePath}/nodes/new`); break;
       // Edit + Delete live on the Settings tab; deep-link so the relevant form
       // opens on arrival (?edit=1 / ?delete=1).
@@ -287,6 +333,44 @@
       </div>
     </div>
     <SelectOrg orgs={data.navOrgs ?? []} bind:open={orgPickerOpen} onselect={onPickOrg} />
+  {/if}
+
+  <!-- #992: Approve all. Confirm, then the result: counts and any skipped
+       placeholders (by URN, so they can be found and filled in). -->
+  {#if approveAllOpen}
+    <div class="fixed inset-0 z-40">
+      <button type="button" class="absolute inset-0 cursor-default bg-black/20" aria-label={t('memory-actions.approve-all.close', 'Close approve all dialog')} onclick={() => (approveAllOpen = false)}></button>
+      <div role="dialog" aria-labelledby="approve-all-heading" data-testid="approve-all-dialog" class="absolute right-4 top-24 w-[28rem] max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+        <h3 id="approve-all-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('memory-actions.approve-all.heading', 'Approve all nodes')}</h3>
+        {#if approveAllResult}
+          <p role="status" data-testid="approve-all-result" class="text-sm text-zinc-700 dark:text-zinc-300">{approveAllSummary(approveAllResult)}</p>
+          {#if approveAllResult.skippedPlaceholders.length > 0}
+            <ul class="mt-2 max-h-48 space-y-1 overflow-y-auto">
+              {#each approveAllResult.skippedPlaceholders as loc (loc)}
+                {@const urn = placeholderUrn(loc)}
+                <li>{#if urn}<Urn value={urn} type="node" linked size={10} />{:else}<span class="font-mono text-xs">{loc}</span>{/if}</li>
+              {/each}
+            </ul>
+          {/if}
+          <div class="mt-3">
+            <button type="button" onclick={() => (approveAllOpen = false)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('memory-actions.approve-all.done', 'Done')}</button>
+          </div>
+        {:else}
+          <p class="text-sm text-zinc-600 dark:text-zinc-400">
+            {t('memory-actions.approve-all.explain', 'This approves the current revision of every node in this memory that isn’t minted or approved yet, and records you as the approver of each. Reserved placeholders are skipped. Read what you approve: an approval says you reviewed this text.')}
+          </p>
+          {#if approveAllError}
+            <p role="alert" data-testid="approve-all-error" class="mt-2 text-xs text-red-600 dark:text-red-400">{approveAllError}</p>
+          {/if}
+          <div class="mt-3 flex items-center gap-2">
+            <button type="button" onclick={submitApproveAll} disabled={approvingAll}
+              class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >{approvingAll ? t('memory-actions.approve-all.approving', 'Approving…') : t('memory-actions.approve-all.submit', 'Approve all')}</button>
+            <button type="button" onclick={() => (approveAllOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('memory-actions.approve-all.cancel', 'Cancel')}</button>
+          </div>
+        {/if}
+      </div>
+    </div>
   {/if}
 
   <!-- Nodes/Graph share one MemoryBrowser rendered HERE (in the persistent

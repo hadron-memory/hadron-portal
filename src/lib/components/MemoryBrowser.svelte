@@ -337,6 +337,10 @@
   // #433: include soft-deleted nodes (findNodes filter.includeDeleted) — an
   // audit/restore view; server-only (the slim loaded set excludes deleted).
   let includeDeleted = $state(false);
+  // #992 (server #1591): approval and minting state, both answered by the
+  // server (findNodes filter) so the list never reads approval per row.
+  let approvalFilter = $state<'' | 'APPROVED' | 'NOT_APPROVED' | 'SUPERSEDED'>('');
+  let mintedFilter = $state<'any' | 'minted' | 'unminted'>('any');
   // #433: the fields weight-mask (findNodes fields, hrn:node:hadronmemory.com:specs:cor:api:090:03) — scopes a
   // LEXICAL query's scoring to a subset of node fields. Empty = all fields
   // (the server default). Ignored for Fuzzy (vector retrieval) and for a
@@ -418,6 +422,8 @@
     includeDeleted: includeDeleted || null,
     objectType: objectTypeFilter || null,
     where: whereParse.value,
+    approvalState: approvalFilter || null,
+    minted: mintedFilter === 'any' ? null : mintedFilter === 'minted',
   });
   // A stable key for the fields mask — a fresh Set identity on every toggle
   // would re-run the search effect even when the selection is unchanged (same
@@ -432,6 +438,8 @@
       !!serverFilter.updatedAfter ||
       !!serverFilter.includeDeleted ||
       !!serverFilter.objectType ||
+      !!serverFilter.approvalState ||
+      serverFilter.minted !== null ||
       whereJson.trim() !== '' ||
       sortPropPathSegments.length > 0 ||
       sortMode === 'updatedAt' ||
@@ -517,6 +525,8 @@
       includeDeleted: boolean | null;
       objectType: string | null;
       where: Record<string, unknown> | null;
+      approvalState: string | null;
+      minted: boolean | null;
     },
     sort: 'loc' | 'updatedAt' | 'relevance',
     sortProperty: { path: string[]; field: string; as: string; direction: string } | null,
@@ -655,6 +665,8 @@
       myNodesOnly ||
       changedSince !== 'any' ||
       includeDeleted ||
+      approvalFilter !== '' ||
+      mintedFilter !== 'any' ||
       searchFields.size > 0 ||
       structuredActiveCount > 0 ||
       sortMode !== 'loc',
@@ -668,6 +680,8 @@
     myNodesOnly = false;
     changedSince = 'any';
     includeDeleted = false;
+    approvalFilter = '';
+    mintedFilter = 'any';
     searchFields = new Set();
     sortMode = 'loc';
     objectTypeFilter = '';
@@ -1153,6 +1167,23 @@
       <option value="24h">Last 24h</option>
       <option value="7d">Last 7 days</option>
       <option value="30d">Last 30 days</option>
+    </select>
+
+    <!-- #992: approval and minting state (server-side findNodes filter) -->
+    <select bind:value={approvalFilter} data-testid="approval-filter" aria-label={t('memory-browser.approval-filter', 'Filter by approval')} title={t('memory-browser.approval-filter', 'Filter by approval')}
+      class="rounded-lg border px-2 py-1.5 text-xs
+        {approvalFilter !== '' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
+      <option value="">{t('memory-browser.approval.any', 'Any approval')}</option>
+      <option value="APPROVED">{t('memory-browser.approval.approved', 'Approved')}</option>
+      <option value="SUPERSEDED">{t('memory-browser.approval.superseded', 'Changed since approval')}</option>
+      <option value="NOT_APPROVED">{t('memory-browser.approval.not-approved', 'Not approved')}</option>
+    </select>
+    <select bind:value={mintedFilter} data-testid="minted-filter" aria-label={t('memory-browser.minted-filter', 'Filter by minting')} title={t('memory-browser.minted-filter', 'Filter by minting')}
+      class="rounded-lg border px-2 py-1.5 text-xs
+        {mintedFilter !== 'any' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
+      <option value="any">{t('memory-browser.minted.any', 'Minted or not')}</option>
+      <option value="minted">{t('memory-browser.minted.minted', 'Minted')}</option>
+      <option value="unminted">{t('memory-browser.minted.unminted', 'Not minted')}</option>
     </select>
 
     <!-- #429: Sort (server-side for updatedAt/relevance; loc is the browse default) -->

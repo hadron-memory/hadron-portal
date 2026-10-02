@@ -58,6 +58,9 @@ function parseSortProperty(raw: unknown):
   return { path: path as string[], field: f, as: a, direction: d };
 }
 
+const APPROVAL_STATES = ['NOT_APPROVED', 'APPROVED', 'SUPERSEDED'] as const;
+type ApprovalState = (typeof APPROVAL_STATES)[number];
+
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
     return json({ error: 'Unauthorized' }, { status: 401 });
@@ -75,6 +78,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       includeDeleted?: unknown;
       objectType?: unknown;
       where?: unknown;
+      approvalState?: unknown;
+      minted?: unknown;
     };
     sort?: unknown;
     sortProperty?: unknown;
@@ -105,6 +110,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ error: 'Invalid filter.' }, { status: 400 });
   }
   const where = filter?.where != null ? (filter.where as Record<string, unknown>) : null;
+  // #992: approval and minting state. Allowlisted, so an unknown value is
+  // dropped rather than reaching GraphQL enum coercion.
+  const approvalState = APPROVAL_STATES.includes(filter?.approvalState as ApprovalState)
+    ? (filter!.approvalState as ApprovalState)
+    : null;
+  const minted = typeof filter?.minted === 'boolean' ? filter.minted : null;
   const sortProp = parseSortProperty(sortProperty);
   if (sortProp === 'invalid') {
     return json({ error: 'Invalid sort.' }, { status: 400 });
@@ -121,7 +132,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const lexical = findMode === 'keyword' || findMode === 'regex';
   const searchFields = lexical && fieldSet.length > 0 ? fieldSet : null;
 
-  const hasFilter = !!(createdBy || updatedAfter || updatedBefore || includeDeleted || objectType || where);
+  const hasFilter = !!(createdBy || updatedAfter || updatedBefore || includeDeleted || objectType || where || approvalState || minted !== null);
   // Nothing to do → let the client browse the already-loaded set. (A bare
   // loc/seq sort with no query/filter is also a client-side reorder; a
   // property sort is server-only — the slim loaded set has no properties.)
@@ -173,6 +184,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       includeDeleted,
       objectType,
       where,
+      approvalState,
+      minted,
       limit: SEARCH_LIMIT,
     });
 

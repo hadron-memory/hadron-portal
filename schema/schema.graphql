@@ -1,4 +1,4 @@
-# Exported from hadron-server d01243606e24b0c23ce7df00d08e9b17b4e5f6bf (d0124360, 2026-10-01T18:07:09-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 88a0a4b2e8356af149f15afc192b6a36b76a32c0 (88a0a4b2, 2026-10-01T18:25:38-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -1555,7 +1555,7 @@ enum ContentValidator {
 }
 
 """
-#1447 — a spec corpus's lifecycle state. DRAFT becomes MINTED once, one-way.
+#1447 — a spec corpus's state, derived from its nodes since #1591: DRAFT while no live node is minted, MINTED once any is.
 """
 enum CorpusState {
   DRAFT
@@ -2820,16 +2820,15 @@ type Memory {
   config: MemoryConfig
 
   """
-  #1448 — when this corpus was minted (draft → minted). Null if it was never a draft.
+  #1448/#1591 — the latest mint time among this memory's live nodes; null while none is minted.
   """
   corpusMintedAt: DateTime
 
   """
-  #1447/#1448 — whether this memory is a DRAFT spec corpus or MINTED. In a
-  draft corpus spec citations are not yet permanent: specs can be moved,
-  renumbered and deleted, and a move records no URN alias. Chosen only at
-  creation (createMemory draftCorpus); minting is one-way. Every memory
-  created without asking for draft is MINTED.
+  #1447/#1448, derived per node since #1591 — DRAFT while none of this
+  memory's live nodes is minted, MINTED once any is. Draft rights are per
+  node: an unminted node can be renumbered, moved without a URN alias, and
+  bulk-replaced, in any memory (see Node.mintStatus).
   """
   corpusState: CorpusState!
   createdAt: DateTime!
@@ -3633,7 +3632,7 @@ type Mutation {
   applyMemoryConfigTemplate(dryRun: Boolean, expectedTemplateRevision: Int, memoryRef: ID!, templateRef: ID!): MemoryConfigApplyResult!
 
   """
-  #1591 — approve the current revision of every live node of a memory (ID or fully-qualified URN) that isn't approved yet, in one transaction. Placeholders are skipped and reported.
+  #1591 — approve the current revision of every live, unminted node of a memory (ID or fully-qualified URN) that isn't approved yet, in one transaction. Placeholders are skipped and reported.
   """
   approveMemoryNodes(memoryRef: String!): ApproveMemoryNodesResult!
 
@@ -4072,10 +4071,9 @@ type Mutation {
     description: String
 
     """
-    #1447/#1448 — create this memory as a DRAFT spec corpus, whose spec
-    citations stay changeable until the corpus is minted. This is the only
-    way to get a draft corpus: an existing memory can never be switched into
-    draft. Omitted or false creates an ordinary (minted) memory.
+    #1447/#1448 — accepted for compatibility and ignored since #1591: minting
+    is per node, and every new node starts unminted, with draft rights, in
+    any memory.
     """
     draftCorpus: Boolean
     embeddingSource: EmbeddingSource
@@ -5032,23 +5030,27 @@ type Mutation {
   mintActionTickets(input: MintActionTicketsInput!): Int!
 
   """
-  #1448 — mint a DRAFT spec corpus: once, one-way, for the whole corpus.
-  After minting, citations are permanent (moves record URN aliases again) and
-  no placeholder can be reserved. Refuses SPEC_CORPUS_MINT_BLOCKED while any
-  blocker remains: a placeholder, an unresolved reference, a structural lint
-  error over the citation-shaped nodes (nodetype-info, tag-spec,
-  serialization-leak, duplicate-loc), or a stale abstract once
-  staleAbstractsBlock is true. dryRun returns the full report without
-  minting. Owner or org ADMIN only. memoryRef accepts the ID or URN. A real
-  run holds every write to the corpus off while it checks and flips, and
-  refuses SPEC_CORPUS_BUSY (retryable) if a write is already in flight.
-  #1468 — a minted spec is then permanent: every path that would remove one
-  from the corpus refuses SPEC_MINTED_PERMANENT, naming the specs (deleteNode
-  soft or hard, a move to another memory or an overwrite of its citation,
-  mergeNodes with deleteSource, extracting with move, a merge or deletion of
-  the whole corpus, git-sync pruning, and account erasure while the owner
-  still holds it). Supersede a spec to replace it; a rename within the corpus
-  still records its URN alias.
+  #1591 — mint every unminted live node of a memory, at once. Each node is
+  stamped with its current revision and that revision's approval hash
+  (Node.mintStatus); a minted node's moves then record URN aliases. Refuses
+  SPEC_CORPUS_MINT_BLOCKED while any blocker remains among the unminted
+  nodes: a placeholder, an unresolved reference, a structural lint error over
+  the citation-shaped nodes (nodetype-info, tag-spec, serialization-leak,
+  duplicate-loc), a stale abstract once staleAbstractsBlock is true,
+  NOT_APPROVED (the current revision is not approved), TAMPERED (approved
+  text changed outside the revision system), or CITES_UNMINTED (an
+  edge into another memory's node that is not minted). Nodes minted earlier
+  are not re-checked. dryRun returns the full report without minting. Any
+  writer of the memory. memoryRef accepts the ID or URN. A real run holds
+  every write to the memory off while it checks and stamps, and refuses
+  SPEC_CORPUS_BUSY (retryable) if a write is already in flight. Encrypted
+  memories are refused (SPEC_CORPUS_ENCRYPTED_UNSUPPORTED). Minting protects
+  nothing by itself: minted-spec permanence (#1468) is switched off for now.
+  """
+  mintMemoryNodes(dryRun: Boolean, memoryRef: ID!): SpecCorpusMintReport!
+
+  """
+  #1448, generalized by #1591 — the same operation as mintMemoryNodes, kept under its original name.
   """
   mintSpecCorpus(dryRun: Boolean, memoryRef: ID!): SpecCorpusMintReport!
 
@@ -5304,8 +5306,9 @@ type Mutation {
   ): Boolean!
 
   """
-  #1449 — renumber a spec in a DRAFT spec corpus: move it and its subtree
-  from fromLoc to toLoc (no URN alias in a draft), then rewrite every node
+  #1449 — renumber an UNMINTED spec (#1591: draft rights are per node): move
+  it and its subtree from fromLoc to toLoc with no URN alias, refusing
+  NODE_MINTED { locs } if any moved node is minted, then rewrite every node
   URN in the corpus that cites the moved specs, each as a normal edit. Bare
   text citations (labels, names) are reported in textCitations, not
   rewritten. dryRun returns the plan and writes nothing. The move is atomic;
@@ -5344,13 +5347,12 @@ type Mutation {
   replaceSubtree(edges: [EdgeInput!]!, memoryId: String!, nodes: [NodeInput!]!, ownerRepo: String!): Int! @deprecated(reason: "Retired (#454): every authorized call refuses with REPLACE_SUBTREE_RETIRED and writes nothing. Use the canonical node write mutations.")
 
   """
-  #1450 — reserve a citation in a DRAFT spec corpus as a placeholder: a spec
-  node at loc (role spec, nodeType info) marked isPlaceholder, so links can
-  point at it and the placeholders left are the corpus's to-do list. Writing
-  real content through updateSpecNode turns it into a real spec at the same
-  citation. Refuses SPEC_CORPUS_NOT_DRAFT in a minted memory, where a
-  citation is permanent once written, and NodeLocConflictError at a live loc.
-  memoryRef accepts the memory's ID or URN.
+  #1450 — reserve a citation as a placeholder, in any memory since #1591: an
+  unminted spec node at loc (role spec, nodeType info) marked isPlaceholder,
+  so links can point at it and the placeholders left are the corpus's to-do
+  list. Writing real content through updateSpecNode turns it into a real spec
+  at the same citation; minting refuses while a placeholder remains. Refuses
+  NodeLocConflictError at a live loc. memoryRef accepts the memory's ID or URN.
   """
   reserveSpecCitation(loc: String!, memoryRef: ID!, name: String): Node!
   restoreAsset(assetId: ID!): Asset!
@@ -5494,7 +5496,7 @@ type Mutation {
   searchReplaceInNodes(input: SearchReplaceInNodesInput!): SearchReplaceResult!
 
   """
-  Governed bulk replacement inside one draft spec corpus, with exact preview binding.
+  Governed bulk replacement inside one spec corpus, with exact preview binding. Every target must be unminted (#1591); SEARCH_REPLACE_NOT_DRAFT names minted ones.
   """
   searchReplaceInSpecNodes(input: SpecSearchReplaceInput!): SearchReplaceResult!
 
@@ -6268,6 +6270,9 @@ type Node {
   memory: Memory
   memoryId: String!
 
+  """#1591 — whether this node is minted, and the record of it."""
+  mintStatus: NodeMintStatus!
+
   """
   #1392 — warnings from a cross-memory move. Null on other Node reads; [] when a move changes no local content links. Raw content is preserved.
   """
@@ -6555,6 +6560,9 @@ input NodeFilter {
   Memory scope — a mix of memory IDs and fully-qualified URNs; intersected with the caller's access.
   """
   memoryIds: [ID!]
+
+  """#1591 — only minted (true) or unminted (false) nodes."""
+  minted: Boolean
   nodeType: String
 
   """
@@ -6711,6 +6719,33 @@ enum NodeMergeField {
 
   """Union the tag sets (target order first, then new source tags)."""
   TAGS
+}
+
+"""
+#1591 — whether a node is minted, and the record of it. Minting protects nothing by itself (permanence is off for now).
+"""
+type NodeMintStatus {
+  """
+  The approval hash of the minted revision. Null for backfilled nodes, which were never approved.
+  """
+  hash: String
+  minted: Boolean!
+  mintedAt: DateTime
+
+  """
+  The minting user's public identifiers; null when not a user (see mintedByInfo).
+  """
+  mintedBy: NodeRevisionEditor
+
+  """
+  The minting principal when no user is known, e.g. app:<id>, or backfill for nodes minted by the #1591 migration.
+  """
+  mintedByInfo: String
+
+  """
+  The revision that was minted. Null for nodes backfilled as minted, whose minted revision is unknown.
+  """
+  revision: Int
 }
 
 enum NodeMoveLinkStatus {
@@ -8560,15 +8595,15 @@ type Query {
   slackConnections(limit: Int, offset: Int, orgId: ID): SlackConnectionsPage!
 
   """
-  #1449 — what refers to the spec at loc in a DRAFT spec corpus: node URNs
-  in the corpus text (inside URLs too) plus real edges from corpus nodes.
-  Exact citation, not descendants. Refuses SPEC_CORPUS_NOT_DRAFT for a
-  minted memory. memoryRef accepts the memory's ID or URN.
+  #1449 — what refers to the spec at loc in a spec corpus (any memory since
+  #1591): node URNs in the corpus text (inside URLs too) plus real edges from
+  corpus nodes. Exact citation, not descendants. memoryRef accepts the
+  memory's ID or URN.
   """
   specBacklinks(loc: String!, memoryRef: ID!): [SpecReference!]!
 
   """
-  #1449 — references in a DRAFT spec corpus that do not reach a written
+  #1449 — references in a spec corpus (any memory since #1591) that do not reach a written
   spec: URNs citing a missing loc or a placeholder, edges to a
   placeholder or to a deleted spec of the corpus, and pending edges (field pendingEdge) whose target is not
   a written node yet. Minting refuses while any remain.
@@ -10147,8 +10182,16 @@ type SpecCorpusMintReport {
   dryRun: Boolean!
   memoryId: ID!
 
+  """
+  #1591 — the locs this call minted, or would mint on a dry run, ordered by loc.
+  """
+  mintLocs: [String!]!
+
   """True when this call minted the corpus."""
   minted: Boolean!
+
+  """#1591 — how many nodes this call minted (0 on a dry run or refusal)."""
+  mintedCount: Int!
   openQuestions: [SpecOpenQuestionGroup!]!
   staleAbstracts: [SpecMintFinding!]!
   staleAbstractsBlock: Boolean!
@@ -10168,15 +10211,28 @@ type SpecMintFinding {
 """#1448 — why the mint report lists an item."""
 enum SpecMintFindingKind {
   """
+  #1591 — an edge into another memory's node that is not minted yet (targetLoc is its URN).
+  """
+  CITES_UNMINTED
+
+  """
   A structural lint error (rule: nodetype-info | tag-spec | serialization-leak | duplicate-loc).
   """
   LINT
+
+  """#1591 — the node's current revision is not approved."""
+  NOT_APPROVED
 
   """A reserved citation with no spec written yet."""
   PLACEHOLDER
 
   """An abstract written for an earlier body."""
   STALE_ABSTRACT
+
+  """
+  #1591 — the approved revision's text changed outside the revision system, so it no longer matches its approval hash. Re-approve it.
+  """
+  TAMPERED
 
   """
   A reference to a spec that does not exist, or to a placeholder (rule: MISSING | PLACEHOLDER).

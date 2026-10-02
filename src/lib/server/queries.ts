@@ -2714,6 +2714,8 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
     $includeDeleted: Boolean
     $objectType: String
     $where: NodeWhereInput
+    $approvalState: NodeApprovalState
+    $minted: Boolean
     $sortProperty: NodePropertySort
     $limit: Int
   ) {
@@ -2740,6 +2742,10 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         # over the properties/data JSONB.
         objectType: $objectType
         where: $where
+        # #992 (server #1591): approval and minting state, filtered by the
+        # server so no list ever selects Node.approvalStatus per row.
+        approvalState: $approvalState
+        minted: $minted
       }
     ) {
       hits {
@@ -4181,5 +4187,18 @@ export const APPROVE_NODE_MUTATION = /* GraphQL */ `
 export const VERIFY_NODE_QUERY = /* GraphQL */ `
   query VerifyNode($nodeRef: ID!) {
     verifyNode(nodeRef: $nodeRef) { state revision approvedRevision expectedHash actualHash }
+  }
+`;
+// #992 (hadron-server#1591): approve the current revision of every live,
+// unminted node of a memory that isn't approved yet, in one transaction.
+// Only the counts and the skipped placeholders are read: the receipts list
+// can run to the whole memory.
+export const APPROVE_MEMORY_NODES_MUTATION = /* GraphQL */ `
+  mutation ApproveMemoryNodes($memoryRef: String!) {
+    approveMemoryNodes(memoryRef: $memoryRef) {
+      approvedCount
+      alreadyApprovedCount
+      skippedPlaceholders
+    }
   }
 `;
