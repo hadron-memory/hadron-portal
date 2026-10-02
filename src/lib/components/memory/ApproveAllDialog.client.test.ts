@@ -32,10 +32,17 @@ function mountDialog(onapproved = vi.fn()) {
   return { ...m, props, onapproved };
 }
 const q = (el: Element, id: string) => el.querySelector(`[data-testid="${id}"]`);
-const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+// A response whose body resolves in a microtask. A real `Response` reads its
+// body through a stream, whose timing varies with load: CI ran out of the
+// fixed ticks below before the body arrived (#994). And the late-answer test
+// asserts an ABSENCE, which an under-waited test would pass for the wrong
+// reason, so the timing has to be deterministic rather than just longer.
+const reply = (status: number, body: unknown) =>
+  ({ ok: status >= 200 && status < 300, status, json: async () => body }) as unknown as Response;
+const ok = (body: unknown) => reply(200, body);
 
 async function settle() {
-  for (let i = 0; i < 4; i++) await tick();
+  for (let i = 0; i < 10; i++) await tick();
   flushSync();
 }
 
@@ -84,7 +91,7 @@ describe('ApproveAllDialog (#992)', () => {
   });
 
   it('a typed refusal shows the server endpoint’s fixed copy', async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: 'fixed refusal copy' }), { status: 403 }));
+    fetchMock.mockResolvedValue(reply(403, { error: 'fixed refusal copy' }));
     const { target } = mountDialog();
     (q(target, 'approve-all-submit') as HTMLButtonElement).click();
     await settle();
