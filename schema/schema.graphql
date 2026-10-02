@@ -1,4 +1,4 @@
-# Exported from hadron-server 397b7f7b78f6a04248f2098d7c42e57ce26b0e60 (397b7f7b78f6a04248f2098d7c42e57ce26b0e60, 2026-09-30T11:11:11-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server d01243606e24b0c23ce7df00d08e9b17b4e5f6bf (d0124360, 2026-10-01T18:07:09-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -198,9 +198,15 @@ v1 enforces 1-level imports only.
 """
 type AgentImport {
   createdAt: DateTime!
-  importedAgent: Agent!
+
+  """
+  The dependency Agent when this caller may read its definition; a builder grant alone does not grant that read.
+  """
+  importedAgent: Agent
   importedAgentId: ID!
-  parentAgent: Agent!
+
+  """The parent Agent when this caller may read its definition."""
+  parentAgent: Agent
   parentAgentId: ID!
   position: Int!
   required: Boolean!
@@ -220,13 +226,19 @@ AgentImport edge of an Agent the Org owns. Sibling to AgentSubscription.
 """
 type AgentOrgGrant {
   activatedAt: DateTime
-  agent: Agent!
+
+  """The licensed Agent when this caller may read its definition."""
+  agent: Agent
   agentId: ID!
   createdAt: DateTime!
   expiresAt: DateTime
   isActive: Boolean!
   orgId: ID!
-  organization: Organization!
+
+  """
+  The customer Organization when the caller may read it; a vendor grant alone does not authorize it.
+  """
+  organization: Organization
   revokedAt: DateTime
   revokedBy: ID
 }
@@ -707,8 +719,15 @@ read-only to every App) and per FR-001 it carries NO trainingMode
 column (training mode is per-App, on App.trainingMode).
 """
 type AppAgent {
-  agent: Agent!
-  app: App!
+  """
+  The installed Agent when this caller may read its definition; an installation license alone does not grant that read.
+  """
+  agent: Agent
+
+  """
+  The App when this caller may read it; strict user ownership still applies.
+  """
+  app: App
   createdAt: DateTime!
   createdBy: String
   updatedAt: DateTime
@@ -753,7 +772,10 @@ type AppKeyCreated {
 }
 
 type AppMember {
-  app: App!
+  """
+  The App when the caller may read it; an external App member can still see their membership row.
+  """
+  app: App
   appId: ID!
   createdAt: DateTime!
 
@@ -973,6 +995,19 @@ enum AppType {
   CLOUD
   IOT
   WORKSTATION
+}
+
+"""#1591 — the outcome of approving every node of a memory."""
+type ApproveMemoryNodesResult {
+  """Nodes whose current revision was already approved (left unchanged)."""
+  alreadyApprovedCount: Int!
+
+  """Nodes newly approved by this call, ordered by loc."""
+  approved: [NodeApprovalReceipt!]!
+  approvedCount: Int!
+
+  """Locs of reserved placeholders, which have no spec to approve yet."""
+  skippedPlaceholders: [String!]!
 }
 
 type AppsPage {
@@ -2037,6 +2072,12 @@ type Edge {
   """
   condition: JSON
   data: JSON
+
+  """
+  Longer gloss carried for API consumers. NOT rendered on agent node reads,
+  whose Related:/Referenced by: lines show the edge name (#721: name is the
+  display label). Put the label you want seen in name (#1057).
+  """
   description: String
   id: ID!
 
@@ -2729,6 +2770,10 @@ type Memory {
   """
   agent: Agent
   anonymousExpiresAt: DateTime
+
+  """
+  The linked App when the caller may read that App; a Memory read alone does not grant it.
+  """
   app: App
 
   """
@@ -2839,6 +2884,10 @@ type Memory {
   """
   myShare: MemoryShare
   name: String!
+
+  """
+  The owning Organization when the caller may read that Organization; a Memory read alone does not grant it.
+  """
   organization: Organization
   organizationId: String
   pendingEdgeCount: Int!
@@ -3190,6 +3239,18 @@ input MemoryFilter {
   visibility: MemoryVisibility
 }
 
+"""#1591 — the tamper check over every live node of a memory."""
+type MemoryIntegrityReport {
+  checked: Int!
+  intact: Int!
+  notApproved: Int!
+
+  """Every node that is not INTACT, ordered by loc."""
+  problems: [NodeIntegrityCheck!]!
+  superseded: Int!
+  tampered: Int!
+}
+
 """
 023-app-shape US4: symmetric team-membership row for group-class
 memory. The "Company Brain" model — multiple users collaboratively
@@ -3292,7 +3353,11 @@ type MemorySubscription {
   createdAt: DateTime!
   id: ID!
   memory: Memory!
-  organization: Organization!
+
+  """
+  The subscriber Organization when the caller may read it; memory access alone does not authorize it.
+  """
+  organization: Organization
   role: Role!
 }
 
@@ -3568,6 +3633,21 @@ type Mutation {
   applyMemoryConfigTemplate(dryRun: Boolean, expectedTemplateRevision: Int, memoryRef: ID!, templateRef: ID!): MemoryConfigApplyResult!
 
   """
+  #1591 — approve the current revision of every live node of a memory (ID or fully-qualified URN) that isn't approved yet, in one transaction. Placeholders are skipped and reported.
+  """
+  approveMemoryNodes(memoryRef: String!): ApproveMemoryNodesResult!
+
+  """
+  #1591 — approve the node's CURRENT revision: record who, when, and the
+  approval hash of its title/abstract/content. Pass revision to approve only
+  if it is still the one you read (REVISION_MISMATCH otherwise). Any writer of
+  the memory may approve, the author included. Idempotent: an approved
+  revision keeps its existing approval. Refuses NODE_IS_PLACEHOLDER, and
+  SESSION_EXPIRED on an encrypted memory without its session key.
+  """
+  approveNode(nodeRef: ID!, revision: Int): NodeApprovalReceipt!
+
+  """
   Attach an EXISTING free-standing memory to an App.
   
   Applies only to 'personal'/'private' memories owned by the caller (an
@@ -3830,18 +3910,17 @@ type Mutation {
   by that Organization and requires org ADMIN; without orgRef, it is owned by
   the authenticated User and remains owner-only.
   
-  An org-owned install auto-provisions an AgentOrgGrant for (orgId, agentId).
+  An org-owned install auto-provisions an AgentOrgGrant only for its own
+  Agent. A cross-org install requires an existing active grant; subscribe to
+  a PUBLIC Agent through createAgentOrgGrant before creating the App.
   It adds the caller as an AppMember with role 'owner' only when that role is
   present in the Agent's installationPolicy and the caller is a User.
   Required AgentImports cascade automatically for org-owned Apps; optional
   imports cascade only when their id appears in installOptional. Personal
   Apps reject dependency cascades in v1.
   
-  009-install-agent-flow: the cross-org install restriction (FR-009) is
-  enforced at the portal — the Install affordance is hidden for Agents
-  not owned by the calling org. The server still auto-provisions grants
-  on first install (preserved from 008); a hard server-side cross-org
-  gate is reserved for the marketplace spec.
+  Selected dependencies must also be licensed before any App is created.
+  The server enforces this even when a caller bypasses the portal.
   
   Accepts the entity's ID or URN.
   """
@@ -3849,10 +3928,9 @@ type Mutation {
     """
     The initial Agent installed into this new App. Required as of
     009-install-agent-flow: every new App starts with an installed Agent.
-    For an org-owned App the
-    server accepts any resolvable Agent and auto-provisions an AgentOrgGrant
-    (008 behavior preserved); the portal's install flow restricts the
-    affordance to Agents owned by the caller org. A personal App accepts only
+    For an org-owned App, the server auto-provisions a grant only for an
+    Agent owned by that org; any cross-org Agent needs an existing active
+    AgentOrgGrant. A personal App accepts only
     a PUBLIC Agent or one owned by the caller, and licenses a foreign PUBLIC
     Agent through the owner's AgentSubscription.
     """
@@ -4327,7 +4405,10 @@ type Mutation {
   SESSION_NOT_WORKER_BOUND, CHANNEL_HOST_NOT_WRITABLE, WORKER_RETIRED,
   SESSION_EXPIRED (encrypted team memory without an active session key),
   TEAM_AGENT_NOT_FOUND / TEAM_AGENT_AMBIGUOUS (first-post bootstrap could
-  not locate the Team Agent), APP_UNINSTALLED, FORBIDDEN.
+  not locate the Team Agent), APP_UNINSTALLED, FORBIDDEN (an authenticated
+  caller who is not a participant), UNAUTHENTICATED (no principal at all: no
+  token, an expired or unverifiable one; checked before the App is resolved,
+  so it answers identically whether or not the App exists).
   
   appRef accepts the entity's ID or URN; sessionRef is the session id.
   """
@@ -4961,6 +5042,13 @@ type Mutation {
   minting. Owner or org ADMIN only. memoryRef accepts the ID or URN. A real
   run holds every write to the corpus off while it checks and flips, and
   refuses SPEC_CORPUS_BUSY (retryable) if a write is already in flight.
+  #1468 — a minted spec is then permanent: every path that would remove one
+  from the corpus refuses SPEC_MINTED_PERMANENT, naming the specs (deleteNode
+  soft or hard, a move to another memory or an overwrite of its citation,
+  mergeNodes with deleteSource, extracting with move, a merge or deletion of
+  the whole corpus, git-sync pruning, and account erasure while the owner
+  still holds it). Supersede a spec to replace it; a rename within the corpus
+  still records its URN alias.
   """
   mintSpecCorpus(dryRun: Boolean, memoryRef: ID!): SpecCorpusMintReport!
 
@@ -4972,7 +5060,8 @@ type Mutation {
   keeps its id, so all incoming/outgoing edge references stay valid. Fails
   loudly with NODE_ALREADY_EXISTS if a live node already occupies the
   destination. Requires write access to both the source and destination
-  memories.
+  memories. On a cross-memory move, select Node.moveLinkWarnings to see
+  raw relative content links that now miss or resolve to another node.
   """
   moveNode(sourceRef: ID!, targetMemoryRef: ID, targetUrn: String): Node!
 
@@ -6081,6 +6170,11 @@ type Node {
   alias: String
 
   """
+  #1591 — whether the current revision is approved, and the latest approval on record.
+  """
+  approvalStatus: NodeApprovalStatus!
+
+  """
   The asset this node references, for a reference node created by
   createAssetReferenceNode or hadron_store_file (its data.asset
   points at one). Null for every ordinary node.
@@ -6173,6 +6267,11 @@ type Node {
   loc: String!
   memory: Memory
   memoryId: String!
+
+  """
+  #1392 — warnings from a cross-memory move. Null on other Node reads; [] when a move changes no local content links. Raw content is preserved.
+  """
+  moveLinkWarnings: [NodeMoveLinkWarning!]
   name: String!
 
   """
@@ -6241,6 +6340,54 @@ type Node {
   Fully-qualified node URN (hrn:node:<root>:<memory>:<loc>), composed server-side from the node's memory URN + loc (#481). Carried by every Node-returning surface (findNodes, node, appNodes, nodeBatch, mutation returns).
   """
   urn: String!
+}
+
+"""#1591 — one recorded approval of a node revision."""
+type NodeApproval {
+  approvedAt: DateTime!
+
+  """
+  The approving user's public identifiers; null when the approver was not a user (see approvedByInfo).
+  """
+  approvedBy: NodeRevisionEditor
+
+  """The approving principal when no user is known, e.g. app:<id>."""
+  approvedByInfo: String
+
+  """
+  Approval hash v1 at approval time: 64 lowercase hex of SHA-256 over the canonical title/abstract/content serialization (src/lib/approvalHash.ts).
+  """
+  hash: String!
+
+  """The approved revision number (Node.revision at approval time)."""
+  revision: Int!
+}
+
+"""#1591 — a node and its approval, returned by the approve mutations."""
+type NodeApprovalReceipt {
+  approval: NodeApproval!
+  loc: String!
+  nodeId: ID!
+  urn: String!
+}
+
+"""#1591 — whether a node's current revision is approved."""
+enum NodeApprovalState {
+  """The current revision is approved."""
+  APPROVED
+
+  """Never approved."""
+  NOT_APPROVED
+
+  """Approved once, edited since: the approval covers an older revision."""
+  SUPERSEDED
+}
+
+"""#1591 — a node's approval state plus its latest approval."""
+type NodeApprovalStatus {
+  """The latest approval on record; null when NOT_APPROVED."""
+  approval: NodeApproval
+  state: NodeApprovalState!
 }
 
 type NodeAuthorship {
@@ -6388,6 +6535,10 @@ enum NodeField {
 Structured, unscored, AND-combined filter context for findNodes (cor:api:090:02).
 """
 input NodeFilter {
+  """
+  #1591 — only nodes in this approval state (read from the stored revision; a node changed outside a revisioned writer is reconciled on its next read).
+  """
+  approvalState: NodeApprovalState
   createdBy: String
 
   """Include soft-deleted nodes (default false)."""
@@ -6494,6 +6645,42 @@ input NodeInput {
   tags: [String!]
 }
 
+"""#1591 — one node's tamper check."""
+type NodeIntegrityCheck {
+  """The approval hash recomputed from the current title/abstract/content."""
+  actualHash: String!
+  approvedRevision: Int
+
+  """The approval hash on record."""
+  expectedHash: String
+  loc: String!
+  nodeId: ID!
+
+  """The current revision."""
+  revision: Int!
+  state: NodeIntegrityState!
+  urn: String!
+}
+
+"""#1591 — the tamper check's verdict."""
+enum NodeIntegrityState {
+  """
+  The current revision is approved and its text still hashes to the approval.
+  """
+  INTACT
+
+  """Never approved: nothing to verify against."""
+  NOT_APPROVED
+
+  """Edited (a new revision) since the last approval. Not a tamper finding."""
+  SUPERSEDED
+
+  """
+  Approved text no longer hashes to its approval: it changed outside the revision system.
+  """
+  TAMPERED
+}
+
 """A node field that mergeNodes can fold from the source into the target."""
 enum NodeMergeField {
   """
@@ -6526,6 +6713,24 @@ enum NodeMergeField {
   TAGS
 }
 
+enum NodeMoveLinkStatus {
+  AMBIGUOUS
+  MISSING
+  RETARGETED
+}
+
+type NodeMoveLinkWarning {
+  nodeId: ID!
+  nodeLoc: String!
+  raw: String!
+
+  """
+  RETARGETED names a different node; AMBIGUOUS has multiple live alias claimants.
+  """
+  status: NodeMoveLinkStatus!
+  target: String!
+}
+
 """
 Order findNodes by the value at a properties/data JSON path (#719).
 
@@ -6556,10 +6761,21 @@ type NodeRevision {
   aiAgent: String
   alias: String
 
+  """#1591 — approval hash v1 recorded when this revision was approved."""
+  approvalHash: String
+
+  """
+  #1591 — when this revision was approved; null unless it was approved before it was edited away.
+  """
+  approvedAt: DateTime
+
   """
   Reserved (#620): User id that approved this revision. No write surface yet.
   """
   approvedBy: String
+
+  """#1591 — the approving principal when no user is known, e.g. app:<id>."""
+  approvedByInfo: String
 
   """
   approvedBy resolved to public identifiers (handle + URN), like editedByUser.
@@ -6999,6 +7215,27 @@ input PublicAgentFilter {
   type: AgentType
 }
 
+"""The invite-page view available to anyone holding the invitation slug."""
+type PublicInvitation {
+  activationCount: Int!
+  expiresAt: DateTime
+  maxActivations: Int
+  memberRole: Role!
+  organization: PublicInvitationOrganization
+  sender: PublicInvitationSender
+}
+
+"""Only the organization display name needed on the invite page."""
+type PublicInvitationOrganization {
+  name: String!
+}
+
+"""Only the sender display fields needed on the invite page."""
+type PublicInvitationSender {
+  githubUsername: String
+  name: String
+}
+
 """
 cor:acl:080:02 — a sanitized, non-member-safe view of a DISCOVERABLE org.
 Deliberately a SEPARATE type from Organization: it exposes only public
@@ -7171,7 +7408,12 @@ type Query {
   appNodes(appRef: ID!, filter: NodeFilter, limit: Int): [Node!]!
 
   """
-  One run (cor:agt:010:02). ref is an AppRun ID or an hrn:apprun:<root>:<app>:<run-id> URN (#696).
+  One run (cor:agt:010:02). ref is an AppRun ID or an
+  hrn:apprun:<root>:<app>:<run-id> URN (#696). Readable by a platform admin,
+  a READER of the run's organization, the run's own App key, or a user with a
+  live App relationship for a run on their behalf or a MANUAL run they
+  started. A run the caller may not read returns null, exactly like a
+  missing one (#1577: no existence oracle).
   """
   appRun(ref: ID!): AppRun
 
@@ -7684,9 +7926,10 @@ type Query {
   impersonationSessions(filter: ImpersonationSessionFilter, limit: Int, offset: Int, orgId: String): ImpersonationSessionList!
 
   """
-  Invitation lookup (public — no auth required, used by invite acceptance page)
+  Invitation lookup (public to the slug holder). Returns only invite-page
+  display fields; accepting the slug still performs its own authorization.
   """
-  invitation(slug: String!): UserInvitation
+  invitation(slug: String!): PublicInvitation
 
   """
   The latest run of an App resolved to a concrete run (#696) — 'current/latest/previous' are queries, never magic run-ids in URN space (cor:urn:010:02). previous: true returns the run before the latest.
@@ -8370,15 +8613,19 @@ type Query {
   Read a team App's chat (#939), seq-ordered ascending, as a uniform
   { items, total } page. sinceSeq is a watermark cursor: only messages with
   seq STRICTLY GREATER than it are returned (pass the last seq you have
-  seen). beforeSeq (#1116) is its BACKWARD mirror for scroll-up paging: only
+  seen). With neither cursor nor offset, the NEWEST page is returned, still
+  ascending. Pass sinceSeq: 0 to start a forward walk at the oldest message.
+  beforeSeq (#1116) is its BACKWARD mirror for scroll-up paging: only
   messages with seq STRICTLY LESS than it are considered, and the NEWEST
   limit of those come back -- the page immediately before the cursor, still
   ascending. The two compose, so passing both reads a bounded slice.
   TeamChatMessagesPage.total counts that cursor range and the mentionsRef
   filter before paging, not the whole team-chat history.
-  offset is IGNORED when beforeSeq is given: a cursor exists precisely
-  because a position is unstable while workers keep posting, and honouring
-  both would put that race back. mentionsRef filters to messages whose stored envelope mentions the
+  An explicit offset retains oldest-first positional paging for existing
+  clients; prefer cursors for new reads. offset is IGNORED when beforeSeq is
+  given: a cursor exists precisely because a position is unstable while
+  workers keep posting, and honouring both would put that race back.
+  mentionsRef filters to messages whose stored envelope mentions the
   referenced worker (a Worker id or name of THIS App, retired included) or
   user (handle/id) — matching runs against the mention tokens extracted at
   write time, never by re-parsing bodies. The ref must name this App's own
@@ -8390,6 +8637,10 @@ type Query {
   Authorization: an AppMember of the App (any role), an org member with
   CONTRIBUTOR+ on the App's org, the owner of a user-owned App, or the
   App's own key (a pure App-key principal may READ its team chat).
+  Error codes (extensions.code): FORBIDDEN (an authenticated caller who is
+  not a participant), UNAUTHENTICATED (no principal at all; checked before
+  the App is resolved, so it answers identically whether or not the App
+  exists).
   
   appRef and mentionsRef accept the entity's ID or URN.
   """
@@ -8415,9 +8666,12 @@ type Query {
   { items, total } page. ref accepts ANY accepted spelling (URL, short form,
   canonical) and is matched tool-awarely: with tool 'github' (or none) it is
   normalized, so 'https://github.com/o/r/pull/371' and 'o/r#371' return the
-  same records; with another tool it matches the stored verbatim ref; with
-  no tool it matches either spelling. sessionRef / tool / kind are equality
-  filters; kind must be one of pr, issue, commit, branch, repo when given.
+  same records. An ownerless github ref such as cli#793 matches every
+  readable canonical ref whose repository ends in cli and number is 793;
+  it never selects one owner. With another tool ref matches the stored
+  verbatim spelling; with no tool it matches either. sessionRef / tool / kind
+  are equality filters; kind must be one of pr, issue, commit, branch, repo
+  when given.
   limit defaults to 50 (cap 200); limit: 0 returns only total.
   
   Authorization: an AppMember of the App (any role), an org member with
@@ -8564,6 +8818,16 @@ type Query {
   truncation. Read gate as the rest of the memory reads.
   """
   validateMemory(limit: Int, memoryRef: ID!): MemoryValidationResult!
+
+  """
+  #1591 — the tamper check over every live node of a memory (ID or fully-qualified URN).
+  """
+  verifyMemoryNodes(memoryRef: String!): MemoryIntegrityReport!
+
+  """
+  #1591 — the tamper check: recompute the node's approval hash from its current title/abstract/content and compare it with the approval on record. A pure read; an encrypted memory needs its session key (SESSION_EXPIRED otherwise).
+  """
+  verifyNode(nodeRef: ID!): NodeIntegrityCheck!
 
   """
   One Worker by ref (#974) — its id, its URN (#991), or (with appRef) its
@@ -8726,12 +8990,12 @@ enum RegisterRole {
 }
 
 """
-The Channel half of a register view row; the host memory's URN only when YOU may read it.
+The Channel half of a register view row; the host memory's URN only when the viewer may read it.
 """
 type RegisterViewChannel {
   deleted: Boolean!
 
-  """The host memory's id — like the URN, only when YOU may read it."""
+  """The host memory's id — like the URN, only when the viewer may read it."""
   hostMemoryId: ID
   hostMemoryUrn: String
   id: ID!
@@ -8747,15 +9011,17 @@ type RegisterViewChannel {
 """
 One row of an attendee's RESOLVED register (spec 049 §4.3): the winning
 register entry for a Channel (App › organization, Worker › Agent › everyone,
-never unioned), the Channel's watermark, and the CALLER's real standing on
+never unioned), the Channel's watermark, and the ATTENDEE's real standing on
 the host memory — canRead / canPost are the existing gates, the register
-grants nothing. A row the caller cannot act on is returned with its reason,
-never dropped.
+grants nothing. A row the attendee cannot act on is returned with its reason,
+never dropped. Host memory identifiers remain gated for the VIEWER.
 """
 type RegisterViewRow {
   attendeeUrn: String
 
-  """Null when no actor could be evaluated (UNKNOWN_ACTOR in disclosure)."""
+  """
+  False for a Worker without an eligible driver (UNKNOWN_ACTOR); null only when no access subject was supplied.
+  """
   canPost: Boolean
   canRead: Boolean!
   channel: RegisterViewChannel!
@@ -9350,6 +9616,18 @@ type Session {
   host: String
   id: ID!
   inputTokens: Int
+
+  """
+  hadron-cli#791 / cor:agt:020:11: whether THIS session is live: not ended,
+  AND driven inside its type's idle window (activity is the latest of
+  startedAt, the heartbeat updatedAt, and the latest attributed usage
+  event, capped at endedAt). The same derived predicate as startSession's
+  WORKER_TAKEN gate and Worker.hasLiveSession, so the three always agree.
+  An open session that is not live has LAPSED: nobody drove it inside the
+  window, so another driver may bind its worker; it is not ended, and can
+  still be ended with a handoff. False for an ended or deleted session.
+  """
+  isLive: Boolean!
   language: String
   llmModel: String
   memoryId: String
@@ -10725,15 +11003,21 @@ type User {
   googleId: String
   handle: String
   id: ID!
+
+  """Account metadata, visible to self, platform admins, and co-members."""
   identityProvider: String
   linkedAt: DateTime
   maxReferrals: Int
   name: String
 
   """
-  User-layer action-policy link (cor:acl:040:02, #510) — constrains runs made on the user's behalf. Null = no restriction. Self-authored via updateMyPolicy.
+  User-layer action-policy link (cor:acl:040:02, #510) — constrains runs made on the user's behalf. Null = no restriction, or hidden from viewers without personal-field access. Self-authored via updateMyPolicy.
   """
   policy: JSON
+
+  """
+  Platform roles; an empty list is returned to viewers without personal-field access.
+  """
   roles: [Role!]!
 
   """

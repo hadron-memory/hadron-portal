@@ -4150,3 +4150,36 @@ export const ATTENDEE_REGISTER_QUERY = /* GraphQL */ `
     }
   }
 `;
+
+// #992 (hadron-server#1591 PR 1) — node approvals. A single-node read only:
+// `Node.approvalStatus` costs a per-row lookup, so it is never selected on a
+// list (team chat #6300); lists filter by `NodeFilter.approvalState` instead.
+export const NODE_APPROVAL_QUERY = /* GraphQL */ `
+  query NodeApproval($ref: ID!) {
+    node(ref: $ref) {
+      id
+      revision
+      approvalStatus {
+        state
+        approval { revision approvedAt approvedBy { handle urn } approvedByInfo hash }
+      }
+    }
+  }
+`;
+
+// `revision` pins the approval to the revision the reader saw: an edit in
+// between answers REVISION_MISMATCH instead of approving text never reviewed.
+export const APPROVE_NODE_MUTATION = /* GraphQL */ `
+  mutation ApproveNode($nodeRef: ID!, $revision: Int) {
+    approveNode(nodeRef: $nodeRef, revision: $revision) {
+      nodeId
+      approval { revision approvedAt }
+    }
+  }
+`;
+
+export const VERIFY_NODE_QUERY = /* GraphQL */ `
+  query VerifyNode($nodeRef: ID!) {
+    verifyNode(nodeRef: $nodeRef) { state revision approvedRevision expectedHash actualHash }
+  }
+`;

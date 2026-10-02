@@ -7,8 +7,9 @@ import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
+import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, integrityText, verifyFailureText, type NodeApprovalRead, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
 // is what `scripts/check-node-write-doors.mjs` fails.
@@ -28,6 +29,7 @@ import type { MemoryNode, NodeRevision } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { sendChatMessageSchema } from '$lib/forms/chat-message-schema';
 import {
+  nodeApproveSchema,
   nodeConvertToTaskSchema,
   nodeCreateParentSchema,
   nodeDeleteSchema,
@@ -37,6 +39,7 @@ import {
   nodeUpdateEdgesSchema,
   nodeUpdateFlowSchema,
   nodeUpdateMetaSchema,
+  nodeVerifySchema,
   parseValidatedEdges,
   parseValidatedFlowRows,
 } from './schema';
@@ -50,6 +53,8 @@ type NodeDuplicateForm = Infer<typeof nodeDuplicateSchema, 'zod4'>;
 type NodeConvertToTaskForm = Infer<typeof nodeConvertToTaskSchema, 'zod4'>;
 type NodeUpdateFlowForm = Infer<typeof nodeUpdateFlowSchema, 'zod4'>;
 type NodeUpdateEdgesForm = Infer<typeof nodeUpdateEdgesSchema, 'zod4'>;
+type NodeApproveForm = Infer<typeof nodeApproveSchema, 'zod4'>;
+type NodeVerifyForm = Infer<typeof nodeVerifySchema, 'zod4'>;
 type SendChatMessageForm = Infer<typeof sendChatMessageSchema, 'zod4'>;
 
 const nodeMoveFormAdapter = zod4(nodeMoveSchema);
@@ -58,6 +63,14 @@ const nodeDeleteFormAdapter = zod4(nodeDeleteSchema);
 const nodeCreateParentFormAdapter = zod4(nodeCreateParentSchema);
 const nodeUpdateMetaFormAdapter = zod4(nodeUpdateMetaSchema);
 const nodeDuplicateFormAdapter = zod4(nodeDuplicateSchema);
+const nodeApproveFormAdapter = zod4(nodeApproveSchema);
+const nodeVerifyFormAdapter = zod4(nodeVerifySchema);
+// #992 (Chip's QA on #993): Superforms derives a form's id from its schema's
+// SHAPE, and a `_kind`-only schema hashes the same whatever the literal: the
+// verify form shared its id with Duplicate and Convert to task, so its result
+// never reached its own message. Explicit ids keep each form's result its own.
+const APPROVE_FORM_ID = 'approveNode';
+const VERIFY_FORM_ID = 'verifyNode';
 const nodeConvertToTaskFormAdapter = zod4(nodeConvertToTaskSchema);
 const nodeUpdateFlowFormAdapter = zod4(nodeUpdateFlowSchema);
 const nodeUpdateEdgesFormAdapter = zod4(nodeUpdateEdgesSchema);
@@ -298,6 +311,20 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       return { ok: false };
     }
   })();
+  // #992: approval status, its own streamed read for the same reasons, and
+  // bound to the rendered revision the same way.
+  const approval = (async (): Promise<ProvenanceResult<NodeApprovalStatus>> => {
+    try {
+      const r = await gqlClient(locals.token).request<{ node: NodeApprovalRead | null }>(
+        NODE_APPROVAL_QUERY,
+        { ref: node.id },
+      );
+      return bindApprovalToRevision(r?.node, node.revision);
+    } catch (e) {
+      console.warn('[node-detail] approval status failed:', e);
+      return { ok: false };
+    }
+  })();
   const revisionProvenance = (async (): Promise<ProvenanceResult<NodeProvenance[]>> => {
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeProvenance[] }>(
@@ -391,7 +418,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const outgoingEdges = node.outgoingEdges
     .filter((e) => e.target != null)
     .map((e) => ({ targetId: e.target!.id, name: e.name ?? null }));
-  const [moveForm, testFlowForm, deleteForm, createParentForm, updateMetaForm, duplicateForm, convertToTaskForm, flowForm, edgesForm, sendChatMessageForm] = await Promise.all([
+  const [moveForm, testFlowForm, deleteForm, createParentForm, updateMetaForm, duplicateForm, convertToTaskForm, flowForm, edgesForm, sendChatMessageForm, approveForm, verifyForm] = await Promise.all([
     superValidate<NodeMoveForm>({ target: '' }, nodeMoveFormAdapter, { errors: false }),
     superValidate<NodeTestFlowForm>(
       { appId: '', orgId: org?.id ?? '', payload: '' },
@@ -412,6 +439,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       edges: JSON.stringify(outgoingEdges),
     }, nodeUpdateEdgesFormAdapter, { errors: false }),
     superValidate<SendChatMessageForm>({}, sendChatMessageFormAdapter, { errors: false }),
+    superValidate<NodeApproveForm>({ revision: node.revision }, nodeApproveFormAdapter, { errors: false, id: APPROVE_FORM_ID }),
+    superValidate<NodeVerifyForm>({}, nodeVerifyFormAdapter, { errors: false, id: VERIFY_FORM_ID }),
   ]);
 
   const wikilinks = await wikilinksPromise;
@@ -439,6 +468,9 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     revisions,
     provenance,
     revisionProvenance,
+    approval,
+    approveForm,
+    verifyForm,
     moveForm,
     testFlowForm,
     deleteForm,
@@ -1120,6 +1152,49 @@ export const actions: Actions = {
       };
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to convert node to a task') }, { status: 500 });
+    }
+  },
+
+  // #992 (hadron-server#1591): approve the revision the reader saw. No
+  // redirect; enhance re-runs load, so the badge shows the new approval.
+  // Refusals map to fixed copy by code, never the server's prose.
+  approveNode: async ({ request, params, locals }) => {
+    const form = await superValidate<NodeApproveForm>(await request.formData(), nodeApproveFormAdapter, { id: APPROVE_FORM_ID });
+    if (!form.valid) return fail(400, { form });
+    try {
+      const r = await gqlClient(locals.token).request<{ approveNode: { approval: { revision: number } | null } }>(
+        APPROVE_NODE_MUTATION,
+        { nodeRef: params.nodeId, revision: form.data.revision },
+      );
+      const rev = r.approveNode.approval?.revision ?? form.data.revision;
+      return message(form, { type: 'success', text: t('node.approval.approved-now', 'Revision {rev} approved.', { rev }) });
+    } catch (e: unknown) {
+      const code = extractGqlErrorCode(e);
+      return message(form, { type: 'error', text: approveRefusalText(code) }, { status: approvalRefusalStatus(code) });
+    }
+  },
+
+  // #992: re-check the approved text against its recorded hash. A read, but
+  // an explicit one: it reports a verdict the reader asked for, as a message.
+  verifyNode: async ({ request, params, locals }) => {
+    const form = await superValidate<NodeVerifyForm>(await request.formData(), nodeVerifyFormAdapter, { id: VERIFY_FORM_ID });
+    if (!form.valid) return fail(400, { form });
+    try {
+      const r = await gqlClient(locals.token).request<{ verifyNode: NodeIntegrityCheck }>(
+        VERIFY_NODE_QUERY,
+        { nodeRef: params.nodeId },
+      );
+      const { state, expectedHash, actualHash } = r.verifyNode;
+      const { text, problem } = integrityText(r.verifyNode);
+      // The hashes ride along so a reader can copy them into a report or a
+      // CLI check. Hex digests, not server prose.
+      return {
+        verifyIntegrity: { state, expectedHash: expectedHash ?? null, actualHash: actualHash ?? null },
+        ...message(form, { type: problem ? 'error' : 'success', text }),
+      };
+    } catch (e: unknown) {
+      const code = extractGqlErrorCode(e);
+      return message(form, { type: 'error', text: verifyFailureText(code) }, { status: approvalRefusalStatus(code) });
     }
   },
 
