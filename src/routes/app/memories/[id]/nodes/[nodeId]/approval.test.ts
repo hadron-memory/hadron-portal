@@ -84,6 +84,18 @@ describe('node page — approval forms have ids of their own', () => {
   // come from the schema's shape and the verify form hashed the same as
   // Duplicate and Convert to task. A form sharing an id gets its result
   // routed to another form.
+  // #995: no two forms the page loads may share an id. Duplicate and Convert
+  // to task did (both `_kind`-only schemas), hiding Convert to task's errors.
+  it('every form the page loads has its own id', async () => {
+    serve(new Map([[NODE_APPROVAL_QUERY, () => ({ node: { id: 'leaf-pk', revision: 4, approvalStatus: APPROVED } })]]));
+    const { load } = await import('./+page.server');
+    const data = (await load(loadEvent())) as unknown as Record<string, { id?: string } | undefined>;
+    const ids = Object.keys(data).filter((k) => k.endsWith('Form')).map((k) => data[k]?.id);
+    expect(ids.length).toBeGreaterThan(10);
+    expect(ids.every(Boolean)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it('approve and verify ids are unique among every form on the page', async () => {
     serve(new Map([[NODE_APPROVAL_QUERY, () => ({ node: { id: 'leaf-pk', revision: 4, approvalStatus: APPROVED } })]]));
     const { load } = await import('./+page.server');
