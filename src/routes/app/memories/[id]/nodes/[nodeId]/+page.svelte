@@ -27,6 +27,8 @@
   import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
   import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
+  import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
+  import { approvalView, type NodeApprovalStatus } from '$lib/node-approval';
   import {
     authorshipSearchText,
     authorshipView,
@@ -63,6 +65,7 @@
   import type { PageData, ActionData } from './$types';
   import {
     isFullyQualifiedNodeUrnInput,
+    nodeApproveSchema,
     nodeConvertToTaskSchema,
     nodeCreateParentSchema,
     nodeDeleteSchema,
@@ -72,6 +75,7 @@
     nodeUpdateEdgesSchema,
     nodeUpdateFlowSchema,
     nodeUpdateMetaSchema,
+    nodeVerifySchema,
   } from './schema';
 
   type NodeMoveForm = Infer<typeof nodeMoveSchema, 'zod4'>;
@@ -91,6 +95,10 @@
   type NodeDuplicateSuperform = SuperValidated<NodeDuplicateForm, App.Superforms.Message, NodeDuplicateForm>;
   type NodeConvertToTaskSuperform = SuperValidated<NodeConvertToTaskForm, App.Superforms.Message, NodeConvertToTaskForm>;
   type NodeUpdateFlowSuperform = SuperValidated<NodeUpdateFlowForm, App.Superforms.Message, NodeUpdateFlowForm>;
+  type NodeApproveForm = Infer<typeof nodeApproveSchema, 'zod4'>;
+  type NodeVerifyForm = Infer<typeof nodeVerifySchema, 'zod4'>;
+  type NodeApproveSuperform = SuperValidated<NodeApproveForm, App.Superforms.Message, NodeApproveForm>;
+  type NodeVerifySuperform = SuperValidated<NodeVerifyForm, App.Superforms.Message, NodeVerifyForm>;
   type NodeUpdateEdgesSuperform = SuperValidated<NodeUpdateEdgesForm, App.Superforms.Message, NodeUpdateEdgesForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -794,6 +802,37 @@
     clearOnSubmit: 'none',
   });
 
+  // #992: Approve and Verify. Both forms are `novalidate` and post the DOM's
+  // FormData, so Approve sends the revision on screen from its hidden input;
+  // the store is kept in step too, so client state never disagrees with it.
+  const initialApproveForm = untrack(() => submittedForm<NodeApproveForm>(form, 'approveNode') as NodeApproveSuperform | null ?? data.approveForm);
+  const {
+    form: approveFormData,
+    errors: approveErrors,
+    message: approveMessage,
+    submitting: approveSubmitting,
+    enhance: approveEnhance,
+  } = superForm<NodeApproveForm, App.Superforms.Message, NodeApproveForm>(initialApproveForm, {
+    validators: zod4Client(nodeApproveSchema),
+    clearOnSubmit: 'none',
+  });
+  $effect(() => {
+    const revision = node.revision;
+    if (revision != null && untrack(() => $approveFormData.revision) !== revision) {
+      approveFormData.update((current) => ({ ...current, revision }), { taint: false });
+    }
+  });
+  const initialVerifyForm = untrack(() => submittedForm<NodeVerifyForm>(form, 'verifyNode') as NodeVerifySuperform | null ?? data.verifyForm);
+  const {
+    errors: verifyErrors,
+    message: verifyMessage,
+    submitting: verifySubmitting,
+    enhance: verifyEnhance,
+  } = superForm<NodeVerifyForm, App.Superforms.Message, NodeVerifyForm>(initialVerifyForm, {
+    validators: zod4Client(nodeVerifySchema),
+    clearOnSubmit: 'none',
+  });
+
   const testFlowPayloadValid = $derived.by(() => {
     const raw = $testFlowFormData.payload.trim();
     if (raw === '') return true;
@@ -903,6 +942,10 @@
     $convertToTaskMessage,
     $convertToTaskErrors,
   ));
+  const approveActionError = $derived(scopedActionError<NodeApproveForm>(form, 'approveNode', $approveMessage, $approveErrors, ['_kind', 'revision']));
+  const approveActionSuccess = $derived(scopedActionSuccess<NodeApproveForm>(form, 'approveNode', $approveMessage));
+  const verifyActionError = $derived(scopedActionError<NodeVerifyForm>(form, 'verifyNode', $verifyMessage, $verifyErrors));
+  const verifyActionSuccess = $derived(scopedActionSuccess<NodeVerifyForm>(form, 'verifyNode', $verifyMessage));
 
   // ── Actions menu (#503) ─────────────────────────────────────────────
   // The header "⋯" menu consolidates node actions; each item flips a panel/
@@ -1608,6 +1651,16 @@
       if (data.provenance === p) provenance = res;
     });
   });
+  // #992: approval status, streamed and checked the same way.
+  let approval = $state<ProvenanceResult<NodeApprovalStatus> | null>(null);
+  $effect(() => {
+    const p = data.approval;
+    approval = null;
+    p.then((res) => {
+      if (data.approval === p) approval = res;
+    });
+  });
+  const approvalState = $derived(approval ? approvalView(approval) : null);
   let revisionProvenance = $state<ProvenanceResult<Map<string, NodeProvenance>> | null>(null);
   $effect(() => {
     const p = data.revisionProvenance;
@@ -1984,6 +2037,36 @@
         {/if}
       </h1>
       <Urn value={fullUrn} type="node" />
+      <!-- #992: approval of the revision on screen, with Approve / Verify. -->
+      <div data-testid="node-approval" class="mt-1 flex flex-wrap items-center gap-2">
+        {#if approvalState}
+          <NodeApprovalBadge view={approvalState} />
+          {#if approvalState.canApprove}
+            <form method="POST" action="?/approveNode" use:approveEnhance novalidate>
+              <input type="hidden" name="_kind" value="approveNode" />
+              <input type="hidden" name="revision" value={node.revision} />
+              <button type="submit" disabled={$approveSubmitting} class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                {t('node.approval.approve', 'Approve revision {rev}', { rev: node.revision ?? '' })}
+              </button>
+            </form>
+          {/if}
+          {#if approvalState.approval}
+            <form method="POST" action="?/verifyNode" use:verifyEnhance novalidate>
+              <input type="hidden" name="_kind" value="verifyNode" />
+              <button type="submit" disabled={$verifySubmitting} class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+                {t('node.approval.verify', 'Verify')}
+              </button>
+            </form>
+          {/if}
+        {:else}
+          <span class="text-xs text-zinc-400" aria-busy="true">{t('node.approval.loading', 'Loading approval status…')}</span>
+        {/if}
+      </div>
+      {#if approveActionError || verifyActionError}
+        <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{approveActionError ?? verifyActionError}</p>
+      {:else if approveActionSuccess || verifyActionSuccess}
+        <p role="status" data-testid="approval-success" class="mt-1 text-xs text-emerald-700 dark:text-emerald-300">{approveActionSuccess ?? verifyActionSuccess}</p>
+      {/if}
       {#if node.description}
         <p class="mt-1 text-sm text-zinc-700 dark:text-zinc-300">{node.description}</p>
       {/if}

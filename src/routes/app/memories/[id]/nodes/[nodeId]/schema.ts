@@ -176,6 +176,19 @@ export const nodeConvertToTaskSchema = z.object({
   _kind: z.literal('convertToTask').default('convertToTask'),
 });
 
+// #992: `revision` is the revision the reader saw. The server refuses the
+// approval (REVISION_MISMATCH) if the node has moved on since.
+export const nodeApproveSchema = z.object({
+  _kind: z.literal('approveNode').default('approveNode'),
+  revision: z.coerce.number().int().positive(),
+});
+
+// Defaulted _kind accepts omitted hidden inputs while still rejecting a
+// defined discriminator from the wrong action.
+export const nodeVerifySchema = z.object({
+  _kind: z.literal('verifyNode').default('verifyNode'),
+});
+
 // Defaulted _kind accepts omitted hidden inputs while still rejecting a
 // defined discriminator from the wrong action.
 export const nodeUpdateFlowSchema = z.object({
@@ -212,5 +225,7 @@ export type NodeCreateParentSchema = typeof nodeCreateParentSchema;
 export type NodeUpdateMetaSchema = typeof nodeUpdateMetaSchema;
 export type NodeDuplicateSchema = typeof nodeDuplicateSchema;
 export type NodeConvertToTaskSchema = typeof nodeConvertToTaskSchema;
+export type NodeApproveSchema = typeof nodeApproveSchema;
+export type NodeVerifySchema = typeof nodeVerifySchema;
 export type NodeUpdateFlowSchema = typeof nodeUpdateFlowSchema;
 export type NodeUpdateEdgesSchema = typeof nodeUpdateEdgesSchema;
