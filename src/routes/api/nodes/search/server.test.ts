@@ -304,3 +304,19 @@ describe('/api/nodes/search (#429)', () => {
     expect((await res.json()).error).toBe('where: depth exceeds 4');
   });
 });
+
+describe('/api/nodes/search approval and minting filters (#992)', () => {
+  it('forwards approvalState and minted as a filter-only list', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1, 1));
+    await POST(ev({ memoryIds: ['m1'], filter: { approvalState: 'SUPERSEDED', minted: false } }));
+    const vars = mockRequest.mock.calls[0][1];
+    expect(vars).toMatchObject({ approvalState: 'SUPERSEDED', minted: false, memoryIds: ['m1'], query: null });
+  });
+
+  it('drops an unknown approval state and a non-boolean minted, so a bare browse stays local', async () => {
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { approvalState: 'MINTED', minted: 'yes' } }));
+    expect(await res.json()).toEqual({ nodes: [], total: null });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+});
+
