@@ -31,7 +31,11 @@ export function approveAllSummary(r: ApproveMemoryNodesResult): string {
   return parts.join(' ');
 }
 
-/** The HTTP status and fixed copy for an approveMemoryNodes failure. */
+/**
+ * The HTTP status and fixed copy for an approveMemoryNodes failure. The typed
+ * refusals are raised before the transaction starts (authorization, memory
+ * lookup, key availability), so for those "nothing was approved" is true.
+ */
 export function approveAllFailure(code: string | null | undefined): { status: 403 | 404 | 423 | 500; text: string } {
   switch (code) {
     case 'FORBIDDEN':
@@ -43,7 +47,15 @@ export function approveAllFailure(code: string | null | undefined): { status: 40
     // session (approving hashes the plaintext), not for an expired sign-in.
     case 'SESSION_EXPIRED':
       return { status: 423, text: t('memory.approve-all.refused.key-unavailable', "This memory is encrypted and its key isn't available to your session right now, so nothing was approved.") };
+    // Anything else is an UNKNOWN outcome: the transaction may have committed
+    // and only the answer was lost, so this must not claim nothing happened
+    // (Gene on #994; hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee).
     default:
-      return { status: 500, text: t('memory.approve-all.refused.unknown', "Approve all didn't go through, and nothing was approved. Try again.") };
+      return { status: 500, text: approveAllUnconfirmedText() };
   }
+}
+
+/** Copy for an Approve all whose outcome isn't known (a server error, or no usable response). */
+export function approveAllUnconfirmedText(): string {
+  return t('memory.approve-all.unconfirmed', "Approve all couldn't be confirmed. It may or may not have gone through. Reload the page to see each node's approval before trying again.");
 }

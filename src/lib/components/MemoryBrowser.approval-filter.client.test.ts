@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import MemoryBrowser from './MemoryBrowser.svelte';
 
 const NODES = [
@@ -28,9 +29,10 @@ afterEach(() => {
 });
 
 function mountBrowser() {
-  const m = mountComponent(MemoryBrowser as never, { nodes: NODES, basePath: '/app/memories/mem-1', forcedView: 'nodes' } as never) as Mounted<Record<string, unknown>>;
+  const props = reactiveProps<Record<string, unknown>>({ nodes: NODES, basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0 });
+  const m = mountComponent(MemoryBrowser as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
-  return m;
+  return { ...m, props };
 }
 
 function pick(target: HTMLElement, testid: string, value: string) {
@@ -71,5 +73,23 @@ describe('MemoryBrowser approval and minting filters (#992)', () => {
     pick(target, 'minted-filter', 'unminted');
     const bodies = await searchBodies();
     expect(bodies[0].filter).toMatchObject({ approvalState: null, minted: false });
+  });
+
+  // Gene on #994: Approve all under "Not approved" changes what the filter
+  // matches, and nothing else would re-run the search.
+  it('a refreshKey bump re-runs an active server filter', async () => {
+    const { target, props } = mountBrowser();
+    pick(target, 'approval-filter', 'NOT_APPROVED');
+    expect(await searchBodies()).toHaveLength(1);
+    props.refreshKey = 1;
+    flushSync();
+    expect(await searchBodies()).toHaveLength(2);
+  });
+
+  it('a refreshKey bump sends nothing while browsing the loaded set', async () => {
+    const { props } = mountBrowser();
+    props.refreshKey = 1;
+    flushSync();
+    expect(await searchBodies()).toEqual([]);
   });
 });

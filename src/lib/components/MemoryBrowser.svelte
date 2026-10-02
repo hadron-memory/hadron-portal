@@ -31,6 +31,7 @@
     scopeMemoryIds = [],
     forcedView,
     memory = null,
+    refreshKey = 0,
   }: {
     nodes: MemoryNode[];
     /**
@@ -64,6 +65,12 @@
      * structured controls fall back to schema-less behavior.
      */
     memory?: Memory | null;
+    /**
+     * #992: bump to re-run an active server view after a write changed what
+     * its filters match (e.g. Approve all under "Not approved"). The browse
+     * set is the load's; this only refreshes server results.
+     */
+    refreshKey?: number;
   } = $props();
 
   const writableSet = $derived(new Set(writableMemoryIds));
@@ -577,6 +584,7 @@
     const sortProperty = sortPropertyPayload;
     const whereError = whereParse.error;
     const fieldsStr = searchFieldsStr; // tracked dep; '' when non-lexical
+    void refreshKey; // tracked dep: a bump re-runs an active server view (#992)
     if (!serverViewActive) {
       searchSeq++;
       setServerResults(null);

@@ -46,7 +46,7 @@ describe('approve-all endpoint (#992)', () => {
     ['FORBIDDEN', 403, "don't have permission"],
     ['MEMORY_NOT_FOUND', 404, 'no longer exists'],
     ['SESSION_EXPIRED', 423, 'encrypted and its key'],
-    ['INTERNAL_SERVER_ERROR', 500, 'nothing was approved'],
+    ['INTERNAL_SERVER_ERROR', 500, 'may or may not have gone through'],
   ])('%s → %i with fixed copy', async (code, status, copy) => {
     mockRequest.mockRejectedValue(gqlError(code));
     const res = await POST(ev());
