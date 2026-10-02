@@ -10,6 +10,7 @@
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { t } from '$lib/i18n/t';
   import ApproveAllDialog from '$lib/components/memory/ApproveAllDialog.svelte';
+  import MintDialog from '$lib/components/memory/MintDialog.svelte';
   import { canSeeShares } from '$lib/memory/can-manage-shares';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
@@ -40,6 +41,8 @@
     ...(cloneable ? [{ id: 'clone', label: t('memory-actions.clone', 'Clone memory') }] : []),
     // #992: system memories hold an agent's own state, not specs to approve.
     ...(g.class !== 'system' ? [{ id: 'approve-all', label: t('memory-actions.approve-all', 'Approve all nodes') }] : []),
+    // #992 slice C: the server refuses encrypted memories outright.
+    ...(g.class !== 'system' && !g.isEncrypted ? [{ id: 'mint', label: t('memory-actions.mint', 'Mint nodes') }] : []),
     ...(canDelete ? [{ id: 'delete', label: t('memory-actions.delete', 'Delete memory'), danger: true }] : []),
   ]);
 
@@ -67,6 +70,7 @@
 
   // #992: Approve all (approveMemoryNodes), in its own dialog component.
   let approveAllOpen = $state(false);
+  let mintOpen = $state(false);
   // Bumped after a confirmed Approve all, so an active server filter in the
   // node list ("Not approved") re-runs instead of listing approved nodes.
   let approvalsVersion = $state(0);
@@ -75,8 +79,10 @@
     cloneOpen = false;
     cloneError = null;
     approveAllOpen = false;
+    mintOpen = false;
     switch (id) {
       case 'approve-all': approveAllOpen = true; break;
+      case 'mint': mintOpen = true; break;
       case 'add-node': goto(`${basePath}/nodes/new`); break;
       // Edit + Delete live on the Settings tab; deep-link so the relevant form
       // opens on arrival (?edit=1 / ?delete=1).
@@ -302,6 +308,7 @@
 
   <!-- #992: Approve all, bound to this memory. -->
   <ApproveAllDialog memory={{ id: g.id, urn: g.urn }} bind:open={approveAllOpen} onapproved={() => approvalsVersion++} />
+  <MintDialog memory={{ id: g.id, urn: g.urn }} bind:open={mintOpen} onminted={() => approvalsVersion++} />
 
   <!-- Nodes/Graph share one MemoryBrowser rendered HERE (in the persistent
        layout) so its tree width, open/closed, search, and filters survive

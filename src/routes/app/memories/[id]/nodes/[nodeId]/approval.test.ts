@@ -218,3 +218,26 @@ describe('verifyNode action', () => {
     expect(messageOf(r)).toEqual({ type: 'error', text: "Verification didn't run. Try again." });
   });
 });
+
+describe('node page — mint status rides the same read (#992 slice C)', () => {
+  const MINT = { minted: true, mintedAt: '2026-10-02T10:00:00Z', mintedBy: null, mintedByInfo: 'backfill', revision: null, hash: null };
+  async function loadBoth() {
+    const { load } = await import('./+page.server');
+    const data = (await load(loadEvent())) as unknown as { approval: Promise<unknown>; mint: Promise<unknown> };
+    return { approval: await data.approval, mint: await data.mint };
+  }
+
+  it('one request answers both, each bound to the rendered revision', async () => {
+    serve(new Map([[NODE_APPROVAL_QUERY, () => ({ node: { id: 'leaf-pk', revision: 4, approvalStatus: APPROVED, mintStatus: MINT } })]]));
+    expect(await loadBoth()).toEqual({ approval: { ok: true, value: APPROVED }, mint: { ok: true, value: MINT } });
+    expect(mockRequest.mock.calls.filter(([q]) => q === NODE_APPROVAL_QUERY)).toHaveLength(1);
+  });
+
+  it('a newer revision withholds both; a failed read fails both', async () => {
+    serve(new Map([[NODE_APPROVAL_QUERY, () => ({ node: { id: 'leaf-pk', revision: 5, approvalStatus: APPROVED, mintStatus: MINT } })]]));
+    expect(await loadBoth()).toEqual({ approval: { ok: false, changed: true }, mint: { ok: false, changed: true } });
+    serve(new Map([[NODE_APPROVAL_QUERY, () => { throw new Error('boom'); }]]));
+    expect(await loadBoth()).toEqual({ approval: { ok: false }, mint: { ok: false } });
+  });
+});
+
