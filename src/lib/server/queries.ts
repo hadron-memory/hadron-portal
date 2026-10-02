@@ -4169,6 +4169,9 @@ export const NODE_APPROVAL_QUERY = /* GraphQL */ `
         state
         approval { revision approvedAt approvedBy { handle urn } approvedByInfo hash }
       }
+      # #992 slice C (server #1591 PR 2): the same single-node read carries
+      # the mint stamp, bound to the rendered revision with the approval.
+      mintStatus { minted mintedAt mintedBy { handle urn } mintedByInfo revision hash }
     }
   }
 `;
@@ -4199,6 +4202,23 @@ export const APPROVE_MEMORY_NODES_MUTATION = /* GraphQL */ `
       approvedCount
       alreadyApprovedCount
       skippedPlaceholders
+    }
+  }
+`;
+
+// #992 (hadron-server#1591 PR 2): mint every unminted live node of a memory.
+// `dryRun` returns the full report without minting; the portal always runs one
+// first and offers the real run only when nothing blocks. Finding `message`
+// is not selected: the portal renders fixed copy per kind.
+export const MINT_MEMORY_NODES_MUTATION = /* GraphQL */ `
+  mutation MintMemoryNodes($memoryRef: ID!, $dryRun: Boolean) {
+    mintMemoryNodes(memoryRef: $memoryRef, dryRun: $dryRun) {
+      dryRun
+      minted
+      mintedCount
+      mintLocs
+      blockers { kind loc rule targetLoc }
+      openQuestions { decider questions { loc } }
     }
   }
 `;

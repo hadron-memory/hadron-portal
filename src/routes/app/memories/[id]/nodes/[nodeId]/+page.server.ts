@@ -9,6 +9,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
 import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
+import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, integrityText, verifyFailureText, type NodeApprovalRead, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
@@ -311,20 +312,28 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       return { ok: false };
     }
   })();
-  // #992: approval status, its own streamed read for the same reasons, and
-  // bound to the rendered revision the same way.
-  const approval = (async (): Promise<ProvenanceResult<NodeApprovalStatus>> => {
+  // #992: approval and mint status, their own streamed read for the same
+  // reasons, and bound to the rendered revision the same way. ONE request;
+  // each result is derived from it, so the two can never describe different
+  // revisions. `undefined` marks a failed read.
+  const governanceRead = (async (): Promise<(NodeApprovalRead & { mintStatus?: NodeMintStatus | null }) | null | undefined> => {
     try {
-      const r = await gqlClient(locals.token).request<{ node: NodeApprovalRead | null }>(
+      const r = await gqlClient(locals.token).request<{ node: (NodeApprovalRead & { mintStatus?: NodeMintStatus | null }) | null }>(
         NODE_APPROVAL_QUERY,
         { ref: node.id },
       );
-      return bindApprovalToRevision(r?.node, node.revision);
+      return r?.node ?? null;
     } catch (e) {
       console.warn('[node-detail] approval status failed:', e);
-      return { ok: false };
+      return undefined;
     }
   })();
+  const approval: Promise<ProvenanceResult<NodeApprovalStatus>> = governanceRead.then((read) =>
+    read === undefined ? { ok: false } : bindApprovalToRevision(read, node.revision),
+  );
+  const mint: Promise<ProvenanceResult<NodeMintStatus>> = governanceRead.then((read) =>
+    read === undefined ? { ok: false } : bindMintToRevision(read, node.revision),
+  );
   const revisionProvenance = (async (): Promise<ProvenanceResult<NodeProvenance[]>> => {
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeProvenance[] }>(
@@ -469,6 +478,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     provenance,
     revisionProvenance,
     approval,
+    mint,
     approveForm,
     verifyForm,
     moveForm,

@@ -28,6 +28,8 @@
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
   import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
+  import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
+  import { mintView, type NodeMintStatus } from '$lib/node-mint';
   import { approvalView, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
   import {
     authorshipSearchText,
@@ -1667,6 +1669,16 @@
     });
   });
   const approvalState = $derived(approval ? approvalView(approval) : null);
+  // #992 slice C: mint status, from the same read as the approval.
+  let mintResult = $state<ProvenanceResult<NodeMintStatus> | null>(null);
+  $effect(() => {
+    const p = data.mint;
+    mintResult = null;
+    p.then((res) => {
+      if (data.mint === p) mintResult = res;
+    });
+  });
+  const mintState = $derived(mintResult ? mintView(mintResult, node.revision) : null);
   let revisionProvenance = $state<ProvenanceResult<Map<string, NodeProvenance>> | null>(null);
   $effect(() => {
     const p = data.revisionProvenance;
@@ -2046,6 +2058,7 @@
       <!-- #992: approval of the revision on screen, with Approve / Verify. -->
       <div data-testid="node-approval" class="mt-1 flex flex-wrap items-center gap-2">
         {#if approvalState}
+          {#if mintState}<NodeMintLabel view={mintState} />{/if}
           <NodeApprovalBadge view={approvalState} />
           {#if approvalState.canApprove}
             <form method="POST" action="?/approveNode" use:approveEnhance novalidate>

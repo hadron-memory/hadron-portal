@@ -1,0 +1,156 @@
+/**
+ * #992 slice C — per-node minting (hadron-server#1591 PR 2), turned into what
+ * the portal renders. Pure: no fetching, no DOM.
+ *
+ * - A node is minted once, at a revision: `Node.mintStatus` records which, by
+ *   whom, and the approval hash it was minted with.
+ * - The #1591 migration BACKFILLED every node of a memory that was never a
+ *   draft as minted (`mintedByInfo: 'backfill'`, no revision, no hash).
+ *   Holger's ruling (team chat #6255): those get a quiet secondary label, not
+ *   a headline badge, so ordinary memories don't look newly governed.
+ * - Mint refusals and report findings map to FIXED copy by code or kind; the
+ *   server's prose is never shown (the same rule as `$lib/node-approval`).
+ */
+import { t } from '$lib/i18n/t';
+import type { ProvenanceResult } from '$lib/node-provenance';
+
+export interface NodeMintStatus {
+  minted: boolean;
+  mintedAt: string | null;
+  mintedBy: { handle: string | null; urn: string | null } | null;
+  mintedByInfo: string | null;
+  /** The minted revision. Null for a backfilled node, whose revision is unknown. */
+  revision: number | null;
+  hash: string | null;
+}
+
+/** The marker the #1591 migration writes into `mintedByInfo`. */
+export const BACKFILL_MINTER = 'backfill';
+
+/**
+ * Accept a mint status only when its read describes the revision the page
+ * rendered, like the approval it rides with.
+ */
+export function bindMintToRevision(
+  read: { revision: number; mintStatus?: NodeMintStatus | null } | null | undefined,
+  shownRevision: number | null | undefined,
+): ProvenanceResult<NodeMintStatus> {
+  if (!read?.mintStatus) return { ok: false };
+  if (shownRevision == null || read.revision !== shownRevision) return { ok: false, changed: true };
+  return { ok: true, value: read.mintStatus };
+}
+
+export type MintView =
+  | { kind: 'minted'; status: NodeMintStatus; minter: string | null; editedSince: boolean }
+  | { kind: 'backfilled' }
+  | { kind: 'unminted' }
+  | { kind: 'none' };
+
+/**
+ * What to show. `none` (a failed or outdated read) shows nothing: the mint
+ * label is secondary, and the approval badge beside it already says when the
+ * status couldn't load.
+ */
+export function mintView(result: ProvenanceResult<NodeMintStatus | null | undefined>, shownRevision: number | null | undefined): MintView {
+  if (!result.ok || !result.value) return { kind: 'none' };
+  const s = result.value;
+  if (!s.minted) return { kind: 'unminted' };
+  if (s.mintedByInfo === BACKFILL_MINTER) return { kind: 'backfilled' };
+  const handle = s.mintedBy?.handle?.trim();
+  const minter = handle ? `@${handle}` : s.mintedByInfo?.trim() || null;
+  const editedSince = s.revision != null && shownRevision != null && s.revision !== shownRevision;
+  return { kind: 'minted', status: s, minter, editedSince };
+}
+
+// ── Mint (the memory action) ───────────────────────────────────────────
+
+export type MintFindingKind =
+  | 'PLACEHOLDER'
+  | 'UNRESOLVED_REFERENCE'
+  | 'LINT'
+  | 'STALE_ABSTRACT'
+  | 'NOT_APPROVED'
+  | 'TAMPERED'
+  | 'CITES_UNMINTED';
+
+export interface MintFinding {
+  kind: MintFindingKind;
+  loc: string;
+  rule: string | null;
+  targetLoc: string | null;
+}
+
+/** The report the mint endpoint returns: counts, not the full loc list. */
+export interface MintReport {
+  dryRun: boolean;
+  minted: boolean;
+  mintedCount: number;
+  /** How many nodes this run minted, or a dry run would mint. */
+  mintableCount: number;
+  blockers: MintFinding[];
+  openQuestionCount: number;
+}
+
+/** What blocks minting a node, as a reader should act on it. Keyed by kind. */
+export function findingKindText(kind: string): string {
+  switch (kind) {
+    case 'PLACEHOLDER':
+      return t('memory.mint.blocker.placeholder', 'Placeholder: no spec written yet');
+    case 'UNRESOLVED_REFERENCE':
+      return t('memory.mint.blocker.unresolved', 'Cites a spec that doesn’t exist or is a placeholder');
+    case 'LINT':
+      return t('memory.mint.blocker.lint', 'Fails a structural check');
+    case 'STALE_ABSTRACT':
+      return t('memory.mint.blocker.stale-abstract', 'Abstract written for an earlier body');
+    case 'NOT_APPROVED':
+      return t('memory.mint.blocker.not-approved', 'Current revision not approved');
+    case 'TAMPERED':
+      return t('memory.mint.blocker.tampered', 'Approved text changed outside the revision history; re-approve it');
+    case 'CITES_UNMINTED':
+      return t('memory.mint.blocker.cites-unminted', 'Links to a node in another memory that isn’t minted');
+    default:
+      return t('memory.mint.blocker.unknown', 'Blocks minting');
+  }
+}
+
+export function mintSummary(r: MintReport): string {
+  if (r.dryRun) {
+    if (r.blockers.length > 0) {
+      return t('memory.mint.blocked', '{n} items block minting. Fix them, then try again.', { n: r.blockers.length });
+    }
+    if (r.mintableCount === 0) return t('memory.mint.nothing', 'Every node in this memory is already minted.');
+    return r.mintableCount === 1
+      ? t('memory.mint.ready-one', '1 node is ready to mint.')
+      : t('memory.mint.ready-many', '{n} nodes are ready to mint.', { n: r.mintableCount });
+  }
+  return r.mintedCount === 1
+    ? t('memory.mint.minted-one', 'Minted 1 node.')
+    : t('memory.mint.minted-many', 'Minted {n} nodes.', { n: r.mintedCount });
+}
+
+/**
+ * The HTTP status and fixed copy for a mint failure. The typed refusals are
+ * raised before anything is stamped, so "nothing was minted" is true for them;
+ * anything else is an unknown outcome (Gene on #994).
+ */
+export function mintFailure(code: string | null | undefined): { status: 403 | 404 | 409 | 422 | 503 | 500; text: string } {
+  switch (code) {
+    case 'FORBIDDEN':
+      return { status: 403, text: t('memory.mint.refused.forbidden', "You don't have permission to mint this memory's nodes.") };
+    case 'NOT_FOUND':
+    case 'MEMORY_NOT_FOUND':
+      return { status: 404, text: t('memory.mint.refused.not-found', 'This memory no longer exists, or you no longer have access to it.') };
+    case 'SPEC_CORPUS_MINT_BLOCKED':
+      return { status: 409, text: t('memory.mint.refused.blocked', 'Something now blocks minting, so nothing was minted. The list below is current.') };
+    case 'SPEC_CORPUS_BUSY':
+      return { status: 503, text: t('memory.mint.refused.busy', 'This memory is being written to right now, so nothing was minted. Try again in a moment.') };
+    case 'SPEC_CORPUS_ENCRYPTED_UNSUPPORTED':
+      return { status: 422, text: t('memory.mint.refused.encrypted', "Encrypted memories can't be minted yet.") };
+    default:
+      return { status: 500, text: mintUnconfirmedText() };
+  }
+}
+
+export function mintUnconfirmedText(): string {
+  return t('memory.mint.unconfirmed', "Minting couldn't be confirmed. It may or may not have gone through. Reload the page to see each node's status before trying again.");
+}
