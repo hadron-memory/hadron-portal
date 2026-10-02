@@ -86,6 +86,14 @@ describe('mint endpoint (#992)', () => {
     expect(body.error).toBe('Something now blocks minting, so nothing was minted. Check again to see what.');
   });
 
+  it('an unknown failure of a dry run is a failed check, not an unknown mint (Codex on #996)', async () => {
+    mockRequest.mockRejectedValue(gqlError('INTERNAL_SERVER_ERROR'));
+    const res = await POST(ev({}));
+    expect(res.status).toBe(500);
+    const { error } = await res.json();
+    expect(error).toBe("Couldn't check this memory. Try again.");
+  });
+
   it.each([
     ['SPEC_CORPUS_BUSY', 503, 'Try again in a moment'],
     ['SPEC_CORPUS_ENCRYPTED_UNSUPPORTED', 422, "can't be minted"],

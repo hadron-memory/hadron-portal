@@ -116,7 +116,9 @@ export function findingKindText(kind: string): string {
 export function mintSummary(r: MintReport): string {
   if (r.dryRun) {
     if (r.blockers.length > 0) {
-      return t('memory.mint.blocked', '{n} items block minting. Fix them, then try again.', { n: r.blockers.length });
+      return r.blockers.length === 1
+        ? t('memory.mint.blocked-one', '1 item blocks minting. Fix it, then try again.')
+        : t('memory.mint.blocked', '{n} items block minting. Fix them, then try again.', { n: r.blockers.length });
     }
     if (r.mintableCount === 0) return t('memory.mint.nothing', 'Every node in this memory is already minted.');
     return r.mintableCount === 1
@@ -130,10 +132,11 @@ export function mintSummary(r: MintReport): string {
 
 /**
  * The HTTP status and fixed copy for a mint failure. The typed refusals are
- * raised before anything is stamped, so "nothing was minted" is true for them;
- * anything else is an unknown outcome (Gene on #994).
+ * raised before anything is stamped, so "nothing was minted" is true for them.
+ * Anything else is an unknown outcome for a real run (Gene on #994), but a dry
+ * run can't mint, so its failure is only a failed check (Codex on #996).
  */
-export function mintFailure(code: string | null | undefined): { status: 403 | 404 | 409 | 422 | 503 | 500; text: string } {
+export function mintFailure(code: string | null | undefined, dryRun = false): { status: 403 | 404 | 409 | 422 | 503 | 500; text: string } {
   switch (code) {
     case 'FORBIDDEN':
       return { status: 403, text: t('memory.mint.refused.forbidden', "You don't have permission to mint this memory's nodes.") };
@@ -147,8 +150,13 @@ export function mintFailure(code: string | null | undefined): { status: 403 | 40
     case 'SPEC_CORPUS_ENCRYPTED_UNSUPPORTED':
       return { status: 422, text: t('memory.mint.refused.encrypted', "Encrypted memories can't be minted yet.") };
     default:
-      return { status: 500, text: mintUnconfirmedText() };
+      return { status: 500, text: dryRun ? mintCheckFailedText() : mintUnconfirmedText() };
   }
+}
+
+/** Copy for a dry run that failed: nothing could have been minted. */
+export function mintCheckFailedText(): string {
+  return t('memory.mint.check-failed', "Couldn't check this memory. Try again.");
 }
 
 /** A response body is a usable mint report only with every field the dialog reads. */

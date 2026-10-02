@@ -37,7 +37,9 @@ describe('mint report copy', () => {
   it('says what a dry run found and what a real run did', () => {
     expect(mintSummary(report({ mintableCount: 4 }))).toBe('4 nodes are ready to mint.');
     expect(mintSummary(report({}))).toBe('Every node in this memory is already minted.');
-    expect(mintSummary(report({ mintableCount: 4, blockers: [{ kind: 'NOT_APPROVED', loc: 'a', rule: null, targetLoc: null }] }))).toBe('1 items block minting. Fix them, then try again.');
+    const blocker = { kind: 'NOT_APPROVED' as const, loc: 'a', rule: null, targetLoc: null };
+    expect(mintSummary(report({ mintableCount: 4, blockers: [blocker] }))).toBe('1 item blocks minting. Fix it, then try again.');
+    expect(mintSummary(report({ mintableCount: 4, blockers: [blocker, { ...blocker, loc: 'b' }] }))).toBe('2 items block minting. Fix them, then try again.');
     expect(mintSummary(report({ dryRun: false, minted: true, mintedCount: 4 }))).toBe('Minted 4 nodes.');
   });
 
@@ -55,5 +57,7 @@ describe('mint report copy', () => {
     const unknown = mintFailure('INTERNAL_SERVER_ERROR');
     expect(unknown.status).toBe(500);
     expect(unknown.text).toContain('may or may not have gone through');
+    // A dry run can't mint, so its unknown failure is only a failed check (Codex on #996).
+    expect(mintFailure('INTERNAL_SERVER_ERROR', true)).toEqual({ status: 500, text: "Couldn't check this memory. Try again." });
   });
 });

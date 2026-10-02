@@ -48,7 +48,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     return json({ report: toReport(res.mintMemoryNodes) });
   } catch (e: unknown) {
     const code = extractGqlErrorCode(e);
-    const { status, text } = mintFailure(code);
+    const { status, text } = mintFailure(code, dryRun);
     if (code === 'SPEC_CORPUS_MINT_BLOCKED') {
       try {
         const fresh = await run(true);

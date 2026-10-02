@@ -14,7 +14,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
-  import { findingKindText, isMintReport, mintSummary, mintUnconfirmedText, type MintReport } from '$lib/node-mint';
+  import { findingKindText, isMintReport, mintCheckFailedText, mintSummary, mintUnconfirmedText, type MintReport } from '$lib/node-mint';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import MintBlockersTable, { type MintBlockerRow } from './MintBlockersTable.svelte';
 
@@ -34,7 +34,7 @@
   let shown = $state<{ memoryUrn: string; report: MintReport } | null>(null);
   let seq = 0;
 
-  const checkFailedText = () => t('memory.mint.check-failed', "Couldn't check this memory. Try again.");
+  const checkFailedText = mintCheckFailedText;
 
   async function post(dryRun: boolean) {
     const target = { id: memory.id, urn: memory.urn };
