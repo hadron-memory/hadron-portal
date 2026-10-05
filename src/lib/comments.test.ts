@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  REPLY_ON_RESOLVED_THREAD,
   anchorView,
   authorView,
   bodyView,
   commentControls,
   commentFailure,
   openFeedbackCue,
+  provenanceText,
   type CommentAuthor,
   type CommentPermissions,
 } from './comments';
@@ -132,11 +132,13 @@ describe('commentControls', () => {
     expect(c.reopen).toBe(false);
   });
 
-  it('a resolved thread offers Reopen, and Reply only once DAB rules it allowed', () => {
+  it('a resolved thread offers Reopen, and still takes replies (DAB)', () => {
     const c = commentControls(resolvedRoot, resolvedRoot, writer, false);
     expect(c.reopen).toBe(true);
     expect(c.resolve).toBe(false);
-    expect(c.reply).toBe(REPLY_ON_RESOLVED_THREAD);
+    expect(c.reply).toBe(true);
+    // ...but not from a reader without write access.
+    expect(commentControls(resolvedRoot, resolvedRoot, reader, false).reply).toBe(false);
   });
 
   it('a retracted comment takes no edit, retract or resolve, but its open thread still takes replies', () => {
@@ -167,6 +169,16 @@ describe('commentControls', () => {
     expect(commentControls(openRoot, openRoot, writer, true)).toMatchObject({ hide: false, deleteThread: false });
     expect(commentControls(openRoot, openRoot, admin, false)).toMatchObject({ hide: true, deleteThread: true });
     expect(commentControls(reply, openRoot, admin, false).deleteThread).toBe(false);
+  });
+});
+
+describe('provenanceText', () => {
+  it('names who bound a worker session, as provenance', () => {
+    expect(provenanceText(ref({ handle: 'holger' }))).toBe('session bound by @holger');
+  });
+
+  it('says nothing when the server withholds it', () => {
+    expect(provenanceText(null)).toBeNull();
   });
 });
 

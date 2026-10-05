@@ -17,6 +17,7 @@
     authorView,
     bodyView,
     commentControls,
+    provenanceText,
     type Comment,
     type CommentSummary,
     type Discussion,
@@ -176,6 +177,9 @@
           {t('comments.author.via-agent', 'via {agent}', { agent: author.agent.label })}
         </span>
         {#if author.agent.urn}<span class="min-w-0"><Urn value={author.agent.urn} compact linked /></span>{/if}
+      {/if}
+      {#if author.kind === 'WORKER' && provenanceText(c.provenanceUser)}
+        <span>({provenanceText(c.provenanceUser)})</span>
       {/if}
       <time datetime={c.createdAt}>{new Date(c.createdAt).toLocaleString()}</time>
       {#if c.updatedAt && view.kind === 'text'}

@@ -66,7 +66,10 @@ export interface Comment {
   resolvedAt: string | null;
   resolvedBy: CommentActorRef | null;
   author: CommentAuthor;
-  /** Who bound the worker session; provenance only, never the author (`110:03`). */
+  /**
+   * Who bound the worker session: provenance only, never the author (`110:03`).
+   * Visible to memory writers (DAB), null to everyone else.
+   */
   provenanceUser: CommentActorRef | null;
   createdAt: string;
   updatedAt: string | null;
@@ -101,13 +104,6 @@ export type Discussion =
   | { ok: true; threads: DiscussionThread[]; total: number; permissions: CommentPermissions }
   | { ok: false };
 
-/**
- * Whether a reply may be posted on a RESOLVED thread. `hrn:node:hadronmemory.com:specs:cor:dmo:110:05` doesn't
- * say, and the ruling (DAB) is with Holger (comment-nodes contract §8.2). Until
- * it lands, a resolved thread offers Reopen and no Reply, so the portal never
- * decides the rule for him. Flip this when DAB is ruled.
- */
-export const REPLY_ON_RESOLVED_THREAD = false;
 
 /**
  * Memory classes whose nodes can be discussed (`hrn:node:hadronmemory.com:specs:cor:dmo:110:02`): comments
@@ -134,6 +130,12 @@ export interface AuthorView {
   /** The unnamed agent that wrote for the user (`USER_AGENT`), shown beside the user. */
   agent: { label: string; urn: string | null } | null;
   kind: CommentAuthorKind;
+}
+
+/** "Bound by @x" for a worker's comment, when the server shows the reader who bound it. Never the author. */
+export function provenanceText(provenanceUser: CommentActorRef | null | undefined): string | null {
+  if (!provenanceUser) return null;
+  return t('comments.provenance', 'session bound by {user}', { user: actorLabel(provenanceUser, t('comments.author.unknown-user', 'A user')) });
 }
 
 function actorLabel(ref: CommentActorRef | null, fallback: string): string {
@@ -259,7 +261,9 @@ export function commentControls(
   const threadLive = !thread.retracted && !thread.hidden;
   const live = !comment.retracted;
   return {
-    reply: perms.canWrite && threadLive && (!resolved || REPLY_ON_RESOLVED_THREAD),
+    // DAB (Holger, 2026-10-05, team chat #6989): a resolved thread still takes
+    // replies, and a reply doesn't reopen it.
+    reply: perms.canWrite && threadLive,
     // Editing and retracting are the author's alone, and they still need write
     // access: a writer who lost it can no longer change the memory's content.
     edit: perms.canWrite && viewerIsAuthor && live,

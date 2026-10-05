@@ -149,6 +149,32 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
+  it('a worker is the author, with its URN; the user who bound it shows only as provenance (cor:dmo:110:03)', () => {
+    const byWorker = comment('c1', {
+      author: { kind: 'WORKER', worker: { id: 'w1', name: 'Dara', handle: null, urn: 'hrn:worker:acme.com:team:dara' }, user: null, agent: null, app: null },
+      provenanceUser: { id: 'u9', name: null, handle: 'binder', urn: null },
+    });
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3, initial: discussion([thread(byWorker)]) });
+    const headerEl = m.target.querySelector('article header')!;
+    const header = headerEl.textContent ?? '';
+    expect(header.trim().startsWith('Dara')).toBe(true);
+    // The compact URN chip carries the full URN to copy.
+    expect(headerEl.querySelector('[title="hrn:worker:acme.com:team:dara"]')).not.toBeNull();
+    expect(header).toContain('(session bound by @binder)');
+    m.unmount();
+  });
+
+  it('a resolved thread still offers Reply (DAB), beside Reopen', () => {
+    const m = mountComponent(NodeDiscussion, {
+      endpoint: ENDPOINT,
+      shownRevision: 3,
+      initial: discussion([thread(comment('c1', { state: 'RESOLVED' }))]),
+    });
+    expect(buttons(m.target)).toEqual(expect.arrayContaining(['Reply', 'Reopen']));
+    expect(buttons(m.target)).not.toContain('Resolve');
+    m.unmount();
+  });
+
   it('a retracted comment renders as a stub, not its text', () => {
     const m = mountComponent(NodeDiscussion, {
       endpoint: ENDPOINT,
