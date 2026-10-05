@@ -277,6 +277,22 @@ export function commentControls(
 
 // ── The trust cue (`110:07`) ───────────────────────────────────────────
 
+/**
+ * The reader's own open thread among those loaded, if any: the thread the
+ * one-open-thread rule (`110:05`) would send a second post to. Only the loaded
+ * page is searched, so null means "not shown here", not "none exists"
+ * (contract question 2 on portal#1014 asks the server for the answer).
+ */
+export function readerOpenThreadId(threads: DiscussionThread[]): string | null {
+  const t = threads.find((th) => th.mine[th.root.id] && th.root.state === 'OPEN' && !th.root.retracted && !th.root.hidden);
+  return t?.root.id ?? null;
+}
+
+/** The tab badge: how many discussions there are, live ones only. */
+export function discussionCount(summary: CommentSummary | null | undefined): number {
+  return (summary?.openThreads ?? 0) + (summary?.resolvedThreads ?? 0);
+}
+
 /** The open-feedback cue, or null when there's none to show. Never a gate. */
 export function openFeedbackCue(summary: CommentSummary | null | undefined): string | null {
   const n = summary?.openThreads ?? 0;

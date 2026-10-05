@@ -5,8 +5,12 @@ import {
   bodyView,
   commentControls,
   commentFailure,
+  discussionCount,
   openFeedbackCue,
   provenanceText,
+  readerOpenThreadId,
+  type Comment,
+  type DiscussionThread,
   type CommentAuthor,
   type CommentPermissions,
 } from './comments';
@@ -211,5 +215,25 @@ describe('commentFailure', () => {
     expect(commentFailure(null, 'create').text).toMatch(/couldn't confirm your comment was posted/);
     expect(commentFailure('INTERNAL_SERVER_ERROR', 'reply').text).toMatch(/couldn't confirm your comment was posted/);
     expect(commentFailure(undefined, 'resolve').text).toMatch(/couldn't confirm the change went through/);
+  });
+});
+
+describe('readerOpenThreadId', () => {
+  const root = (id: string, over: Partial<Comment> = {}) => ({ id, state: 'OPEN', retracted: false, hidden: false, ...over }) as Comment;
+  const th = (r: Comment, mine: boolean): DiscussionThread => ({ root: r, replies: [], replyCount: 0, mine: { [r.id]: mine } });
+
+  it("finds the reader's own open thread", () => {
+    expect(readerOpenThreadId([th(root('a'), false), th(root('b'), true)])).toBe('b');
+  });
+
+  it('ignores resolved, retracted and hidden threads, and other authors', () => {
+    expect(readerOpenThreadId([th(root('a', { state: 'RESOLVED' }), true), th(root('b', { retracted: true }), true), th(root('c', { hidden: true }), true), th(root('d'), false)])).toBeNull();
+  });
+});
+
+describe('discussionCount', () => {
+  it('counts open and resolved discussions', () => {
+    expect(discussionCount({ openThreads: 2, resolvedThreads: 3, comments: 9 })).toBe(5);
+    expect(discussionCount(null)).toBe(0);
   });
 });

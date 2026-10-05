@@ -30,7 +30,7 @@
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
   import NodeDiscussion from '$lib/components/NodeDiscussion.svelte';
-  import { COMMENT_NODE_TYPE, isCommentableClass, openFeedbackCue, type CommentSummary, type Discussion } from '$lib/comments';
+  import { COMMENT_NODE_TYPE, discussionCount, isCommentableClass, openFeedbackCue, type CommentSummary, type Discussion } from '$lib/comments';
   import { mintView, type NodeMintStatus } from '$lib/node-mint';
   import { approvalView, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
   import {
@@ -2556,8 +2556,11 @@
           class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'discussion' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
           onclick={() => activeTab = 'discussion'}
         >{t('comments.tab', 'Discussion')}
-          {#if commentSummary && commentSummary.openThreads > 0}
-            <span class="ml-1 rounded-full bg-amber-100 px-1.5 text-xs text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{commentSummary.openThreads}</span>
+          <!-- Uma (#6998): the badge counts every discussion; amber while any is open. -->
+          {#if discussionCount(commentSummary) > 0}
+            <span class="ml-1 rounded-full px-1.5 text-xs {(commentSummary?.openThreads ?? 0) > 0
+              ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+              : 'bg-zinc-200 dark:bg-zinc-800'}">{discussionCount(commentSummary)}</span>
           {/if}
         </button>
       {/if}

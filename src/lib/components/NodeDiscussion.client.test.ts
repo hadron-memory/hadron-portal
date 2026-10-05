@@ -175,6 +175,44 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
+  it("opening with the reader's own thread open notes it and scrolls to it (Uma, #6998)", () => {
+    const scrolled: string[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.getAttribute('data-thread-id') ?? '');
+    };
+    try {
+      const m = mountComponent(NodeDiscussion, {
+        endpoint: ENDPOINT,
+        shownRevision: 3,
+        initial: discussion([thread(comment('c1'), false), thread(comment('c2'), true)]),
+      });
+      expect(m.target.querySelector('[data-testid="own-open-thread"]')).not.toBeNull();
+      expect(scrolled).toEqual(['c2']);
+      m.unmount();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it('no own open thread: no note and no scroll', () => {
+    const spy = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = spy;
+    try {
+      const m = mountComponent(NodeDiscussion, {
+        endpoint: ENDPOINT,
+        shownRevision: 3,
+        initial: discussion([thread(comment('c1', { state: 'RESOLVED' }), true)]),
+      });
+      expect(m.target.querySelector('[data-testid="own-open-thread"]')).toBeNull();
+      expect(spy).not.toHaveBeenCalled();
+      m.unmount();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it('a retracted comment renders as a stub, not its text', () => {
     const m = mountComponent(NodeDiscussion, {
       endpoint: ENDPOINT,

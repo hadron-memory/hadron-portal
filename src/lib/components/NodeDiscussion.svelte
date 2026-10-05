@@ -18,6 +18,7 @@
     bodyView,
     commentControls,
     provenanceText,
+    readerOpenThreadId,
     type Comment,
     type CommentSummary,
     type Discussion,
@@ -56,8 +57,13 @@
 
   let isBrowser = $state(false);
   let destroyed = false;
+  let listEl = $state<HTMLElement | null>(null);
   onMount(() => {
     isBrowser = true;
+    // Uma (#6998): opening the tab with your own thread open lands on it, since
+    // it's where a second post of yours belongs (one open thread per author).
+    const own = discussion.ok ? readerOpenThreadId(discussion.threads) : null;
+    if (own) listEl?.querySelector<HTMLElement>(`[data-thread-id="${CSS.escape(own)}"]`)?.scrollIntoView?.({ block: 'start' });
   });
   onDestroy(() => {
     destroyed = true;
@@ -71,6 +77,7 @@
   }
 
   const permissions = $derived(discussion.ok ? discussion.permissions : { canWrite: false, canManage: false });
+  const ownOpenThread = $derived(discussion.ok ? readerOpenThreadId(discussion.threads) : null);
 
   async function send(key: string, payload: Record<string, unknown>): Promise<boolean> {
     if (busy) return false;
@@ -296,6 +303,11 @@
           post();
         }}
       >
+        {#if ownOpenThread}
+          <p data-testid="own-open-thread" class="text-xs text-amber-700 dark:text-amber-400">
+            {t('comments.own-open', 'Your discussion below is still open. Reply there, or resolve or retract it before starting another.')}
+          </p>
+        {/if}
         <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300" for="new-comment">
           {t('comments.new.label', 'Start a discussion about revision {rev}', { rev: shownRevision })}
         </label>
@@ -314,12 +326,17 @@
     {#if discussion.threads.length === 0}
       <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('comments.empty', 'No discussion yet.')}</p>
     {:else}
-      <ul class="space-y-4">
+      <ul class="space-y-4" bind:this={listEl}>
         {#each discussion.threads as thread (thread.root.id)}
           {@const anchor = anchorView(thread.root, shownRevision)}
           {@const resolved = thread.root.state === 'RESOLVED'}
           {@const rootControls = commentControls(thread.root, thread.root, permissions, thread.mine[thread.root.id] === true)}
-          <li class="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+          <li
+            data-thread-id={thread.root.id}
+            class="space-y-3 rounded-lg border p-3 {thread.root.id === ownOpenThread
+              ? 'border-indigo-300 dark:border-indigo-700'
+              : 'border-zinc-200 dark:border-zinc-800'}"
+          >
             <div class="flex flex-wrap items-center gap-2 text-xs">
               <span
                 class="rounded-full px-2 py-0.5 font-medium {resolved
