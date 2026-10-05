@@ -83,3 +83,24 @@ describe('abstract-stale tooltip wording (#810)', () => {
     expect(tooltip).toMatch(/\bor\b/i);
   });
 });
+
+// portal#1014: the open-feedback cue in node lists (hrn:node:hadronmemory.com:specs:cor:dmo:110:07),
+// from the layout read's GraphNode.openThreads. It links to the node's
+// Discussion tab, and an absent count shows nothing rather than a zero.
+describe('open-feedback cue (portal#1014)', () => {
+  it('shows the open-discussion count, linked to the Discussion tab', () => {
+    const { body } = render(NodeList, {
+      props: { nodes: [{ ...node, openThreads: 2 }], memoryUrn: 'micromentor.org::mmdata', basePath: '/app/memories/m1' },
+    });
+    expect(body).toContain('data-testid="node-open-feedback"');
+    expect(body).toContain('2 open discussions');
+    expect(body).toContain('href="/app/memories/m1/nodes/n1?tab=discussion"');
+  });
+
+  it('shows nothing at zero or when the count was not read', () => {
+    for (const n of [{ ...node, openThreads: 0 }, node]) {
+      const { body } = render(NodeList, { props: { nodes: [n], memoryUrn: 'micromentor.org::mmdata' } });
+      expect(body).not.toContain('node-open-feedback');
+    }
+  });
+});

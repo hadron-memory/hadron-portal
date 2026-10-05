@@ -2469,7 +2469,9 @@ export const GRAPH_NODES_QUERY = /* GraphQL */ `
 export const MEMORY_NODES_QUERY = /* GraphQL */ `
   query MemoryNodes($memoryRef: ID!, $limit: Int, $offset: Int) {
     memoryNodes(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
-      nodes { id loc name nodeType tags seq isRunnable description }
+      # openThreads: portal#1014 (hadron-server#1663), the node list's
+      # open-feedback cue (hrn:node:hadronmemory.com:specs:cor:dmo:110:07); batched server-side.
+      nodes { id loc name nodeType tags seq isRunnable description openThreads }
       total
     }
   }
