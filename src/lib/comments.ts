@@ -4,7 +4,8 @@
  *
  * The shapes mirror the machine contract posted before the server code,
  * `hrn:node:hadronmemory.com:hadron-server:design:comment-nodes-contract`
- * (§4 SDL, §5 refusals). The specs are `cor:dmo:110:*`:
+ * (§4 SDL, §5 refusals). The specs are the children of
+ * `hrn:node:hadronmemory.com:specs:cor:dmo:110`, cited below by their last two parts:
  *
  * - A thread is anchored to the revision of the target its author read
  *   (`110:01`). A thread on an older revision is labelled with it, never shown
@@ -89,13 +90,39 @@ export interface CommentSummary {
   comments: number;
 }
 
+/** A thread as the Discussion tab holds it. */
+export interface DiscussionThread extends CommentThread {
+  /** Per comment id: did the reader write it. */
+  mine: Record<string, boolean>;
+}
+
+/** The tab's data. A failed read is `{ ok: false }`, never an empty discussion. */
+export type Discussion =
+  | { ok: true; threads: DiscussionThread[]; total: number; permissions: CommentPermissions }
+  | { ok: false };
+
 /**
- * Whether a reply may be posted on a RESOLVED thread. `cor:dmo:110:05` doesn't
+ * Whether a reply may be posted on a RESOLVED thread. `hrn:node:hadronmemory.com:specs:cor:dmo:110:05` doesn't
  * say, and the ruling (DAB) is with Holger (comment-nodes contract §8.2). Until
  * it lands, a resolved thread offers Reopen and no Reply, so the portal never
  * decides the rule for him. Flip this when DAB is ruled.
  */
 export const REPLY_ON_RESOLVED_THREAD = false;
+
+/**
+ * Memory classes whose nodes can be discussed (`hrn:node:hadronmemory.com:specs:cor:dmo:110:02`): comments
+ * live in the target's memory, and `private` / `system` memories take none.
+ * Used only to decide whether to offer the tab; the server refuses the rest
+ * (`COMMENT_MEMORY_NOT_COMMENTABLE`) whatever this says.
+ */
+const COMMENTABLE_CLASSES: ReadonlySet<string> = new Set(['app', 'knowledge', 'personal', 'group']);
+
+export function isCommentableClass(memoryClass: string | null | undefined): boolean {
+  return memoryClass != null && COMMENTABLE_CLASSES.has(memoryClass);
+}
+
+/** A comment node is feedback, never a target: it has no discussion of its own (`110:00`). */
+export const COMMENT_NODE_TYPE = 'comment';
 
 // ── Authors ────────────────────────────────────────────────────────────
 

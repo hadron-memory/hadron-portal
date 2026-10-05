@@ -21,10 +21,11 @@ describe('isCanonicalNodeType', () => {
 // was filed about. These tests are what make the single definition worth
 // having: they fail if someone re-splits it.
 describe('isHiddenNodeType', () => {
-  it('hides exactly record and system today', () => {
+  it('hides exactly record, system and comment today', () => {
     expect(isHiddenNodeType('record')).toBe(true);
     expect(isHiddenNodeType('system')).toBe(true);
-    expect([...HIDDEN_NODE_TYPES].sort()).toEqual(['record', 'system']);
+    expect(isHiddenNodeType('comment')).toBe(true);
+    expect([...HIDDEN_NODE_TYPES].sort()).toEqual(['comment', 'record', 'system']);
   });
 
   it('does not hide an ordinary authored type', () => {
