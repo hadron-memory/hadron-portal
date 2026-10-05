@@ -1,4 +1,4 @@
-# Exported from hadron-server 635132686f9ed525fda3fd932a02439447e3de59 (pr1663, 2026-10-05T22:38:28+02:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 74472a32a14e6a6cbeb12ab504a99ac5fb17ba63 (pr1663b, 2026-10-05T23:35:25+02:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -1023,7 +1023,7 @@ type ApproveMemoryNodesResult {
   skippedPlaceholders: [String!]!
 
   """
-  #1607 — unminted nodes of this memory with open discussion: a warning, never a blocker (cor:dmo:110:07). Ordered by loc.
+  #1607 — unminted nodes of this memory with open discussion: a warning, never a blocker (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). Ordered by loc.
   """
   unresolvedFeedback: [UnresolvedFeedback!]!
 }
@@ -1529,7 +1529,7 @@ type ChatStartResult {
 }
 
 """
-#1606 — feedback about a node (cor:dmo:110). A comment is a node of type
+#1606 — feedback about a node (hrn:node:hadronmemory.com:specs:cor:dmo:110). A comment is a node of type
 `comment` in its target's memory, readable by exactly who can read that
 memory. It is never part of its target's content, never approved or minted,
 and never authoritative.
@@ -1541,7 +1541,7 @@ type Comment {
   anchorApprovalHash: String!
 
   """
-  anchorRevision equals the target's current revision. When false, show the comment as about an older revision (cor:dmo:110:01).
+  anchorRevision equals the target's current revision. When false, show the comment as about an older revision (hrn:node:hadronmemory.com:specs:cor:dmo:110:01).
   """
   anchorIsCurrent: Boolean!
 
@@ -1623,7 +1623,9 @@ type CommentAuthor {
   worker: CommentActorRef
 }
 
-"""#1606 — who a comment is from (cor:dmo:110:03)."""
+"""
+#1606 — who a comment is from (hrn:node:hadronmemory.com:specs:cor:dmo:110:03).
+"""
 enum CommentAuthorKind {
   """An App key with no user."""
   APP
@@ -1641,7 +1643,7 @@ enum CommentAuthorKind {
 }
 
 """
-#1606 — the trust cue (cor:dmo:110:07). Counts live threads; zeros on a memory that cannot hold comments.
+#1606 — the trust cue (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). Counts live threads; zeros on a memory that cannot hold comments.
 """
 type CommentSummary {
   """
@@ -1652,7 +1654,7 @@ type CommentSummary {
   resolvedThreads: Int!
 
   """
-  The caller's own open, live top-level thread on this node, if any: one per author (cor:dmo:110:05).
+  The caller's own open, live top-level thread on this node, if any: one per author (hrn:node:hadronmemory.com:specs:cor:dmo:110:05).
   """
   viewerOpenThreadId: ID
 }
@@ -1684,7 +1686,7 @@ type CommentThreadPage {
 }
 
 """
-#1606 — a comment thread's state (cor:dmo:110:05). Top-level comments only.
+#1606 — a comment thread's state (hrn:node:hadronmemory.com:specs:cor:dmo:110:05). Top-level comments only.
 """
 enum CommentThreadState {
   OPEN
@@ -2607,6 +2609,11 @@ type GraphNode {
 
   """Non-null — mirrors Node.nodeType (NOT NULL, defaults to 'info')."""
   nodeType: String!
+
+  """
+  #1606 — how many open discussion threads this node has: the node-list trust cue (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). Batched per request.
+  """
+  openThreads: Int!
 
   """
   Sibling sort order in the tree view (nullable; #513). Small scalar — kept in the slim projection.
@@ -4194,7 +4201,7 @@ type Mutation {
   createChannelMessage(body: String!, channelRef: ID!, replyToSeq: Int, sessionRef: ID): TeamChatMessage!
 
   """
-  #1606 — start a thread on a node (cor:dmo:110). Needs write access to the
+  #1606 — start a thread on a node (hrn:node:hadronmemory.com:specs:cor:dmo:110). Needs write access to the
   target's memory. anchorRevision defaults to the target's current revision;
   an older one anchors there while its text is still retained. The anchor
   hash is computed by the server. Typed refusals: COMMENT_TARGET_NOT_FOUND,
@@ -5614,7 +5621,7 @@ type Mutation {
   retireWorker(workerRef: ID!): Worker!
 
   """
-  #1606 — the author retracts a comment, leaving a stub (cor:dmo:110:05).
+  #1606 — the author retracts a comment, leaving a stub (hrn:node:hadronmemory.com:specs:cor:dmo:110:05).
   """
   retractComment(commentRef: ID!, expectedRevision: Int!): Comment!
 
@@ -6421,7 +6428,7 @@ type Node {
   authorship: NodeAuthorship
 
   """
-  #1606 — open and resolved discussion on this node (cor:dmo:110:07). Batched per request.
+  #1606 — open and resolved discussion on this node (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). Batched per request.
   """
   commentSummary: CommentSummary!
   content: String
@@ -6588,7 +6595,7 @@ type Node {
   updatedByAgent: ActorRef
 
   """
-  #1610 — the Worker behind the last authored edit. A later edit with no worker behind it clears it, so it always describes the same edit as updatedAt.
+  #1610 — the Worker behind the last authored edit. A later authored edit with no worker behind it clears it, so it always describes the last authored edit (not the updatedAt clock, which operational writes also advance).
   """
   updatedByWorker: ActorRef
 
@@ -10489,7 +10496,7 @@ type SpecCorpusMintReport {
   staleAbstractsBlock: Boolean!
 
   """
-  #1607 — nodes in mintLocs with open discussion: a WARNING, never a blocker (cor:dmo:110:07). Ordered by loc.
+  #1607 — nodes in mintLocs with open discussion: a WARNING, never a blocker (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). Ordered by loc.
   """
   unresolvedFeedback: [UnresolvedFeedback!]!
 }
@@ -11052,7 +11059,7 @@ type UninstallAgentFromAppPayload {
 }
 
 """
-#1607 — a node with open feedback, reported as a WARNING by mint and approval reports, never a blocker (cor:dmo:110:07).
+#1607 — a node with open feedback, reported as a WARNING by mint and approval reports, never a blocker (hrn:node:hadronmemory.com:specs:cor:dmo:110:07).
 """
 type UnresolvedFeedback {
   loc: String!
