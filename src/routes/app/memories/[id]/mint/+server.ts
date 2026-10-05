@@ -20,6 +20,7 @@ interface ServerReport {
   mintLocs: string[];
   blockers: MintFinding[];
   openQuestions: Array<{ questions: unknown[] }>;
+  unresolvedFeedback: Array<{ urn: string; openThreads: number }>;
 }
 
 function toReport(r: ServerReport): MintReport {
@@ -30,6 +31,7 @@ function toReport(r: ServerReport): MintReport {
     mintableCount: r.mintLocs.length,
     blockers: r.blockers.map(({ kind, loc, rule, targetLoc }) => ({ kind, loc, rule: rule ?? null, targetLoc: targetLoc ?? null })),
     openQuestionCount: r.openQuestions.reduce((n, g) => n + g.questions.length, 0),
+    openFeedback: r.unresolvedFeedback.map(({ urn, openThreads }) => ({ urn, openThreads })),
   };
 }
 

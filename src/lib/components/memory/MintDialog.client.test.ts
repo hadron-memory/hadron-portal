@@ -13,7 +13,7 @@ const A = { id: 'mem-a', urn: 'hrn:mem:acme.com:specs-a' };
 const B = { id: 'mem-b', urn: 'hrn:mem:acme.com:specs-b' };
 
 const report = (over: Record<string, unknown> = {}) => ({
-  dryRun: true, minted: false, mintedCount: 0, mintableCount: 3, blockers: [], openQuestionCount: 0, ...over,
+  dryRun: true, minted: false, mintedCount: 0, mintableCount: 3, blockers: [], openQuestionCount: 0, openFeedback: [], ...over,
 });
 // Microtask-only responses: deterministic, unlike a stream-backed Response (#994 CI).
 const reply = (status: number, body: unknown) =>
@@ -45,6 +45,26 @@ async function settle() {
 }
 
 describe('MintDialog (#992 slice C)', () => {
+  it('portal#1014: open discussions are listed as a warning and Mint is still offered (cor:dmo:110:07)', async () => {
+    const urn = 'hrn:node:acme.com:specs-a:cor:a:1';
+    fetchMock.mockResolvedValueOnce(reply(200, { report: report({ openFeedback: [{ urn, openThreads: 2 }] }) }));
+    const { target } = mountDialog();
+    await settle();
+    const warning = q(target, 'mint-open-feedback')!;
+    expect(warning.textContent).toContain('1 node has an open discussion. It doesn’t block minting');
+    expect(warning.textContent).toContain('2 open discussions');
+    expect(warning.querySelector(`[title="${urn}"]`)).not.toBeNull();
+    // Never a gate: the real run is still offered.
+    expect(q(target, 'mint-submit')).not.toBeNull();
+  });
+
+  it('portal#1014: no open discussions, no warning', async () => {
+    fetchMock.mockResolvedValueOnce(reply(200, { report: report() }));
+    const { target } = mountDialog();
+    await settle();
+    expect(q(target, 'mint-open-feedback')).toBeNull();
+  });
+
   it('opening runs a dry run, then minting runs the real one', async () => {
     fetchMock.mockResolvedValueOnce(reply(200, { report: report() }));
     const { target, onminted } = mountDialog();

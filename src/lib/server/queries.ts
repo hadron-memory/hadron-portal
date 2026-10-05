@@ -4219,6 +4219,9 @@ export const MINT_MEMORY_NODES_MUTATION = /* GraphQL */ `
       mintLocs
       blockers { kind loc rule targetLoc }
       openQuestions { decider questions { loc } }
+      # portal#1014 (hadron-server#1607): nodes with open discussion threads.
+      # Warnings, never blockers (hrn:node:hadronmemory.com:specs:cor:dmo:110:07).
+      unresolvedFeedback { urn openThreads }
     }
   }
 `;
