@@ -7,7 +7,7 @@
    * endpoint read back, never an optimistic copy: a write the server didn't
    * confirm must not appear to have landed.
    */
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { t } from '$lib/i18n/t';
@@ -45,8 +45,7 @@
 
   // Seeded once: the parent keys this component by node, so a new node is a
   // new instance, and later state comes only from the endpoint.
-  // svelte-ignore state_referenced_locally
-  let discussion = $state<Discussion>(initial);
+  let discussion = $state<Discussion>(untrack(() => initial));
   let busy = $state<string | null>(null);
   let errorFor = $state<{ key: string; text: string } | null>(null);
   let newBody = $state('');
