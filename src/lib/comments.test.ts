@@ -226,6 +226,14 @@ describe('readerOpenThreadId', () => {
     expect(readerOpenThreadId([th(root('a'), false), th(root('b'), true)])).toBe('b');
   });
 
+  it("the server's viewerOpenThreadId wins, including its null, over the loaded page", () => {
+    const summary = (viewerOpenThreadId: string | null) => ({ openThreads: 1, resolvedThreads: 0, comments: 1, viewerOpenThreadId });
+    expect(readerOpenThreadId([th(root('b'), true)], summary('far-away'))).toBe('far-away');
+    expect(readerOpenThreadId([th(root('b'), true)], summary(null))).toBeNull();
+    // A summary without the field (an older server) falls back to the page.
+    expect(readerOpenThreadId([th(root('b'), true)], { openThreads: 1, resolvedThreads: 0, comments: 1 })).toBe('b');
+  });
+
   it('ignores resolved, retracted and hidden threads, and other authors', () => {
     expect(readerOpenThreadId([th(root('a', { state: 'RESOLVED' }), true), th(root('b', { retracted: true }), true), th(root('c', { hidden: true }), true), th(root('d'), false)])).toBeNull();
   });

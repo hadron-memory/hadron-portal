@@ -2650,6 +2650,7 @@
             endpoint={commentsEndpoint}
             shownRevision={node.revision ?? null}
             initial={discussion}
+            summary={commentSummary}
             onsummary={(s) => (commentSummary = s)}
           />
         {/key}

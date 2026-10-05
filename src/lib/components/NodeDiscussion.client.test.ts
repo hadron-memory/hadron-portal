@@ -36,12 +36,13 @@ function comment(id: string, over: Partial<Comment> = {}): Comment {
     createdAt: '2026-10-05T18:00:00.000Z',
     updatedAt: null,
     revSeq: 1,
+    viewerIsAuthor: false,
     ...over,
   };
 }
 
 function thread(root: Comment, mine = false): DiscussionThread {
-  return { root, replies: [], replyCount: 0, mine: { [root.id]: mine } };
+  return { root: { ...root, viewerIsAuthor: mine }, replies: [], replyCount: 0, mine: { [root.id]: mine } };
 }
 
 const discussion = (threads: DiscussionThread[], perms = { canWrite: true, canManage: false }): Discussion => ({

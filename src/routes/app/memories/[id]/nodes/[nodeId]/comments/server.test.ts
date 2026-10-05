@@ -71,6 +71,7 @@ function comment(id: string, over: Record<string, unknown> = {}) {
     createdAt: '2026-10-05T18:00:00.000Z',
     updatedAt: null,
     revSeq: 1,
+    viewerIsAuthor: false,
     ...over,
   };
 }
@@ -80,7 +81,7 @@ const head = (over: Record<string, unknown> = {}) => ({
     id: 'node-1',
     revision: 3,
     memory: { id: 'mem-1', urn: 'hrn:mem:acme.com:specs' },
-    commentSummary: { openThreads: 1, resolvedThreads: 0, comments: 2 },
+    commentSummary: { openThreads: 1, resolvedThreads: 0, comments: 2, viewerOpenThreadId: 'c1' },
     ...over,
   },
 });
@@ -91,7 +92,7 @@ const threads = () => ({
     items: [
       {
         replyCount: 1,
-        root: comment('c1'),
+        root: comment('c1', { viewerIsAuthor: true }),
         replies: [
           comment('c2', {
             threadRootId: 'c1',
@@ -135,17 +136,27 @@ describe('GET comments (portal#1014)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns threads, permissions and the summary, marking which comments the reader wrote', async () => {
+  it("returns threads, permissions and the summary, marking the reader's comments by the server's viewerIsAuthor", async () => {
     serve();
     const res = await GET(ev(null));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.summary).toEqual({ openThreads: 1, resolvedThreads: 0, comments: 2 });
+    expect(body.summary).toEqual({ openThreads: 1, resolvedThreads: 0, comments: 2, viewerOpenThreadId: 'c1' });
     expect(body.discussion.ok).toBe(true);
     expect(body.discussion.permissions).toEqual({ canWrite: true, canManage: false });
-    // The user wrote the root; the worker wrote the reply, whoever bound it.
+    // The server says the reader wrote the root; the worker wrote the reply, whoever bound it.
     expect(body.discussion.threads[0].mine).toEqual({ c1: true, c2: false });
     expect(sent(SELF_MEMORY_ACCESS_QUERY)).toEqual([{ user: 'user-1', resource: 'hrn:mem:acme.com:specs' }]);
+  });
+
+  it('authorship is the server\'s answer: a matching user id without viewerIsAuthor is not the reader\'s', async () => {
+    serve({
+      [COMMENT_THREADS_QUERY]: () => ({
+        commentThreads: { total: 1, items: [{ replyCount: 0, root: comment('c1', { viewerIsAuthor: false }), replies: [] }] },
+      }),
+    });
+    const body = await (await GET(ev(null, { userId: 'user-1' }))).json();
+    expect(body.discussion.threads[0].mine).toEqual({ c1: false });
   });
 
   it('404s a node that lives in another memory than the URL names', async () => {

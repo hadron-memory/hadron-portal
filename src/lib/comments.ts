@@ -74,6 +74,8 @@ export interface Comment {
   createdAt: string;
   updatedAt: string | null;
   revSeq: number;
+  /** Did the caller write it, by the author key the server enforces (`w:`/`ua:`/`u:`/`app:`). */
+  viewerIsAuthor: boolean;
 }
 
 export interface CommentThread {
@@ -91,6 +93,8 @@ export interface CommentSummary {
   openThreads: number;
   resolvedThreads: number;
   comments: number;
+  /** The caller's own open, live top-level thread on the node, if any (one per author, `110:05`). */
+  viewerOpenThreadId?: string | null;
 }
 
 /** A thread as the Discussion tab holds it. */
@@ -278,12 +282,13 @@ export function commentControls(
 // ── The trust cue (`110:07`) ───────────────────────────────────────────
 
 /**
- * The reader's own open thread among those loaded, if any: the thread the
- * one-open-thread rule (`110:05`) would send a second post to. Only the loaded
- * page is searched, so null means "not shown here", not "none exists"
- * (contract question 2 on portal#1014 asks the server for the answer).
+ * The reader's own open thread: the one the one-open-thread rule (`110:05`)
+ * would send a second post to. The server's `viewerOpenThreadId` is the
+ * answer; without it (an older server, or a failed summary read), the loaded
+ * threads are searched, where null means "not shown here", not "none exists".
  */
-export function readerOpenThreadId(threads: DiscussionThread[]): string | null {
+export function readerOpenThreadId(threads: DiscussionThread[], summary?: CommentSummary | null): string | null {
+  if (summary && summary.viewerOpenThreadId !== undefined) return summary.viewerOpenThreadId;
   const t = threads.find((th) => th.mine[th.root.id] && th.root.state === 'OPEN' && !th.root.retracted && !th.root.hidden);
   return t?.root.id ?? null;
 }
@@ -302,6 +307,14 @@ export function openFeedbackCue(summary: CommentSummary | null | undefined): str
     : t('comments.cue.open-many', '{n} open discussions', { n });
 }
 
+/** The move refusal for a node whose discussions can't follow it (`COMMENT_MOVE_UNCOMMENTABLE`, `110:02`). */
+export function commentMoveRefusedText(): string {
+  return t(
+    'comments.refused.move',
+    "This node has discussions, and the destination memory can't hold comments, so it wasn't moved. A memory admin can delete the discussions first.",
+  );
+}
+
 // ── Refusals ───────────────────────────────────────────────────────────
 
 export type CommentAction = 'create' | 'reply' | 'edit' | 'retract' | 'resolve' | 'reopen' | 'hide' | 'delete';
@@ -314,6 +327,10 @@ export type CommentAction = 'create' | 'reply' | 'edit' | 'retract' | 'resolve' 
  */
 export function commentFailure(code: string | null | undefined, action: CommentAction): { status: 403 | 404 | 409 | 422 | 500; text: string } {
   switch (code) {
+    case 'COMMENT_NOT_FOUND':
+      return { status: 404, text: t('comments.refused.not-found', 'This comment no longer exists, or you no longer have access to it. Reload to see the discussion as it is now.') };
+    case 'COMMENT_TARGET_IS_COMMENT':
+      return { status: 422, text: t('comments.refused.target-is-comment', 'A comment can’t be discussed on its own. Reply in its thread instead.') };
     case 'COMMENT_TARGET_NOT_FOUND':
       return { status: 404, text: t('comments.refused.target-not-found', 'This node no longer exists, or you no longer have access to it.') };
     case 'COMMENT_FORBIDDEN':

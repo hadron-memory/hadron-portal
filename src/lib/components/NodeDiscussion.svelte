@@ -29,6 +29,7 @@
     endpoint,
     shownRevision,
     initial,
+    summary: initialSummary = null,
     onsummary,
   }: {
     /** `/app/memories/<memoryId>/nodes/<nodeId>/comments`, built from canonical ids. */
@@ -40,12 +41,15 @@
      */
     shownRevision: number | null;
     initial: Discussion;
+    /** The node's comment summary, when read: its `viewerOpenThreadId` names the reader's open thread. */
+    summary?: CommentSummary | null;
     onsummary?: (summary: CommentSummary) => void;
   } = $props();
 
   // Seeded once: the parent keys this component by node, so a new node is a
   // new instance, and later state comes only from the endpoint.
   let discussion = $state<Discussion>(untrack(() => initial));
+  let summary = $state<CommentSummary | null>(untrack(() => initialSummary));
   let busy = $state<string | null>(null);
   let errorFor = $state<{ key: string; text: string } | null>(null);
   let newBody = $state('');
@@ -61,7 +65,7 @@
     isBrowser = true;
     // Uma (#6998): opening the tab with your own thread open lands on it, since
     // it's where a second post of yours belongs (one open thread per author).
-    const own = discussion.ok ? readerOpenThreadId(discussion.threads) : null;
+    const own = discussion.ok ? readerOpenThreadId(discussion.threads, summary) : null;
     if (own) listEl?.querySelector<HTMLElement>(`[data-thread-id="${CSS.escape(own)}"]`)?.scrollIntoView?.({ block: 'start' });
   });
   onDestroy(() => {
@@ -76,7 +80,7 @@
   }
 
   const permissions = $derived(discussion.ok ? discussion.permissions : { canWrite: false, canManage: false });
-  const ownOpenThread = $derived(discussion.ok ? readerOpenThreadId(discussion.threads) : null);
+  const ownOpenThread = $derived(discussion.ok ? readerOpenThreadId(discussion.threads, summary) : null);
 
   async function send(key: string, payload: Record<string, unknown>): Promise<boolean> {
     if (busy) return false;
@@ -96,7 +100,10 @@
       };
       if (destroyed) return false;
       if (body.discussion) discussion = body.discussion;
-      if (body.summary) onsummary?.(body.summary);
+      if (body.summary) {
+        summary = body.summary;
+        onsummary?.(body.summary);
+      }
       if (!res.ok || !body.ok) {
         errorFor = {
           key,

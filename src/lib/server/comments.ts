@@ -8,7 +8,7 @@
  */
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
-import { commentFailure, type Comment, type CommentAction, type CommentPermissions, type CommentSummary, type CommentThread, type Discussion, type DiscussionThread } from '$lib/comments';
+import { commentFailure, type CommentAction, type CommentPermissions, type CommentSummary, type CommentThread, type Discussion, type DiscussionThread } from '$lib/comments';
 
 const COMMENT_ACTOR_FIELDS = /* GraphQL */ `
   fragment CommentActorFields on CommentActorRef { id name handle urn }
@@ -45,6 +45,7 @@ const COMMENT_FIELDS = /* GraphQL */ `
     createdAt
     updatedAt
     revSeq
+    viewerIsAuthor
   }
 `;
 
@@ -74,7 +75,7 @@ export const NODE_COMMENT_SUMMARY_QUERY = /* GraphQL */ `
       id
       revision
       memory { id urn }
-      commentSummary { openThreads resolvedThreads comments }
+      commentSummary { openThreads resolvedThreads comments viewerOpenThreadId }
     }
   }
 `;
@@ -145,22 +146,10 @@ export const DELETE_COMMENT_THREAD_MUTATION = /* GraphQL */ `
 export const THREAD_PAGE_SIZE = 50;
 
 
-/**
- * Did the reader write this comment? A portal reader is always a plain user
- * (`u:` author), so the test is the author's user id against the session's,
- * and a worker, agent or App comment is never the reader's.
- *
- * Contract question 1 on portal#1014 asks the server for `viewerIsAuthor`;
- * when it lands, this reads that instead.
- */
-export function isReaderAuthor(comment: Pick<Comment, 'author'>, userId: string | null | undefined): boolean {
-  if (!userId) return false;
-  return comment.author.kind === 'USER' && comment.author.user?.id === userId;
-}
-
-function markMine(thread: CommentThread, userId: string | null | undefined): DiscussionThread {
+/** Per comment: did the reader write it. The server's `viewerIsAuthor`, never inferred from names or ids. */
+function markMine(thread: CommentThread): DiscussionThread {
   const mine: Record<string, boolean> = {};
-  for (const c of [thread.root, ...thread.replies]) mine[c.id] = isReaderAuthor(c, userId);
+  for (const c of [thread.root, ...thread.replies]) mine[c.id] = c.viewerIsAuthor === true;
   return { ...thread, mine };
 }
 
@@ -206,7 +195,7 @@ export async function loadDiscussion(
     ]);
     return {
       ok: true,
-      threads: r.commentThreads.items.map((th) => markMine(th, reader.userId)),
+      threads: r.commentThreads.items.map(markMine),
       total: r.commentThreads.total,
       permissions,
     };
