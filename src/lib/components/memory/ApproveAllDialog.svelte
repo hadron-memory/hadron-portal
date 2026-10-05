@@ -11,9 +11,10 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
-  import { approveAllSummary, approveAllUnconfirmedText, type ApproveMemoryNodesResult } from '$lib/memory-approval';
+  import { approveAllFeedbackWarning, approveAllSummary, approveAllUnconfirmedText, type ApproveMemoryNodesResult } from '$lib/memory-approval';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import SkippedPlaceholdersTable from './SkippedPlaceholdersTable.svelte';
+  import OpenFeedbackWarning from './OpenFeedbackWarning.svelte';
 
   let {
     memory,
@@ -97,6 +98,9 @@
       {#if done}
         {@const r = done}
         <p role="status" data-testid="approve-all-result" class="text-sm text-zinc-700 dark:text-zinc-300">{approveAllSummary(r.result)}</p>
+        {#if approveAllFeedbackWarning(r.result)}
+          <OpenFeedbackWarning testid="approve-all-open-feedback" listKey="memories:approve-all:open-feedback" items={r.result.openFeedback} text={approveAllFeedbackWarning(r.result) ?? ''} />
+        {/if}
         {#if r.result.skippedPlaceholders.length > 0}
           <div class="mt-2">
             <SkippedPlaceholdersTable rows={r.result.skippedPlaceholders.map((loc) => ({ loc, urn: placeholderUrn(r.memoryUrn, loc) }))} />

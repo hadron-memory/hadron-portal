@@ -8,11 +8,23 @@
  * server's prose is never shown.
  */
 import { t } from '$lib/i18n/t';
+import type { OpenFeedback } from '$lib/comments';
 
 export interface ApproveMemoryNodesResult {
   approvedCount: number;
   alreadyApprovedCount: number;
   skippedPlaceholders: string[];
+  /** portal#1014: nodes with open discussions. A warning, never a reason anything wasn't approved. */
+  openFeedback: OpenFeedback[];
+}
+
+/** The warning shown with an Approve all result when nodes have open discussions, or null. */
+export function approveAllFeedbackWarning(r: Pick<ApproveMemoryNodesResult, 'openFeedback'>): string | null {
+  const n = r.openFeedback.length;
+  if (n === 0) return null;
+  return n === 1
+    ? t('memory.approve-all.open-feedback-one', '1 node in this memory has an open discussion. Read it: approving doesn’t resolve it.')
+    : t('memory.approve-all.open-feedback-many', '{n} nodes in this memory have open discussions. Read them: approving doesn’t resolve them.', { n });
 }
 
 /** One line summarising a completed Approve all. */

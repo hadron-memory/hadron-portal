@@ -13,6 +13,7 @@
  */
 import { t } from '$lib/i18n/t';
 import type { ProvenanceResult } from '$lib/node-provenance';
+import type { OpenFeedback } from '$lib/comments';
 
 export interface NodeMintStatus {
   minted: boolean;
@@ -94,7 +95,7 @@ export interface MintReport {
    * WARNING, never a blocker: an open thread never stops a mint
    * (hrn:node:hadronmemory.com:specs:cor:dmo:110:07).
    */
-  openFeedback: Array<{ urn: string; openThreads: number }>;
+  openFeedback: OpenFeedback[];
 }
 
 /** The warning line for open feedback in a mint report, or null when there is none. */

@@ -4202,6 +4202,9 @@ export const APPROVE_MEMORY_NODES_MUTATION = /* GraphQL */ `
       approvedCount
       alreadyApprovedCount
       skippedPlaceholders
+      # portal#1014 (hadron-server#1607): nodes with open discussions, a
+      # warning shown with the result (hrn:node:hadronmemory.com:specs:cor:dmo:110:07).
+      unresolvedFeedback { urn openThreads }
     }
   }
 `;

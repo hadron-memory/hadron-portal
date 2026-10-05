@@ -35,11 +35,13 @@ describe('approve-all endpoint (#992)', () => {
 
   it('approves the memory and returns only the counts and placeholders', async () => {
     mockRequest.mockResolvedValue({
-      approveMemoryNodes: { approvedCount: 3, alreadyApprovedCount: 2, skippedPlaceholders: ['p:1'], approved: [{ big: true }] },
+      approveMemoryNodes: { approvedCount: 3, alreadyApprovedCount: 2, skippedPlaceholders: ['p:1'], approved: [{ big: true }], unresolvedFeedback: [{ nodeId: 'n1', urn: 'hrn:node:acme.com:specs:a', loc: 'a', openThreads: 1 }] },
     });
     const res = await POST(ev());
     expect(mockRequest).toHaveBeenCalledWith(APPROVE_MEMORY_NODES_MUTATION, { memoryRef: 'mem-1' });
-    expect(await res.json()).toEqual({ result: { approvedCount: 3, alreadyApprovedCount: 2, skippedPlaceholders: ['p:1'] } });
+    expect(await res.json()).toEqual({
+      result: { approvedCount: 3, alreadyApprovedCount: 2, skippedPlaceholders: ['p:1'], openFeedback: [{ urn: 'hrn:node:acme.com:specs:a', openThreads: 1 }] },
+    });
   });
 
   it.each([

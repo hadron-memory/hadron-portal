@@ -16,7 +16,7 @@
   import { t } from '$lib/i18n/t';
   import { findingKindText, isMintReport, mintCheckFailedText, mintSummary, mintUnconfirmedText, openFeedbackWarning, type MintReport } from '$lib/node-mint';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
-  import Urn from '$lib/components/Urn.svelte';
+  import OpenFeedbackWarning from './OpenFeedbackWarning.svelte';
   import MintBlockersTable, { type MintBlockerRow } from './MintBlockersTable.svelte';
 
   let {
@@ -151,19 +151,7 @@
           </p>
         {/if}
         {#if openFeedbackWarning(shown.report)}
-          <div data-testid="mint-open-feedback" class="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
-            <p>{openFeedbackWarning(shown.report)}</p>
-            <ul class="mt-1 space-y-0.5">
-              {#each shown.report.openFeedback as f (f.urn)}
-                <li class="flex min-w-0 items-center gap-2">
-                  <span class="min-w-0"><Urn value={f.urn} type="node" compact linked /></span>
-                  <span class="shrink-0">{f.openThreads === 1
-                    ? t('memory.mint.open-feedback-row-one', '1 open discussion')
-                    : t('memory.mint.open-feedback-row-many', '{n} open discussions', { n: f.openThreads })}</span>
-                </li>
-              {/each}
-            </ul>
-          </div>
+          <OpenFeedbackWarning testid="mint-open-feedback" listKey="memories:mint:open-feedback" items={shown.report.openFeedback} text={openFeedbackWarning(shown.report) ?? ''} />
         {/if}
         {#if rows.length > 0}
           <div class="mt-2"><MintBlockersTable {rows} /></div>

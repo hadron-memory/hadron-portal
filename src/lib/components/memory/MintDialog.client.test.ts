@@ -52,8 +52,10 @@ describe('MintDialog (#992 slice C)', () => {
     await settle();
     const warning = q(target, 'mint-open-feedback')!;
     expect(warning.textContent).toContain('1 node has an open discussion. It doesn’t block minting');
-    expect(warning.textContent).toContain('2 open discussions');
-    expect(warning.querySelector(`[title="${urn}"]`)).not.toBeNull();
+    // A list of nodes is a DataTable (CLAUDE.md), with the count in its own column.
+    expect(warning.querySelector('table')).not.toBeNull();
+    expect([...warning.querySelectorAll('td')].map((td) => td.textContent?.trim())).toContain('2');
+    expect(warning.querySelector(`a[href*="${urn}"]`)).not.toBeNull();
     // Never a gate: the real run is still offered.
     expect(q(target, 'mint-submit')).not.toBeNull();
   });
