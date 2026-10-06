@@ -111,4 +111,24 @@ describe('merge node command action', () => {
     expect(fieldError(result, '_kind')).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
   });
+
+  it('hadron-server#1682: deleting a source with live discussions gets fixed copy, not the server prose', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{ message: 'server prose', extensions: { code: 'COMMENT_MERGE_FOLDS_THREADS', nodes: [{ nodeId: 'n1', loc: 'source', comments: 2 }] } }],
+      },
+    });
+    const result = await run({
+      _kind: 'mergeNode',
+      source: 'hrn:node:hadronmemory.com::demo::source',
+      target: 'hrn:node:hadronmemory.com::demo::target',
+      deleteSource: 'true',
+    });
+    expect(result).toMatchObject({ status: 409 });
+    const msg = superFormFrom(result)?.message as { type: string; text: string };
+    expect(msg.text).toMatch(/^Nothing was merged: a node with discussions would stop existing/);
+    expect(msg.text).toContain('Nodes with discussions: source.');
+    expect(msg.text).not.toContain('server prose');
+  });
 });
+

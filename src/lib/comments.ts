@@ -315,6 +315,35 @@ export function commentMoveRefusedText(): string {
   );
 }
 
+/**
+ * hadron-server#1682: a merge refused because comment threads can't follow it.
+ * Two codes, both raised before anything commits:
+ * - `COMMENT_MOVE_UNCOMMENTABLE`: the target memory's class takes no comments
+ *   (hrn:node:hadronmemory.com:specs:cor:dmo:110:02);
+ * - `COMMENT_MERGE_FOLDS_THREADS`: a commented node would be folded into
+ *   another one, and a thread's anchor can't move (`110:01`).
+ * The locs come from the refusal's `extensions.nodes`, data rather than prose;
+ * a few are named so the reader knows where to look. Null for any other code.
+ */
+export function commentMergeRefusal(
+  code: string | null | undefined,
+  extensions: Record<string, unknown> | null | undefined,
+): { status: 409; text: string } | null {
+  if (code !== 'COMMENT_MOVE_UNCOMMENTABLE' && code !== 'COMMENT_MERGE_FOLDS_THREADS') return null;
+  const nodes = Array.isArray(extensions?.nodes) ? (extensions.nodes as Array<{ loc?: unknown }>) : [];
+  const locs = nodes.map((n) => (typeof n?.loc === 'string' ? n.loc : null)).filter((l): l is string => !!l);
+  const named = locs.slice(0, 5).join(', ');
+  const which = locs.length === 0
+    ? ''
+    : locs.length > 5
+      ? t('comments.merge.which-more', ' Nodes with discussions: {locs}, and {n} more.', { locs: named, n: locs.length - 5 })
+      : t('comments.merge.which', ' Nodes with discussions: {locs}.', { locs: named });
+  const text = code === 'COMMENT_MOVE_UNCOMMENTABLE'
+    ? t('comments.merge.uncommentable', "Nothing was merged: the target memory can't hold comments, and some source nodes have discussions. An admin of the source memory can delete those discussions first.")
+    : t('comments.merge.folds', "Nothing was merged: a node with discussions would stop existing, and a discussion can't move to a different node. Delete those discussions first, or merge without removing that node.");
+  return { status: 409, text: text + which };
+}
+
 // ── Refusals ───────────────────────────────────────────────────────────
 
 export type CommentAction = 'create' | 'reply' | 'edit' | 'retract' | 'resolve' | 'reopen' | 'hide' | 'delete';

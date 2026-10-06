@@ -109,4 +109,24 @@ describe('merge memory command action', () => {
     expect(superFormFrom(result)?.errors?.include).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
   });
+
+  it('hadron-server#1682: a merge refused because discussions cannot follow gets fixed copy naming the nodes, not the server prose', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{ message: 'server prose', extensions: { code: 'COMMENT_MERGE_FOLDS_THREADS', nodes: [{ nodeId: 'n1', loc: 'specs:a', comments: 1 }] } }],
+      },
+    });
+    const result = await run({
+      _kind: 'mergeMemory',
+      source: 'hrn:memory:hadronmemory.com::source',
+      target: 'hrn:memory:hadronmemory.com::target',
+    });
+    expect(result).toMatchObject({ status: 409 });
+    const msg = superFormFrom(result)?.message as { type: string; text: string };
+    expect(msg.type).toBe('error');
+    expect(msg.text).toMatch(/^Nothing was merged/);
+    expect(msg.text).toContain('specs:a');
+    expect(msg.text).not.toContain('server prose');
+  });
 });
+

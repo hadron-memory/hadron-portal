@@ -25,3 +25,15 @@ export function extractGqlErrorCode(e: unknown): string | null {
   }
   return null;
 }
+
+// The first GraphQL error's `extensions` object (typed refusals carry their
+// structured details there, e.g. the nodes a merge would strand). Null on
+// transport errors or when the server sent none.
+export function extractGqlErrorExtensions(e: unknown): Record<string, unknown> | null {
+  if (e && typeof e === 'object' && 'response' in e) {
+    const resp = (e as { response?: { errors?: { extensions?: unknown }[] } }).response;
+    const ext = resp?.errors?.[0]?.extensions;
+    return ext && typeof ext === 'object' ? (ext as Record<string, unknown>) : null;
+  }
+  return null;
+}

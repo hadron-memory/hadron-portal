@@ -5,6 +5,7 @@ import {
   bodyView,
   commentControls,
   commentFailure,
+  commentMergeRefusal,
   discussionCount,
   openFeedbackCue,
   provenanceText,
@@ -243,5 +244,31 @@ describe('discussionCount', () => {
   it('counts open and resolved discussions', () => {
     expect(discussionCount({ openThreads: 2, resolvedThreads: 3, comments: 9 })).toBe(5);
     expect(discussionCount(null)).toBe(0);
+  });
+});
+
+describe('commentMergeRefusal (hadron-server#1682)', () => {
+  it('names an uncommentable target and the nodes whose discussions block it', () => {
+    const r = commentMergeRefusal('COMMENT_MOVE_UNCOMMENTABLE', { class: 'private', nodes: [{ nodeId: 'n1', loc: 'a:b', comments: 2 }] });
+    expect(r?.status).toBe(409);
+    expect(r?.text).toMatch(/^Nothing was merged: the target memory can't hold comments/);
+    expect(r?.text).toContain('Nodes with discussions: a:b.');
+  });
+
+  it('a fold refusal says a discussion cannot move, and caps the named nodes at five', () => {
+    const nodes = Array.from({ length: 7 }, (_, i) => ({ loc: `n${i}` }));
+    const r = commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', { nodes });
+    expect(r?.text).toMatch(/can't move to a different node/);
+    expect(r?.text).toContain('n0, n1, n2, n3, n4, and 2 more.');
+  });
+
+  it('without usable extensions it still answers, naming no nodes', () => {
+    expect(commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', null)?.text).not.toContain('Nodes with discussions');
+    expect(commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', { nodes: [{ loc: 5 }] })?.text).not.toContain('Nodes with discussions');
+  });
+
+  it('is null for every other code', () => {
+    expect(commentMergeRefusal('FORBIDDEN', { nodes: [{ loc: 'x' }] })).toBeNull();
+    expect(commentMergeRefusal(null, null)).toBeNull();
   });
 });
