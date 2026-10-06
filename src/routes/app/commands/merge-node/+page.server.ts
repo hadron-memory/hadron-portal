@@ -97,7 +97,7 @@ export const actions: Actions = {
     } catch (e) {
       const code = extractGqlErrorCode(e);
       // hadron-server#1682: threads that can't follow the merge get fixed copy.
-      const commentRefusal = commentMergeRefusal(code, extractGqlErrorExtensions(e));
+      const commentRefusal = commentMergeRefusal(code, extractGqlErrorExtensions(e), 'node');
       if (commentRefusal) {
         return message(form, { type: 'error', text: commentRefusal.text }, { status: commentRefusal.status });
       }

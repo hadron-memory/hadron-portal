@@ -249,26 +249,39 @@ describe('discussionCount', () => {
 
 describe('commentMergeRefusal (hadron-server#1682)', () => {
   it('names an uncommentable target and the nodes whose discussions block it', () => {
-    const r = commentMergeRefusal('COMMENT_MOVE_UNCOMMENTABLE', { class: 'private', nodes: [{ nodeId: 'n1', loc: 'a:b', comments: 2 }] });
+    const r = commentMergeRefusal('COMMENT_MOVE_UNCOMMENTABLE', { class: 'private', nodes: [{ nodeId: 'n1', loc: 'a:b', comments: 2 }] }, 'node');
     expect(r?.status).toBe(409);
-    expect(r?.text).toMatch(/^Nothing was merged: the target memory can't hold comments/);
+    expect(r?.text).toMatch(/^Nothing was merged\. The target memory can't hold comments/);
     expect(r?.text).toContain('Nodes with discussions: a:b.');
+  });
+
+  it("Jonas on #1026: a memory merge's refusal never promises that nothing changed, for either code", () => {
+    for (const code of ['COMMENT_MOVE_UNCOMMENTABLE', 'COMMENT_MERGE_FOLDS_THREADS']) {
+      const text = commentMergeRefusal(code, { nodes: [{ loc: 'x' }] }, 'memory')!.text;
+      expect(text).not.toMatch(/nothing was merged/i);
+      expect(text).toMatch(/^The merge stopped before it finished/);
+      expect(text).toContain('check both memories');
+    }
+  });
+
+  it('a node merge is one transaction, so its refusal says nothing was merged', () => {
+    expect(commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', null, 'node')?.text).toMatch(/^Nothing was merged\./);
   });
 
   it('a fold refusal says a discussion cannot move, and caps the named nodes at five', () => {
     const nodes = Array.from({ length: 7 }, (_, i) => ({ loc: `n${i}` }));
-    const r = commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', { nodes });
+    const r = commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', { nodes }, 'memory');
     expect(r?.text).toMatch(/can't move to a different node/);
     expect(r?.text).toContain('n0, n1, n2, n3, n4, and 2 more.');
   });
 
   it('without usable extensions it still answers, naming no nodes', () => {
-    expect(commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', null)?.text).not.toContain('Nodes with discussions');
-    expect(commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', { nodes: [{ loc: 5 }] })?.text).not.toContain('Nodes with discussions');
+    expect(commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', null, 'memory')?.text).not.toContain('Nodes with discussions');
+    expect(commentMergeRefusal('COMMENT_MERGE_FOLDS_THREADS', { nodes: [{ loc: 5 }] }, 'memory')?.text).not.toContain('Nodes with discussions');
   });
 
   it('is null for every other code', () => {
-    expect(commentMergeRefusal('FORBIDDEN', { nodes: [{ loc: 'x' }] })).toBeNull();
-    expect(commentMergeRefusal(null, null)).toBeNull();
+    expect(commentMergeRefusal('FORBIDDEN', { nodes: [{ loc: 'x' }] }, 'memory')).toBeNull();
+    expect(commentMergeRefusal(null, null, 'node')).toBeNull();
   });
 });

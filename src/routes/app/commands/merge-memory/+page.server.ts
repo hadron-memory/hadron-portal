@@ -96,7 +96,7 @@ export const actions: Actions = {
       const code = extractGqlErrorCode(e);
       const errorText = extractGqlError(e, t('commands.merge-memory.error.failed', 'Merge failed.'));
       // hadron-server#1682: threads that can't follow the merge get fixed copy.
-      const commentRefusal = commentMergeRefusal(code, extractGqlErrorExtensions(e));
+      const commentRefusal = commentMergeRefusal(code, extractGqlErrorExtensions(e), 'memory');
       if (commentRefusal) {
         return message(form, { type: 'error', text: commentRefusal.text }, { status: commentRefusal.status });
       }

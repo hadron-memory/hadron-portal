@@ -324,10 +324,18 @@ export function commentMoveRefusedText(): string {
  *   another one, and a thread's anchor can't move (`110:01`).
  * The locs come from the refusal's `extensions.nodes`, data rather than prose;
  * a few are named so the reader knows where to look. Null for any other code.
+ *
+ * `merge` says which operation was refused, because only one is atomic
+ * (Jonas on #1026). `mergeNodes` writes in one transaction and refuses inside
+ * it, so "nothing was merged" is true. `mergeMemories` commits in batches and
+ * re-checks under each batch's locks, so a late refusal can follow batches that
+ * already moved nodes; the refusal doesn't say which stage it came from, so the
+ * copy must not promise that nothing changed.
  */
 export function commentMergeRefusal(
   code: string | null | undefined,
   extensions: Record<string, unknown> | null | undefined,
+  merge: 'node' | 'memory',
 ): { status: 409; text: string } | null {
   if (code !== 'COMMENT_MOVE_UNCOMMENTABLE' && code !== 'COMMENT_MERGE_FOLDS_THREADS') return null;
   const nodes = Array.isArray(extensions?.nodes) ? (extensions.nodes as Array<{ loc?: unknown }>) : [];
@@ -338,10 +346,13 @@ export function commentMergeRefusal(
     : locs.length > 5
       ? t('comments.merge.which-more', ' Nodes with discussions: {locs}, and {n} more.', { locs: named, n: locs.length - 5 })
       : t('comments.merge.which', ' Nodes with discussions: {locs}.', { locs: named });
-  const text = code === 'COMMENT_MOVE_UNCOMMENTABLE'
-    ? t('comments.merge.uncommentable', "Nothing was merged: the target memory can't hold comments, and some source nodes have discussions. An admin of the source memory can delete those discussions first.")
-    : t('comments.merge.folds', "Nothing was merged: a node with discussions would stop existing, and a discussion can't move to a different node. Delete those discussions first, or merge without removing that node.");
-  return { status: 409, text: text + which };
+  const outcome = merge === 'node'
+    ? t('comments.merge.outcome-node', 'Nothing was merged.')
+    : t('comments.merge.outcome-memory', 'The merge stopped before it finished. Nodes moved in earlier steps may already be in the target memory, so check both memories before trying again.');
+  const reason = code === 'COMMENT_MOVE_UNCOMMENTABLE'
+    ? t('comments.merge.uncommentable', "The target memory can't hold comments, and some source nodes have discussions. An admin of the source memory can delete those discussions first.")
+    : t('comments.merge.folds', "A node with discussions would stop existing, and a discussion can't move to a different node. Delete those discussions first, or merge without removing that node.");
+  return { status: 409, text: `${outcome} ${reason}${which}` };
 }
 
 // ── Refusals ───────────────────────────────────────────────────────────

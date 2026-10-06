@@ -112,10 +112,12 @@ describe('merge node command action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('hadron-server#1682: deleting a source with live discussions gets fixed copy, not the server prose', async () => {
+  // hadron-server#1682 (Jonas on #1026, P3): both codes on this page, each with
+  // its locs from extensions.nodes, and never the server's prose.
+  it.each(['COMMENT_MOVE_UNCOMMENTABLE', 'COMMENT_MERGE_FOLDS_THREADS'])('hadron-server#1682: %s gets 409 and fixed copy naming the node', async (code) => {
     mockRequest.mockRejectedValueOnce({
       response: {
-        errors: [{ message: 'server prose', extensions: { code: 'COMMENT_MERGE_FOLDS_THREADS', nodes: [{ nodeId: 'n1', loc: 'source', comments: 2 }] } }],
+        errors: [{ message: 'server prose', extensions: { code, class: 'private', nodes: [{ nodeId: 'n1', loc: 'specs:a', comments: 1 }] } }],
       },
     });
     const result = await run({
@@ -126,8 +128,9 @@ describe('merge node command action', () => {
     });
     expect(result).toMatchObject({ status: 409 });
     const msg = superFormFrom(result)?.message as { type: string; text: string };
-    expect(msg.text).toMatch(/^Nothing was merged: a node with discussions would stop existing/);
-    expect(msg.text).toContain('Nodes with discussions: source.');
+    expect(msg.type).toBe('error');
+    expect(msg.text.startsWith('Nothing was merged')).toBe(true);
+    expect(msg.text).toContain('Nodes with discussions: specs:a.');
     expect(msg.text).not.toContain('server prose');
   });
 });
