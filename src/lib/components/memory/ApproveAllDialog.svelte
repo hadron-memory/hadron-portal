@@ -113,6 +113,11 @@
         <p class="text-sm text-zinc-600 dark:text-zinc-400">
           {t('memory-actions.approve-all.explain', 'This approves the current revision of every node in this memory that isn’t minted or approved yet, and records you as the approver of each. Reserved placeholders are skipped. Read what you approve: an approval says you reviewed this text.')}
         </p>
+        <!-- portal#1014 (Jane on #1025, P3): the server reports open feedback only with
+             the result, so before approving the dialog points at where it already shows. -->
+        <p data-testid="approve-all-feedback-hint" class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+          {t('memory-actions.approve-all.feedback-hint', 'Nodes with open discussions are marked in the node list. Read those discussions first: approving doesn’t resolve them.')}
+        </p>
         {#if error}
           <p role="alert" data-testid="approve-all-error" class="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>
         {/if}

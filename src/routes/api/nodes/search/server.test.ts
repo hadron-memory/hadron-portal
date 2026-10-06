@@ -68,6 +68,25 @@ describe('/api/nodes/search (#429)', () => {
     expect(vars).toMatchObject({ updatedAfter: '2026-07-01T00:00:00.000Z', sort: 'updatedAt' });
   });
 
+  it("portal#1014 (Jane on #1025): a result row carries its open-thread count; an absent summary stays absent", async () => {
+    mockRequest.mockResolvedValueOnce({
+      findNodes: {
+        hits: [
+          { node: { id: 'a', commentSummary: { openThreads: 2 } } },
+          { node: { id: 'b', commentSummary: { openThreads: 0 } } },
+          { node: { id: 'c' } },
+        ],
+        passages: [],
+        total: 3,
+        reason: null,
+        degraded: null,
+      },
+    });
+    const res = await POST(ev({ query: 'foo', memoryIds: ['m1'] }));
+    const { nodes } = await res.json();
+    expect(nodes).toEqual([{ id: 'a', openThreads: 2 }, { id: 'b', openThreads: 0 }, { id: 'c' }]);
+  });
+
   it('maps a fuzzy query to vector mode + chunk granularity (#430)', async () => {
     mockRequest.mockResolvedValue(findNodesResult(1));
     await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));

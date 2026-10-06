@@ -151,7 +151,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const client = gqlClient(locals.token);
   type Hit = {
-    node: MemoryNode;
+    node: MemoryNode & { commentSummary?: { openThreads: number } | null };
     score: number | null;
     vector: {
       similarity: number | null;
@@ -204,7 +204,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       noteDegraded = noteDegraded ?? r?.degraded ?? null;
     }
     const hits = r?.hits ?? [];
-    const nodes = hits.map((h) => h.node);
+    // portal#1014: the result row carries its open-thread count as the list
+    // rows do (MemoryNode.openThreads); an absent summary stays absent, never 0.
+    const nodes = hits.map((h) => {
+      if (!h.node) return h.node;
+      const { commentSummary, ...node } = h.node;
+      return commentSummary ? { ...node, openThreads: commentSummary.openThreads } : node;
+    });
     const hitIds = new Set(nodes.map((n) => n.id));
     // #432: per-hit relevance + vector metadata → { nodeId: SearchHitMeta }.
     // findNodes' raw `score` isn't comparable across modes (keyword ts_rank vs.

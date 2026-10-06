@@ -58,6 +58,12 @@ describe('ApproveAllDialog (#992)', () => {
     expect(warning.querySelector(`a[href*="${urn}"]`)).not.toBeNull();
   });
 
+  it('portal#1014: before approving, the dialog points at where open discussions show', () => {
+    const { target } = mountDialog();
+    expect(q(target, 'approve-all-feedback-hint')!.textContent).toContain('marked in the node list');
+    expect(q(target, 'approve-all-result')).toBeNull();
+  });
+
   it('portal#1014: no open discussions, no warning', async () => {
     fetchMock.mockResolvedValue(ok({ result: RESULT }));
     const { target } = mountDialog();

@@ -2753,6 +2753,10 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
       hits {
         node {
           ...NodeFields
+          # portal#1014 (Jane on #1025): the open-feedback cue must survive a
+          # search or filter replacing the list, so result rows carry the count
+          # too (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). Batched per request server-side.
+          commentSummary { openThreads }
         }
         # #432: per-hit relevance + vector metadata. score is null for an
         # unscored (no-query) filtered list; vector is present only when the
