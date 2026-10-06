@@ -317,7 +317,8 @@ export function commentMoveRefusedText(): string {
 
 /**
  * hadron-server#1682: a merge refused because comment threads can't follow it.
- * Two codes, both raised before anything commits:
+ * Two codes. Each can come from the preflight, before anything commits, or
+ * from a later re-check under a batch's locks (memory merges only; see below):
  * - `COMMENT_MOVE_UNCOMMENTABLE`: the target memory's class takes no comments
  *   (hrn:node:hadronmemory.com:specs:cor:dmo:110:02);
  * - `COMMENT_MERGE_FOLDS_THREADS`: a commented node would be folded into
