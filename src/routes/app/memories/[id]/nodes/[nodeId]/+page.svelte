@@ -1684,20 +1684,28 @@
   // portal#1014: the node's discussion and its open-feedback summary, streamed
   // and checked the same way. The tab's own writes update the summary too.
   let discussion = $state<Discussion | null | undefined>(undefined);
-  // Bumps once per loader read, keying the tab: a fresh read (navigation or
-  // invalidation, even on the same node) remounts it from that read, while the
-  // tab's own confirmed writes flow back through `ondiscussion` and survive a
-  // tab switch (Gene on #1024).
-  let discussionRead = $state(0);
+  // Only a new NODE starts the tab empty. A fresh read of the same node (an
+  // invalidation) keeps showing the last discussion until it lands, then the
+  // mounted tab adopts it; blanking it in between would unmount the tab and
+  // lose the reader's drafts (local review on #1024, P2-1). The tab's own
+  // confirmed writes come back through `ondiscussion` (Gene on #1024).
+  let discussionNodeId: string | undefined;
   $effect(() => {
     const p = data.discussion;
-    discussion = undefined;
+    const id = node.id;
+    if (id !== discussionNodeId) {
+      discussionNodeId = id;
+      discussion = undefined;
+    }
     p.then((res) => {
-      if (data.discussion === p) {
-        discussion = res;
-        discussionRead++;
-      }
+      if (data.discussion === p) discussion = res;
     });
+  });
+  // The tab mounts on first open and then stays mounted (hidden) for this node,
+  // so switching tabs keeps drafts, open editors and loaded pages.
+  let discussionOpened = $state(false);
+  $effect(() => {
+    if (activeTab === 'discussion') discussionOpened = true;
   });
   let commentSummary = $state<CommentSummary | null>(null);
   $effect(() => {
@@ -1983,6 +1991,8 @@
       propertiesSaveSeq++;
       savingProperties = false;
       confirmDelete = false;
+      // portal#1014: the Discussion tab belongs to the node it was opened on.
+      discussionOpened = false;
       editingEdges = false;
       isEditing = false;
       reorderMode = false;
@@ -2649,11 +2659,12 @@
     {/if}
 
     <!-- ═══ DISCUSSION TAB (portal#1014) ═══ -->
-    {#if activeTab === 'discussion' && commentable}
+    {#if commentable && discussionOpened}
+      <div hidden={activeTab !== 'discussion'} data-testid="discussion-panel">
       {#if discussion === undefined}
         <p class="text-sm text-zinc-400" aria-busy="true">{t('comments.loading', 'Loading the discussion…')}</p>
       {:else if discussion}
-        {#key `${node.id}:${discussionRead}`}
+        {#key node.id}
           <NodeDiscussion
             endpoint={commentsEndpoint}
             shownRevision={node.revision ?? null}
@@ -2664,6 +2675,7 @@
           />
         {/key}
       {/if}
+      </div>
     {/if}
 
     <!-- ═══ CONTENT TAB ═══ -->

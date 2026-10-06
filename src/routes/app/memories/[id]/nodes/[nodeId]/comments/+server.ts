@@ -25,7 +25,7 @@ function offsetParam(url: URL): number {
 }
 
 export const GET: RequestHandler = async ({ params, locals, url }) => {
-  if (!locals.token) return json({ error: 'Unauthorized' }, { status: 401 });
+  if (!locals.token) return json({ error: t('comments.unauthorized', 'Sign in to read or write this discussion.') }, { status: 401 });
   const client = gqlClient(locals.token);
   let head;
   try {
@@ -34,7 +34,7 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
     console.warn('[comments] head read failed:', e);
     return json({ error: failedReadText() }, { status: 502 });
   }
-  if (!head || head.memory?.id !== params.id) return json({ error: 'Not found' }, { status: 404 });
+  if (!head || head.memory?.id !== params.id) return json({ error: t('comments.target-gone', 'This node no longer exists here, or you no longer have access to it.') }, { status: 404 });
   const discussion = await loadDiscussion(
     client,
     head.id,
@@ -46,7 +46,7 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
 };
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
-  if (!locals.token) return json({ error: 'Unauthorized' }, { status: 401 });
+  if (!locals.token) return json({ error: t('comments.unauthorized', 'Sign in to read or write this discussion.') }, { status: 401 });
   const write = parseCommentWrite(await request.json().catch(() => null));
   if (!write) return json({ error: t('comments.bad-request', "That request wasn't understood, so nothing was changed.") }, { status: 400 });
   const client = gqlClient(locals.token);
@@ -58,7 +58,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     console.warn('[comments] head read failed:', e);
     return json({ error: failedReadText() }, { status: 502 });
   }
-  if (!head || head.memory?.id !== params.id) return json({ error: 'Not found' }, { status: 404 });
+  if (!head || head.memory?.id !== params.id) return json({ error: t('comments.target-gone', 'This node no longer exists here, or you no longer have access to it.') }, { status: 404 });
 
   const result = await sendCommentWrite(client, head.id, write);
   // Refresh either way: after a refusal the reader sees the state that caused

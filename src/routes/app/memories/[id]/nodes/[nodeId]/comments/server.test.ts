@@ -9,6 +9,11 @@ import { ClientError } from 'graphql-request';
 import {
   COMMENT_THREADS_QUERY,
   CREATE_COMMENT_MUTATION,
+  DELETE_COMMENT_THREAD_MUTATION,
+  EDIT_COMMENT_MUTATION,
+  HIDE_COMMENT_MUTATION,
+  REOPEN_COMMENT_THREAD_MUTATION,
+  RETRACT_COMMENT_MUTATION,
   NODE_COMMENT_SUMMARY_QUERY,
   REPLY_TO_COMMENT_MUTATION,
   RESOLVE_COMMENT_THREAD_MUTATION,
@@ -223,6 +228,24 @@ describe('POST comments (portal#1014)', () => {
     await POST(ev({ op: 'resolve', commentId: 'c1', expectedRevision: 1 }));
     expect(sent(REPLY_TO_COMMENT_MUTATION)).toEqual([{ commentRef: 'c1', body: 'Agreed' }]);
     expect(sent(RESOLVE_COMMENT_THREAD_MUTATION)).toEqual([{ commentRef: 'c1', expectedRevision: 1 }]);
+  });
+
+  // local review on #1024, P2-2: every write is pinned to its mutation and
+  // variables, so a miswired op can't ship green.
+  it.each([
+    ['edit', { op: 'edit', commentId: 'c1', body: 'Fixed', expectedRevision: 2 }, EDIT_COMMENT_MUTATION, { commentRef: 'c1', body: 'Fixed', expectedRevision: 2 }],
+    ['retract', { op: 'retract', commentId: 'c1', expectedRevision: 2 }, RETRACT_COMMENT_MUTATION, { commentRef: 'c1', expectedRevision: 2 }],
+    ['reopen', { op: 'reopen', commentId: 'c1', expectedRevision: 3 }, REOPEN_COMMENT_THREAD_MUTATION, { commentRef: 'c1', expectedRevision: 3 }],
+    ['hide', { op: 'hide', commentId: 'c2', reason: 'Spam', expectedRevision: 1 }, HIDE_COMMENT_MUTATION, { commentRef: 'c2', reason: 'Spam', expectedRevision: 1 }],
+    ['delete', { op: 'delete', commentId: 'c1', reason: 'Off-topic' }, DELETE_COMMENT_THREAD_MUTATION, { commentRef: 'c1', reason: 'Off-topic' }],
+  ] as const)('%s sends its own mutation with the reader\'s values, and nothing else', async (_name, body, doc, vars) => {
+    serve({ [doc]: () => ({}) });
+    const res = await POST(ev(body));
+    expect(res.status).toBe(200);
+    expect(sent(doc)).toEqual([vars]);
+    for (const other of [CREATE_COMMENT_MUTATION, REPLY_TO_COMMENT_MUTATION, RESOLVE_COMMENT_THREAD_MUTATION, EDIT_COMMENT_MUTATION, RETRACT_COMMENT_MUTATION, REOPEN_COMMENT_THREAD_MUTATION, HIDE_COMMENT_MUTATION, DELETE_COMMENT_THREAD_MUTATION]) {
+      if (other !== doc) expect(sent(other)).toEqual([]);
+    }
   });
 
   it('a typed refusal gets fixed copy and its status, never the server prose, plus the fresh state', async () => {

@@ -3,8 +3,7 @@
  *
  * The documents follow the comment-nodes machine contract,
  * `hrn:node:hadronmemory.com:hadron-server:design:comment-nodes-contract` §4.
- * They validate against the server SDL only once #1606 ships it, which is why
- * the PR that adds them stays a draft until then.
+ * They validate against the committed SDL snapshot (`pnpm gql:validate`).
  */
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';

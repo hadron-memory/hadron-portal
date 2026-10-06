@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import type { Comment, Discussion, DiscussionThread } from '$lib/comments';
 import NodeDiscussion from './NodeDiscussion.svelte';
 
@@ -292,9 +293,21 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
-  it('with no known revision, offers no new thread: nothing could be anchored to what the reader saw', () => {
+  it('with no known revision, offers no new thread, and tells a writer why', () => {
     const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: null, initial: discussion([]) });
     expect(m.target.querySelector('#new-comment')).toBeNull();
+    expect(m.target.textContent).toContain('could not tell which one that is');
+    m.unmount();
+  });
+
+  it('local review on #1024, P2-1: a fresh read is adopted in place, keeping the draft being written', () => {
+    const props = reactiveProps<Record<string, unknown>>({ endpoint: ENDPOINT, shownRevision: 3, initial: discussion([]) });
+    const m = mountComponent(NodeDiscussion as never, props as never) as ReturnType<typeof mountComponent>;
+    typeInto(m.target.querySelector<HTMLTextAreaElement>('#new-comment')!, 'Half-written thought');
+    props.initial = discussion([thread(comment('c7', { body: 'Arrived meanwhile' }))]);
+    flushSync();
+    expect(m.target.textContent).toContain('Arrived meanwhile');
+    expect(m.target.querySelector<HTMLTextAreaElement>('#new-comment')!.value).toBe('Half-written thought');
     m.unmount();
   });
 

@@ -61,6 +61,25 @@
   // the latest confirmed state.
   let discussion = $state<Discussion>(untrack(() => initial));
   let summary = $state<CommentSummary | null>(untrack(() => initialSummary));
+  // The page keeps this tab mounted across tab switches and hands it each
+  // fresh read; adopting a new read in place, rather than remounting, keeps the
+  // reader's drafts and open editors (local review on #1024, P2-1).
+  let adoptedInitial = untrack(() => initial);
+  $effect(() => {
+    const next = initial;
+    if (next !== adoptedInitial) {
+      adoptedInitial = next;
+      discussion = next;
+    }
+  });
+  let adoptedSummary = untrack(() => initialSummary);
+  $effect(() => {
+    const next = initialSummary;
+    if (next !== adoptedSummary) {
+      adoptedSummary = next;
+      summary = next;
+    }
+  });
   let busy = $state<string | null>(null);
   let errorFor = $state<{ key: string; text: string } | null>(null);
   let newBody = $state('');
@@ -77,7 +96,7 @@
     // Uma (#6998): opening the tab with your own thread open lands on it, since
     // it's where a second post of yours belongs (one open thread per author).
     const own = discussion.ok ? readerOpenThreadId(discussion.threads, summary) : null;
-    if (own) listEl?.querySelector<HTMLElement>(`[data-thread-id="${CSS.escape(own)}"]`)?.scrollIntoView?.({ block: 'start' });
+    if (own) jumpTo(own);
   });
   onDestroy(() => {
     destroyed = true;
@@ -148,6 +167,18 @@
     }
   }
 
+  /**
+   * Scroll to a thread and move focus there, so keyboard and screen-reader
+   * users land on it too (local review on #1024, P3). False when it isn't loaded.
+   */
+  function jumpTo(threadId: string): boolean {
+    const el = listEl?.querySelector<HTMLElement>(`[data-thread-id="${CSS.escape(threadId)}"]`);
+    if (!el) return false;
+    el.scrollIntoView?.({ block: 'start' });
+    el.focus?.({ preventScroll: true });
+    return true;
+  }
+
   function setDiscussion(d: Discussion) {
     discussion = d;
     ondiscussion?.(d);
@@ -198,9 +229,7 @@
       }
       if (destroyed) return;
       await tick();
-      const el = listEl?.querySelector<HTMLElement>(`[data-thread-id="${CSS.escape(id)}"]`);
-      if (el) el.scrollIntoView?.({ block: 'start' });
-      else errorFor = { key: 'more', text: t('comments.own-not-found', "Couldn't find your open discussion. Reload to try again.") };
+      if (!jumpTo(id)) errorFor = { key: 'more', text: t('comments.own-not-found', "Couldn't find your open discussion. Reload to try again.") };
     } catch {
       if (!destroyed) errorFor = { key: 'more', text: t('comments.more-failed', "Couldn't load more discussions. Try again.") };
     } finally {
@@ -405,7 +434,12 @@
         </button>
         {#if errorText('new')}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{errorText('new')}</p>{/if}
       </form>
-    {:else if !permissions.canWrite}
+    {:else if permissions.canWrite}
+      <!-- local review on #1024, P3: a writer still gets a reason, never a silent gap. -->
+      <p class="text-sm text-zinc-500 dark:text-zinc-400">
+        {t('comments.no-revision', 'A new discussion is anchored to the revision you are reading, and this page could not tell which one that is. Reload to start one.')}
+      </p>
+    {:else}
       <p class="text-sm text-zinc-500 dark:text-zinc-400">
         {t('comments.read-only', 'You can read this discussion. Writing in it needs write access to this memory.')}
       </p>
@@ -421,6 +455,7 @@
           {@const rootControls = commentControls(thread.root, thread.root, permissions, thread.mine[thread.root.id] === true)}
           <li
             data-thread-id={thread.root.id}
+            tabindex="-1"
             class="space-y-3 rounded-lg border p-3 {thread.root.id === ownOpenThread
               ? 'border-indigo-300 dark:border-indigo-700'
               : 'border-zinc-200 dark:border-zinc-800'}"
@@ -447,7 +482,7 @@
             {/if}
             {#if thread.replyCount > thread.replies.length}
               <p class="text-xs text-zinc-500 dark:text-zinc-400">
-                {t('comments.more-replies', '{n} more replies aren’t shown here.', { n: thread.replyCount - thread.replies.length })}
+                {t('comments.more-replies', 'Only the first {shown} replies are shown; {n} more exist.', { shown: thread.replies.length, n: thread.replyCount - thread.replies.length })}
               </p>
             {/if}
             {#if rootControls.reply}
