@@ -17,7 +17,14 @@ import type { RequestHandler } from './$types';
 
 const failedReadText = () => t('comments.read-failed', "Couldn't load the discussion. Reload to try again.");
 
-export const GET: RequestHandler = async ({ params, locals }) => {
+/** A page offset from the query string: a nonnegative integer, else the first page. */
+function offsetParam(url: URL): number {
+  const raw = url.searchParams.get('offset');
+  const n = raw === null ? 0 : Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 0;
+}
+
+export const GET: RequestHandler = async ({ params, locals, url }) => {
   if (!locals.token) return json({ error: 'Unauthorized' }, { status: 401 });
   const client = gqlClient(locals.token);
   let head;
@@ -28,11 +35,12 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     return json({ error: failedReadText() }, { status: 502 });
   }
   if (!head || head.memory?.id !== params.id) return json({ error: 'Not found' }, { status: 404 });
-  const discussion = await loadDiscussion(client, head.id, {
-    userId: locals.user?.id,
-    memoryUrn: head.memory.urn,
-    impersonating: locals.impersonation != null,
-  });
+  const discussion = await loadDiscussion(
+    client,
+    head.id,
+    { userId: locals.user?.id, memoryUrn: head.memory.urn, impersonating: locals.impersonation != null },
+    offsetParam(url),
+  );
   if (!discussion.ok) return json({ error: failedReadText() }, { status: 502 });
   return json({ discussion, summary: head.commentSummary, revision: head.revision });
 };

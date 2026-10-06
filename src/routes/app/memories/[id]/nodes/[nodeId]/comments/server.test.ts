@@ -27,9 +27,10 @@ beforeEach(() => {
 });
 
 type Ev = Parameters<typeof POST>[0];
-const ev = (body: unknown, over: { token?: string | null; memoryId?: string; impersonation?: unknown; userId?: string } = {}) =>
+const ev = (body: unknown, over: { token?: string | null; memoryId?: string; impersonation?: unknown; userId?: string; search?: string } = {}) =>
   ({
     params: { id: over.memoryId ?? 'mem-1', nodeId: 'node-1' },
+    url: new URL(`http://portal.test/app/memories/mem-1/nodes/node-1/comments${over.search ?? ''}`),
     request: { json: async () => body },
     locals: {
       token: over.token === undefined ? 'tok' : over.token,
@@ -157,6 +158,14 @@ describe('GET comments (portal#1014)', () => {
     });
     const body = await (await GET(ev(null, { userId: 'user-1' }))).json();
     expect(body.discussion.threads[0].mine).toEqual({ c1: false });
+  });
+
+  it('Gene on #1024: pages from the offset asked for, and treats a malformed one as the first page', async () => {
+    serve();
+    await GET(ev(null, { search: '?offset=50' }));
+    await GET(ev(null, { search: '?offset=-3' }));
+    await GET(ev(null, { search: '?offset=abc' }));
+    expect(sent(COMMENT_THREADS_QUERY).map((v) => (v as { offset: number }).offset)).toEqual([50, 0, 0]);
   });
 
   it('404s a node that lives in another memory than the URL names', async () => {

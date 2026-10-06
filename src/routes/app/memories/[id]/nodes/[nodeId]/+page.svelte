@@ -1684,11 +1684,19 @@
   // portal#1014: the node's discussion and its open-feedback summary, streamed
   // and checked the same way. The tab's own writes update the summary too.
   let discussion = $state<Discussion | null | undefined>(undefined);
+  // Bumps once per loader read, keying the tab: a fresh read (navigation or
+  // invalidation, even on the same node) remounts it from that read, while the
+  // tab's own confirmed writes flow back through `ondiscussion` and survive a
+  // tab switch (Gene on #1024).
+  let discussionRead = $state(0);
   $effect(() => {
     const p = data.discussion;
     discussion = undefined;
     p.then((res) => {
-      if (data.discussion === p) discussion = res;
+      if (data.discussion === p) {
+        discussion = res;
+        discussionRead++;
+      }
     });
   });
   let commentSummary = $state<CommentSummary | null>(null);
@@ -2645,13 +2653,14 @@
       {#if discussion === undefined}
         <p class="text-sm text-zinc-400" aria-busy="true">{t('comments.loading', 'Loading the discussion…')}</p>
       {:else if discussion}
-        {#key node.id}
+        {#key `${node.id}:${discussionRead}`}
           <NodeDiscussion
             endpoint={commentsEndpoint}
             shownRevision={node.revision ?? null}
             initial={discussion}
             summary={commentSummary}
             onsummary={(s) => (commentSummary = s)}
+            ondiscussion={(d) => (discussion = d)}
           />
         {/key}
       {/if}

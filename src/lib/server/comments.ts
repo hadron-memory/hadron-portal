@@ -183,13 +183,14 @@ export async function loadDiscussion(
   client: GraphQLClient,
   nodeId: string,
   reader: { userId: string | null | undefined; memoryUrn: string | null | undefined; impersonating: boolean },
+  offset = 0,
 ): Promise<Discussion> {
   try {
     const [r, permissions] = await Promise.all([
       client.request<{ commentThreads: { total: number; items: CommentThread[] } }>(COMMENT_THREADS_QUERY, {
         targetRef: nodeId,
         limit: THREAD_PAGE_SIZE,
-        offset: 0,
+        offset,
       }),
       readPermissions(client, reader.userId, reader.memoryUrn, reader.impersonating),
     ]);

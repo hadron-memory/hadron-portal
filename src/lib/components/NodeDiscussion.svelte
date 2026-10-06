@@ -7,7 +7,7 @@
    * endpoint read back, never an optimistic copy: a write the server didn't
    * confirm must not appear to have landed.
    */
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { t } from '$lib/i18n/t';
@@ -31,6 +31,7 @@
     initial,
     summary: initialSummary = null,
     onsummary,
+    ondiscussion,
   }: {
     /** `/app/memories/<memoryId>/nodes/<nodeId>/comments`, built from canonical ids. */
     endpoint: string;
@@ -44,10 +45,20 @@
     /** The node's comment summary, when read: its `viewerOpenThreadId` names the reader's open thread. */
     summary?: CommentSummary | null;
     onsummary?: (summary: CommentSummary) => void;
+    /**
+     * Every confirmed discussion the tab holds, so the page can keep it: the tab
+     * is unmounted on a tab switch, and remounting from the loader's copy would
+     * drop writes the server already confirmed (Gene on #1024).
+     */
+    ondiscussion?: (discussion: Discussion) => void;
   } = $props();
 
-  // Seeded once: the parent keys this component by node, so a new node is a
-  // new instance, and later state comes only from the endpoint.
+  /** How many pages "Show my open discussion" reads at most before giving up. */
+  const FIND_OWN_MAX_PAGES = 20;
+
+  // Seeded once: the parent keys this component by node and by loader read,
+  // and keeps every confirmed discussion we report, so a remount starts from
+  // the latest confirmed state.
   let discussion = $state<Discussion>(untrack(() => initial));
   let summary = $state<CommentSummary | null>(untrack(() => initialSummary));
   let busy = $state<string | null>(null);
@@ -81,6 +92,10 @@
 
   const permissions = $derived(discussion.ok ? discussion.permissions : { canWrite: false, canManage: false });
   const ownOpenThread = $derived(discussion.ok ? readerOpenThreadId(discussion.threads, summary) : null);
+  // The server named the reader's open thread, but it isn't on the loaded pages.
+  const ownThreadOffPage = $derived(
+    !!ownOpenThread && discussion.ok && !discussion.threads.some((th) => th.root.id === ownOpenThread),
+  );
 
   async function send(key: string, payload: Record<string, unknown>): Promise<boolean> {
     if (busy) return false;
@@ -99,7 +114,7 @@
         summary?: CommentSummary;
       };
       if (destroyed) return false;
-      if (body.discussion) discussion = body.discussion;
+      if (body.discussion) setDiscussion(body.discussion);
       if (body.summary) {
         summary = body.summary;
         onsummary?.(body.summary);
@@ -128,6 +143,66 @@
             : t('comments.unknown.change', "We couldn't confirm the change went through. Reload to see the current state."),
       };
       return false;
+    } finally {
+      if (!destroyed) busy = null;
+    }
+  }
+
+  function setDiscussion(d: Discussion) {
+    discussion = d;
+    ondiscussion?.(d);
+  }
+
+  /** The next page of threads, appended. Returns false when nothing more could be read. */
+  async function loadMore(): Promise<boolean> {
+    if (!discussion.ok || discussion.threads.length >= discussion.total) return false;
+    const res = await fetch(`${endpoint}?offset=${discussion.threads.length}`);
+    const body = (await res.json().catch(() => ({}))) as { discussion?: Discussion; summary?: CommentSummary };
+    if (destroyed) return false;
+    if (!res.ok || !body.discussion?.ok || !discussion.ok) {
+      errorFor = { key: 'more', text: t('comments.more-failed', "Couldn't load more discussions. Try again.") };
+      return false;
+    }
+    const seen = new Set(discussion.threads.map((th) => th.root.id));
+    const added = body.discussion.threads.filter((th) => !seen.has(th.root.id));
+    setDiscussion({ ...discussion, threads: [...discussion.threads, ...added], total: body.discussion.total });
+    if (body.summary) {
+      summary = body.summary;
+      onsummary?.(body.summary);
+    }
+    return added.length > 0;
+  }
+
+  async function showMore() {
+    if (busy) return;
+    busy = 'more';
+    errorFor = null;
+    try {
+      await loadMore();
+    } catch {
+      if (!destroyed) errorFor = { key: 'more', text: t('comments.more-failed', "Couldn't load more discussions. Try again.") };
+    } finally {
+      if (!destroyed) busy = null;
+    }
+  }
+
+  /** Page until the reader's open thread is loaded, then scroll to it (bounded). */
+  async function findOwn() {
+    const id = summary?.viewerOpenThreadId;
+    if (!id || busy) return;
+    busy = 'find';
+    errorFor = null;
+    try {
+      for (let i = 0; i < FIND_OWN_MAX_PAGES && discussion.ok && !discussion.threads.some((th) => th.root.id === id); i++) {
+        if (!(await loadMore())) break;
+      }
+      if (destroyed) return;
+      await tick();
+      const el = listEl?.querySelector<HTMLElement>(`[data-thread-id="${CSS.escape(id)}"]`);
+      if (el) el.scrollIntoView?.({ block: 'start' });
+      else errorFor = { key: 'more', text: t('comments.own-not-found', "Couldn't find your open discussion. Reload to try again.") };
+    } catch {
+      if (!destroyed) errorFor = { key: 'more', text: t('comments.more-failed', "Couldn't load more discussions. Try again.") };
     } finally {
       if (!destroyed) busy = null;
     }
@@ -311,7 +386,14 @@
       >
         {#if ownOpenThread}
           <p data-testid="own-open-thread" class="text-xs text-amber-700 dark:text-amber-400">
-            {t('comments.own-open', 'Your discussion below is still open. Reply there, or resolve or retract it before starting another.')}
+            {ownThreadOffPage
+              ? t('comments.own-open-off-page', 'You already have an open discussion on this node, further down the list. Reply there, or resolve or retract it before starting another.')
+              : t('comments.own-open', 'Your discussion below is still open. Reply there, or resolve or retract it before starting another.')}
+            {#if ownThreadOffPage}
+              <button type="button" data-testid="find-own-thread" class="ml-1 underline disabled:opacity-50" disabled={busy !== null} onclick={findOwn}>
+                {busy === 'find' ? t('comments.own-finding', 'Finding it…') : t('comments.own-find', 'Show my open discussion')}
+              </button>
+            {/if}
           </p>
         {/if}
         <label class="block text-sm font-medium text-zinc-700 dark:text-zinc-300" for="new-comment">
@@ -397,10 +479,14 @@
         {/each}
       </ul>
       {#if discussion.total > discussion.threads.length}
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">
-          {t('comments.more-threads', 'Showing {shown} of {total} discussions.', { shown: discussion.threads.length, total: discussion.total })}
-        </p>
+        <div class="flex flex-wrap items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <span>{t('comments.more-threads', 'Showing {shown} of {total} discussions.', { shown: discussion.threads.length, total: discussion.total })}</span>
+          <button type="button" data-testid="more-threads" class={buttonClass} disabled={busy !== null} onclick={showMore}>
+            {busy === 'more' ? t('comments.more-loading', 'Loading…') : t('comments.more-show', 'Show more')}
+          </button>
+        </div>
       {/if}
+      {#if errorText('more')}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{errorText('more')}</p>{/if}
     {/if}
   {/if}
 </section>

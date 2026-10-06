@@ -214,6 +214,74 @@ describe('NodeDiscussion (portal#1014)', () => {
     }
   });
 
+  it("Gene on #1024: a confirmed write is reported up, so a remount from the page's copy still shows it", async () => {
+    const posted = thread(comment('c9', { body: 'Kept across tabs' }), true);
+    stubFetch({ ok: true, body: { ok: true, discussion: discussion([posted]) } });
+    const reported: Discussion[] = [];
+    const first = mountComponent(NodeDiscussion, {
+      endpoint: ENDPOINT,
+      shownRevision: 3,
+      initial: discussion([]),
+      ondiscussion: (d: Discussion) => reported.push(d),
+    });
+    typeInto(first.target.querySelector<HTMLTextAreaElement>('#new-comment')!, 'Kept across tabs');
+    first.target.querySelector<HTMLFormElement>('form')!.requestSubmit();
+    await tick(10);
+    expect(reported).toHaveLength(1);
+    first.unmount();
+    // The page remounts the tab from what it was told, not from the loader's empty read.
+    const second = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3, initial: reported[0] });
+    expect(second.target.textContent).toContain('Kept across tabs');
+    expect(second.target.textContent).not.toContain('No discussion yet');
+    second.unmount();
+  });
+
+  it('Gene on #1024: Show more appends the next page from where the list ends, and reports it', async () => {
+    const fetchMock = stubFetch({ ok: true, body: { discussion: { ...discussion([thread(comment('c2', { body: 'Second page' }))]), total: 2 } } });
+    const reported: Discussion[] = [];
+    const m = mountComponent(NodeDiscussion, {
+      endpoint: ENDPOINT,
+      shownRevision: 3,
+      initial: { ...discussion([thread(comment('c1'))]), total: 2 },
+      ondiscussion: (d: Discussion) => reported.push(d),
+    });
+    (m.target.querySelector('[data-testid="more-threads"]') as HTMLButtonElement).click();
+    await tick(10);
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe(`${ENDPOINT}?offset=1`);
+    expect(m.target.textContent).toContain('Second page');
+    expect(m.target.querySelector('[data-testid="more-threads"]')).toBeNull();
+    const last = reported.at(-1);
+    expect(last && last.ok ? last.threads.length : 0).toBe(2);
+    m.unmount();
+  });
+
+  it("Gene on #1024: the reader's open thread off the first page can be found, then scrolled to", async () => {
+    const scrolled: string[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.getAttribute('data-thread-id') ?? '');
+    };
+    try {
+      stubFetch({ ok: true, body: { discussion: { ...discussion([thread(comment('mine', { body: 'My old thread' }), true)]), total: 2 } } });
+      const m = mountComponent(NodeDiscussion, {
+        endpoint: ENDPOINT,
+        shownRevision: 3,
+        initial: { ...discussion([thread(comment('other'))]), total: 2 },
+        summary: { openThreads: 2, resolvedThreads: 0, comments: 2, viewerOpenThreadId: 'mine' },
+      });
+      expect(m.target.querySelector('[data-testid="own-open-thread"]')!.textContent).toContain('further down the list');
+      // Nothing to scroll to yet: the thread isn't loaded.
+      expect(scrolled).toEqual([]);
+      (m.target.querySelector('[data-testid="find-own-thread"]') as HTMLButtonElement).click();
+      await tick(12);
+      expect(m.target.textContent).toContain('My old thread');
+      expect(scrolled).toEqual(['mine']);
+      m.unmount();
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
   it('a retracted comment renders as a stub, not its text', () => {
     const m = mountComponent(NodeDiscussion, {
       endpoint: ENDPOINT,
