@@ -1992,7 +1992,11 @@
       savingProperties = false;
       confirmDelete = false;
       // portal#1014: the Discussion tab belongs to the node it was opened on.
-      discussionOpened = false;
+      // Derived from the tab just picked, not reset to false: on first mount
+      // this runs after the opened-effect, and a `?tab=discussion` deep link
+      // leaves activeTab unchanged, so a plain reset left the panel unrendered
+      // (Cloe's QA on #1024).
+      discussionOpened = activeTab === 'discussion';
       editingEdges = false;
       isEditing = false;
       reorderMode = false;
