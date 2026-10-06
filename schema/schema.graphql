@@ -1,4 +1,4 @@
-# Exported from hadron-server 74472a32a14e6a6cbeb12ab504a99ac5fb17ba63 (pr1663b, 2026-10-05T23:35:25+02:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server c2686749de45636f0ffb71f6b9a5c7471f08efd5 (origin/main, 2026-10-05T22:21:51-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -694,6 +694,14 @@ type App {
   """
   policy: JSON
   role: AppMembershipRole!
+
+  """
+  Ruling DY-5: days without activity after which a lapsed worker session of
+  this App is DORMANT. No agent act (post, read, mark-read) resumes a dormant
+  session; only an explicit rebind by its human holder brings the worker
+  back, and the router stops routing it. Default 90.
+  """
+  sessionDormancyDays: Int!
   sessionTimeoutSeconds: Int!
 
   """
@@ -1609,7 +1617,7 @@ type CommentActorRef {
 
 """#1606 — a comment's author. Exactly the refs its kind names are set."""
 type CommentAuthor {
-  """USER_AGENT; also WORKER, when the worker's agent is recorded."""
+  """USER_AGENT only."""
   agent: CommentActorRef
 
   """APP."""
@@ -1673,8 +1681,10 @@ type CommentTargetRef {
 }
 
 type CommentThread {
-  """Oldest first."""
+  """Oldest first; at most the first 200."""
   replies: [Comment!]!
+
+  """Every live reply, including any beyond the returned 200."""
   replyCount: Int!
   root: Comment!
 }
@@ -5978,6 +5988,11 @@ type Mutation {
     name: String
     ref: ID!
     role: AppMembershipRole
+
+    """
+    Ruling DY-5: the dormancy threshold in days (a positive integer). See App.sessionDormancyDays.
+    """
+    sessionDormancyDays: Int
     sessionTimeoutSeconds: Int
     surfaces: [String!]
     systemPrompt: String
