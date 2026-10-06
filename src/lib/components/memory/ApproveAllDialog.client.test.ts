@@ -54,7 +54,7 @@ describe('ApproveAllDialog (#992)', () => {
     (q(target, 'approve-all-submit') as HTMLButtonElement).click();
     await settle();
     const warning = q(target, 'approve-all-open-feedback')!;
-    expect(warning.textContent).toContain('1 node in this memory has an open discussion');
+    expect(warning.textContent).toContain('1 node in this memory has 3 open discussions');
     expect(warning.querySelector(`a[href*="${urn}"]`)).not.toBeNull();
   });
 

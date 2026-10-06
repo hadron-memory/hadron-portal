@@ -51,7 +51,7 @@ describe('MintDialog (#992 slice C)', () => {
     const { target } = mountDialog();
     await settle();
     const warning = q(target, 'mint-open-feedback')!;
-    expect(warning.textContent).toContain('1 node has an open discussion. It doesn’t block minting');
+    expect(warning.textContent).toContain('1 node has 2 open discussions. They don’t block minting');
     // A list of nodes is a DataTable (CLAUDE.md), with the count in its own column.
     expect(warning.querySelector('table')).not.toBeNull();
     expect([...warning.querySelectorAll('td')].map((td) => td.textContent?.trim())).toContain('2');

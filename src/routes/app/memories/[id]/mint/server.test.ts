@@ -116,4 +116,11 @@ describe('mint endpoint (#992)', () => {
     expect(error).toContain(copy);
     expect(error).not.toContain('server prose');
   });
+
+  it('portal#1014 (local review on #1025, P2): a null unresolvedFeedback is no feedback, never a failed report', async () => {
+    mockRequest.mockResolvedValue(serverReport({ unresolvedFeedback: null }));
+    const res = await POST(ev({}));
+    expect(res.status).toBe(200);
+    expect((await res.json()).report.openFeedback).toEqual([]);
+  });
 });

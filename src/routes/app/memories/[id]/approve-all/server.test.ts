@@ -57,4 +57,11 @@ describe('approve-all endpoint (#992)', () => {
     expect(error).toContain(copy);
     expect(error).not.toContain('server prose');
   });
+
+  it('portal#1014 (local review on #1025, P2): a null unresolvedFeedback never turns a succeeded approval into failure', async () => {
+    mockRequest.mockResolvedValue({ approveMemoryNodes: { approvedCount: 1, alreadyApprovedCount: 0, skippedPlaceholders: [], unresolvedFeedback: null } });
+    const res = await POST(ev());
+    expect(res.status).toBe(200);
+    expect((await res.json()).result).toMatchObject({ approvedCount: 1, openFeedback: [] });
+  });
 });

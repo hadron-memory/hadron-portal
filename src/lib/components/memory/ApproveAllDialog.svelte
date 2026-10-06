@@ -98,8 +98,9 @@
       {#if done}
         {@const r = done}
         <p role="status" data-testid="approve-all-result" class="text-sm text-zinc-700 dark:text-zinc-300">{approveAllSummary(r.result)}</p>
-        {#if approveAllFeedbackWarning(r.result)}
-          <OpenFeedbackWarning testid="approve-all-open-feedback" listKey="memories:approve-all:open-feedback" items={r.result.openFeedback} text={approveAllFeedbackWarning(r.result) ?? ''} />
+        {@const feedbackWarning = approveAllFeedbackWarning(r.result)}
+        {#if feedbackWarning}
+          <OpenFeedbackWarning testid="approve-all-open-feedback" listKey="memories:approve-all:open-feedback" items={r.result.openFeedback} text={feedbackWarning} />
         {/if}
         {#if r.result.skippedPlaceholders.length > 0}
           <div class="mt-2">

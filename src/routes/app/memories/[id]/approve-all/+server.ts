@@ -9,7 +9,9 @@ import type { RequestHandler } from './$types';
 // approveMemoryNodes, posted to like /clone (GraphQL runs server-side only).
 // The mutation is all-or-nothing, so a failure means nothing was approved.
 type ServerResult = Omit<ApproveMemoryNodesResult, 'openFeedback'> & {
-  unresolvedFeedback: Array<{ urn: string; openThreads: number }>;
+  // Null-tolerant: a warning field must never turn a succeeded approval into
+  // failure copy (local review on #1025, P2).
+  unresolvedFeedback?: Array<{ urn: string; openThreads: number }> | null;
 };
 
 export const POST: RequestHandler = async ({ params, locals }) => {
@@ -26,7 +28,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
       approvedCount,
       alreadyApprovedCount,
       skippedPlaceholders,
-      openFeedback: unresolvedFeedback.map(({ urn, openThreads }) => ({ urn, openThreads })),
+      openFeedback: (unresolvedFeedback ?? []).map(({ urn, openThreads }) => ({ urn, openThreads })),
     };
     return json({ result });
   } catch (e: unknown) {

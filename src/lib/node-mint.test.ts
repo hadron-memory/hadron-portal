@@ -65,7 +65,9 @@ describe('mint report copy', () => {
 describe('openFeedbackWarning (portal#1014)', () => {
   it('is null without open discussions, and counts nodes with them', () => {
     expect(openFeedbackWarning({ openFeedback: [] })).toBeNull();
-    expect(openFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 4 }] })).toMatch(/^1 node has an open discussion/);
+    expect(openFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 1 }] })).toMatch(/^1 node has an open discussion\./);
+    // local review on #1025, P3: one node, several threads, says so.
+    expect(openFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 4 }] })).toMatch(/^1 node has 4 open discussions\./);
     expect(openFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 1 }, { urn: 'hrn:node:a:b:d', openThreads: 1 }] })).toMatch(/^2 nodes have open discussions/);
   });
 });

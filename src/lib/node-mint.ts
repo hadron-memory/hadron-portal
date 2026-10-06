@@ -102,6 +102,10 @@ export interface MintReport {
 export function openFeedbackWarning(r: Pick<MintReport, 'openFeedback'>): string | null {
   const n = r.openFeedback.length;
   if (n === 0) return null;
+  // One node can carry several threads, so the singular copy is only for one thread.
+  if (n === 1 && r.openFeedback[0].openThreads > 1) {
+    return t('memory.mint.open-feedback-one-node', '1 node has {k} open discussions. They don’t block minting, but read them before you mint.', { k: r.openFeedback[0].openThreads });
+  }
   return n === 1
     ? t('memory.mint.open-feedback-one', '1 node has an open discussion. It doesn’t block minting, but read it before you mint.')
     : t('memory.mint.open-feedback-many', '{n} nodes have open discussions. They don’t block minting, but read them before you mint.', { n });

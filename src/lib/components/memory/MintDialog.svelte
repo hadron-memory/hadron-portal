@@ -150,8 +150,9 @@
             {t('memory-actions.mint.open-questions', '{n} open questions are noted in these nodes. They don’t block minting.', { n: shown.report.openQuestionCount })}
           </p>
         {/if}
-        {#if openFeedbackWarning(shown.report)}
-          <OpenFeedbackWarning testid="mint-open-feedback" listKey="memories:mint:open-feedback" items={shown.report.openFeedback} text={openFeedbackWarning(shown.report) ?? ''} />
+        {@const feedbackWarning = openFeedbackWarning(shown.report)}
+        {#if feedbackWarning}
+          <OpenFeedbackWarning testid="mint-open-feedback" listKey="memories:mint:open-feedback" items={shown.report.openFeedback} text={feedbackWarning} />
         {/if}
         {#if rows.length > 0}
           <div class="mt-2"><MintBlockersTable {rows} /></div>

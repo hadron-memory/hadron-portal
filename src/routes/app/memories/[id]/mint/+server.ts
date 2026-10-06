@@ -20,7 +20,8 @@ interface ServerReport {
   mintLocs: string[];
   blockers: MintFinding[];
   openQuestions: Array<{ questions: unknown[] }>;
-  unresolvedFeedback: Array<{ urn: string; openThreads: number }>;
+  // Null-tolerant: a warning field must never fail a mint report (local review on #1025, P2).
+  unresolvedFeedback?: Array<{ urn: string; openThreads: number }> | null;
 }
 
 function toReport(r: ServerReport): MintReport {
@@ -31,7 +32,7 @@ function toReport(r: ServerReport): MintReport {
     mintableCount: r.mintLocs.length,
     blockers: r.blockers.map(({ kind, loc, rule, targetLoc }) => ({ kind, loc, rule: rule ?? null, targetLoc: targetLoc ?? null })),
     openQuestionCount: r.openQuestions.reduce((n, g) => n + g.questions.length, 0),
-    openFeedback: r.unresolvedFeedback.map(({ urn, openThreads }) => ({ urn, openThreads })),
+    openFeedback: (r.unresolvedFeedback ?? []).map(({ urn, openThreads }) => ({ urn, openThreads })),
   };
 }
 

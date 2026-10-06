@@ -22,6 +22,10 @@ export interface ApproveMemoryNodesResult {
 export function approveAllFeedbackWarning(r: Pick<ApproveMemoryNodesResult, 'openFeedback'>): string | null {
   const n = r.openFeedback.length;
   if (n === 0) return null;
+  // One node can carry several threads, so the singular copy is only for one thread.
+  if (n === 1 && r.openFeedback[0].openThreads > 1) {
+    return t('memory.approve-all.open-feedback-one-node', '1 node in this memory has {k} open discussions. Read them: approving doesn’t resolve them.', { k: r.openFeedback[0].openThreads });
+  }
   return n === 1
     ? t('memory.approve-all.open-feedback-one', '1 node in this memory has an open discussion. Read it: approving doesn’t resolve it.')
     : t('memory.approve-all.open-feedback-many', '{n} nodes in this memory have open discussions. Read them: approving doesn’t resolve them.', { n });

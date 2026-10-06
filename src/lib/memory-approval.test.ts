@@ -13,7 +13,9 @@ describe('approveAllSummary (#992)', () => {
 describe('approveAllFeedbackWarning (portal#1014)', () => {
   it('is null without open discussions, and counts the nodes that have them', () => {
     expect(approveAllFeedbackWarning({ openFeedback: [] })).toBeNull();
-    expect(approveAllFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 2 }] })).toMatch(/^1 node in this memory has an open discussion/);
+    expect(approveAllFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 1 }] })).toMatch(/^1 node in this memory has an open discussion\./);
+    // local review on #1025, P3: one node, several threads, says so.
+    expect(approveAllFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 2 }] })).toMatch(/^1 node in this memory has 2 open discussions\./);
     expect(approveAllFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 1 }, { urn: 'hrn:node:a:b:d', openThreads: 1 }] })).toMatch(/^2 nodes in this memory/);
   });
 });
