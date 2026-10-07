@@ -4,6 +4,11 @@
     label: string;
     /** Render in the destructive style, in a separated group at the bottom. */
     danger?: boolean;
+    /**
+     * #1019: a NAVIGATION action renders as a real link, so middle-click and
+     * "open in new tab" work; `onselect` is not called for it.
+     */
+    href?: string;
   }
 </script>
 
@@ -24,13 +29,17 @@
     label = t('node-actions.label', 'Node actions'),
     disabled = false,
     fixed = false,
+    compact = false,
   }: {
     actions: NodeMenuAction[];
-    onselect: (id: string) => void;
+    /** Called for every action without an `href`. */
+    onselect?: (id: string) => void;
     label?: string;
     disabled?: boolean;
     /** Position against the viewport so overflow containers do not clip it. */
     fixed?: boolean;
+    /** #1019: a smaller trigger for a table row, so the row stays one text line tall. */
+    compact?: boolean;
   } = $props();
 
   let open = $state(false);
@@ -50,9 +59,9 @@
   // stray top-of-menu divider for a danger-only list (PR-504 review).
   const hasSafeItems = $derived(actions.some((a) => !a.danger));
 
-  function menuItems(): HTMLButtonElement[] {
+  function menuItems(): HTMLElement[] {
     if (!menuEl) return [];
-    return Array.from(menuEl.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'));
+    return Array.from(menuEl.querySelectorAll<HTMLElement>('[role="menuitem"]'));
   }
   function focusItem(index: number) {
     const list = menuItems();
@@ -96,7 +105,7 @@
   function pick(id: string) {
     closeMenu();
     triggerEl?.focus();
-    onselect(id);
+    onselect?.(id);
   }
 
   function handleKey(e: KeyboardEvent) {
@@ -146,9 +155,9 @@
     aria-expanded={open}
     aria-label={label}
     {disabled}
-    class="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+    class="flex {compact ? 'h-6 w-6' : 'h-9 w-9'} items-center justify-center rounded-md border border-zinc-300 text-zinc-600 hover:bg-zinc-100 disabled:cursor-wait disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
   >
-    <Ellipsis size={18} aria-hidden="true" />
+    <Ellipsis size={compact ? 14 : 18} aria-hidden="true" />
   </button>
 
   {#if open}
@@ -163,16 +172,16 @@
         {#if action.id === firstDangerId && hasSafeItems}
           <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
         {/if}
-        <button
-          type="button"
-          role="menuitem"
-          onclick={() => pick(action.id)}
-          class="block w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 {action.danger
-            ? 'text-red-600 dark:text-red-400'
-            : 'text-zinc-700 dark:text-zinc-200'}"
-        >
-          {action.label}
-        </button>
+        {@const itemClass = `block w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 ${action.danger
+          ? 'text-red-600 dark:text-red-400'
+          : 'text-zinc-700 dark:text-zinc-200'}`}
+        {#if action.href}
+          <a href={action.href} role="menuitem" onclick={closeMenu} class={itemClass}>{action.label}</a>
+        {:else}
+          <button type="button" role="menuitem" onclick={() => pick(action.id)} class={itemClass}>
+            {action.label}
+          </button>
+        {/if}
       {/each}
     </div>
   {/if}
