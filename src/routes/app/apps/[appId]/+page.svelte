@@ -80,6 +80,7 @@
   import type { ReleaseWorkerMessage } from './schema';
   import { releaseNotice } from './release-notice';
   import { rosterIsStale } from './hold-stale';
+  import { castableAgentOptions } from './cast-agents';
 
   type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
   type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -164,8 +165,10 @@
   );
   // Castable = the App's install roster. castWorker refuses an agent that isn't
   // installed (WORKER_AGENT_NOT_INSTALLED), so offering anything else would be
-  // offering a guaranteed failure.
-  const castableAgents = $derived(app.agents ?? []);
+  // offering a guaranteed failure. #1032 narrows it further to the role agents,
+  // sorted by name — see cast-agents.ts for why the team agent is left out.
+  const installedAgents = $derived(app.agents ?? []);
+  const castableAgents = $derived(castableAgentOptions(installedAgents));
   // #756 — the Role dropdown's options. Distinct, sorted persona roles of the
   // App's installed agents; `App.agents` already selects personaRole precisely
   // because casting defaults a worker's role to it, so this needs no new query.
@@ -1711,11 +1714,20 @@
         {/key}
       {/if}
 
-      {#if castableAgents.length === 0}
+      {#if installedAgents.length === 0}
         <p class="text-sm text-zinc-500">
           {t(
             'app.staff.no-roster',
             'No agents are installed in this App yet, so there is nothing to cast. Install one from Settings first.',
+          )}
+        </p>
+      {:else if castableAgents.length === 0}
+        <!-- #1032: agents are installed, but none carries a role, so the
+             no-roster copy above would be false. -->
+        <p class="text-sm text-zinc-500">
+          {t(
+            'app.staff.no-role-agents',
+            'None of this App’s installed agents has a role, so there is nothing to cast. Install a role agent from Settings first.',
           )}
         </p>
       {/if}
