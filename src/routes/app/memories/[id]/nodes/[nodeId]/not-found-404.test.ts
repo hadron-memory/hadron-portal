@@ -58,10 +58,11 @@ function event(nodeId = 'no-such-node') {
 //     two cases the null is meant to make indistinguishable, handing the
 //     distinction back to anyone probing.
 //
-// Both routes are covered because the sweep that found the second one is the
+// Both routes were covered because the sweep that found the second one is the
 // point: they were written independently, so this is a pattern rather than a
 // typo, and a regression would most likely reappear the same way — one route at
-// a time.
+// a time. #1031 retired the edit page to a redirect, so its case now pins that
+// the redirect reads nothing and leaves the answer to the detail page.
 describe('node routes — a node that does not resolve is a 404, not a 500 (#790)', () => {
   it('detail page 404s', async () => {
     mockRequest.mockResolvedValue({ node: null });
@@ -71,12 +72,15 @@ describe('node routes — a node that does not resolve is a 404, not a 500 (#790
     expect(thrown.body?.message).toBe('Node not found');
   });
 
-  it('edit page 404s', async () => {
+  it('the old edit URL reads nothing, and defers the 404 to the detail page (#1031)', async () => {
+    // The edit page became the detail page's Properties tab; its URL only
+    // redirects there. It must not resolve the node itself: answering a missing
+    // node differently from the detail page is the #790 defect over again.
     mockRequest.mockResolvedValue({ node: null });
-    const { load } = await import('./edit/+page.server');
-    const thrown = await expectThrow(load as never, event());
-    expect(thrown.status).toBe(404);
-    expect(thrown.body?.message).toBe('Node not found');
+    const { GET } = await import('./edit/+server');
+    const thrown = await expectThrow(GET as never, event());
+    expect(thrown.status).toBe(307);
+    expect(mockRequest).not.toHaveBeenCalled();
   });
 
   it('does not leak the requested id into the message', async () => {

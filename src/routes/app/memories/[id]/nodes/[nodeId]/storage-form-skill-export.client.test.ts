@@ -1,5 +1,8 @@
 /**
- * #878 — skill export as ONE checkbox, driven through the mounted edit page.
+ * #878 — skill export as ONE checkbox, driven through the mounted storage form.
+ *
+ * #1031: written against the retired `/edit` page; it now drives the same form
+ * on the node page's Properties tab, through `NodeStorageForm.harness.svelte`.
  *
  * CLIENT lane because every behaviour here is an event handler writing bound
  * state that the page's recombination effect folds into the submitted
@@ -18,8 +21,8 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import type { SkillCheck } from '$lib/skill-check';
-import { editNodeSchema } from './schema';
-import Page from './+page.svelte';
+import { nodeStorageSchema } from './storage-schema';
+import Page from './NodeStorageForm.harness.svelte';
 
 interface Seed {
   loc?: string;
@@ -66,7 +69,7 @@ async function dataFor(seed: Seed) {
       objectType: seed.objectType ?? '',
       propertiesJson: properties != null ? JSON.stringify(properties, null, 2) : '',
     },
-    zod4(editNodeSchema),
+    zod4(nodeStorageSchema),
     { errors: false },
   );
   return {
@@ -111,7 +114,7 @@ const buttonNamed = (target: HTMLElement, text: string) =>
 
 beforeEach(() => {
   resetNavigationGuards();
-  setStubPage('https://example.test/app/memories/mem-1/nodes/n1/edit', { id: 'mem-1', nodeId: 'n1' });
+  setStubPage('https://example.test/app/memories/mem-1/nodes/n1?tab=properties', { id: 'mem-1', nodeId: 'n1' });
 });
 
 describe('checking the box', () => {
