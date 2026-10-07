@@ -168,3 +168,74 @@ describe('App team chat full view (#980)', () => {
     expect((await submitEnhanced(form)).cancelled).toBe(false);
   });
 });
+
+describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
+  const key = {
+    id: 'k1', label: 'production-backend', keyPreview: 'hk_ab…yz',
+    createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
+  };
+  async function keyedData(initialTab: string) {
+    const data = await pageData();
+    return { ...data, initialTab, app: { ...data.app, keys: [key] } };
+  }
+  async function revokeResult() {
+    const f = await superValidate({ _kind: 'revokeKey', keyId: 'k1' }, zod4(revokeAppKeySchema));
+    f.message = { type: 'success', text: 'Key revoked.' };
+    return { form: f };
+  }
+  const selectedTab = (m: Mounted<Record<string, unknown>>) =>
+    m.target.querySelector('[role="tab"][aria-selected="true"]')?.id;
+
+  it('gives each list its own tab and takes both out of Settings', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
+    const props = reactiveProps({ data: await keyedData('keys'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+
+    const labels = Array.from(m.target.querySelectorAll('[role="tab"]')).map((tab) => tab.textContent?.trim());
+    expect(labels).toEqual(expect.arrayContaining(['App Keys', 'AI Service Configs', 'Settings']));
+
+    const keysPanel = m.target.querySelector('#panel-keys')!;
+    expect(keysPanel.getAttribute('aria-labelledby')).toBe('tab-keys');
+    expect(keysPanel.textContent).toContain('+ Generate Key');
+    expect(keysPanel.textContent).toContain('production-backend');
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(2);
+    const configsPanel = m.target.querySelector('#panel-ai-configs')!;
+    expect(configsPanel.textContent).toContain('AI providers');
+    expect(m.target.querySelector('#panel-keys')).toBeNull();
+
+    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
+    await tick(2);
+    const settingsPanel = m.target.querySelector('#panel-settings')!;
+    expect(settingsPanel.textContent).not.toContain('Generate Key');
+    expect(settingsPanel.textContent).not.toContain('production-backend');
+    expect(settingsPanel.textContent).not.toContain('AI providers');
+  });
+
+  it('opens App Keys for a key action result that arrives on a fresh page', async () => {
+    setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
+    const m = mountComponent(Page as never, {
+      data: await keyedData('chats'), form: await revokeResult(),
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    expect(selectedTab(m)).toBe('tab-keys');
+    expect(m.target.textContent).toContain('Key revoked.');
+  });
+
+  it('keeps a revoke made from the Client tab on the Client tab', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
+    const props = reactiveProps<Record<string, unknown>>({ data: await keyedData('client'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    expect(selectedTab(m)).toBe('tab-client');
+
+    props.form = await revokeResult();
+    await tick(3);
+    expect(selectedTab(m)).toBe('tab-client');
+  });
+});
