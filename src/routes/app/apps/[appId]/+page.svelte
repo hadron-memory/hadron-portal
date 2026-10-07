@@ -1413,11 +1413,14 @@
                 'This App has a chatbot agent linked, but no AI service configuration with a key resolves for it yet. Add one for this App, its agent, or the organization.',
               )}
             </p>
+            <!-- #1007/#1008: AI providers moved out of Settings to their own
+                 tab, so the button goes there. A new key for the new copy: the
+                 old one's text named Settings. -->
             <button
-              onclick={() => activeTab = 'settings'}
+              onclick={() => activeTab = 'ai-configs'}
               class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
             >
-              {t('app-chat.no-llm.cta', 'Configure AI providers in Settings')}
+              {t('app-chat.no-llm.cta-ai-configs', 'Configure AI Service Configs')}
             </button>
           </div>
         </div>

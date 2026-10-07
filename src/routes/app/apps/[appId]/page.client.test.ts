@@ -9,6 +9,7 @@ import { submitEnhanced } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatMessage } from '$lib/types';
+import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
 import {
   addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
@@ -237,5 +238,28 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     props.form = await revokeResult();
     await tick(3);
     expect(selectedTab(m)).toBe('tab-client');
+  });
+});
+
+describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
+  it('sends the reader to AI Service Configs, where the providers now live', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, {
+      data: {
+        ...data,
+        app: { ...data.app, surfaces: ['chat'], agentId: 'ag1', agent: { id: 'ag1', name: 'Bot' } },
+        chatConfigs: [], selectedChatKey: AGENT_CHAT_KEY,
+      },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const cta = Array.from(m.target.querySelectorAll('button')).find((b) => b.textContent?.includes('Configure AI Service Configs'));
+    expect(cta).toBeDefined();
+    cta!.click();
+    await tick(2);
+    expect(m.target.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe('tab-ai-configs');
+    expect(m.target.querySelector('#panel-ai-configs')).not.toBeNull();
   });
 });
