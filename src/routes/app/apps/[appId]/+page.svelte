@@ -902,7 +902,6 @@
   });
   const SYSTEM_MEMORY_URNS = ['hadronmemory.com:core'];
   const userMemories = $derived(effectiveMemories.filter((m) => !SYSTEM_MEMORY_URNS.includes(m.urn)));
-  const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
   const writableMemoryIds = $derived(effectiveMemories.filter((m) => m.access === 'read-write').map((m) => m.id));
 
   const newRawKey = $derived(form && 'rawKey' in form ? form.rawKey : undefined);
@@ -1183,9 +1182,6 @@
         <h1 class="flex items-center gap-2 text-2xl font-bold text-zinc-900 dark:text-white">
           <span>{typeIcon[app.appType] ?? '🔑'}</span>
           <span><span class="text-zinc-400 font-normal">App:</span> {app.name}</span>
-          {#if !hasWritableMemory && app.agent}
-            <span class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">read-only</span>
-          {/if}
         </h1>
         <div class="mt-1"><Urn value={app.urn} type="app" /></div>
       </div>
