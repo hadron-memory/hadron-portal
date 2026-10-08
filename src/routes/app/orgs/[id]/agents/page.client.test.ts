@@ -20,11 +20,11 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
 });
 
-async function mountWith(agents: unknown[]) {
+async function mountWith(agents: unknown[], installedByAgent: Record<string, { appId: string }> = {}) {
   setStubPage('https://example.test/app/orgs/org-1/agents', { id: 'org-1' });
   const data = {
     org: { id: 'org-1', name: 'Acme', agents },
-    installedByAgent: {},
+    installedByAgent,
     subscribedGrants: [],
     subscribablePublicAgents: [],
     subscribeForm: await superValidate(zod4(orgAgentSubscribeSchema), { errors: false }),
@@ -52,5 +52,37 @@ describe('org Agents page — the way back to the Create Chatbot Agent wizard', 
     expect(target.textContent).toContain('No agents yet.');
     const link = target.querySelector<HTMLAnchorElement>('[data-testid="empty-new-chatbot-link"]')!;
     expect(link.getAttribute('href')).toBe('/app/orgs/org-1/create-chatbot');
+  });
+});
+
+describe('org Agents page — row actions in one ⋯ menu (#1019)', () => {
+  const agent = (id: string, name: string) => ({
+    id, name, urn: `hrn:agent:acme.com:${id}`, description: '', personaRole: 'coordinator',
+    memoryItems: [], systemMemoryId: null, createdAt: '2026-10-01T00:00:00.000Z', updatedAt: null,
+  });
+
+  it('replaces the inline Open and Install buttons with a compact menu of real links', async () => {
+    const { target } = await mountWith([agent('ag-1', 'Ada Agent'), agent('ag-2', 'Bo Agent')], { 'ag-1': { appId: 'app-9' } });
+    // No inline row buttons any more: before a menu opens, nothing links to install or the app.
+    expect(target.querySelector('a[href="/app/orgs/org-1/agents/install/ag-1"]')).toBeNull();
+    expect(target.querySelector('a[href="/app/apps/app-9"]')).toBeNull();
+
+    const trigger = target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Ada Agent"]')!;
+    expect(trigger.className).toContain('h-6');
+    trigger.click();
+    await tick(2);
+    const items = [...target.querySelectorAll<HTMLAnchorElement>('[role="menu"] a[role="menuitem"]')];
+    expect(items.map((a) => [a.textContent?.trim(), a.getAttribute('href')])).toEqual([
+      ['Open app', '/app/apps/app-9'],
+      ['Install', '/app/orgs/org-1/agents/install/ag-1'],
+    ]);
+  });
+
+  it('offers only Install for an agent that is not installed anywhere', async () => {
+    const { target } = await mountWith([agent('ag-2', 'Bo Agent')]);
+    target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Bo Agent"]')!.click();
+    await tick(2);
+    const items = [...target.querySelectorAll<HTMLAnchorElement>('[role="menu"] [role="menuitem"]')];
+    expect(items.map((a) => a.getAttribute('href'))).toEqual(['/app/orgs/org-1/agents/install/ag-2']);
   });
 });

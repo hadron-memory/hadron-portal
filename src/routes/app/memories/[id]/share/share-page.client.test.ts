@@ -63,8 +63,14 @@ function click(el: Element | undefined | null) {
   flushSync();
 }
 
-const revokeButtons = (target: HTMLElement) =>
-  [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Remove access');
+// #1020: "Remove access" lives in each row's ⋯ menu, so reaching it is two
+// clicks: open the row's menu, then pick the item.
+const rowMenus = (target: HTMLElement) =>
+  [...target.querySelectorAll<HTMLButtonElement>('button[aria-label^="Actions for"]')];
+function pickRevoke(target: HTMLElement, row: number) {
+  click(rowMenus(target)[row]);
+  click([...target.querySelectorAll('[role="menuitem"]')].find((b) => b.textContent?.trim() === 'Remove access'));
+}
 
 const revokeForm = (target: HTMLElement) =>
   target.querySelector<HTMLFormElement>('form[action="?/revokeShare"]');
@@ -142,7 +148,7 @@ describe('#668 revoke confirm (client)', () => {
     try {
       expect(revokeForm(target)).toBeNull(); // nothing to submit before confirming
 
-      click(revokeButtons(target)[1]);
+      pickRevoke(target, 1);
 
       const form = revokeForm(target);
       expect(form).not.toBeNull();
@@ -159,11 +165,11 @@ describe('#668 revoke confirm (client)', () => {
   it('confirms ONE row at a time, so an open confirm cannot submit another row', async () => {
     const { target, unmount } = await mountShare([share('u-2', 'ada'), share('u-3', 'bob')]);
     try {
-      click(revokeButtons(target)[0]);
+      pickRevoke(target, 0);
       expect(revokeForm(target)!.querySelector<HTMLInputElement>('input[name="granteeRef"]')!.value).toBe('u-2');
 
       // Open the other row's confirm: the first must close, not coexist.
-      click(revokeButtons(target)[0]); // now the only remaining button is row 2's
+      pickRevoke(target, 0); // now the only remaining menu is row 2's
       const forms = target.querySelectorAll('form[action="?/revokeShare"]');
       expect(forms.length).toBe(1);
       expect(forms[0]!.querySelector<HTMLInputElement>('input[name="granteeRef"]')!.value).toBe('u-3');
@@ -175,7 +181,7 @@ describe('#668 revoke confirm (client)', () => {
   it('cancel closes the form without leaving a submittable one behind', async () => {
     const { target, unmount } = await mountShare([share('u-2', 'ada')]);
     try {
-      click(revokeButtons(target)[0]);
+      pickRevoke(target, 0);
       expect(revokeForm(target)).not.toBeNull();
 
       const cancel = [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cancel');
@@ -191,7 +197,7 @@ describe('#668 revoke confirm (client)', () => {
     // The teardown path this lane exists for: leaving destructive UI open and
     // navigating away must not throw.
     const { target, unmount } = await mountShare([share('u-2', 'ada')]);
-    click(revokeButtons(target)[0]);
+    pickRevoke(target, 0);
     expect(revokeForm(target)).not.toBeNull();
     expect(() => unmount()).not.toThrow();
   });

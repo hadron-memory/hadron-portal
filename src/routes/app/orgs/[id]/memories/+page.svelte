@@ -10,7 +10,7 @@
   toggleable via the column menu).
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalCell, PortalColumnDef } from '$lib/table/features';
@@ -18,6 +18,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
@@ -158,6 +159,26 @@
     unsubscribeForm.update((current) => ({ ...current, memoryId }), { taint: false });
   }
 
+  // #1020: row actions live in each row's ⋯ menu. Rows no longer hold their
+  // own forms; one hidden form per action, below the tables, is submitted for
+  // the picked memory after the same browser confirm.
+  let deleteMemoryFormEl = $state<HTMLFormElement | null>(null);
+  let unsubscribeFormEl = $state<HTMLFormElement | null>(null);
+  async function deleteMemory(m: { id: string; name: string }) {
+    if ($deleteSubmitting) return;
+    if (!confirm(`Delete "${m.name}"?`)) return;
+    setDeleteMemory(m.id);
+    await tick();
+    deleteMemoryFormEl?.requestSubmit();
+  }
+  async function unsubscribeMemory(m: { id: string; name: string }) {
+    if ($unsubscribeSubmitting) return;
+    if (!confirm(`Unsubscribe from "${m.name}"?`)) return;
+    setUnsubscribeMemory(m.id);
+    await tick();
+    unsubscribeFormEl?.requestSubmit();
+  }
+
   // 'personal' = the user-owned section (spans the personal + private memory
   // classes); the class itself is carried in `badge` (Personal vs Private).
   type Section = 'org' | 'personal' | 'system';
@@ -292,7 +313,7 @@
     { accessorKey: 'storage', header: t('org-memories.column.storage', 'Storage'), size: 100 },
     { accessorKey: 'branch', header: t('org-memories.column.branch', 'Branch'), size: 100 },
     { accessorFn: (row) => dateMs(row.lastSyncedAt), id: 'lastSyncedAt', header: t('org-memories.column.last-synced', 'Last synced'), size: 120 },
-    { id: 'actions', header: t('org-memories.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 140 },
+    { id: 'actions', header: t('org-memories.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
 
   // #555: personal memories are owner-only and DB-only, so the grid drops the
@@ -302,7 +323,7 @@
     { accessorKey: 'urn', header: t('org-memories.column.urn', 'URN'), size: 280 },
     { accessorKey: 'badge', id: 'type', header: t('org-memories.column.type', 'Type'), size: 110 },
     { accessorKey: 'vectorIndex', header: t('org-memories.column.vector-index', 'Vector index'), size: 150 },
-    { id: 'actions', header: t('org-memories.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 140 },
+    { id: 'actions', header: t('org-memories.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
@@ -442,25 +463,17 @@
         <span class="inline-block rounded px-1.5 py-0.5 text-xs bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('org-memories.vector-index.off', 'Off')}</span>
       {/if}
     {:else if cell.column.id === 'actions'}
-      <div class="flex items-center gap-3">
-        <a href="/app/memories/{m.id}" class="text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">Edit</a>
-        {#if m.section === 'org'}
-          <!-- Keep both handlers: onclick updates before client validation for button activation;
-               onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
-          <form method="POST" action="?/delete" use:deleteEnhance onsubmit={(e) => {
-            if (!confirm(`Delete "${m.name}"?`)) {
-              e.preventDefault();
-              setDeleteMemory('');
-              return;
-            }
-            setDeleteMemory(m.id);
-          }} novalidate>
-            <input type="hidden" name="_kind" value="deleteMemory" />
-            <input type="hidden" name="id" value={m.id} />
-            <button type="submit" disabled={$deleteSubmitting} onclick={() => setDeleteMemory(m.id)} class="text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Delete</button>
-          </form>
-        {/if}
-      </div>
+      <NodeActionsMenu
+        actions={[
+          { id: 'edit', label: t('org-memories.action.edit', 'Edit'), href: `/app/memories/${m.id}` },
+          ...(m.section === 'org' ? [{ id: 'delete', label: t('org-memories.action.delete', 'Delete'), danger: true }] : []),
+        ]}
+        onselect={(id) => { if (id === 'delete') deleteMemory(m); }}
+        label={`${t('org-memories.actions.label', 'Actions for')} ${m.name}`}
+        disabled={$deleteSubmitting}
+        fixed
+        compact
+      />
     {:else}
       {@const f = fmt[cell.column.id]}
       <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
@@ -554,20 +567,16 @@
                 </td>
                 <td class="px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{s.memory.organization?.name ?? t('org-memories.unknown', 'unknown')}</td>
                 <td class="px-4 py-2.5 text-right">
-                  <!-- Keep both handlers: onclick updates before client validation for button activation;
-                       onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
-                  <form method="POST" action="?/unsubscribe" use:unsubscribeEnhance onsubmit={(e) => {
-                    if (!confirm(`Unsubscribe from "${s.memory.name}"?`)) {
-                      e.preventDefault();
-                      setUnsubscribeMemory('');
-                      return;
-                    }
-                    setUnsubscribeMemory(s.memory.id);
-                  }} novalidate>
-                    <input type="hidden" name="_kind" value="unsubscribeMemory" />
-                    <input type="hidden" name="memoryId" value={s.memory.id} />
-                    <button type="submit" disabled={$unsubscribeSubmitting} onclick={() => setUnsubscribeMemory(s.memory.id)} class="text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Unsubscribe</button>
-                  </form>
+                  <div class="flex justify-end">
+                    <NodeActionsMenu
+                      actions={[{ id: 'unsubscribe', label: t('org-memories.action.unsubscribe', 'Unsubscribe'), danger: true }]}
+                      onselect={(id) => { if (id === 'unsubscribe') unsubscribeMemory(s.memory); }}
+                      label={`${t('org-memories.actions.label', 'Actions for')} ${s.memory.name}`}
+                      disabled={$unsubscribeSubmitting}
+                      fixed
+                      compact
+                    />
+                  </div>
                 </td>
               </tr>
             {/each}
@@ -627,4 +636,12 @@
       {/if}
     </div>
   {/if}
+  <form bind:this={deleteMemoryFormEl} method="POST" action="?/delete" use:deleteEnhance novalidate class="hidden">
+    <input type="hidden" name="_kind" value="deleteMemory" />
+    <input type="hidden" name="id" value={$deleteForm.id} />
+  </form>
+  <form bind:this={unsubscribeFormEl} method="POST" action="?/unsubscribe" use:unsubscribeEnhance novalidate class="hidden">
+    <input type="hidden" name="_kind" value="unsubscribeMemory" />
+    <input type="hidden" name="memoryId" value={$unsubscribeForm.memoryId} />
+  </form>
 </div>
