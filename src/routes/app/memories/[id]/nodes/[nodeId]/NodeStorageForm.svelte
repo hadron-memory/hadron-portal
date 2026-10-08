@@ -98,7 +98,11 @@
   // #588 (server #725): structured storage. With a memory schema, objectType
   // is a picker over the declared collections; without one it's free text.
   // A pre-schema node may carry an objectType that is no longer declared —
-  // keep it selectable (marked) so the bound value isn't orphaned.
+  // keep it selectable (marked) so the bound value isn't orphaned. That only
+  // applies WITH a schema: without one every value is "undeclared", and
+  // letting that pick the branch swapped the free-text input for a picker on
+  // the first keystroke (#1040). A parsed schema always declares at least one
+  // collection, so `collectionNames.length > 0` is "this memory has a schema".
   const schema = $derived(readMemorySchema(memorySchema));
   const collectionNames = $derived(objectTypeNames(schema));
   const declaredCollection = $derived(declaredObjectType(schema, $formData.objectType || null));
@@ -394,7 +398,7 @@
 
       <div>
         <label for="objectType" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">{createNodeStrings.fieldObjectType()}</label>
-        {#if collectionNames.length > 0 || undeclaredCurrent}
+        {#if collectionNames.length > 0}
           <select id="objectType" name="objectType" bind:value={$formData.objectType}
             class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none">
             <option value="">{createNodeStrings.objectTypeNone()}</option>
