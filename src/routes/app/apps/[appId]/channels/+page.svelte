@@ -370,7 +370,7 @@
                 { id: 'rename', label: t('app.channels.rename', 'Rename') },
                 { id: 'delete', label: t('app.channels.delete', 'Delete'), danger: true },
               ]}
-              onselect={(id) => (id === 'rename' ? startRename(row.channel) : startDelete(row.id))}
+              onselect={(id) => { if (id === 'rename') startRename(row.channel); else if (id === 'delete') startDelete(row.id); }}
               label={t('app.channels.actions.label', 'Actions for {channel}', { channel: row.name })}
               fixed
               compact

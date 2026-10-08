@@ -324,7 +324,7 @@
                 { id: 'edit', label: t('app.channels.register.edit', 'Edit') },
                 { id: 'remove', label: t('app.channels.register.remove', 'Remove'), danger: true },
               ]}
-              onselect={(id) => (id === 'edit' ? startEdit(row.entry) : startRemove(row.id))}
+              onselect={(id) => { if (id === 'edit') startEdit(row.entry); else if (id === 'remove') startRemove(row.id); }}
               label={t('app.channels.register.actions.label', 'Actions for {attendee} on {channel}', { attendee: row.attendee, channel: row.channel })}
               fixed
               compact

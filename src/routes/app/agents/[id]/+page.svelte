@@ -856,7 +856,7 @@
               {:else if cell.column.id === 'actions'}
                 <NodeActionsMenu
                   actions={[{ id: 'remove', label: 'Remove', danger: true }]}
-                  onselect={() => removeMemory(m.memoryId)}
+                  onselect={(id) => { if (id === 'remove') removeMemory(m.memoryId); }}
                   label={`Actions for ${m.name}`}
                   disabled={$removeMemorySubmitting}
                   fixed
