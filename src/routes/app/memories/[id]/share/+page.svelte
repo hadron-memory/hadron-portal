@@ -9,6 +9,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import SelectUser from '$lib/components/SelectUser.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { type ColumnFormatters, makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -333,10 +334,15 @@
                 </button>
               </form>
             {:else}
-              <button type="button" onclick={() => (confirmRevokeFor = row.granteeId)}
-                class="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-                {t('memory-share.revoke', 'Remove access')}
-              </button>
+              <!-- #1020: "Remove access" lives in the row's ⋯ menu; picking it
+                   still expands the inline confirm above, in place. -->
+              <NodeActionsMenu
+                actions={[{ id: 'revoke', label: t('memory-share.revoke', 'Remove access'), danger: true }]}
+                onselect={() => (confirmRevokeFor = row.granteeId)}
+                label={`${t('memory-share.actions.label', 'Actions for')} ${row.grantee}`}
+                fixed
+                compact
+              />
             {/if}
           {:else if cell.column.id === 'grantedBy'}
             <!-- @copilot on #839: the grantor is a referenced entity on this

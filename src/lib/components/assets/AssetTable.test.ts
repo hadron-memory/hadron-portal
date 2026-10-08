@@ -176,9 +176,8 @@ describe('AssetTable row rendering', () => {
     expect(body([asset({ publicUrl: null })])).not.toContain('Copy public link');
   });
 
-  it('renders the hotlink control when there is a publicUrl', () => {
-    expect(body([asset({ publicUrl: 'https://x/assets/asset-1' })])).toContain('Copy public link');
-  });
+  // #1020: the hotlink control is a ⋯ menu item now, so it only exists once
+  // the menu opens; AssetTable.client.test.ts asserts it there.
 });
 
 // ─── #707: the BLOCKED tombstone's signature ────────────────────────────────
@@ -205,17 +204,8 @@ describe('AssetTable — scan verdicts (#707)', () => {
     expect(body).not.toMatch(/once the malware scan/i);
   });
 
-  it('tells the reader a PENDING file is unsettled, without promising it arrives', () => {
-    // The other direction — PENDING must stay distinguishable from BLOCKED, so
-    // the fix cannot flatten them. But it must not promise the file is coming
-    // either: a pending scan can finish BLOCKED (@codex P2).
-    const body = render(AssetTable, {
-      props: { assets: [asset({ scanStatus: 'PENDING' })] },
-    }).body;
-    expect(body).toMatch(/has not finished/i);
-    expect(body).toMatch(/only if it passes/i);
-    expect(body).not.toMatch(/once the malware scan/i);
-  });
+  // #1020: the PENDING wording rides the Download menu item's title and
+  // accessible name, so AssetTable.client.test.ts asserts it with the menu open.
 
   it('shows no signature line for a CLEAN row', () => {
     const body = render(AssetTable, {

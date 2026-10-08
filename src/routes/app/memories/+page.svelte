@@ -8,6 +8,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
   import { memoryClassLabel as classLabel } from '$lib/memory-class-label';
@@ -36,6 +37,16 @@
   const pendingLeaveName = $derived(
     pendingLeaveId ? (sharedMemories.find((m) => m.id === pendingLeaveId)?.name ?? '') : '',
   );
+  // #1020: Leave moved into the row's ⋯ menu, so the row no longer holds its
+  // own form. One hidden form below the table carries whichever row was picked.
+  let leaveForm = $state<HTMLFormElement | null>(null);
+  let leaveTargetId = $state('');
+  async function leave(row: { id: string; name: string }) {
+    if (!confirm(`${leaveConfirmPrefix}\n\n"${row.name}"`)) return;
+    leaveTargetId = row.id;
+    await tick();
+    leaveForm?.requestSubmit();
+  }
 
   // ── Tabs (ARIA tab pattern) ──────────────────────────────────────────────
   type TabId = 'mine' | 'shared';
@@ -121,7 +132,7 @@
     { accessorKey: 'urn', header: 'URN', size: 240 },
     { accessorKey: 'sharedBy', id: 'sharedBy', header: t('my-memories.col.shared-by', 'Shared by'), size: 150 },
     { accessorKey: 'role', id: 'access', header: t('my-memories.col.access', 'Access'), size: 110 },
-    { id: 'actions', header: t('my-memories.col.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 110 },
+    { id: 'actions', header: t('my-memories.col.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
   const sharedTable = createSvelteTable<SharedRow>({
     get data() { return sharedRows; },
@@ -291,42 +302,48 @@
                 <span class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{roleLabel(row.role)}</span>
               {/if}
             {:else if cell.column.id === 'actions'}
-              <form
-                method="POST"
-                action="?/leaveShare"
-                use:enhance={({ formData, cancel }) => {
-                  if (!confirm(`${leaveConfirmPrefix}\n\n"${row.name}"`)) { cancel(); return; }
-                  // Confirmed in the browser — tell the server to skip its own
-                  // (no-JS) confirm step.
-                  formData.set('confirm', 'yes');
-                  // Capture the id so a second, faster submit can't clear this
-                  // row's in-flight flag, and always clear in finally so a
-                  // network error can't leave the button stuck disabled.
-                  const id = row.id;
-                  leavingId = id;
-                  return async ({ update }) => {
-                    try {
-                      await update();
-                    } finally {
-                      if (leavingId === id) leavingId = null;
-                    }
-                  };
-                }}
-              >
-                <input type="hidden" name="memoryId" value={row.id} />
-                <button
-                  type="submit"
-                  disabled={leavingId === row.id}
-                  class="rounded-lg border border-zinc-300 px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:cursor-wait disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                >
-                  {leavingId === row.id
+              <NodeActionsMenu
+                actions={[{
+                  id: 'leave',
+                  label: leavingId === row.id
                     ? t('my-memories.shared.leaving', 'Leaving…')
-                    : t('my-memories.shared.leave', 'Leave')}
-                </button>
-              </form>
+                    : t('my-memories.shared.leave', 'Leave'),
+                  danger: true,
+                }]}
+                onselect={() => leave(row)}
+                label={`${t('my-memories.shared.actions.label', 'Actions for')} ${row.name}`}
+                disabled={leavingId === row.id}
+                fixed
+                compact
+              />
             {/if}
           {/snippet}
         </DataTable>
+        <form
+          bind:this={leaveForm}
+          method="POST"
+          action="?/leaveShare"
+          class="hidden"
+          use:enhance={({ formData }) => {
+            // Confirmed in the browser by leave() — tell the server to skip
+            // its own (no-JS) confirm step.
+            formData.set('confirm', 'yes');
+            // Capture the id so a second, faster submit can't clear this row's
+            // in-flight flag, and always clear in finally so a network error
+            // can't leave the row's menu stuck disabled.
+            const id = String(formData.get('memoryId') ?? '');
+            leavingId = id;
+            return async ({ update }) => {
+              try {
+                await update();
+              } finally {
+                if (leavingId === id) leavingId = null;
+              }
+            };
+          }}
+        >
+          <input type="hidden" name="memoryId" value={leaveTargetId} />
+        </form>
       {/if}
     </div>
   {/if}
