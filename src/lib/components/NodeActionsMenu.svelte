@@ -9,6 +9,16 @@
      * "open in new tab" work; `onselect` is not called for it.
      */
     href?: string;
+    /**
+     * #1020: shown but not actionable. Rendered with `aria-disabled` rather than
+     * `disabled`, so the item stays in the arrow-key order and a screen reader
+     * can still reach it and its `title` (the reason).
+     */
+    disabled?: boolean;
+    /** Tooltip, e.g. why the action is disabled. */
+    title?: string;
+    /** Accessible name when the visible label alone is ambiguous (e.g. names the row). */
+    ariaLabel?: string;
   }
 </script>
 
@@ -175,10 +185,21 @@
         {@const itemClass = `block w-full px-3 py-1.5 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 ${action.danger
           ? 'text-red-600 dark:text-red-400'
           : 'text-zinc-700 dark:text-zinc-200'}`}
-        {#if action.href}
-          <a href={action.href} role="menuitem" onclick={closeMenu} class={itemClass}>{action.label}</a>
+        {#if action.disabled}
+          <button
+            type="button"
+            role="menuitem"
+            aria-disabled="true"
+            title={action.title}
+            aria-label={action.ariaLabel}
+            class="block w-full cursor-not-allowed px-3 py-1.5 text-left text-sm text-zinc-400 dark:text-zinc-500"
+          >
+            {action.label}
+          </button>
+        {:else if action.href}
+          <a href={action.href} role="menuitem" onclick={closeMenu} title={action.title} aria-label={action.ariaLabel} class={itemClass}>{action.label}</a>
         {:else}
-          <button type="button" role="menuitem" onclick={() => pick(action.id)} class={itemClass}>
+          <button type="button" role="menuitem" onclick={() => pick(action.id)} title={action.title} aria-label={action.ariaLabel} class={itemClass}>
             {action.label}
           </button>
         {/if}
