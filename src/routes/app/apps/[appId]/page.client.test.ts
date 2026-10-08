@@ -293,6 +293,31 @@ describe('Worker agents tab (#1009)', () => {
   });
 });
 
+describe('App header (#1010)', () => {
+  it('shows no "read-only" badge when the first installed agent holds only read grants', async () => {
+    // The exact state that used to raise the badge: `app.agent` (the FIRST
+    // installed agent, soft-deprecated) with no read-write memory item. A team
+    // App's first agent is typically its role-less team agent, while the App
+    // writes through its other agents, its shared memory and its workers'
+    // working memories — none of which the badge looked at.
+    setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
+    const data = await pageData();
+    const teamAgent = {
+      id: 'ag1', name: 'Team Agent', urn: 'hrn:agent:acme.com:team', personaRole: null,
+      memoryItems: [{ role: 'read', memory: { id: 'm1', urn: 'hrn:mem:acme.com:core', name: 'Core' } }],
+    };
+    const m = mountComponent(Page as never, {
+      data: { ...data, app: { ...data.app, agentId: 'ag1', agent: teamAgent, agents: [teamAgent] } },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const heading = m.target.querySelector('h1')!;
+    expect(heading.textContent).toContain('Team');
+    expect(heading.textContent?.toLowerCase()).not.toContain('read-only');
+  });
+});
+
 describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
   const key = {
     id: 'k1', label: 'production-backend', keyPreview: 'hk_ab…yz',
