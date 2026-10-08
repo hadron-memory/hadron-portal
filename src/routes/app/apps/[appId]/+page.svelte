@@ -49,6 +49,7 @@
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -276,8 +277,9 @@
   // inside the cell.
   let staffFilter = $state('');
   const staffColumns: PortalColumnDef<Worker>[] = [
-    { accessorKey: 'name', header: t('app.staff.column.name', 'Name'), enableHiding: false, size: 180 },
-    { accessorKey: 'urn', header: t('app.staff.column.urn', 'URN'), size: 280 },
+    // #1009: the URN rides a second line of the Name cell, not its own column.
+    // Search still matches it: the column below keeps `urn` in the filter text.
+    { accessorFn: (row) => `${row.name} ${row.urn ?? ''}`, id: 'name', header: t('app.staff.column.name', 'Name'), enableHiding: false, size: 300 },
     { accessorFn: (row) => row.role ?? '', id: 'role', header: t('app.staff.column.role', 'Role'), size: 150 },
     { accessorFn: (row) => row.agent?.name ?? '', id: 'agent', header: t('app.staff.column.agent', 'Agent'), size: 150 },
     {
@@ -290,8 +292,48 @@
       size: 200,
     },
     { accessorFn: (row) => (row.memoryId ? 1 : 0), id: 'memory', header: t('app.staff.column.memory', 'Working memory'), size: 140 },
-    { id: 'actions', header: t('app.staff.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 100 },
+    { id: 'actions', header: t('app.staff.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
+  // #1009: a worker row's actions, as ⋯ menu items.
+  // - Edit opens the worker page's briefing editor: `updateWorker` takes only
+  //   `promptOverride`, so a worker's ROLE is not editable anywhere yet.
+  // - Release / Force-release only when a hold is actually KNOWN (#756/#1050):
+  //   `none` is not "unheld" — the field is masked to null on a denied read.
+  // - Retire (danger) only for an active worker; a retired one keeps its
+  //   name forever and has nothing left to retire or release.
+  function workerActions(worker: Worker): NodeMenuAction[] {
+    const hold = workerHold(worker, data.user?.id);
+    const active = !worker.retiredAt;
+    return [
+      ...(active
+        ? [{ id: 'edit', label: t('app.staff.action.edit', 'Edit'), href: `/app/workers/${worker.id}?tab=briefing&view=source` }]
+        : []),
+      ...(worker.memoryId
+        ? [{ id: 'open-memory', label: t('app.staff.action.open-memory', 'Open working memory'), href: `/app/memories/${worker.memoryId}` }]
+        : []),
+      ...(worker.agent
+        ? [{ id: 'open-agent', label: t('app.staff.action.open-agent', 'Open role agent'), href: `/app/agents/${worker.agent.id}` }]
+        : []),
+      ...(active && (hold.kind === 'self' || hold.kind === 'other')
+        ? [{
+            id: 'release',
+            label: hold.kind === 'self' ? t('app.staff.release', 'Release') : t('app.staff.release.force', 'Force-release'),
+          }]
+        : []),
+      ...(active ? [{ id: 'retire', label: t('app.staff.retire', 'Retire'), danger: true }] : []),
+    ];
+  }
+  function onWorkerAction(id: string, worker: Worker) {
+    if (id === 'release') {
+      const hold = workerHold(worker, data.user?.id);
+      if (hold.kind === 'self' || hold.kind === 'other') {
+        releaseWorkerNamed(worker.id, worker.name, hold.kind === 'self', hold.holderId);
+      }
+    } else if (id === 'retire') {
+      retireWorkerNamed(worker.id, worker.name);
+    }
+  }
+
   const staffTable = createSvelteTable<Worker>({
     get data() {
       return sortedStaff;
@@ -1915,31 +1957,25 @@
         >
           {#snippet cell(cell, worker)}
             {#if cell.column.id === 'name'}
-              <div class="flex min-w-0 flex-wrap items-center gap-2">
-                <!-- BARE name: this is App context. -->
-                <a
-                  href="/app/workers/{worker.id}"
-                  class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white {worker.retiredAt ? 'line-through' : ''}"
-                >
-                  {worker.name}
-                </a>
-                <WorkerBadge retired={!!worker.retiredAt} />
+              <div class="min-w-0">
+                <div class="flex min-w-0 flex-wrap items-center gap-2">
+                  <!-- BARE name: this is App context. -->
+                  <a
+                    href="/app/workers/{worker.id}"
+                    class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white {worker.retiredAt ? 'line-through' : ''}"
+                  >
+                    {worker.name}
+                  </a>
+                  <WorkerBadge retired={!!worker.retiredAt} />
+                </div>
+                <!-- #1009: the URN on the name's second line, not a column of its
+                     own. #735 / hrn:node:hadronmemory.com:hadron-portal:review:render-urn —
+                     nullable by contract, so absent rather than an empty chip.
+                     `linked` (#826): the resolver has handled `worker` since #735. -->
+                {#if worker.urn}
+                  <Urn value={worker.urn} type="worker" size={8} linked />
+                {/if}
               </div>
-            {:else if cell.column.id === 'urn'}
-              <!-- #735 / hrn:node:hadronmemory.com:hadron-portal:review:render-urn. Nullable by contract — absent rather
-                   than empty when the App's URN predates the flat grammar.
-
-                   #826: `linked`, because the resolver has handled `worker`
-                   since #735 — `/app/u/<urn>` lands on `/app/workers/<id>`.
-                   Without it the chip was dead text in a row that is ABOUT an
-                   entity with a page, while the name beside it linked: two
-                   renderings of one worker, one hot and one not. Not passed on
-                   the worker's OWN page, where it would link to itself. -->
-              {#if worker.urn}
-                <Urn value={worker.urn} type="worker" size={8} linked />
-              {:else}
-                <span class="text-xs text-zinc-400">—</span>
-              {/if}
             {:else if cell.column.id === 'role'}
               <!-- An explicit branch, because the accessor coerces null to ''
                    for stable sorting and the generic cell only substitutes its
@@ -2001,43 +2037,16 @@
                 <span class="text-xs text-zinc-400">—</span>
               {/if}
             {:else if cell.column.id === 'actions'}
-              {#if !worker.retiredAt}
-                {@const actionHold = workerHold(worker, data.user?.id)}
-                <div class="flex items-center gap-3">
-                  <!-- #756 — Release is a SEPARATE action from Retire, not a
-                       relabelling of it. Retire ends the casting and keeps the
-                       name reserved forever; Release frees the person's hold and
-                       leaves the worker active. Both are offered because they
-                       answer different questions.
-
-                       Shown ONLY when a hold is actually known. Releasing an
-                       unheld worker is a documented no-op, but `none` here is
-                       not "unheld" — the field is masked to null on a denied
-                       read, so offering the button on `none` would claim
-                       staffing knowledge this page does not have, the same rule
-                       the hold column follows. -->
-                  {#if actionHold.kind === 'self' || actionHold.kind === 'other'}
-                    <button
-                      type="button"
-                      onclick={() => releaseWorkerNamed(worker.id, worker.name, actionHold.kind === 'self', actionHold.holderId)}
-                      disabled={$releaseWorkerSubmitting}
-                      class="text-xs text-indigo-600 hover:text-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 dark:text-indigo-400"
-                    >
-                      {actionHold.kind === 'self'
-                        ? t('app.staff.release', 'Release')
-                        : t('app.staff.release.force', 'Force-release')}
-                    </button>
-                  {/if}
-                  <button
-                    type="button"
-                    onclick={() => retireWorkerNamed(worker.id, worker.name)}
-                    disabled={$retireWorkerSubmitting}
-                    class="text-xs text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {t('app.staff.retire', 'Retire')}
-                  </button>
-                </div>
-              {/if}
+              <!-- #1009: one ⋯ menu. Release vs Force-release vs Retire keep
+                   their #756/#1050 rules — see workerActions(). -->
+              <NodeActionsMenu
+                actions={workerActions(worker)}
+                onselect={(id) => onWorkerAction(id, worker)}
+                label={`${t('app.staff.actions.label', 'Actions for')} ${worker.name}`}
+                disabled={$releaseWorkerSubmitting || $retireWorkerSubmitting}
+                fixed
+                compact
+              />
             {:else}
               <div class="truncate">{cell.getValue() ?? '—'}</div>
             {/if}
