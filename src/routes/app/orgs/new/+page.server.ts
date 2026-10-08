@@ -15,7 +15,8 @@ const createOrganizationFormAdapter = zod4(createOrganizationSchema);
 // new user to My memories without a word. The server lets any signed-in user
 // create an org and makes them its OWNER (hadron-server `createOrganization`:
 // `requireRole(ctx, 'READER')`, a role every sign-up holds), so the portal
-// matches the CLI and MCP. The /app layout's sign-in redirect still applies.
+// matches the CLI (`hadron org create`). The /app layout's sign-in redirect
+// still applies.
 // Holger chose this over gating org creation for individuals.
 export const load: PageServerLoad = async ({ url }) => {
   // #320: the header command bar (Create mode) can deep-link here with the URN
