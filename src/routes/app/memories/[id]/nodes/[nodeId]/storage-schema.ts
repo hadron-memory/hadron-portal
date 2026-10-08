@@ -32,3 +32,12 @@ export const nodeStorageSchema = z.object({
 });
 
 export type NodeStorageSchema = typeof nodeStorageSchema;
+
+/**
+ * The storage form's superforms id. Explicit because the node page has a dozen
+ * forms sharing its action data
+ * (`hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids`).
+ * Lives here, not in `storage-action.ts`, so client code and client-lane tests
+ * can name it without importing the server's GraphQL client.
+ */
+export const NODE_STORAGE_FORM_ID = 'node-storage';

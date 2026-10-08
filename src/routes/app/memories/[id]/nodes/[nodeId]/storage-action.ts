@@ -22,12 +22,12 @@ import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
 import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/server/nodeKindDoor';
 import type { MemoryNode } from '$lib/types';
-import { nodeStorageSchema } from './storage-schema';
+import { NODE_STORAGE_FORM_ID, nodeStorageSchema } from './storage-schema';
 
 export type NodeStorageForm = Infer<typeof nodeStorageSchema, 'zod4'>;
 
-/** The storage form's superforms id; see the module note. */
-export const NODE_STORAGE_FORM_ID = 'node-storage';
+// Re-exported for the server code that already imports it from here.
+export { NODE_STORAGE_FORM_ID };
 
 const nodeStorageFormAdapter = zod4(nodeStorageSchema);
 
