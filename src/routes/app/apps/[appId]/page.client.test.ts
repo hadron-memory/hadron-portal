@@ -137,9 +137,9 @@ describe('App team chat full view (#980)', () => {
 
     // A genuine navigation does have to take the new loader's view selection.
     window.history.replaceState({}, '', '/app/apps/a1?tab=chats&chat=chats%3Ateam');
-    const afterNavigate = navigationGuards.find((guard) => guard.fn === 'afterNavigate')?.callback as (() => void) | undefined;
+    const afterNavigate = navigationGuards.find((guard) => guard.fn === 'afterNavigate')?.callback as ((nav: { type: string }) => void) | undefined;
     expect(afterNavigate).toBeDefined();
-    afterNavigate!();
+    afterNavigate!({ type: 'link' });
     await tick(2);
     expect(m.target.querySelector('[aria-modal="true"]')).toBeNull();
   });
@@ -216,6 +216,17 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     expect(settingsPanel.textContent).not.toContain('AI providers');
   });
 
+  // A fresh page (a full POST before hydration) is followed by SvelteKit
+  // firing every afterNavigate callback with type 'enter' — after effects and
+  // onMount. The stub only RECORDS callbacks, so fire them as kit would, or
+  // the page's re-sync to `data.initialTab` stays invisible (Gemma on #1034).
+  const enterNavigation = async () => {
+    for (const guard of navigationGuards.filter((g) => g.fn === 'afterNavigate')) {
+      (guard.callback as (nav: { type: string }) => void)({ type: 'enter' });
+    }
+    await tick(2);
+  };
+
   it('opens App Keys for a key action result that arrives on a fresh page', async () => {
     setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
     const m = mountComponent(Page as never, {
@@ -223,8 +234,35 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
+    await enterNavigation();
     expect(selectedTab(m)).toBe('tab-keys');
     expect(m.target.textContent).toContain('Key revoked.');
+  });
+
+  it('opens Settings for an agent action result that arrives on a fresh page', async () => {
+    setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
+    const f = await superValidate({ _kind: 'removeAgent', agentId: 'ag1' }, zod4(removeAppAgentSchema));
+    f.message = { type: 'success', text: 'Agent removed.' };
+    const m = mountComponent(Page as never, {
+      data: await keyedData('chats'), form: { form: f },
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await enterNavigation();
+    expect(selectedTab(m)).toBe('tab-settings');
+  });
+
+  it('still follows the loader on an enter navigation with no action result', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=worklog', { appId: 'a1' });
+    const m = mountComponent(Page as never, {
+      data: await keyedData('worklog'), form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    (m.target.querySelector('#tab-keys') as HTMLButtonElement).click();
+    await tick(2);
+    await enterNavigation();
+    expect(selectedTab(m)).toBe('tab-worklog');
   });
 
   it('keeps a revoke made from the Client tab on the Client tab', async () => {

@@ -379,10 +379,35 @@
   // Read once at init rather than kept in sync: a filter submit is a real
   // navigation that re-runs the loader, while clicking between tabs is UI state
   // and must not push history entries.
+  //
+  // An action result that names a tab wins over the loader's, and is applied
+  // HERE rather than only in an effect (Gemma on #1034). With no JS the server
+  // render never runs effects, and on a full POST that hydrates late,
+  // SvelteKit's afterNavigate `enter` re-sync runs after them and reset the
+  // tab to Chats. Seeding from the result makes the server render, the effects
+  // and the `enter` re-sync agree.
+  function tabForActionResult(result: unknown, current: TabId | null): TabId | null {
+    if (submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey')) {
+      // The Client tab lists the same keys and shares the revoke action, so a
+      // revoke made THERE stays there.
+      return current === 'client' ? 'client' : 'keys';
+    }
+    if (
+      submittedForm<AddAgentForm>(result, 'addAgent') ||
+      submittedForm<RemoveAppAgentForm>(result, 'removeAgent') ||
+      submittedForm<DeleteAppForm>(result, 'deleteApp')
+    ) {
+      return 'settings';
+    }
+    return null;
+  }
   let activeTab = $state<TabId>(
     // #744: `chats` always exists — the team chat is always offered, even
     // unbootstrapped, because that is how the first message gets posted.
-    untrack(() => (data.initialTab as TabId | null) ?? 'chats'),
+    untrack(() => {
+      const initial = (data.initialTab as TabId | null) ?? null;
+      return tabForActionResult(form, initial) ?? initial ?? 'chats';
+    }),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // #744: ONE "Chats" tab over every conversation the App has — the team
@@ -436,8 +461,14 @@
   // detail page: once per navigation, after the new data is applied, and never
   // on a tab click, which deliberately does not navigate. The full-view flag
   // also follows real navigation, but not a post's page-data refresh.
-  afterNavigate(() => {
-    activeTab = (data.initialTab as TabId | null) ?? 'chats';
+  //
+  // Except the `enter` that follows a fresh page carrying an action result:
+  // that result has already chosen the tab (above, and the routing effects
+  // below), and the action URL has no `?tab=` for the loader to agree with.
+  afterNavigate((nav) => {
+    if (!(nav.type === 'enter' && form)) {
+      activeTab = (data.initialTab as TabId | null) ?? 'chats';
+    }
     chatMaximized = data.initialChatFullView;
   });
 
@@ -823,28 +854,14 @@
       editMode = true;
     }
   });
+  // Agent and app actions land on Settings; #1007: a generate or revoke lands
+  // on App Keys, so the outcome, above all the one-time raw key, is read next
+  // to the list it changed. This effect covers an ENHANCED submit, where the
+  // result arrives without a navigation; a fresh page is seeded from
+  // `tabForActionResult` where `activeTab` is declared.
   $effect(() => {
-    if (
-      submittedForm<AddAgentForm>(form, 'addAgent') ||
-      submittedForm<RemoveAppAgentForm>(form, 'removeAgent') ||
-      submittedForm<DeleteAppForm>(form, 'deleteApp')
-    ) {
-      activeTab = 'settings';
-    }
-  });
-  // #1007: land back on App Keys after a generate or revoke, so the outcome,
-  // above all the one-time raw key, is read next to the list it changed.
-  // createKey was never routed before: a submit that fully navigates (no JS
-  // yet) reopened the default Chats tab, away from the key list. The Client
-  // tab lists the same keys and shares the revoke action, so a revoke made
-  // THERE stays there rather than jumping to a tab the user never opened.
-  $effect(() => {
-    if (
-      submittedForm<CreateAppKeyForm>(form, 'createKey') ||
-      submittedForm<RevokeAppKeyForm>(form, 'revokeKey')
-    ) {
-      if (untrack(() => activeTab) !== 'client') activeTab = 'keys';
-    }
+    const tab = tabForActionResult(form, untrack(() => activeTab));
+    if (tab) activeTab = tab;
   });
   $effect(() => {
     if (submittedForm<UpdateAppAgentToolsForm>(form, 'updateAgentTools')) {
