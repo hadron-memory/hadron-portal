@@ -89,16 +89,50 @@
   // "Saved." describes the value that was saved. Once the form is edited again
   // it would sit beside an unsaved (perhaps invalid) value, so an edit clears it
   // (Cody on #1035; the same rule as #971's register default). An error stays:
-  // it still describes the last attempt. Listened for on the <form>, because
-  // the inputs live in the nested editors and their events bubble.
-  function clearSavedMessage() {
-    if ($message?.type === 'success') message.set(undefined);
+  // it still describes the last attempt.
+  //
+  // Watched on the form DATA, not on DOM events: several edits here are buttons
+  // ("Remove property", "Clear", "Mark this node runnable") that fire no input
+  // or change event, so an event listener left "Saved." beside them (Cody's
+  // follow-up on #1035). Compared by CONTENT, because the post-save re-seed
+  // rewrites the bag in its own formatting without changing it. The editors'
+  // own state is part of it: text that does not parse yet never reaches the
+  // submitted field, and it is an edit all the same.
+  function parsedOrText(raw: string): unknown {
+    try {
+      return raw.trim() ? JSON.parse(raw) : null;
+    } catch {
+      return raw;
+    }
   }
+  function editedContent(): string {
+    return canonicalJson({
+      objectType: $formData.objectType,
+      isRunnable: $formData.isRunnable,
+      bag: parsedOrText($formData.propertiesJson),
+      rest: parsedOrText(restJson),
+      skillExport,
+    });
+  }
+  let savedContent: string | null = null;
+  $effect(() => {
+    const current = editedContent();
+    if ($message?.type !== 'success') {
+      savedContent = null;
+      return;
+    }
+    if (savedContent === null) savedContent = current;
+    else if (current !== savedContent) message.set(undefined);
+  });
 
   // #588 (server #725): structured storage. With a memory schema, objectType
   // is a picker over the declared collections; without one it's free text.
   // A pre-schema node may carry an objectType that is no longer declared —
-  // keep it selectable (marked) so the bound value isn't orphaned.
+  // keep it selectable (marked) so the bound value isn't orphaned. That is a
+  // reason to ADD an option to the picker, never to show a picker: without a
+  // schema the field is free text whatever it holds (#1040 — the first
+  // character typed made `undeclaredCurrent` truthy and swapped the input for
+  // a select mid-keystroke).
   const schema = $derived(readMemorySchema(memorySchema));
   const collectionNames = $derived(objectTypeNames(schema));
   const declaredCollection = $derived(declaredObjectType(schema, $formData.objectType || null));
@@ -294,8 +328,27 @@
       rest = parsed as Record<string, unknown>;
     }
     const merged = writeSkillExport(rest, skillExport);
+    // #1041: write only a CHANGED bag. On mount this effect rebuilds the bag it
+    // was handed, and after a failed full-page submission that bag is exactly
+    // the one the server refused, in the browser's formatting. Re-writing it
+    // anyway counted as an edit: superforms validated it client-side, the
+    // client schema (valid JSON object) passed, and that result replaced the
+    // server's verdict. The error vanished and Save came back on for a bag the
+    // server had just rejected. Read untracked: this effect writes the field.
+    if (sameBag(untrack(() => $formData.propertiesJson), merged)) return;
     $formData.propertiesJson = Object.keys(merged).length > 0 ? JSON.stringify(merged, null, 2) : '';
   });
+
+  /** Does `serialized` hold exactly `bag`, whatever its formatting? */
+  function sameBag(serialized: string, bag: Record<string, unknown>): boolean {
+    const raw = (serialized ?? '').trim();
+    if (!raw) return Object.keys(bag).length === 0;
+    try {
+      return sameProperties(JSON.parse(raw), bag);
+    } catch {
+      return false;
+    }
+  }
 
   // Shown for a task node, and ALSO whenever a declaration already exists — a
   // declaration on a node whose Runnable flag was later cleared must stay
@@ -337,7 +390,11 @@
   // navigation; if node A and node B both have an error, the attention value
   // does not change, so without that read the effect would not re-run and B's
   // error would sit in a closed section.
-  let storageOpen = $state(false);
+  // #1041: starts OPEN when the form arrives carrying a server error on the
+  // properties, i.e. a failed full-page submission. The attention effect below
+  // only runs in the browser, so a server render put the error inside a closed
+  // section, invisible until the reader thought to expand it.
+  let storageOpen = $state(untrack(() => !!initialForm.errors?.propertiesJson?.length));
   $effect(() => {
     void node.id;
     if (propertiesInvalid || propertiesError) storageOpen = true;
@@ -380,7 +437,7 @@
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
   {/if}
 
-  <form method="POST" {action} use:enhance class="space-y-6" novalidate oninput={clearSavedMessage} onchange={clearSavedMessage}>
+  <form method="POST" {action} use:enhance class="space-y-6" novalidate>
     <!-- #878: only what the node page has no other control for. Name, loc,
          description, alias, seq, tags and Runnable are on its Settings tab;
          content, abstract and edges on their own tabs. Both sections start
@@ -394,7 +451,7 @@
 
       <div>
         <label for="objectType" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">{createNodeStrings.fieldObjectType()}</label>
-        {#if collectionNames.length > 0 || undeclaredCurrent}
+        {#if collectionNames.length > 0}
           <select id="objectType" name="objectType" bind:value={$formData.objectType}
             class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none">
             <option value="">{createNodeStrings.objectTypeNone()}</option>

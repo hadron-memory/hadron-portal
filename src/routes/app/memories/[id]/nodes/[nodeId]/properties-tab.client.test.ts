@@ -17,8 +17,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
 import Page from './+page.svelte';
 import { load } from './+page.server';
-import { NODE_STORAGE_FORM_ID } from './storage-action';
-import { nodeStorageSchema } from './storage-schema';
+import { NODE_STORAGE_FORM_ID, nodeStorageSchema } from './storage-schema';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
