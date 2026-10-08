@@ -148,3 +148,37 @@ describe('"Saved." follows the form, not only its typed inputs (Cody on #1035)',
     expect(target.textContent).not.toContain('Saved.');
   });
 });
+
+describe('"Saved." is about content, not text (Cody on #1042)', () => {
+  it('stays through a whitespace-only change to the raw properties, and clears on a real one', async () => {
+    // A reformat is not an edit: the saved content is still what the form
+    // holds. (The re-seed never reformats a saved bag on its own: it keys on
+    // canonical content, so a reload returning the same bag does not re-seed.
+    // Whitespace typed into the raw editor is the reachable case.)
+    const n = node({ properties: { color: 'green' } });
+    const target = await mount(n, null);
+    const result = await superValidate(
+      { isRunnable: false, objectType: '', propertiesJson: JSON.stringify(n.properties, null, 2) },
+      zod4(nodeStorageSchema),
+      { id: NODE_STORAGE_FORM_ID },
+    );
+    result.message = { type: 'success', text: 'Saved.' };
+    page.update((p) => ({ ...p, status: 200, form: { form: result } }));
+    flushSync();
+    await tick(3);
+    expect(target.textContent).toContain('Saved.');
+
+    const raw = target.querySelector<HTMLTextAreaElement>('textarea#properties')!;
+    raw.value = '{ "color":   "green" }\n';
+    raw.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    await tick(2);
+    expect(target.textContent).toContain('Saved.');
+
+    raw.value = '{ "color": "blue" }';
+    raw.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    await tick(2);
+    expect(target.textContent).not.toContain('Saved.');
+  });
+});
