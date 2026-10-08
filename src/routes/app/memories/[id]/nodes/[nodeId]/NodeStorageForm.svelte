@@ -1,5 +1,13 @@
 <script lang="ts">
+  // #1031 — the Properties tab's storage form: object type, typed properties and
+  // the skill export. It was the `/nodes/[nodeId]/edit` page (#588, #864, #878)
+  // until #1031 put it on the tab, so most of what follows is that page's logic
+  // unchanged. What changed is noted where it changed: it posts to the node
+  // page's `?/updateStorage`, it shares that page's action data with a dozen
+  // other forms, and it re-seeds when the STORED value changes, because the
+  // Source view on the same tab can save the same bag.
   import { untrack } from 'svelte';
+  import type { SuperValidated } from 'sveltekit-superforms';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
@@ -14,43 +22,120 @@
     writeSkillExport,
     type SkillExport,
   } from '$lib/skill-export';
-  import { sameProperties } from '$lib/properties-source';
+  import { canonicalJson, sameProperties } from '$lib/properties-source';
+  import { failedSubmission } from '$lib/forms/submitted-form';
   import { serverRefuses } from '$lib/skill-check';
   import { t } from '$lib/i18n/t';
   import { createNodeStrings } from '$lib/i18n/create-node-strings';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
-  import type { PageData, ActionData } from './$types';
-  import { editNodeSchema } from './schema';
+  import type { SkillCheck } from '$lib/skill-check';
+  import type { MemoryNode } from '$lib/types';
+  import { nodeStorageSchema } from './storage-schema';
+  import type { NodeStorageForm } from './storage-action';
 
-  let { data, form }: { data: PageData; form: ActionData } = $props();
+  let {
+    node,
+    memorySchema,
+    seed,
+    actionData,
+    action,
+    skillCheck,
+    runnableBlockedBy = null,
+    noWriteDoor = null,
+  }: {
+    node: MemoryNode;
+    /** The memory's raw schema, as the memory layout loads it. */
+    memorySchema: unknown;
+    /** The loader's seed for this form. */
+    seed: SuperValidated<NodeStorageForm, App.Superforms.Message, NodeStorageForm>;
+    /** The node page's action data, which every form on that page shares. */
+    actionData: unknown;
+    /** Where the form posts: the node page's `updateStorage` action. */
+    action: string;
+    /** The server's lint verdict on the stored export; null when it was not asked. */
+    skillCheck: SkillCheck | null;
+    runnableBlockedBy?: string | null;
+    noWriteDoor?: string | null;
+  } = $props();
 
-  const node = $derived(data.node);
-  const basePath = $derived(`/app/memories/${data.graph.id}`);
-  const initialForm = untrack(() => form?.form ?? data.form);
+  // A FAILED submission only (#957): a successful one carries the posted
+  // values too, and seeding from it on a remount would re-fill the form with
+  // what was already sent.
+  const initialForm = untrack(
+    () => (failedSubmission<NodeStorageForm>(actionData, 'updateStorage') as typeof seed | null) ?? seed,
+  );
   const {
     form: formData,
     errors,
-    constraints,
     message,
     submitting,
     enhance,
   } = superForm(initialForm, {
-    validators: zod4Client(editNodeSchema),
+    validators: zod4Client(nodeStorageSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #1031: a successful save no longer navigates away, so superforms' default
+    // reset would put back the seed this form MOUNTED with — the bag as it was
+    // before the save — while the split state below still holds the saved one.
+    // The hidden `propertiesJson` would then post the old bag on the next Save.
+    // The re-seed effect below brings the form to the stored value instead.
+    resetForm: false,
   });
 
   const actionError = $derived($message?.type === 'error' ? $message.text : null);
+  const actionSuccess = $derived($message?.type === 'success' ? $message.text : null);
+  // "Saved." describes the value that was saved. Once the form is edited again
+  // it would sit beside an unsaved (perhaps invalid) value, so an edit clears it
+  // (Cody on #1035; the same rule as #971's register default). An error stays:
+  // it still describes the last attempt.
+  //
+  // Watched on the form DATA, not on DOM events: several edits here are buttons
+  // ("Remove property", "Clear", "Mark this node runnable") that fire no input
+  // or change event, so an event listener left "Saved." beside them (Cody's
+  // follow-up on #1035). Compared by CONTENT, because the post-save re-seed
+  // rewrites the bag in its own formatting without changing it. The editors'
+  // own state is part of it: text that does not parse yet never reaches the
+  // submitted field, and it is an edit all the same.
+  function parsedOrText(raw: string): unknown {
+    try {
+      return raw.trim() ? JSON.parse(raw) : null;
+    } catch {
+      return raw;
+    }
+  }
+  function editedContent(): string {
+    return canonicalJson({
+      objectType: $formData.objectType,
+      isRunnable: $formData.isRunnable,
+      bag: parsedOrText($formData.propertiesJson),
+      rest: parsedOrText(restJson),
+      skillExport,
+    });
+  }
+  let savedContent: string | null = null;
+  $effect(() => {
+    const current = editedContent();
+    if ($message?.type !== 'success') {
+      savedContent = null;
+      return;
+    }
+    if (savedContent === null) savedContent = current;
+    else if (current !== savedContent) message.set(undefined);
+  });
 
   // #588 (server #725): structured storage. With a memory schema, objectType
   // is a picker over the declared collections; without one it's free text.
   // A pre-schema node may carry an objectType that is no longer declared —
-  // keep it selectable (marked) so the bound value isn't orphaned.
-  const memorySchema = $derived(readMemorySchema(data.graph.schema));
-  const collectionNames = $derived(objectTypeNames(memorySchema));
-  const declaredCollection = $derived(declaredObjectType(memorySchema, $formData.objectType || null));
+  // keep it selectable (marked) so the bound value isn't orphaned. That is a
+  // reason to ADD an option to the picker, never to show a picker: without a
+  // schema the field is free text whatever it holds (#1040 — the first
+  // character typed made `undeclaredCurrent` truthy and swapped the input for
+  // a select mid-keystroke).
+  const schema = $derived(readMemorySchema(memorySchema));
+  const collectionNames = $derived(objectTypeNames(schema));
+  const declaredCollection = $derived(declaredObjectType(schema, $formData.objectType || null));
   const undeclaredCurrent = $derived(
     $formData.objectType && !collectionNames.includes($formData.objectType) ? $formData.objectType : null,
   );
@@ -123,7 +208,7 @@
   }
 
   const initialSplit = untrack(() => splitProperties($formData.propertiesJson));
-  // #882: the server's verdict (data.skillCheck) is on the STORED node, so the
+  // #882: the server's verdict (skillCheck) is on the STORED node, so the
   // editor must know when the form differs from it. Compared on the WHOLE
   // `exports` object of the bag the form will actually submit — the checkbox
   // editor's value, a divergent entry edited as raw JSON, or a cleared export
@@ -152,25 +237,37 @@
   let restJson = $state(initialSplit.rest);
 
   /**
-   * RE-SEED WHEN THE NODE CHANGES.
+   * RE-SEED WHEN THE NODE — OR WHAT IS STORED ON IT — CHANGES.
    *
-   * SvelteKit reuses this page across `/nodes/A/edit -> /nodes/B/edit`, so
-   * state seeded once with `untrack` survives the navigation. Measured before
-   * this: declaring an export on node A and navigating to node B left A's
-   * declaration in B's form, ready to be saved onto B (@copilot on #867).
+   * SvelteKit reuses the node page across `/nodes/A -> /nodes/B`, so state
+   * seeded once with `untrack` survives the navigation. Measured on the old
+   * edit page before this: declaring an export on node A and navigating to
+   * node B left A's declaration in B's form, ready to be saved onto B
+   * (@copilot on #867).
    *
    * That is `hrn:node:hadronmemory.com:hadron-portal:review:a-reused-component-must-reseed-its-form`
    * — the check written after #857, where the same trap wrote one worker's
    * prompt override onto another. Third time in this repo.
    *
-   * Seeded from `node.properties`, the loader's value for the node now shown,
-   * NOT from the form: an in-flight failed POST belongs to the node it was
-   * submitted for, and re-reading the form would carry it across too.
+   * #1031: on the Properties tab the STORED value can also change under this
+   * form without a navigation, because the Source view beside it saves the same
+   * bag. Left unseeded, this form would still hold the old bag, and its next
+   * Save would silently undo the Source save. So it re-seeds whenever the stored
+   * object type, Runnable flag or properties change, which also covers its own
+   * successful save (re-seeding to exactly what it just wrote).
+   *
+   * Seeded from `node`, the loader's value for the node now shown, NOT from the
+   * form: an in-flight failed POST belongs to the node it was submitted for, and
+   * re-reading the form would carry it across too.
    */
-  let seededFor = $state(untrack(() => node.id));
+  function storedKey(n: MemoryNode): string {
+    return [n.id, n.objectType ?? '', n.isRunnable ? '1' : '0', canonicalJson(n.properties ?? null)].join('|');
+  }
+  let seededFor = $state(untrack(() => storedKey(node)));
+  let seededNodeId = $state(untrack(() => node.id));
   $effect(() => {
-    const id = node.id;
-    if (untrack(() => seededFor) === id) return;
+    const key = storedKey(node);
+    if (untrack(() => seededFor) === key) return;
     const next = splitProperties(
       node.properties != null ? JSON.stringify(node.properties, null, 2) : '',
     );
@@ -179,26 +276,33 @@
     exportLegacy = next.legacy ?? false;
     restJson = next.rest;
     // Node B starts collapsed like any node; the attention effects below
-    // re-open a section for B's OWN errors (@copilot on #887).
-    storageOpen = false;
-    skillOpen = false;
+    // re-open a section for B's OWN errors (@copilot on #887). A re-seed of the
+    // SAME node (after a save) leaves the sections as the reader arranged them.
+    if (untrack(() => seededNodeId) !== node.id) {
+      storageOpen = false;
+      skillOpen = false;
+      seededNodeId = node.id;
+    }
     // The superForm store is seeded ONCE from node A's loader data too, and
     // its other two fields ride the same POST: A's `objectType` would render
     // on B and be saved onto it, and A's `isRunnable: true` would post through
     // the hidden input and silently make B runnable (@codex on #887). Reseeded
-    // here explicitly, as the detail page's metadata form does, rather than
-    // relying on superForm to resync on a navigation — the harness cannot
-    // show that it does, and this write costs nothing if it does.
-    // `propertiesJson` is rebuilt by the recombination effect below.
+    // here explicitly rather than relying on superForm to resync on a
+    // navigation — the harness cannot show that it does, and this write costs
+    // nothing if it does.
     formData.update(
       (current) => ({
         ...current,
         objectType: node.objectType ?? '',
         isRunnable: node.isRunnable ?? false,
+        // Set here as well as by the recombination effect below: that effect
+        // re-runs only when the split state CHANGES, and a re-seed to the value
+        // it already holds (after this form's own save) changes nothing.
+        propertiesJson: node.properties != null ? JSON.stringify(node.properties, null, 2) : '',
       }),
       { taint: false },
     );
-    seededFor = id;
+    seededFor = key;
   });
 
   // The single submitted value, rebuilt from both halves.
@@ -224,8 +328,27 @@
       rest = parsed as Record<string, unknown>;
     }
     const merged = writeSkillExport(rest, skillExport);
+    // #1041: write only a CHANGED bag. On mount this effect rebuilds the bag it
+    // was handed, and after a failed full-page submission that bag is exactly
+    // the one the server refused, in the browser's formatting. Re-writing it
+    // anyway counted as an edit: superforms validated it client-side, the
+    // client schema (valid JSON object) passed, and that result replaced the
+    // server's verdict. The error vanished and Save came back on for a bag the
+    // server had just rejected. Read untracked: this effect writes the field.
+    if (sameBag(untrack(() => $formData.propertiesJson), merged)) return;
     $formData.propertiesJson = Object.keys(merged).length > 0 ? JSON.stringify(merged, null, 2) : '';
   });
+
+  /** Does `serialized` hold exactly `bag`, whatever its formatting? */
+  function sameBag(serialized: string, bag: Record<string, unknown>): boolean {
+    const raw = (serialized ?? '').trim();
+    if (!raw) return Object.keys(bag).length === 0;
+    try {
+      return sameProperties(JSON.parse(raw), bag);
+    } catch {
+      return false;
+    }
+  }
 
   // Shown for a task node, and ALSO whenever a declaration already exists — a
   // declaration on a node whose Runnable flag was later cleared must stay
@@ -234,7 +357,7 @@
   const showSkillExport = $derived(
     // #905: a stored export the server judged keeps the section, and so its
     // verdict, on screen after Clear — even on a node that is not runnable.
-    $formData.isRunnable || skillExport !== null || exportDivergent || data.skillCheck?.kind === 'checked',
+    $formData.isRunnable || skillExport !== null || exportDivergent || skillCheck?.kind === 'checked',
   );
 
   // A declared collection that cannot hold an `exports` OBJECT, measured
@@ -267,7 +390,11 @@
   // navigation; if node A and node B both have an error, the attention value
   // does not change, so without that read the effect would not re-run and B's
   // error would sit in a closed section.
-  let storageOpen = $state(false);
+  // #1041: starts OPEN when the form arrives carrying a server error on the
+  // properties, i.e. a failed full-page submission. The attention effect below
+  // only runs in the browser, so a server render put the error inside a closed
+  // section, invisible until the reader thought to expand it.
+  let storageOpen = $state(untrack(() => !!initialForm.errors?.propertiesJson?.length));
   $effect(() => {
     void node.id;
     if (propertiesInvalid || propertiesError) storageOpen = true;
@@ -282,7 +409,7 @@
   // #887). A node with NO export on such a collection stays collapsed: the note
   // explains a disabled box, which is information, not an error to fix.
   const skillNeedsAttention = $derived(
-    serverRefuses(data.skillCheck) ||
+    serverRefuses(skillCheck) ||
     exportDivergent ||
       (skillExport !== null && strictCollection !== null) ||
       (skillExport !== null &&
@@ -296,20 +423,13 @@
 
 </script>
 
-<svelte:head><title>Edit &middot; {node.loc} &middot; Hadron</title></svelte:head>
-
-<div class="max-w-3xl space-y-6">
-  <div class="flex items-center gap-3">
-    <a href="{basePath}/nodes/{node.id}" class="text-sm text-indigo-500 hover:underline dark:text-indigo-400">&larr; Back to node</a>
-    <h1 class="font-mono text-lg font-bold text-zinc-900 dark:text-white">{node.loc}</h1>
-  </div>
-
-  {#if data.noWriteDoor}
+<div class="space-y-6">
+  {#if noWriteDoor}
     <!-- The node has no single write path, so no Save here can succeed. Said
          up front, and Save is disabled, rather than letting the user edit and
          then be refused (@copilot on #887). -->
     <p id="no-write-door" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-      {data.noWriteDoor}
+      {noWriteDoor}
     </p>
   {/if}
 
@@ -317,11 +437,12 @@
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
   {/if}
 
-  <form method="POST" use:enhance class="space-y-6" novalidate>
-    <!-- #878: only what the node page has no tab for. Name, loc, description,
-         alias, seq, tags and Runnable are on its Settings tab; content,
-         abstract and edges on their own tabs. Both sections start closed so
-         the reader sees what is offered and opens what they want. -->
+  <form method="POST" {action} use:enhance class="space-y-6" novalidate>
+    <!-- #878: only what the node page has no other control for. Name, loc,
+         description, alias, seq, tags and Runnable are on its Settings tab;
+         content, abstract and edges on their own tabs. Both sections start
+         closed so the reader sees what is offered and opens what they want. -->
+    <input type="hidden" name="_kind" value="updateStorage" />
     <input type="hidden" name="isRunnable" value={String($formData.isRunnable)} />
 
     <!-- #588 (server #725): collection discriminator + typed properties. -->
@@ -330,7 +451,7 @@
 
       <div>
         <label for="objectType" class="mb-1 block text-sm text-zinc-600 dark:text-zinc-400">{createNodeStrings.fieldObjectType()}</label>
-        {#if collectionNames.length > 0 || undeclaredCurrent}
+        {#if collectionNames.length > 0}
           <select id="objectType" name="objectType" bind:value={$formData.objectType}
             class="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none">
             <option value="">{createNodeStrings.objectTypeNone()}</option>
@@ -388,10 +509,10 @@
           divergent={exportDivergent}
           legacy={exportLegacy}
           rawPropertiesEditable={!declaredCollection}
-          runnableBlockedBy={data.runnableBlockedBy ?? null}
+          runnableBlockedBy={runnableBlockedBy ?? null}
           {strictCollection}
           defaults={exportDefaults}
-          serverCheck={data.skillCheck}
+          serverCheck={skillCheck}
           unsaved={exportUnsaved}
         />
         {/key}
@@ -402,13 +523,15 @@
     <div class="flex items-center gap-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
       <button
         type="submit"
-        disabled={$submitting || propertiesInvalid || !!propertiesError || !!data.noWriteDoor}
-        aria-describedby={data.noWriteDoor ? 'no-write-door' : undefined}
+        disabled={$submitting || propertiesInvalid || !!propertiesError || !!noWriteDoor}
+        aria-describedby={noWriteDoor ? 'no-write-door' : undefined}
         class="rounded-lg bg-amber-500 px-6 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {$submitting ? 'Saving...' : 'Save'}
+        {$submitting ? t('node-storage.saving', 'Saving…') : t('node-storage.save', 'Save')}
       </button>
-      <a href="{basePath}/nodes/{node.id}" class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</a>
+      {#if actionSuccess}
+        <span role="status" class="text-sm text-green-600 dark:text-green-400">{actionSuccess}</span>
+      {/if}
     </div>
   </form>
 </div>

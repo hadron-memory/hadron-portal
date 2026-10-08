@@ -2,6 +2,10 @@
  * #864 / @copilot on #867 — the skill-export section must RE-SEED when the node
  * changes under a reused component.
  *
+ * #1031: written against the retired `/edit` page; it now drives the same form
+ * on the node page's Properties tab, through `NodeStorageForm.harness.svelte`.
+ * Where it says "this page" below, read "this form".
+ *
  * CLIENT lane, and it has to be: the defect lives entirely in the component
  * lifecycle. SvelteKit reuses this page across /nodes/A/edit → /nodes/B/edit,
  * and the split state (`declaration`, `restJson`) is seeded ONCE with
@@ -38,8 +42,8 @@ import { mountComponent } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { editNodeSchema } from './schema';
-import Page from './+page.svelte';
+import { nodeStorageSchema } from './storage-schema';
+import Page from './NodeStorageForm.harness.svelte';
 
 function node(id: string, properties: Record<string, unknown> | null) {
   return {
@@ -76,7 +80,7 @@ async function dataFor(n: ReturnType<typeof node>) {
         objectType: '',
         propertiesJson: n.properties != null ? JSON.stringify(n.properties, null, 2) : '',
       },
-      zod4(editNodeSchema),
+      zod4(nodeStorageSchema),
       { errors: false },
     ),
   };
@@ -92,7 +96,7 @@ function exportNameBox(target: HTMLElement): HTMLInputElement | null {
 
 beforeEach(() => {
   resetNavigationGuards();
-  setStubPage('https://example.test/app/memories/mem-1/nodes/a/edit', { id: 'mem-1', nodeId: 'a' });
+  setStubPage('https://example.test/app/memories/mem-1/nodes/a?tab=properties', { id: 'mem-1', nodeId: 'a' });
 });
 
 describe('the export section re-seeds when the node changes', () => {

@@ -10,6 +10,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import Page from './+page.svelte';
+import { rowMenuItems } from '$lib/test/rowMenu';
 import { addAttendanceSchema, editAttendanceSchema, removeAttendanceSchema } from '$lib/register/schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -57,7 +58,8 @@ async function mountPage(extra: Record<string, unknown> = {}) {
   await tick();
   return m.target;
 }
-const buttons = (root: HTMLElement, text: string) => [...root.querySelectorAll('button')].filter((b) => b.textContent?.trim() === text);
+// #1020: row actions (Edit / Remove) live in each row's ⋯ menu.
+const buttons = (root: HTMLElement, text: string) => rowMenuItems(root, text);
 
 describe('the organization Channels page', () => {
   it('lists the org’s Channels with their addresses and memories', async () => {

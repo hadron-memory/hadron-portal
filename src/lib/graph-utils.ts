@@ -214,3 +214,14 @@ export function scopeTreeEntriesToSearch(
   );
   return pool.filter((e) => ids.has(e.id));
 }
+
+/**
+ * #1017 — where the graph popup's "Open" goes. A single-memory page passes its
+ * `/app/memories/<id>` basePath, so the node's own page is one hop away. A
+ * multi-memory graph (an App's or an Agent's) passes none, and used to show no
+ * Open at all; the node's URN still resolves through `/app/u/<urn>`, which is
+ * what every other cross-memory link in the portal uses.
+ */
+export function graphNodeHref(basePath: string | undefined, topic: { id: string; urn: string }): string {
+  return basePath ? `${basePath}/nodes/${topic.id}` : `/app/u/${topic.urn}`;
+}

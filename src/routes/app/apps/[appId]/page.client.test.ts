@@ -10,6 +10,7 @@ import { submitEnhanced } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatMessage } from '$lib/types';
+import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
 import {
   addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
@@ -138,9 +139,9 @@ describe('App team chat full view (#980)', () => {
 
     // A genuine navigation does have to take the new loader's view selection.
     window.history.replaceState({}, '', '/app/apps/a1?tab=chats&chat=chats%3Ateam');
-    const afterNavigate = navigationGuards.find((guard) => guard.fn === 'afterNavigate')?.callback as (() => void) | undefined;
+    const afterNavigate = navigationGuards.find((guard) => guard.fn === 'afterNavigate')?.callback as ((nav: { type: string }) => void) | undefined;
     expect(afterNavigate).toBeDefined();
-    afterNavigate!();
+    afterNavigate!({ type: 'link' });
     await tick(2);
     expect(m.target.querySelector('[aria-modal="true"]')).toBeNull();
   });
@@ -289,5 +290,137 @@ describe('Worker agents tab (#1009)', () => {
   it('a retired worker with no memory and no agent gets no ⋯ at all, not an empty menu', async () => {
     const target = await mountStaff([worker({ id: 'w5', name: 'Eve', retiredAt: '2026-09-01T00:00:00.000Z', memoryId: null, agent: null })]);
     expect(target.querySelector('button[aria-label="Actions for Eve"]')).toBeNull();
+  });
+});
+
+describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
+  const key = {
+    id: 'k1', label: 'production-backend', keyPreview: 'hk_ab…yz',
+    createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
+  };
+  async function keyedData(initialTab: string) {
+    const data = await pageData();
+    return { ...data, initialTab, app: { ...data.app, keys: [key] } };
+  }
+  async function revokeResult() {
+    const f = await superValidate({ _kind: 'revokeKey', keyId: 'k1' }, zod4(revokeAppKeySchema));
+    f.message = { type: 'success', text: 'Key revoked.' };
+    return { form: f };
+  }
+  const selectedTab = (m: Mounted<Record<string, unknown>>) =>
+    m.target.querySelector('[role="tab"][aria-selected="true"]')?.id;
+
+  it('gives each list its own tab and takes both out of Settings', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
+    const props = reactiveProps({ data: await keyedData('keys'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+
+    const labels = Array.from(m.target.querySelectorAll('[role="tab"]')).map((tab) => tab.textContent?.trim());
+    expect(labels).toEqual(expect.arrayContaining(['App Keys', 'AI Service Configs', 'Settings']));
+
+    const keysPanel = m.target.querySelector('#panel-keys')!;
+    expect(keysPanel.getAttribute('aria-labelledby')).toBe('tab-keys');
+    expect(keysPanel.textContent).toContain('+ Generate Key');
+    expect(keysPanel.textContent).toContain('production-backend');
+
+    (m.target.querySelector('#tab-ai-configs') as HTMLButtonElement).click();
+    await tick(2);
+    const configsPanel = m.target.querySelector('#panel-ai-configs')!;
+    expect(configsPanel.textContent).toContain('AI providers');
+    expect(m.target.querySelector('#panel-keys')).toBeNull();
+
+    (m.target.querySelector('#tab-settings') as HTMLButtonElement).click();
+    await tick(2);
+    const settingsPanel = m.target.querySelector('#panel-settings')!;
+    expect(settingsPanel.textContent).not.toContain('Generate Key');
+    expect(settingsPanel.textContent).not.toContain('production-backend');
+    expect(settingsPanel.textContent).not.toContain('AI providers');
+  });
+
+  // A fresh page (a full POST before hydration) is followed by SvelteKit
+  // firing every afterNavigate callback with type 'enter' — after effects and
+  // onMount. The stub only RECORDS callbacks, so fire them as kit would, or
+  // the page's re-sync to `data.initialTab` stays invisible (Gemma on #1034).
+  const enterNavigation = async () => {
+    for (const guard of navigationGuards.filter((g) => g.fn === 'afterNavigate')) {
+      (guard.callback as (nav: { type: string }) => void)({ type: 'enter' });
+    }
+    await tick(2);
+  };
+
+  it('opens App Keys for a key action result that arrives on a fresh page', async () => {
+    setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
+    const m = mountComponent(Page as never, {
+      data: await keyedData('chats'), form: await revokeResult(),
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await enterNavigation();
+    expect(selectedTab(m)).toBe('tab-keys');
+    expect(m.target.textContent).toContain('Key revoked.');
+  });
+
+  it('opens Settings for an agent action result that arrives on a fresh page', async () => {
+    setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
+    const f = await superValidate({ _kind: 'removeAgent', agentId: 'ag1' }, zod4(removeAppAgentSchema));
+    f.message = { type: 'success', text: 'Agent removed.' };
+    const m = mountComponent(Page as never, {
+      data: await keyedData('chats'), form: { form: f },
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await enterNavigation();
+    expect(selectedTab(m)).toBe('tab-settings');
+  });
+
+  it('still follows the loader on an enter navigation with no action result', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=worklog', { appId: 'a1' });
+    const m = mountComponent(Page as never, {
+      data: await keyedData('worklog'), form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    (m.target.querySelector('#tab-keys') as HTMLButtonElement).click();
+    await tick(2);
+    await enterNavigation();
+    expect(selectedTab(m)).toBe('tab-worklog');
+  });
+
+  it('keeps a revoke made from the Client tab on the Client tab', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
+    const props = reactiveProps<Record<string, unknown>>({ data: await keyedData('client'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    expect(selectedTab(m)).toBe('tab-client');
+
+    props.form = await revokeResult();
+    await tick(3);
+    expect(selectedTab(m)).toBe('tab-client');
+  });
+});
+
+describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
+  it('sends the reader to AI Service Configs, where the providers now live', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, {
+      data: {
+        ...data,
+        app: { ...data.app, surfaces: ['chat'], agentId: 'ag1', agent: { id: 'ag1', name: 'Bot' } },
+        chatConfigs: [], selectedChatKey: AGENT_CHAT_KEY,
+      },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const cta = Array.from(m.target.querySelectorAll('button')).find((b) => b.textContent?.includes('Configure AI Service Configs'));
+    expect(cta).toBeDefined();
+    cta!.click();
+    await tick(2);
+    expect(m.target.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe('tab-ai-configs');
+    expect(m.target.querySelector('#panel-ai-configs')).not.toBeNull();
   });
 });

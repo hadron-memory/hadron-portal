@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import type { GraphViewData, Topic } from "$lib/types";
   import Urn from "./Urn.svelte";
+  import { graphNodeHref } from "$lib/graph-utils";
   import { graphState } from "./GraphState.svelte.js";
 
   let { data, focusId, basePath }: { data: GraphViewData; focusId?: string; basePath: string } = $props();
@@ -56,27 +57,6 @@
   function fontForDepth(d: number) {
     return Math.max(11, 16 - d * 1.5);
   }
-
-  function incomingEdges(topic: Topic) {
-    return data.topics.flatMap((t) =>
-      t.nodes
-        .filter((n) => n.loc === topic.id)
-        .map((n) => ({ id: n.id, from: t.id, fromName: t.name, rel: n.rel }))
-    );
-  }
-
-  // Merged edge list for the popup "Edges" section: the selected node's
-  // outgoing + incoming edges, each carrying the edge id (for the
-  // hrn:edge:<id> URN), its label, direction, and the connected node's id
-  // (used to focus it in the graph and to build the "Open" link).
-  type PopupEdge = { edgeId: string; label: string; dir: 'out' | 'in'; nodeId: string };
-  const popupEdges = $derived.by<PopupEdge[]>(() => {
-    const t = selectedTopic;
-    if (!t) return [];
-    const out: PopupEdge[] = t.nodes.map((n) => ({ edgeId: n.id, label: n.rel, dir: 'out', nodeId: n.loc }));
-    const inc: PopupEdge[] = incomingEdges(t).map((e) => ({ edgeId: e.id, label: e.rel, dir: 'in', nodeId: e.from }));
-    return [...out, ...inc];
-  });
 
   function focusNode(nodeId: string) {
     const topic = data.topics.find((t) => t.id === nodeId);
@@ -371,14 +351,17 @@
 
     {#if selectedTopic}
       <div class="detail-panel">
-        <button class="close-btn" onclick={() => { selectedTopic = null; graphState.selectedNodeId = null; }}>&times;</button>
         <div class="detail-title-row">
           <h2>{selectedTopic.name}</h2>
-          {#if basePath}
-            <a href="{basePath}/nodes/{selectedTopic.id}" class="open-link">Open</a>
-          {/if}
+          <!-- #1017: Open used to need basePath, which only a single-memory
+               page passes, so the App page's multi-memory graph had none.
+               graphNodeHref falls back to the URN resolver. -->
+          <a href={graphNodeHref(basePath, selectedTopic)} class="open-link">Open</a>
+          <!-- #1018: the X sits IN the title row rather than absolutely over
+               it, so a long name or the Open link can no longer run under it. -->
+          <button class="close-btn" aria-label="Close" onclick={() => { selectedTopic = null; graphState.selectedNodeId = null; }}>&times;</button>
         </div>
-        <div class="loc"><Urn value={selectedTopic.urn} type="node" size={10} /></div>
+        <div class="loc"><Urn value={selectedTopic.urn} type="node" size={10} linked /></div>
         <span class="domain-badge" style="background: {domainColors[selectedTopic.domain].bg}; color: {domainColors[selectedTopic.domain].font};">
           {selectedTopic.domain}
         </span>
@@ -389,24 +372,6 @@
               <span class="tag">{tag}</span>
             {/each}
           </div>
-        {/if}
-        {#if popupEdges.length > 0}
-          <div class="section-label">Edges</div>
-          {#each popupEdges as edge (edge.dir + ':' + edge.edgeId)}
-            <div class="edge-card">
-              <button class="edge-main" onclick={() => focusNode(edge.nodeId)} title="Focus the connected node in the graph">
-                {#if edge.label}
-                  <div class="edge-label">{edge.label}</div>
-                {/if}
-                <div class="edge-urn" title={`hrn:edge:${edge.edgeId}`}>
-                  <span class="edge-dir" title={edge.dir === 'out' ? 'outgoing edge' : 'incoming edge'}>{edge.dir === 'out' ? '→' : '←'}</span>hrn:edge:{edge.edgeId}
-                </div>
-              </button>
-              {#if basePath}
-                <a href="{basePath}/nodes/{edge.nodeId}" class="open-link">Open</a>
-              {/if}
-            </div>
-          {/each}
         {/if}
       </div>
     {/if}
@@ -423,21 +388,15 @@
   .graph { width: 100%; height: 100%; }
   .detail-panel { position: absolute; top: 16px; right: 16px; width: 360px; max-height: calc(100% - 32px); overflow-y: auto; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; z-index: 10; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }
   .detail-title-row { display: flex; align-items: center; gap: 8px; }
+  .detail-title-row h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .detail-panel h2 { font-size: 16px; color: #f0f6fc; margin-bottom: 4px; }
   .open-link { font-size: 12px; color: #58a6ff; text-decoration: none; padding: 2px 8px; border: 1px solid #30363d; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
   .open-link:hover { background: #21262d; border-color: #58a6ff; }
   .loc { font-size: 12px; color: #8b949e; font-family: monospace; margin-bottom: 12px; }
   .domain-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
   .description { font-size: 14px; line-height: 1.5; margin-bottom: 12px; }
-  .section-label { font-size: 12px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 12px; margin-bottom: 6px; }
   .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
   .tag { padding: 2px 8px; background: #21262d; border-radius: 12px; font-size: 11px; color: #8b949e; }
-  .edge-card { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 8px; margin-bottom: 6px; background: #0d1117; border-radius: 6px; }
-  .edge-main { display: block; width: 100%; min-width: 0; padding: 0; background: none; border: none; cursor: pointer; text-align: left; color: inherit; }
-  .edge-label { font-size: 13px; color: #c9d1d9; margin-bottom: 2px; }
-  .edge-urn { font-size: 12px; font-family: monospace; color: #8b949e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  .edge-main:hover .edge-urn { color: #58a6ff; }
-  .edge-dir { color: #58a6ff; margin-right: 4px; }
-  .close-btn { position: absolute; top: 12px; right: 12px; background: none; border: none; color: #8b949e; cursor: pointer; font-size: 18px; padding: 4px; }
+  .close-btn { flex-shrink: 0; align-self: flex-start; background: none; border: none; color: #8b949e; cursor: pointer; font-size: 18px; padding: 4px; }
   .close-btn:hover { color: #f0f6fc; }
 </style>
