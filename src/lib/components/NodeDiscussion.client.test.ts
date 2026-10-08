@@ -311,6 +311,64 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
+  it('Diego on #1024: an open editor saves against the revision it opened on, not a fresher one', async () => {
+    const fetchMock = stubFetch({ ok: false, status: 409, body: { error: 'Someone changed this comment while you were reading it.' } });
+    const props = reactiveProps<Record<string, unknown>>({
+      endpoint: ENDPOINT,
+      shownRevision: 3,
+      initial: discussion([thread(comment('c1', { body: 'First wording', revSeq: 1 }), true)]),
+    });
+    const m = mountComponent(NodeDiscussion as never, props as never) as ReturnType<typeof mountComponent>;
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Edit')!.click();
+    flushSync();
+    typeInto(m.target.querySelector<HTMLTextAreaElement>('#edit-c1')!, 'My edit');
+    expect(m.target.querySelector('[data-testid="edit-stale"]')).toBeNull();
+    // The same author edits in another tab; this page's fresh read lands while the editor stays open.
+    props.initial = discussion([thread(comment('c1', { body: 'Edited elsewhere', revSeq: 2 }), true)]);
+    flushSync();
+    expect(m.target.querySelector<HTMLTextAreaElement>('#edit-c1')!.value).toBe('My edit');
+    expect(m.target.querySelector('[data-testid="edit-stale"]')).not.toBeNull();
+    m.target.querySelector<HTMLTextAreaElement>('#edit-c1')!.form!.requestSubmit();
+    await tick(10);
+    const sent = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+    expect(sent).toMatchObject({ op: 'edit', commentId: 'c1', body: 'My edit', expectedRevision: 1 });
+    m.unmount();
+  });
+
+  it('Gemma on #1024: a write on a thread past the first page keeps it, read back fresh', async () => {
+    const reply = comment('r1', { body: 'Reply on page two', threadRootId: 'c2', isTopLevel: false });
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const body =
+        init?.method === 'POST'
+          ? // The write's read-back: page 1 only.
+            { ok: true, discussion: { ...discussion([thread(comment('c1'))]), total: 2 } }
+          : url.endsWith('?offset=1') && fetchMock.mock.calls.some(([, i]) => i?.method === 'POST')
+            ? { discussion: { ...discussion([{ ...thread(comment('c2', { body: 'Page two' })), replies: [reply], replyCount: 1 }]), total: 2 } }
+            : { discussion: { ...discussion([thread(comment('c2', { body: 'Page two' }))]), total: 2 } };
+      return { ok: true, status: 200, json: async () => body };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const m = mountComponent(NodeDiscussion, {
+      endpoint: ENDPOINT,
+      shownRevision: 3,
+      initial: { ...discussion([thread(comment('c1'))]), total: 2 },
+    });
+    (m.target.querySelector('[data-testid="more-threads"]') as HTMLButtonElement).click();
+    await tick(10);
+    expect(m.target.textContent).toContain('Page two');
+
+    const page2 = m.target.querySelector<HTMLElement>('[data-thread-id="c2"]')!;
+    [...page2.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Reply')!.click();
+    flushSync();
+    typeInto(m.target.querySelector<HTMLTextAreaElement>('#reply-c2')!, 'Reply on page two');
+    m.target.querySelector<HTMLTextAreaElement>('#reply-c2')!.form!.requestSubmit();
+    await tick(15);
+    expect(m.target.querySelector('[data-thread-id="c2"]')).not.toBeNull();
+    expect(m.target.textContent).toContain('Reply on page two');
+    expect(m.target.querySelector('[data-testid="more-threads"]')).toBeNull();
+    m.unmount();
+  });
+
   it('a failed read says so instead of showing an empty discussion', () => {
     const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3, initial: { ok: false } });
     expect(m.target.querySelector('[role="alert"]')?.textContent).toContain("Couldn't load the discussion");
