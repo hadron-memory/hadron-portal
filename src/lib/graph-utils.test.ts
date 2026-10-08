@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scopeTreeEntriesToSearch, withoutHiddenTreeEntries } from './graph-utils';
+import { graphNodeHref, scopeTreeEntriesToSearch, withoutHiddenTreeEntries } from './graph-utils';
 import { isHiddenNodeType } from './node-types';
 import type { TreeEntry } from './types';
 
@@ -79,5 +79,18 @@ describe('withoutHiddenTreeEntries', () => {
   it('a REAL node of a visible type stays even when everything under it is hidden', () => {
     const entries = [typed('spec', 'info'), typed('spec:x', 'comment')];
     expect(withoutHiddenTreeEntries(entries, isHiddenNodeType).map((e) => e.id)).toEqual(['spec']);
+  });
+});
+
+describe('graphNodeHref (#1017)', () => {
+  const topic = { id: '01node', urn: 'hrn:node:acme.com:docs:guides:setup' };
+
+  it('opens the node page directly on a single-memory graph', () => {
+    expect(graphNodeHref('/app/memories/01mem', topic)).toBe('/app/memories/01mem/nodes/01node');
+  });
+
+  it('falls back to the URN resolver on a multi-memory graph, which passes no basePath', () => {
+    expect(graphNodeHref('', topic)).toBe('/app/u/hrn:node:acme.com:docs:guides:setup');
+    expect(graphNodeHref(undefined, topic)).toBe('/app/u/hrn:node:acme.com:docs:guides:setup');
   });
 });

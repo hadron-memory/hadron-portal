@@ -118,6 +118,19 @@
     },
   ];
 
+  // #1019: the Organization agents tab's row actions, as ⋯ menu links. "Open
+  // app" exists only when the agent is installed; "Open" alone was ambiguous
+  // in a menu, since the agent's name already opens the agent itself.
+  function ownAgentActions(agent: { id: string }): NodeMenuAction[] {
+    const installed = installedByAgent[agent.id];
+    return [
+      ...(installed
+        ? [{ id: 'open-app', label: t('org-agents.action.open-app', 'Open app'), href: `/app/apps/${installed.appId}` }]
+        : []),
+      { id: 'install', label: installStrings.buttonLabel(), href: `/app/orgs/${org.id}/agents/install/${agent.id}` },
+    ];
+  }
+
   async function onGrantAction(actionId: string, grant: AgentGrant) {
     if (actionId === 'install') {
       goto(`/app/orgs/${org.id}/agents/install/${grant.agentId}`);
@@ -151,7 +164,7 @@
     // +1 for the agent's own system memory (when it has one) — it isn't part
     // of memoryItems. Agents without a system memory count only memoryItems.
     { accessorFn: (row) => row.memoryItems.length + (row.systemMemoryId ? 1 : 0), id: 'memories', header: t('org-agents.column.memories', 'Memories'), size: 100 },
-    { id: 'actions', header: t('org-agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170 },
+    { id: 'actions', header: t('org-agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 }, // #1019: one ⋯ menu, not two buttons
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
@@ -445,6 +458,7 @@
                 label={`${t('org-agents.subscribed.actions.label', 'Actions for')} ${grant.agent?.name ?? grant.agentId}`}
                 disabled={unsubscribePendingAgentId === grant.agentId || $unsubscribeSubmitting}
                 fixed
+                compact
               />
             {/if}
           {:else}
@@ -481,25 +495,14 @@
         {:else if cell.column.id === 'urn'}
           <Urn value={agent.urn} type="agent" size={8} />
         {:else if cell.column.id === 'actions'}
-          {@const installed = installedByAgent[agent.id]}
-          <div class="flex items-center gap-2">
-            {#if installed}
-              <a
-                href="/app/apps/{installed.appId}"
-                title={t('org-agents.action.open-title', 'Open the app this agent is installed as')}
-                class="inline-block rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-600 dark:text-zinc-200 dark:hover:bg-zinc-800"
-              >
-                {t('org-agents.action.open', 'Open')}
-              </a>
-            {/if}
-            <a
-              href="/app/orgs/{org.id}/agents/install/{agent.id}"
-              class="inline-block rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
-              style="background: #fb8500;"
-            >
-              {installStrings.buttonLabel()}
-            </a>
-          </div>
+          <!-- #1019: one ⋯ menu instead of Open + Install buttons, so the row
+               stays one text line tall and matches the Subscribed tab. -->
+          <NodeActionsMenu
+            actions={ownAgentActions(agent)}
+            label={`${t('org-agents.actions.label', 'Actions for')} ${agent.name}`}
+            fixed
+            compact
+          />
         {:else}
           {@const f = fmt[cell.column.id]}
           <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>

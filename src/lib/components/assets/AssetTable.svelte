@@ -18,11 +18,11 @@
 <script lang="ts">
   import type { PortalColumnDef } from '$lib/table/features';
   import { untrack } from 'svelte';
-  import { Download, Link2, Trash2 } from 'lucide-svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import { assetSearchExtras } from './asset-search';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
@@ -204,7 +204,7 @@
       header: t('assets.column.actions', 'Actions'),
       enableSorting: false,
       enableHiding: false,
-      size: 130,
+      size: 120,
     },
   ];
 
@@ -243,6 +243,45 @@
       sorting: [{ id: 'uploaded', desc: true }],
     },
   });
+
+  // #1020: the row's actions as ⋯ menu items. Download is SHOWN but disabled
+  // until the scan says CLEAN, with the reason as its title, so the reader
+  // learns why rather than seeing it vanish. Copy public link is ABSENT, not
+  // disabled, when the server minted no publicUrl — see the PR #697 note this
+  // replaced: a disabled one would imply someone else could hotlink it.
+  function assetActions(row: AssetRow): NodeMenuAction[] {
+    const busy = busyAsset === row.id;
+    return [
+      {
+        id: 'download',
+        label: t('assets.download', 'Download'),
+        disabled: busy || row.scanStatus !== 'CLEAN',
+        title: downloadTitle(row.scanStatus),
+        ariaLabel: downloadAriaLabel(row.scanStatus, row.filename, row.scanSignature),
+      },
+      ...(row.publicUrl
+        ? [{
+            id: 'copy-link',
+            label: t('assets.copy-link', 'Copy public link'),
+            title: t('assets.copy-link.title', 'Copy public link — anyone with it can download this file, no sign-in required'),
+            ariaLabel: t('assets.copy-link.aria', 'Copy public link to {file}', { file: row.filename }),
+          }]
+        : []),
+      {
+        id: 'delete',
+        label: t('assets.delete', 'Delete'),
+        danger: true,
+        disabled: busy,
+        title: t('assets.delete.title', 'Delete (recoverable for 24 hours)'),
+        ariaLabel: t('assets.delete.aria', 'Delete {file}', { file: row.filename }),
+      },
+    ];
+  }
+  function onAssetAction(id: string, row: AssetRow) {
+    if (id === 'download') void download(row);
+    else if (id === 'copy-link') void copyHotlink(row);
+    else if (id === 'delete') pendingDelete = row.id;
+  }
 
   async function download(row: AssetRow) {
     busyAsset = row.id;
@@ -379,50 +418,19 @@
           >{t('assets.delete.cancel', 'Cancel')}</button>
         </div>
       {:else}
-        <div class="flex items-center gap-1">
-          <button
-            type="button"
-            onclick={() => download(row)}
-            disabled={busyAsset === row.id || row.scanStatus !== 'CLEAN'}
-            title={downloadTitle(row.scanStatus)}
-            aria-label={downloadAriaLabel(row.scanStatus, row.filename, row.scanSignature)}
-            class="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-40 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-          >
-            <Download class="size-4" />
-          </button>
-          <!-- Hotlink. Deliberately NOT presented as access-controlled: the copy
-               says "public", and the control is ABSENT — not disabled — when the
-               server minted no publicUrl, which it doesn't for a non-CLEAN
-               asset, an encrypted memory, or an unset BASE_URL.
-               A disabled button would read as "you lack permission", implying
-               the same file is hotlinkable for someone else; for an encrypted
-               memory it is hotlinkable for nobody, by construction. Matches
-               NodeAssetCard, which had it right while this didn't (PR #697
-               review, codex + Copilot both). -->
-          {#if row.publicUrl}
-            <button
-              type="button"
-              onclick={() => copyHotlink(row)}
-              title={t('assets.copy-link.title', 'Copy public link — anyone with it can download this file, no sign-in required')}
-              aria-label={t('assets.copy-link.aria', 'Copy public link to {file}', { file: row.filename })}
-              class="rounded p-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-            >
-              <Link2 class="size-4" />
-            </button>
-          {/if}
+        <!-- #1020: Download, Copy public link and Delete live in the row's ⋯
+             menu. Delete still expands the inline confirm above, in place. -->
+        <div class="flex items-center gap-1.5">
+          <NodeActionsMenu
+            actions={assetActions(row)}
+            onselect={(id) => onAssetAction(id, row)}
+            label={t('assets.actions.label', 'Actions for {file}', { file: row.filename })}
+            fixed
+            compact
+          />
           {#if copied === row.id}
             <span role="status" class="text-xs text-emerald-600 dark:text-emerald-400">{t('assets.copied', 'Copied')}</span>
           {/if}
-          <button
-            type="button"
-            onclick={() => (pendingDelete = row.id)}
-            disabled={busyAsset === row.id}
-            title={t('assets.delete.title', 'Delete (recoverable for 24 hours)')}
-            aria-label={t('assets.delete.aria', 'Delete {file}', { file: row.filename })}
-            class="rounded p-1 text-zinc-500 hover:bg-red-100 hover:text-red-600 disabled:opacity-40 dark:hover:bg-red-900/30 dark:hover:text-red-400"
-          >
-            <Trash2 class="size-4" />
-          </button>
         </div>
       {/if}
     {:else}

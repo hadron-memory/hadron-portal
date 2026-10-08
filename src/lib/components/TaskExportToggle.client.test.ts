@@ -78,7 +78,7 @@ describe('TaskExportToggle — states the checkbox must not flatten', () => {
     expect(target.querySelector('form')).toBeNull();
     expect(target.querySelector('input[type="checkbox"]')).toBeNull();
     const link = target.querySelector('a')!;
-    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1/edit');
+    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1?tab=properties');
     expect(link.textContent).toBe('Differs per host');
   });
 
@@ -106,7 +106,7 @@ describe('TaskExportToggle — states the checkbox must not flatten', () => {
     const link = note(target)!;
     expect(link.tagName).toBe('A');
     expect(visible(link)).toBe('drive-pr-home');
-    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1/edit');
+    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1?tab=properties');
     // The restriction: in the title for a pointer, and in visually hidden
     // text for assistive tech (@codex on #920).
     expect(link.getAttribute('title')).toBe('drive-pr-home — Not exported for Codex. Change it on the node.');
@@ -155,7 +155,7 @@ describe('TaskExportToggle — export keys no host reads (server#1296)', () => {
     expect(submitted(target)).toEqual({ nodeId: 'n1', enable: 'true' });
     const link = noteLink(target)!;
     expect(link.textContent).toBe('Unused key: "codex"');
-    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1/edit');
+    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1?tab=properties');
     // The explanation names the same host list the check uses (@copilot on #903).
     expect(link.getAttribute('title')).toContain(`Only ${exportKeyList()} are export keys`);
   });
@@ -183,7 +183,7 @@ describe('TaskExportToggle — a retired top-level declaration (#906)', () => {
     expect(target.querySelector('form')).toBeNull();
     expect(target.querySelector('input[type="checkbox"]')).toBeNull();
     const link = target.querySelector('a')!;
-    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1/edit');
+    expect(link.getAttribute('href')).toBe('/app/memories/mem-1/nodes/n1?tab=properties');
     expect(link.textContent).toBe('Older export setting');
     expect(link.getAttribute('title')).toContain('older top-level “skill” or “claudeSkill” setting');
   });

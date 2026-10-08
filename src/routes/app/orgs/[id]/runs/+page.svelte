@@ -12,6 +12,7 @@
   import { runSearchExtras } from './run-search';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
   import { t } from '$lib/i18n/t';
   import {
     RUN_STATUSES,
@@ -101,7 +102,7 @@
     { accessorFn: (row) => row.durationMs, id: 'duration', header: t('org-runs.column.duration', 'Duration'), size: 100 },
     { accessorKey: 'failure', header: t('org-runs.column.failure', 'Failure'), size: 200 },
     // Hiding the only way into a run's detail (and its kill switch) is a trap.
-    { id: 'actions', header: t('org-runs.column.open', 'Open'), enableSorting: false, enableHiding: false, size: 90 },
+    { id: 'actions', header: t('org-runs.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
 
   const table = createSvelteTable<RunRow>({
@@ -269,7 +270,13 @@
         {:else if cell.column.id === 'failure'}
           <span class="font-mono text-xs text-red-600 dark:text-red-400">{run.failure || '—'}</span>
         {:else if cell.column.id === 'actions'}
-          <a href={run.href} class="text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-300">{t('org-runs.open', 'Open')}</a>
+          <!-- #1020: the same ⋯ menu as every other table, even with one item. -->
+          <NodeActionsMenu
+            actions={[{ id: 'open', label: t('org-runs.open', 'Open'), href: run.href }]}
+            label={t('org-runs.actions.label', 'Actions for the {app} run', { app: run.app })}
+            fixed
+            compact
+          />
         {:else}
           {cell.getValue() ?? '—'}
         {/if}
