@@ -24,7 +24,9 @@
   let { nodeId, memoryId, name, exportState }: Props = $props();
 
   const on = $derived(exportState.kind === 'on');
-  const editHref = $derived(`/app/memories/${memoryId}/nodes/${nodeId}/edit`);
+  // #1031: the export is edited on the node's Properties tab (the old `/edit`
+  // page redirects there; linking straight to it saves the hop).
+  const editHref = $derived(`/app/memories/${memoryId}/nodes/${nodeId}?tab=properties`);
   // A declaration covering fewer hosts than the checkbox writes: made in the
   // CLI or raw JSON, or written before Codex was a host (#867). Shown, never
   // silently widened — checking the box again is what writes every host.

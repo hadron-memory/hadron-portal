@@ -24,6 +24,8 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
+  import { t } from '$lib/i18n/t';
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
@@ -206,7 +208,7 @@
     { accessorFn: (row) => sourceLabel(row.issuedVia), id: 'source', header: i18n.columnSource(), size: 160 },
     { accessorFn: (row) => dateMs(row.createdAt), id: 'createdAt', header: i18n.columnCreated(), size: 170 },
     { accessorFn: (row) => dateMs(row.lastUsedAt), id: 'lastUsedAt', header: i18n.columnLastUsed(), size: 170 },
-    { id: 'actions', header: i18n.columnAction(), enableSorting: false, size: 100 },
+    { id: 'actions', header: i18n.columnAction(), enableSorting: false, size: 80 },
   ];
 
   const fmt: Record<string, (v: unknown) => string> = {
@@ -380,14 +382,14 @@
             {/if}
           {:else if cell.column.id === 'actions'}
             {#if !isRevoked}
-              <button
-                type="button"
-                onclick={() => openConfirm(key.id, key.keyPreview)}
-                class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                data-testid="revoke-button"
-              >
-                {i18n.revokeButton()}
-              </button>
+              <!-- #1020: the row's actions live in the shared ⋯ menu. -->
+              <NodeActionsMenu
+                actions={[{ id: 'revoke', label: i18n.revokeButton(), danger: true }]}
+                onselect={() => openConfirm(key.id, key.keyPreview)}
+                label={`${t('api-keys.actions.label', 'Actions for key')} …${key.keyPreview}`}
+                fixed
+                compact
+              />
             {/if}
           {:else}
             {@const f = fmt[cell.column.id]}

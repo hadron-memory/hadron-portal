@@ -1,90 +1,53 @@
 /**
- * #237 regression — the edit route carries the same URL-acceptance guard
- * as the detail page. Without it, a mismatched `(gid, nodeId)` URL would
- * let the user save changes into a foreign-memory node while believing
- * they edit the current memory's row. Test pins the redirect to the
- * correct edit URL.
+ * #1031 — the Properties tab's storage form: its loader helpers and its action.
  *
- * Strategy mirrors the detail page's page.server.test.ts.
+ * Ported from the `/edit` page's server tests when #1031 moved that form onto
+ * the node page. The #237 load-time redirect those tests pinned now belongs to
+ * the node page's own loader (it redirects a mismatched memory id before this
+ * form is ever seeded), and the old URL is a redirect endpoint, pinned in
+ * `edit/redirect.test.ts`.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MemoryNode } from '$lib/types';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
-}));
-vi.mock('$lib/server/guards', () => ({
-  requireNonConsumer: vi.fn().mockResolvedValue(undefined),
 }));
 
 beforeEach(() => {
   mockRequest.mockReset();
 });
 
-async function importLoad() {
-  const mod = await import('./+page.server');
-  return mod.load;
-}
-
-// #260: org-less route — the memory id is `params.id` (the old `gid`).
-function loadEvent(opts: { gid: string; nodeId: string }) {
+function storedNode(over: Record<string, unknown> = {}): MemoryNode {
   return {
-    params: { id: opts.gid, nodeId: opts.nodeId },
-    locals: { token: 'tok' },
-    parent: vi.fn().mockResolvedValue({
-      isConsumerMode: false,
-      activeOrgId: 'org-1',
-    }),
-  } as unknown as Parameters<Awaited<ReturnType<typeof importLoad>>>[0];
+    id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo',
+    nodeType: 'info', alias: null, description: null, content: null,
+    tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
+    isRunnable: null, createdAt: '', updatedAt: '',
+    outgoingEdges: [], incomingEdges: [],
+    ...over,
+  } as unknown as MemoryNode;
 }
 
-describe('edit-node load — #237 PK-mismatch guard', () => {
-  it("redirects to the correct memory's edit URL when node.memoryId does not match params.gid", async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'leaf-pk', memoryId: 'mem-B', loc: 'foo', name: 'foo',
-        nodeType: 'info', alias: null, description: null, content: null,
-        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-
-    const load = await importLoad();
-    let thrown: unknown;
-    try {
-      await load(loadEvent({ gid: 'mem-A', nodeId: 'leaf-pk' }));
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes/leaf-pk/edit');
-  });
-
-  it('does NOT redirect when node.memoryId matches params.gid (happy path)', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo',
-        nodeType: 'info', alias: null, description: null, content: null,
-        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-
-    const load = await importLoad();
-    const result = await load(loadEvent({ gid: 'mem-A', nodeId: 'leaf-pk' }));
-    // SvelteKit's PageServerLoad return type widens to `T | void`; the
-    // void half is the redirect path. Happy path here returns data.
-    expect(result).toBeDefined();
-    expect((result as { node: { id: string } }).node.id).toBe('leaf-pk');
-    expect((result as { form: { data: Record<string, unknown>; errors: Record<string, string[]> } }).form.data).toEqual({
+describe('storage form seed (#1031)', () => {
+  it('seeds from the stored node, under its own form id and _kind', async () => {
+    const { nodeStorageSeed, NODE_STORAGE_FORM_ID } = await import('./storage-action');
+    const form = await nodeStorageSeed(storedNode());
+    expect(form.id).toBe(NODE_STORAGE_FORM_ID);
+    expect(form.data).toEqual({
+      _kind: 'updateStorage',
       isRunnable: false,
       objectType: '',
       propertiesJson: '',
     });
-    expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
-    expect((result as { runnableBlockedBy: unknown }).runnableBlockedBy).toBeNull();
+    expect(form.errors).toEqual({});
+  });
+
+  it('reports a plain node as writable and makeable runnable', async () => {
+    const { noWriteDoor, runnableBlockedBy } = await import('./storage-action');
+    expect(runnableBlockedBy(storedNode())).toBeNull();
+    expect(noWriteDoor(storedNode())).toBeNull();
   });
 
   it.each([
@@ -93,49 +56,27 @@ describe('edit-node load — #237 PK-mismatch guard', () => {
   ])('reports that a %s node cannot be made runnable here (@copilot on #887)', async (role, expected) => {
     // Asked of the same door chooser the save uses: a runnable review/spec
     // matches two governed kinds and has no single write door.
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo', role,
-        nodeType: 'info', alias: null, description: null, content: null,
-        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
-        isRunnable: null, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-    const load = await importLoad();
-    const result = await load(loadEvent({ gid: 'mem-A', nodeId: 'leaf-pk' }));
-    expect((result as { runnableBlockedBy: unknown }).runnableBlockedBy).toBe(expected);
+    const { noWriteDoor, runnableBlockedBy } = await import('./storage-action');
+    expect(runnableBlockedBy(storedNode({ role }))).toBe(expected);
     // Not yet runnable, so it can still be written — just not made runnable.
-    expect((result as { noWriteDoor: unknown }).noWriteDoor).toBeNull();
+    expect(noWriteDoor(storedNode({ role }))).toBeNull();
   });
 
   it('reports NO write door for a review node that is ALREADY runnable (@copilot on #887)', async () => {
-    mockRequest.mockResolvedValueOnce({
-      node: {
-        id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'foo', role: 'review',
-        nodeType: 'info', alias: null, description: null, content: null,
-        tokens: null, tags: [], seq: null, data: null, ownerRepo: null,
-        isRunnable: true, createdAt: '', updatedAt: '',
-        outgoingEdges: [], incomingEdges: [],
-      },
-    });
-    const load = await importLoad();
-    const result = await load(loadEvent({ gid: 'mem-A', nodeId: 'leaf-pk' }));
-    expect((result as { noWriteDoor: unknown }).noWriteDoor).toMatch(/no single write path/);
+    const { noWriteDoor } = await import('./storage-action');
+    expect(noWriteDoor(storedNode({ role: 'review', isRunnable: true }))).toMatch(/no single write path/);
   });
 });
 
 /**
- * #237 review follow-up — the `default` action runs BEFORE `load`, so
- * the URL-time guard above doesn't fire on POST. Action must derive
+ * #237 review follow-up — an action runs BEFORE `load`, so the node page's
+ * URL-time guard doesn't fire on POST. Action must derive
  * memoryId from the fetched node (not from params.gid) so a stale-URL
  * submission commits to the right memory.
  */
-import type { Actions } from './$types';
-
 async function importActions() {
-  const mod = await import('./+page.server');
-  return mod.actions;
+  const mod = await import('./storage-action');
+  return { default: mod.updateStorage };
 }
 
 function actionEvent(opts: {
@@ -149,7 +90,7 @@ function actionEvent(opts: {
     params: { id: opts.gid, nodeId: opts.nodeId },
     locals: { token: 'tok' },
     request: { formData: async () => formData },
-  } as unknown as Parameters<Actions[keyof Actions]>[0];
+  } as unknown as Parameters<typeof import('./storage-action').updateStorage>[0];
 }
 
 function superFormFrom(result: unknown) {
@@ -165,7 +106,7 @@ function fieldError(result: unknown, field: string): string | undefined {
   return superFormFrom(result)?.errors?.[field]?.[0];
 }
 
-describe('edit-node default action — derives memoryId from fetched node (#237)', () => {
+describe('storage action — derives memoryId from fetched node (#237)', () => {
   it("update input.memoryId is the node's actual memoryId, not params.gid", async () => {
     // Stale URL says mem-A; the node lives in mem-B. The update must
     // commit into mem-B so the user's edit lands on the right row.
@@ -181,19 +122,14 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
-    let thrown: unknown;
-    try {
-      await actions.default(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { objectType: '' } }));
-    } catch (e) {
-      thrown = e;
-    }
+    const result = await actions.default(actionEvent({ gid: 'mem-A', nodeId: 'pk', form: { objectType: '' } }));
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: { memoryId: string; loc: string } }];
     expect(vars.input.memoryId).toBe('mem-B');
-    // The selector is the node's CURRENT loc — this page never moves a node.
+    // The selector is the node's CURRENT loc — this form never moves a node.
     expect(vars.input.loc).toBe('a');
-    // Post-action redirect URL should point at mem-B too.
-    expect((thrown as { status: number }).status).toBe(303);
-    expect((thrown as { location: string }).location).toBe('/app/memories/mem-B/nodes/pk');
+    // #1031: a successful save RETURNS (the reader is already on the node
+    // page) rather than redirecting there, as the `/edit` page did.
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Saved.' });
   });
 
   /**
@@ -216,17 +152,15 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
-    try {
-      await actions.default(actionEvent({
-        gid: 'mem-B',
-        nodeId: 'pk',
-        // A stale or hand-built POST carrying the retired fields.
-        form: {
-          name: '', loc: 'moved', description: '', content: '', abstract: '',
-          tags: '', seq: '9', edges: '[]', objectType: 'thing', propertiesJson: '{"k":1}',
-        },
-      }));
-    } catch { /* redirect at end */ }
+    await actions.default(actionEvent({
+      gid: 'mem-B',
+      nodeId: 'pk',
+      // A stale or hand-built POST carrying the retired fields.
+      form: {
+        name: '', loc: 'moved', description: '', content: '', abstract: '',
+        tags: '', seq: '9', edges: '[]', objectType: 'thing', propertiesJson: '{"k":1}',
+      },
+    }));
 
     expect(mockRequest).toHaveBeenCalledTimes(2); // refetch + update: no move
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
@@ -249,9 +183,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
       });
       mockRequest.mockResolvedValueOnce({ updateTaskNode: { id: 'pk' } });
       const actions = await importActions();
-      try {
-        await actions.default(actionEvent({ gid: 'mem-B', nodeId: 'pk', form }));
-      } catch { /* redirect */ }
+      await actions.default(actionEvent({ gid: 'mem-B', nodeId: 'pk', form }));
       return (mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }])[1].input;
     }
 
@@ -294,16 +226,14 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
-    try {
-      await actions.default(actionEvent({
-        gid: 'mem-B',
-        nodeId: 'pk',
-        form: {
-          objectType: 'competitor',
-          propertiesJson: '{"name": "Acme", "fundingUsd": 5}',
-        },
-      }));
-    } catch { /* redirect at end */ }
+    await actions.default(actionEvent({
+      gid: 'mem-B',
+      nodeId: 'pk',
+      form: {
+        objectType: 'competitor',
+        propertiesJson: '{"name": "Acme", "fundingUsd": 5}',
+      },
+    }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
     expect(vars.input.objectType).toBe('competitor');
@@ -325,13 +255,11 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
     mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
 
     const actions = await importActions();
-    try {
-      await actions.default(actionEvent({
-        gid: 'mem-B',
-        nodeId: 'pk',
-        form: { objectType: '', propertiesJson: '' },
-      }));
-    } catch { /* redirect at end */ }
+    await actions.default(actionEvent({
+      gid: 'mem-B',
+      nodeId: 'pk',
+      form: { objectType: '', propertiesJson: '' },
+    }));
 
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
     // null (not undefined) — updateNode treats omit as preserve, null as
@@ -399,7 +327,7 @@ describe('edit-node default action — derives memoryId from fetched node (#237)
  * part of that; it is marked, because it had pinned a refusal as if it were the
  * contract.
  */
-describe('edit-node action — the task kind door (#864, server #1201)', () => {
+describe('storage action — the task kind door (#864, server #1201)', () => {
   function nodeRow(over: Record<string, unknown> = {}) {
     return {
       node: {
@@ -416,11 +344,7 @@ describe('edit-node action — the task kind door (#864, server #1201)', () => {
     mockRequest.mockResolvedValueOnce(row);
     mockRequest.mockResolvedValueOnce({ updateNode: { id: 'pk' } });
     const actions = await importActions();
-    try {
-      await actions.default(actionEvent({ gid: 'mem-A', nodeId: 'pk', form }));
-    } catch {
-      /* the action redirects on success */
-    }
+    await actions.default(actionEvent({ gid: 'mem-A', nodeId: 'pk', form }));
     const [doc] = mockRequest.mock.calls[1]! as [string, unknown];
     return doc;
   }
@@ -461,12 +385,10 @@ describe('edit-node action — the task kind door (#864, server #1201)', () => {
     mockRequest.mockResolvedValueOnce(nodeRow());
     mockRequest.mockResolvedValueOnce({ updateTaskNode: { id: 'pk' } });
     const actions = await importActions();
-    try {
-      await actions.default(actionEvent({
-        gid: 'mem-A', nodeId: 'pk',
-        form: { isRunnable: 'true', propertiesJson: '{"exports":{"claudeSkill":{"name":"x","description":"d","enable":true}}}' },
-      }));
-    } catch { /* redirect */ }
+    await actions.default(actionEvent({
+      gid: 'mem-A', nodeId: 'pk',
+      form: { isRunnable: 'true', propertiesJson: '{"exports":{"claudeSkill":{"name":"x","description":"d","enable":true}}}' },
+    }));
     const [, vars] = mockRequest.mock.calls[1]! as [unknown, { input: Record<string, unknown> }];
     expect(vars.input.isRunnable).toBe(true);
     expect(vars.input.properties).toEqual({

@@ -28,6 +28,8 @@ import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extr
 import { t } from '$lib/i18n/t';
 import type { MemoryNode, NodeRevision } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
+import { loadSkillCheck } from '$lib/server/skill-check';
+import { nodeStorageSeed, noWriteDoor, runnableBlockedBy, updateStorage } from './storage-action';
 import { sendChatMessageSchema } from '$lib/forms/chat-message-schema';
 import {
   nodeApproveSchema,
@@ -457,6 +459,14 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     superValidate<NodeVerifyForm>({}, nodeVerifyFormAdapter, { errors: false, id: VERIFY_FORM_ID }),
   ]);
 
+  // #1031: the Properties tab's storage form (once the `/edit` page). The
+  // skill check is the server's lint verdict on the STORED export, per declared
+  // host; it never throws, and costs nothing for a node with no export.
+  const [storageForm, skillCheck] = await Promise.all([
+    nodeStorageSeed(node),
+    loadSkillCheck(gqlClient(locals.token), node),
+  ]);
+
   const wikilinks = await wikilinksPromise;
   const chatMessages = await chatMessagesPromise;
 
@@ -495,6 +505,10 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     convertToTaskForm,
     flowForm,
     edgesForm,
+    storageForm,
+    skillCheck,
+    runnableBlockedBy: runnableBlockedBy(node),
+    noWriteDoor: noWriteDoor(node),
   };
 };
 
@@ -583,6 +597,9 @@ export const actions: Actions = {
   // the user's input (their submission goes to the correct destination)
   // and the post-action navigation re-runs `load`, whose redirect then
   // fixes the URL on screen.
+  // #1031: the Properties tab's storage form — see storage-action.ts.
+  updateStorage,
+
   createParent: async ({ request, params, locals }) => {
     const form = await superValidate<NodeCreateParentForm>(
       await request.formData(),
