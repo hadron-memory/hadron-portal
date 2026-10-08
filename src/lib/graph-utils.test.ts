@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scopeTreeEntriesToSearch } from './graph-utils';
+import { graphNodeHref, scopeTreeEntriesToSearch } from './graph-utils';
 import type { TreeEntry } from './types';
 
 function entry(id: string, name: string, isVirtual = false): TreeEntry {
@@ -59,5 +59,18 @@ describe('scopeTreeEntriesToSearch', () => {
     // Proves the old behaviour: without the server-match set, "payment" finds
     // nothing (the node name/id lack it) — which is why the server locs are needed.
     expect(scopeTreeEntriesToSearch(POOL, null, 'payment')).toEqual([]);
+  });
+});
+
+describe('graphNodeHref (#1017)', () => {
+  const topic = { id: '01node', urn: 'hrn:node:acme.com:docs:guides:setup' };
+
+  it('opens the node page directly on a single-memory graph', () => {
+    expect(graphNodeHref('/app/memories/01mem', topic)).toBe('/app/memories/01mem/nodes/01node');
+  });
+
+  it('falls back to the URN resolver on a multi-memory graph, which passes no basePath', () => {
+    expect(graphNodeHref('', topic)).toBe('/app/u/hrn:node:acme.com:docs:guides:setup');
+    expect(graphNodeHref(undefined, topic)).toBe('/app/u/hrn:node:acme.com:docs:guides:setup');
   });
 });
