@@ -22,6 +22,7 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   Reflect.deleteProperty(document, 'hidden');
   resetNavigationCalls();
   resetNavigationGuards();
@@ -228,5 +229,65 @@ describe('Worker agents tab (#1009)', () => {
   it('a retired worker keeps only the links: nothing to edit, release or retire', async () => {
     const target = await mountStaff([worker({ id: 'w4', name: 'Dee', retiredAt: '2026-09-01T00:00:00.000Z' })]);
     expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open role agent']);
+  });
+
+  // Cody's #1048 QA: the menu CONTENTS were pinned, the DISPATCH was not.
+  function pick(target: HTMLElement, name: string, label: string) {
+    target.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${name}"]`)!.click();
+    flushSync();
+    [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === label)!.click();
+  }
+
+  it('picking Retire submits the retire form for THAT worker, uncancelled', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })]);
+    pick(target, 'Bo', 'Retire');
+    await tick(2);
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    const form = requestSubmit.mock.contexts[0] as HTMLFormElement;
+    expect(form.getAttribute('action')).toBe('?/retireWorker');
+    expect(form.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w2');
+    expect((await submitEnhanced(form)).cancelled).toBe(false);
+  });
+
+  it('picking Release submits the release form for THAT worker, asserting the hold the row showed', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', heldByUserId: 'u9' })]);
+    pick(target, 'Bo', 'Force-release');
+    await tick(2);
+    const form = requestSubmit.mock.contexts[0] as HTMLFormElement;
+    expect(form.getAttribute('action')).toBe('?/releaseWorker');
+    expect(form.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w2');
+    expect(form.querySelector<HTMLInputElement>('input[name="expectedHolderUserId"]')!.value).toBe('u9');
+    expect((await submitEnhanced(form)).cancelled).toBe(false);
+  });
+
+  it('a declined Retire confirm submits nothing', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountStaff([worker({})]);
+    pick(target, 'Ada', 'Retire');
+    await tick(2);
+    expect(requestSubmit).not.toHaveBeenCalled();
+  });
+
+  it('search still matches the URN, now that it lives in the Name cell', async () => {
+    const target = await mountStaff([
+      worker({}),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:zeta-slug' }),
+    ]);
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'zeta-slug';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(3);
+    const names = [...target.querySelectorAll('tbody a[href^="/app/workers/"]')].map((a) => a.textContent?.trim());
+    expect(names).toEqual(['Bo']);
+  });
+
+  it('a retired worker with no memory and no agent gets no ⋯ at all, not an empty menu', async () => {
+    const target = await mountStaff([worker({ id: 'w5', name: 'Eve', retiredAt: '2026-09-01T00:00:00.000Z', memoryId: null, agent: null })]);
+    expect(target.querySelector('button[aria-label="Actions for Eve"]')).toBeNull();
   });
 });

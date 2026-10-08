@@ -2039,14 +2039,19 @@
             {:else if cell.column.id === 'actions'}
               <!-- #1009: one ⋯ menu. Release vs Force-release vs Retire keep
                    their #756/#1050 rules — see workerActions(). -->
-              <NodeActionsMenu
-                actions={workerActions(worker)}
-                onselect={(id) => onWorkerAction(id, worker)}
-                label={`${t('app.staff.actions.label', 'Actions for')} ${worker.name}`}
-                disabled={$releaseWorkerSubmitting || $retireWorkerSubmitting}
-                fixed
-                compact
-              />
+              {@const actions = workerActions(worker)}
+              <!-- A retired worker with no readable memory or agent has nothing
+                   left to offer; an empty ⋯ would open an empty menu. -->
+              {#if actions.length > 0}
+                <NodeActionsMenu
+                  {actions}
+                  onselect={(id) => onWorkerAction(id, worker)}
+                  label={`${t('app.staff.actions.label', 'Actions for')} ${worker.name}`}
+                  disabled={$releaseWorkerSubmitting || $retireWorkerSubmitting}
+                  fixed
+                  compact
+                />
+              {/if}
             {:else}
               <div class="truncate">{cell.getValue() ?? '—'}</div>
             {/if}
