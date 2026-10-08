@@ -165,6 +165,12 @@ describe('Properties tab (#1031)', () => {
 
     expect(target.textContent).toContain('Saved.');
     expect(submittedBag(target)).toEqual({ color: 'green' });
+
+    // Editing again: "Saved." no longer describes what is on screen (Cody on #1035).
+    raw.value = '{"color": ';
+    raw.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    expect(target.textContent).not.toContain('Saved.');
   });
 
   // The same finding's Codex P2 on #971: another form's save re-runs the

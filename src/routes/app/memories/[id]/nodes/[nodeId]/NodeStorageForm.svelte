@@ -86,6 +86,14 @@
 
   const actionError = $derived($message?.type === 'error' ? $message.text : null);
   const actionSuccess = $derived($message?.type === 'success' ? $message.text : null);
+  // "Saved." describes the value that was saved. Once the form is edited again
+  // it would sit beside an unsaved (perhaps invalid) value, so an edit clears it
+  // (Cody on #1035; the same rule as #971's register default). An error stays:
+  // it still describes the last attempt. Listened for on the <form>, because
+  // the inputs live in the nested editors and their events bubble.
+  function clearSavedMessage() {
+    if ($message?.type === 'success') message.set(undefined);
+  }
 
   // #588 (server #725): structured storage. With a memory schema, objectType
   // is a picker over the declared collections; without one it's free text.
@@ -372,7 +380,7 @@
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
   {/if}
 
-  <form method="POST" {action} use:enhance class="space-y-6" novalidate>
+  <form method="POST" {action} use:enhance class="space-y-6" novalidate oninput={clearSavedMessage} onchange={clearSavedMessage}>
     <!-- #878: only what the node page has no other control for. Name, loc,
          description, alias, seq, tags and Runnable are on its Settings tab;
          content, abstract and edges on their own tabs. Both sections start
