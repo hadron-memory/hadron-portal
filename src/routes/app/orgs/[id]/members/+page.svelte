@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -8,6 +8,7 @@
   import SelectUser from '$lib/components/SelectUser.svelte';
   import { type SearchUser, userLabel } from '$lib/users/search-user';
   import Urn from '$lib/components/Urn.svelte';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { OrgMember } from '$lib/types';
@@ -76,7 +77,7 @@
     { accessorFn: memberName, id: 'name', header: t('org-members.column.name', 'Member'), enableHiding: false, size: 280 }, // identity column (name + URN)
     { accessorFn: (m) => m.user.email ?? '', id: 'email', header: t('org-members.column.email', 'Email'), size: 240 },
     { accessorKey: 'role', header: t('org-members.column.role', 'Role'), size: 150 },
-    { id: 'actions', header: t('org-members.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 120 },
+    { id: 'actions', header: t('org-members.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
 
   const ROLES = ['READER', 'CONTRIBUTOR', 'ADMIN', 'OWNER'] as const;
@@ -284,6 +285,40 @@
     removeForm.update((current) => ({ ...current, userId }), { taint: false });
   }
 
+  // #1020: Impersonate and Remove live in the row's ⋯ menu. Rows no longer hold
+  // their own forms; one hidden form per action, below the table, is submitted
+  // for the picked member after the same browser confirm.
+  let impersonateFormEl = $state<HTMLFormElement | null>(null);
+  let removeFormEl = $state<HTMLFormElement | null>(null);
+  function memberActions(m: OrgMember): NodeMenuAction[] {
+    return [
+      ...(canImpersonate(m)
+        ? [{
+            id: 'impersonate',
+            label: t('org-members.impersonate.button', 'Impersonate'),
+            title: t('org-members.impersonate.title', 'View the portal as this member (read-only, for support)'),
+          }]
+        : []),
+      ...(isOwner && m.user.id !== data.currentUserId
+        ? [{ id: 'remove', label: t('org-members.remove', 'Remove'), danger: true }]
+        : []),
+    ];
+  }
+  async function onMemberAction(id: string, m: OrgMember) {
+    if (id === 'impersonate') {
+      if (!confirm(t('org-members.impersonate.confirm', 'View the portal as {name} (read-only)?', { name: memberName(m) }))) return;
+      impersonateForm.update((current) => ({ ...current, userId: m.user.id }), { taint: false });
+      await tick();
+      impersonateFormEl?.requestSubmit();
+    } else if (id === 'remove') {
+      if ($removeSubmitting) return;
+      if (!confirm(`Remove ${memberName(m)} from "${org.name}"?`)) return;
+      setRemoveUser(m.user.id);
+      await tick();
+      removeFormEl?.requestSubmit();
+    }
+  }
+
   // Brief "Copied!" confirmation on the invite-link copy button.
   let inviteCopied = $state(false);
   let copyResetTimer: ReturnType<typeof setTimeout> | undefined;
@@ -369,47 +404,29 @@
             <span class="text-xs text-zinc-500">{m.role}</span>
           {/if}
         {:else if cell.column.id === 'actions'}
-          <div class="flex items-center justify-end gap-2">
-            {#if canImpersonate(m)}
-              <!-- Admin impersonation (read-only support session). Confirm
-                   before starting; the server enforces peer-or-below + scope. -->
-              <form method="POST" action="?/impersonate" use:impersonateEnhance
-                onsubmit={(e) => {
-                  if (!confirm(
-                    t('org-members.impersonate.confirm', 'View the portal as {name} (read-only)?', { name: memberName(m) }),
-                  )) {
-                    e.preventDefault();
-                    return;
-                  }
-                  impersonateForm.update((current) => ({ ...current, userId: m.user.id }), { taint: false });
-                }}>
-                <input type="hidden" name="_kind" value="impersonateMember" />
-                <input type="hidden" name="userId" value={m.user.id} />
-                <button type="submit" class="rounded-lg border border-amber-400 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-950" title={t('org-members.impersonate.title', 'View the portal as this member (read-only, for support)')}>
-                  {t('org-members.impersonate.button', 'Impersonate')}
-                </button>
-              </form>
-            {/if}
-            {#if isOwner && m.user.id !== data.currentUserId}
-              <!-- Keep both handlers: onclick updates before client validation for button activation;
-                   onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
-              <form method="POST" action="?/remove" use:removeEnhance
-                onsubmit={(e) => {
-                  if (!confirm(`Remove ${memberName(m)} from "${org.name}"?`)) {
-                    e.preventDefault();
-                    return;
-                  }
-                  setRemoveUser(m.user.id);
-                }}>
-                <input type="hidden" name="_kind" value="removeOrgMember" />
-                <input type="hidden" name="userId" value={m.user.id} />
-                <button type="submit" disabled={$removeSubmitting} onclick={() => setRemoveUser(m.user.id)} class="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">Remove</button>
-              </form>
-            {/if}
-          </div>
+          {@const actions = memberActions(m)}
+          {#if actions.length > 0}
+            <div class="flex justify-end">
+              <NodeActionsMenu
+                {actions}
+                onselect={(id) => onMemberAction(id, m)}
+                label={`${t('org-members.actions.label', 'Actions for')} ${memberName(m)}`}
+                fixed
+                compact
+              />
+            </div>
+          {/if}
         {/if}
       {/snippet}
     </DataTable>
+    <form bind:this={impersonateFormEl} method="POST" action="?/impersonate" use:impersonateEnhance class="hidden">
+      <input type="hidden" name="_kind" value="impersonateMember" />
+      <input type="hidden" name="userId" value={$impersonateForm.userId} />
+    </form>
+    <form bind:this={removeFormEl} method="POST" action="?/remove" use:removeEnhance class="hidden">
+      <input type="hidden" name="_kind" value="removeOrgMember" />
+      <input type="hidden" name="userId" value={$removeForm.userId} />
+    </form>
   {/if}
 
   <!-- Add existing user -->
