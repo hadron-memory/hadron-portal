@@ -168,3 +168,39 @@ describe('App team chat full view (#980)', () => {
     expect((await submitEnhanced(form)).cancelled).toBe(false);
   });
 });
+
+describe('App memories span every installed agent (#1043)', () => {
+  it('Settings → Accessible Memories lists the role agent’s memory and the team space', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=settings', { appId: 'a1' });
+    const mem = (id: string, name: string) => ({ id, urn: `hrn:mem:acme.com:${id}`, name });
+    const teamAgent = {
+      id: 'ag-team', urn: 'hrn:agent:acme.com:team', name: 'Team', description: null,
+      memoryItems: [{ id: 'i1', role: 'read-write', memory: mem('roles', 'Roles') }],
+    };
+    const engineer = {
+      id: 'ag-eng', urn: 'hrn:agent:acme.com:eng', name: 'Engineer', personaRole: 'engineer',
+      memoryItems: [{ id: 'i2', role: 'read-write', memory: mem('eng', 'Eng Notes') }],
+    };
+    const base = await pageData();
+    const data = {
+      ...base,
+      initialTab: 'settings',
+      app: {
+        ...base.app, agentId: teamAgent.id, agent: teamAgent, agents: [teamAgent, engineer],
+        sharedMemory: mem('space', 'Team space'),
+      },
+    };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const toggle = Array.from(m.target.querySelectorAll('button')).find((b) => b.textContent?.includes('Accessible Memories'))!;
+    expect(toggle.textContent).toContain('(3)');
+    toggle.click();
+    await tick(2);
+    const rows = Array.from(toggle.closest('section')!.querySelectorAll('.divide-y > div')).map((row) => row.textContent ?? '');
+    expect(rows).toHaveLength(3);
+    expect(rows.find((r) => r.includes('Eng Notes'))).toMatch(/read-write[\s\S]*via Engineer/);
+    expect(rows.find((r) => r.includes('Roles'))).toMatch(/read-write[\s\S]*via Team/);
+    expect(rows.find((r) => r.includes('Team space'))).toMatch(/read[\s\S]*via team space/);
+  });
+});

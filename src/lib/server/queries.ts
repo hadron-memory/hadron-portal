@@ -157,7 +157,15 @@ export const APP_FIELDS = /* GraphQL */ `
     # the App's STAFF, which are its Workers (WORKERS_QUERY). personaRole is
     # selected because casting defaults a worker's role to it.
     # Member-readable, unlike the admin-gated Agent.apps.
-    agents { id urn name personaRole }
+    # #1043: memoryItems too, so App-wide memory summaries fold EVERY installed
+    # agent rather than App.agent (the first one). Agent.memoryItems applies
+    # its own per-memory read gate whichever parent it is reached through.
+    agents {
+      id urn name personaRole
+      memoryItems { id role memory { id urn name } }
+    }
+    # #1043: the team space, which no agent's memoryItems lists.
+    sharedMemory { id urn name }
     surfaces
     memberCount
     trainingMode

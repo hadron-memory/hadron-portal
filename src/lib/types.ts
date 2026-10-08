@@ -306,7 +306,13 @@ export interface App {
    * the App's STAFF are its {@link Worker}s (the named castings). Do not read
    * this list as "who works here".
    */
-  agents: Array<{ id: string; urn: string; name: string; personaRole?: string | null }>;
+  agents: Array<{
+    id: string; urn: string; name: string; personaRole?: string | null;
+    /** #1043: each installed Agent's memory grants, for App-wide summaries. */
+    memoryItems?: Array<Pick<AgentMemoryItem, 'id' | 'role'> & { memory: { id: string; urn: string; name: string } }>;
+  }>;
+  /** #965: the App's shared team space; null when unprovisioned or unreadable. */
+  sharedMemory?: { id: string; urn: string; name: string } | null;
   keys: AppKey[];
   createdAt: string;
   updatedAt: string | null;

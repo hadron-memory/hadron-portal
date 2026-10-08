@@ -61,6 +61,7 @@
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { fill, t } from '$lib/i18n/t.js';
+  import { effectiveAppMemories } from './app-memories';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import skillGetStarted from '$lib/assets/skill-get-started.md?raw';
   import skillSearch from '$lib/assets/skill-search.md?raw';
@@ -889,24 +890,19 @@
     app.agent ? [] : availableAgents,
   );
 
-  interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
-  const effectiveMemories = $derived.by(() => {
-    const map = new Map<string, EffectiveMemory>();
-    if (app.agent) {
-      for (const item of app.agent.memoryItems ?? []) {
-        const effective = item.role === 'read-write' ? 'read-write' as const : 'read' as const;
-        map.set(item.memory.id, {
-          id: item.memory.id, urn: item.memory.urn, name: item.memory.name,
-          access: effective, agentName: app.agent.name,
-        });
-      }
-    }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  });
+  // #1043: every installed agent plus the team space, not just App.agent.
+  const effectiveMemories = $derived(effectiveAppMemories(app, t('app.memories.team-space', 'team space')));
   const SYSTEM_MEMORY_URNS = ['hadronmemory.com:core'];
   const userMemories = $derived(effectiveMemories.filter((m) => !SYSTEM_MEMORY_URNS.includes(m.urn)));
   const hasWritableMemory = $derived(effectiveMemories.some((m) => m.access === 'read-write'));
   const writableMemoryIds = $derived(effectiveMemories.filter((m) => m.access === 'read-write').map((m) => m.id));
+  // The chat runs as App.agent, so its upload target stays one THAT agent can
+  // write, not whichever App-wide writable memory sorts first (#1043).
+  const agentChatUploadMemoryId = $derived(
+    app.agent?.memoryItems?.filter((item) => item.role === 'read-write')
+      .map((item) => item.memory)
+      .sort((a, b) => a.name.localeCompare(b.name))[0]?.id,
+  );
 
   const newRawKey = $derived(form && 'rawKey' in form ? form.rawKey : undefined);
 
@@ -1349,7 +1345,7 @@
             agentId={app.agentId}
             appId={app.id}
             configName={effectiveConfigName ?? undefined}
-            uploadMemoryId={writableMemoryIds[0]}
+            uploadMemoryId={agentChatUploadMemoryId}
           />
         </div>
         {#if usableChatConfigs.length > 0}
