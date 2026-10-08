@@ -55,6 +55,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AppKey, TeamChatMessage, Worker } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
+  import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
@@ -342,7 +343,7 @@
   // `surfaces = ['chat']` for chatbot Apps so existing apps kept their chat
   // without behaviour change. The predicate lives in `$lib/app-surfaces` so it
   // is unit-testable independent of the Svelte component lifecycle.
-  type TabId = 'chats' | 'worklog' | 'staff' | 'memory' | 'settings' | 'client';
+  type TabId = AppTabId;
   const hasChatSurface = $derived(hasChatSurfaceFn(app.surfaces));
   // The agent-chat ENTRY renders the agent-chat platform when an Agent is
   // linked, and an empty state otherwise.
@@ -358,8 +359,8 @@
   // Picker selection overlaid on the default (`default`, else first usable).
   let selectedConfigName = $state<string | null>(null);
   // Validate the pick against the (possibly refreshed) usable set: if the
-  // selected config was deleted/disabled — e.g. edited in Settings, then back
-  // to Chat where invalidateAll refetched chatConfigs — fall back to
+  // selected config was deleted/disabled — e.g. edited on the AI Service
+  // Configs tab, then back to Chat where invalidateAll refetched chatConfigs — fall back to
   // default → first rather than sending a name that no longer resolves.
   const effectiveConfigName = $derived(
     selectedConfigName && usableChatConfigs.some((c) => c.name === selectedConfigName)
@@ -381,10 +382,35 @@
   // Read once at init rather than kept in sync: a filter submit is a real
   // navigation that re-runs the loader, while clicking between tabs is UI state
   // and must not push history entries.
+  //
+  // An action result that names a tab wins over the loader's, and is applied
+  // HERE rather than only in an effect (Gemma on #1034). With no JS the server
+  // render never runs effects, and on a full POST that hydrates late,
+  // SvelteKit's afterNavigate `enter` re-sync runs after them and reset the
+  // tab to Chats. Seeding from the result makes the server render, the effects
+  // and the `enter` re-sync agree.
+  function tabForActionResult(result: unknown, current: TabId | null): TabId | null {
+    if (submittedForm<CreateAppKeyForm>(result, 'createKey') || submittedForm<RevokeAppKeyForm>(result, 'revokeKey')) {
+      // The Client tab lists the same keys and shares the revoke action, so a
+      // revoke made THERE stays there.
+      return current === 'client' ? 'client' : 'keys';
+    }
+    if (
+      submittedForm<AddAgentForm>(result, 'addAgent') ||
+      submittedForm<RemoveAppAgentForm>(result, 'removeAgent') ||
+      submittedForm<DeleteAppForm>(result, 'deleteApp')
+    ) {
+      return 'settings';
+    }
+    return null;
+  }
   let activeTab = $state<TabId>(
     // #744: `chats` always exists — the team chat is always offered, even
     // unbootstrapped, because that is how the first message gets posted.
-    untrack(() => (data.initialTab as TabId | null) ?? 'chats'),
+    untrack(() => {
+      const initial = (data.initialTab as TabId | null) ?? null;
+      return tabForActionResult(form, initial) ?? initial ?? 'chats';
+    }),
   );
   const tabs = $derived<{ id: TabId; label: string }[]>([
     // #744: ONE "Chats" tab over every conversation the App has — the team
@@ -416,6 +442,12 @@
     // information too.
     { id: 'worklog', label: t('app.tabs.worklog', 'Worklog') },
     { id: 'memory', label: 'Memory' },
+    // #1007/#1008: App Keys and AI Service Configs were sections at the foot of
+    // Settings, below the App form, its agents and its memories. Each is a list
+    // a reader comes for on its own, so each gets its own tab — and its own
+    // `?tab=` address.
+    { id: 'keys', label: t('app.tabs.keys', 'App Keys') },
+    { id: 'ai-configs', label: t('app.tabs.ai-configs', 'AI Service Configs') },
     { id: 'settings', label: 'Settings' },
     ...(!hasChatSurface ? [{ id: 'client' as TabId, label: 'Client' }] : []),
   ]);
@@ -432,8 +464,14 @@
   // detail page: once per navigation, after the new data is applied, and never
   // on a tab click, which deliberately does not navigate. The full-view flag
   // also follows real navigation, but not a post's page-data refresh.
-  afterNavigate(() => {
-    activeTab = (data.initialTab as TabId | null) ?? 'chats';
+  //
+  // Except the `enter` that follows a fresh page carrying an action result:
+  // that result has already chosen the tab (above, and the routing effects
+  // below), and the action URL has no `?tab=` for the loader to agree with.
+  afterNavigate((nav) => {
+    if (!(nav.type === 'enter' && form)) {
+      activeTab = (data.initialTab as TabId | null) ?? 'chats';
+    }
     chatMaximized = data.initialChatFullView;
   });
 
@@ -490,7 +528,7 @@
   );
 
   // #768 — roving focus for the tab strip. Only the selected tab is in the
-  // sequential tab order, so the strip is ONE stop rather than seven, and
+  // sequential tab order, so the strip is ONE stop rather than one per tab, and
   // arrows move between them.
   //
   // Indexed from the tab RECEIVING the key rather than from `activeTab`: a
@@ -819,15 +857,14 @@
       editMode = true;
     }
   });
+  // Agent and app actions land on Settings; #1007: a generate or revoke lands
+  // on App Keys, so the outcome, above all the one-time raw key, is read next
+  // to the list it changed. This effect covers an ENHANCED submit, where the
+  // result arrives without a navigation; a fresh page is seeded from
+  // `tabForActionResult` where `activeTab` is declared.
   $effect(() => {
-    if (
-      submittedForm<AddAgentForm>(form, 'addAgent') ||
-      submittedForm<RemoveAppAgentForm>(form, 'removeAgent') ||
-      submittedForm<RevokeAppKeyForm>(form, 'revokeKey') ||
-      submittedForm<DeleteAppForm>(form, 'deleteApp')
-    ) {
-      activeTab = 'settings';
-    }
+    const tab = tabForActionResult(form, untrack(() => activeTab));
+    if (tab) activeTab = tab;
   });
   $effect(() => {
     if (submittedForm<UpdateAppAgentToolsForm>(form, 'updateAgentTools')) {
@@ -1226,10 +1263,10 @@
   {/if}
 
   <!-- Tabs — #740: the strip scrolls horizontally instead of overflowing the
-       page. A team App shows seven of these (Team chat · Staff · Worklog ·
-       Memory · Settings · Client · Runs), which is ~570px of tabs; at 375px
-       they ran straight off the right edge and took the panel bodies with
-       them. `shrink-0` + `whitespace-nowrap` on each tab is what makes it
+       page. A team App showed seven of these when this was written (~570px
+       of tabs), and up to ten since Channels and #1007/#1008's App Keys and
+       AI Service Configs; at 375px they ran straight off the right edge and
+       took the panel bodies with them. `shrink-0` + `whitespace-nowrap` on each tab is what makes it
        SCROLL rather than compress — without them flex squeezes every label
        into an unreadable column instead. -->
   <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
@@ -1396,11 +1433,14 @@
                 'This App has a chatbot agent linked, but no AI service configuration with a key resolves for it yet. Add one for this App, its agent, or the organization.',
               )}
             </p>
+            <!-- #1007/#1008: AI providers moved out of Settings to their own
+                 tab, so the button goes there. A new key for the new copy: the
+                 old one's text named Settings. -->
             <button
-              onclick={() => activeTab = 'settings'}
+              onclick={() => activeTab = 'ai-configs'}
               class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
             >
-              {t('app-chat.no-llm.cta', 'Configure AI providers in Settings')}
+              {t('app-chat.no-llm.cta-ai-configs', 'Configure AI Service Configs')}
             </button>
           </div>
         </div>
@@ -2067,6 +2107,106 @@
     </div>
   {/if}
 
+  <!-- ───────────── APP KEYS TAB (#1007) ───────────── -->
+  {#if activeTab === 'keys'}
+    <div id="panel-keys" role="tabpanel" aria-labelledby="tab-keys" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    <div class="space-y-8">
+      <!-- App Keys (the richer download flow lives on the Client tab for non-CHATBOT apps) -->
+      <section class="max-w-2xl">
+        <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">{t('app.keys.heading', 'App Keys')}</h2>
+        <p class="mb-4 text-sm text-zinc-500">
+          App Keys are long-lived server secrets. Store them in your backend environment —
+          never in client-side code.
+        </p>
+
+        <form method="POST" action="?/createKey" use:createKeyEnhance class="mb-5 flex items-start gap-2" novalidate>
+          <input type="hidden" name="_kind" value={$createKeyForm._kind} />
+          <div class="flex-1">
+            <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Label (optional)</label>
+            <input id="label" type="text" name="label" placeholder="e.g. production-backend"
+              bind:value={$createKeyForm.label} class={inputClass} />
+            {#if createKeyActionError}
+              <p role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{createKeyActionError}</p>
+            {/if}
+          </div>
+          <button type="submit" disabled={$createKeySubmitting}
+            class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style="background: #fb8500;">
+            {$createKeySubmitting ? 'Generating...' : '+ Generate Key'}
+          </button>
+        </form>
+
+        {#if appKeys.length === 0}
+          <p class="text-sm text-zinc-400">{t('app.keys.empty', 'No keys yet.')}</p>
+        {:else}
+          <!-- #719 — the shared grid, replacing a hand-rolled <table>.
+               Every row here is an ACTIVE key: the server filters revoked ones
+               out on both load paths (see the note on `appKeys` above), which
+               is why there is no status column and no revoked styling. -->
+          <DataTable
+            table={appKeyTable}
+            listKey="apps:keys"
+            searchPlaceholder={t('app.keys.search.placeholder', 'Search keys...')}
+            searchAriaLabel={t('app.keys.search.aria-label', 'Search app keys')}
+            bind:globalFilter={appKeyFilter}
+            maxHeight="max(200px, calc(100vh - 30rem))"
+          >
+            {#snippet cell(cell, key)}
+              {#if cell.column.id === 'keyPreview'}
+                <span class="font-mono text-xs text-zinc-500">{key.keyPreview}</span>
+              {:else if cell.column.id === 'actions'}
+                <!-- Keep BOTH handlers: onclick updates before client
+                     validation for button activation; onsubmit covers
+                     keyboard/requestSubmit paths and carries the confirm. -->
+                <form method="POST" action="?/revokeKey" use:revokeKeyEnhance
+                    onsubmit={(e) => {
+                      if (!confirm(t('app.keys.revoke.confirm', 'Revoke this key? This cannot be undone.'))) {
+                        e.preventDefault();
+                        setRevokeKey('');
+                        return;
+                      }
+                      setRevokeKey(key.id);
+                    }}
+                    novalidate>
+                    <input type="hidden" name="_kind" value="revokeKey" />
+                    <input type="hidden" name="keyId" value={key.id} />
+                    <button type="submit"
+                      disabled={$revokeKeySubmitting}
+                      onclick={() => setRevokeKey(key.id)}
+                      class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
+                    {t('app.keys.revoke', 'Revoke')}
+                  </button>
+                </form>
+              {:else}
+                {@const f = appKeyFmt[cell.column.id]}
+                <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
+              {/if}
+            {/snippet}
+          </DataTable>
+        {/if}
+      </section>
+    </div>
+    </div>
+  {/if}
+
+  <!-- ───────────── AI SERVICE CONFIGS TAB (#1008) ───────────── -->
+  {#if activeTab === 'ai-configs'}
+    <div id="panel-ai-configs" role="tabpanel" aria-labelledby="tab-ai-configs" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    <div class="space-y-8">
+      <!-- AI providers (registry; consumers resolve a config by name) -->
+      <section class="max-w-2xl">
+        <AiServiceConfigSection
+          ownerType="APP"
+          ownerId={app.id}
+          configs={data.appConfigs ?? []}
+          members={org?.members ?? []}
+          currentUserId={data.currentUserId}
+          configsError={data.configsError}
+        />
+      </section>
+    </div>
+    </div>
+  {/if}
+
   <!-- ───────────── SETTINGS TAB ───────────── -->
   {#if activeTab === 'settings'}
     <div id="panel-settings" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
@@ -2380,92 +2520,6 @@
           {/if}
         </section>
       {/if}
-
-      <!-- AI providers (registry; consumers resolve a config by name) -->
-      <section class="max-w-2xl">
-        <AiServiceConfigSection
-          ownerType="APP"
-          ownerId={app.id}
-          configs={data.appConfigs ?? []}
-          members={org?.members ?? []}
-          currentUserId={data.currentUserId}
-          configsError={data.configsError}
-        />
-      </section>
-
-      <!-- App Keys (always visible in Settings; richer download flow lives on Client tab for non-CHATBOT apps) -->
-      <section class="max-w-2xl">
-        <h2 class="mb-3 text-lg font-semibold text-zinc-900 dark:text-white">App Keys</h2>
-        <p class="mb-4 text-sm text-zinc-500">
-          App Keys are long-lived server secrets. Store them in your backend environment —
-          never in client-side code.
-        </p>
-
-        <form method="POST" action="?/createKey" use:createKeyEnhance class="mb-5 flex items-start gap-2" novalidate>
-          <input type="hidden" name="_kind" value={$createKeyForm._kind} />
-          <div class="flex-1">
-            <label for="label" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Label (optional)</label>
-            <input id="label" type="text" name="label" placeholder="e.g. production-backend"
-              bind:value={$createKeyForm.label} class={inputClass} />
-            {#if createKeyActionError}
-              <p role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{createKeyActionError}</p>
-            {/if}
-          </div>
-          <button type="submit" disabled={$createKeySubmitting}
-            class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" style="background: #fb8500;">
-            {$createKeySubmitting ? 'Generating...' : '+ Generate Key'}
-          </button>
-        </form>
-
-        {#if appKeys.length === 0}
-          <p class="text-sm text-zinc-400">{t('app.keys.empty', 'No keys yet.')}</p>
-        {:else}
-          <!-- #719 — the shared grid, replacing a hand-rolled <table>.
-               Every row here is an ACTIVE key: the server filters revoked ones
-               out on both load paths (see the note on `appKeys` above), which
-               is why there is no status column and no revoked styling. -->
-          <DataTable
-            table={appKeyTable}
-            listKey="apps:keys"
-            searchPlaceholder={t('app.keys.search.placeholder', 'Search keys...')}
-            searchAriaLabel={t('app.keys.search.aria-label', 'Search app keys')}
-            bind:globalFilter={appKeyFilter}
-            maxHeight="max(200px, calc(100vh - 30rem))"
-          >
-            {#snippet cell(cell, key)}
-              {#if cell.column.id === 'keyPreview'}
-                <span class="font-mono text-xs text-zinc-500">{key.keyPreview}</span>
-              {:else if cell.column.id === 'actions'}
-                <!-- Keep BOTH handlers: onclick updates before client
-                     validation for button activation; onsubmit covers
-                     keyboard/requestSubmit paths and carries the confirm. -->
-                <form method="POST" action="?/revokeKey" use:revokeKeyEnhance
-                    onsubmit={(e) => {
-                      if (!confirm(t('app.keys.revoke.confirm', 'Revoke this key? This cannot be undone.'))) {
-                        e.preventDefault();
-                        setRevokeKey('');
-                        return;
-                      }
-                      setRevokeKey(key.id);
-                    }}
-                    novalidate>
-                    <input type="hidden" name="_kind" value="revokeKey" />
-                    <input type="hidden" name="keyId" value={key.id} />
-                    <button type="submit"
-                      disabled={$revokeKeySubmitting}
-                      onclick={() => setRevokeKey(key.id)}
-                      class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
-                    {t('app.keys.revoke', 'Revoke')}
-                  </button>
-                </form>
-              {:else}
-                {@const f = appKeyFmt[cell.column.id]}
-                <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
-              {/if}
-            {/snippet}
-          </DataTable>
-        {/if}
-      </section>
 
       <!-- Danger zone -->
       <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
