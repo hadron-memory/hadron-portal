@@ -14,8 +14,9 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
-  import { findingKindText, isMintReport, mintCheckFailedText, mintSummary, mintUnconfirmedText, type MintReport } from '$lib/node-mint';
+  import { findingKindText, isMintReport, mintCheckFailedText, mintSummary, mintUnconfirmedText, openFeedbackWarning, type MintReport } from '$lib/node-mint';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import OpenFeedbackWarning from './OpenFeedbackWarning.svelte';
   import MintBlockersTable, { type MintBlockerRow } from './MintBlockersTable.svelte';
 
   let {
@@ -148,6 +149,10 @@
           <p data-testid="mint-open-questions" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             {t('memory-actions.mint.open-questions', '{n} open questions are noted in these nodes. They don’t block minting.', { n: shown.report.openQuestionCount })}
           </p>
+        {/if}
+        {@const feedbackWarning = openFeedbackWarning(shown.report)}
+        {#if feedbackWarning}
+          <OpenFeedbackWarning testid="mint-open-feedback" listKey="memories:mint:open-feedback" items={shown.report.openFeedback} text={feedbackWarning} />
         {/if}
         {#if rows.length > 0}
           <div class="mt-2"><MintBlockersTable {rows} /></div>

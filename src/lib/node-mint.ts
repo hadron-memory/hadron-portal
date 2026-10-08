@@ -13,6 +13,7 @@
  */
 import { t } from '$lib/i18n/t';
 import type { ProvenanceResult } from '$lib/node-provenance';
+import type { OpenFeedback } from '$lib/comments';
 
 export interface NodeMintStatus {
   minted: boolean;
@@ -89,6 +90,25 @@ export interface MintReport {
   mintableCount: number;
   blockers: MintFinding[];
   openQuestionCount: number;
+  /**
+   * portal#1014: nodes with open discussion threads (hadron-server#1607). A
+   * WARNING, never a blocker: an open thread never stops a mint
+   * (hrn:node:hadronmemory.com:specs:cor:dmo:110:07).
+   */
+  openFeedback: OpenFeedback[];
+}
+
+/** The warning line for open feedback in a mint report, or null when there is none. */
+export function openFeedbackWarning(r: Pick<MintReport, 'openFeedback'>): string | null {
+  const n = r.openFeedback.length;
+  if (n === 0) return null;
+  // One node can carry several threads, so the singular copy is only for one thread.
+  if (n === 1 && r.openFeedback[0].openThreads > 1) {
+    return t('memory.mint.open-feedback-one-node', '1 node has {k} open discussions. They don’t block minting, but read them before you mint.', { k: r.openFeedback[0].openThreads });
+  }
+  return n === 1
+    ? t('memory.mint.open-feedback-one', '1 node has an open discussion. It doesn’t block minting, but read it before you mint.')
+    : t('memory.mint.open-feedback-many', '{n} nodes have open discussions. They don’t block minting, but read them before you mint.', { n });
 }
 
 /** What blocks minting a node, as a reader should act on it. Keyed by kind. */
@@ -164,7 +184,8 @@ export function isMintReport(v: unknown): v is MintReport {
   if (!v || typeof v !== 'object') return false;
   const r = v as Record<string, unknown>;
   return typeof r.dryRun === 'boolean' && typeof r.minted === 'boolean' && typeof r.mintedCount === 'number'
-    && typeof r.mintableCount === 'number' && typeof r.openQuestionCount === 'number' && Array.isArray(r.blockers);
+    && typeof r.mintableCount === 'number' && typeof r.openQuestionCount === 'number' && Array.isArray(r.blockers)
+    && Array.isArray(r.openFeedback);
 }
 
 /** Copy for a blocked refusal when the fresh list couldn't be fetched either. */

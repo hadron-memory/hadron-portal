@@ -35,11 +35,13 @@ describe('approve-all endpoint (#992)', () => {
 
   it('approves the memory and returns only the counts and placeholders', async () => {
     mockRequest.mockResolvedValue({
-      approveMemoryNodes: { approvedCount: 3, alreadyApprovedCount: 2, skippedPlaceholders: ['p:1'], approved: [{ big: true }] },
+      approveMemoryNodes: { approvedCount: 3, alreadyApprovedCount: 2, skippedPlaceholders: ['p:1'], approved: [{ big: true }], unresolvedFeedback: [{ nodeId: 'n1', urn: 'hrn:node:acme.com:specs:a', loc: 'a', openThreads: 1 }] },
     });
     const res = await POST(ev());
     expect(mockRequest).toHaveBeenCalledWith(APPROVE_MEMORY_NODES_MUTATION, { memoryRef: 'mem-1' });
-    expect(await res.json()).toEqual({ result: { approvedCount: 3, alreadyApprovedCount: 2, skippedPlaceholders: ['p:1'] } });
+    expect(await res.json()).toEqual({
+      result: { approvedCount: 3, alreadyApprovedCount: 2, skippedPlaceholders: ['p:1'], openFeedback: [{ urn: 'hrn:node:acme.com:specs:a', openThreads: 1 }] },
+    });
   });
 
   it.each([
@@ -54,5 +56,12 @@ describe('approve-all endpoint (#992)', () => {
     const { error } = await res.json();
     expect(error).toContain(copy);
     expect(error).not.toContain('server prose');
+  });
+
+  it('portal#1014 (local review on #1025, P2): a null unresolvedFeedback never turns a succeeded approval into failure', async () => {
+    mockRequest.mockResolvedValue({ approveMemoryNodes: { approvedCount: 1, alreadyApprovedCount: 0, skippedPlaceholders: [], unresolvedFeedback: null } });
+    const res = await POST(ev());
+    expect(res.status).toBe(200);
+    expect((await res.json()).result).toMatchObject({ approvedCount: 1, openFeedback: [] });
   });
 });

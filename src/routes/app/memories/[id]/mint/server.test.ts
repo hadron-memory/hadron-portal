@@ -30,6 +30,7 @@ const serverReport = (over: Record<string, unknown> = {}) => ({
   mintMemoryNodes: {
     dryRun: true, minted: false, mintedCount: 0, mintLocs: ['a', 'b'],
     blockers: [], openQuestions: [{ decider: null, questions: [{ loc: 'a' }, { loc: 'b' }] }],
+    unresolvedFeedback: [],
     ...over,
   },
 });
@@ -53,9 +54,17 @@ describe('mint endpoint (#992)', () => {
     mockRequest.mockResolvedValue(serverReport({ blockers: [{ kind: 'LINT', loc: 'a', rule: 'tag-spec', targetLoc: null }] }));
     const { report } = await (await POST(ev({}))).json();
     expect(report).toEqual({
-      dryRun: true, minted: false, mintedCount: 0, mintableCount: 2, openQuestionCount: 2,
+      dryRun: true, minted: false, mintedCount: 0, mintableCount: 2, openQuestionCount: 2, openFeedback: [],
       blockers: [{ kind: 'LINT', loc: 'a', rule: 'tag-spec', targetLoc: null }],
     });
+  });
+
+  it('portal#1014: passes open discussions through as openFeedback', async () => {
+    mockRequest.mockResolvedValue(serverReport({ unresolvedFeedback: [{ urn: 'hrn:node:acme.com:specs:a', openThreads: 3 }] }));
+    const { report } = await (await POST(ev({}))).json();
+    expect(report.openFeedback).toEqual([{ urn: 'hrn:node:acme.com:specs:a', openThreads: 3 }]);
+    // A warning, never a blocker.
+    expect(report.blockers).toEqual([]);
   });
 
   it('a real run mints', async () => {
@@ -106,5 +115,12 @@ describe('mint endpoint (#992)', () => {
     const { error } = await res.json();
     expect(error).toContain(copy);
     expect(error).not.toContain('server prose');
+  });
+
+  it('portal#1014 (local review on #1025, P2): a null unresolvedFeedback is no feedback, never a failed report', async () => {
+    mockRequest.mockResolvedValue(serverReport({ unresolvedFeedback: null }));
+    const res = await POST(ev({}));
+    expect(res.status).toBe(200);
+    expect((await res.json()).report.openFeedback).toEqual([]);
   });
 });

@@ -298,6 +298,12 @@ export function discussionCount(summary: CommentSummary | null | undefined): num
   return (summary?.openThreads ?? 0) + (summary?.resolvedThreads ?? 0);
 }
 
+/** A node with open discussions, as a memory-wide report lists it (`UnresolvedFeedback`, #1607). */
+export interface OpenFeedback {
+  urn: string;
+  openThreads: number;
+}
+
 /** The open-feedback cue, or null when there's none to show. Never a gate. */
 export function openFeedbackCue(summary: CommentSummary | null | undefined): string | null {
   const n = summary?.openThreads ?? 0;

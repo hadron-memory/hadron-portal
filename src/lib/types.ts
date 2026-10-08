@@ -603,6 +603,12 @@ export interface MemoryNode {
   id: string;
   memoryId: string;
   nodeType: string;
+  /**
+   * portal#1014: open discussion threads on this node (hadron-server#1663
+   * `GraphNode.openThreads`). Only the memory layout's node list read selects
+   * it, so absent means "not read here", never zero.
+   */
+  openThreads?: number;
   // #588 (server #725): collection discriminator (which domain object this
   // node is, e.g. "competitor"). Null for an ordinary node; orthogonal to
   // nodeType.

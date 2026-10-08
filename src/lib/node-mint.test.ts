@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bindMintToRevision, findingKindText, mintFailure, mintSummary, mintView, type MintReport, type NodeMintStatus } from './node-mint';
+import { bindMintToRevision, findingKindText, mintFailure, mintSummary, mintView, openFeedbackWarning, type MintReport, type NodeMintStatus } from './node-mint';
 
 const MINTED: NodeMintStatus = { minted: true, mintedAt: '2026-10-02T10:00:00Z', mintedBy: { handle: 'ada', urn: null }, mintedByInfo: null, revision: 3, hash: 'abc' };
 const BACKFILLED: NodeMintStatus = { minted: true, mintedAt: '2026-10-01T00:00:00Z', mintedBy: null, mintedByInfo: 'backfill', revision: null, hash: null };
@@ -32,7 +32,7 @@ describe('mintView', () => {
 });
 
 describe('mint report copy', () => {
-  const report = (over: Partial<MintReport>): MintReport => ({ dryRun: true, minted: false, mintedCount: 0, mintableCount: 0, blockers: [], openQuestionCount: 0, ...over });
+  const report = (over: Partial<MintReport>): MintReport => ({ dryRun: true, minted: false, mintedCount: 0, mintableCount: 0, blockers: [], openQuestionCount: 0, openFeedback: [], ...over });
 
   it('says what a dry run found and what a real run did', () => {
     expect(mintSummary(report({ mintableCount: 4 }))).toBe('4 nodes are ready to mint.');
@@ -59,5 +59,15 @@ describe('mint report copy', () => {
     expect(unknown.text).toContain('may or may not have gone through');
     // A dry run can't mint, so its unknown failure is only a failed check (Codex on #996).
     expect(mintFailure('INTERNAL_SERVER_ERROR', true)).toEqual({ status: 500, text: "Couldn't check this memory. Try again." });
+  });
+});
+
+describe('openFeedbackWarning (portal#1014)', () => {
+  it('is null without open discussions, and counts nodes with them', () => {
+    expect(openFeedbackWarning({ openFeedback: [] })).toBeNull();
+    expect(openFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 1 }] })).toMatch(/^1 node has an open discussion\./);
+    // local review on #1025, P3: one node, several threads, says so.
+    expect(openFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 4 }] })).toMatch(/^1 node has 4 open discussions\./);
+    expect(openFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 1 }, { urn: 'hrn:node:a:b:d', openThreads: 1 }] })).toMatch(/^2 nodes have open discussions/);
   });
 });

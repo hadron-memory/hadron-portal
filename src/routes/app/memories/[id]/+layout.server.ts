@@ -29,6 +29,7 @@ type SlimNode = {
   seq: number | null;
   isRunnable: boolean | null;
   description: string | null;
+  openThreads: number;
 };
 type SlimEdge = { id: string; loc: string; name: string | null; sourceId: string; targetId: string };
 
@@ -141,6 +142,7 @@ function reconstructNodes(
     data: null,
     ownerRepo: null,
     isRunnable: n.isRunnable ?? null,
+    openThreads: n.openThreads,
     createdAt: EPOCH_ISO,
     updatedAt: EPOCH_ISO,
     memory: memRef,

@@ -3,6 +3,7 @@
   // + our Svelte 5 runes adapter. First production consumer of src/lib/table/*.
   // Public API (props) is unchanged so both call sites — MemoryBrowser (browse
   // list) and the node-detail Children tab (orderable) — keep working.
+  import { openFeedbackCue } from '$lib/comments';
   import { onMount, untrack } from 'svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -313,6 +314,21 @@
                           title={relevanceTitle(meta[n.id])}
                           class="shrink-0 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300"
                         >{meta[n.id].scorePct}%</span>
+                      {/if}
+                      {#if (n.openThreads ?? 0) > 0}
+                        <!-- portal#1014: the open-feedback cue in node lists, never a gate
+                             (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). -->
+                        {@const cue = openFeedbackCue({ openThreads: n.openThreads ?? 0, resolvedThreads: 0, comments: 0 })}
+                        {#if href}
+                          <a
+                            href={`${href}${href.includes('?') ? '&' : '?'}tab=discussion`}
+                            data-testid="node-open-feedback"
+                            class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300"
+                          >{cue}</a>
+                        {:else}
+                          <!-- No node link here (local review on #1025, P3): the cue stays, as plain text. -->
+                          <span data-testid="node-open-feedback" class="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{cue}</span>
+                        {/if}
                       {/if}
                       {#if meta?.[n.id]?.abstractStale}
                         <!-- #432: the abstract/preview may not match the node's

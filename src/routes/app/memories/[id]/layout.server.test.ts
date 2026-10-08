@@ -53,11 +53,12 @@ type SlimNode = {
   seq: number | null;
   isRunnable: boolean | null;
   description: string | null;
+  openThreads: number;
 };
 type SlimEdge = { id: string; loc: string; name: string | null; sourceId: string; targetId: string };
 
 function node(id: string, extra: Partial<SlimNode> = {}): SlimNode {
-  return { id, loc: id, name: id.toUpperCase(), nodeType: 'info', tags: [], seq: null, isRunnable: null, description: null, ...extra };
+  return { id, loc: id, name: id.toUpperCase(), nodeType: 'info', tags: [], seq: null, isRunnable: null, description: null, openThreads: 0, ...extra };
 }
 
 function routeMock(opts: {
@@ -122,6 +123,13 @@ describe('memory-detail layout — slim graph fetch (#447)', () => {
     expect(n1.memory?.urn).toBe('org::mem'); // synthesized from the loaded memory
     expect(n1.outgoingEdges).toHaveLength(1);
     expect(n1.outgoingEdges[0].target.id).toBe('n2');
+  });
+
+  it('portal#1014: carries each node\'s openThreads through to graphNodes', async () => {
+    routeMock({ nodePages: [[node('a', { openThreads: 3 }), node('b')]], total: 2 });
+    const load = await importLoad();
+    const data = (await load(ev())) as unknown as { graphNodes: Array<{ id: string; openThreads?: number }> };
+    expect(data.graphNodes.map((n) => [n.id, n.openThreads])).toEqual([['a', 3], ['b', 0]]);
   });
 
   it('drops edges whose endpoint is not in the loaded set (dangling cross-memory)', async () => {

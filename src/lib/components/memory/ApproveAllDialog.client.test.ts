@@ -11,7 +11,7 @@ import ApproveAllDialog from './ApproveAllDialog.svelte';
 
 const A = { id: 'mem-a', urn: 'hrn:mem:acme.com:specs-a' };
 const B = { id: 'mem-b', urn: 'hrn:mem:acme.com:specs-b' };
-const RESULT = { approvedCount: 2, alreadyApprovedCount: 1, skippedPlaceholders: ['cor:x:010'] };
+const RESULT = { approvedCount: 2, alreadyApprovedCount: 1, skippedPlaceholders: ['cor:x:010'], openFeedback: [] as Array<{ urn: string; openThreads: number }> };
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -47,6 +47,32 @@ async function settle() {
 }
 
 describe('ApproveAllDialog (#992)', () => {
+  it('portal#1014: nodes with open discussions are listed with the result, as a warning', async () => {
+    const urn = 'hrn:node:acme.com:specs-a:cor:x:020';
+    fetchMock.mockResolvedValue(ok({ result: { ...RESULT, openFeedback: [{ urn, openThreads: 3 }] } }));
+    const { target } = mountDialog();
+    (q(target, 'approve-all-submit') as HTMLButtonElement).click();
+    await settle();
+    const warning = q(target, 'approve-all-open-feedback')!;
+    expect(warning.textContent).toContain('1 node in this memory has 3 open discussions');
+    expect(warning.querySelector(`a[href*="${urn}"]`)).not.toBeNull();
+  });
+
+  it('portal#1014: before approving, the dialog points at where open discussions show', () => {
+    const { target } = mountDialog();
+    expect(q(target, 'approve-all-feedback-hint')!.textContent).toContain('marked in the node list');
+    expect(q(target, 'approve-all-result')).toBeNull();
+  });
+
+  it('portal#1014: no open discussions, no warning', async () => {
+    fetchMock.mockResolvedValue(ok({ result: RESULT }));
+    const { target } = mountDialog();
+    (q(target, 'approve-all-submit') as HTMLButtonElement).click();
+    await settle();
+    expect(q(target, 'approve-all-result')).not.toBeNull();
+    expect(q(target, 'approve-all-open-feedback')).toBeNull();
+  });
+
   it('posts for its memory and shows the counts, with placeholders as that memory’s node URNs', async () => {
     fetchMock.mockResolvedValue(ok({ result: RESULT }));
     const { target, onapproved } = mountDialog();

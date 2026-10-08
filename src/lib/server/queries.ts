@@ -2469,7 +2469,9 @@ export const GRAPH_NODES_QUERY = /* GraphQL */ `
 export const MEMORY_NODES_QUERY = /* GraphQL */ `
   query MemoryNodes($memoryRef: ID!, $limit: Int, $offset: Int) {
     memoryNodes(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
-      nodes { id loc name nodeType tags seq isRunnable description }
+      # openThreads: portal#1014 (hadron-server#1663), the node list's
+      # open-feedback cue (hrn:node:hadronmemory.com:specs:cor:dmo:110:07); batched server-side.
+      nodes { id loc name nodeType tags seq isRunnable description openThreads }
       total
     }
   }
@@ -2751,6 +2753,10 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
       hits {
         node {
           ...NodeFields
+          # portal#1014 (Jane on #1025): the open-feedback cue must survive a
+          # search or filter replacing the list, so result rows carry the count
+          # too (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). Batched per request server-side.
+          commentSummary { openThreads }
         }
         # #432: per-hit relevance + vector metadata. score is null for an
         # unscored (no-query) filtered list; vector is present only when the
@@ -4202,6 +4208,9 @@ export const APPROVE_MEMORY_NODES_MUTATION = /* GraphQL */ `
       approvedCount
       alreadyApprovedCount
       skippedPlaceholders
+      # portal#1014 (hadron-server#1607): nodes with open discussions, a
+      # warning shown with the result (hrn:node:hadronmemory.com:specs:cor:dmo:110:07).
+      unresolvedFeedback { urn openThreads }
     }
   }
 `;
@@ -4219,6 +4228,9 @@ export const MINT_MEMORY_NODES_MUTATION = /* GraphQL */ `
       mintLocs
       blockers { kind loc rule targetLoc }
       openQuestions { decider questions { loc } }
+      # portal#1014 (hadron-server#1607): nodes with open discussion threads.
+      # Warnings, never blockers (hrn:node:hadronmemory.com:specs:cor:dmo:110:07).
+      unresolvedFeedback { urn openThreads }
     }
   }
 `;
