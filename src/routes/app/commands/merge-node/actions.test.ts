@@ -111,4 +111,27 @@ describe('merge node command action', () => {
     expect(fieldError(result, '_kind')).toBeTruthy();
     expect(mockRequest).not.toHaveBeenCalled();
   });
+
+  // hadron-server#1682 (Jonas on #1026, P3): both codes on this page, each with
+  // its locs from extensions.nodes, and never the server's prose.
+  it.each(['COMMENT_MOVE_UNCOMMENTABLE', 'COMMENT_MERGE_FOLDS_THREADS'])('hadron-server#1682: %s gets 409 and fixed copy naming the node', async (code) => {
+    mockRequest.mockRejectedValueOnce({
+      response: {
+        errors: [{ message: 'server prose', extensions: { code, class: 'private', nodes: [{ nodeId: 'n1', loc: 'specs:a', comments: 1 }] } }],
+      },
+    });
+    const result = await run({
+      _kind: 'mergeNode',
+      source: 'hrn:node:hadronmemory.com::demo::source',
+      target: 'hrn:node:hadronmemory.com::demo::target',
+      deleteSource: 'true',
+    });
+    expect(result).toMatchObject({ status: 409 });
+    const msg = superFormFrom(result)?.message as { type: string; text: string };
+    expect(msg.type).toBe('error');
+    expect(msg.text.startsWith('Nothing was merged')).toBe(true);
+    expect(msg.text).toContain('Nodes with discussions: specs:a.');
+    expect(msg.text).not.toContain('server prose');
+  });
 });
+

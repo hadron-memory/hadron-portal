@@ -4,7 +4,8 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { MERGE_NODES_MUTATION } from '$lib/server/queries';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { commentMergeRefusal } from '$lib/comments';
 import { t } from '$lib/i18n/t';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -95,6 +96,11 @@ export const actions: Actions = {
       };
     } catch (e) {
       const code = extractGqlErrorCode(e);
+      // hadron-server#1682: threads that can't follow the merge get fixed copy.
+      const commentRefusal = commentMergeRefusal(code, extractGqlErrorExtensions(e), 'node');
+      if (commentRefusal) {
+        return message(form, { type: 'error', text: commentRefusal.text }, { status: commentRefusal.status });
+      }
       if (code === 'FORBIDDEN') {
         return message(form, {
           type: 'error',
