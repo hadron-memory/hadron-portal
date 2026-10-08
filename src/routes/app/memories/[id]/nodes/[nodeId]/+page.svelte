@@ -29,6 +29,8 @@
   import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
+  import NodeDiscussion from '$lib/components/NodeDiscussion.svelte';
+  import { COMMENT_NODE_TYPE, discussionCount, isCommentableClass, openFeedbackCue, type CommentSummary, type Discussion } from '$lib/comments';
   import { mintView, type NodeMintStatus } from '$lib/node-mint';
   import { approvalView, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
   import {
@@ -1680,6 +1682,46 @@
     });
   });
   const mintState = $derived(mintResult ? mintView(mintResult, node.revision) : null);
+  // portal#1014: the node's discussion and its open-feedback summary, streamed
+  // and checked the same way. The tab's own writes update the summary too.
+  let discussion = $state<Discussion | null | undefined>(undefined);
+  // Only a new NODE starts the tab empty. A fresh read of the same node (an
+  // invalidation) keeps showing the last discussion until it lands, then the
+  // mounted tab adopts it; blanking it in between would unmount the tab and
+  // lose the reader's drafts (local review on #1024, P2-1). The tab's own
+  // confirmed writes come back through `ondiscussion` (Gene on #1024).
+  let discussionNodeId: string | undefined;
+  $effect(() => {
+    const p = data.discussion;
+    const id = node.id;
+    if (id !== discussionNodeId) {
+      discussionNodeId = id;
+      discussion = undefined;
+    }
+    p.then((res) => {
+      if (data.discussion === p) discussion = res;
+    });
+  });
+  // The tab mounts on first open and then stays mounted (hidden) for this node,
+  // so switching tabs keeps drafts, open editors and loaded pages.
+  let discussionOpened = $state(false);
+  $effect(() => {
+    if (activeTab === 'discussion') discussionOpened = true;
+  });
+  let commentSummary = $state<CommentSummary | null>(null);
+  $effect(() => {
+    const p = data.commentSummary;
+    commentSummary = null;
+    p.then((res) => {
+      if (data.commentSummary === p) commentSummary = res;
+    });
+  });
+  const isComment = $derived(node.nodeType === COMMENT_NODE_TYPE);
+  // A comment is never a target, and private/system memories take none (hrn:node:hadronmemory.com:specs:cor:dmo:110:00, :02).
+  const commentable = $derived(!isComment && isCommentableClass(data.graph?.class));
+  // The trust cue (hrn:node:hadronmemory.com:specs:cor:dmo:110:07): shown, never a gate.
+  const feedbackCue = $derived(commentable ? openFeedbackCue(commentSummary) : null);
+  const commentsEndpoint = $derived(`/app/memories/${encodeURIComponent(node.memoryId)}/nodes/${encodeURIComponent(node.id)}/comments`);
   let revisionProvenance = $state<ProvenanceResult<Map<string, NodeProvenance>> | null>(null);
   $effect(() => {
     const p = data.revisionProvenance;
@@ -1873,7 +1915,7 @@
   // full seq rewrite, so a race could land a stale order.
   let reordering = $state(false);
 
-  type NodeTab = 'chat' | 'content' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'history' | 'settings';
+  type NodeTab = 'chat' | 'content' | 'discussion' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'history' | 'settings';
 
   // A `team-chat` node is readable two ways: as a chat (bubbles, composer) and
   // as an ordinary node. The Chat tab is the same thread the standalone
@@ -1892,7 +1934,10 @@
   // skill export are edited.)
   const availableTabs = $derived<NodeTab[]>([
     ...(isChat ? (['chat'] as NodeTab[]) : []),
-    'content', 'abstract', 'data', 'properties', 'flow',
+    'content',
+    // portal#1014: beside Content, where a reader decides whether to trust it.
+    ...(commentable ? (['discussion'] as NodeTab[]) : []),
+    'abstract', 'data', 'properties', 'flow',
     ...(hasChildren ? (['children'] as NodeTab[]) : []),
     'references', 'history', 'settings',
   ]);
@@ -1948,6 +1993,12 @@
       propertiesSaveSeq++;
       savingProperties = false;
       confirmDelete = false;
+      // portal#1014: the Discussion tab belongs to the node it was opened on.
+      // Derived from the tab just picked, not reset to false: on first mount
+      // this runs after the opened-effect, and a `?tab=discussion` deep link
+      // leaves activeTab unchanged, so a plain reset left the panel unrendered
+      // (Cloe's QA on #1024).
+      discussionOpened = activeTab === 'discussion';
       editingEdges = false;
       isEditing = false;
       reorderMode = false;
@@ -2057,6 +2108,13 @@
         {/if}
       </h1>
       <Urn value={fullUrn} type="node" />
+      {#if isComment}
+        <!-- portal#1014: a comment is feedback, never approved or minted (hrn:node:hadronmemory.com:specs:cor:dmo:110:06),
+             so its page offers no approval row at all. -->
+        <p data-testid="comment-node-note" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          {t('comments.node-note', 'This node is a comment in a discussion. Comments are never approved or minted.')}
+        </p>
+      {:else}
       <!-- #992: approval of the revision on screen, with Approve / Verify. -->
       <div data-testid="node-approval" class="mt-1 flex flex-wrap items-center gap-2">
         {#if approvalState}
@@ -2082,7 +2140,16 @@
         {:else}
           <span class="text-xs text-zinc-400" aria-busy="true">{t('node.approval.loading', 'Loading approval status…')}</span>
         {/if}
+        {#if feedbackCue}
+          <button
+            type="button"
+            data-testid="open-feedback-cue"
+            class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300"
+            onclick={() => (activeTab = 'discussion')}
+          >{feedbackCue}</button>
+        {/if}
       </div>
+      {/if}
       {#if approveActionError || verifyActionError}
         <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{approveActionError ?? verifyActionError}</p>
       {:else if approveActionSuccess || verifyActionSuccess}
@@ -2508,6 +2575,19 @@
       >Content
         {#if !hasContent}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
+      {#if commentable}
+        <button
+          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'discussion' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+          onclick={() => activeTab = 'discussion'}
+        >{t('comments.tab', 'Discussion')}
+          <!-- Uma (#6998): the badge counts every discussion; amber while any is open. -->
+          {#if discussionCount(commentSummary) > 0}
+            <span class="ml-1 rounded-full px-1.5 text-xs {(commentSummary?.openThreads ?? 0) > 0
+              ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+              : 'bg-zinc-200 dark:bg-zinc-800'}">{discussionCount(commentSummary)}</span>
+          {/if}
+        </button>
+      {/if}
       <!-- Always shown — an empty abstract still needs an authoring surface
            (a vector-index source where the memory says so, #936), same rationale as Content (#256). -->
       <button
@@ -2582,6 +2662,26 @@
           onLoadOlder={loadOlderChat}
           heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
         />
+      </div>
+    {/if}
+
+    <!-- ═══ DISCUSSION TAB (portal#1014) ═══ -->
+    {#if commentable && discussionOpened}
+      <div hidden={activeTab !== 'discussion'} data-testid="discussion-panel">
+      {#if discussion === undefined}
+        <p class="text-sm text-zinc-400" aria-busy="true">{t('comments.loading', 'Loading the discussion…')}</p>
+      {:else if discussion}
+        {#key node.id}
+          <NodeDiscussion
+            endpoint={commentsEndpoint}
+            shownRevision={node.revision ?? null}
+            initial={discussion}
+            summary={commentSummary}
+            onsummary={(s) => (commentSummary = s)}
+            ondiscussion={(d) => (discussion = d)}
+          />
+        {/key}
+      {/if}
       </div>
     {/if}
 

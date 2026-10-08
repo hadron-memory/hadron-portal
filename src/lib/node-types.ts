@@ -30,7 +30,12 @@ export function isCanonicalNodeType(value: string): value is NodeType {
  * two lists answer different questions — a type can be hidden without being
  * offerable, and `chat-message` is exactly that today.
  */
-export const HIDDEN_NODE_TYPES: ReadonlySet<string> = new Set(['record', 'system']);
+//
+// portal#1014: `comment` joins it. A comment is feedback beside its target, not
+// content (hrn:node:hadronmemory.com:specs:cor:dmo:110:08), and it lives in the target's memory at
+// `comments:<id>`, so without this every discussion would also appear as nodes
+// in the browser, tree and graph. It's reached from its target's Discussion tab.
+export const HIDDEN_NODE_TYPES: ReadonlySet<string> = new Set(['record', 'system', 'comment']);
 
 /**
  * Is this node hidden by default in the memory browser?

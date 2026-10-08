@@ -22,6 +22,8 @@ import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePr
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
+import { loadCommentSummary, loadDiscussion } from '$lib/server/comments';
+import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
 import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
@@ -341,6 +343,19 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const mint: Promise<ProvenanceResult<NodeMintStatus>> = governanceRead.then((read) =>
     read === undefined ? { ok: false } : bindMintToRevision(read, node.revision),
   );
+  // portal#1014: the node's discussion (hadron-server#1606), streamed like the
+  // reads above. The summary is its own read: the header's open-feedback cue
+  // (hrn:node:hadronmemory.com:specs:cor:dmo:110:07) must not wait on, or fail with, the threads.
+  // A comment is never a target (hrn:node:hadronmemory.com:specs:cor:dmo:110:00), so its own page reads none.
+  const isComment = node.nodeType === COMMENT_NODE_TYPE;
+  const discussion: Promise<Discussion | null> = isComment
+    ? Promise.resolve(null)
+    : loadDiscussion(gqlClient(locals.token), node.id, {
+        userId: locals.user?.id,
+        memoryUrn: node.memory?.urn,
+        impersonating: locals.impersonation != null,
+      });
+  const commentSummary: Promise<CommentSummary | null> = isComment ? Promise.resolve(null) : loadCommentSummary(gqlClient(locals.token), node.id);
   const revisionProvenance = (async (): Promise<ProvenanceResult<NodeProvenance[]>> => {
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeProvenance[] }>(
@@ -494,6 +509,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     revisionProvenance,
     approval,
     mint,
+    discussion,
+    commentSummary,
     approveForm,
     verifyForm,
     moveForm,
@@ -1133,6 +1150,12 @@ export const actions: Actions = {
       // server's message verbatim on the `target` field (it names the offending
       // memory/node), the same way NODE_ALREADY_EXISTS already did.
       const code = extractGqlErrorCode(e);
+      // portal#1014: a node with live discussions can't move into a memory
+      // that takes no comments (hrn:node:hadronmemory.com:specs:cor:dmo:110:02). Fixed copy names
+      // the remedy, which is a memory admin's thread delete, not a retry.
+      if (code === 'COMMENT_MOVE_UNCOMMENTABLE') {
+        return setError(form, 'target', commentMoveRefusedText(), { status: 409 });
+      }
       const error = extractGqlError(e, 'Failed to move node');
       const fieldStatus =
         code === 'NODE_ALREADY_EXISTS' ? 409

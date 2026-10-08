@@ -173,6 +173,21 @@ describe('move action (#503 / #489)', () => {
     expect(superFormFrom(result)?.errors?.target?.[0]).toMatch(/encrypted memory/);
   });
 
+  it('portal#1014: a move refused because discussions cannot follow gets fixed copy on the field, not the server prose', async () => {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === NODE_BY_ID_QUERY) return { node };
+      if (query === MOVE_NODE_MUTATION) {
+        throw { response: { errors: [{ message: 'server prose', extensions: { code: 'COMMENT_MOVE_UNCOMMENTABLE' } }] } };
+      }
+      throw new Error('unexpected query');
+    });
+    const result = (await runMove('other.com::mem::flows:x')) as { status: number };
+    expect(result.status).toBe(409);
+    const msg = superFormFrom(result)?.errors?.target?.[0];
+    expect(msg).toMatch(/has discussions/);
+    expect(msg).not.toMatch(/server prose/);
+  });
+
   it('surfaces a concurrent-write CONFLICT as a 409 field error', async () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === NODE_BY_ID_QUERY) return { node };

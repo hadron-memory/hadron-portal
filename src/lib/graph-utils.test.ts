@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { graphNodeHref, scopeTreeEntriesToSearch } from './graph-utils';
+import { graphNodeHref, scopeTreeEntriesToSearch, withoutHiddenTreeEntries } from './graph-utils';
+import { isHiddenNodeType } from './node-types';
 import type { TreeEntry } from './types';
 
 function entry(id: string, name: string, isVirtual = false): TreeEntry {
@@ -59,6 +60,25 @@ describe('scopeTreeEntriesToSearch', () => {
     // Proves the old behaviour: without the server-match set, "payment" finds
     // nothing (the node name/id lack it) — which is why the server locs are needed.
     expect(scopeTreeEntriesToSearch(POOL, null, 'payment')).toEqual([]);
+  });
+});
+
+describe('withoutHiddenTreeEntries', () => {
+  const typed = (id: string, nodeType: string): TreeEntry => ({ ...entry(id, id), nodeType });
+
+  it('portal#1014: a folder holding only comments is dropped, not shown empty', () => {
+    const entries = [entry('comments', 'comments', true), typed('comments:c1', 'comment'), typed('comments:c2', 'comment'), typed('spec', 'info')];
+    expect(withoutHiddenTreeEntries(entries, isHiddenNodeType).map((e) => e.id)).toEqual(['spec']);
+  });
+
+  it('keeps a virtual folder while something visible sits under it, at any depth', () => {
+    const entries = [entry('a', 'a', true), entry('a:b', 'b', true), typed('a:b:c', 'info'), typed('a:b:r', 'record')];
+    expect(withoutHiddenTreeEntries(entries, isHiddenNodeType).map((e) => e.id)).toEqual(['a', 'a:b', 'a:b:c']);
+  });
+
+  it('a REAL node of a visible type stays even when everything under it is hidden', () => {
+    const entries = [typed('spec', 'info'), typed('spec:x', 'comment')];
+    expect(withoutHiddenTreeEntries(entries, isHiddenNodeType).map((e) => e.id)).toEqual(['spec']);
   });
 });
 

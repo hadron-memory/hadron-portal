@@ -2,7 +2,7 @@
   import { tick } from "svelte";
   import { page } from "$app/stores";
   import type { TreeEntry } from "$lib/types";
-  import { scopeTreeEntriesToSearch } from "$lib/graph-utils";
+  import { scopeTreeEntriesToSearch, withoutHiddenTreeEntries } from "$lib/graph-utils";
   import { isHiddenNodeType } from "$lib/node-types";
   import { graphState } from "./GraphState.svelte.js";
 
@@ -45,13 +45,11 @@
   // (searchResultNodeIds) that the tree scopes to — so a tag/body-only hit
   // surfaces here, not just in the table. See scopeTreeEntriesToSearch.
   //
-  // A VIRTUAL entry is never hidden: it is a synthesized folder, not a node
-  // with a type, so `nodeType` on it is not a claim about anything. Dropping
-  // one would orphan its visible children.
+  // A VIRTUAL entry is a synthesized folder, not a node with a type: it stays
+  // while something visible sits under it (portal#1014: and only then, so a
+  // folder of hidden comments doesn't show up empty).
   let filteredEntries = $derived.by(() => {
-    const pool = showHidden
-      ? entries
-      : entries.filter((e) => !isHiddenNodeType(e.nodeType) || e.isVirtual);
+    const pool = showHidden ? entries : withoutHiddenTreeEntries(entries, isHiddenNodeType);
     return scopeTreeEntriesToSearch(pool, searchResultNodeIds, search);
   });
 

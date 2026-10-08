@@ -173,6 +173,24 @@ export function buildGraphViewData(nodes: MemoryNode[], memoryUrn?: string): Gra
 }
 
 /**
+ * The tree without its hidden-type nodes. A VIRTUAL entry (a synthesized
+ * folder) has no type of its own, so it stays exactly when something visible
+ * still sits under it: dropping it then would orphan its children, and keeping
+ * it otherwise shows an empty folder. portal#1014 is why the second half
+ * matters: every comment lives at `comments:<id>`, so a memory with discussions
+ * would otherwise show an empty `comments` folder.
+ */
+export function withoutHiddenTreeEntries(entries: TreeEntry[], isHidden: (nodeType: string | null | undefined) => boolean): TreeEntry[] {
+  const visibleReal = entries.filter((e) => !e.isVirtual && !isHidden(e.nodeType));
+  const keepVirtual = new Set<string>();
+  for (const e of visibleReal) {
+    const parts = e.id.split(':');
+    for (let i = 1; i < parts.length; i++) keepVirtual.add(parts.slice(0, i).join(':'));
+  }
+  return entries.filter((e) => (e.isVirtual ? keepVirtual.has(e.id) : !isHidden(e.nodeType)));
+}
+
+/**
  * #531: pick the visible tree entries for the active search. When the server-
  * backed content search publishes the set of matched node PKs
  * (`searchResultNodeIds` — name + tags + description + body), scope the tree to
