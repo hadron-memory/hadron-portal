@@ -10,6 +10,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import Page from './+page.svelte';
+import { rowMenuItems } from '$lib/test/rowMenu';
 import {
   addAttendanceSchema,
   createChannelSchema,
@@ -146,7 +147,7 @@ describe('Channels page', () => {
 
   it('Delete → confirm actually submits: the form’s own ref is set, not just a hidden input (Chip, #2186)', async () => {
     const { target } = await mountPage([channel(), channel({ id: 'ch-x', name: 'Other', loc: 'chats:x', chatRootUrn: 'hrn:node:acme.com:team-shared:chats:x' })]);
-    const del = [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Delete');
+    const del = rowMenuItems(target, 'Delete');
     del[1].click();
     await tick(3);
     const confirm = target.querySelector<HTMLFormElement>('form[action="?/deleteChannel"]')!;
@@ -156,7 +157,7 @@ describe('Channels page', () => {
 
   it('the delete confirmation does not claim the address stays reserved: the server allows reusing it (#985)', async () => {
     const { target } = await mountPage([channel(), channel({ id: 'ch-x', name: 'Other', loc: 'chats:x', chatRootUrn: 'hrn:node:acme.com:team-shared:chats:x' })]);
-    [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Delete')[1].click();
+    rowMenuItems(target, 'Delete')[1].click();
     await tick(3);
     const text = target.querySelector('form[action="?/deleteChannel"]')!.textContent!;
     expect(text).toContain('The messages won’t come back');
@@ -170,7 +171,7 @@ describe('Channels page', () => {
       attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
     }];
     const { target } = await mountPage([channel()], { appRows });
-    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Remove')!.click();
+    rowMenuItems(target, 'Remove')[0]!.click();
     await tick(3);
     const confirm = target.querySelector<HTMLFormElement>('form[action="?/removeAttendance"]')!;
     expect((await submitEnhanced(confirm)).cancelled).toBe(false);
@@ -481,7 +482,7 @@ describe('Channels page', () => {
       {},
       { form: failed },
     );
-    const renames = [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Rename');
+    const renames = rowMenuItems(target, 'Rename');
     renames[1].click();
     await tick(3);
     expect(target.textContent).not.toContain('That name is refused for Team chat.');
@@ -527,7 +528,7 @@ describe('Channels page', () => {
       attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
     });
     const { target } = await mountPage([channel()], { appRows: [row('re-1'), row('re-2')] }, { form: failed });
-    const edits = [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Edit');
+    const edits = rowMenuItems(target, 'Edit');
     edits[1].click();
     await tick(3);
     expect(target.textContent).not.toContain('Refused for row one.');
@@ -541,7 +542,7 @@ describe('Channels page', () => {
       {},
       { form: failed },
     );
-    [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Delete')[1].click();
+    rowMenuItems(target, 'Delete')[1].click();
     await tick(3);
     expect(target.textContent).not.toContain('Refused for the team chat.');
   });
@@ -555,7 +556,7 @@ describe('Channels page', () => {
       attendeeUrn: null, role: 'BOTH', mentionOnly: false, installDefault: false, description: null, createdAt: '',
     });
     const { target } = await mountPage([channel()], { appRows: [row('re-1'), row('re-2')] }, { form: failed });
-    [...target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Remove')[1].click();
+    rowMenuItems(target, 'Remove')[1].click();
     await tick(3);
     expect(target.textContent).not.toContain('Refused for row one.');
   });
@@ -589,7 +590,7 @@ describe('Channels page', () => {
     const link = [...member.target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.includes('Managed by the organization'));
     expect(link?.getAttribute('href')).toBe('/app/orgs/org-1/channels');
     // Never offered for editing here, member or not.
-    expect([...member.target.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Edit')).toHaveLength(0);
+    expect(rowMenuItems(member.target, 'Edit')).toHaveLength(0);
 
     const outsider = await mountPage([channel()], { orgRows: [orgRow], navOrgs: [] });
     expect(outsider.target.textContent).not.toContain('Managed by the organization');

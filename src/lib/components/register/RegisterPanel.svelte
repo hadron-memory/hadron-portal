@@ -13,6 +13,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
@@ -316,10 +317,18 @@
               <button type="button" onclick={() => (confirmingRemove = null)} class="rounded-md px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.cancel', 'Cancel')}</button>
             </form>
           {:else}
-            <div class="flex gap-1">
-              <button type="button" onclick={() => startEdit(row.entry)} class="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.register.edit', 'Edit')}</button>
-              <button type="button" onclick={() => startRemove(row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.register.remove', 'Remove')}</button>
-            </div>
+            <!-- #1020: Edit and Remove live in the row's ⋯ menu; each still
+                 opens its inline editor or confirm in place. -->
+            <NodeActionsMenu
+              actions={[
+                { id: 'edit', label: t('app.channels.register.edit', 'Edit') },
+                { id: 'remove', label: t('app.channels.register.remove', 'Remove'), danger: true },
+              ]}
+              onselect={(id) => (id === 'edit' ? startEdit(row.entry) : startRemove(row.id))}
+              label={t('app.channels.register.actions.label', 'Actions for {attendee} on {channel}', { attendee: row.attendee, channel: row.channel })}
+              fixed
+              compact
+            />
           {/if}
         {:else if cell.column.id === 'channel' && row.entry.channel?.chatRootUrn}
           <div class="min-w-0">

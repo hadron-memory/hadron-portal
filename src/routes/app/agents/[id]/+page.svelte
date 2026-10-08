@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
@@ -437,6 +438,16 @@
     removeMemoryForm.update((current) => ({ ...current, memoryId }), { taint: false });
   }
 
+  // #1020: Remove lives in the memory row's ⋯ menu; one hidden form below the
+  // table is submitted for the picked memory. No confirm, as before.
+  let removeMemoryFormEl = $state<HTMLFormElement | null>(null);
+  async function removeMemory(memoryId: string) {
+    if ($removeMemorySubmitting) return;
+    setRemoveMemory(memoryId);
+    await tick();
+    removeMemoryFormEl?.requestSubmit();
+  }
+
   // Label for the agent's own visibility (PERSONAL/ORGANIZATION/PUBLIC).
   // The old "mixed visibility" warnings (agent vs more-restrictive memory) were
   // removed with #610: the Agent-PUBLIC congruence invariant (hrn:node:hadronmemory.com:specs:cor:acl:080:03) is
@@ -528,7 +539,7 @@
     { accessorKey: 'urn', header: 'URN', size: 340 },
     { accessorKey: 'role', id: 'access', header: 'Access', size: 150 },
     // Removing the only Remove affordance via the column menu is a trap.
-    { id: 'actions', header: 'Actions', enableSorting: false, enableHiding: false, size: 100 },
+    { id: 'actions', header: 'Actions', enableSorting: false, enableHiding: false, size: 80 },
   ];
 
   // ── Bundled agents grid (#713) ────────────────────────────────────────
@@ -843,16 +854,21 @@
                   </select>
                 </form>
               {:else if cell.column.id === 'actions'}
-                <!-- Keep both handlers: onclick updates before client validation for button activation;
-                     onsubmit covers keyboard/requestSubmit paths. -->
-                <form method="POST" action="?/removeMemory" use:removeMemoryEnhance onsubmit={() => setRemoveMemory(m.memoryId)}>
-                  <input type="hidden" name="_kind" value="removeMemory" />
-                  <input type="hidden" name="memoryId" value={m.memoryId} />
-                  <button type="submit" disabled={$removeMemorySubmitting} onclick={() => setRemoveMemory(m.memoryId)} class="text-xs text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Remove</button>
-                </form>
+                <NodeActionsMenu
+                  actions={[{ id: 'remove', label: 'Remove', danger: true }]}
+                  onselect={() => removeMemory(m.memoryId)}
+                  label={`Actions for ${m.name}`}
+                  disabled={$removeMemorySubmitting}
+                  fixed
+                  compact
+                />
               {/if}
             {/snippet}
           </DataTable>
+          <form bind:this={removeMemoryFormEl} method="POST" action="?/removeMemory" use:removeMemoryEnhance class="hidden">
+            <input type="hidden" name="_kind" value="removeMemory" />
+            <input type="hidden" name="memoryId" value={$removeMemoryForm.memoryId} />
+          </form>
         </div>
       {:else}
         <p class="mb-4 text-sm text-zinc-500">No memories in this agent.</p>

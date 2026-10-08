@@ -8,6 +8,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
   import RegisterPanel from '$lib/components/register/RegisterPanel.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -362,10 +363,18 @@
               </div>
             </form>
           {:else}
-            <div class="flex gap-1">
-              <button type="button" onclick={() => startRename(row.channel)} class="rounded-md px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.channels.rename', 'Rename')}</button>
-              <button type="button" onclick={() => startDelete(row.id)} class="rounded-md px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">{t('app.channels.delete', 'Delete')}</button>
-            </div>
+            <!-- #1020: Rename and Delete live in the row's ⋯ menu; each still
+                 opens its inline form in place. -->
+            <NodeActionsMenu
+              actions={[
+                { id: 'rename', label: t('app.channels.rename', 'Rename') },
+                { id: 'delete', label: t('app.channels.delete', 'Delete'), danger: true },
+              ]}
+              onselect={(id) => (id === 'rename' ? startRename(row.channel) : startDelete(row.id))}
+              label={t('app.channels.actions.label', 'Actions for {channel}', { channel: row.name })}
+              fixed
+              compact
+            />
           {/if}
         {:else}
           <div class="truncate">{cell.getValue()}</div>
