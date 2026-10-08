@@ -67,6 +67,7 @@
   import { fillViewport } from '$lib/fill-viewport';
   import type { NodeEdge, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
+  import NodeStorageForm from './NodeStorageForm.svelte';
   import {
     isFullyQualifiedNodeUrnInput,
     nodeApproveSchema,
@@ -1928,8 +1929,9 @@
   // surface; Data follows the same always-on rationale so there's a portal
   // path to add structured data to a node that has none. Flow (#478) is
   // always-on for the same reason: turning a plain node into a flow node
-  // needs a surface. Properties (#518) is read-only but always-on for
-  // discoverability, same as Data.)
+  // needs a surface. Properties (#518) is always-on for discoverability, same
+  // as Data, and since #1031 it is where the object type, typed properties and
+  // skill export are edited.)
   const availableTabs = $derived<NodeTab[]>([
     ...(isChat ? (['chat'] as NodeTab[]) : []),
     'content',
@@ -2602,8 +2604,9 @@
       >Data
         {#if !hasData}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
-      <!-- #518: Node.properties (read-only) — structured key-value metadata,
-           often server-set provenance. Always shown for discoverability. -->
+      <!-- #518: Node.properties — structured key-value metadata, often
+           server-set provenance. Always shown for discoverability, and since
+           #1031 its editor lives on the tab itself. -->
       <button
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'properties' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'properties'}
@@ -2950,7 +2953,7 @@
       {/if}
     {/if}
 
-    <!-- ═══ PROPERTIES TAB (#518, typed table #588) — read-only structured metadata ═══ -->
+    <!-- ═══ PROPERTIES TAB (#518, typed table #588, storage form #1031) ═══ -->
     {#if activeTab === 'properties'}
       <div class="flex items-center justify-between">
         <div
@@ -3085,34 +3088,41 @@
           </p>
         {:else if hasProperties}
           <pre class="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-xs text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 overflow-x-auto">{#each highlightedProperties as tok}<span class={jsonTokenClass[tok.type]}>{tok.text}</span>{/each}</pre>
-        {:else}
-          <!-- Gated on the FACT (no properties), not on the typed table being
-               empty: an empty TYPED node still renders the schema's rows, and
-               gating on those hid the way in (@copilot on #893). -->
+        {:else if typedPropertyRows.length === 0}
+          <!-- #1031: the "Add properties" button that sat here is gone. The way
+               in is the storage form directly below, and the Source view. An
+               empty TYPED node renders the schema's rows above instead, so the
+               note is only for a node with neither (@copilot on #893). -->
           <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
-            {#if typedPropertyRows.length === 0}
-              <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
-            {/if}
-            <button
-              type="button"
-              onclick={() => (showPropertiesSource = true)}
-              class="{typedPropertyRows.length === 0 ? 'mt-3 ' : ''}rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
-            >{t('node.properties.empty-cta', 'Add properties')}</button>
+            <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.properties.empty', 'No properties. Node.properties holds structured key-value metadata (often server-set, e.g. source URL or title).')}</p>
           </div>
         {/if}
-        <!-- #588: the edit page holds the typed-field editor, the object type
-             and the skill-export checkbox; raw JSON is the Source view above
-             (#886). #878: a button labelled "Edit" rather than a link.
-             It stays an <a> because it navigates; the label names the action
-             and the tab it sits on names the object. -->
-        <div class="mt-3">
-          <a
-            href="{basePath}/nodes/{node.id}/edit"
-            class="inline-block rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >{t('node.properties.edit', 'Edit')}</a>
-        </div>
       {/if}
     {/if}
+    <!-- #1031: the storage form (object type, typed properties, skill export),
+         which was the separate `/edit` page behind an "Edit" button here.
+         Shown under the Rendered view; the Source view is the other editor of
+         the same bag, so the two are never on screen together.
+
+         Mounted for as long as the page is, and HIDDEN rather than unmounted
+         when another tab or the Source view is showing, so an unsaved edit
+         survives a look at another tab. Unmounting would discard it without a
+         word, the defect #1024 had to fix for comment drafts.
+
+         The action carries `tab=properties` so a submit that navigates fully
+         (no JS yet) reopens this tab rather than the node's default one. -->
+    <div class="mt-6" hidden={activeTab !== 'properties' || showPropertiesSource}>
+      <NodeStorageForm
+        {node}
+        memorySchema={data.graph.schema}
+        seed={data.storageForm}
+        actionData={form}
+        action="?tab=properties&/updateStorage"
+        skillCheck={data.skillCheck}
+        runnableBlockedBy={data.runnableBlockedBy}
+        noWriteDoor={data.noWriteDoor}
+      />
+    </div>
 
     <!-- ═══ FLOW TAB (#478) ═══ -->
     {#if activeTab === 'flow'}

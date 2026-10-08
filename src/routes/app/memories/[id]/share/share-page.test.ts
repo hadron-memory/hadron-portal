@@ -49,7 +49,9 @@ const ADD_FORM = '?/createShare';
 // The revoke FORM only exists after the confirm click, so SSR sees the button.
 // The form's contents are asserted in the client lane, where it can be opened —
 // see share-page.client.test.ts.
-const REVOKE_BUTTON = 'Remove access';
+// #1020: the revoke control is the row's ⋯ menu trigger; its "Remove access"
+// item only renders once the client opens it, so SSR sees the trigger.
+const REVOKE_BUTTON = 'aria-label="Actions for';
 
 const share = (over: Record<string, unknown> = {}) => ({
   role: 'reader',
@@ -216,8 +218,8 @@ describe('#668 Sharing tab — the rows', () => {
   });
 
   it('offers a revoke control per row, and no revoke FORM until it is confirmed', async () => {
-    // Revoking is destructive and takes a second click, so at rest there is a
-    // button and no form at all. What the opened form contains — crucially a
+    // Revoking is destructive and takes extra clicks, so at rest there is a
+    // menu trigger and no form at all. What the opened form contains — crucially a
     // non-empty granteeRef — is asserted in the client lane, which can click.
     const html = await renderShare({
       shares: [share(), share({ grantee: { id: 'u-3', urn: null, handle: 'bob', name: 'Bob', email: null, avatarUrl: null } })],

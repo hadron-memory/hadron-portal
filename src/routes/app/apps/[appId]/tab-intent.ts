@@ -10,16 +10,25 @@
 import { AGENT_CHAT_KEY, TEAM_CHAT_LOC } from '$lib/app-chats';
 import { lookupOwn } from '$lib/lookup';
 
-/** The App page's tab ids, for validating `?tab=`. Kept in sync with the
- *  `TabId` union in +page.svelte; an unknown value falls back to the default. */
-export const APP_TAB_IDS: readonly string[] = [
+/** The App page's tab ids, for validating `?tab=`. The page's `TabId` is
+ *  derived from this list, so a tab added here is addressable and one added
+ *  only in the page fails to type-check; an unknown value falls back to the
+ *  default.
+ *
+ *  #1007/#1008: `keys` and `ai-configs` were sections of Settings; they are
+ *  their own tabs now, so each is linkable on its own. */
+export const APP_TAB_IDS = [
   'chats',
   'worklog',
   'staff',
   'memory',
+  'keys',
+  'ai-configs',
   'settings',
   'client',
-];
+] as const;
+
+export type AppTabId = (typeof APP_TAB_IDS)[number];
 
 /**
  * #744 folded the separate `chat` (agent) and `team-chat` tabs into one `chats`
@@ -60,7 +69,9 @@ export interface TabIntent {
 export function resolveTabIntent(searchParams: URLSearchParams): TabIntent {
   const rawTab = searchParams.get('tab');
   const alias = lookupOwn(RETIRED_TAB_ALIASES, rawTab);
-  const initialTab = alias ? alias.tab : APP_TAB_IDS.includes(rawTab ?? '') ? rawTab : null;
+  const initialTab = alias
+    ? alias.tab
+    : (APP_TAB_IDS as readonly string[]).includes(rawTab ?? '') ? rawTab : null;
   // An explicit ?chat= wins over the one a retired tab id implies, so a link
   // carrying both is not silently overridden by the alias.
   const requestedChat = searchParams.get('chat') ?? alias?.chat ?? null;
