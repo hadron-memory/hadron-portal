@@ -159,7 +159,7 @@
               { id: 'manage', label: t('org-apps.action.manage', 'Manage'), href: `/app/apps/${app.id}` },
               { id: 'delete', label: t('org-apps.action.delete', 'Delete'), danger: true },
             ]}
-            onselect={() => deleteApp(app)}
+            onselect={(id) => { if (id === 'delete') deleteApp(app); }}
             label={`${t('org-apps.actions.label', 'Actions for')} ${app.name}`}
             disabled={$deleteSubmitting}
             fixed

@@ -58,4 +58,15 @@ describe('org apps row ⋯ menu (#1020)', () => {
     expect(form.querySelector<HTMLInputElement>('input[name="id"]')!.value).toBe('a2');
     expect((await submitEnhanced(form)).cancelled).toBe(false);
   });
+
+  it('a declined confirm submits nothing (Cody, #1046)', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountApps();
+    target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Bravo"]')!.click();
+    flushSync();
+    [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent?.trim() === 'Delete')!.click();
+    await tick(2);
+    expect(requestSubmit).not.toHaveBeenCalled();
+  });
 });

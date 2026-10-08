@@ -468,7 +468,7 @@
           { id: 'edit', label: t('org-memories.action.edit', 'Edit'), href: `/app/memories/${m.id}` },
           ...(m.section === 'org' ? [{ id: 'delete', label: t('org-memories.action.delete', 'Delete'), danger: true }] : []),
         ]}
-        onselect={() => deleteMemory(m)}
+        onselect={(id) => { if (id === 'delete') deleteMemory(m); }}
         label={`${t('org-memories.actions.label', 'Actions for')} ${m.name}`}
         disabled={$deleteSubmitting}
         fixed
@@ -570,7 +570,7 @@
                   <div class="flex justify-end">
                     <NodeActionsMenu
                       actions={[{ id: 'unsubscribe', label: t('org-memories.action.unsubscribe', 'Unsubscribe'), danger: true }]}
-                      onselect={() => unsubscribeMemory(s.memory)}
+                      onselect={(id) => { if (id === 'unsubscribe') unsubscribeMemory(s.memory); }}
                       label={`${t('org-memories.actions.label', 'Actions for')} ${s.memory.name}`}
                       disabled={$unsubscribeSubmitting}
                       fixed
