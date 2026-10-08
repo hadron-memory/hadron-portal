@@ -5,10 +5,6 @@ vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
 }));
 
-vi.mock('$lib/server/guards', () => ({
-  requireNonConsumer: vi.fn().mockResolvedValue(undefined),
-}));
-
 beforeEach(() => {
   mockRequest.mockReset();
 });
