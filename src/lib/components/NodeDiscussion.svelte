@@ -85,7 +85,11 @@
   let newBody = $state('');
   let replyDrafts = $state<Record<string, string>>({});
   let replyOpen = $state<string | null>(null);
-  let editing = $state<{ id: string; body: string } | null>(null);
+  // `revSeq` is the revision whose body filled the editor. A fresh read can
+  // land while the editor is open (it's kept across reads), and saving must
+  // still assert the revision the reader started from, or it would overwrite
+  // an edit made meanwhile (Diego on #1024).
+  let editing = $state<{ id: string; body: string; revSeq: number } | null>(null);
   let confirming = $state<{ id: string; op: 'retract' | 'hide' | 'delete'; reason: string } | null>(null);
 
   let isBrowser = $state(false);
@@ -120,6 +124,7 @@
     if (busy) return false;
     busy = key;
     errorFor = null;
+    const loaded = discussion.ok ? discussion.threads.length : 0;
     try {
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -133,7 +138,11 @@
         summary?: CommentSummary;
       };
       if (destroyed) return false;
-      if (body.discussion) setDiscussion(body.discussion);
+      if (body.discussion) {
+        const refreshed = await refillWindow(body.discussion, loaded);
+        if (destroyed) return false;
+        setDiscussion(refreshed);
+      }
       if (body.summary) {
         summary = body.summary;
         onsummary?.(body.summary);
@@ -177,6 +186,31 @@
     el.scrollIntoView?.({ block: 'start' });
     el.focus?.({ preventScroll: true });
     return true;
+  }
+
+  /**
+   * A write reads back the FIRST page only. When the reader had paged further
+   * (Show more, Show my open discussion), read the rest of that window again,
+   * so the thread they just wrote on doesn't vanish from the list (Gemma on
+   * #1024). Pages that can't be read are left for Show more, never filled from
+   * the pre-write copy: that would show the written thread without the write.
+   */
+  async function refillWindow(first: Discussion, loaded: number): Promise<Discussion> {
+    let merged = first;
+    try {
+      while (merged.ok && merged.threads.length < Math.min(loaded, merged.total)) {
+        const res = await fetch(`${endpoint}?offset=${merged.threads.length}`);
+        const body = (await res.json().catch(() => ({}))) as { discussion?: Discussion };
+        if (destroyed || !res.ok || !body.discussion?.ok) break;
+        const seen = new Set(merged.threads.map((th) => th.root.id));
+        const added = body.discussion.threads.filter((th) => !seen.has(th.root.id));
+        if (added.length === 0) break;
+        merged = { ...merged, threads: [...merged.threads, ...added], total: body.discussion.total };
+      }
+    } catch {
+      // Keep what was read; Show more offers the rest.
+    }
+    return merged;
   }
 
   function setDiscussion(d: Discussion) {
@@ -252,7 +286,7 @@
 
   async function saveEdit(c: Comment) {
     if (!editing) return;
-    if (await send(`edit:${c.id}`, { op: 'edit', commentId: c.id, body: editing.body, expectedRevision: c.revSeq })) editing = null;
+    if (await send(`edit:${c.id}`, { op: 'edit', commentId: c.id, body: editing.body, expectedRevision: editing.revSeq })) editing = null;
   }
 
   async function confirm(c: Comment) {
@@ -314,6 +348,11 @@
       >
         <label class="sr-only" for="edit-{c.id}">{t('comments.edit.label', 'Edit your comment')}</label>
         <textarea id="edit-{c.id}" class={textareaClass} rows="3" bind:value={editing.body}></textarea>
+        {#if c.revSeq !== editing.revSeq}
+          <p class="text-xs text-amber-700 dark:text-amber-300" data-testid="edit-stale">
+            {t('comments.edit.stale', 'This comment changed after you started editing. Saving will be refused: copy your text, then cancel and edit again.')}
+          </p>
+        {/if}
         <div class="flex gap-2">
           <button type="submit" class={primaryClass} disabled={busy !== null}>{t('comments.edit.save', 'Save')}</button>
           <button type="button" class={buttonClass} onclick={() => (editing = null)}>{t('comments.cancel', 'Cancel')}</button>
@@ -361,7 +400,7 @@
     {:else if editing?.id !== c.id}
       <div class="flex flex-wrap gap-1">
         {#if controls.edit && view.kind === 'text'}
-          <button type="button" class={buttonClass} disabled={busy !== null} onclick={() => (editing = { id: c.id, body: view.body })}>
+          <button type="button" class={buttonClass} disabled={busy !== null} onclick={() => (editing = { id: c.id, body: view.body, revSeq: c.revSeq })}>
             {t('comments.edit.do', 'Edit')}
           </button>
         {/if}
