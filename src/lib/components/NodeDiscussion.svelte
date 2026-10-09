@@ -301,8 +301,10 @@
     if (await send(`${op}:${c.id}`, payload)) confirming = null;
   }
 
-  function errorText(key: string): string | null {
-    return errorFor?.key === key ? errorFor.text : null;
+  // Drafts belong to the reader, even when a fresh read no longer contains
+  // their target. Keep them copyable outside the removed comment card.
+  function hasComment(id: string): boolean {
+    return discussion.ok && discussion.threads.some((th) => th.root.id === id || th.replies.some((c) => c.id === id));
   }
 
   const buttonClass =
@@ -431,14 +433,25 @@
         {/if}
       </div>
     {/if}
-    {#each ['edit', 'retract', 'resolve', 'reopen', 'hide', 'delete'] as op (op)}
-      {@const text = errorText(`${op}:${c.id}`)}
-      {#if text}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{text}</p>{/if}
-    {/each}
   </article>
 {/snippet}
 
 <section class="space-y-4" aria-label={t('comments.section', 'Discussion')}>
+  {#if errorFor}
+    <p role="alert" class="text-sm text-red-600 dark:text-red-400">{errorFor.text}</p>
+  {/if}
+  {#if replyOpen && !hasComment(replyOpen) && replyDrafts[replyOpen]}
+    <div class="space-y-2">
+      <label class="block text-sm" for="unavailable-reply">{t('comments.reply.unavailable-draft', 'Your reply draft — its discussion is no longer shown. Copy your text before reloading.')}</label>
+      <textarea id="unavailable-reply" data-testid="unavailable-draft" class={textareaClass} rows="3" readonly value={replyDrafts[replyOpen]}></textarea>
+    </div>
+  {/if}
+  {#if editing && !hasComment(editing.id)}
+    <div class="space-y-2">
+      <label class="block text-sm" for="unavailable-edit">{t('comments.edit.unavailable-draft', 'Your edit draft — its comment is no longer shown. Copy your text before reloading.')}</label>
+      <textarea id="unavailable-edit" data-testid="unavailable-draft" class={textareaClass} rows="3" readonly value={editing.body}></textarea>
+    </div>
+  {/if}
   {#if !discussion.ok}
     <p role="alert" class="text-sm text-red-600 dark:text-red-400">
       {t('comments.read-failed', "Couldn't load the discussion. Reload to try again.")}
@@ -471,7 +484,6 @@
         <button type="submit" class={primaryClass} disabled={busy !== null || newBody.trim() === ''}>
           {t('comments.new.post', 'Post')}
         </button>
-        {#if errorText('new')}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{errorText('new')}</p>{/if}
       </form>
     {:else if permissions.canWrite}
       <!-- local review on #1024, P3: a writer still gets a reason, never a silent gap. -->
@@ -546,9 +558,6 @@
                 <button type="button" class={buttonClass} onclick={() => (replyOpen = thread.root.id)}>{t('comments.reply.do', 'Reply')}</button>
               {/if}
             {/if}
-            {#if errorText(`reply:${thread.root.id}`)}
-              <p role="alert" class="text-sm text-red-600 dark:text-red-400">{errorText(`reply:${thread.root.id}`)}</p>
-            {/if}
           </li>
         {/each}
       </ul>
@@ -560,7 +569,6 @@
           </button>
         </div>
       {/if}
-      {#if errorText('more')}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{errorText('more')}</p>{/if}
     {/if}
   {/if}
 </section>

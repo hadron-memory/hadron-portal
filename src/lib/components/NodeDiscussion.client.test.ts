@@ -151,6 +151,51 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
+  it.each(['reply', 'edit', 'resolve', 'retract', 'reopen', 'hide', 'delete'] as const)(
+    'a refused %s on a removed thread keeps its alert and any draft accessible', async (op) => {
+      const error = 'This comment no longer exists, or you no longer have access to it. Reload to see the current state.';
+      const fetchMock = stubFetch({ ok: false, status: 404, body: { ok: false, error, discussion: discussion([]) } });
+      const m = mountComponent(NodeDiscussion, {
+        endpoint: ENDPOINT,
+        shownRevision: 3,
+        initial: discussion([thread(comment('c1', { state: op === 'reopen' ? 'RESOLVED' : 'OPEN' }), true)], { canWrite: true, canManage: true }),
+      });
+      const card = m.target.querySelector<HTMLElement>('[data-thread-id="c1"]')!;
+      const click = (label: string) => {
+        [...card.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)!.click();
+        flushSync();
+      };
+      const draft = 'Keep my unfinished wording';
+      if (op === 'reply' || op === 'edit') {
+        click(op === 'reply' ? 'Reply' : 'Edit');
+        const textarea = card.querySelector<HTMLTextAreaElement>('textarea')!;
+        typeInto(textarea, draft);
+        textarea.form!.requestSubmit();
+      } else if (op === 'retract' || op === 'hide' || op === 'delete') {
+        const label = op === 'retract' ? 'Retract' : op === 'hide' ? 'Hide' : 'Delete discussion';
+        click(label);
+        if (op !== 'retract') {
+          const input = card.querySelector<HTMLInputElement>('input')!;
+          input.value = 'Moderation reason';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          flushSync();
+        }
+        click(label);
+      } else click(op === 'resolve' ? 'Resolve' : 'Reopen');
+      await tick(12);
+      flushSync();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(m.target.querySelector('[data-thread-id="c1"]')).toBeNull();
+      expect(m.target.querySelector('[role="alert"]')?.textContent).toContain(error);
+      if (op === 'reply' || op === 'edit') {
+        const recovery = m.target.querySelector<HTMLTextAreaElement>('[data-testid="unavailable-draft"]');
+        expect(recovery?.value).toBe(draft);
+        expect(recovery?.readOnly).toBe(true);
+      }
+      m.unmount();
+    },
+  );
+
   it('a worker is the author, with its URN; the user who bound it shows only as provenance (cor:dmo:110:03)', () => {
     const byWorker = comment('c1', {
       author: { kind: 'WORKER', worker: { id: 'w1', name: 'Dara', handle: null, urn: 'hrn:worker:acme.com:team:dara' }, user: null, agent: null, app: null },
