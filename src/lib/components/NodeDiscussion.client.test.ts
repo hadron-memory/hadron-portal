@@ -188,13 +188,106 @@ describe('NodeDiscussion (portal#1014)', () => {
       expect(m.target.querySelector('[data-thread-id="c1"]')).toBeNull();
       expect(m.target.querySelector('[role="alert"]')?.textContent).toContain(error);
       if (op === 'reply' || op === 'edit') {
-        const recovery = m.target.querySelector<HTMLTextAreaElement>('[data-testid="unavailable-draft"]');
+        const recovery = m.target.querySelector<HTMLTextAreaElement>(`[data-testid="unavailable-${op}-draft"]`);
         expect(recovery?.value).toBe(draft);
         expect(recovery?.readOnly).toBe(true);
       }
       m.unmount();
     },
   );
+
+  it.each(['revoked', 'retracted', 'hidden'] as const)(
+    'an open reply survives a %s root and a 403 with the thread intact', async (reason) => {
+      const refreshed = discussion([thread(comment('c1', {
+        retracted: reason === 'retracted', hidden: reason === 'hidden',
+      }))], { canWrite: reason !== 'revoked', canManage: false });
+      stubFetch({ ok: false, status: 403, body: { ok: false, error: 'Write refused', discussion: refreshed } });
+      const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+        initial: discussion([thread(comment('c1'))]) });
+      [...m.target.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Reply')!.click();
+      flushSync();
+      const input = m.target.querySelector<HTMLTextAreaElement>('#reply-c1')!;
+      typeInto(input, 'Keep this reply');
+      input.form!.requestSubmit();
+      await tick(12);
+      flushSync();
+      expect(m.target.querySelector('[data-thread-id="c1"]')).not.toBeNull();
+      expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Write refused');
+      expect(m.target.querySelector<HTMLTextAreaElement>('#reply-c1')?.value).toBe('Keep this reply');
+      expect(m.target.querySelector('[data-testid="unavailable-reply-draft"]')).toBeNull();
+      m.unmount();
+    },
+  );
+
+  it('a refused edit with write access revoked retains its live edit form', async () => {
+    stubFetch({ ok: false, status: 403, body: { ok: false, error: 'Write refused',
+      discussion: discussion([thread(comment('c1'), true)], { canWrite: false, canManage: false }) } });
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+      initial: discussion([thread(comment('c1'), true)]) });
+    [...m.target.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Edit')!.click();
+    flushSync();
+    const input = m.target.querySelector<HTMLTextAreaElement>('article textarea')!;
+    typeInto(input, 'Keep my edit');
+    input.form!.requestSubmit();
+    await tick(12);
+    flushSync();
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Write refused');
+    expect(m.target.querySelector<HTMLTextAreaElement>('article textarea')?.value).toBe('Keep my edit');
+    expect(m.target.querySelector('[data-testid="unavailable-edit-draft"]')).toBeNull();
+    m.unmount();
+  });
+
+  it('a refused Show more preserves loaded cards and exposes the panel alert', async () => {
+    const fetchMock = stubFetch({ ok: false, status: 403, body: {} });
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+      initial: { ...discussion([thread(comment('c1'))]), total: 2 } });
+    m.target.querySelector<HTMLButtonElement>('[data-testid="more-threads"]')!.click();
+    await tick(12);
+    flushSync();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(m.target.querySelector('[data-thread-id="c1"]')).not.toBeNull();
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain("Couldn't load more discussions");
+    m.unmount();
+  });
+
+  it('a successful refreshed post after a refusal clears the alert and draft', async () => {
+    const fetchMock = stubFetch({ ok: false, status: 403, body: { ok: false, error: 'Write refused',
+      discussion: discussion([thread(comment('c1'))]) } });
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+      initial: discussion([thread(comment('c1'))]) });
+    const input = m.target.querySelector<HTMLTextAreaElement>('#new-comment')!;
+    typeInto(input, 'Retry this');
+    input.form!.requestSubmit();
+    await tick(12);
+    flushSync();
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Write refused');
+    fetchMock.mockImplementation(async () => ({ ok: true, status: 200,
+      json: async () => ({ ok: true, discussion: discussion([thread(comment('c2', { body: 'Retry this' }))]) }) }));
+    input.form!.requestSubmit();
+    await tick(12);
+    flushSync();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+    expect(input.value).toBe('');
+    expect(m.target.querySelector('[data-thread-id="c2"]')).not.toBeNull();
+    m.unmount();
+  });
+
+  it('an empty edit draft has no recovery box after its thread disappears', async () => {
+    stubFetch({ ok: false, status: 404, body: { ok: false, error: 'Gone', discussion: discussion([]) } });
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+      initial: discussion([thread(comment('c1'), true)]) });
+    [...m.target.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Edit')!.click();
+    flushSync();
+    typeInto(m.target.querySelector<HTMLTextAreaElement>('article textarea')!, '');
+    m.target.querySelector<HTMLTextAreaElement>('article textarea')!.form!.requestSubmit();
+    await tick(12);
+    flushSync();
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Gone');
+    expect(m.target.querySelector('[data-testid="unavailable-edit-draft"]')).toBeNull();
+    expect(m.target.querySelector('#unavailable-edit')).toBeNull();
+    m.unmount();
+  });
 
   it('a worker is the author, with its URN; the user who bound it shows only as provenance (cor:dmo:110:03)', () => {
     const byWorker = comment('c1', {

@@ -443,13 +443,13 @@
   {#if replyOpen && !hasComment(replyOpen) && replyDrafts[replyOpen]}
     <div class="space-y-2">
       <label class="block text-sm" for="unavailable-reply">{t('comments.reply.unavailable-draft', 'Your reply draft — its discussion is no longer shown. Copy your text before reloading.')}</label>
-      <textarea id="unavailable-reply" data-testid="unavailable-draft" class={textareaClass} rows="3" readonly value={replyDrafts[replyOpen]}></textarea>
+      <textarea id="unavailable-reply" data-testid="unavailable-reply-draft" class={textareaClass} rows="3" readonly value={replyDrafts[replyOpen]}></textarea>
     </div>
   {/if}
-  {#if editing && !hasComment(editing.id)}
+  {#if editing && !hasComment(editing.id) && editing.body}
     <div class="space-y-2">
       <label class="block text-sm" for="unavailable-edit">{t('comments.edit.unavailable-draft', 'Your edit draft — its comment is no longer shown. Copy your text before reloading.')}</label>
-      <textarea id="unavailable-edit" data-testid="unavailable-draft" class={textareaClass} rows="3" readonly value={editing.body}></textarea>
+      <textarea id="unavailable-edit" data-testid="unavailable-edit-draft" class={textareaClass} rows="3" readonly value={editing.body}></textarea>
     </div>
   {/if}
   {#if !discussion.ok}
@@ -536,27 +536,25 @@
                 {t('comments.more-replies', 'Only the first {shown} replies are shown; {n} more exist.', { shown: thread.replies.length, n: thread.replyCount - thread.replies.length })}
               </p>
             {/if}
-            {#if rootControls.reply}
-              {#if replyOpen === thread.root.id}
-                <form
-                  class="space-y-2"
-                  onsubmit={(e) => {
-                    e.preventDefault();
-                    reply(thread);
-                  }}
-                >
-                  <label class="sr-only" for="reply-{thread.root.id}">{t('comments.reply.label', 'Your reply')}</label>
-                  <textarea id="reply-{thread.root.id}" class={textareaClass} rows="2" bind:value={replyDrafts[thread.root.id]}></textarea>
-                  <div class="flex gap-2">
-                    <button type="submit" class={primaryClass} disabled={busy !== null || (replyDrafts[thread.root.id] ?? '').trim() === ''}>
-                      {t('comments.reply.post', 'Reply')}
-                    </button>
-                    <button type="button" class={buttonClass} onclick={() => (replyOpen = null)}>{t('comments.cancel', 'Cancel')}</button>
-                  </div>
-                </form>
-              {:else}
-                <button type="button" class={buttonClass} onclick={() => (replyOpen = thread.root.id)}>{t('comments.reply.do', 'Reply')}</button>
-              {/if}
+            {#if replyOpen === thread.root.id}
+              <form
+                class="space-y-2"
+                onsubmit={(e) => {
+                  e.preventDefault();
+                  reply(thread);
+                }}
+              >
+                <label class="sr-only" for="reply-{thread.root.id}">{t('comments.reply.label', 'Your reply')}</label>
+                <textarea id="reply-{thread.root.id}" class={textareaClass} rows="2" bind:value={replyDrafts[thread.root.id]}></textarea>
+                <div class="flex gap-2">
+                  <button type="submit" class={primaryClass} disabled={busy !== null || (replyDrafts[thread.root.id] ?? '').trim() === ''}>
+                    {t('comments.reply.post', 'Reply')}
+                  </button>
+                  <button type="button" class={buttonClass} onclick={() => (replyOpen = null)}>{t('comments.cancel', 'Cancel')}</button>
+                </div>
+              </form>
+            {:else if rootControls.reply}
+              <button type="button" class={buttonClass} onclick={() => (replyOpen = thread.root.id)}>{t('comments.reply.do', 'Reply')}</button>
             {/if}
           </li>
         {/each}
