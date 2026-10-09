@@ -90,13 +90,24 @@
   let globalFilter = $state('');
   const tableCanSortAndResize = untrack(() => !orderable);
 
+  // Everything a comment row renders, so the table filter finds it (per hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable).
+  function commentSearchText(n: MemoryNode): string {
+    const c = n.comment!;
+    const v = commentHitView(c);
+    return [
+      n.name, v.role, c.retracted ? 'retracted' : '', c.hidden ? 'hidden' : '',
+      v.author.label, v.author.urn ?? '', v.author.agent?.label ?? '', v.author.agent?.urn ?? '',
+      c.target.name, c.target.urn, v.anchor.text,
+    ].join(' ');
+  }
+
   const columns: PortalColumnDef<MemoryNode>[] = [
     {
       // portal#1015: a comment hit's row also renders its author and target, so
       // the table filter searches them too (per hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable).
       // A content row's accessor is still its name.
       id: 'name',
-      accessorFn: (n) => (n.comment ? [n.name, commentHitView(n.comment).author.label, n.comment.target.name, n.comment.target.urn].join(' ') : n.name),
+      accessorFn: (n) => (n.comment ? commentSearchText(n) : n.name),
       header: 'Node',
       enableHiding: false,
       size: 280,
@@ -389,7 +400,7 @@
                           {/if}
                           <span data-testid="comment-hit-author">{t('node-list.comment-by', 'by {author}', { author: hit.author.label })}</span>
                           {#if hit.author.urn}<Urn value={hit.author.urn} size={8} />{/if}
-                          {#if hit.author.agent}<span>{t('node-list.comment-via', 'via {agent}', { agent: hit.author.agent.label })}</span>{/if}
+                          {#if hit.author.agent}<span>{t('node-list.comment-via', 'via {agent}', { agent: hit.author.agent.label })}</span>{#if hit.author.agent.urn}<Urn value={hit.author.agent.urn} size={8} />{/if}{/if}
                         </div>
                         <div class="flex flex-wrap items-center gap-1.5">
                           <span>{t('node-list.comment-on', 'on')} <span data-testid="comment-hit-target" class="font-medium">{n.comment.target.name}</span></span>

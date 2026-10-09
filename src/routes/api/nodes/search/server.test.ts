@@ -350,7 +350,6 @@ describe('/api/nodes/search content scope (portal#1015)', () => {
     isTopLevel: true,
     state: 'OPEN',
     anchorRevision: 2,
-    anchorIsCurrent: false,
     retracted: false,
     hidden: false,
     author: { kind: 'WORKER', worker: { id: 'w1', name: 'Gil', handle: null, urn: 'hrn:worker:o:a:gil' }, user: null, agent: null, app: null },

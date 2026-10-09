@@ -2770,7 +2770,6 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
             isTopLevel
             state
             anchorRevision
-            anchorIsCurrent
             retracted
             hidden
             author {

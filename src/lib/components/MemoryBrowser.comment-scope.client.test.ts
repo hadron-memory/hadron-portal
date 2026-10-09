@@ -11,13 +11,13 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import MemoryBrowser from './MemoryBrowser.svelte';
 
 const NODES = [
-  { id: 'n1', memoryId: 'mem-1', loc: 'a', name: 'Alpha', nodeType: 'info', tags: [], seq: null, isRunnable: false, description: null },
+  { id: 'n1', memoryId: 'mem-1', loc: 'a', name: 'Alpha', nodeType: 'info', tags: [], seq: null, isRunnable: false, description: null, outgoingEdges: [], incomingEdges: [] },
 ];
 const COMMENT_HIT = {
-  id: 'c1', memoryId: 'mem-1', loc: 'comments:c1', name: 'Needs a source', nodeType: 'comment', tags: [], seq: null, isRunnable: false, description: null,
+  id: 'c1', memoryId: 'mem-1', loc: 'comments:c1', name: 'Needs a source', nodeType: 'comment', tags: [], seq: null, isRunnable: false, description: null, outgoingEdges: [], incomingEdges: [],
   memory: { id: 'mem-1', urn: 'hrn:mem:o:m', name: 'm' },
   comment: {
-    id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 1, anchorIsCurrent: true, retracted: false, hidden: false,
+    id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 1, retracted: false, hidden: false,
     author: { kind: 'USER', user: { id: 'u1', name: 'Ann', handle: 'ann', urn: null }, worker: null, agent: null, app: null },
     target: { id: 'n1', name: 'Alpha', nodeType: 'info', revSeq: 1, urn: 'hrn:node:o:m:a' },
   },
@@ -80,8 +80,29 @@ describe('MemoryBrowser content scope (portal#1015)', () => {
   it('a comment the reader asked for is not hidden like the tree\'s comments', async () => {
     const { target } = mountBrowser();
     pick(target, 'ALL');
+    const bodies = await searchBodies();
+    expect(bodies[0].filter).toMatchObject({ contentScope: 'ALL' });
+    expect(target.querySelector('[data-testid="comment-hit"]')).not.toBeNull();
+  });
+
+  it('shows comment results in the table only: no view or pane toggles while they are on (#1057)', async () => {
+    // A reader who last chose the Nodes view with the Tree pane: Comments must not land them in the tree.
+    window.localStorage.setItem('hadron:memoryBrowser:viewMode', 'nodes');
+    window.localStorage.setItem('hadron:memoryBrowser:nodesPane', 'tree');
+    const props = reactiveProps<Record<string, unknown>>({ nodes: NODES, basePath: '/app/memories/mem-1', refreshKey: 0 });
+    const m = mountComponent(MemoryBrowser as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    const { target } = m;
+    expect(target.querySelector('[aria-label="Browser view"]')).not.toBeNull();
+    pick(target, 'COMMENTS');
     await searchBodies();
     expect(target.querySelector('[data-testid="comment-hit"]')).not.toBeNull();
+    expect(target.querySelector('[aria-label="Browser view"]')).toBeNull();
+    expect(target.querySelector('[aria-label="Nodes layout"]')).toBeNull();
+    pick(target, 'CONTENT');
+    await searchBodies();
+    expect(target.querySelector('[aria-label="Browser view"]')).not.toBeNull();
+    window.localStorage.clear();
   });
 
   it('going back to Content stops the server search', async () => {

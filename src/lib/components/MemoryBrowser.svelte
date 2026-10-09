@@ -105,7 +105,13 @@
   }
   // forcedView (the #266 tab layout) overrides the persisted toggle choice.
   let storedView = $state<'graph' | 'nodes'>(readStoredView());
-  const activeView = $derived(forcedView ?? storedView);
+  let contentScope = $state<ContentScope>('CONTENT');
+  // Comment hits are feedback listed with their author and target, which only
+  // the table presents (#1054 review: the tree and graph panes would drop the
+  // marking and link the comment node, not its target's Discussion). While a
+  // Comments or All scope is on, the table is the one presentation.
+  const commentsInView = $derived(contentScope !== 'CONTENT');
+  const activeView = $derived(commentsInView ? 'nodes' : (forcedView ?? storedView));
   $effect(() => {
     if (forcedView || typeof window === 'undefined') return;
     try {
@@ -353,7 +359,6 @@
   // default (the server's too). The SERVER applies it before ranking, paging and
   // the 500-hit cap, so Comments finds every matching comment, not the comments
   // among the first 500 general hits.
-  let contentScope = $state<ContentScope>('CONTENT');
   // #433: the fields weight-mask (findNodes fields, hrn:node:hadronmemory.com:specs:cor:api:090:03) — scopes a
   // LEXICAL query's scoring to a subset of node fields. Empty = all fields
   // (the server default). Ignored for Fuzzy (vector retrieval) and for a
@@ -1249,7 +1254,7 @@
          view is fixed by the tab layout (#266); the Tree/Table toggle shows
          whenever the nodes view is active. -->
     <div class="ml-auto flex items-center gap-3">
-      {#if !forcedView}
+      {#if !forcedView && !commentsInView}
         <div
           role="group"
           aria-label={t('memory-browser.view-toggle-label', 'Browser view')}
@@ -1282,7 +1287,7 @@
           {t('memory-browser.show-hidden', 'Show hidden')}
         </label>
       {/if}
-      {#if activeView === 'nodes'}
+      {#if activeView === 'nodes' && !commentsInView}
         <div
           role="group"
           aria-label={t('memory-browser.nodes-pane-label', 'Nodes layout')}
@@ -1485,7 +1490,7 @@
          time rather than side-by-side. -->
     <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
       style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h); min-height: calc(100dvh - 320px);">
-      {#if nodesPane === 'tree'}
+      {#if nodesPane === 'tree' && !commentsInView}
         <div class="overflow-y-auto bg-zinc-50 dark:bg-zinc-950" style="max-height: var(--memory-browser-h); max-height: calc(100dvh - 320px);">
           {#if moveError}
             <p class="m-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">

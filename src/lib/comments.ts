@@ -325,7 +325,6 @@ export interface CommentHit {
   isTopLevel: boolean;
   state: CommentThreadState | null;
   anchorRevision: number;
-  anchorIsCurrent: boolean;
   retracted: boolean;
   hidden: boolean;
   author: CommentAuthor;

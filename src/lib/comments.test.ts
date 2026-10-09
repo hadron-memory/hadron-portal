@@ -289,7 +289,7 @@ describe('commentMergeRefusal (hadron-server#1682)', () => {
 
 describe('commentHitView (portal#1015)', () => {
   const base = {
-    id: 'c1', isTopLevel: true, state: 'OPEN' as const, anchorRevision: 2, anchorIsCurrent: false, retracted: false, hidden: false,
+    id: 'c1', isTopLevel: true, state: 'OPEN' as const, anchorRevision: 2, retracted: false, hidden: false,
     author: { kind: 'USER' as const, user: { id: 'u', name: 'Ann', handle: 'ann', urn: null }, worker: null, agent: null, app: null },
     target: { id: 't', urn: 'hrn:node:o:m:t', name: 'T', nodeType: 'info', revSeq: 5 },
   };
