@@ -609,6 +609,11 @@ export interface MemoryNode {
    * it, so absent means "not read here", never zero.
    */
   openThreads?: number;
+  /**
+   * portal#1015: this node AS a comment, on a search hit under the Comments or
+   * All scope (`Node.asComment`). Absent for content.
+   */
+  comment?: import('$lib/comments').CommentHit;
   // #588 (server #725): collection discriminator (which domain object this
   // node is, e.g. "competitor"). Null for an ordinary node; orthogonal to
   // nodeType.

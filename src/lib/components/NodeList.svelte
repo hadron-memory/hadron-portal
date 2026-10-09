@@ -3,7 +3,7 @@
   // + our Svelte 5 runes adapter. First production consumer of src/lib/table/*.
   // Public API (props) is unchanged so both call sites — MemoryBrowser (browse
   // list) and the node-detail Children tab (orderable) — keep working.
-  import { openFeedbackCue } from '$lib/comments';
+  import { commentHitView, openFeedbackCue } from '$lib/comments';
   import { onMount, untrack } from 'svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -65,6 +65,15 @@
     return '';
   }
 
+  // portal#1015: a comment hit links back to the DISCUSSION on its target
+  // (hrn:node:hadronmemory.com:specs:cor:dmo:110:08), in the same memory (110:01), not to the comment node.
+  function discussionHref(node: MemoryNode): string {
+    const target = node.comment?.target;
+    if (!target) return '';
+    const base = basePath ? `${basePath}/nodes/${target.id}` : node.memory?.id ? `/app/memories/${node.memory.id}/nodes/${target.id}` : '';
+    return base ? `${base}?tab=discussion` : '';
+  }
+
   function nodeUrn(node: MemoryNode): string {
     // Some queries don't populate node.memory. Render bare loc rather than throw
     // and take down the whole list (data-shape concern, fixed at the loader).
@@ -81,8 +90,28 @@
   let globalFilter = $state('');
   const tableCanSortAndResize = untrack(() => !orderable);
 
+  // Everything a comment row renders, so the table filter finds it (per hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable).
+  function commentSearchText(n: MemoryNode): string {
+    const c = n.comment!;
+    const v = commentHitView(c);
+    return [
+      n.name, v.role, c.retracted ? 'retracted' : '', c.hidden ? 'hidden' : '',
+      v.author.label, v.author.urn ?? '', v.author.agent?.label ?? '', v.author.agent?.urn ?? '',
+      c.target.name, c.target.urn, v.anchor.text,
+    ].join(' ');
+  }
+
   const columns: PortalColumnDef<MemoryNode>[] = [
-    { accessorKey: 'name', header: 'Node', enableHiding: false, size: 280 }, // identity column — always shown
+    {
+      // portal#1015: a comment hit's row also renders its author and target, so
+      // the table filter searches them too (per hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable).
+      // A content row's accessor is still its name.
+      id: 'name',
+      accessorFn: (n) => (n.comment ? commentSearchText(n) : n.name),
+      header: 'Node',
+      enableHiding: false,
+      size: 280,
+    }, // identity column — always shown
     { accessorKey: 'nodeType', header: 'Type', size: 120 },
     { accessorFn: (n) => n.description ?? '', id: 'description', header: 'Description', size: 400 },
   ];
@@ -278,7 +307,8 @@
         <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
           {#each displayRows as row (row.id)}
             {@const n = row.original}
-            {@const href = nodeHref(n)}
+            {@const hit = n.comment ? commentHitView(n.comment) : null}
+            {@const href = hit ? discussionHref(n) || nodeHref(n) : nodeHref(n)}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <tr
               class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900
@@ -358,6 +388,27 @@
                       {/if}
                     </div>
                     <div class="mt-0.5 truncate"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
+                    {#if hit && n.comment}
+                      <!-- portal#1015: feedback, never content of its target: its author, the
+                           node it concerns, and the revision it was written against
+                           (hrn:node:hadronmemory.com:specs:cor:dmo:110:08). -->
+                      <div data-testid="comment-hit" class="mt-1 space-y-0.5 text-xs text-zinc-600 dark:text-zinc-400">
+                        <div class="flex flex-wrap items-center gap-1.5">
+                          <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{t('node-list.comment-label', 'Comment')} · {hit.role}</span>
+                          {#if n.comment.retracted || n.comment.hidden}
+                            <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.comment.retracted ? t('node-list.comment-retracted', 'retracted') : t('node-list.comment-hidden', 'hidden')}</span>
+                          {/if}
+                          <span data-testid="comment-hit-author">{t('node-list.comment-by', 'by {author}', { author: hit.author.label })}</span>
+                          {#if hit.author.urn}<Urn value={hit.author.urn} size={8} />{/if}
+                          {#if hit.author.agent}<span>{t('node-list.comment-via', 'via {agent}', { agent: hit.author.agent.label })}</span>{#if hit.author.agent.urn}<Urn value={hit.author.agent.urn} size={8} />{/if}{/if}
+                        </div>
+                        <div class="flex flex-wrap items-center gap-1.5">
+                          <span>{t('node-list.comment-on', 'on')} <span data-testid="comment-hit-target" class="font-medium">{n.comment.target.name}</span></span>
+                          <Urn value={n.comment.target.urn} type="node" size={8} />
+                        </div>
+                        <div data-testid="comment-hit-anchor" class={hit.anchor.current ? '' : 'text-amber-700 dark:text-amber-400'}>{hit.anchor.text}</div>
+                      </div>
+                    {/if}
                     {#if snippets?.[n.id]}
                       <!-- #430: best matching passage from a semantic search. -->
                       <div

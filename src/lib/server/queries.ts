@@ -2718,6 +2718,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
     $where: NodeWhereInput
     $approvalState: NodeApprovalState
     $minted: Boolean
+    $contentScope: NodeContentScope
     $sortProperty: NodePropertySort
     $limit: Int
   ) {
@@ -2748,6 +2749,10 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         # server so no list ever selects Node.approvalStatus per row.
         approvalState: $approvalState
         minted: $minted
+        # portal#1015 (server #1608/#1674, hrn:node:hadronmemory.com:specs:cor:dmo:110:08): content, comments or
+        # both, applied by the server BEFORE ranking, paging and the result cap.
+        # Null is the server default, CONTENT.
+        contentScope: $contentScope
       }
     ) {
       hits {
@@ -2757,6 +2762,25 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
           # search or filter replacing the list, so result rows carry the count
           # too (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). Batched per request server-side.
           commentSummary { openThreads }
+          # portal#1015: this hit AS a comment (null for content), so a
+          # Comments or All result renders as feedback with its author, target
+          # and anchor revision (hrn:node:hadronmemory.com:specs:cor:dmo:110:08), never as content.
+          asComment {
+            id
+            isTopLevel
+            state
+            anchorRevision
+            retracted
+            hidden
+            author {
+              kind
+              user { id handle name urn }
+              agent { id handle name urn }
+              worker { id handle name urn }
+              app { id handle name urn }
+            }
+            target { id name nodeType revSeq urn }
+          }
         }
         # #432: per-hit relevance + vector metadata. score is null for an
         # unscored (no-query) filtered list; vector is present only when the
