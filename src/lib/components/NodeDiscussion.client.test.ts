@@ -90,15 +90,26 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
-  it('an edited root and reply show the marker even at revision one', () => {
+  it('a root and reply with differing timestamp instants show the marker even at revision one', () => {
     const updatedAt = '2026-10-05T18:01:00.000Z';
     const root = thread(comment('c1', { updatedAt, revSeq: 1 }));
     root.replies = [comment('r1', { updatedAt, revSeq: 1, threadRootId: 'c1', isTopLevel: false, state: null })];
     root.replyCount = 1;
     const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3, initial: discussion([root]) });
+    expect(m.target.querySelectorAll('article header')).toHaveLength(2);
     for (const header of m.target.querySelectorAll('article header')) expect(header.textContent).toContain('(edited)');
     m.unmount();
   });
+
+  it.each([null, '2026-10-05T18:00:00Z', '2026-10-05T20:00:00+02:00'])(
+    'timestamp %s has no edited marker when absent or the same instant', (updatedAt) => {
+      const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+        initial: discussion([thread(comment('c1', { updatedAt }))]) });
+      expect(m.target.querySelectorAll('article')).toHaveLength(1);
+      expect(m.target.textContent).not.toContain('(edited)');
+      m.unmount();
+    },
+  );
 
   it('a read-only reader sees the discussion and no controls at all (cor:dmo:110:03)', () => {
     const m = mountComponent(NodeDiscussion, {
