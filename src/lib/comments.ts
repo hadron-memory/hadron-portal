@@ -313,7 +313,7 @@ export function openFeedbackCue(summary: CommentSummary | null | undefined): str
     : t('comments.cue.open-many', '{n} open discussions', { n });
 }
 
-// ── Search hits (portal#1015, `cor:dmo:110:08`) ────────────────────────
+// ── Search hits (portal#1015, `hrn:node:hadronmemory.com:specs:cor:dmo:110:08`) ────────────────────────
 
 /** Which kinds of node a search returns. The server default, and ours, is CONTENT. */
 export type ContentScope = 'CONTENT' | 'COMMENTS' | 'ALL';

@@ -118,7 +118,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     ? (filter!.approvalState as ApprovalState)
     : null;
   const minted = typeof filter?.minted === 'boolean' ? filter.minted : null;
-  // portal#1015 (cor:dmo:110:08): content, comments or both, filtered by the
+  // portal#1015 (hrn:node:hadronmemory.com:specs:cor:dmo:110:08): content, comments or both, filtered by the
   // SERVER before ranking and the result cap. Allowlisted; CONTENT is the server
   // default so it is never sent, and an unknown value is dropped rather than
   // reaching GraphQL enum coercion.

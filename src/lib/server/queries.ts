@@ -2749,7 +2749,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
         # server so no list ever selects Node.approvalStatus per row.
         approvalState: $approvalState
         minted: $minted
-        # portal#1015 (server #1608/#1674, cor:dmo:110:08): content, comments or
+        # portal#1015 (server #1608/#1674, hrn:node:hadronmemory.com:specs:cor:dmo:110:08): content, comments or
         # both, applied by the server BEFORE ranking, paging and the result cap.
         # Null is the server default, CONTENT.
         contentScope: $contentScope
@@ -2764,7 +2764,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
           commentSummary { openThreads }
           # portal#1015: this hit AS a comment (null for content), so a
           # Comments or All result renders as feedback with its author, target
-          # and anchor revision (cor:dmo:110:08), never as content.
+          # and anchor revision (hrn:node:hadronmemory.com:specs:cor:dmo:110:08), never as content.
           asComment {
             id
             isTopLevel

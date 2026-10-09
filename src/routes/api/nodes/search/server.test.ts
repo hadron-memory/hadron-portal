@@ -341,7 +341,7 @@ describe('/api/nodes/search approval and minting filters (#992)', () => {
 
 
 
-// portal#1015 (cor:dmo:110:08): Content / Comments / All is a SERVER filter,
+// portal#1015 (hrn:node:hadronmemory.com:specs:cor:dmo:110:08): Content / Comments / All is a SERVER filter,
 // applied before ranking and the 500-hit cap. The endpoint forwards it; it
 // never filters a returned page.
 describe('/api/nodes/search content scope (portal#1015)', () => {

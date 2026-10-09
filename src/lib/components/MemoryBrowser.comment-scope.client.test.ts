@@ -1,5 +1,5 @@
 /**
- * portal#1015 (cor:dmo:110:08) — Content / Comments / All is a SERVER filter.
+ * portal#1015 (hrn:node:hadronmemory.com:specs:cor:dmo:110:08) — Content / Comments / All is a SERVER filter.
  * Picking a scope posts `filter.contentScope` to /api/nodes/search and shows
  * what comes back; the browser never filters a returned page. A comment the
  * reader asked for is a result, so it is not hidden like the tree's comments.

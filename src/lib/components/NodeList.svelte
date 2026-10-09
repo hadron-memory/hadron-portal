@@ -66,7 +66,7 @@
   }
 
   // portal#1015: a comment hit links back to the DISCUSSION on its target
-  // (cor:dmo:110:08), in the same memory (110:01), not to the comment node.
+  // (hrn:node:hadronmemory.com:specs:cor:dmo:110:08), in the same memory (110:01), not to the comment node.
   function discussionHref(node: MemoryNode): string {
     const target = node.comment?.target;
     if (!target) return '';
@@ -93,7 +93,7 @@
   const columns: PortalColumnDef<MemoryNode>[] = [
     {
       // portal#1015: a comment hit's row also renders its author and target, so
-      // the table filter searches them too (review:everything-the-cell-renders-must-be-searchable).
+      // the table filter searches them too (per hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable).
       // A content row's accessor is still its name.
       id: 'name',
       accessorFn: (n) => (n.comment ? [n.name, commentHitView(n.comment).author.label, n.comment.target.name, n.comment.target.urn].join(' ') : n.name),

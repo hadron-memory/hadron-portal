@@ -118,7 +118,7 @@ const hit = {
   target: { id: 't1', name: 'Retention policy', nodeType: 'info', revSeq: 5, urn: 'hrn:node:o:m:retention' },
 };
 
-// portal#1015 (cor:dmo:110:08): a Comments or All hit is feedback, labelled as
+// portal#1015 (hrn:node:hadronmemory.com:specs:cor:dmo:110:08): a Comments or All hit is feedback, labelled as
 // such with its author, target and anchor revision, and links back to the
 // DISCUSSION on its target rather than to the comment node.
 describe('comment search hits (portal#1015)', () => {

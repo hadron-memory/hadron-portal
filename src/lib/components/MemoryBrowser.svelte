@@ -349,7 +349,7 @@
   // server (findNodes filter) so the list never reads approval per row.
   let approvalFilter = $state<'' | 'APPROVED' | 'NOT_APPROVED' | 'SUPERSEDED'>('');
   let mintedFilter = $state<'any' | 'minted' | 'unminted'>('any');
-  // portal#1015 (cor:dmo:110:08): Content / Comments / All. Content is the
+  // portal#1015 (hrn:node:hadronmemory.com:specs:cor:dmo:110:08): Content / Comments / All. Content is the
   // default (the server's too). The SERVER applies it before ranking, paging and
   // the 500-hit cap, so Comments finds every matching comment, not the comments
   // among the first 500 general hits.
