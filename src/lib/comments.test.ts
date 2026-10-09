@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  commentHitView,
   anchorView,
   authorView,
   bodyView,
@@ -283,5 +284,22 @@ describe('commentMergeRefusal (hadron-server#1682)', () => {
   it('is null for every other code', () => {
     expect(commentMergeRefusal('FORBIDDEN', { nodes: [{ loc: 'x' }] }, 'memory')).toBeNull();
     expect(commentMergeRefusal(null, null, 'node')).toBeNull();
+  });
+});
+
+describe('commentHitView (portal#1015)', () => {
+  const base = {
+    id: 'c1', isTopLevel: true, state: 'OPEN' as const, anchorRevision: 2, anchorIsCurrent: false, retracted: false, hidden: false,
+    author: { kind: 'USER' as const, user: { id: 'u', name: 'Ann', handle: 'ann', urn: null }, worker: null, agent: null, app: null },
+    target: { id: 't', urn: 'hrn:node:o:m:t', name: 'T', nodeType: 'info', revSeq: 5 },
+  };
+  it('judges the anchor against the target\'s current revision', () => {
+    expect(commentHitView(base).anchor).toMatchObject({ current: false, revision: 2 });
+    expect(commentHitView({ ...base, anchorRevision: 5 }).anchor.current).toBe(true);
+  });
+  it('names the part of the thread', () => {
+    expect(commentHitView(base).role).toBe('Open discussion');
+    expect(commentHitView({ ...base, state: 'RESOLVED' }).role).toBe('Resolved discussion');
+    expect(commentHitView({ ...base, isTopLevel: false, state: null }).role).toBe('Reply');
   });
 });

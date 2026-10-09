@@ -4,6 +4,7 @@ import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { NODE_FIND_QUERY } from '$lib/server/queries';
 import type { MemoryNode, SearchHitMeta } from '$lib/types';
 import { NODE_FIELD_MASK_SET } from '$lib/search/node-fields';
+import { CONTENT_SCOPES, type CommentHit, type ContentScope } from '$lib/comments';
 import type { RequestHandler } from './$types';
 
 // Node search + structured filter (issues #355, #429). Browser → this endpoint
@@ -80,6 +81,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       where?: unknown;
       approvalState?: unknown;
       minted?: unknown;
+      contentScope?: unknown;
     };
     sort?: unknown;
     sortProperty?: unknown;
@@ -116,6 +118,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     ? (filter!.approvalState as ApprovalState)
     : null;
   const minted = typeof filter?.minted === 'boolean' ? filter.minted : null;
+  // portal#1015 (cor:dmo:110:08): content, comments or both, filtered by the
+  // SERVER before ranking and the result cap. Allowlisted; CONTENT is the server
+  // default so it is never sent, and an unknown value is dropped rather than
+  // reaching GraphQL enum coercion.
+  const requestedScope = CONTENT_SCOPES.includes(filter?.contentScope as ContentScope)
+    ? (filter!.contentScope as ContentScope)
+    : null;
+  const contentScope = requestedScope === 'COMMENTS' || requestedScope === 'ALL' ? requestedScope : null;
   const sortProp = parseSortProperty(sortProperty);
   if (sortProp === 'invalid') {
     return json({ error: 'Invalid sort.' }, { status: 400 });
@@ -132,7 +142,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const lexical = findMode === 'keyword' || findMode === 'regex';
   const searchFields = lexical && fieldSet.length > 0 ? fieldSet : null;
 
-  const hasFilter = !!(createdBy || updatedAfter || updatedBefore || includeDeleted || objectType || where || approvalState || minted !== null);
+  const hasFilter = !!(createdBy || updatedAfter || updatedBefore || includeDeleted || objectType || where || approvalState || minted !== null || contentScope);
   // Nothing to do → let the client browse the already-loaded set. (A bare
   // loc/seq sort with no query/filter is also a client-side reorder; a
   // property sort is server-only — the slim loaded set has no properties.)
@@ -151,7 +161,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const client = gqlClient(locals.token);
   type Hit = {
-    node: MemoryNode & { commentSummary?: { openThreads: number } | null };
+    node: MemoryNode & {
+      commentSummary?: { openThreads: number } | null;
+      asComment?: CommentHit | null;
+    };
     score: number | null;
     vector: {
       similarity: number | null;
@@ -186,6 +199,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       where,
       approvalState,
       minted,
+      contentScope,
       limit: SEARCH_LIMIT,
     });
 
@@ -208,8 +222,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // rows do (MemoryNode.openThreads); an absent summary stays absent, never 0.
     const nodes = hits.map((h) => {
       if (!h.node) return h.node;
-      const { commentSummary, ...node } = h.node;
-      return commentSummary ? { ...node, openThreads: commentSummary.openThreads } : node;
+      const { commentSummary, asComment, ...node } = h.node;
+      return {
+        ...node,
+        ...(commentSummary ? { openThreads: commentSummary.openThreads } : {}),
+        // portal#1015: a comment hit keeps its feedback shape; content has none.
+        ...(asComment ? { comment: asComment } : {}),
+      };
     });
     const hitIds = new Set(nodes.map((n) => n.id));
     // #432: per-hit relevance + vector metadata → { nodeId: SearchHitMeta }.

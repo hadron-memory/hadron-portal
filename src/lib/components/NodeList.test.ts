@@ -111,3 +111,38 @@ describe('open-feedback cue (portal#1014)', () => {
   });
 });
 
+
+const hit = {
+  id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 2, anchorIsCurrent: false, retracted: false, hidden: false,
+  author: { kind: 'WORKER', worker: { id: 'w1', name: 'Gil', handle: null, urn: 'hrn:worker:o:a:gil' }, user: null, agent: null, app: null },
+  target: { id: 't1', name: 'Retention policy', nodeType: 'info', revSeq: 5, urn: 'hrn:node:o:m:retention' },
+};
+
+// portal#1015 (cor:dmo:110:08): a Comments or All hit is feedback, labelled as
+// such with its author, target and anchor revision, and links back to the
+// DISCUSSION on its target rather than to the comment node.
+describe('comment search hits (portal#1015)', () => {
+  const commentNode = { ...node, id: 'c1', nodeType: 'comment', loc: 'comments:c1', name: 'Comment on Retention', comment: hit };
+
+  it('labels the row as a comment with its author, target and anchor revision', () => {
+    const { body } = render(NodeList, { props: { nodes: [commentNode], memoryUrn: 'micromentor.org::mmdata', basePath: '/app/memories/m1' } });
+    expect(body).toContain('data-testid="comment-hit"');
+    expect(body).toContain('Comment · Open discussion');
+    expect(body).toContain('by Gil');
+    expect(body).toContain('hrn:worker:o:a:gil');
+    expect(body).toContain('Retention policy');
+    expect(body).toContain('hrn:node:o:m:retention');
+    expect(body).toContain('On revision 2; the target is now at 5');
+  });
+
+  it('links to the target\'s discussion, not the comment node', () => {
+    const { body } = render(NodeList, { props: { nodes: [commentNode], memoryUrn: 'micromentor.org::mmdata', basePath: '/app/memories/m1' } });
+    expect(body).toContain('href="/app/memories/m1/nodes/t1?tab=discussion"');
+    expect(body).not.toContain('href="/app/memories/m1/nodes/c1"');
+  });
+
+  it('a content row carries none of it', () => {
+    const { body } = render(NodeList, { props: { nodes: [node], memoryUrn: 'micromentor.org::mmdata', basePath: '/app/memories/m1' } });
+    expect(body).not.toContain('comment-hit');
+  });
+});
