@@ -333,7 +333,7 @@
         <span>({provenanceText(c.provenanceUser)})</span>
       {/if}
       <time datetime={c.createdAt}>{new Date(c.createdAt).toLocaleString()}</time>
-      {#if c.updatedAt && view.kind === 'text'}
+      {#if c.updatedAt && c.updatedAt !== c.createdAt && view.kind === 'text'}
         <span>{t('comments.edited', '(edited)')}</span>
       {/if}
     </header>

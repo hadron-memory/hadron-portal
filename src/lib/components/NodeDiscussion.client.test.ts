@@ -79,6 +79,27 @@ afterEach(() => {
 });
 
 describe('NodeDiscussion (portal#1014)', () => {
+  it('fresh roots and replies have no edited marker', () => {
+    const createdAt = '2026-10-05T18:00:00.000Z';
+    const root = thread(comment('c1', { createdAt, updatedAt: createdAt }));
+    root.replies = [comment('r1', { createdAt, updatedAt: createdAt, threadRootId: 'c1', isTopLevel: false, state: null })];
+    root.replyCount = 1;
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3, initial: discussion([root]) });
+    expect(m.target.querySelectorAll('article')).toHaveLength(2);
+    expect(m.target.textContent).not.toContain('(edited)');
+    m.unmount();
+  });
+
+  it('an edited root and reply show the marker even at revision one', () => {
+    const updatedAt = '2026-10-05T18:01:00.000Z';
+    const root = thread(comment('c1', { updatedAt, revSeq: 1 }));
+    root.replies = [comment('r1', { updatedAt, revSeq: 1, threadRootId: 'c1', isTopLevel: false, state: null })];
+    root.replyCount = 1;
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3, initial: discussion([root]) });
+    for (const header of m.target.querySelectorAll('article header')) expect(header.textContent).toContain('(edited)');
+    m.unmount();
+  });
+
   it('a read-only reader sees the discussion and no controls at all (cor:dmo:110:03)', () => {
     const m = mountComponent(NodeDiscussion, {
       endpoint: ENDPOINT,
