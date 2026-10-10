@@ -2071,8 +2071,8 @@
 
   <!-- Header -->
   <div class="flex items-start justify-between gap-3">
-    <div>
-      <h1 class="flex items-center gap-2 text-xl font-bold text-zinc-900 dark:text-white">
+    <div class="min-w-0">
+      <h1 class="flex flex-wrap items-center gap-2 text-xl font-bold text-zinc-900 dark:text-white">
         {#if node.isRunnable}
           <svg class="h-5 w-5 shrink-0 text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="12" cy="12" r="3"></circle>
@@ -2096,7 +2096,7 @@
             <path d="M8.5 14h4"></path>
           </svg>
         {/if}
-        <span><span class="text-zinc-400 font-normal">{node.isRunnable ? createNodeStrings.taskNodeCaption() : isChat ? createNodeStrings.chatNodeCaption() : isChatMessage ? createNodeStrings.chatMessageNodeCaption() : createNodeStrings.nodeCaption()}</span> {node.name}</span>
+        <span class="min-w-0 break-words"><span class="text-zinc-400 font-normal">{node.isRunnable ? createNodeStrings.taskNodeCaption() : isChat ? createNodeStrings.chatNodeCaption() : isChatMessage ? createNodeStrings.chatMessageNodeCaption() : createNodeStrings.nodeCaption()}</span> {node.name}</span>
         <!-- #921: the node's role, verbatim (dotted sub-roles included), so a
              spec reviewer sees it without opening Settings. -->
         {#if node.role}
@@ -2551,11 +2551,7 @@
 
   <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
-    <!-- #858 — the strip scrolls. Seven tabs are 717px in a ~308px column at a
-         390px viewport, and this was the LARGEST of the three causes behind
-         #854's 297px of document overflow. The other two (a long inline
-         <code> in the rendered body, and a header that cannot shrink) are
-         still #854's and are not touched here. -->
+    <!-- #858: keep tabs in their own horizontal scroller at phone widths. -->
     <div class="mb-3 flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
       <!-- Chat nodes only: the thread as bubbles, same view as /chat. -->
       {#if isChat}
