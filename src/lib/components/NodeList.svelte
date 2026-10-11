@@ -9,6 +9,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
   import ViewTabs from './table/ViewTabs.svelte';
+  import TableFrame from './table/TableFrame.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { t } from '$lib/i18n/t';
@@ -228,12 +229,11 @@
 </script>
 
 <div class="space-y-3">
-  <!-- Saved-views strip, search and Columns share one row to save vertical
-       space. Search stays far-left; ViewTabs takes the remaining width
-       (flex-1) so its "+ New view" button lands next to Columns, and drops its
-       bottom rule (bordered=false) since it no longer sits on its own line —
-       the table border below provides the separation. -->
-  <div class="flex items-center gap-4">
+  <!-- #1021: search, saved views and Columns are this table's header — folded by
+       default, attached to the table when open (TableFrame). ViewTabs takes the
+       remaining width (flex-1) so its "+ New view" button lands next to Columns.
+       An orderable list with no search has no controls, so no frame either. -->
+  {#snippet controlRow()}
     {#if !hideSearch}
       <input
         type="text"
@@ -250,8 +250,8 @@
            search) already pushes it there. -->
       <div class={!listKey && hideSearch ? 'ml-auto' : ''}><ColumnToggle {table} /></div>
     {/if}
-  </div>
-
+  {/snippet}
+  {#snippet tableBody()}
   {#if nodes.length === 0}
     <p class="text-sm text-zinc-500">No nodes.</p>
   {:else}
@@ -454,5 +454,14 @@
         </div>
       </div>
     {/if}
+  {/if}
+  {/snippet}
+  {#if !hideSearch || !orderable}
+    <TableFrame active={globalFilter.trim() !== ''}>
+      {#snippet controls()}{@render controlRow()}{/snippet}
+      {@render tableBody()}
+    </TableFrame>
+  {:else}
+    {@render tableBody()}
   {/if}
 </div>

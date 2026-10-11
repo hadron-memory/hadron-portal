@@ -23,6 +23,7 @@
   import type { Snippet } from 'svelte';
   import ViewTabs from './ViewTabs.svelte';
   import ColumnToggle from './ColumnToggle.svelte';
+  import TableFrame from './TableFrame.svelte';
   import { tableStrings } from '$lib/i18n/table-strings';
 
   let {
@@ -53,6 +54,9 @@
     cell: Snippet<[PortalCell<T, unknown>, T]>;
   } = $props();
 
+  let headerOpen = $state(false);
+  const active = $derived(globalFilter.trim() !== '');
+
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
   const pageCount = $derived(table.getPageCount());
@@ -72,16 +76,18 @@
   }
 </script>
 
-<!-- Saved-views strip, search and Columns share one row to save vertical
-     space. Search stays far-left; ViewTabs takes the remaining width (flex-1)
-     so its "+ New view" button lands next to Columns, and drops its bottom rule
-     (bordered=false) since it no longer sits on its own line. -->
-<div class="flex items-center gap-4">
-  <input type="text" placeholder={searchPlaceholder} aria-label={searchAriaLabel} bind:value={globalFilter}
+<!-- #1021: search, saved views and Columns are the table's header — folded by
+     default behind one toggle, attached to the table's top edge when open (see
+     TableFrame). The view strip takes the remaining width (flex-1) so its
+     "+ New view" button lands next to Columns; bordered=false since it no
+     longer sits on its own line. -->
+<TableFrame {active} bind:open={headerOpen}>
+  {#snippet controls()}
+<input type="text" placeholder={searchPlaceholder} aria-label={searchAriaLabel} bind:value={globalFilter}
     class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
   <ViewTabs {table} {listKey} bordered={false} class="min-w-0 flex-1" />
   <ColumnToggle {table} />
-</div>
+  {/snippet}
 
 <!-- Bounded, internally-scrolling container so the page itself doesn't
      scroll and the pagination footer below stays visible. The `<thead>`
@@ -153,6 +159,7 @@
     </tbody>
   </table>
 </div>
+</TableFrame>
 
 <!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
 <div class="flex items-center justify-between gap-3">
