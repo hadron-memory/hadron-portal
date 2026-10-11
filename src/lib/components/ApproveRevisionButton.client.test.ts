@@ -27,9 +27,11 @@ const lum = (hex: string) => {
 const contrastOnWhite = (hex: string) => 1.05 / (lum(hex) + 0.05);
 
 describe('ApproveRevisionButton (#1002)', () => {
-  it('keeps white text at WCAG AA (4.5:1) on every fill it can show: rest, hover, dark', () => {
+  it('keeps white text at WCAG AA (4.5:1) on every fill it can show: rest and hover', () => {
     const b = mountButton({ revision: 7 });
     const fills = [...b.className.matchAll(/(?:^|\s)(?:[\w-]+:)*bg-emerald-(\d{3})\b/g)].map((m) => m[1]);
+    // The ratios below assume a white foreground; pin it.
+    expect(b.className).toMatch(/\btext-white\b/);
     expect(fills.length).toBeGreaterThanOrEqual(2); // rest + hover
     for (const shade of fills) {
       expect(EMERALD[shade], `unknown shade ${shade}`).toBeDefined();
