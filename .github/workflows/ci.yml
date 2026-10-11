@@ -68,6 +68,14 @@ jobs:
       - name: Test
         run: pnpm test
 
+      # #854: jsdom cannot measure flexbox or document overflow. This fixture
+      # uses the compiled app CSS and actual Urn component, without an API/DB.
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Check node phone layout
+        run: pnpm test:node-phone-layout
+
       - name: Check
         run: pnpm check
 

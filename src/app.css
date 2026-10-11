@@ -67,6 +67,8 @@ html:not(.dark) textarea::placeholder {
  * class-scoped rules win without !important.
  */
 .prose :not(pre) > code {
+  /* #854: authored inline tokens wrap; preformatted blocks keep scrolling. */
+  overflow-wrap: anywhere;
   font-weight: 500;
   background-color: rgb(244 244 245); /* zinc-100 */
   color: rgb(39 39 42); /* zinc-800 */
