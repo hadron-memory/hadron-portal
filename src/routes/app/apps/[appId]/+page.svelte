@@ -51,6 +51,7 @@
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import AppMembersPanel from './AppMembersPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -362,6 +363,47 @@
     globalFilterFn: makeGlobalFilterFn<Worker>({}),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
+  // #1006: the Agents tab. The App's install ROSTER (`App.agents`), not
+  // `App.agent` — that one is only the first installed agent
+  // (hrn:node:hadronmemory.com:hadron-portal:findings:app-agent-is-only-the-first-agent).
+  type InstalledAgent = NonNullable<(typeof app)['agents']>[number];
+  const installedAgentsSorted = $derived(
+    [...installedAgents].sort((a, b) => a.name.localeCompare(b.name)),
+  );
+  // Installable = offered by the server and not installed yet. The loader sends
+  // the full pool whether or not the App already has agents, so the add path
+  // does not vanish once the first agent is in.
+  const addableAgents = $derived(
+    availableAgents.filter((a) => !installedAgents.some((i) => i.id === a.id)),
+  );
+  let agentsFilter = $state('');
+  const agentColumns: PortalColumnDef<InstalledAgent>[] = [
+    // The URN rides the Name cell's second line, as on the worker grid; search
+    // still matches it because the accessor keeps it in the filter text.
+    { accessorFn: (row) => `${row.name} ${row.urn ?? ''}`, id: 'name', header: t('app.agents.column.name', 'Name'), enableHiding: false, size: 320 },
+    { accessorFn: (row) => row.personaRole ?? '', id: 'role', header: t('app.agents.column.role', 'Role'), size: 180 },
+    { id: 'actions', header: t('app.agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 100 },
+  ];
+  const agentsTable = createSvelteTable<InstalledAgent>({
+    get data() {
+      return installedAgentsSorted;
+    },
+    columns: agentColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return agentsFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      agentsFilter = typeof u === 'function' ? u(agentsFilter) : u;
+    },
+    globalFilterFn: makeGlobalFilterFn<InstalledAgent>({}),
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
+
   // #648: this page is canonical org-optional — an org-owned app renders its org
   // chrome, a user-owned (org-less) app does not. The "Apps" list this app
   // belongs to is the org grid for an org app, the personal "My apps" list for a
@@ -437,11 +479,19 @@
       // revoke made THERE stays there.
       return current === 'client' ? 'client' : 'keys';
     }
+    // #1006: installing and unlinking an agent happen on the Agents tab now.
+    if (submittedForm<AddAgentForm>(result, 'addAgent') || submittedForm<RemoveAppAgentForm>(result, 'removeAgent')) {
+      return 'agents';
+    }
+    // #1005: member changes land back on the Human Team tab.
     if (
-      submittedForm<AddAgentForm>(result, 'addAgent') ||
-      submittedForm<RemoveAppAgentForm>(result, 'removeAgent') ||
-      submittedForm<DeleteAppForm>(result, 'deleteApp')
+      submittedForm(result, 'addAppMember') ||
+      submittedForm(result, 'ensureAppMember') ||
+      submittedForm(result, 'removeAppMember')
     ) {
+      return 'members';
+    }
+    if (submittedForm<DeleteAppForm>(result, 'deleteApp')) {
       return 'settings';
     }
     return null;
@@ -477,7 +527,13 @@
     // carry through the URN resolver, so changing 'staff' here would break
     // every `?tab=staff` link already shared — the exact thing that fix
     // rescued. A label is presentation; an id is an address.
-    { id: 'staff', label: t('app.tabs.staff', 'Worker agents') },
+    // #1005: "AI Team" is the label the issue asks for; the id stays.
+    { id: 'staff', label: t('app.tabs.staff', 'AI Team') },
+    // #1005: the people of the App — the former /members page, in place.
+    // Always present: an App with no members yet still needs the way to add one.
+    { id: 'members', label: t('app.tabs.members', 'Human Team') },
+    // #1006: the agents installed in the App, and the way to install another.
+    { id: 'agents', label: t('app.tabs.agents', 'Agents') },
     // #733: the worklog — the authoritative artifact-to-worker-session join.
     // Always present for the same reason as Staff: nine records nobody can see
     // is the problem this tab exists to fix, and an empty worklog is
@@ -960,13 +1016,6 @@
       { taint: false },
     );
   }
-
-  // 008-agent-installation: an App has at most one Agent (App.agent_id, a
-  // direct FK; the AppAgent join was dropped). The "subscribable agents"
-  // list is now "agents not yet linked" — empty when an Agent is already set.
-  const subscribableAgents = $derived(
-    app.agent ? [] : availableAgents,
-  );
 
   interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
   const effectiveMemories = $derived.by(() => {
@@ -1495,10 +1544,10 @@
               )}
             </p>
             <button
-              onclick={() => activeTab = 'settings'}
+              onclick={() => activeTab = 'agents'}
               class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600"
             >
-              {t('app-chat.empty.link-agent-cta', 'Link an agent in Settings')}
+              {t('app-chat.empty.link-agent-cta', 'Link an agent on the Agents tab')}
             </button>
           </div>
         </div>
@@ -1717,7 +1766,7 @@
     <div class="space-y-4">
       <div class="flex items-start justify-between gap-4">
         <div>
-          <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.staff.title', 'Worker agents')}</h2>
+          <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.staff.title', 'AI Team')}</h2>
           <p class="mt-1 max-w-2xl text-sm text-zinc-500">
             {t(
               'app.staff.description',
@@ -1726,12 +1775,6 @@
           </p>
         </div>
         <div class="flex shrink-0 items-center gap-2">
-          <a
-            href="/app/apps/{app.id}/members"
-            class="rounded-lg border border-zinc-300 px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >
-            {t('app.staff.members-link', 'People')}
-          </a>
           <button
             type="button"
             onclick={() => (castOpen = !castOpen)}
@@ -1796,7 +1839,7 @@
         <p class="text-sm text-zinc-500">
           {t(
             'app.staff.no-roster',
-            'No agents are installed in this App yet, so there is nothing to cast. Install one from Settings first.',
+            'No agents are installed in this App yet, so there is nothing to cast. Install one from the Agents tab first.',
           )}
         </p>
       {:else if castableAgents.length === 0}
@@ -1805,7 +1848,7 @@
         <p class="text-sm text-zinc-500">
           {t(
             'app.staff.no-role-agents',
-            'None of this App’s installed agents has a role, so there is nothing to cast. Install a role agent from Settings first.',
+            'None of this App’s installed agents has a role, so there is nothing to cast. Install a role agent from the Agents tab first.',
           )}
         </p>
       {/if}
@@ -2111,6 +2154,128 @@
   {/if}
 
   <!-- ───────────── MEMORY TAB ───────────── -->
+  <!-- ───────────── HUMAN TEAM TAB (#1005) ───────────── -->
+  {#if activeTab === 'members'}
+    <div id="panel-members" role="tabpanel" aria-labelledby="tab-members" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+      <AppMembersPanel
+        {app}
+        members={data.members}
+        membersError={data.membersError}
+        addMemberForm={data.addMemberForm}
+        ensureMemberForm={data.ensureMemberForm}
+        removeMemberForm={data.removeMemberForm}
+        {form}
+      />
+    </div>
+  {/if}
+
+  <!-- ───────────── AGENTS TAB (#1006) ───────────── -->
+  {#if activeTab === 'agents'}
+    <div id="panel-agents" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    <div class="space-y-4">
+      <div>
+        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
+        <p class="mt-1 max-w-2xl text-sm text-zinc-500">
+          {t(
+            'app.agents.description',
+            'The agents installed in this App. Cast a worker from one of them on the AI Team tab.',
+          )}
+        </p>
+      </div>
+
+      {#if installedAgentsSorted.length === 0}
+        <p class="text-sm text-zinc-500">{t('app.agents.empty', 'No agents are installed in this App yet.')}</p>
+      {:else}
+        <DataTable
+          table={agentsTable}
+          listKey="apps:agents"
+          searchPlaceholder={t('app.agents.search.placeholder', 'Search agents...')}
+          searchAriaLabel={t('app.agents.search.aria-label', 'Search agents')}
+          bind:globalFilter={agentsFilter}
+          maxHeight="max(200px, calc(100vh - 30rem))"
+        >
+          {#snippet cell(cell, agent)}
+            {#if cell.column.id === 'name'}
+              <div class="min-w-0">
+                <a href="/app/agents/{agent.id}" class="truncate text-sm font-medium text-zinc-900 hover:underline dark:text-white">{agent.name}</a>
+                {#if agent.urn}
+                  <Urn value={agent.urn} type="agent" size={8} />
+                {/if}
+              </div>
+            {:else if cell.column.id === 'role'}
+              {#if agent.personaRole}
+                <div class="truncate">{agent.personaRole}</div>
+              {:else}
+                <span class="text-zinc-500">{t('app.agents.no-role', 'No role')}</span>
+              {/if}
+            {:else if cell.column.id === 'actions'}
+              <!-- Keep both handlers: onclick updates before client validation for button activation;
+                   onsubmit covers keyboard/requestSubmit paths. -->
+              <form method="POST" action="?/removeAgent" use:removeAgentEnhance onsubmit={() => setRemoveAgent(agent.id)} novalidate>
+                <input type="hidden" name="_kind" value="removeAgent" />
+                <input type="hidden" name="agentId" value={agent.id} />
+                <button
+                  type="submit"
+                  disabled={$removeAgentSubmitting}
+                  onclick={() => setRemoveAgent(agent.id)}
+                  aria-label={`${t('app.agents.unlink', 'Unlink')} ${agent.name}`}
+                  class="text-xs text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:text-red-300"
+                >{t('app.agents.unlink', 'Unlink')}</button>
+              </form>
+            {:else}
+              <div class="truncate">{cell.getValue() ?? '—'}</div>
+            {/if}
+          {/snippet}
+        </DataTable>
+      {/if}
+
+      <!-- Add an agent: the install picker that used to appear only while the
+           App had no agent. -->
+      <section class="max-w-2xl">
+        <h3 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.agents.add.title', 'Add an agent')}</h3>
+        {#if data.availableAgentsError}
+          <p role="alert" class="text-sm text-red-600 dark:text-red-400">
+            {t('app.agents.add.unavailable', 'The list of agents you can add could not be loaded. Reload to try again.')}
+          </p>
+        {:else if addableAgents.length > 0}
+          <form method="POST" action="?/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
+            <input type="hidden" name="_kind" value={$addAgentForm._kind} />
+            <div class="flex-1 min-w-[200px]">
+              <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.agents.add.label', 'Agent')}</label>
+              <select
+                id="agentId"
+                name="agentId"
+                bind:value={$addAgentForm.agentId}
+                aria-invalid={!!addAgentError}
+                aria-describedby={addAgentError ? 'addAgentError' : undefined}
+                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white {addAgentError ? 'border-red-500 focus:border-red-500' : ''}"
+              >
+                <option value="">Select…</option>
+                {#each addableAgents as a (a.id)}
+                  <option value={a.id}>{a.name} ({a.urn})</option>
+                {/each}
+              </select>
+              {#if addAgentError}
+                <p id="addAgentError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{addAgentError}</p>
+              {/if}
+              {#if addAgentActionError}
+                <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{addAgentActionError}</p>
+              {/if}
+            </div>
+            <button type="submit" disabled={!$addAgentForm.agentId || $addAgentSubmitting}
+              class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              style="background: #219ebc;">
+              {$addAgentSubmitting ? 'Linking...' : 'Link'}
+            </button>
+          </form>
+        {:else}
+          <p class="text-sm text-zinc-500">{t('app.agents.add.none', 'There is no other agent to add.')}</p>
+        {/if}
+      </section>
+    </div>
+    </div>
+  {/if}
+
   {#if activeTab === 'memory'}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} {writableMemoryIds} scopeMemoryIds={effectiveMemories.map((m) => m.id)} />
@@ -2414,92 +2579,6 @@
               <span class="text-sm text-zinc-900 dark:text-white">{new Date(app.createdAt).toLocaleDateString()}</span>
             </div>
           </div>
-        {/if}
-      </section>
-
-      <!-- Agent (008: at most one per App, via the direct App.agent_id FK) -->
-      <section class="max-w-2xl">
-        <h2 class="mb-3 flex items-baseline gap-3 text-lg font-semibold text-zinc-900 dark:text-white">
-          <span>Agent</span>
-          {#if app.agent}
-            <a href="/app/apps/{app.id}/members"
-              class="text-sm font-normal text-indigo-500 hover:underline dark:text-indigo-400">
-              {app.memberCount} {app.memberCount === 1 ? 'member' : 'members'} →
-            </a>
-          {/if}
-        </h2>
-        <p class="mb-3 text-sm text-zinc-500">The Agent this App deploys. App Key holders can only call into this Agent.</p>
-
-        {#if app.agent}
-          <div class="mb-4 rounded-xl border border-zinc-200 bg-white px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-            <div class="flex items-center gap-4">
-              <span class="text-base">🤖</span>
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{app.agent.name}</p>
-                <Urn value={app.agent.urn} type="agent" size={10} />
-                {#if app.installedAgentUrn}
-                  <!-- Spec 021 US1: R2 canonical install URN. Surfaces the
-                       canonical form that audit logs reference, so the
-                       user can copy/paste the install URN without
-                       composing it manually. -->
-                  <div class="mt-1">
-                    <span class="mr-1 text-xs text-zinc-500">Install URN:</span>
-                    <Urn value={app.installedAgentUrn} type="agent" size={10} />
-                  </div>
-                {/if}
-                {#if app.agent.description}
-                  <p class="mt-1 text-xs text-zinc-500">{app.agent.description}</p>
-                {/if}
-              </div>
-              <div class="flex shrink-0 flex-col items-end gap-1 text-xs text-zinc-500">
-                <span>{app.trainingMode ? 'Training mode' : 'Production'}</span>
-                {#if (app.surfaces ?? []).length > 0}
-                  <span>Surfaces: {(app.surfaces ?? []).join(', ')}</span>
-                {/if}
-              </div>
-              <!-- Keep both handlers: onclick updates before client validation for button activation;
-                   onsubmit covers keyboard/requestSubmit paths. -->
-              <form method="POST" action="?/removeAgent" use:removeAgentEnhance onsubmit={() => setRemoveAgent(app.agent?.id ?? '')} class="shrink-0" novalidate>
-                <input type="hidden" name="_kind" value="removeAgent" />
-                <input type="hidden" name="agentId" value={app.agent.id} />
-                <button type="submit" disabled={$removeAgentSubmitting} onclick={() => setRemoveAgent(app.agent?.id ?? '')} class="text-xs text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Unlink</button>
-              </form>
-            </div>
-          </div>
-        {:else}
-          <p class="mb-4 text-sm text-zinc-500">No agent linked yet.</p>
-          {#if subscribableAgents.length > 0 || availableAgents.length > 0}
-            <form method="POST" action="?/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
-              <input type="hidden" name="_kind" value={$addAgentForm._kind} />
-              <div class="flex-1 min-w-[200px]">
-                <label for="agentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Link an agent</label>
-                <select
-                  id="agentId"
-                  name="agentId"
-                  bind:value={$addAgentForm.agentId}
-                  aria-invalid={!!addAgentError}
-                  aria-describedby={addAgentError ? 'addAgentError' : undefined}
-                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white {addAgentError ? 'border-red-500 focus:border-red-500' : ''}"
-                >
-                  <option value="">Select…</option>
-                  {#each (subscribableAgents.length > 0 ? subscribableAgents : availableAgents) as a (a.id)}
-                    <option value={a.id}>{a.name} ({a.urn})</option>
-                  {/each}
-                </select>
-                {#if addAgentError}
-                  <p id="addAgentError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{addAgentError}</p>
-                {/if}
-                {#if addAgentActionError}
-                  <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{addAgentActionError}</p>
-                {/if}
-              </div>
-              <button type="submit" disabled={!$addAgentForm.agentId || $addAgentSubmitting}
-                class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-                style="background: #219ebc;">
-                {$addAgentSubmitting ? 'Linking...' : 'Link'}
-              </button>
-            </form>
-          {/if}
         {/if}
       </section>
 

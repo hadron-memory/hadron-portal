@@ -16,11 +16,14 @@ import { lookupOwn } from '$lib/lookup';
  *  default.
  *
  *  #1007/#1008: `keys` and `ai-configs` were sections of Settings; they are
- *  their own tabs now, so each is linkable on its own. */
+ *  their own tabs now, so each is linkable on its own. #1005/#1006: so are
+ *  `members` (the former /members page) and `agents` (Settings' Agent section). */
 export const APP_TAB_IDS = [
   'chats',
   'worklog',
   'staff',
+  'members',
+  'agents',
   'memory',
   'keys',
   'ai-configs',

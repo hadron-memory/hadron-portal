@@ -553,11 +553,18 @@ export const APP_DETAIL_ORG_QUERY = /* GraphQL */ `
   }
 `;
 
-export const APP_DETAIL_ORG_WITH_AGENTS_QUERY = /* GraphQL */ `
-  ${APP_DETAIL_ORG_FIELDS}
-  query AppDetailOrgWithAgents($ref: ID!) {
+/**
+ * The agents an org-owned App can install (#1006: the Agents tab's picker).
+ *
+ * A request of its own, NOT a field on APP_DETAIL_ORG_QUERY: `agents` is a
+ * non-null list, so folded into the org document its failure would null the org
+ * and 404 the whole page over a picker one tab draws (#851). Asked separately,
+ * a refusal costs that picker, and the loader reports it as an error.
+ */
+export const APP_ORG_AGENTS_QUERY = /* GraphQL */ `
+  query AppOrgAgents($ref: ID!) {
     organization(ref: $ref) {
-      ...AppDetailOrgFields
+      id
       agents {
         id
         name
@@ -793,6 +800,25 @@ export const APP_QUERY = /* GraphQL */ `
       # a server that hasn't picked up spec-021-US1 yet without
       # breaking unrelated app queries.
       installedAgentUrn
+    }
+  }
+`;
+
+// #1005: the App page's Human Team tab. The members ride their own small
+// query, not APP_QUERY, so a members resolver that refuses cannot null the page
+// (the loader reports that as `membersError`, distinct from "no members").
+export const APP_MEMBERS_QUERY = /* GraphQL */ `
+  query AppMembers($ref: ID!) {
+    app(ref: $ref) {
+      id
+      members {
+        appId
+        userId
+        role
+        createdAt
+        updatedAt
+        user { id handle githubUsername name avatarUrl email }
+      }
     }
   }
 `;
