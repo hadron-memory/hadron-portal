@@ -31,6 +31,15 @@ export const tableStrings = {
   /** Previous-page button. */
   previous: (): string => t('table.pagination.previous', 'Previous'),
 
+  /** Folded-header toggle (search, saved views and columns live behind it). */
+  showHeader: (): string => t('table.header.show', 'Search, views & columns'),
+
+  /** Button that folds the header again. */
+  hideHeader: (): string => t('table.header.hide', 'Hide'),
+
+  /** Tooltip on the dot shown while a search is narrowing the rows. */
+  headerActive: (): string => t('table.header.active', 'A search is narrowing these rows'),
+
   /** Next-page button. */
   next: (): string => t('table.pagination.next', 'Next'),
 };

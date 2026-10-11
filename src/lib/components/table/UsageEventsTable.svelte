@@ -6,6 +6,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import ViewTabs from '$lib/components/table/ViewTabs.svelte';
+  import TableFrame from './TableFrame.svelte';
   import ColumnToggle from '$lib/components/table/ColumnToggle.svelte';
   import type { UsageEvent } from '$lib/components/table/usageEvent';
 
@@ -88,19 +89,16 @@
 </script>
 
 <div class="space-y-4">
-  <!-- Saved-views tab strip -->
-  <ViewTabs {table} {listKey} />
-
-  <!-- Filter + columns -->
-  <div class="flex items-center gap-4">
-    <input type="text" placeholder="Search events..." bind:value={globalFilter}
-      class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-    <ColumnToggle {table} />
-  </div>
-
   {#if events.length === 0}
     <p class="text-sm text-zinc-500">No usage events found.</p>
   {:else}
+    <TableFrame active={globalFilter.trim() !== ''}>
+      {#snippet controls()}
+      <input type="text" placeholder="Search events..." bind:value={globalFilter}
+      class="min-w-[10rem] max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+        <ViewTabs {table} {listKey} bordered={false} class="min-w-[14rem] flex-1" />
+        <ColumnToggle {table} />
+      {/snippet}
     <!-- Bounded, internally-scrolling container; sticky header; footer stays
          visible below. -->
     <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: {maxHeight};">
@@ -168,5 +166,6 @@
         {/if}
       </div>
     </div>
+    </TableFrame>
   {/if}
 </div>

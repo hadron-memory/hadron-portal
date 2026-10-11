@@ -6,6 +6,7 @@
   import { t } from '$lib/i18n/t';
   import Urn from './Urn.svelte';
   import ViewTabs from './table/ViewTabs.svelte';
+  import TableFrame from './table/TableFrame.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
 
   // Minimal shape — callers only need to supply these. Additional fields
@@ -68,18 +69,17 @@
 </script>
 
 <div class="space-y-3">
-  {#if agents.length > 0}
-    {#if listKey}<ViewTabs {table} {listKey} />{/if}
-    <div class="flex flex-wrap items-center gap-3">
-      <input type="text" placeholder="Search agents..." bind:value={globalFilter}
-        class="max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-      <ColumnToggle {table} />
-    </div>
-  {/if}
 
   {#if agents.length === 0}
     <p class="text-sm text-zinc-500">No agents.</p>
   {:else}
+    <TableFrame active={globalFilter.trim() !== ''}>
+      {#snippet controls()}
+        <input type="text" placeholder="Search agents..." bind:value={globalFilter}
+        class="min-w-[10rem] max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+        {#if listKey}<ViewTabs {table} {listKey} bordered={false} class="min-w-[14rem] flex-1" />{/if}
+        <ColumnToggle {table} />
+      {/snippet}
     <div class="overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800" style="max-height: 60vh;">
       <table class="text-sm" style="table-layout: fixed; width: max(100%, {table.getCenterTotalSize() + (onremove ? 80 : 0)}px);">
         <thead>
@@ -148,5 +148,6 @@
         </tbody>
       </table>
     </div>
+    </TableFrame>
   {/if}
 </div>
