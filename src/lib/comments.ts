@@ -10,8 +10,8 @@
  * - A thread is anchored to the revision of the target its author read
  *   (`110:01`). A thread on an older revision is labelled with it, never shown
  *   as if it were about the current text.
- * - Only writers may comment (`110:03`). Only a comment's author edits or
- *   retracts it; writers resolve and reopen; memory admins hide and delete
+ * - Only writers may comment (`110:03`). Only the author edits; the author
+ *   or a memory manager deletes. Writers resolve and reopen
  *   (`110:05`). Commenting never offers edit, approve or mint.
  * - Open feedback is a trust cue, never a gate (`110:07`).
  * - Refusals map to FIXED copy by `extensions.code`. The server's prose is
@@ -54,15 +54,16 @@ export interface Comment {
   anchorRevision: number;
   anchorApprovalHash: string;
   anchorIsCurrent: boolean;
-  /** Null when retracted or hidden: the stub shows the state, not the text. */
+  /** Null on a deleted stub: the stub shows the state, not the text. */
   quote: string | null;
   body: string | null;
   /** Top-level comments only. */
   state: CommentThreadState | null;
-  retracted: boolean;
-  retractedAt: string | null;
-  hidden: boolean;
-  hiddenAt: string | null;
+  deleted: boolean;
+  deletedAt: string | null;
+  deletedBy: CommentActorRef | null;
+  editedAt: string | null;
+  editedBy: CommentActorRef | null;
   resolvedAt: string | null;
   resolvedBy: CommentActorRef | null;
   author: CommentAuthor;
@@ -216,12 +217,11 @@ export function anchorView(comment: Pick<Comment, 'anchorRevision'>, shownRevisi
 
 // ── Body ───────────────────────────────────────────────────────────────
 
-export type BodyView = { kind: 'text'; body: string; quote: string | null } | { kind: 'retracted' } | { kind: 'hidden' };
+export type BodyView = { kind: 'text'; body: string; quote: string | null } | { kind: 'deleted' };
 
-/** A retracted or hidden comment leaves a stub so its replies keep their context (`110:05`). */
-export function bodyView(comment: Pick<Comment, 'body' | 'quote' | 'retracted' | 'hidden'>): BodyView {
-  if (comment.hidden) return { kind: 'hidden' };
-  if (comment.retracted) return { kind: 'retracted' };
+/** A deleted root stays as a stub only while live replies need its context. */
+export function bodyView(comment: Pick<Comment, 'body' | 'quote' | 'deleted'>): BodyView {
+  if (comment.deleted) return { kind: 'deleted' };
   return { kind: 'text', body: comment.body ?? '', quote: comment.quote };
 }
 
@@ -230,21 +230,19 @@ export function bodyView(comment: Pick<Comment, 'body' | 'quote' | 'retracted' |
 export interface CommentPermissions {
   /** May write the target's memory: post, reply, resolve, reopen (`110:03`, `110:05`). */
   canWrite: boolean;
-  /** Administers the target's memory: hide, delete a thread. */
+  /** Administers the target’s memory: delete others’ comments or a whole thread. */
   canManage: boolean;
 }
 
 export interface CommentControls {
   reply: boolean;
   edit: boolean;
-  retract: boolean;
+  deleteComment: boolean;
   resolve: boolean;
   reopen: boolean;
-  hide: boolean;
   deleteThread: boolean;
 }
 
-const NONE: CommentControls = { reply: false, edit: false, retract: false, resolve: false, reopen: false, hide: false, deleteThread: false };
 
 /**
  * The controls one comment offers. `viewerIsAuthor` is the server's answer to
@@ -252,29 +250,24 @@ const NONE: CommentControls = { reply: false, edit: false, retract: false, resol
  * `thread` is the comment's thread root (itself, for a top-level comment).
  */
 export function commentControls(
-  comment: Pick<Comment, 'isTopLevel' | 'retracted' | 'hidden'>,
-  thread: Pick<Comment, 'state' | 'retracted' | 'hidden'>,
+  comment: Pick<Comment, 'isTopLevel' | 'deleted'>,
+  thread: Pick<Comment, 'state' | 'deleted'>,
   perms: CommentPermissions,
   viewerIsAuthor: boolean,
 ): CommentControls {
-  // A hidden comment takes no writes but an admin's thread delete (§5 COMMENT_HIDDEN).
-  if (comment.hidden) {
-    return { ...NONE, deleteThread: perms.canManage && comment.isTopLevel };
-  }
   const resolved = thread.state === 'RESOLVED';
-  const threadLive = !thread.retracted && !thread.hidden;
-  const live = !comment.retracted;
+  const threadLive = !thread.deleted;
+  const live = !comment.deleted;
   return {
     // DAB (Holger, 2026-10-05, team chat #6989): a resolved thread still takes
     // replies, and a reply doesn't reopen it.
     reply: perms.canWrite && threadLive,
-    // Editing and retracting are the author's alone, and they still need write
+    // Editing is the author's alone, and they still need write
     // access: a writer who lost it can no longer change the memory's content.
     edit: perms.canWrite && viewerIsAuthor && live,
-    retract: perms.canWrite && viewerIsAuthor && live,
+    deleteComment: live && ((perms.canWrite && viewerIsAuthor) || perms.canManage),
     resolve: comment.isTopLevel && perms.canWrite && live && !resolved,
     reopen: comment.isTopLevel && perms.canWrite && live && resolved,
-    hide: perms.canManage && live,
     deleteThread: perms.canManage && comment.isTopLevel,
   };
 }
@@ -289,7 +282,7 @@ export function commentControls(
  */
 export function readerOpenThreadId(threads: DiscussionThread[], summary?: CommentSummary | null): string | null {
   if (summary && summary.viewerOpenThreadId !== undefined) return summary.viewerOpenThreadId;
-  const t = threads.find((th) => th.mine[th.root.id] && th.root.state === 'OPEN' && !th.root.retracted && !th.root.hidden);
+  const t = threads.find((th) => th.mine[th.root.id] && th.root.state === 'OPEN' && !th.root.deleted);
   return t?.root.id ?? null;
 }
 
@@ -325,8 +318,7 @@ export interface CommentHit {
   isTopLevel: boolean;
   state: CommentThreadState | null;
   anchorRevision: number;
-  retracted: boolean;
-  hidden: boolean;
+  deleted: boolean;
   author: CommentAuthor;
   target: CommentTargetRef;
 }
@@ -415,7 +407,7 @@ export function commentMergeRefusal(
 
 // ── Refusals ───────────────────────────────────────────────────────────
 
-export type CommentAction = 'create' | 'reply' | 'edit' | 'retract' | 'resolve' | 'reopen' | 'hide' | 'delete';
+export type CommentAction = 'create' | 'reply' | 'edit' | 'deleteComment' | 'resolve' | 'reopen' | 'delete';
 
 /**
  * Fixed copy for a refused comment write, keyed by the contract's §5 codes.
@@ -439,17 +431,15 @@ export function commentFailure(code: string | null | undefined, action: CommentA
     case 'COMMENT_OPEN_THREAD_EXISTS':
       return {
         status: 409,
-        text: t('comments.refused.open-thread', 'You already have an open discussion on this node. Reply there, or resolve or retract it to start a new one.'),
+        text: t('comments.refused.open-thread', 'You already have an open discussion on this node. Reply there, or resolve or delete it to start a new one.'),
       };
     case 'COMMENT_ANCHOR_REVISION_INVALID':
     case 'COMMENT_ANCHOR_REVISION_UNAVAILABLE':
       return { status: 409, text: t('comments.refused.anchor', 'The revision you were reading is no longer available. Reload the page and try again.') };
     case 'COMMENT_NOT_AUTHOR':
-      return { status: 403, text: t('comments.refused.not-author', 'Only the author of a comment can change or retract it.') };
-    case 'COMMENT_RETRACTED':
-      return { status: 409, text: t('comments.refused.retracted', 'This comment has been retracted, so it no longer takes changes.') };
-    case 'COMMENT_HIDDEN':
-      return { status: 409, text: t('comments.refused.hidden', 'This comment has been hidden by an administrator.') };
+      return { status: 403, text: t('comments.refused.not-author', 'Only the author may edit this comment; deleting it requires authorship or memory management access.') };
+    case 'COMMENT_DELETED':
+      return { status: 409, text: t('comments.refused.deleted', 'This comment has been deleted, so it no longer takes changes.') };
     case 'COMMENT_NOT_TOP_LEVEL':
       return { status: 422, text: t('comments.refused.not-top-level', 'Only a whole discussion can be resolved or reopened, not a single reply.') };
     case 'COMMENT_THREAD_STATE':

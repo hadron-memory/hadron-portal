@@ -2770,8 +2770,7 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
             isTopLevel
             state
             anchorRevision
-            retracted
-            hidden
+            deleted
             author {
               kind
               user { id handle name urn }
