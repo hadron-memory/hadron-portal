@@ -95,7 +95,7 @@
     const c = n.comment!;
     const v = commentHitView(c);
     return [
-      n.name, v.role, c.retracted ? 'retracted' : '', c.hidden ? 'hidden' : '',
+      n.name, v.role, c.deleted ? 'deleted' : '',
       v.author.label, v.author.urn ?? '', v.author.agent?.label ?? '', v.author.agent?.urn ?? '',
       c.target.name, c.target.urn, v.anchor.text,
     ].join(' ');
@@ -395,8 +395,8 @@
                       <div data-testid="comment-hit" class="mt-1 space-y-0.5 text-xs text-zinc-600 dark:text-zinc-400">
                         <div class="flex flex-wrap items-center gap-1.5">
                           <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{t('node-list.comment-label', 'Comment')} · {hit.role}</span>
-                          {#if n.comment.retracted || n.comment.hidden}
-                            <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.comment.retracted ? t('node-list.comment-retracted', 'retracted') : t('node-list.comment-hidden', 'hidden')}</span>
+                          {#if n.comment.deleted}
+                            <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{t('node-list.comment-deleted', 'deleted')}</span>
                           {/if}
                           <span data-testid="comment-hit-author">{t('node-list.comment-by', 'by {author}', { author: hit.author.label })}</span>
                           {#if hit.author.urn}<Urn value={hit.author.urn} size={8} />{/if}
