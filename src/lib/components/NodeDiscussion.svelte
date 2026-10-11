@@ -455,8 +455,8 @@
         {#if ownOpenThread}
           <p data-testid="own-open-thread" class="text-xs text-amber-700 dark:text-amber-400">
             {ownThreadOffPage
-              ? t('comments.own-open-off-page', 'You already have an open discussion on this node, further down the list. Reply there, or resolve or retract it before starting another.')
-              : t('comments.own-open', 'Your discussion below is still open. Reply there, or resolve or retract it before starting another.')}
+              ? t('comments.own-open-off-page', 'You already have an open discussion on this node, further down the list. Reply there, or resolve or delete it before starting another.')
+              : t('comments.own-open', 'Your discussion below is still open. Reply there, or resolve or delete it before starting another.')}
             {#if ownThreadOffPage}
               <button type="button" data-testid="find-own-thread" class="ml-1 underline disabled:opacity-50" disabled={busy !== null} onclick={findOwn}>
                 {busy === 'find' ? t('comments.own-finding', 'Finding it…') : t('comments.own-find', 'Show my open discussion')}

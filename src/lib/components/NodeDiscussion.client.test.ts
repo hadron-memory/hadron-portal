@@ -125,6 +125,18 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
+  it.each([false, true])('the own-open hint offers delete, never retract (off-page=%s)', (offPage) => {
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+      initial: discussion(offPage ? [] : [thread(comment('c1'), true)]),
+      summary: { openThreads: 1, resolvedThreads: 0, comments: 1, viewerOpenThreadId: 'c1' },
+    });
+    const hint = m.target.querySelector('[data-testid="own-open-thread"]');
+    expect(hint).not.toBeNull();
+    expect(hint!.textContent).toContain('resolve or delete it');
+    expect(hint!.textContent).not.toContain('retract');
+    m.unmount();
+  });
+
   it('fresh roots and replies have no edited marker', () => {
     const createdAt = '2026-10-05T18:00:00.000Z';
     const root = thread(comment('c1', { createdAt, updatedAt: createdAt }));
