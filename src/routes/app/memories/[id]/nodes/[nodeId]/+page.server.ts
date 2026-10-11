@@ -290,7 +290,9 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // async rejection (PR #530 review). Resolves to a discriminated result so the
   // tab can tell "no revisions" from "couldn't load" — a silent [] on failure
   // masks real errors (schema drift, a down server) as an empty history.
+  const isComment = node.nodeType === COMMENT_NODE_TYPE;
   const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[] }> => {
+    if (isComment) return { ok: true, items: [] };
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeRevision[] }>(
         NODE_REVISIONS_QUERY,
@@ -347,7 +349,6 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // reads above. The summary is its own read: the header's open-feedback cue
   // (hrn:node:hadronmemory.com:specs:cor:dmo:110:07) must not wait on, or fail with, the threads.
   // A comment is never a target (hrn:node:hadronmemory.com:specs:cor:dmo:110:00), so its own page reads none.
-  const isComment = node.nodeType === COMMENT_NODE_TYPE;
   const discussion: Promise<Discussion | null> = isComment
     ? Promise.resolve(null)
     : loadDiscussion(gqlClient(locals.token), node.id, {
@@ -357,6 +358,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
       });
   const commentSummary: Promise<CommentSummary | null> = isComment ? Promise.resolve(null) : loadCommentSummary(gqlClient(locals.token), node.id);
   const revisionProvenance = (async (): Promise<ProvenanceResult<NodeProvenance[]>> => {
+    if (isComment) return { ok: true, value: [] };
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeProvenance[] }>(
         NODE_REVISIONS_PROVENANCE_QUERY,

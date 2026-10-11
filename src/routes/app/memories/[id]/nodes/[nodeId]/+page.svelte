@@ -1939,7 +1939,9 @@
     ...(commentable ? (['discussion'] as NodeTab[]) : []),
     'abstract', 'data', 'properties', 'flow',
     ...(hasChildren ? (['children'] as NodeTab[]) : []),
-    'references', 'history', 'settings',
+    'references',
+    ...(!isComment ? (['history'] as NodeTab[]) : []),
+    'settings',
   ]);
 
   function defaultTab(): NodeTab {
@@ -2635,12 +2637,13 @@
           <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{node.outgoingEdges.length + node.incomingEdges.length}</span>
         {/if}
       </button>
-      <!-- #529: revision history (NodeRevision snapshots). Always shown
-           for discoverability; the list streams from load. -->
+      <!-- Comments keep no revision history (server#1727). -->
+      {#if !isComment}
       <button
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'history'}
       >{t('node.history.tab', 'Revisions')}</button>
+      {/if}
       <button
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'settings'}
@@ -3508,7 +3511,7 @@
          Shared DataTable (filter header, savable views, pagination),
          most-recent-first, with a per-row menu (Display/Restore/Delete) and a
          Clear-all button. -->
-    {#if activeTab === 'history'}
+    {#if activeTab === 'history' && !isComment}
       {#if !revisionsLoaded}
         <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('node.history.loading', 'Loading history…')}</p>
       {:else if revisionsFailed}

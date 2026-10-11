@@ -26,10 +26,11 @@ function comment(id: string, over: Partial<Comment> = {}): Comment {
     quote: null,
     body: 'Is §2 right?',
     state: 'OPEN',
-    retracted: false,
-    retractedAt: null,
-    hidden: false,
-    hiddenAt: null,
+    deleted: false,
+    deletedAt: null,
+    deletedBy: null,
+    editedAt: null,
+    editedBy: null,
     resolvedAt: null,
     resolvedBy: null,
     author: { kind: 'USER', worker: null, user: { id: 'user-2', name: null, handle: 'bo', urn: null }, agent: null, app: null },
@@ -79,6 +80,63 @@ afterEach(() => {
 });
 
 describe('NodeDiscussion (portal#1014)', () => {
+  it('an operational updatedAt change is not edited without editedAt', () => {
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+      initial: discussion([thread(comment('c1', { updatedAt: '2026-10-06T00:00:00Z' }))]) });
+    expect(m.target.querySelectorAll('article')).toHaveLength(1);
+    expect(m.target.textContent).not.toContain('(edited)');
+    m.unmount();
+  });
+
+  it('a manager can delete another author’s comment without offering hide or retract', async () => {
+    const fetchMock = stubFetch({ ok: true, body: { ok: true, discussion: discussion([]) } });
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+      initial: discussion([thread(comment('c1'))], { canWrite: true, canManage: true }) });
+    expect(buttons(m.target)).not.toContain('Hide');
+    expect(buttons(m.target)).not.toContain('Retract');
+    [...m.target.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Delete comment')!.click();
+    flushSync();
+    [...m.target.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Delete comment')!.click();
+    await tick(12);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body)))
+      .toEqual({ op: 'deleteComment', commentId: 'c1', expectedRevision: 1 });
+    m.unmount();
+  });
+
+  it('a successful delete reads back a root stub and keeps its live replies', async () => {
+    const root = thread(comment('c1', { deleted: true, body: null, deletedAt: '2026-10-11T00:00:00Z' }));
+    root.replies = [comment('r1', { isTopLevel: false, threadRootId: 'c1', state: null, body: 'Reply remains' })];
+    root.replyCount = 1;
+    stubFetch({ ok: true, body: { ok: true, discussion: discussion([root]) } });
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+      initial: discussion([thread(comment('c1'), true)]) });
+    const click = () => [...m.target.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Delete comment')!.click();
+    click();
+    flushSync();
+    click();
+    await tick(12);
+    flushSync();
+    expect(m.target.querySelectorAll('article')).toHaveLength(2);
+    expect(m.target.textContent).toContain('Deleted comment.');
+    expect(m.target.textContent).toContain('Reply remains');
+    expect(m.target.textContent).not.toContain('Is §2 right?');
+    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+    m.unmount();
+  });
+
+  it.each([false, true])('the own-open hint offers delete, never retract (off-page=%s)', (offPage) => {
+    const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
+      initial: discussion(offPage ? [] : [thread(comment('c1'), true)]),
+      summary: { openThreads: 1, resolvedThreads: 0, comments: 1, viewerOpenThreadId: 'c1' },
+    });
+    const hint = m.target.querySelector('[data-testid="own-open-thread"]');
+    expect(hint).not.toBeNull();
+    expect(hint!.textContent).toContain('resolve or delete it');
+    expect(hint!.textContent).not.toContain('retract');
+    m.unmount();
+  });
+
   it('fresh roots and replies have no edited marker', () => {
     const createdAt = '2026-10-05T18:00:00.000Z';
     const root = thread(comment('c1', { createdAt, updatedAt: createdAt }));
@@ -90,10 +148,10 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
-  it('a root and reply with differing timestamp instants show the marker even at revision one', () => {
+  it('a root and reply with editedAt show the marker even at revision one', () => {
     const updatedAt = '2026-10-05T18:01:00.000Z';
-    const root = thread(comment('c1', { updatedAt, revSeq: 1 }));
-    root.replies = [comment('r1', { updatedAt, revSeq: 1, threadRootId: 'c1', isTopLevel: false, state: null })];
+    const root = thread(comment('c1', { updatedAt: '2026-10-05T18:00:00.000Z', editedAt: updatedAt, revSeq: 1 }));
+    root.replies = [comment('r1', { updatedAt: '2026-10-05T18:00:00.000Z', editedAt: updatedAt, revSeq: 1, threadRootId: 'c1', isTopLevel: false, state: null })];
     root.replyCount = 1;
     const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3, initial: discussion([root]) });
     expect(m.target.querySelectorAll('article header')).toHaveLength(2);
@@ -144,7 +202,7 @@ describe('NodeDiscussion (portal#1014)', () => {
     expect(labels).toContain('Resolve');
     expect(labels).toContain('Reply');
     expect(labels).not.toContain('Edit');
-    expect(labels).not.toContain('Retract');
+    expect(labels).not.toContain('Delete comment');
     m.unmount();
   });
 
@@ -183,7 +241,7 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
-  it.each(['reply', 'edit', 'resolve', 'retract', 'reopen', 'hide', 'delete'] as const)(
+  it.each(['reply', 'edit', 'resolve', 'deleteComment', 'reopen', 'delete'] as const)(
     'a refused %s on a removed thread keeps its alert and any draft accessible', async (op) => {
       const error = 'This comment no longer exists, or you no longer have access to it. Reload to see the current state.';
       const fetchMock = stubFetch({ ok: false, status: 404, body: { ok: false, error, discussion: discussion([]) } });
@@ -203,10 +261,10 @@ describe('NodeDiscussion (portal#1014)', () => {
         const textarea = card.querySelector<HTMLTextAreaElement>('textarea')!;
         typeInto(textarea, draft);
         textarea.form!.requestSubmit();
-      } else if (op === 'retract' || op === 'hide' || op === 'delete') {
-        const label = op === 'retract' ? 'Retract' : op === 'hide' ? 'Hide' : 'Delete discussion';
+      } else if (op === 'deleteComment' || op === 'delete') {
+        const label = op === 'deleteComment' ? 'Delete comment' : 'Delete discussion';
         click(label);
-        if (op !== 'retract') {
+        if (op !== 'deleteComment') {
           const input = card.querySelector<HTMLInputElement>('input')!;
           input.value = 'Moderation reason';
           input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -228,10 +286,10 @@ describe('NodeDiscussion (portal#1014)', () => {
     },
   );
 
-  it.each(['revoked', 'retracted', 'hidden'] as const)(
+  it.each(['revoked', 'deleted'] as const)(
     'an open reply survives a %s root and a 403 with the thread intact', async (reason) => {
       const refreshed = discussion([thread(comment('c1', {
-        retracted: reason === 'retracted', hidden: reason === 'hidden',
+        deleted: reason === 'deleted',
       }))], { canWrite: reason !== 'revoked', canManage: false });
       stubFetch({ ok: false, status: 403, body: { ok: false, error: 'Write refused', discussion: refreshed } });
       const m = mountComponent(NodeDiscussion, { endpoint: ENDPOINT, shownRevision: 3,
@@ -453,13 +511,13 @@ describe('NodeDiscussion (portal#1014)', () => {
     }
   });
 
-  it('a retracted comment renders as a stub, not its text', () => {
+  it('a deleted comment renders as a stub, not its text', () => {
     const m = mountComponent(NodeDiscussion, {
       endpoint: ENDPOINT,
       shownRevision: 3,
-      initial: discussion([thread(comment('c1', { retracted: true, body: null }))]),
+      initial: discussion([thread(comment('c1', { deleted: true, body: null }))]),
     });
-    expect(m.target.textContent).toContain('Retracted by its author.');
+    expect(m.target.textContent).toContain('Deleted comment.');
     m.unmount();
   });
 

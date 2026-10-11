@@ -88,15 +88,12 @@ describe('anchorView', () => {
 });
 
 describe('bodyView', () => {
-  it('a retracted or hidden comment is a stub, never its text', () => {
-    expect(bodyView({ body: null, quote: null, retracted: true, hidden: false })).toEqual({ kind: 'retracted' });
-    expect(bodyView({ body: null, quote: null, retracted: false, hidden: true })).toEqual({ kind: 'hidden' });
-    // Hidden wins: an admin's hide is the stronger state to show.
-    expect(bodyView({ body: null, quote: null, retracted: true, hidden: true })).toEqual({ kind: 'hidden' });
+  it('a deleted stub never shows even a stale body or quote', () => {
+    expect(bodyView({ body: 'stale secret', quote: 'stale quote', deleted: true })).toEqual({ kind: 'deleted' });
   });
 
   it('a live comment shows its body and quote', () => {
-    expect(bodyView({ body: 'Typo in §2', quote: 'recieve', retracted: false, hidden: false })).toEqual({
+    expect(bodyView({ body: 'Typo in §2', quote: 'recieve', deleted: false })).toEqual({
       kind: 'text',
       body: 'Typo in §2',
       quote: 'recieve',
@@ -108,31 +105,30 @@ describe('commentControls', () => {
   const writer: CommentPermissions = { canWrite: true, canManage: false };
   const reader: CommentPermissions = { canWrite: false, canManage: false };
   const admin: CommentPermissions = { canWrite: true, canManage: true };
-  const openRoot = { isTopLevel: true, retracted: false, hidden: false, state: 'OPEN' as const };
+  const openRoot = { isTopLevel: true, deleted: false, state: 'OPEN' as const };
   const resolvedRoot = { ...openRoot, state: 'RESOLVED' as const };
-  const reply = { isTopLevel: false, retracted: false, hidden: false };
+  const reply = { isTopLevel: false, deleted: false };
 
   it('a read-only reader gets no controls at all (110:03)', () => {
     const c = commentControls(openRoot, openRoot, reader, true);
     expect(Object.values(c).every((v) => v === false)).toBe(true);
   });
 
-  it('a writer who is not the author can reply and resolve, but not edit or retract (110:05)', () => {
+  it('a writer who is not the author can reply and resolve, but not edit or delete (110:05)', () => {
     expect(commentControls(openRoot, openRoot, writer, false)).toEqual({
       reply: true,
       edit: false,
-      retract: false,
+      deleteComment: false,
       resolve: true,
       reopen: false,
-      hide: false,
       deleteThread: false,
     });
   });
 
-  it('the author may edit and retract their own comment', () => {
+  it('the author may edit and delete their own comment', () => {
     const c = commentControls(reply, openRoot, writer, true);
     expect(c.edit).toBe(true);
-    expect(c.retract).toBe(true);
+    expect(c.deleteComment).toBe(true);
     // A reply is never resolved or reopened on its own.
     expect(c.resolve).toBe(false);
     expect(c.reopen).toBe(false);
@@ -147,35 +143,26 @@ describe('commentControls', () => {
     expect(commentControls(resolvedRoot, resolvedRoot, reader, false).reply).toBe(false);
   });
 
-  it('a retracted comment takes no edit, retract or resolve, but its open thread still takes replies', () => {
-    const retractedReply = { ...reply, retracted: true };
-    const c = commentControls(retractedReply, openRoot, writer, true);
-    expect(c).toMatchObject({ edit: false, retract: false, resolve: false, reply: true });
+  it('a deleted comment takes no edit, delete or resolve, but its open thread still takes replies', () => {
+    const deletedReply = { ...reply, deleted: true };
+    const c = commentControls(deletedReply, openRoot, writer, true);
+    expect(c).toMatchObject({ edit: false, deleteComment: false, resolve: false, reply: true });
   });
 
-  it('a retracted root closes the thread to replies', () => {
-    const retractedRoot = { ...openRoot, retracted: true };
-    expect(commentControls(reply, retractedRoot, writer, false).reply).toBe(false);
+  it('a deleted root closes the thread to replies', () => {
+    const deletedRoot = { ...openRoot, deleted: true };
+    expect(commentControls(reply, deletedRoot, writer, false).reply).toBe(false);
   });
 
-  it('a hidden comment offers an admin only the thread delete', () => {
-    const hiddenRoot = { ...openRoot, hidden: true };
-    expect(commentControls(hiddenRoot, hiddenRoot, admin, true)).toEqual({
-      reply: false,
-      edit: false,
-      retract: false,
-      resolve: false,
-      reopen: false,
-      hide: false,
-      deleteThread: true,
-    });
+  it('only a manager deletes others’ comments or a thread', () => {
+    expect(commentControls(openRoot, openRoot, writer, false)).toMatchObject({ deleteComment: false, deleteThread: false });
+    expect(commentControls(openRoot, openRoot, writer, true)).toMatchObject({ deleteComment: true, deleteThread: false });
+    expect(commentControls(openRoot, openRoot, admin, false)).toMatchObject({ deleteComment: true, deleteThread: true });
+    expect(commentControls(reply, openRoot, admin, false)).toMatchObject({ deleteComment: true, deleteThread: false });
+    expect(commentControls({ ...openRoot, deleted: true }, { ...openRoot, deleted: true }, admin, false))
+      .toMatchObject({ edit: false, deleteComment: false, reply: false, resolve: false, deleteThread: true });
   });
 
-  it('only an admin may hide or delete a thread', () => {
-    expect(commentControls(openRoot, openRoot, writer, true)).toMatchObject({ hide: false, deleteThread: false });
-    expect(commentControls(openRoot, openRoot, admin, false)).toMatchObject({ hide: true, deleteThread: true });
-    expect(commentControls(reply, openRoot, admin, false).deleteThread).toBe(false);
-  });
 });
 
 describe('provenanceText', () => {
@@ -221,7 +208,7 @@ describe('commentFailure', () => {
 });
 
 describe('readerOpenThreadId', () => {
-  const root = (id: string, over: Partial<Comment> = {}) => ({ id, state: 'OPEN', retracted: false, hidden: false, ...over }) as Comment;
+  const root = (id: string, over: Partial<Comment> = {}) => ({ id, state: 'OPEN', deleted: false, ...over }) as Comment;
   const th = (r: Comment, mine: boolean): DiscussionThread => ({ root: r, replies: [], replyCount: 0, mine: { [r.id]: mine } });
 
   it("finds the reader's own open thread", () => {
@@ -236,8 +223,8 @@ describe('readerOpenThreadId', () => {
     expect(readerOpenThreadId([th(root('b'), true)], { openThreads: 1, resolvedThreads: 0, comments: 1 })).toBe('b');
   });
 
-  it('ignores resolved, retracted and hidden threads, and other authors', () => {
-    expect(readerOpenThreadId([th(root('a', { state: 'RESOLVED' }), true), th(root('b', { retracted: true }), true), th(root('c', { hidden: true }), true), th(root('d'), false)])).toBeNull();
+  it('ignores resolved, deleted threads, and other authors', () => {
+    expect(readerOpenThreadId([th(root('a', { state: 'RESOLVED' }), true), th(root('b', { deleted: true }), true), th(root('d'), false)])).toBeNull();
   });
 });
 
@@ -289,7 +276,7 @@ describe('commentMergeRefusal (hadron-server#1682)', () => {
 
 describe('commentHitView (portal#1015)', () => {
   const base = {
-    id: 'c1', isTopLevel: true, state: 'OPEN' as const, anchorRevision: 2, retracted: false, hidden: false,
+    id: 'c1', isTopLevel: true, state: 'OPEN' as const, anchorRevision: 2, deleted: false,
     author: { kind: 'USER' as const, user: { id: 'u', name: 'Ann', handle: 'ann', urn: null }, worker: null, agent: null, app: null },
     target: { id: 't', urn: 'hrn:node:o:m:t', name: 'T', nodeType: 'info', revSeq: 5 },
   };

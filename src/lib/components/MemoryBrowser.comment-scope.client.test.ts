@@ -17,7 +17,7 @@ const COMMENT_HIT = {
   id: 'c1', memoryId: 'mem-1', loc: 'comments:c1', name: 'Needs a source', nodeType: 'comment', tags: [], seq: null, isRunnable: false, description: null, outgoingEdges: [], incomingEdges: [],
   memory: { id: 'mem-1', urn: 'hrn:mem:o:m', name: 'm' },
   comment: {
-    id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 1, retracted: false, hidden: false,
+    id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 1, deleted: false,
     author: { kind: 'USER', user: { id: 'u1', name: 'Ann', handle: 'ann', urn: null }, worker: null, agent: null, app: null },
     target: { id: 'n1', name: 'Alpha', nodeType: 'info', revSeq: 1, urn: 'hrn:node:o:m:a' },
   },
