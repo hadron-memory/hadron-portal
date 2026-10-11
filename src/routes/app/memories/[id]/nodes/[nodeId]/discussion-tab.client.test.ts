@@ -91,6 +91,8 @@ describe('Discussion tab on the node page (portal#1014)', () => {
       return answer(doc);
     });
     const { target } = await mountPage('?tab=history');
+    expect(tabButton(target, 'Rendered')).toBeDefined();
+    expect(target.querySelector('.prose')?.textContent).toContain('body');
     expect(tabButton(target, 'Revisions')).toBeUndefined();
     expect(target.textContent).not.toContain('A snapshot is saved each time');
     expect(mockRequest.mock.calls.filter(([doc]) => doc === NODE_REVISIONS_QUERY)).toHaveLength(0);

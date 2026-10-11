@@ -1939,7 +1939,9 @@
     ...(commentable ? (['discussion'] as NodeTab[]) : []),
     'abstract', 'data', 'properties', 'flow',
     ...(hasChildren ? (['children'] as NodeTab[]) : []),
-    'references', 'history', 'settings',
+    'references',
+    ...(!isComment ? (['history'] as NodeTab[]) : []),
+    'settings',
   ]);
 
   function defaultTab(): NodeTab {
