@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import {
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
   APP_QUERY,
+  APP_MEMBERS_QUERY,
   CAST_WORKER_MUTATION,
   CREATE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
   APP_DETAIL_ORG_QUERY,
-  APP_DETAIL_ORG_WITH_AGENTS_QUERY,
+  APP_ORG_AGENTS_QUERY,
   UNINSTALL_AGENT_FROM_APP_MUTATION,
   RELEASE_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
@@ -130,16 +132,17 @@ describe('load', () => {
           },
         });
       }
-      if (query === APP_DETAIL_ORG_WITH_AGENTS_QUERY) {
+      if (query === APP_DETAIL_ORG_QUERY) {
         return Promise.resolve({
-          organization: {
-            id: 'org-1',
-            urn: 'hadronmemory.com:demo-org',
-            name: 'Demo Org',
-            agents: [{ id: 'agent-1', name: 'Agent One', urn: 'agent:one' }],
-          },
+          organization: { id: 'org-1', urn: 'hadronmemory.com:demo-org', name: 'Demo Org', members: [] },
         });
       }
+      if (query === APP_ORG_AGENTS_QUERY) {
+        return Promise.resolve({
+          organization: { id: 'org-1', agents: [{ id: 'agent-1', name: 'Agent One', urn: 'agent:one' }] },
+        });
+      }
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       // #744: chat-root discovery for the Chats selector. Shares the appNodes
       // resolver but is its own document, so the strict mock needs it by name.
@@ -190,6 +193,7 @@ describe('load', () => {
           },
         });
       }
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
@@ -200,9 +204,10 @@ describe('load', () => {
       return Promise.resolve({ resolveAiServiceConfigs: [] });
     });
     // AI configs resolve; the workers page rejects.
-    mockFetchAllItems
-      .mockResolvedValueOnce([])
-      .mockRejectedValueOnce(new Error('workers exploded'));
+    // Keyed on the collection, not on call order: since #1006 the loader also
+    // pages the installable-agents pool, ahead of the staff fetch.
+    mockFetchAllItems.mockImplementation((_client, _query, key) =>
+      key === 'workers' ? Promise.reject(new Error('workers exploded')) : Promise.resolve([]));
 
     const { load } = await import('./+page.server');
     const result = (await load({
@@ -238,6 +243,7 @@ describe('load', () => {
           },
         });
       }
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
@@ -274,6 +280,7 @@ describe('load', () => {
   it('reports a failed team chat fetch as an error flag, not as an empty chat', async () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.reject(new Error('chat exploded'));
       return Promise.resolve({ resolveAiServiceConfigs: [] });
@@ -307,6 +314,7 @@ describe('load', () => {
   it('reports a genuinely empty team chat with no error flag', async () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
@@ -347,6 +355,7 @@ describe('load', () => {
   it('carries the server total through, not the fetched count', async () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({
@@ -381,6 +390,7 @@ describe('load', () => {
   it('reads the team chat by appRef, never by walking appNodes', async () => {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
@@ -1362,6 +1372,7 @@ describe('worklog loading (#733)', () => {
     const chatRoots = (worklog as Record<string, unknown>)?.appChatRoots;
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === APP_CHAT_ROOTS_QUERY) {
         if (chatRoots instanceof Error) return Promise.reject(chatRoots);
@@ -1520,6 +1531,7 @@ describe('team chat tail paging (#1536)', () => {
   function stubChat(page: { items: unknown[]; total: number }) {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
         return Promise.resolve({ teamChatMessages: page });
@@ -1604,14 +1616,23 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
   function stubOrg(
     outcome: { resolve: unknown } | { reject: unknown },
     appOver: Record<string, unknown> = {},
+    agentsOutcome?: { resolve: unknown } | { reject: unknown },
   ) {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) {
         return Promise.resolve({ app: baseApp({ organizationId: 'org-1', ...appOver }) });
       }
-      if (query === APP_DETAIL_ORG_QUERY || query === APP_DETAIL_ORG_WITH_AGENTS_QUERY) {
+      if (query === APP_DETAIL_ORG_QUERY) {
         return 'reject' in outcome ? Promise.reject(outcome.reject) : Promise.resolve(outcome.resolve);
       }
+      // #1006: the install picker's agents are a request of their own.
+      if (query === APP_ORG_AGENTS_QUERY) {
+        if (agentsOutcome) {
+          return 'reject' in agentsOutcome ? Promise.reject(agentsOutcome.reject) : Promise.resolve(agentsOutcome.resolve);
+        }
+        return Promise.resolve({ organization: { id: 'org-1', agents: [] } });
+      }
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === APP_CHAT_ROOTS_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) {
@@ -1698,27 +1719,59 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
   });
 
   describe('the document asks only for what the page renders', () => {
-    it('an App with no Agent yet selects the agents slice (the install picker renders)', async () => {
-      stubOrg({ resolve: { organization: { ...ORG, agents: [{ id: 'a1', name: 'One', urn: 'hrn:agent:one' }] } } }, { agentId: null, agent: null });
+    const POOL = [{ id: 'a1', name: 'One', urn: 'hrn:agent:one' }];
+
+    it('an App with no Agent yet gets the installable agents, from a request of their own', async () => {
+      stubOrg({ resolve: { organization: ORG } }, { agentId: null, agent: null }, { resolve: { organization: { id: 'org-1', agents: POOL } } });
       const { result } = await loadAndCatch();
-      expect(mockRequest).toHaveBeenCalledWith(APP_DETAIL_ORG_WITH_AGENTS_QUERY, { ref: 'org-1' });
-      expect(mockRequest).not.toHaveBeenCalledWith(APP_DETAIL_ORG_QUERY, expect.anything());
-      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([
-        { id: 'a1', name: 'One', urn: 'hrn:agent:one' },
-      ]);
+      expect(mockRequest).toHaveBeenCalledWith(APP_ORG_AGENTS_QUERY, { ref: 'org-1' });
+      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual(POOL);
     });
 
-    it('an App that already has an Agent does NOT select agents', async () => {
-      // `availableAgents` is [] for it regardless, so selecting the list would
-      // invoke a resolver whose result is discarded — and `agents` is a non-null
-      // list, so its failure would null the org and 404 the page over data the
-      // page cannot show.
-      // hrn:node:hadronmemory.com:hadron-portal:review:a-route-must-not-invoke-a-resolver-it-does-not-render
-      stubOrg({ resolve: { organization: ORG } }, { agentId: 'agent-1', agent: { id: 'agent-1', name: 'Linked', urn: 'hrn:agent:linked' } });
+    it('an App that already has an Agent still gets them: the Agents tab adds another (#1006)', async () => {
+      stubOrg(
+        { resolve: { organization: ORG } },
+        { agentId: 'agent-1', agent: { id: 'agent-1', name: 'Linked', urn: 'hrn:agent:linked' } },
+        { resolve: { organization: { id: 'org-1', agents: POOL } } },
+      );
       const { result } = await loadAndCatch();
-      expect(mockRequest).toHaveBeenCalledWith(APP_DETAIL_ORG_QUERY, { ref: 'org-1' });
-      expect(mockRequest).not.toHaveBeenCalledWith(APP_DETAIL_ORG_WITH_AGENTS_QUERY, expect.anything());
+      expect((result as { availableAgents: unknown[]; availableAgentsError: boolean }).availableAgents).toEqual(POOL);
+      expect((result as { availableAgentsError: boolean }).availableAgentsError).toBe(false);
+    });
+
+    it('a refusing agents resolver costs the picker, not the page', async () => {
+      // `agents` is a non-null list: folded into the org document its failure
+      // would null the org and 404 the page over data one tab draws (#851).
+      // hrn:node:hadronmemory.com:hadron-portal:review:a-route-must-not-invoke-a-resolver-it-does-not-render
+      stubOrg({ resolve: { organization: ORG } }, {}, { reject: orgRefusal('INTERNAL_SERVER_ERROR') });
+      const { thrown, result } = await loadAndCatch();
+      expect(thrown).toBeUndefined();
       expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([]);
+      expect((result as { availableAgentsError: boolean }).availableAgentsError).toBe(true);
+    });
+
+    it('a HANGING agents or members request cannot hold the page (step 5 P2)', async () => {
+      vi.useFakeTimers();
+      try {
+        const never = new Promise(() => {});
+        stubOrg({ resolve: { organization: ORG } }, {}, { resolve: never });
+        const base = mockRequest.getMockImplementation()!;
+        mockRequest.mockImplementation((query, ...rest) =>
+          query === APP_MEMBERS_QUERY ? never : base(query, ...rest),
+        );
+        const pending = loadAndCatch();
+        // The loader's own awaits (dynamic import, the org lookup) must reach the
+        // bounded requests before the clock can fire them.
+        for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
+        const { thrown, result } = await pending;
+        expect(thrown).toBeUndefined();
+        const r = result as { availableAgentsError: boolean; membersError: boolean; availableAgents: unknown[] };
+        expect(r.availableAgentsError).toBe(true);
+        expect(r.membersError).toBe(true);
+        expect(r.availableAgents).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('neither document selects a list the page never draws', () => {
@@ -1726,7 +1779,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       // defect was in what the loader ASKED FOR. `ORGANIZATION_QUERY` pulled
       // memories, subscriptions and exchangeConnections — three more non-null
       // lists, each able to null the org and 404 this page on its own.
-      for (const doc of [APP_DETAIL_ORG_QUERY, APP_DETAIL_ORG_WITH_AGENTS_QUERY]) {
+      for (const doc of [APP_DETAIL_ORG_QUERY]) {
         for (const unrendered of ['memories', 'subscriptions', 'exchangeConnections']) {
           expect(doc).not.toMatch(new RegExp(`\\b${unrendered}\\b`));
         }
@@ -1738,37 +1791,13 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       }
     });
 
-    it('only the WITH_AGENTS document carries `agents`', async () => {
-      // @copilot on #852: the loop above pins three lists that were never in
-      // either document, and so cannot catch the regression that actually
-      // threatens THIS pair — `agents` creeping into the base document. The
-      // branch tests assert which document was REQUESTED, not what is in it, so
-      // adding `agents` back to the base would have left every test green while
-      // restoring the exact discarded-resolver invocation this change removes.
-      expect(APP_DETAIL_ORG_WITH_AGENTS_QUERY).toMatch(/\bagents\b/);
+    it('only the agents document carries `agents`', async () => {
+      // @copilot on #852: `agents` creeping back into the base document would
+      // restore the discarded-resolver invocation that nulls the org. The tests
+      // above assert which document was REQUESTED, not what is in it.
+      expect(APP_ORG_AGENTS_QUERY).toMatch(/\bagents\b/);
       expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bagents\b/);
     });
   });
 
-  describe('@copilot on #852 — the loader and the page use ONE predicate', () => {
-    it('a salvaged App with agentId but a null agent selects the agents slice', async () => {
-      // `agent` is nullable in the SDL, `agentId` is a scalar column, and the
-      // APP_QUERY catch salvages a partial payload — so a failing `agent`
-      // relation leaves `agent: null` with `agentId` set. The page renders its
-      // "No agent linked yet." arm off `app.agent`; gating the loader on
-      // `app.agentId` made it answer the opposite question and return
-      // `availableAgents: []`, which suppresses the link picker that arm exists
-      // to offer. The reader is told no Agent is linked and handed no way to
-      // link one.
-      stubOrg(
-        { resolve: { organization: { ...ORG, agents: [{ id: 'a1', name: 'One', urn: 'hrn:agent:one' }] } } },
-        { agentId: 'agent-1', agent: null },
-      );
-      const { result } = await loadAndCatch();
-      expect(mockRequest).toHaveBeenCalledWith(APP_DETAIL_ORG_WITH_AGENTS_QUERY, { ref: 'org-1' });
-      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([
-        { id: 'a1', name: 'One', urn: 'hrn:agent:one' },
-      ]);
-    });
-  });
 });

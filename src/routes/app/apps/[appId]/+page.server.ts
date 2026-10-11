@@ -2,6 +2,7 @@ import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
+import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { gqlClient } from '$lib/server/api';
 import { lookupOwn } from '$lib/lookup';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -10,8 +11,9 @@ import { loadOrgDetail } from '$lib/server/org-detail';
 import { t } from '$lib/i18n/t';
 import {
   APP_DETAIL_ORG_QUERY,
-  APP_DETAIL_ORG_WITH_AGENTS_QUERY,
+  APP_ORG_AGENTS_QUERY,
   APP_QUERY,
+  APP_MEMBERS_QUERY,
   MY_AGENTS_QUERY,
   PUBLIC_AGENTS_QUERY,
   UPDATE_APP_MUTATION,
@@ -43,9 +45,18 @@ import {
 import { loadTeamChatTail } from '$lib/server/team-chat';
 import { loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
+import {
+  addMember,
+  addAppMemberFormAdapter,
+  ensureMember,
+  ensureAppMemberFormAdapter,
+  removeMember,
+  removeAppMemberFormAdapter,
+} from './member-actions';
 import type {
   Organization,
   App,
+  AppMember,
   MemoryNode,
   AiServiceConfig,
   Worker,
@@ -90,8 +101,8 @@ type UpdateAppAgentToolsForm = Infer<typeof updateAppAgentToolsSchema, 'zod4'>;
 type InstallableAgent = { id: string; name: string; urn: string };
 
 /**
- * What this loader puts on `data.org` (#851): the chrome three, plus `agents`
- * only when the install picker is rendered.
+ * What this loader puts on `data.org` (#851): the chrome three, plus the
+ * members the AI-config manager's `canManage` reads.
  *
  * A SLICE of Organization rather than Organization, for the reason `OrgChrome`
  * in `/app/orgs/[id]/+layout.server.ts` is one: a consumer that starts reading
@@ -105,13 +116,8 @@ type InstallableAgent = { id: string; name: string; urn: string };
  * pattern I searched for required `org.`, and optional chaining writes `org?.`.
  * The compiler is an exhaustive census; a regex is a guess about spelling
  * (`hrn:node:hadronmemory.com:hadron-portal:findings:a-measurement-is-only-as-good-as-its-question`).
- *
- * `agents` is optional because the document that omits it is a legal choice
- * this loader makes on `appHasAgent`, not an error.
  */
-type AppOrg = Pick<Organization, 'id' | 'name' | 'urn' | 'members'> & {
-  agents?: InstallableAgent[];
-};
+type AppOrg = Pick<Organization, 'id' | 'name' | 'urn' | 'members'>;
 
 // Route-local, but a `/* GraphQL */` const rather than an inline string so
 // `pnpm gql:validate` sees it — an inline document is invisible to the gate
@@ -473,7 +479,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // (#641). The server's app(ref:) gate IS the auth; a non-owner/non-member gets
   // null → 404 (no over-exposure).
   const client = gqlClient(locals.token);
-  const [appData, configsData] = await Promise.all([
+  const [appData, configsData, membersData] = await Promise.all([
     client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId })
       .catch((e) => {
         // graphql-request throws on ANY GraphQL error even when usable data is
@@ -497,36 +503,34 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     fetchAllItems<AiServiceConfig>(client, AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs', {
       ownerType: 'APP', ownerId: params.appId,
     }).catch(() => null),
+    // #1005: the Human Team tab. null = the fetch failed, distinct from an App
+    // with no members, so the tab can say so instead of showing "No members yet."
+    // Bounded: a request that HANGS would otherwise hold every tab of the page.
+    withTimeout(
+      client
+        .request<{ app: { members: AppMember[] } | null }>(APP_MEMBERS_QUERY, { ref: params.appId })
+        .then((r) => r.app?.members ?? null),
+      OPTIONAL_LIST_TIMEOUT_MS,
+      null,
+    ).catch((e) => {
+      console.warn(`[app-members] members fetch failed for ${params.appId}:`, e);
+      return null;
+    }),
   ]);
   if (!appData.app) throw error(404, 'App not found');
   const app = appData.app;
 
   // Org chrome only for an org-owned app; a user-owned (org-less) app (spec 047)
-  // has none. availableAgents (installable when no Agent is linked yet) = the
-  // org's agents for an org app, or the caller's own personal agents ∪ PUBLIC
-  // agents for an org-less app — mirroring the server install gate (createApp: a
-  // personal App may install a PUBLIC or the caller's OWN personal agent).
-  // @copilot on #852: ONE predicate for "does this App already have an Agent",
-  // and it is `app.agent` — the one `+page.svelte` renders from — not
-  // `app.agentId`.
-  //
-  // They can disagree. `agent` is nullable in the SDL while `agentId` is a
-  // scalar column, and the APP_QUERY catch above deliberately SALVAGES a
-  // partial payload, so a failing `agent` relation yields `agent: null` with
-  // `agentId` still set. Under the old `agentId` test the page then drew its
-  // `{:else}` arm — "No agent linked yet." — while the loader had decided the
-  // opposite and returned `availableAgents: []`, which suppresses the link
-  // picker that arm exists to offer. The reader is told no Agent is linked and
-  // given nothing to do about it.
-  //
-  // That divergence pre-dates this change (`availableAgents` was gated on
-  // `agentId` before the document was), so the rendered outcome is unchanged by
-  // #851 — but the fix belongs with the diff that gave the predicate a second
-  // consumer rather than being left for whoever trips over it.
-  const appHasAgent = !!app.agent;
+  // has none. availableAgents (what the Agents tab can install) = the org's
+  // agents for an org app, or the caller's own personal agents ∪ PUBLIC agents
+  // for an org-less app — mirroring the server install gate (createApp: a
+  // personal App may install a PUBLIC or the caller's OWN personal agent). It is
+  // sent whether or not the App already has an agent: an App holds MANY (#802),
+  // and the picker must not vanish once the first is in (#1006).
 
   let org: AppOrg | null = null;
   let availableAgents: InstallableAgent[] = [];
+  let availableAgentsError = false;
   if (app.organizationId) {
     // #851: `loadOrgDetail` rather than a bare `.catch(() => ({ organization:
     // null }))`. That catch took no argument, so nothing was classified: a
@@ -541,30 +545,49 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // subscriptions, exchangeConnections and the full AgentFields to draw a
     // breadcrumb and one permission check; all are non-null lists, so any one of
     // them refusing nulled the org and 404'd this page over data it never shows.
-    // `members` stays (AiServiceConfigSection's canManage), `agents` is asked
-    // for only when the install picker renders — an App that already has an
-    // Agent sets `availableAgents` to [] regardless, so selecting the list for
-    // it would invoke a resolver whose result is discarded.
+    // `members` stays (AiServiceConfigSection's canManage). `agents` is NOT in
+    // this document: the install picker draws it, and it is asked for below as
+    // a request of its own.
     org = await loadOrgDetail<AppOrg>(
       locals.token,
       app.organizationId,
-      appHasAgent ? APP_DETAIL_ORG_QUERY : APP_DETAIL_ORG_WITH_AGENTS_QUERY,
+      APP_DETAIL_ORG_QUERY,
     );
-    availableAgents = appHasAgent ? [] : (org.agents ?? []);
-  } else if (!appHasAgent) {
+    // #1006: the Agents tab's install picker, asked for on its own so a refusal
+    // cannot null the org (see APP_ORG_AGENTS_QUERY).
+    const pool = await withTimeout(
+      client
+        .request<{ organization: { agents: InstallableAgent[] } | null }>(APP_ORG_AGENTS_QUERY, {
+          ref: app.organizationId,
+        })
+        .then((r) => r.organization?.agents ?? null),
+      OPTIONAL_LIST_TIMEOUT_MS,
+      null,
+    ).catch((e) => {
+      console.warn(`[app-agents] installable agents fetch failed for ${params.appId}:`, e);
+      return null;
+    });
+    availableAgents = pool ?? [];
+    availableAgentsError = pool === null;
+  } else {
     const [mine, publicAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
       // already the caller's own org-less agents — no client-side filter needed.
-      fetchAllItems<InstallableAgent>(
-        client, MY_AGENTS_QUERY, 'agents',
-      ).catch(() => []),
-      fetchAllItems<InstallableAgent>(
-        client, PUBLIC_AGENTS_QUERY, 'publicAgents',
-      ).catch(() => []),
+      withTimeout(
+        fetchAllItems<InstallableAgent>(client, MY_AGENTS_QUERY, 'agents'),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch(() => null),
+      withTimeout(
+        fetchAllItems<InstallableAgent>(client, PUBLIC_AGENTS_QUERY, 'publicAgents'),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch(() => null),
     ]);
+    availableAgentsError = mine === null || publicAgents === null;
     // Dedupe by id — a public agent could also be the caller's own.
     const seen = new Set<string>();
-    availableAgents = [...mine, ...publicAgents].filter((a) =>
+    availableAgents = [...(mine ?? []), ...(publicAgents ?? [])].filter((a) =>
       seen.has(a.id) ? false : (seen.add(a.id), true),
     );
   }
@@ -651,7 +674,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         return null;
       })
   ]);
-  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm] = await Promise.all([
+  const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
       {
         name: appData.app.name,
@@ -716,6 +739,19 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       releaseWorkerFormAdapter,
       { errors: false },
     ),
+    // #1005: userId is empty until the operator picks someone via the search
+    // modal; the role starts at the linked Agent's first member role.
+    superValidate(
+      { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
+      addAppMemberFormAdapter,
+      { errors: false },
+    ),
+    superValidate(
+      { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
+      ensureAppMemberFormAdapter,
+      { errors: false },
+    ),
+    superValidate({ userId: '' }, removeAppMemberFormAdapter, { errors: false }),
   ]);
   const postTeamChatMessageForm = await superValidate<PostTeamChatMessageForm>(
     {},
@@ -755,6 +791,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     app,
     org,
     availableAgents,
+    availableAgentsError,
     appNodes: nodesData.appNodes,
     chatConfigs,
     appConfigs: configsData ?? [],
@@ -817,10 +854,21 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     retireWorkerForm,
     releaseWorkerForm,
     postTeamChatMessageForm,
+    // #1005: the Human Team tab. null members = the fetch failed.
+    members: membersData ?? [],
+    membersError: membersData === null,
+    addMemberForm,
+    ensureMemberForm,
+    removeMemberForm,
   };
 };
 
 export const actions: Actions = {
+  // #1005: the Human Team tab's actions (see member-actions.ts).
+  addMember,
+  ensureMember,
+  removeMember,
+
   update: async ({ request, params, locals }) => {
     const form = await superValidate<AppSettingsForm>(
       await request.formData(),

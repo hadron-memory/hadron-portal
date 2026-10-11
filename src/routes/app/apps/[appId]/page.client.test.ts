@@ -387,7 +387,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     expect(m.target.textContent).toContain('Key revoked.');
   });
 
-  it('opens Settings for an agent action result that arrives on a fresh page', async () => {
+  it('opens Agents for an agent action result that arrives on a fresh page (#1006)', async () => {
     setStubPage('https://example.test/app/apps/a1', { appId: 'a1' });
     const f = await superValidate({ _kind: 'removeAgent', agentId: 'ag1' }, zod4(removeAppAgentSchema));
     f.message = { type: 'success', text: 'Agent removed.' };
@@ -397,7 +397,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
     mounted.push(m);
     await tick(2);
     await enterNavigation();
-    expect(selectedTab(m)).toBe('tab-settings');
+    expect(selectedTab(m)).toBe('tab-agents');
   });
 
   it('still follows the loader on an enter navigation with no action result', async () => {

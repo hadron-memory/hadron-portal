@@ -2,12 +2,11 @@
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import SelectUser from '$lib/components/SelectUser.svelte';
   import { type SearchUser, userLabel as searchUserLabel } from '$lib/users/search-user';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
-  import type { PageData, ActionData } from './$types';
+  import type { App, AppMember } from '$lib/types';
   import { addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema } from './schema';
 
   type AddAppMemberForm = Infer<typeof addAppMemberSchema, 'zod4'>;
@@ -17,13 +16,20 @@
   type EnsureAppMemberSuperform = SuperValidated<EnsureAppMemberForm, App.Superforms.Message, EnsureAppMemberForm>;
   type RemoveAppMemberSuperform = SuperValidated<RemoveAppMemberForm, App.Superforms.Message, RemoveAppMemberForm>;
 
-  let { data, form }: { data: PageData; form: ActionData } = $props();
-  const app = $derived(data.app);
-  const org = $derived(data.org);
-  // #648: org-optional — an org app links back through its org grid, a user-owned
-  // (org-less) app through the personal "My apps" list / canonical detail.
-  const appsHref = $derived(org ? `/app/orgs/${org.id}/apps` : '/app/apps');
-  const members = $derived(data.members);
+  /**
+   * The App page's Human Team tab (#1005): the former `/app/apps/[appId]/members`
+   * page, hosted in place. `form` is the page's action result, so a no-JS submit
+   * that lands back here re-seeds these forms the way it did on the old page.
+   */
+  let { app, members, membersError, addMemberForm, ensureMemberForm, removeMemberForm, form }: {
+    app: App;
+    members: AppMember[];
+    membersError: boolean;
+    addMemberForm: AddAppMemberSuperform;
+    ensureMemberForm: EnsureAppMemberSuperform;
+    removeMemberForm: RemoveAppMemberSuperform;
+    form: unknown;
+  } = $props();
 
   // #653: "Add member" searches users on demand (SelectUser → /api/users/search)
   // instead of a bulk-loaded admin-only list — so a personal-app owner or
@@ -74,7 +80,7 @@
     );
   }
 
-  const initialAddForm = untrack(() => submittedForm<AddAppMemberForm>(form, 'addAppMember') as AddAppMemberSuperform | null ?? data.addForm);
+  const initialAddForm = untrack(() => submittedForm<AddAppMemberForm>(form, 'addAppMember') as AddAppMemberSuperform | null ?? addMemberForm);
   const {
     form: addForm,
     errors: addErrors,
@@ -100,7 +106,7 @@
       : $addErrors._kind?.[0] ?? null,
   );
 
-  const initialEnsureForm = untrack(() => submittedForm<EnsureAppMemberForm>(form, 'ensureAppMember') as EnsureAppMemberSuperform | null ?? data.ensureForm);
+  const initialEnsureForm = untrack(() => submittedForm<EnsureAppMemberForm>(form, 'ensureAppMember') as EnsureAppMemberSuperform | null ?? ensureMemberForm);
   const {
     form: ensureForm,
     errors: ensureErrors,
@@ -121,7 +127,7 @@
   );
   const ensureActionSuccess = $derived($ensureMessage?.type === 'success' ? $ensureMessage.text : null);
 
-  const initialRemoveForm = untrack(() => submittedForm<RemoveAppMemberForm>(form, 'removeAppMember') as RemoveAppMemberSuperform | null ?? data.removeForm);
+  const initialRemoveForm = untrack(() => submittedForm<RemoveAppMemberForm>(form, 'removeAppMember') as RemoveAppMemberSuperform | null ?? removeMemberForm);
   const {
     form: removeForm,
     errors: removeErrors,
@@ -165,19 +171,12 @@
   }
 </script>
 
-<svelte:head><title>Members · {app.name} · Hadron</title></svelte:head>
-
 <div class="space-y-8">
   <div>
-    <Breadcrumb items={[
-      { label: 'Apps', href: appsHref },
-      { label: app.name, href: `/app/apps/${app.id}` },
-      { label: 'Members' },
-    ]} />
-    <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">
-      Members
+    <h2 class="text-lg font-semibold text-zinc-900 dark:text-white">
+      {t('app.members.title', 'Human Team')}
       <span class="ml-2 text-sm font-normal text-zinc-500">({members.length}{memberLimit !== null ? ` / ${memberLimit}` : ''})</span>
-    </h1>
+    </h2>
     {#if app.agent}
       <p class="mt-1 text-sm text-zinc-500">
         Roles below are defined by the linked Agent
@@ -189,6 +188,12 @@
       </p>
     {/if}
   </div>
+
+  {#if membersError}
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+      {t('app.members.load-error', 'The member list could not be loaded. Reload to try again.')}
+    </div>
+  {/if}
 
   {#if ensureActionError || removeActionError}
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -218,7 +223,7 @@
           </div>
 
           {#if memberRoles.length > 0}
-            <form method="POST" action="?/ensure" use:ensureEnhance class="flex items-center gap-2">
+            <form method="POST" action="?/ensureMember" use:ensureEnhance class="flex items-center gap-2">
               <input type="hidden" name="_kind" value="ensureAppMember" />
               <input type="hidden" name="userId" value={m.userId} />
               <select name="role" data-user-id={m.userId} onchange={submitOnChange} disabled={$ensureSubmitting}
@@ -234,7 +239,7 @@
 
           <!-- Keep both handlers: onclick updates before client validation for button activation;
                onsubmit covers keyboard/requestSubmit paths. -->
-          <form method="POST" action="?/remove" use:removeEnhance onsubmit={() => setRemoveUser(m.userId)}>
+          <form method="POST" action="?/removeMember" use:removeEnhance onsubmit={() => setRemoveUser(m.userId)}>
             <input type="hidden" name="_kind" value="removeAppMember" />
             <input type="hidden" name="userId" value={m.userId} />
             <button type="submit" disabled={$removeSubmitting} onclick={() => setRemoveUser(m.userId)} class="text-xs text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:text-red-300">Remove</button>
@@ -242,7 +247,7 @@
         </div>
       {/each}
     </section>
-  {:else}
+  {:else if !membersError}
     <p class="text-sm text-zinc-500">No members yet.</p>
   {/if}
 
@@ -257,7 +262,7 @@
           This App is at the member limit set by the Agent ({memberLimit}). Remove a member or ask the Agent author to raise the cap.
         </p>
       {:else}
-        <form method="POST" action="?/add" use:addEnhance class="flex flex-wrap items-start gap-3" novalidate>
+        <form method="POST" action="?/addMember" use:addEnhance class="flex flex-wrap items-start gap-3" novalidate>
           <input type="hidden" name="_kind" value="addAppMember" />
           <input type="hidden" name="userId" bind:value={$addForm.userId} />
           {#if addActionError}
@@ -281,8 +286,8 @@
             {/if}
           </div>
           <div>
-            <label for="role" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
-            <select id="role" name="role"
+            <label for="member-role" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">Role</label>
+            <select id="member-role" name="role"
               bind:value={$addForm.role}
               aria-invalid={!!addRoleError}
               aria-describedby={addRoleError ? 'addRoleError' : undefined}

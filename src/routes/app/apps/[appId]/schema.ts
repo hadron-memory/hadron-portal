@@ -163,3 +163,29 @@ export type ReleaseWorkerMessage = App.Superforms.Message & {
 // Posting to the App's TEAM CHAT (hadron-portal#732) is defined in $lib/forms
 // so the route action and TeamChatThread.svelte share one definition.
 export { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
+
+// #1005: the Human Team tab (the former /members page) posts to this page.
+
+export const addAppMemberSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('addAppMember').default('addAppMember'),
+  userId: z.string().trim().min(1, 'User is required.').prefault(''),
+  role: z.string().trim().min(1, 'Role is required.').prefault(''),
+});
+
+export const ensureAppMemberSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('ensureAppMember').default('ensureAppMember'),
+  userId: z.string().trim().min(1, 'User is required.').prefault(''),
+  role: z.string().trim().min(1, 'Role is required.').prefault(''),
+});
+
+export const removeAppMemberSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('removeAppMember').default('removeAppMember'),
+  userId: z.string().trim().min(1, 'User is required.').prefault(''),
+});
+

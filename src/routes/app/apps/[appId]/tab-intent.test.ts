@@ -70,3 +70,10 @@ describe('resolveTabIntent', () => {
     },
   );
 });
+
+// #1005/#1006: the Human Team and Agents tabs are addressable.
+describe('team tabs (#1005, #1006)', () => {
+  it.each(['members', 'agents'])('accepts ?tab=%s', (tab) => {
+    expect(resolveTabIntent(new URLSearchParams(`tab=${tab}`)).initialTab).toBe(tab);
+  });
+});
