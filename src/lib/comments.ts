@@ -313,6 +313,57 @@ export function openFeedbackCue(summary: CommentSummary | null | undefined): str
     : t('comments.cue.open-many', '{n} open discussions', { n });
 }
 
+// ── Search hits (portal#1015, `hrn:node:hadronmemory.com:specs:cor:dmo:110:08`) ────────────────────────
+
+/** Which kinds of node a search returns. The server default, and ours, is CONTENT. */
+export type ContentScope = 'CONTENT' | 'COMMENTS' | 'ALL';
+export const CONTENT_SCOPES: readonly ContentScope[] = ['CONTENT', 'COMMENTS', 'ALL'];
+
+/** A search hit read AS a comment (`Node.asComment`): enough to label it feedback and link back to its thread. */
+export interface CommentHit {
+  id: string;
+  isTopLevel: boolean;
+  state: CommentThreadState | null;
+  anchorRevision: number;
+  retracted: boolean;
+  hidden: boolean;
+  author: CommentAuthor;
+  target: CommentTargetRef;
+}
+
+export interface CommentHitView {
+  author: AuthorView;
+  /** "Open discussion", "Resolved", or "Reply": what part of the thread this is. */
+  role: string;
+  /** Which revision of the target it was written against, and whether that is still the target's. */
+  anchor: { current: boolean; revision: number; text: string };
+}
+
+/**
+ * A comment hit as a row shows it: always feedback, with its author and the
+ * revision it was written against. The anchor is judged against the target's
+ * current revision (`target.revSeq`), since a result list shows no target text.
+ */
+export function commentHitView(hit: CommentHit): CommentHitView {
+  const current = hit.target.revSeq === hit.anchorRevision;
+  const role = !hit.isTopLevel
+    ? t('comments.hit.reply', 'Reply')
+    : hit.state === 'RESOLVED'
+      ? t('comments.hit.resolved', 'Resolved discussion')
+      : t('comments.hit.open', 'Open discussion');
+  return {
+    author: authorView(hit.author),
+    role,
+    anchor: {
+      current,
+      revision: hit.anchorRevision,
+      text: current
+        ? t('comments.hit.anchor-current', 'On revision {rev}, the current one', { rev: hit.anchorRevision })
+        : t('comments.hit.anchor-older', 'On revision {rev}; the target is now at {now}', { rev: hit.anchorRevision, now: hit.target.revSeq }),
+    },
+  };
+}
+
 /** The move refusal for a node whose discussions can't follow it (`COMMENT_MOVE_UNCOMMENTABLE`, `110:02`). */
 export function commentMoveRefusedText(): string {
   return t(

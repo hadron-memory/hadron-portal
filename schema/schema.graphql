@@ -1,4 +1,4 @@
-# Exported from hadron-server c2686749de45636f0ffb71f6b9a5c7471f08efd5 (origin/main, 2026-10-05T22:21:51-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 7e663d7f9da3e6cc21fdb400d924255048641fac (def5be8d^, 2026-10-07T19:53:22-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -633,6 +633,13 @@ type App {
   clients keep working; do not build new multi-Agent logic on it.
   """
   agentId: ID
+
+  """
+  Ruling DY-3: whether startAgentSession stamps a hard expiry by default.
+  False means this App's agent sessions have no hard expiry unless the call
+  passes sessionTimeoutSeconds (still capped by the App's ceiling).
+  """
+  agentSessionsExpire: Boolean!
   agentTools: [String!]!
 
   """
@@ -5971,6 +5978,8 @@ type Mutation {
   Accepts the entity's ID or URN.
   """
   updateApp(
+    """Ruling DY-3: see App.agentSessionsExpire."""
+    agentSessionsExpire: Boolean
     agentTools: [String!]
 
     """
@@ -6425,6 +6434,11 @@ type Node {
   approvalStatus: NodeApprovalStatus!
 
   """
+  #1608 — this node AS a comment (author, target, anchor revision, thread) when its nodeType is 'comment'; null for content. Lets a search hit render as feedback, never as content of its target (hrn:node:hadronmemory.com:specs:cor:dmo:110:08).
+  """
+  asComment: Comment
+
+  """
   The asset this node references, for a reference node created by
   createAssetReferenceNode or hadron_store_file (its data.asset
   points at one). Null for every ordinary node.
@@ -6701,6 +6715,24 @@ type NodeBatchResult {
   unavailable: [ID!]!
 }
 
+"""
+#1608 — which kinds of node a search or list returns (hrn:node:hadronmemory.com:specs:cor:dmo:110:08).
+"""
+enum NodeContentScope {
+  """
+  Content and comments; every comment hit is still a comment (see Node.asComment).
+  """
+  ALL
+
+  """
+  Comments only, never content: feedback, not verified fact about its target.
+  """
+  COMMENTS
+
+  """Content only, never comments. The default."""
+  CONTENT
+}
+
 enum NodeContentValidationOutcome {
   ERROR
   FAIL
@@ -6817,6 +6849,14 @@ input NodeFilter {
   #1591 — only nodes in this approval state (read from the stored revision; a node changed outside a revisioned writer is reconciled on its next read).
   """
   approvalState: NodeApprovalState
+
+  """
+  #1608 — content, comments or both (hrn:node:hadronmemory.com:specs:cor:dmo:110:08).
+  Default CONTENT. Applied by the server before ranking, pagination and
+  limits in every mode (keyword, regex, vector, hybrid and filter-only), so a
+  COMMENTS search finds every matching comment the caller may read.
+  """
+  contentScope: NodeContentScope
   createdBy: String
 
   """Include soft-deleted nodes (default false)."""
@@ -6836,6 +6876,10 @@ input NodeFilter {
 
   """#1591 — only minted (true) or unminted (false) nodes."""
   minted: Boolean
+
+  """
+  An explicit 'comment' with no contentScope searches comments (as COMMENTS).
+  """
   nodeType: String
 
   """
@@ -8833,11 +8877,15 @@ type Query {
   """
   Sessions VISIBLE to the caller, newest first — not only the caller's own.
   The scope is authorization-derived (`sessionScopeFilter`): a platform
-  ADMIN/OWNER sees every session, an App key sees its own App's, and an
+  ADMIN/OWNER sees sessions in its audience, an App key sees its own App's, and an
   ordinary user sees those of Apps in any org they belong to **plus** every
-  session attributed to them (the self branch is identity-scoped, so it does
+  session of their user-owned Apps and every session attributed to them
+  (these identity-scoped branches do
   not apply through impersonation). So a client must not present these as "my
   activity" — many rows may be attributed to other users or Apps.
+  Sessions bound to personal/private memories additionally require that
+  memory's strict owner, with no admin or impersonation override. A pure App
+  key may also read only the session it is itself bound to.
   
   Unfiltered, this is also the GENERAL row of every `type`, worker-bound or
   not (#1034), so it is equally not a list of worker sessions.
@@ -8997,6 +9045,11 @@ type Query {
   system memory without an active session key refuses SESSION_EXPIRED.
   """
   teamRoles(appRef: ID!, limit: Int, offset: Int, teamAgentRef: ID): TeamRolesPage!
+
+  """
+  Declarative team JSON Schema (2020-12). apiVersion is the full identifier hadron.dev/team/v1alpha1; HTTP discovery uses /schemas/team/v1alpha1.json. CLIENT_INPUT additionally permits file parts for clients to inline; the server accepts SERVER only.
+  """
+  teamSpecSchema(apiVersion: String!, form: TeamSpecForm = SERVER): String!
 
   """
   Read a team App's worklog (#947) — the provenance query: which sessions
@@ -10995,6 +11048,11 @@ type TeamRole {
 type TeamRolesPage {
   items: [TeamRole!]!
   total: Int!
+}
+
+enum TeamSpecForm {
+  CLIENT_INPUT
+  SERVER
 }
 
 """

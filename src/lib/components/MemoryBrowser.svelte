@@ -7,6 +7,7 @@
   import { graphState } from './GraphState.svelte';
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { isHiddenNodeType } from '$lib/node-types';
+  import type { ContentScope } from '$lib/comments';
   import { onDestroy, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
@@ -104,7 +105,13 @@
   }
   // forcedView (the #266 tab layout) overrides the persisted toggle choice.
   let storedView = $state<'graph' | 'nodes'>(readStoredView());
-  const activeView = $derived(forcedView ?? storedView);
+  let contentScope = $state<ContentScope>('CONTENT');
+  // Comment hits are feedback listed with their author and target, which only
+  // the table presents (#1054 review: the tree and graph panes would drop the
+  // marking and link the comment node, not its target's Discussion). While a
+  // Comments or All scope is on, the table is the one presentation.
+  const commentsInView = $derived(contentScope !== 'CONTENT');
+  const activeView = $derived(commentsInView ? 'nodes' : (forcedView ?? storedView));
   $effect(() => {
     if (forcedView || typeof window === 'undefined') return;
     try {
@@ -244,7 +251,7 @@
   $effect(() => {
     const id = focusId;
     if (!id || id === autoRevealedFor) return;
-    if (filteredNodes.some((n) => n.id === id && isHiddenNodeType(n.nodeType))) {
+    if (filteredNodes.some((n) => n.id === id && isHiddenNode(n))) {
       autoRevealedFor = id;
       showHidden = true;
     }
@@ -348,6 +355,10 @@
   // server (findNodes filter) so the list never reads approval per row.
   let approvalFilter = $state<'' | 'APPROVED' | 'NOT_APPROVED' | 'SUPERSEDED'>('');
   let mintedFilter = $state<'any' | 'minted' | 'unminted'>('any');
+  // portal#1015 (hrn:node:hadronmemory.com:specs:cor:dmo:110:08): Content / Comments / All. Content is the
+  // default (the server's too). The SERVER applies it before ranking, paging and
+  // the 500-hit cap, so Comments finds every matching comment, not the comments
+  // among the first 500 general hits.
   // #433: the fields weight-mask (findNodes fields, hrn:node:hadronmemory.com:specs:cor:api:090:03) — scopes a
   // LEXICAL query's scoring to a subset of node fields. Empty = all fields
   // (the server default). Ignored for Fuzzy (vector retrieval) and for a
@@ -431,6 +442,7 @@
     where: whereParse.value,
     approvalState: approvalFilter || null,
     minted: mintedFilter === 'any' ? null : mintedFilter === 'minted',
+    contentScope: contentScope === 'CONTENT' ? null : contentScope,
   });
   // A stable key for the fields mask — a fresh Set identity on every toggle
   // would re-run the search effect even when the selection is unchanged (same
@@ -447,6 +459,7 @@
       !!serverFilter.objectType ||
       !!serverFilter.approvalState ||
       serverFilter.minted !== null ||
+      !!serverFilter.contentScope ||
       whereJson.trim() !== '' ||
       sortPropPathSegments.length > 0 ||
       sortMode === 'updatedAt' ||
@@ -534,6 +547,7 @@
       where: Record<string, unknown> | null;
       approvalState: string | null;
       minted: boolean | null;
+      contentScope: string | null;
     },
     sort: 'loc' | 'updatedAt' | 'relevance',
     sortProperty: { path: string[]; field: string; as: string; direction: string } | null,
@@ -675,6 +689,7 @@
       includeDeleted ||
       approvalFilter !== '' ||
       mintedFilter !== 'any' ||
+      contentScope !== 'CONTENT' ||
       searchFields.size > 0 ||
       structuredActiveCount > 0 ||
       sortMode !== 'loc',
@@ -690,6 +705,7 @@
     includeDeleted = false;
     approvalFilter = '';
     mintedFilter = 'any';
+    contentScope = 'CONTENT';
     searchFields = new Set();
     sortMode = 'loc';
     objectTypeFilter = '';
@@ -734,6 +750,12 @@
   // When a server search is active, its results ARE the working set; otherwise
   // the loaded nodes. The memory/type/tag dropdowns refine whichever is shown.
   const displayNodes = $derived(serverResults ?? nodes);
+  // portal#1015: a comment the reader ASKED for (Comments or All; the server
+  // only returns one then, carrying `comment`) is a result, not clutter. Without
+  // the ask no comment arrives, and the loaded set's comments stay hidden.
+  function isHiddenNode(n: MemoryNode): boolean {
+    return isHiddenNodeType(n.nodeType) && !n.comment;
+  }
   const filteredNodes = $derived(
     displayNodes.filter((n) => {
       if (activeMemoryUrns.size > 0 && !activeMemoryUrns.has(n.memory?.urn ?? '')) return false;
@@ -754,7 +776,7 @@
   // toggle removed — so the control would vanish the moment you turned it off
   // and there would be no way to turn it back on. A one-way switch, reachable
   // by "simplifying" one identifier.
-  const hasHiddenNodes = $derived(filteredNodes.some((n) => isHiddenNodeType(n.nodeType)));
+  const hasHiddenNodes = $derived(filteredNodes.some((n) => isHiddenNode(n)));
 
   // The pool every pane shows. #706: this used to feed only NodeList while the
   // graph was built from `filteredNodes` — the pool BEFORE the hidden filter —
@@ -767,7 +789,7 @@
   // The text match is server-side (#355), so there is no keyword filter here —
   // `filteredNodes` is already either the loaded set or the search results.
   const visibleNodes = $derived(
-    showHidden ? filteredNodes : filteredNodes.filter((n) => !isHiddenNodeType(n.nodeType))
+    showHidden ? filteredNodes : filteredNodes.filter((n) => !isHiddenNode(n))
   );
   // Retained name: NodeList and the search-rescue count below read this.
   const searchedNodes = $derived(visibleNodes);
@@ -1177,6 +1199,15 @@
       <option value="30d">Last 30 days</option>
     </select>
 
+    <!-- portal#1015: Content / Comments / All, applied by the server before ranking and the result cap -->
+    <select bind:value={contentScope} data-testid="scope-filter" aria-label={t('memory-browser.scope-filter', 'Search scope')} title={t('memory-browser.scope-filter', 'Search scope')}
+      class="rounded-lg border px-2 py-1.5 text-xs
+        {contentScope !== 'CONTENT' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
+      <option value="CONTENT">{t('memory-browser.scope.content', 'Content')}</option>
+      <option value="COMMENTS">{t('memory-browser.scope.comments', 'Comments')}</option>
+      <option value="ALL">{t('memory-browser.scope.all', 'Content and comments')}</option>
+    </select>
+
     <!-- #992: approval and minting state (server-side findNodes filter) -->
     <select bind:value={approvalFilter} data-testid="approval-filter" aria-label={t('memory-browser.approval-filter', 'Filter by approval')} title={t('memory-browser.approval-filter', 'Filter by approval')}
       class="rounded-lg border px-2 py-1.5 text-xs
@@ -1223,7 +1254,7 @@
          view is fixed by the tab layout (#266); the Tree/Table toggle shows
          whenever the nodes view is active. -->
     <div class="ml-auto flex items-center gap-3">
-      {#if !forcedView}
+      {#if !forcedView && !commentsInView}
         <div
           role="group"
           aria-label={t('memory-browser.view-toggle-label', 'Browser view')}
@@ -1256,7 +1287,7 @@
           {t('memory-browser.show-hidden', 'Show hidden')}
         </label>
       {/if}
-      {#if activeView === 'nodes'}
+      {#if activeView === 'nodes' && !commentsInView}
         <div
           role="group"
           aria-label={t('memory-browser.nodes-pane-label', 'Nodes layout')}
@@ -1459,7 +1490,7 @@
          time rather than side-by-side. -->
     <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800"
       style="--memory-browser-h: calc(100vh - 320px); min-height: var(--memory-browser-h); min-height: calc(100dvh - 320px);">
-      {#if nodesPane === 'tree'}
+      {#if nodesPane === 'tree' && !commentsInView}
         <div class="overflow-y-auto bg-zinc-50 dark:bg-zinc-950" style="max-height: var(--memory-browser-h); max-height: calc(100dvh - 320px);">
           {#if moveError}
             <p class="m-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
