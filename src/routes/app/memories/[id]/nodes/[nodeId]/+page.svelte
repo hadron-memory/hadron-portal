@@ -2100,11 +2100,11 @@
         <!-- #921: the node's role, verbatim (dotted sub-roles included), so a
              spec reviewer sees it without opening Settings. -->
         {#if node.role}
-          <span data-testid="node-role-badge" class="rounded-full bg-amber-100 px-2 py-0.5 font-mono text-xs font-normal text-amber-800 dark:bg-amber-950 dark:text-amber-300" title={t('node.role.badge-title', 'Role')}>{node.role}</span>
+          <span data-testid="node-role-badge" class="min-w-0 break-words rounded-full bg-amber-100 px-2 py-0.5 font-mono text-xs font-normal text-amber-800 dark:bg-amber-950 dark:text-amber-300" title={t('node.role.badge-title', 'Role')}>{node.role}</span>
         {/if}
         <!-- #588 (server #725): collection discriminator badge. -->
         {#if node.objectType}
-          <span class="rounded-full bg-indigo-100 px-2 py-0.5 font-mono text-xs font-normal text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300" title={t('node.object-type.badge-title', 'Object type (collection)')}>{node.objectType}</span>
+          <span class="min-w-0 break-words rounded-full bg-indigo-100 px-2 py-0.5 font-mono text-xs font-normal text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300" title={t('node.object-type.badge-title', 'Object type (collection)')}>{node.objectType}</span>
         {/if}
       </h1>
       <Urn value={fullUrn} type="node" />

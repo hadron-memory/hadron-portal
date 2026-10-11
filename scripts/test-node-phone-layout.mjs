@@ -57,12 +57,13 @@ try {
   }));
 
   for (const width of [390, 1280]) {
-    for (const longName of [false, true]) {
+    for (const { longName, longBadges } of [false, true].flatMap((longName) =>
+      [false, true].map((longBadges) => ({ longName, longBadges })))) {
       await page.setViewportSize({ width, height: 900 });
       await page.setContent(`<style>${css}</style>
         <main style="width:${width === 390 ? 308 : 1000}px;margin:40px">
           <div class="${classes(row)}"><div class="${classes(wrapper)}">
-            <h1 class="${classes(heading)}"><span class="${classes(name)}">Node: ${longName ? 'x'.repeat(80) : 'Phone layout'}</span>${badges.map((el) => `<span class="${classes(el)}">rule</span>`).join('')}</h1>
+            <h1 class="${classes(heading)}"><span class="${classes(name)}">Node: ${longName ? 'x'.repeat(80) : 'Phone layout'}</span>${badges.map((el) => `<span data-layout-badge class="${classes(el)}">${longBadges ? `platform.governance.${'auditoversight'.repeat(8)}` : 'rule'}</span>`).join('')}</h1>
             ${urn}
           </div><button class="shrink-0" aria-label="Actions">⋮</button></div>
           <div class="${classes(prose)}">
@@ -71,7 +72,7 @@ try {
           </div>
         </main>`);
       const fixed = await measure();
-      assert.equal(fixed.scrollWidth, width, `overflow at ${width}px, longName=${longName}`);
+      assert.equal(fixed.scrollWidth, width, `overflow at ${width}px, longName=${longName}, longBadges=${longBadges}`);
       assert.equal(fixed.inlineWrap, 'anywhere');
       assert.equal(fixed.blockWrap, 'normal');
       assert.equal(await page.evaluate(() => {
@@ -96,7 +97,21 @@ try {
       assert.ok((await measure()).scrollWidth > width, 'inline-code mutant must overflow');
       await override.evaluate((el) => el.remove());
       assert.equal((await measure()).scrollWidth, width);
-      console.log(JSON.stringify({ ...fixed, longName, mutantsDetected: true }));
+      if (width === 390 && longBadges) {
+        const renderedBadges = await page.locator('[data-layout-badge]').all();
+        assert.equal(renderedBadges.length, 2, 'exercise role and object-type badges');
+        for (const badge of renderedBadges) {
+          // Each half matters independently: a shrinking badge still paints
+          // outside its box without wrapping, and wrapping alone cannot shrink.
+          for (const mutant of ['min-width: auto', 'overflow-wrap: normal']) {
+            await badge.evaluate((el, style) => el.setAttribute('style', style), mutant);
+            assert.ok((await measure()).scrollWidth > width, `badge mutant must overflow: ${mutant}`);
+            await badge.evaluate((el) => el.removeAttribute('style'));
+            assert.equal((await measure()).scrollWidth, width);
+          }
+        }
+      }
+      console.log(JSON.stringify({ ...fixed, longName, longBadges, mutantsDetected: true }));
     }
   }
 } finally {
