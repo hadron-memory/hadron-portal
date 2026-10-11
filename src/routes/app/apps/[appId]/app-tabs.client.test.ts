@@ -59,7 +59,7 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
       createdAt: '2026-01-01T00:00:00.000Z',
       ...over.app,
     },
-    org: null, availableAgents: [{ id: 'ag3', urn: 'hrn:agent:acme.com:extra', name: 'Extra' }],
+    org: null, availableAgents: [agentOne, { id: 'ag3', urn: 'hrn:agent:acme.com:extra', name: 'Extra' }],
     staff: [], staffError: false, members: [{ appId: 'a1', userId: 'u2', role: 'reader', user: reader }],
     teamChatMessages: [], teamChatTotal: 0, teamChatError: false,
     appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
@@ -103,6 +103,8 @@ describe('Settings no longer carries the agent section (#1004, #1006)', () => {
     const headings = [...target.querySelectorAll('h2')].map((h) => h.textContent?.trim());
     expect(headings).not.toContain('Agent');
     expect(target.querySelector('a[href$="/members"]')).toBeNull();
+    // Absence by behavior, not caption: a renamed section would still post these.
+    expect(target.querySelector('form[action="?/addAgent"], form[action="?/removeAgent"]')).toBeNull();
   });
 });
 
@@ -139,6 +141,20 @@ describe('Agents tab (#1006)', () => {
     const options = [...form.querySelectorAll('option')].map((o) => o.textContent);
     expect(options.some((o) => o?.includes('Extra'))).toBe(true);
     expect(options.some((o) => o?.includes('Scribe'))).toBe(false);
+  });
+
+  it('keeps the canonical install URN, on the primary agent’s row only (P2 from step 5)', async () => {
+    const urn = 'hrn:agent:acme.com:team:scribe';
+    const target = await mountTab('agents', { app: { installedAgentUrn: urn } });
+    const shown = [...target.querySelectorAll('#panel-agents [data-testid="install-urn"]')];
+    expect(shown).toHaveLength(1);
+    expect(shown[0].textContent!.replace(/\s+/g, '')).toContain(urn);
+    expect(shown[0].closest('tr')!.textContent).toContain('Scribe');
+  });
+
+  it('shows no install URN when the server did not derive one', async () => {
+    const target = await mountTab('agents', { app: { installedAgentUrn: null } });
+    expect(target.querySelector('#panel-agents [data-testid="install-urn"]')).toBeNull();
   });
 
   it('unlinks the agent of THAT row', async () => {

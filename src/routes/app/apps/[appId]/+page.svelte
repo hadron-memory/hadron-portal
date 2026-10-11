@@ -2201,6 +2201,15 @@
                 {#if agent.urn}
                   <Urn value={agent.urn} type="agent" size={8} />
                 {/if}
+                <!-- Spec 021 US1: the canonical install URN the audit log cites.
+                     The server derives it for the App's primary agent only
+                     (`App.installedAgentUrn`), so it rides that agent's row. -->
+                {#if app.installedAgentUrn && agent.id === app.agent?.id}
+                  <div class="mt-1" data-testid="install-urn">
+                    <span class="mr-1 text-xs text-zinc-500">{t('app.agents.install-urn', 'Install URN:')}</span>
+                    <Urn value={app.installedAgentUrn} type="agent" size={8} />
+                  </div>
+                {/if}
               </div>
             {:else if cell.column.id === 'role'}
               {#if agent.personaRole}

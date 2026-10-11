@@ -2,6 +2,7 @@ import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
+import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { gqlClient } from '$lib/server/api';
 import { lookupOwn } from '$lib/lookup';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -504,13 +505,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     }).catch(() => null),
     // #1005: the Human Team tab. null = the fetch failed, distinct from an App
     // with no members, so the tab can say so instead of showing "No members yet."
-    client
-      .request<{ app: { members: AppMember[] } | null }>(APP_MEMBERS_QUERY, { ref: params.appId })
-      .then((r) => r.app?.members ?? null)
-      .catch((e) => {
-        console.warn(`[app-members] members fetch failed for ${params.appId}:`, e);
-        return null;
-      }),
+    // Bounded: a request that HANGS would otherwise hold every tab of the page.
+    withTimeout(
+      client
+        .request<{ app: { members: AppMember[] } | null }>(APP_MEMBERS_QUERY, { ref: params.appId })
+        .then((r) => r.app?.members ?? null),
+      OPTIONAL_LIST_TIMEOUT_MS,
+      null,
+    ).catch((e) => {
+      console.warn(`[app-members] members fetch failed for ${params.appId}:`, e);
+      return null;
+    }),
   ]);
   if (!appData.app) throw error(404, 'App not found');
   const app = appData.app;
@@ -550,26 +555,33 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     );
     // #1006: the Agents tab's install picker, asked for on its own so a refusal
     // cannot null the org (see APP_ORG_AGENTS_QUERY).
-    const pool = await client
-      .request<{ organization: { agents: InstallableAgent[] } | null }>(APP_ORG_AGENTS_QUERY, {
-        ref: app.organizationId,
-      })
-      .then((r) => r.organization?.agents ?? null)
-      .catch((e) => {
-        console.warn(`[app-agents] installable agents fetch failed for ${params.appId}:`, e);
-        return null;
-      });
+    const pool = await withTimeout(
+      client
+        .request<{ organization: { agents: InstallableAgent[] } | null }>(APP_ORG_AGENTS_QUERY, {
+          ref: app.organizationId,
+        })
+        .then((r) => r.organization?.agents ?? null),
+      OPTIONAL_LIST_TIMEOUT_MS,
+      null,
+    ).catch((e) => {
+      console.warn(`[app-agents] installable agents fetch failed for ${params.appId}:`, e);
+      return null;
+    });
     availableAgents = pool ?? [];
     availableAgentsError = pool === null;
   } else {
     const [mine, publicAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
       // already the caller's own org-less agents — no client-side filter needed.
-      fetchAllItems<InstallableAgent>(
-        client, MY_AGENTS_QUERY, 'agents',
+      withTimeout(
+        fetchAllItems<InstallableAgent>(client, MY_AGENTS_QUERY, 'agents'),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
       ).catch(() => null),
-      fetchAllItems<InstallableAgent>(
-        client, PUBLIC_AGENTS_QUERY, 'publicAgents',
+      withTimeout(
+        fetchAllItems<InstallableAgent>(client, PUBLIC_AGENTS_QUERY, 'publicAgents'),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
       ).catch(() => null),
     ]);
     availableAgentsError = mine === null || publicAgents === null;

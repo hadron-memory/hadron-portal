@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import {
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
@@ -1747,6 +1748,30 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       expect(thrown).toBeUndefined();
       expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([]);
       expect((result as { availableAgentsError: boolean }).availableAgentsError).toBe(true);
+    });
+
+    it('a HANGING agents or members request cannot hold the page (step 5 P2)', async () => {
+      vi.useFakeTimers();
+      try {
+        const never = new Promise(() => {});
+        stubOrg({ resolve: { organization: ORG } }, {}, { resolve: never });
+        const base = mockRequest.getMockImplementation()!;
+        mockRequest.mockImplementation((query, ...rest) =>
+          query === APP_MEMBERS_QUERY ? never : base(query, ...rest),
+        );
+        const pending = loadAndCatch();
+        // The loader's own awaits (dynamic import, the org lookup) must reach the
+        // bounded requests before the clock can fire them.
+        for (let i = 0; i < 20; i++) await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
+        const { thrown, result } = await pending;
+        expect(thrown).toBeUndefined();
+        const r = result as { availableAgentsError: boolean; membersError: boolean; availableAgents: unknown[] };
+        expect(r.availableAgentsError).toBe(true);
+        expect(r.membersError).toBe(true);
+        expect(r.availableAgents).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('neither document selects a list the page never draws', () => {
