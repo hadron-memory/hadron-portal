@@ -339,3 +339,66 @@ describe('/api/nodes/search approval and minting filters (#992)', () => {
   });
 });
 
+
+
+// portal#1015 (hrn:node:hadronmemory.com:specs:cor:dmo:110:08): Content / Comments / All is a SERVER filter,
+// applied before ranking and the 500-hit cap. The endpoint forwards it; it
+// never filters a returned page.
+describe('/api/nodes/search content scope (portal#1015)', () => {
+  const commentHit = {
+    id: 'c1',
+    isTopLevel: true,
+    state: 'OPEN',
+    anchorRevision: 2,
+    retracted: false,
+    hidden: false,
+    author: { kind: 'WORKER', worker: { id: 'w1', name: 'Gil', handle: null, urn: 'hrn:worker:o:a:gil' }, user: null, agent: null, app: null },
+    target: { id: 't1', name: 'Target', nodeType: 'info', revSeq: 5, urn: 'hrn:node:o:m:t' },
+  };
+
+  it('forwards COMMENTS, and a comments list with no query is a valid filter-only search', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { contentScope: 'COMMENTS' } }));
+    expect(res.status).toBe(200);
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ contentScope: 'COMMENTS', query: null, memoryIds: ['m1'] });
+  });
+
+  it.each(['keyword', 'regex', 'fuzzy'] as const)('forwards ALL with a %s query', async (mode) => {
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    await POST(ev({ query: 'retention', mode: mode === 'keyword' ? 'exact' : mode, memoryIds: ['m1'], filter: { contentScope: 'ALL' } }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ contentScope: 'ALL', query: 'retention' });
+  });
+
+  it('sends no scope for CONTENT (the server default), so a bare CONTENT request browses client-side', async () => {
+    const res = await POST(ev({ memoryIds: ['m1'], filter: { contentScope: 'CONTENT' } }));
+    expect(await res.json()).toEqual({ nodes: [], total: null });
+    expect(mockRequest).not.toHaveBeenCalled();
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    await POST(ev({ query: 'x', memoryIds: ['m1'], filter: { contentScope: 'CONTENT' } }));
+    expect(mockRequest.mock.calls[0][1].contentScope).toBeNull();
+  });
+
+  it('drops an unknown scope rather than reaching GraphQL enum coercion', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1));
+    await POST(ev({ query: 'x', memoryIds: ['m1'], filter: { contentScope: 'EVERYTHING' } }));
+    expect(mockRequest.mock.calls[0][1].contentScope).toBeNull();
+  });
+
+  it('hands a comment hit to the client as `comment`, and leaves content hits without one', async () => {
+    mockRequest.mockResolvedValue({
+      findNodes: {
+        hits: [
+          { node: { id: 'c1', nodeType: 'comment', asComment: commentHit, commentSummary: null } },
+          { node: { id: 'n1', nodeType: 'info', asComment: null, commentSummary: { openThreads: 2 } } },
+        ],
+        passages: [], total: 2, reason: null, degraded: null,
+      },
+    });
+    const body = await (await POST(ev({ query: 'x', memoryIds: ['m1'], filter: { contentScope: 'ALL' } }))).json();
+    expect(body.nodes[0].comment).toEqual(commentHit);
+    expect(body.nodes[0]).not.toHaveProperty('asComment');
+    expect(body.nodes[1]).not.toHaveProperty('comment');
+    expect(body.nodes[1].openThreads).toBe(2);
+    expect(body.total).toBe(2);
+  });
+});
