@@ -28,6 +28,7 @@
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
   import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
+  import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
   import NodeMintLabel from '$lib/components/NodeMintLabel.svelte';
   import NodeDiscussion from '$lib/components/NodeDiscussion.svelte';
   import { COMMENT_NODE_TYPE, discussionCount, isCommentableClass, openFeedbackCue, type CommentSummary, type Discussion } from '$lib/comments';
@@ -2123,12 +2124,10 @@
           {#if mintState}<NodeMintLabel view={mintState} />{/if}
           <NodeApprovalBadge view={approvalState} />
           {#if approvalState.canApprove}
-            <form method="POST" action="?/approveNode" use:approveEnhance novalidate>
+            <form method="POST" action="?/approveNode" use:approveEnhance novalidate class="flex items-center">
               <input type="hidden" name="_kind" value="approveNode" />
               <input type="hidden" name="revision" value={node.revision} />
-              <button type="submit" disabled={$approveSubmitting} class="rounded border border-zinc-300 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
-                {t('node.approval.approve', 'Approve revision {rev}', { rev: node.revision ?? '' })}
-              </button>
+              <ApproveRevisionButton revision={node.revision} submitting={$approveSubmitting} />
             </form>
           {/if}
           {#if approvalState.approval}
