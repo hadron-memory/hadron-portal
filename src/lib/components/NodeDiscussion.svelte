@@ -90,7 +90,7 @@
   // still assert the revision the reader started from, or it would overwrite
   // an edit made meanwhile (Diego on #1024).
   let editing = $state<{ id: string; body: string; revSeq: number } | null>(null);
-  let confirming = $state<{ id: string; op: 'retract' | 'hide' | 'delete'; reason: string } | null>(null);
+  let confirming = $state<{ id: string; op: 'deleteComment' | 'delete'; reason: string } | null>(null);
 
   let isBrowser = $state(false);
   let destroyed = false;
@@ -295,9 +295,7 @@
     const payload: Record<string, unknown> =
       op === 'delete'
         ? { op, commentId: c.id, reason }
-        : op === 'hide'
-          ? { op, commentId: c.id, reason, expectedRevision: c.revSeq }
-          : { op, commentId: c.id, expectedRevision: c.revSeq };
+        : { op, commentId: c.id, expectedRevision: c.revSeq };
     if (await send(`${op}:${c.id}`, payload)) confirming = null;
   }
 
@@ -335,7 +333,7 @@
         <span>({provenanceText(c.provenanceUser)})</span>
       {/if}
       <time datetime={c.createdAt}>{new Date(c.createdAt).toLocaleString()}</time>
-      {#if c.updatedAt && Date.parse(c.updatedAt) !== Date.parse(c.createdAt) && view.kind === 'text'}
+      {#if c.editedAt && view.kind === 'text'}
         <span>{t('comments.edited', '(edited)')}</span>
       {/if}
     </header>
@@ -360,10 +358,8 @@
           <button type="button" class={buttonClass} onclick={() => (editing = null)}>{t('comments.cancel', 'Cancel')}</button>
         </div>
       </form>
-    {:else if view.kind === 'retracted'}
-      <p class="text-sm italic text-zinc-500 dark:text-zinc-400">{t('comments.stub.retracted', 'Retracted by its author.')}</p>
-    {:else if view.kind === 'hidden'}
-      <p class="text-sm italic text-zinc-500 dark:text-zinc-400">{t('comments.stub.hidden', 'Hidden by an administrator.')}</p>
+    {:else if view.kind === 'deleted'}
+      <p class="text-sm italic text-zinc-500 dark:text-zinc-400">{t('comments.stub.deleted', 'Deleted comment.')}</p>
     {:else}
       {#if view.quote}
         <blockquote class="border-l-2 border-zinc-300 pl-2 text-sm text-zinc-600 dark:border-zinc-600 dark:text-zinc-400">{view.quote}</blockquote>
@@ -373,13 +369,11 @@
 
     {#if confirming?.id === c.id}
       <div class="space-y-2 rounded-md border border-zinc-200 p-2 dark:border-zinc-700">
-        {#if confirming.op === 'retract'}
-          <p class="text-sm">{t('comments.retract.confirm', 'Retract this comment? Its text is replaced by a stub; replies stay.')}</p>
+        {#if confirming.op === 'deleteComment'}
+          <p class="text-sm">{t('comments.delete-comment.confirm', 'Delete this comment? It disappears unless live replies need its context; then a deleted stub remains.')}</p>
         {:else}
           <label class="block text-sm" for="reason-{c.id}">
-            {confirming.op === 'hide'
-              ? t('comments.hide.reason', 'Why are you hiding this comment?')
-              : t('comments.delete.reason', 'Why are you deleting this discussion? It disappears for everyone; its history is kept for audit.')}
+            {t('comments.delete.reason', 'Why are you deleting this discussion? It disappears for everyone; its history is kept for audit.')}
           </label>
           <input id="reason-{c.id}" class={textareaClass} bind:value={confirming.reason} />
         {/if}
@@ -387,14 +381,12 @@
           <button
             type="button"
             class={primaryClass}
-            disabled={busy !== null || (confirming.op !== 'retract' && confirming.reason.trim() === '')}
+            disabled={busy !== null || (confirming.op !== 'deleteComment' && confirming.reason.trim() === '')}
             onclick={() => confirm(c)}
           >
-            {confirming.op === 'retract'
-              ? t('comments.retract.do', 'Retract')
-              : confirming.op === 'hide'
-                ? t('comments.hide.do', 'Hide')
-                : t('comments.delete.do', 'Delete discussion')}
+            {confirming.op === 'deleteComment'
+              ? t('comments.delete-comment.do', 'Delete comment')
+              : t('comments.delete.do', 'Delete discussion')}
           </button>
           <button type="button" class={buttonClass} onclick={() => (confirming = null)}>{t('comments.cancel', 'Cancel')}</button>
         </div>
@@ -406,9 +398,9 @@
             {t('comments.edit.do', 'Edit')}
           </button>
         {/if}
-        {#if controls.retract}
-          <button type="button" class={buttonClass} disabled={busy !== null} onclick={() => (confirming = { id: c.id, op: 'retract', reason: '' })}>
-            {t('comments.retract.do', 'Retract')}
+        {#if controls.deleteComment}
+          <button type="button" class={buttonClass} disabled={busy !== null} onclick={() => (confirming = { id: c.id, op: 'deleteComment', reason: '' })}>
+            {t('comments.delete-comment.do', 'Delete comment')}
           </button>
         {/if}
         {#if controls.resolve}
@@ -419,11 +411,6 @@
         {#if controls.reopen}
           <button type="button" class={buttonClass} disabled={busy !== null} onclick={() => send(`reopen:${c.id}`, { op: 'reopen', commentId: c.id, expectedRevision: c.revSeq })}>
             {t('comments.reopen.do', 'Reopen')}
-          </button>
-        {/if}
-        {#if controls.hide}
-          <button type="button" class={buttonClass} disabled={busy !== null} onclick={() => (confirming = { id: c.id, op: 'hide', reason: '' })}>
-            {t('comments.hide.do', 'Hide')}
           </button>
         {/if}
         {#if controls.deleteThread}

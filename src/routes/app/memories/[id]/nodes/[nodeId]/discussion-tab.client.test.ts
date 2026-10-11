@@ -84,6 +84,18 @@ const tabButton = (t: HTMLElement, label: string) =>
   [...t.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim().startsWith(label));
 
 describe('Discussion tab on the node page (portal#1014)', () => {
+  it('a comment node offers no Revisions tab or history even with a history deep link', async () => {
+    const answer = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: { ...NODE, nodeType: 'comment' } };
+      return answer(doc);
+    });
+    const { target } = await mountPage('?tab=history');
+    expect(tabButton(target, 'Revisions')).toBeUndefined();
+    expect(target.textContent).not.toContain('A snapshot is saved each time');
+    expect(mockRequest.mock.calls.filter(([doc]) => doc === NODE_REVISIONS_QUERY)).toHaveLength(0);
+  });
+
   it("Cloe's QA on #1024: a cold load with ?tab=discussion opens the tab", async () => {
     const { target } = await mountPage('?tab=discussion');
     const p = panel(target);

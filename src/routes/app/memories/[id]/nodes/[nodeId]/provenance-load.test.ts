@@ -80,6 +80,17 @@ async function runNodeLoad(): Promise<Loaded> {
 }
 
 describe('node page — provenance is its own streamed read', () => {
+  it('a comment reads no revision history or revision provenance', async () => {
+    serve(new Map([
+      [NODE_BY_ID_QUERY, () => ({ node: { ...NODE, nodeType: 'comment' } })],
+      [NODE_QUERY, () => ({ node: { ...NODE, nodeType: 'comment' } })],
+    ]));
+    const data = await runNodeLoad() as Loaded & { revisions: Promise<unknown> };
+    expect(await data.revisions).toEqual({ ok: true, items: [] });
+    expect(await data.revisionProvenance).toEqual({ ok: true, value: [] });
+    expect(mockRequest.mock.calls.filter(([d]) => d === NODE_REVISIONS_QUERY || d === NODE_REVISIONS_PROVENANCE_QUERY)).toHaveLength(0);
+  });
+
   it('reads the node\'s provenance by id, and its History rows\' with the history limit', async () => {
     const hist = { id: 'r1', revNo: 3, authorship: null, contentValidation: { state: 'STALE', latestReport: null } };
     serve(new Map<string, (v: Record<string, unknown>) => unknown>([

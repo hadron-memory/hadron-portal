@@ -11,9 +11,8 @@ import {
   CREATE_COMMENT_MUTATION,
   DELETE_COMMENT_THREAD_MUTATION,
   EDIT_COMMENT_MUTATION,
-  HIDE_COMMENT_MUTATION,
   REOPEN_COMMENT_THREAD_MUTATION,
-  RETRACT_COMMENT_MUTATION,
+  DELETE_COMMENT_MUTATION,
   NODE_COMMENT_SUMMARY_QUERY,
   REPLY_TO_COMMENT_MUTATION,
   RESOLVE_COMMENT_THREAD_MUTATION,
@@ -24,6 +23,12 @@ const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
 import { GET, POST } from './+server';
+
+it('the discussion query fetches the new edit/deletion fields and no removed fields', () => {
+  for (const field of ['editedAt', 'editedBy', 'deleted', 'deletedAt', 'deletedBy'])
+    expect(COMMENT_THREADS_QUERY).toMatch(new RegExp('\\b' + field + '\\b'));
+  expect(COMMENT_THREADS_QUERY).not.toMatch(/\b(retracted|retractedAt|hidden|hiddenAt)\b/);
+});
 
 beforeEach(() => {
   mockRequest.mockReset();
@@ -66,10 +71,11 @@ function comment(id: string, over: Record<string, unknown> = {}) {
     quote: null,
     body: 'Is §2 right?',
     state: 'OPEN',
-    retracted: false,
-    retractedAt: null,
-    hidden: false,
-    hiddenAt: null,
+    deleted: false,
+    deletedAt: null,
+    deletedBy: null,
+    editedAt: null,
+    editedBy: null,
     resolvedAt: null,
     resolvedBy: null,
     author: { kind: 'USER', worker: null, user: actor('user-1', { handle: 'ana' }), agent: null, app: null },
@@ -234,19 +240,37 @@ describe('POST comments (portal#1014)', () => {
   // variables, so a miswired op can't ship green.
   it.each([
     ['edit', { op: 'edit', commentId: 'c1', body: 'Fixed', expectedRevision: 2 }, EDIT_COMMENT_MUTATION, { commentRef: 'c1', body: 'Fixed', expectedRevision: 2 }],
-    ['retract', { op: 'retract', commentId: 'c1', expectedRevision: 2 }, RETRACT_COMMENT_MUTATION, { commentRef: 'c1', expectedRevision: 2 }],
+    ['deleteComment', { op: 'deleteComment', commentId: 'c1', expectedRevision: 2 }, DELETE_COMMENT_MUTATION, { commentRef: 'c1', expectedRevision: 2 }],
     ['reopen', { op: 'reopen', commentId: 'c1', expectedRevision: 3 }, REOPEN_COMMENT_THREAD_MUTATION, { commentRef: 'c1', expectedRevision: 3 }],
-    ['hide', { op: 'hide', commentId: 'c2', reason: 'Spam', expectedRevision: 1 }, HIDE_COMMENT_MUTATION, { commentRef: 'c2', reason: 'Spam', expectedRevision: 1 }],
     ['delete', { op: 'delete', commentId: 'c1', reason: 'Off-topic' }, DELETE_COMMENT_THREAD_MUTATION, { commentRef: 'c1', reason: 'Off-topic' }],
   ] as const)('%s sends its own mutation with the reader\'s values, and nothing else', async (_name, body, doc, vars) => {
     serve({ [doc]: () => ({}) });
     const res = await POST(ev(body));
     expect(res.status).toBe(200);
     expect(sent(doc)).toEqual([vars]);
-    for (const other of [CREATE_COMMENT_MUTATION, REPLY_TO_COMMENT_MUTATION, RESOLVE_COMMENT_THREAD_MUTATION, EDIT_COMMENT_MUTATION, RETRACT_COMMENT_MUTATION, REOPEN_COMMENT_THREAD_MUTATION, HIDE_COMMENT_MUTATION, DELETE_COMMENT_THREAD_MUTATION]) {
+    for (const other of [CREATE_COMMENT_MUTATION, REPLY_TO_COMMENT_MUTATION, RESOLVE_COMMENT_THREAD_MUTATION, EDIT_COMMENT_MUTATION, DELETE_COMMENT_MUTATION, REOPEN_COMMENT_THREAD_MUTATION, DELETE_COMMENT_THREAD_MUTATION]) {
       if (other !== doc) expect(sent(other)).toEqual([]);
     }
   });
+
+  it.each(['hide', 'retract'])('rejects removed %s operations without any GraphQL call', async (op) => {
+    const res = await POST(ev({ op, commentId: 'c1', expectedRevision: 1, reason: 'Old client' }));
+    expect(res.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it.each(['COMMENT_NOT_AUTHOR', 'COMMENT_FORBIDDEN', 'COMMENT_DELETED'] as const)(
+    'individual deletion surfaces %s with the refreshed discussion', async (code) => {
+      serve({ [DELETE_COMMENT_MUTATION]: () => { throw gqlError(code); } });
+      const res = await POST(ev({ op: 'deleteComment', commentId: 'c1', expectedRevision: 1 }));
+      expect(res.status).toBe(code === 'COMMENT_DELETED' ? 409 : 403);
+      const body = await res.json();
+      expect(body.code).toBe(code);
+      expect(body.error).toBeTruthy();
+      expect(body.discussion).toBeDefined();
+      expect(sent(DELETE_COMMENT_MUTATION)).toEqual([{ commentRef: 'c1', expectedRevision: 1 }]);
+    },
+  );
 
   it('a typed refusal gets fixed copy and its status, never the server prose, plus the fresh state', async () => {
     serve({

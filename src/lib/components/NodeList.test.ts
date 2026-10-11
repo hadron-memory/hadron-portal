@@ -113,7 +113,7 @@ describe('open-feedback cue (portal#1014)', () => {
 
 
 const hit = {
-  id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 2, retracted: false, hidden: false,
+  id: 'c1', isTopLevel: true, state: 'OPEN', anchorRevision: 2, deleted: false,
   author: { kind: 'WORKER', worker: { id: 'w1', name: 'Gil', handle: null, urn: 'hrn:worker:o:a:gil' }, user: null, agent: null, app: null },
   target: { id: 't1', name: 'Retention policy', nodeType: 'info', revSeq: 5, urn: 'hrn:node:o:m:retention' },
 };

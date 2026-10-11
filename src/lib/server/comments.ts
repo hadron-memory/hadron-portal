@@ -27,10 +27,11 @@ const COMMENT_FIELDS = /* GraphQL */ `
     quote
     body
     state
-    retracted
-    retractedAt
-    hidden
-    hiddenAt
+    deleted
+    deletedAt
+    deletedBy { ...CommentActorFields }
+    editedAt
+    editedBy { ...CommentActorFields }
     resolvedAt
     resolvedBy { ...CommentActorFields }
     author {
@@ -86,7 +87,7 @@ export interface NodeCommentHead {
   commentSummary: CommentSummary;
 }
 
-/** May the caller write (comment) and manage (hide, delete) the target's memory? */
+/** May the caller write (comment) and manage (delete) the target's memory? */
 export const SELF_MEMORY_ACCESS_QUERY = /* GraphQL */ `
   query SelfMemoryAccess($user: ID!, $resource: ID!) {
     effectiveAccess(user: $user, resource: $resource) { canWrite canManage }
@@ -111,9 +112,9 @@ export const EDIT_COMMENT_MUTATION = /* GraphQL */ `
   }
 `;
 
-export const RETRACT_COMMENT_MUTATION = /* GraphQL */ `
-  mutation RetractComment($commentRef: ID!, $expectedRevision: Int!) {
-    retractComment(commentRef: $commentRef, expectedRevision: $expectedRevision) { id }
+export const DELETE_COMMENT_MUTATION = /* GraphQL */ `
+  mutation DeleteComment($commentRef: ID!, $expectedRevision: Int!) {
+    deleteComment(commentRef: $commentRef, expectedRevision: $expectedRevision) { id }
   }
 `;
 
@@ -126,12 +127,6 @@ export const RESOLVE_COMMENT_THREAD_MUTATION = /* GraphQL */ `
 export const REOPEN_COMMENT_THREAD_MUTATION = /* GraphQL */ `
   mutation ReopenCommentThread($commentRef: ID!, $expectedRevision: Int!) {
     reopenCommentThread(commentRef: $commentRef, expectedRevision: $expectedRevision) { id }
-  }
-`;
-
-export const HIDE_COMMENT_MUTATION = /* GraphQL */ `
-  mutation HideComment($commentRef: ID!, $reason: String!, $expectedRevision: Int!) {
-    hideComment(commentRef: $commentRef, reason: $reason, expectedRevision: $expectedRevision) { id }
   }
 `;
 
@@ -231,13 +226,12 @@ export type CommentWrite =
   | { op: 'create'; body: string; anchorRevision: number }
   | { op: 'reply'; commentId: string; body: string }
   | { op: 'edit'; commentId: string; body: string; expectedRevision: number }
-  | { op: 'retract'; commentId: string; expectedRevision: number }
+  | { op: 'deleteComment'; commentId: string; expectedRevision: number }
   | { op: 'resolve'; commentId: string; expectedRevision: number }
   | { op: 'reopen'; commentId: string; expectedRevision: number }
-  | { op: 'hide'; commentId: string; reason: string; expectedRevision: number }
   | { op: 'delete'; commentId: string; reason: string };
 
-const OPS: ReadonlySet<CommentAction> = new Set(['create', 'reply', 'edit', 'retract', 'resolve', 'reopen', 'hide', 'delete']);
+const OPS: ReadonlySet<CommentAction> = new Set(['create', 'reply', 'edit', 'deleteComment', 'resolve', 'reopen', 'delete']);
 
 function str(v: unknown): string | null {
   return typeof v === 'string' ? v : null;
@@ -270,12 +264,10 @@ export function parseCommentWrite(body: unknown): CommentWrite | null {
       return commentId && text !== null ? { op, commentId, body: text } : null;
     case 'edit':
       return commentId && text !== null && expectedRevision !== null ? { op, commentId, body: text, expectedRevision } : null;
-    case 'retract':
+    case 'deleteComment':
     case 'resolve':
     case 'reopen':
       return commentId && expectedRevision !== null ? { op, commentId, expectedRevision } : null;
-    case 'hide':
-      return commentId && reason !== null && expectedRevision !== null ? { op, commentId, reason, expectedRevision } : null;
     case 'delete':
       return commentId && reason !== null ? { op, commentId, reason } : null;
     default:
@@ -304,17 +296,14 @@ export async function sendCommentWrite(
       case 'edit':
         await client.request(EDIT_COMMENT_MUTATION, { commentRef: w.commentId, body: w.body, expectedRevision: w.expectedRevision });
         break;
-      case 'retract':
-        await client.request(RETRACT_COMMENT_MUTATION, { commentRef: w.commentId, expectedRevision: w.expectedRevision });
+      case 'deleteComment':
+        await client.request(DELETE_COMMENT_MUTATION, { commentRef: w.commentId, expectedRevision: w.expectedRevision });
         break;
       case 'resolve':
         await client.request(RESOLVE_COMMENT_THREAD_MUTATION, { commentRef: w.commentId, expectedRevision: w.expectedRevision });
         break;
       case 'reopen':
         await client.request(REOPEN_COMMENT_THREAD_MUTATION, { commentRef: w.commentId, expectedRevision: w.expectedRevision });
-        break;
-      case 'hide':
-        await client.request(HIDE_COMMENT_MUTATION, { commentRef: w.commentId, reason: w.reason, expectedRevision: w.expectedRevision });
         break;
       case 'delete':
         await client.request(DELETE_COMMENT_THREAD_MUTATION, { commentRef: w.commentId, reason: w.reason });
