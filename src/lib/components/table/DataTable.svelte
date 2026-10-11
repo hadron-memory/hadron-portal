@@ -84,8 +84,8 @@
 <TableFrame {active} bind:open={headerOpen}>
   {#snippet controls()}
 <input type="text" placeholder={searchPlaceholder} aria-label={searchAriaLabel} bind:value={globalFilter}
-    class="max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
-  <ViewTabs {table} {listKey} bordered={false} class="min-w-0 flex-1" />
+    class="min-w-[10rem] max-w-sm rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500" />
+  <ViewTabs {table} {listKey} bordered={false} class="min-w-[14rem] flex-1" />
   <ColumnToggle {table} />
   {/snippet}
 

@@ -37,8 +37,8 @@ export const tableStrings = {
   /** Button that folds the header again. */
   hideHeader: (): string => t('table.header.hide', 'Hide'),
 
-  /** Tooltip on the dot shown while a folded header is still narrowing the rows. */
-  headerActive: (): string => t('table.header.active', 'A search or view is narrowing these rows'),
+  /** Tooltip on the dot shown while a search is narrowing the rows. */
+  headerActive: (): string => t('table.header.active', 'A search is narrowing these rows'),
 
   /** Next-page button. */
   next: (): string => t('table.pagination.next', 'Next'),

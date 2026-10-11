@@ -233,24 +233,6 @@
        default, attached to the table when open (TableFrame). ViewTabs takes the
        remaining width (flex-1) so its "+ New view" button lands next to Columns.
        An orderable list with no search has no controls, so no frame either. -->
-  {#snippet controlRow()}
-    {#if !hideSearch}
-      <input
-        type="text"
-        placeholder="Search nodes..."
-        bind:value={globalFilter}
-        class="max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
-      />
-    {/if}
-    {#if !orderable && listKey}
-      <ViewTabs {table} {listKey} bordered={false} class="min-w-0 flex-1" />
-    {/if}
-    {#if !orderable}
-      <!-- Right-align Columns only when nothing to its left (no ViewTabs and no
-           search) already pushes it there. -->
-      <div class={!listKey && hideSearch ? 'ml-auto' : ''}><ColumnToggle {table} /></div>
-    {/if}
-  {/snippet}
   {#snippet tableBody()}
   {#if nodes.length === 0}
     <p class="text-sm text-zinc-500">No nodes.</p>
@@ -458,7 +440,24 @@
   {/snippet}
   {#if !hideSearch || !orderable}
     <TableFrame active={globalFilter.trim() !== ''}>
-      {#snippet controls()}{@render controlRow()}{/snippet}
+      {#snippet controls()}
+    {#if !hideSearch}
+      <input
+        type="text"
+        placeholder="Search nodes..."
+        bind:value={globalFilter}
+        class="min-w-[10rem] max-w-sm flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"
+      />
+    {/if}
+    {#if !orderable && listKey}
+      <ViewTabs {table} {listKey} bordered={false} class="min-w-[14rem] flex-1" />
+    {/if}
+    {#if !orderable}
+      <!-- Right-align Columns only when nothing to its left (no ViewTabs and no
+           search) already pushes it there. -->
+      <div class={!listKey && hideSearch ? 'ml-auto' : ''}><ColumnToggle {table} /></div>
+    {/if}
+      {/snippet}
       {@render tableBody()}
     </TableFrame>
   {:else}
