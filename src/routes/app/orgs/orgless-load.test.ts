@@ -8,6 +8,7 @@
  * Same fault as #1028 on the create form.
  */
 import { describe, expect, it, vi } from 'vitest';
+import { fetchAllItems } from '$lib/server/paginate';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -26,5 +27,14 @@ describe('organizations list — load (#1062)', () => {
 
   it('opens for an org member too', async () => {
     await expect(load(event({ isConsumerMode: false, activeOrgId: 'org-1' }))).resolves.toEqual({ orgs: [] });
+  });
+
+  // The two cases above mock an empty list; this pins that the load passes the
+  // server's organizations through untouched, so dropping the guard cannot hide
+  // a regression in what a member sees.
+  it('returns the organizations the server lists for a member', async () => {
+    const orgs = [{ id: 'org-1', urn: 'hrn:org:acme.com' }, { id: 'org-2', urn: 'hrn:org:globex.com' }];
+    vi.mocked(fetchAllItems).mockResolvedValueOnce(orgs as never);
+    await expect(load(event({ isConsumerMode: false, activeOrgId: 'org-1' }))).resolves.toEqual({ orgs });
   });
 });
