@@ -49,6 +49,7 @@ const codexResponse = (over: Record<string, unknown> = {}) => ({
   otherHost: 'claudeSkill',
   notForHost: [{ name: 'solo-task', urn: SOLO }],
   notForHostUnknown: null,
+  scopeIncomplete: false,
   unrecognized: [],
   ...over,
 });
@@ -125,6 +126,25 @@ describe('SkillBundleDownload — the left-out report (@codex on #890)', () => {
     expect(target.textContent).toContain('host "claudeSkill" unavailable');
     // The download itself still happened — an export runs to the end.
     expect(target.textContent).toContain('Prepared acme-skills-codex.zip');
+  });
+});
+
+describe('SkillBundleDownload — incomplete scope (#1689)', () => {
+  it('warns that system-memory skills may be missing, and still reports the download', async () => {
+    stubEndpoint(codexResponse({ scopeIncomplete: true }));
+    const { target } = panel({ orgId: 'org-1', checkedCount: 2 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+    await reportRendered(target);
+    expect(target.querySelector('[data-testid="bundle-scope-incomplete"]')).not.toBeNull();
+    expect(target.textContent).toContain('Prepared acme-skills-codex.zip');
+  });
+
+  it('shows no such warning when the scope was complete', async () => {
+    stubEndpoint(codexResponse());
+    const { target } = panel({ orgId: 'org-1', checkedCount: 2 });
+    downloadButtons(target).find((b) => b.textContent?.includes('Codex'))!.click();
+    await reportRendered(target);
+    expect(target.querySelector('[data-testid="bundle-scope-incomplete"]')).toBeNull();
   });
 });
 

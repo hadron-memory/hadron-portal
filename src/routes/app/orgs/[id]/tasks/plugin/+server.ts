@@ -40,7 +40,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   if (!isBundleHost(host)) return json({ code: 'invalid-host' }, { status: 400 });
 
   // #1689: the same scope the list shows, system-class memories included.
-  const { ids: memories, org } = await orgTaskMemoryIds(locals.token, params.id, ORG_SKILL_BUNDLE_QUERY);
+  const { ids: memories, org, systemFailed } = await orgTaskMemoryIds(locals.token, params.id, ORG_SKILL_BUNDLE_QUERY);
   // NEVER call skillPlan with an empty list: the server reads an omitted or
   // empty `memories` as "every memory the caller can read", so an org with no
   // memories would download the caller's skills from every other org.
@@ -100,6 +100,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     otherHost,
     notForHost,
     notForHostUnknown,
+    // The system-memory lookup failed: skills from role agents' memories may be
+    // absent from this download and from every list in this report.
+    scopeIncomplete: systemFailed,
     unrecognized: unrecognizedReport(unrecognizedFromPlan, bundle.includedNodeIds),
   });
 };

@@ -39,10 +39,12 @@ function route(opts: {
   otherEntries?: unknown[];
   otherThrows?: boolean;
   system?: Array<{ id: string }>;
+  systemThrow?: boolean;
   unrecognized?: unknown[];
 }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === ORG_SYSTEM_MEMORY_IDS_QUERY) {
+      if (opts.systemThrow) throw new Error('system boom');
       const items = opts.system ?? [];
       return { memories: { items, total: items.length } };
     }
@@ -98,6 +100,20 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
     await post({ host: 'claudeSkill' });
     const call = mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_EXPORT_QUERY);
     expect(call?.[1]).toMatchObject({ memories: ['mem-1', 'sys-1'] });
+  });
+
+  it('#1689: a failed system-memory lookup still exports the good skills but says the scope is incomplete', async () => {
+    route({ memories: [{ id: 'mem-1' }], systemThrow: true });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(200);
+    expect((r.body as { scopeIncomplete: boolean }).scopeIncomplete).toBe(true);
+    expect(mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_EXPORT_QUERY)?.[1]).toMatchObject({ memories: ['mem-1'] });
+  });
+
+  it('#1689: a complete scope reports scopeIncomplete false', async () => {
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1' }] });
+    const r = await post({ host: 'claudeSkill' });
+    expect((r.body as { scopeIncomplete: boolean }).scopeIncomplete).toBe(false);
   });
 
   it('an org with no memories issues NO skillPlan at all', async () => {

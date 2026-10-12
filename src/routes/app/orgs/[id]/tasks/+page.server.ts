@@ -41,7 +41,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // No org memories → no tasks. Critically, do NOT call nodes() with an empty
   // memoryIds set: the server treats "omit memoryIds" as "every accessible
   // memory", so an empty org would otherwise leak the global task list.
-  if (memoryIds.length === 0) return { tasks: [], failed: systemFailed, truncated: false };
+  if (memoryIds.length === 0) return { tasks: [], failed: false, truncated: false, scopeIncomplete: systemFailed };
 
   let nodes: RunnableNode[] = [];
   let failed = false;
@@ -75,9 +75,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       export: taskExport(n.properties),
     }));
 
-  // A failed system-memory lookup reads like a failed listing: the page already
-  // says the list may be incomplete, which is exactly true.
-  return { tasks, failed: failed || systemFailed, truncated };
+  // `failed` is the NODE query; `scopeIncomplete` is the system-memory lookup.
+  // Different causes, different messages: the second still lists everything it
+  // could reach, so the page warns instead of blaming the node query.
+  return { tasks, failed, truncated, scopeIncomplete: systemFailed };
 };
 
 /**
@@ -131,8 +132,15 @@ export const actions: Actions = {
     // The page acts on ITS rows: a node outside this org's memories is not one,
     // whatever the caller may write elsewhere. Reported as not-found, the same
     // answer as a node that does not exist, so the list is no existence probe.
-    const memoryIds = node ? (await orgMemoryIds(locals.token, params.id)).ids : [];
-    if (!node || !memoryIds.includes(node.memoryId)) return exportFail(404, nodeId, 'not-found');
+    const scope = node ? await orgMemoryIds(locals.token, params.id) : null;
+    if (!node || !scope?.ids.includes(node.memoryId)) {
+      // The system-memory lookup failing means "not found" is a guess: the node
+      // may be a role agent's task whose memory we could not list. Say so.
+      if (node && scope?.systemFailed) {
+        return exportFail(503, nodeId, 'failed', 'The organization’s system memories could not be checked. Try again shortly.');
+      }
+      return exportFail(404, nodeId, 'not-found');
+    }
     // The page lists runnable nodes only, and the server exports nothing else
     // (`skill-not-runnable`). A node un-marked since the list loaded is refused
     // here rather than given a declaration that can never export.

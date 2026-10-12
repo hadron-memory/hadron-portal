@@ -125,12 +125,48 @@ describe('org tasks load()', () => {
     expect(mockRequest.mock.calls.find(([q]) => q === RUNNABLE_NODES_QUERY)?.[1]).toMatchObject({ memoryIds: ['mem-1'] });
   });
 
-  it('#1689: a failing system lookup keeps the ordinary tasks and says the list may be incomplete', async () => {
+  it('#1689: a system-memory task survives the loader as a listed row with its own URN', async () => {
+    const sysTask = {
+      ...node('sys-n1', 'tasks:coordinate'),
+      memoryId: 'sys-1',
+      memory: { id: 'sys-1', urn: 'hrn:mem:acme.com:coordinator-system', name: 'coordinator-system' },
+    };
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1' }], nodes: [node('n1', 'tasks:one'), sysTask] });
+    const load = await importLoad();
+    const result = (await load(ev())) as { tasks: Array<{ id: string; memoryId: string; urn: string }> };
+    const row = result.tasks.find((t) => t.id === 'sys-n1');
+    expect(row).toMatchObject({ memoryId: 'sys-1', urn: 'hrn:node:acme.com:coordinator-system:tasks:coordinate' });
+    expect(result.tasks).toHaveLength(2);
+  });
+
+  it('#1689: a failing system lookup keeps the ordinary tasks, warns, and does NOT blame the node query', async () => {
     route({ memories: [{ id: 'mem-1' }], systemThrow: true, nodes: [node('n1', 'tasks:one')] });
     const load = await importLoad();
-    const result = (await load(ev())) as { tasks: unknown[]; failed: boolean };
+    const result = (await load(ev())) as { tasks: unknown[]; failed: boolean; scopeIncomplete: boolean };
     expect(result.tasks).toHaveLength(1);
-    expect(result.failed).toBe(true);
+    expect(result.failed).toBe(false);
+    expect(result.scopeIncomplete).toBe(true);
+  });
+
+  it('#1689: no org memories AND a failed system lookup warns instead of reading as a plain empty org', async () => {
+    route({ memories: [], systemThrow: true });
+    const load = await importLoad();
+    const result = (await load(ev())) as { tasks: unknown[]; failed: boolean; scopeIncomplete: boolean };
+    expect(result).toMatchObject({ tasks: [], failed: false, scopeIncomplete: true });
+    expect(mockRequest.mock.calls.filter(([q]) => q === RUNNABLE_NODES_QUERY)).toHaveLength(0);
+  });
+
+  it('#1689: setExport does not call a node "not found" when the system lookup failed', async () => {
+    routeAction({ node: storedTask({ memoryId: 'sys-1' }) });
+    const base = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (q: string, v: unknown) => {
+      if (q === ORG_SYSTEM_MEMORY_IDS_QUERY) throw new Error('system boom');
+      return base(q, v);
+    });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+    expect(out).toMatchObject({ status: 503, data: { exportFailed: { nodeId: 'n1', code: 'failed' } } });
+    expect(out).not.toMatchObject({ status: 404 });
   });
 
   it('#1689: setExport accepts a node that lives in a system memory of this org', async () => {
