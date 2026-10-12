@@ -78,6 +78,29 @@ describe('account update action', () => {
   });
 });
 
+describe('account update action — a refused email change (hadron-server#1801)', () => {
+  it('shows the refusal as an error on the email field, not a banner, and writes nothing else', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'email cannot be changed here', extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const actions = await importActions();
+    const result = await actions.update(actionEv({ name: 'Ada', handle: 'ada', email: 'new@example.com' }));
+    expect(fieldError(result, 'email')).toBe('Changing your email address is not supported here.');
+    expect(superFormFrom(result)?.message).toBeUndefined();
+    expect(result).toMatchObject({ status: 400 });
+  });
+
+  it('keeps other BAD_USER_INPUT refusals as the banner', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'handle is taken', extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const actions = await importActions();
+    const result = await actions.update(actionEv({ name: 'Ada', handle: 'ada', email: 'ada@example.com' }));
+    expect(fieldError(result, 'email')).toBeUndefined();
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error', text: 'handle is taken' });
+  });
+});
+
 describe('account deleteAccount action', () => {
   it('redirects an unauthenticated caller to signin without calling the API', async () => {
     const actions = await importActions();
