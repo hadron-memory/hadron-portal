@@ -48,6 +48,7 @@
   }
 
   const handleError = $derived($profileErrors.handle?.[0] ?? null);
+  const emailError = $derived($profileErrors.email?.[0] ?? null);
   const profileActionError = $derived(
     $profileMessage?.type === 'error'
       ? $profileMessage.text
@@ -132,8 +133,16 @@
         <div>
           <label for="editEmail" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Email</label>
           <input id="editEmail" name="email" type="email" bind:value={$profileForm.email} placeholder="you@example.com"
+            readonly
+            aria-invalid={!!emailError}
+            aria-describedby={emailError ? 'editEmailError' : 'editEmailHelp'}
             {...$profileConstraints.email}
-            class={inputClass} />
+            class="{inputClass} read-only:cursor-not-allowed read-only:bg-zinc-100 read-only:text-zinc-600 dark:read-only:bg-zinc-800 dark:read-only:text-zinc-400" />
+          {#if emailError}
+            <p id="editEmailError" class="mt-1 text-xs text-red-600 dark:text-red-400">{emailError}</p>
+          {:else}
+            <p id="editEmailHelp" class="mt-1 text-xs text-zinc-500">Changing your email address is not supported here.</p>
+          {/if}
         </div>
 
         <div class="flex gap-3">

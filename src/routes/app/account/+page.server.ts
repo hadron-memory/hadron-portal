@@ -1,5 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { message, superValidate } from 'sveltekit-superforms/server';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { DELETE_CONFIRMATION_TOKEN, deleteAccountStrings } from '$lib/i18n/delete-account-strings';
@@ -80,7 +80,14 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UPDATE_MY_PROFILE_MUTATION, { name, handle, email });
       return message(form, { type: 'success', text: 'Profile updated.' });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update profile' }, { status: 500 });
+      const text = extractGqlError(e, 'Failed to update profile');
+      // hadron-server#1801: a changed address is refused (BAD_USER_INPUT, nothing
+      // written). The page keeps the field read-only, so this only arrives from a
+      // stale or hand-built form; say so on the field rather than in a banner.
+      if (extractGqlErrorCode(e) === 'BAD_USER_INPUT' && /email/i.test(text)) {
+        return setError(form, 'email', 'Changing your email address is not supported here.', { status: 400 });
+      }
+      return message(form, { type: 'error', text }, { status: 500 });
     }
   },
 
