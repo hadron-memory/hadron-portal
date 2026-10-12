@@ -5,6 +5,7 @@ import {
   validateOrgSlug,
   validateUserSlug,
 } from '$lib/urn/parse-urn';
+import { t } from '$lib/i18n/t';
 
 type SlugValidator = (value: string) => void;
 
@@ -21,6 +22,10 @@ function messageForError(error: unknown, label: string, fallback: string): strin
       return `${label} must be 64 characters or fewer.`;
     case 'invalid-segment-shape':
       return `${label} must start and end with a letter or number.`;
+    case 'root-id-shaped':
+      // #1061: urn-lib-js refuses a root that looks like an entity id (32 hex or
+      // a cuid), because a ref in that shape is looked up as a primary key.
+      return t('urn.rootIdShaped', '{label} must not look like an ID. Choose a different name.', { label });
     case 'org-urn-not-bare':
       return `${label} must be a bare slug, not a full hrn:org: URN.`;
     default:

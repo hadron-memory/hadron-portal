@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { t } from '$lib/i18n/t';
   import { toSlug } from '$lib/slug';
   import type { ActionData, PageData } from './$types';
   import { createOrganizationSchema } from './schema';
@@ -99,7 +100,7 @@
       {#if showUrnError}
         <p id="urnError" class="mt-1 text-xs text-red-600 dark:text-red-400">{urnError}</p>
       {:else}
-        <p id="urnHelp" class="mt-1 text-xs text-zinc-500">Lowercase letters, numbers, dots, underscores, and hyphens. Must start and end with a letter or number.</p>
+        <p id="urnHelp" class="mt-1 text-xs text-zinc-500">{t('orgs.new.urnHelp', 'Lowercase letters, numbers, dots, underscores, and hyphens. Must start and end with a letter or number.')}</p>
       {/if}
     </div>
 

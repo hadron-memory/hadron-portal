@@ -18,6 +18,28 @@ describe('URN form validation helpers', () => {
     expect(validateMemorySlugField('Bad Slug')).toMatch(/lowercase|letters/);
   });
 
+  // #1061: a dot in an organization name means nothing. The refusals come from
+  // urn-lib-js (0.0.17, urn-lib-js#19), not from the portal.
+  it('accepts undotted organization roots', () => {
+    for (const slug of ['minicodersden', 'mini-coders-den', 'mi', 'acme.com']) {
+      expect(validateOrgSlugField(slug)).toBeNull();
+    }
+  });
+
+  it('refuses ID-shaped and reserved organization roots, saying why', () => {
+    expect(validateOrgSlugField('f'.repeat(32))).toMatch(/look like an ID/);
+    expect(validateOrgSlugField('c' + 'a'.repeat(24))).toMatch(/look like an ID/);
+    expect(validateOrgSlugField('hrn')).toMatch(/reserved/);
+    expect(validateOrgSlugField('urn')).toMatch(/reserved/);
+  });
+
+  it('never words a refusal in terms of a dot or a verified domain', () => {
+    const slugs = ['', 'Acme', '-x', 'hrn', 'f'.repeat(32), 'a'.repeat(80), 'hrn:org:acme'];
+    for (const slug of slugs) {
+      expect(validateOrgSlugField(slug) ?? '').not.toMatch(/verified|domain|contain.*dot/i);
+    }
+  });
+
   it('rejects full organization URNs', () => {
     expect(validateOrgSlugField('hrn:org:acme')).toMatch(/bare slug/);
   });

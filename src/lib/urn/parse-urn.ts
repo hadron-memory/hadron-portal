@@ -65,6 +65,10 @@ export {
   // are exercised by the shared conformance corpus, so a missing re-export
   // here fails `parse-urn.test.ts` rather than going unnoticed.
   composeWorkerUrnV2,
+  // urn-lib-js 0.0.17 (corpus v18) — ticker and agenttask URN types. No portal
+  // call site yet; re-exported so the shared corpus finds them, same policy.
+  composeTickerUrnV2,
+  composeAgentTaskUrnV2,
   isValidSlug,
   composeSecretUrnV2,
   composeAppRunUrnV2,

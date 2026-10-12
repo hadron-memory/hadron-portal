@@ -66,4 +66,24 @@ describe('create organization action', () => {
     const [, vars] = mockRequest.mock.calls[0]!;
     expect(vars).toMatchObject({ name: 'Acme', urn: 'acme.com' });
   });
+
+  // #1061, Holger's option (c): a dot in an organization name means nothing.
+  it.each(['minicodersden', 'mini-coders-den', 'mi'])('accepts the undotted root %s', async (urn) => {
+    mockRequest.mockResolvedValueOnce({ createOrganization: { id: 'org-1' } });
+    await runCreate({ name: 'Mini Coders Den', urn });
+    const [, vars] = mockRequest.mock.calls[0]!;
+    expect(vars).toMatchObject({ urn });
+  });
+
+  it.each([
+    ['hrn', /reserved/],
+    ['urn', /reserved/],
+    ['f'.repeat(32), /look like an ID/],
+    ['c' + 'a'.repeat(24), /look like an ID/],
+  ])('refuses the root %s before calling the API', async (urn, message) => {
+    const result = await runCreate({ name: 'Acme', urn });
+    expect(result).toMatchObject({ status: 400 });
+    expect(fieldError(result, 'urn')).toMatch(message);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
 });
