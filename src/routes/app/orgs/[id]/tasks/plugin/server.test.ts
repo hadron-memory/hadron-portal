@@ -7,7 +7,14 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
-import { ORG_SKILL_BUNDLE_QUERY, ORG_SYSTEM_MEMORY_IDS_QUERY, SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY } from '$lib/server/queries';
+import {
+  CREATE_SCOPE_MUTATION,
+  DELETE_SCOPE_MUTATION,
+  ORG_SKILL_BUNDLE_QUERY,
+  ORG_SYSTEM_MEMORY_IDS_QUERY,
+  SKILL_PLAN_EXPORT_QUERY,
+  SKILL_PLAN_STATUS_QUERY,
+} from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -41,8 +48,20 @@ function route(opts: {
   system?: Array<{ id: string }>;
   systemThrow?: boolean;
   unrecognized?: unknown[];
+  scopeThrows?: boolean;
+  deleteThrows?: boolean;
 }) {
-  mockRequest.mockImplementation(async (query: string) => {
+  mockRequest.mockImplementation(async (query: string, vars?: Record<string, unknown>) => {
+    // Spec 049: EXPORT refuses `memories`, even an empty list — the org's memory
+    // set travels as a persisted scope, created for the call and deleted after.
+    if (query === CREATE_SCOPE_MUTATION) {
+      if (opts.scopeThrows) throw new Error('scope boom');
+      return { createScope: { id: 'scope-1' } };
+    }
+    if (query === DELETE_SCOPE_MUTATION) {
+      if (opts.deleteThrows) throw new Error('delete boom');
+      return { deleteScope: true };
+    }
     if (query === ORG_SYSTEM_MEMORY_IDS_QUERY) {
       if (opts.systemThrow) throw new Error('system boom');
       const items = opts.system ?? [];
@@ -57,6 +76,7 @@ function route(opts: {
     }
     if (query === SKILL_PLAN_EXPORT_QUERY) {
       if (opts.planThrows) throw new Error('boom');
+      if (vars && 'memories' in vars) throw new Error('skillPlan: EXPORT cannot select memories; use scopeRef.');
       // `unrecognized` is non-null in the schema (server#1296), so every legal
       // response carries it — an empty list when nothing is unrecognised.
       return { skillPlan: { scanned: 1, judged: 1, entries: opts.entries ?? [], unrecognized: opts.unrecognized ?? [] } };
@@ -98,8 +118,8 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
   it('#1689: the export scope includes the org\'s system memories, as the list does', async () => {
     route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1' }], entries: [] });
     await post({ host: 'claudeSkill' });
-    const call = mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_EXPORT_QUERY);
-    expect(call?.[1]).toMatchObject({ memories: ['mem-1', 'sys-1'] });
+    const call = mockRequest.mock.calls.find(([q]) => q === CREATE_SCOPE_MUTATION);
+    expect(call?.[1]).toMatchObject({ input: { memoryRefs: ['mem-1', 'sys-1'] } });
   });
 
   it('#1689: a failed system-memory lookup still exports the good skills but says the scope is incomplete', async () => {
@@ -107,7 +127,9 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
     const r = await post({ host: 'claudeSkill' });
     expect(r.status).toBe(200);
     expect((r.body as { scopeIncomplete: boolean }).scopeIncomplete).toBe(true);
-    expect(mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_EXPORT_QUERY)?.[1]).toMatchObject({ memories: ['mem-1'] });
+    expect(mockRequest.mock.calls.find(([q]) => q === CREATE_SCOPE_MUTATION)?.[1]).toMatchObject({
+      input: { memoryRefs: ['mem-1'] },
+    });
   });
 
   it('#1689: a complete scope reports scopeIncomplete false', async () => {
@@ -122,6 +144,7 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
     expect(r).toEqual({ status: 409, body: { code: 'no-memories' } });
     expect(mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_EXPORT_QUERY)).toHaveLength(0);
     expect(mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_STATUS_QUERY)).toHaveLength(0);
+    expect(mockRequest.mock.calls.filter(([q]) => q === CREATE_SCOPE_MUTATION)).toHaveLength(0);
     expect(mockRequest.mock.calls.filter(([q]) => q === ORG_SKILL_BUNDLE_QUERY)).toHaveLength(1);
   });
 
@@ -129,7 +152,56 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
     route({ memories: [{ id: 'mem-1' }, { id: 'mem-2' }], entries: [entry()] });
     await post({ host: 'codexSkill' });
     const call = mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_EXPORT_QUERY);
-    expect(call?.[1]).toEqual({ host: 'codexSkill', memories: ['mem-1', 'mem-2'] });
+    expect(call?.[1]).toEqual({ host: 'codexSkill', scopeRef: 'scope-1' });
+  });
+
+  it('#1075: EXPORT names a persisted scope (scopeRef), never `memories`; the scope is the org\'s memory set', async () => {
+    route({ memories: [{ id: 'mem-1' }, { id: 'mem-2' }], entries: [entry()] });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(200);
+    const exportVars = mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_EXPORT_QUERY)?.[1];
+    expect(exportVars).not.toHaveProperty('memories');
+    const create = mockRequest.mock.calls.find(([q]) => q === CREATE_SCOPE_MUTATION)?.[1] as {
+      input: { name: string; memoryRefs: string[]; organizationRef: string };
+    };
+    expect(create.input.organizationRef).toBe('org-1');
+    expect(create.input.memoryRefs).toEqual(['mem-1', 'mem-2']);
+    // The server's own name rule: 1-64 of [a-z0-9_-], never `global` / `app`.
+    expect(create.input.name).toMatch(/^[a-z0-9_-]{1,64}$/);
+  });
+
+  it('#1075: the scope is deleted after the plan, and a delete failure costs the user nothing', async () => {
+    route({ entries: [entry()], deleteThrows: true });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(200);
+    const order = mockRequest.mock.calls.map(([q]) => q);
+    expect(order.indexOf(DELETE_SCOPE_MUTATION)).toBeGreaterThan(order.indexOf(SKILL_PLAN_EXPORT_QUERY));
+    expect(mockRequest.mock.calls.find(([q]) => q === DELETE_SCOPE_MUTATION)?.[1]).toEqual({ ref: 'scope-1' });
+  });
+
+  it('#1075: a failing plan still deletes its scope', async () => {
+    route({ planThrows: true });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(502);
+    expect(mockRequest.mock.calls.filter(([q]) => q === DELETE_SCOPE_MUTATION)).toHaveLength(1);
+  });
+
+  it('#1075: a scope that cannot be created is a plan failure, and no EXPORT is issued', async () => {
+    route({ scopeThrows: true });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(502);
+    expect((r.body as { code: string }).code).toBe('plan-failed');
+    expect(mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_EXPORT_QUERY)).toHaveLength(0);
+    expect(mockRequest.mock.calls.filter(([q]) => q === DELETE_SCOPE_MUTATION)).toHaveLength(0);
+  });
+
+  it('#1075: the other-host STATUS plan keeps `memories` (EXPORT alone refuses it)', async () => {
+    route({ memories: [{ id: 'mem-1' }], entries: [entry()] });
+    await post({ host: 'claudeSkill' });
+    expect(mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_STATUS_QUERY)?.[1]).toEqual({
+      host: 'codexSkill',
+      memories: ['mem-1'],
+    });
   });
 
   it('returns a Claude plugin zip whose files are the server bodies, plus the report', async () => {

@@ -4,7 +4,13 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { pluginVersion } from '$lib/server/plugin-version';
 import { orgTaskMemoryIds } from '$lib/server/org-task-memories';
-import { ORG_SKILL_BUNDLE_QUERY, SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY } from '$lib/server/queries';
+import {
+  CREATE_SCOPE_MUTATION,
+  DELETE_SCOPE_MUTATION,
+  ORG_SKILL_BUNDLE_QUERY,
+  SKILL_PLAN_EXPORT_QUERY,
+  SKILL_PLAN_STATUS_QUERY,
+} from '$lib/server/queries';
 import {
   isBundleHost,
   otherBundleHost,
@@ -51,13 +57,45 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // host alone, which this host's plan scans but never lists (@codex on #890).
   const client = gqlClient(locals.token);
   const otherHost = otherBundleHost(host);
-  const [exportPlan, otherPlan] = await Promise.allSettled([
-    client.request<{ skillPlan: { entries: PlanEntry[]; unrecognized: PlanUnrecognized[] } }>(SKILL_PLAN_EXPORT_QUERY, {
-      host,
-      memories,
-    }),
-    client.request<{ skillPlan: { entries: PlanEntry[] } }>(SKILL_PLAN_STATUS_QUERY, { host: otherHost, memories }),
-  ]);
+
+  // #1075: EXPORT takes its memories as a persisted scope, not a list. Make one
+  // for this download and delete it when the plans are back.
+  let scopeId: string;
+  try {
+    const created = await client.request<{ createScope: { id: string } }>(CREATE_SCOPE_MUTATION, {
+      input: {
+        name: `task-export-${crypto.randomUUID().replaceAll('-', '').slice(0, 24)}`,
+        description: 'Task Nodes download (temporary)',
+        organizationRef: org?.id ?? params.id,
+        memoryRefs: memories,
+      },
+    });
+    scopeId = created.createScope.id;
+  } catch (err) {
+    console.error('[org tasks] createScope failed:', err);
+    return json(
+      { code: 'plan-failed', detail: extractGqlError(err, 'The export scope could not be created') },
+      { status: 502 },
+    );
+  }
+
+  let exportPlan: PromiseSettledResult<{ skillPlan: { entries: PlanEntry[]; unrecognized: PlanUnrecognized[] } }>;
+  let otherPlan: PromiseSettledResult<{ skillPlan: { entries: PlanEntry[] } }>;
+  try {
+    // The other host's STATUS plan is LINT/STATUS-shaped, so it keeps `memories`.
+    [exportPlan, otherPlan] = await Promise.allSettled([
+      client.request<{ skillPlan: { entries: PlanEntry[]; unrecognized: PlanUnrecognized[] } }>(SKILL_PLAN_EXPORT_QUERY, {
+        host,
+        scopeRef: scopeId,
+      }),
+      client.request<{ skillPlan: { entries: PlanEntry[] } }>(SKILL_PLAN_STATUS_QUERY, { host: otherHost, memories }),
+    ]);
+  } finally {
+    // Best-effort: a leaked scope is housekeeping, not the user's download.
+    await client.request(DELETE_SCOPE_MUTATION, { ref: scopeId }).catch((err: unknown) => {
+      console.error('[org tasks] deleteScope failed:', err);
+    });
+  }
   if (exportPlan.status === 'rejected') {
     console.error('[org tasks] skillPlan EXPORT failed:', exportPlan.reason);
     return json(

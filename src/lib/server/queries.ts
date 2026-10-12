@@ -760,6 +760,25 @@ export const ORG_SKILL_BUNDLE_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * #1075 — a throwaway persisted Scope, the only way to hand EXPORT a memory set
+ * (see SKILL_PLAN_EXPORT_QUERY). Created for one download and deleted after it
+ * (soft-delete; the name is free again at once). Organization CONTRIBUTOR+.
+ */
+export const CREATE_SCOPE_MUTATION = /* GraphQL */ `
+  mutation CreateScope($input: CreateScopeInput!) {
+    createScope(input: $input) {
+      id
+    }
+  }
+`;
+
+export const DELETE_SCOPE_MUTATION = /* GraphQL */ `
+  mutation DeleteScope($ref: ID!) {
+    deleteScope(ref: $ref)
+  }
+`;
+
 export const ORGANIZATION_QUERY = /* GraphQL */ `
   ${ORG_FIELDS}
   ${MEMORY_FIELDS}
@@ -3943,12 +3962,15 @@ export const SKILL_PLAN_STATUS_QUERY = /* GraphQL */ `
  * SKILL.md in renderedBody (frontmatter, provenance header, body). The portal
  * writes that verbatim and renders nothing itself.
  *
- * memories MUST be non-empty: the server reads an omitted or empty list as
- * every memory the caller can read.
+ * #1075 — EXPORT selects its memories by a persisted Scope (`scopeRef`) and
+ * REFUSES `memories`, even an empty list (hadron-server#1429: "EXPORT cannot
+ * select memories; use scopeRef"). The scope must be non-empty and is never
+ * omitted here: an omitted `scopeRef` is an unscoped export of every memory the
+ * caller can read. LINT and STATUS keep `memories`.
  */
 export const SKILL_PLAN_EXPORT_QUERY = /* GraphQL */ `
-  query SkillPlanExport($host: String!, $memories: [String!]!) {
-    skillPlan(input: { intent: EXPORT, host: $host, memories: $memories }) {
+  query SkillPlanExport($host: String!, $scopeRef: ID!) {
+    skillPlan(input: { intent: EXPORT, host: $host, scopeRef: $scopeRef }) {
       scanned
       judged
       unrecognized {
