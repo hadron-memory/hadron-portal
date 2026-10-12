@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
-import { ORG_SKILL_BUNDLE_QUERY, SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY } from '$lib/server/queries';
+import { ORG_SKILL_BUNDLE_QUERY, ORG_SYSTEM_MEMORY_IDS_QUERY, SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -38,9 +38,16 @@ function route(opts: {
   planThrows?: boolean;
   otherEntries?: unknown[];
   otherThrows?: boolean;
+  system?: Array<{ id: string }>;
+  systemThrow?: boolean;
   unrecognized?: unknown[];
 }) {
   mockRequest.mockImplementation(async (query: string) => {
+    if (query === ORG_SYSTEM_MEMORY_IDS_QUERY) {
+      if (opts.systemThrow) throw new Error('system boom');
+      const items = opts.system ?? [];
+      return { memories: { items, total: items.length } };
+    }
     if (query === SKILL_PLAN_STATUS_QUERY) {
       if (opts.otherThrows) throw new Error('other host down');
       return { skillPlan: { entries: opts.otherEntries ?? [] } };
@@ -86,6 +93,27 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
       expect(r.status).toBe(400);
     }
     expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('#1689: the export scope includes the org\'s system memories, as the list does', async () => {
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1' }], entries: [] });
+    await post({ host: 'claudeSkill' });
+    const call = mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_EXPORT_QUERY);
+    expect(call?.[1]).toMatchObject({ memories: ['mem-1', 'sys-1'] });
+  });
+
+  it('#1689: a failed system-memory lookup still exports the good skills but says the scope is incomplete', async () => {
+    route({ memories: [{ id: 'mem-1' }], systemThrow: true });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(200);
+    expect((r.body as { scopeIncomplete: boolean }).scopeIncomplete).toBe(true);
+    expect(mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_EXPORT_QUERY)?.[1]).toMatchObject({ memories: ['mem-1'] });
+  });
+
+  it('#1689: a complete scope reports scopeIncomplete false', async () => {
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1' }] });
+    const r = await post({ host: 'claudeSkill' });
+    expect((r.body as { scopeIncomplete: boolean }).scopeIncomplete).toBe(false);
   });
 
   it('an org with no memories issues NO skillPlan at all', async () => {

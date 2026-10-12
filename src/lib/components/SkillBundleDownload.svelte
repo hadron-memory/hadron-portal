@@ -41,6 +41,8 @@
     leftOut: LeftOutRow[];
     /** The other-host check failed; the report says so rather than claim completeness. */
     notForHostUnknown: string | null;
+    /** The org's system memories could not be listed: their skills may be missing. */
+    scopeIncomplete: boolean;
     /** server#1296: tasks with export keys no host reads — in the download or not. */
     unrecognized: LeftOutRow[];
   }
@@ -139,6 +141,7 @@
         included: body.included,
         leftOut: leftOutRows(body.skipped ?? [], body.notForHost ?? [], body.otherHost ?? ''),
         notForHostUnknown: body.notForHostUnknown ?? null,
+        scopeIncomplete: body.scopeIncomplete === true,
         unrecognized: unrecognizedRows(body.unrecognized ?? []),
       };
     } catch {
@@ -223,6 +226,14 @@
             })}
           </p>
         {/if}
+      {/if}
+      {#if report.scopeIncomplete}
+        <p data-testid="bundle-scope-incomplete" role="status" class="text-xs text-amber-700 dark:text-amber-400">
+          {t(
+            'tasks.bundle.scope-incomplete',
+            'The organization’s system memories could not be listed, so skills from them may be missing from this download and from this report. Try again shortly.',
+          )}
+        </p>
       {/if}
       {#if report.notForHostUnknown}
         <p class="text-xs text-amber-700 dark:text-amber-400">

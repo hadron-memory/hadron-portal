@@ -1,7 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
-import { loadOrgDetail } from '$lib/server/org-detail';
 import { NODE_PROPERTIES_READ_QUERY, RUNNABLE_NODES_QUERY, ORG_TASK_MEMORY_IDS_QUERY } from '$lib/server/queries';
 // #868: the write goes through the door chooser; naming a mutation document
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
@@ -9,6 +8,7 @@ import { assertNodeUpdateDoor, nodeUpdateDocument, NoNodeDoorError } from '$lib/
 import { defaultSkillName, legacySuppliesClaude, taskExport, toggleSkillExport } from '$lib/skill-export';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import type { MemoryNode } from '$lib/types';
+import { orgTaskMemoryIds } from '$lib/server/org-task-memories';
 import type { Actions, PageServerLoad } from './$types';
 
 // "Task Nodes" — runnable nodes (Node.isRunnable=true) scoped to the ACTIVE
@@ -29,19 +29,19 @@ type RunnableNode = Pick<MemoryNode, 'id' | 'memoryId' | 'loc' | 'name' | 'descr
   memory?: { id: string; urn: string; name: string } | null;
 };
 
-async function orgMemoryIds(token: string | null | undefined, orgId: string): Promise<string[]> {
+async function orgMemoryIds(token: string | null | undefined, orgId: string) {
   // #845: the layout carries chrome only; this tab needs the full org.
-  const org = await loadOrgDetail(token, orgId, ORG_TASK_MEMORY_IDS_QUERY);
-  return (org?.memories ?? []).map((m) => m.id);
+  // #1689: plus its system-class memories, which `Organization.memories` omits.
+  return orgTaskMemoryIds(token, orgId, ORG_TASK_MEMORY_IDS_QUERY);
 }
 
 export const load: PageServerLoad = async ({ params, locals }) => {
-  const memoryIds = await orgMemoryIds(locals.token, params.id);
+  const { ids: memoryIds, systemFailed } = await orgMemoryIds(locals.token, params.id);
 
   // No org memories → no tasks. Critically, do NOT call nodes() with an empty
   // memoryIds set: the server treats "omit memoryIds" as "every accessible
   // memory", so an empty org would otherwise leak the global task list.
-  if (memoryIds.length === 0) return { tasks: [], failed: false, truncated: false };
+  if (memoryIds.length === 0) return { tasks: [], failed: false, truncated: false, scopeIncomplete: systemFailed };
 
   let nodes: RunnableNode[] = [];
   let failed = false;
@@ -75,7 +75,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       export: taskExport(n.properties),
     }));
 
-  return { tasks, failed, truncated };
+  // `failed` is the NODE query; `scopeIncomplete` is the system-memory lookup.
+  // Different causes, different messages: the second still lists everything it
+  // could reach, so the page warns instead of blaming the node query.
+  return { tasks, failed, truncated, scopeIncomplete: systemFailed };
 };
 
 /**
@@ -129,8 +132,15 @@ export const actions: Actions = {
     // The page acts on ITS rows: a node outside this org's memories is not one,
     // whatever the caller may write elsewhere. Reported as not-found, the same
     // answer as a node that does not exist, so the list is no existence probe.
-    const memoryIds = node ? await orgMemoryIds(locals.token, params.id) : [];
-    if (!node || !memoryIds.includes(node.memoryId)) return exportFail(404, nodeId, 'not-found');
+    const scope = node ? await orgMemoryIds(locals.token, params.id) : null;
+    if (!node || !scope?.ids.includes(node.memoryId)) {
+      // The system-memory lookup failing means "not found" is a guess: the node
+      // may be a role agent's task whose memory we could not list. Say so.
+      if (node && scope?.systemFailed) {
+        return exportFail(503, nodeId, 'failed', 'The organization’s system memories could not be checked. Try again shortly.');
+      }
+      return exportFail(404, nodeId, 'not-found');
+    }
     // The page lists runnable nodes only, and the server exports nothing else
     // (`skill-not-runnable`). A node un-marked since the list loaded is refused
     // here rather than given a declaration that can never export.

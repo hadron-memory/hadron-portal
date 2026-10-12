@@ -13,7 +13,12 @@
  * happened to return nothing for this fixture.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_PROPERTIES_READ_QUERY, ORG_TASK_MEMORY_IDS_QUERY, RUNNABLE_NODES_QUERY } from '$lib/server/queries';
+import {
+  NODE_PROPERTIES_READ_QUERY,
+  ORG_SYSTEM_MEMORY_IDS_QUERY,
+  ORG_TASK_MEMORY_IDS_QUERY,
+  RUNNABLE_NODES_QUERY,
+} from '$lib/server/queries';
 import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 
 const mockRequest = vi.fn();
@@ -36,8 +41,20 @@ function ev(orgId = 'org-1') {
 }
 
 /** Route by document: the org slice, then the runnable-nodes search. */
-function route(opts: { memories?: Array<{ id: string }>; nodes?: unknown[]; nodesThrow?: boolean }) {
+function route(opts: {
+  memories?: Array<{ id: string }>;
+  system?: Array<{ id: string }>;
+  systemThrow?: boolean;
+  nodes?: unknown[];
+  nodesThrow?: boolean;
+}) {
   mockRequest.mockImplementation(async (query: string) => {
+    // #1689: the org's system-class memories are a request of their own.
+    if (query === ORG_SYSTEM_MEMORY_IDS_QUERY) {
+      if (opts.systemThrow) throw new Error('system boom');
+      const items = opts.system ?? [];
+      return { memories: { items, total: items.length } };
+    }
     if (query === ORG_TASK_MEMORY_IDS_QUERY) {
       return { organization: { id: 'org-1', memories: opts.memories ?? [] } };
     }
@@ -73,6 +90,95 @@ describe('org tasks load()', () => {
     await load(ev());
     const call = mockRequest.mock.calls.find(([q]) => q === RUNNABLE_NODES_QUERY);
     expect(call?.[1]).toMatchObject({ memoryIds: ['mem-1', 'mem-2'] });
+  });
+
+  // #1689 — role agents' tasks live in SYSTEM-class memories, which
+  // `Organization.memories` omits (prod: 25 ordinary, 32 system, no overlap).
+  it('#1689: a task in a system memory is listed — the scope includes the org\'s system memory ids', async () => {
+    route({
+      memories: [{ id: 'mem-1' }],
+      system: [{ id: 'sys-1' }, { id: 'sys-2' }],
+      nodes: [node('n1', 'tasks:one')],
+    });
+    const load = await importLoad();
+    await load(ev());
+    expect(mockRequest).toHaveBeenCalledWith(
+      ORG_SYSTEM_MEMORY_IDS_QUERY,
+      expect.objectContaining({ orgId: 'org-1' }),
+    );
+    const call = mockRequest.mock.calls.find(([q]) => q === RUNNABLE_NODES_QUERY);
+    expect(call?.[1]).toMatchObject({ memoryIds: ['mem-1', 'sys-1', 'sys-2'] });
+  });
+
+  it('#1689: an org whose ONLY memories are system ones still lists their tasks', async () => {
+    route({ memories: [], system: [{ id: 'sys-1' }], nodes: [node('n1', 'tasks:one')] });
+    const load = await importLoad();
+    const result = (await load(ev())) as { tasks: unknown[] };
+    expect(result.tasks).toHaveLength(1);
+    expect(mockRequest.mock.calls.find(([q]) => q === RUNNABLE_NODES_QUERY)?.[1]).toMatchObject({ memoryIds: ['sys-1'] });
+  });
+
+  it('#1689: a system id that is also an ordinary memory is not scoped twice', async () => {
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'mem-1' }], nodes: [] });
+    const load = await importLoad();
+    await load(ev());
+    expect(mockRequest.mock.calls.find(([q]) => q === RUNNABLE_NODES_QUERY)?.[1]).toMatchObject({ memoryIds: ['mem-1'] });
+  });
+
+  it('#1689: a system-memory task survives the loader as a listed row with its own URN', async () => {
+    const sysTask = {
+      ...node('sys-n1', 'tasks:coordinate'),
+      memoryId: 'sys-1',
+      memory: { id: 'sys-1', urn: 'hrn:mem:acme.com:coordinator-system', name: 'coordinator-system' },
+    };
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1' }], nodes: [node('n1', 'tasks:one'), sysTask] });
+    const load = await importLoad();
+    const result = (await load(ev())) as { tasks: Array<{ id: string; memoryId: string; urn: string }> };
+    const row = result.tasks.find((t) => t.id === 'sys-n1');
+    expect(row).toMatchObject({ memoryId: 'sys-1', urn: 'hrn:node:acme.com:coordinator-system:tasks:coordinate' });
+    expect(result.tasks).toHaveLength(2);
+  });
+
+  it('#1689: a failing system lookup keeps the ordinary tasks, warns, and does NOT blame the node query', async () => {
+    route({ memories: [{ id: 'mem-1' }], systemThrow: true, nodes: [node('n1', 'tasks:one')] });
+    const load = await importLoad();
+    const result = (await load(ev())) as { tasks: unknown[]; failed: boolean; scopeIncomplete: boolean };
+    expect(result.tasks).toHaveLength(1);
+    expect(result.failed).toBe(false);
+    expect(result.scopeIncomplete).toBe(true);
+  });
+
+  it('#1689: no org memories AND a failed system lookup warns instead of reading as a plain empty org', async () => {
+    route({ memories: [], systemThrow: true });
+    const load = await importLoad();
+    const result = (await load(ev())) as { tasks: unknown[]; failed: boolean; scopeIncomplete: boolean };
+    expect(result).toMatchObject({ tasks: [], failed: false, scopeIncomplete: true });
+    expect(mockRequest.mock.calls.filter(([q]) => q === RUNNABLE_NODES_QUERY)).toHaveLength(0);
+  });
+
+  it('#1689: setExport does not call a node "not found" when the system lookup failed', async () => {
+    routeAction({ node: storedTask({ memoryId: 'sys-1' }) });
+    const base = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (q: string, v: unknown) => {
+      if (q === ORG_SYSTEM_MEMORY_IDS_QUERY) throw new Error('system boom');
+      return base(q, v);
+    });
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+    expect(out).toMatchObject({ status: 503, data: { exportFailed: { nodeId: 'n1', code: 'failed' } } });
+    expect(out).not.toMatchObject({ status: 404 });
+  });
+
+  it('#1689: setExport accepts a node that lives in a system memory of this org', async () => {
+    const writes = routeAction({ node: storedTask({ memoryId: 'sys-1' }) });
+    mockRequest.mockImplementation(((impl) => async (q: string, v: unknown) =>
+      q === ORG_SYSTEM_MEMORY_IDS_QUERY ? { memories: { items: [{ id: 'sys-1' }], total: 1 } } : impl(q, v))(
+      mockRequest.getMockImplementation()!,
+    ));
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+    expect(out).not.toMatchObject({ status: 404 });
+    expect(writes.length).toBeGreaterThan(0);
   });
 
   it('an org with no memories issues NO nodes query at all', async () => {
@@ -170,6 +276,7 @@ const storedTask = (over: Record<string, unknown> = {}) => ({
 function routeAction(opts: { node?: unknown; memories?: Array<{ id: string }>; writeError?: unknown }) {
   const writes: Array<[string, unknown]> = [];
   mockRequest.mockImplementation(async (query: string, vars: unknown) => {
+    if (query === ORG_SYSTEM_MEMORY_IDS_QUERY) return { memories: { items: [], total: 0 } };
     if (query === NODE_PROPERTIES_READ_QUERY) return { node: opts.node ?? null };
     if (query === ORG_TASK_MEMORY_IDS_QUERY) {
       return { organization: { id: 'org-1', memories: opts.memories ?? [{ id: 'mem-1' }] } };

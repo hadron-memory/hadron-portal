@@ -728,6 +728,23 @@ export const ORG_TASK_MEMORY_IDS_QUERY = /* GraphQL */ `
 `;
 
 /**
+ * #1689 — the org's SYSTEM-class memory ids. `Organization.memories` omits them
+ * (prod: 25 ordinary, 32 system, none overlapping), so a scope built from it
+ * alone can never list a task that lives in a role agent's system memory. Ids
+ * only: they join the scope for RUNNABLE_NODES_QUERY, whose `memoryIds` filter
+ * is the boundary — naming a system memory there is what lifts the server's
+ * default exclusion. Membership-gated (see ORG_SYSTEM_MEMORIES_QUERY).
+ */
+export const ORG_SYSTEM_MEMORY_IDS_QUERY = /* GraphQL */ `
+  query OrgSystemMemoryIds($orgId: ID!, $limit: Int, $offset: Int) {
+    memories(orgId: $orgId, filter: { memoryClasses: [system] }, limit: $limit, offset: $offset) {
+      items { id }
+      total
+    }
+  }
+`;
+
+/**
  * #879 — what the Task Nodes download needs about its org: the memory ids that
  * scope `skillPlan` (the same security boundary as ORG_TASK_MEMORY_IDS_QUERY —
  * an empty set must never reach the server) and the name the plugin is named
