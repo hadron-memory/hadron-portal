@@ -2,8 +2,8 @@ import { json } from '@sveltejs/kit';
 import JSZip from 'jszip';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { loadOrgDetail } from '$lib/server/org-detail';
 import { pluginVersion } from '$lib/server/plugin-version';
+import { orgTaskMemoryIds } from '$lib/server/org-task-memories';
 import { ORG_SKILL_BUNDLE_QUERY, SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY } from '$lib/server/queries';
 import {
   isBundleHost,
@@ -39,12 +39,8 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   const host = body?.host;
   if (!isBundleHost(host)) return json({ code: 'invalid-host' }, { status: 400 });
 
-  const org = await loadOrgDetail<{ id: string; name?: string | null; memories?: Array<{ id: string }> | null }>(
-    locals.token,
-    params.id,
-    ORG_SKILL_BUNDLE_QUERY,
-  );
-  const memories = (org?.memories ?? []).map((m) => m.id);
+  // #1689: the same scope the list shows, system-class memories included.
+  const { ids: memories, org } = await orgTaskMemoryIds(locals.token, params.id, ORG_SKILL_BUNDLE_QUERY);
   // NEVER call skillPlan with an empty list: the server reads an omitted or
   // empty `memories` as "every memory the caller can read", so an org with no
   // memories would download the caller's skills from every other org.
