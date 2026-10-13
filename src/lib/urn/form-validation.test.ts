@@ -35,8 +35,12 @@ describe('URN form validation helpers', () => {
 
   it('never words a refusal in terms of a dot or a verified domain', () => {
     const slugs = ['', 'Acme', '-x', 'hrn', 'f'.repeat(32), 'a'.repeat(80), 'hrn:org:acme'];
+    // Every input here is refused; a validator that accepted one would make the
+    // wording check below pass vacuously on ''.
     for (const slug of slugs) {
-      expect(validateOrgSlugField(slug) ?? '').not.toMatch(/verified|domain|contain.*dot/i);
+      const message = validateOrgSlugField(slug);
+      expect(message, `expected ${JSON.stringify(slug)} to be refused`).not.toBeNull();
+      expect(message).not.toMatch(/verified|domain|contain.*dot/i);
     }
   });
 
