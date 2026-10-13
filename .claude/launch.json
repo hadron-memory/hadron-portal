@@ -13,6 +13,13 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev", "--port", "5173", "--strictPort"],
       "port": 5173
+    },
+    {
+      "//": "The sibling hadron-server checkout, which portal-dev-authed's dev login (GET :4000/auth/dev/login) needs running.",
+      "name": "hadron-server-dev",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "../hadron-server", "dev"],
+      "port": 4000
     }
   ]
 }

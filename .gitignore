@@ -16,3 +16,6 @@ public
 
 # pnpm gql:schema work directory (#891), removed after every run
 .gql-schema-export/
+
+# Claude Design reference screenshots show real account/org data
+design/screenshots/
