@@ -454,7 +454,7 @@ describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
 // /api/create-app-key. A manager refusal must reach the reader as the rule,
 // not as "Failed to create client key." with the reason dropped.
 describe('Client tab: a refused key mint (#1068)', () => {
-  const MANAGERS_ONLY = 'Only the App’s managers can create or revoke its keys: its owners and the organization’s admins.';
+  const MANAGERS_ONLY = 'Only people who manage this App can create or revoke its keys: its owners and, for an organization’s App, that organization’s owners and admins.';
 
   async function mountClient(fetchImpl: (url: string) => Promise<Response>) {
     setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });

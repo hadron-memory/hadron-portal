@@ -25,7 +25,7 @@ import { t } from '$lib/i18n/t';
 export const APP_KEY_MANAGERS_ONLY = () =>
   t(
     'app.key.error.managers-only',
-    'Only the App’s managers can create or revoke its keys: its owners and the organization’s admins.',
+    'Only people who manage this App can create or revoke its keys: its owners and, for an organization’s App, that organization’s owners and admins.',
   );
 
 /** An admin impersonating a user is read-only (IMPERSONATION_READ_ONLY), so it never mints a key. */
