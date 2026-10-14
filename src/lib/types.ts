@@ -613,6 +613,7 @@ export interface NodeRevision {
 }
 
 export interface MemoryNode {
+  inheritedFrom?: import('$lib/agent-inheritance').AgentOrigin | null;
   id: string;
   memoryId: string;
   nodeType: string;

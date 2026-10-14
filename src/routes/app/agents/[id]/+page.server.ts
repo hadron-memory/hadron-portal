@@ -1,3 +1,4 @@
+import { loadAgentInheritance } from '$lib/server/agent-inheritance';
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -267,7 +268,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     ),
   ]);
 
+  const inheritance = await loadAgentInheritance(client, agent.id);
+
   return {
+    inheritance,
     agent,
     org,
     agentNodes,
