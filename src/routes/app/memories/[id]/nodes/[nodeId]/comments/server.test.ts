@@ -318,3 +318,41 @@ describe('POST comments (portal#1014)', () => {
     expect(body.discussion).toBeUndefined();
   });
 });
+
+// portal#1089 (hadron-server#1857): a comment on an encrypted target keeps its
+// anchorRevision and answers a null anchorApprovalHash. The endpoint passes the
+// null through: no empty string, no fabricated fingerprint.
+describe('comments on an encrypted target (portal#1089)', () => {
+  const encryptedThreads = () => ({
+    commentThreads: {
+      total: 1,
+      items: [{
+        replyCount: 1,
+        root: comment('c1', { anchorApprovalHash: null }),
+        replies: [comment('c2', { threadRootId: 'c1', isTopLevel: false, state: null, anchorApprovalHash: null })],
+      }],
+    },
+  });
+
+  it('a read keeps the null hash and the anchor revision', async () => {
+    serve({ [COMMENT_THREADS_QUERY]: encryptedThreads });
+    const body = await (await GET(ev(null))).json();
+    const [t] = body.discussion.threads;
+    expect(t.root).toMatchObject({ anchorRevision: 3, anchorApprovalHash: null });
+    expect(t.replies[0]).toMatchObject({ anchorRevision: 3, anchorApprovalHash: null });
+  });
+
+  it.each([
+    ['create', { op: 'create', body: 'Typo', anchorRevision: 3 }, CREATE_COMMENT_MUTATION, { createComment: { id: 'c9' } }],
+    ['reply', { op: 'reply', commentId: 'c1', body: 'Agreed' }, REPLY_TO_COMMENT_MUTATION, { replyToComment: { id: 'c3' } }],
+    ['deleteComment', { op: 'deleteComment', commentId: 'c2', expectedRevision: 1 }, DELETE_COMMENT_MUTATION, { deleteComment: { id: 'c2' } }],
+  ] as const)('%s is acknowledged and reads back the null hash unchanged', async (_name, write, doc, ack) => {
+    serve({ [doc]: () => ack, [COMMENT_THREADS_QUERY]: encryptedThreads });
+    const res = await POST(ev(write));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.discussion.threads[0].root.anchorApprovalHash).toBeNull();
+    expect(body.discussion.threads[0].replies[0].anchorApprovalHash).toBeNull();
+  });
+});
