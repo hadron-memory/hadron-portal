@@ -4270,6 +4270,25 @@ export const NODE_APPROVAL_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1022 (hadron-server#1864) — a node's passkey signatures. Its own
+// single-node read, NOT a field on NODE_APPROVAL_QUERY: the signing surfaces
+// sit behind a server switch (hadron-server#1895), and a refusal there must
+// never take the approval and mint status down with it. `revision` binds the
+// derived states to the revision the page rendered.
+export const NODE_SIGNATURES_QUERY = /* GraphQL */ `
+  query NodeSignatures($ref: ID!) {
+    node(ref: $ref) {
+      id
+      revision
+      signatureStatus {
+        state
+        integrityProblems
+        signatures { id signer { handle urn } passkeyLabel passkeyRevokedAt revision verifiedAt state }
+      }
+    }
+  }
+`;
+
 // `revision` pins the approval to the revision the reader saw: an edit in
 // between answers REVISION_MISMATCH instead of approving text never reviewed.
 export const APPROVE_NODE_MUTATION = /* GraphQL */ `
