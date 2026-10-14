@@ -192,6 +192,21 @@ describe('NodeDiscussion (portal#1014)', () => {
     m.unmount();
   });
 
+  // portal#1089 (hadron-server#1857): an encrypted target's comment has a null
+  // anchor hash. It renders like any other, anchored by revision alone.
+  it('a comment with a null anchor hash renders, anchored by its revision', () => {
+    const m = mountComponent(NodeDiscussion, {
+      endpoint: ENDPOINT,
+      shownRevision: 5,
+      initial: discussion([thread(comment('c1', { anchorRevision: 2, anchorApprovalHash: null }))]),
+    });
+    expect(m.target.querySelectorAll('article')).toHaveLength(1);
+    expect(m.target.textContent).toContain('Is §2 right?');
+    expect(m.target.textContent).toContain('On revision 2, not the text shown here');
+    expect(m.target.textContent).not.toMatch(/null|undefined/);
+    m.unmount();
+  });
+
   it('a writer who is not the author gets Reply and Resolve, not Edit or Retract', () => {
     const m = mountComponent(NodeDiscussion, {
       endpoint: ENDPOINT,

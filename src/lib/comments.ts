@@ -52,7 +52,12 @@ export interface Comment {
   threadRootId: string | null;
   isTopLevel: boolean;
   anchorRevision: number;
-  anchorApprovalHash: string;
+  /**
+   * portal#1089 (hadron-server#1857): null on a comment whose target is in an
+   * encrypted memory, which keeps only `anchorRevision`. Never replaced with an
+   * empty string or a made-up fingerprint.
+   */
+  anchorApprovalHash: string | null;
   anchorIsCurrent: boolean;
   /** Null on a deleted stub: the stub shows the state, not the text. */
   quote: string | null;
