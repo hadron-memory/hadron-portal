@@ -7,9 +7,10 @@ import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
+import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
 import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, integrityText, verifyFailureText, type NodeApprovalRead, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
@@ -345,6 +346,18 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const mint: Promise<ProvenanceResult<NodeMintStatus>> = governanceRead.then((read) =>
     read === undefined ? { ok: false } : bindMintToRevision(read, node.revision),
   );
+  // portal#1022: passkey signatures, streamed and bound like the approval but
+  // a request of their own, so a refusal (the server's signing switch,
+  // hadron-server#1895) or a failure only leaves the signatures unshown.
+  const signatures: Promise<ProvenanceResult<NodeSignatureStatus>> = (async () => {
+    try {
+      const r = await gqlClient(locals.token).request<{ node: NodeSignatureRead | null }>(NODE_SIGNATURES_QUERY, { ref: node.id });
+      return bindSignaturesToRevision(r?.node, node.revision);
+    } catch (e) {
+      console.warn('[node-detail] signature status failed:', e);
+      return { ok: false } as const;
+    }
+  })();
   // portal#1014: the node's discussion (hadron-server#1606), streamed like the
   // reads above. The summary is its own read: the header's open-feedback cue
   // (hrn:node:hadronmemory.com:specs:cor:dmo:110:07) must not wait on, or fail with, the threads.
@@ -510,6 +523,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     provenance,
     revisionProvenance,
     approval,
+    signatures,
     mint,
     discussion,
     commentSummary,
