@@ -34,6 +34,8 @@
   import { COMMENT_NODE_TYPE, discussionCount, isCommentableClass, openFeedbackCue, type CommentSummary, type Discussion } from '$lib/comments';
   import { mintView, type NodeMintStatus } from '$lib/node-mint';
   import { approvalView, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
+  import { signaturesView, type NodeSignatureStatus } from '$lib/node-signatures';
+  import NodeSignatures from '$lib/components/NodeSignatures.svelte';
   import {
     authorshipSearchText,
     authorshipView,
@@ -1683,6 +1685,16 @@
     });
   });
   const mintState = $derived(mintResult ? mintView(mintResult, node.revision) : null);
+  // portal#1022: passkey signatures, streamed and checked the same way.
+  let signatureResult = $state<ProvenanceResult<NodeSignatureStatus> | null>(null);
+  $effect(() => {
+    const p = data.signatures;
+    signatureResult = null;
+    p.then((res) => {
+      if (data.signatures === p) signatureResult = res;
+    });
+  });
+  const signatureState = $derived(signaturesView(signatureResult));
   // portal#1014: the node's discussion and its open-feedback summary, streamed
   // and checked the same way. The tab's own writes update the summary too.
   let discussion = $state<Discussion | null | undefined>(undefined);
@@ -2150,6 +2162,8 @@
           >{feedbackCue}</button>
         {/if}
       </div>
+      <!-- portal#1022: passkey signatures (hadron-server#1864); renders nothing with nothing to report. -->
+      <NodeSignatures view={signatureState} />
       {/if}
       {#if approveActionError || verifyActionError}
         <p role="alert" data-testid="approval-error" class="mt-1 text-xs text-red-700 dark:text-red-300">{approveActionError ?? verifyActionError}</p>
