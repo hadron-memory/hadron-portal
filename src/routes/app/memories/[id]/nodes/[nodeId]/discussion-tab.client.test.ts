@@ -65,14 +65,14 @@ async function settle() {
   flushSync();
 }
 
-async function mountPage(search = '') {
+async function mountPage(search = '', parent: typeof PARENT = PARENT) {
   const loaded = (await load({
     params: { id: 'mem-A', nodeId: 'leaf-pk' },
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     url: new URL(`http://localhost/app/memories/mem-A/nodes/leaf-pk${search}`),
-    parent: vi.fn().mockResolvedValue(PARENT),
+    parent: vi.fn().mockResolvedValue(parent),
   } as never)) as Record<string, unknown>;
-  const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...parent, ...loaded }, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await settle();
@@ -128,5 +128,19 @@ describe('Discussion tab on the node page (portal#1014)', () => {
     await settle();
     expect(panel(target)!.hidden).toBe(false);
     expect(target.querySelector<HTMLTextAreaElement>('#new-comment')!.value).toBe('Half-written');
+  });
+
+  // portal#1101 (hadron-server#1935, Holger #11565): system memories take
+  // comments too (hrn:node:hadronmemory.com:specs:cor:dmo:110:02); only
+  // private memories stay out.
+  it('a system-memory node offers the Discussion tab', async () => {
+    const { target } = await mountPage('', { ...PARENT, graph: { ...PARENT.graph, class: 'system' } });
+    expect(tabButton(target, 'Discussion')).toBeDefined();
+  });
+
+  it('a private-memory node still offers none', async () => {
+    const { target } = await mountPage('', { ...PARENT, graph: { ...PARENT.graph, class: 'private' } });
+    expect(tabButton(target, 'Discussion')).toBeUndefined();
+    expect(tabButton(target, 'Content')).toBeDefined();
   });
 });

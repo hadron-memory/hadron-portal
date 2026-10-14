@@ -15,6 +15,7 @@ import {
   type DiscussionThread,
   type CommentAuthor,
   type CommentPermissions,
+  isCommentableClass,
 } from './comments';
 
 const ref = (over: Partial<{ id: string; name: string | null; handle: string | null; urn: string | null }> = {}) => ({
@@ -288,5 +289,15 @@ describe('commentHitView (portal#1015)', () => {
     expect(commentHitView(base).role).toBe('Open discussion');
     expect(commentHitView({ ...base, state: 'RESOLVED' }).role).toBe('Resolved discussion');
     expect(commentHitView({ ...base, isTopLevel: false, state: null }).role).toBe('Reply');
+  });
+});
+
+describe('isCommentableClass (hrn:node:hadronmemory.com:specs:cor:dmo:110:02)', () => {
+  it('portal#1101: every class but private takes comments, system included', () => {
+    for (const c of ['app', 'knowledge', 'personal', 'group', 'system']) expect(isCommentableClass(c)).toBe(true);
+    expect(isCommentableClass('private')).toBe(false);
+    expect(isCommentableClass(null)).toBe(false);
+    expect(isCommentableClass(undefined)).toBe(false);
+    expect(isCommentableClass('unknown-class')).toBe(false);
   });
 });
