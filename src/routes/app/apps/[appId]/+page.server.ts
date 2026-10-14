@@ -3,6 +3,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
+import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { gqlClient } from '$lib/server/api';
 import { lookupOwn } from '$lib/lookup';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -1184,11 +1185,9 @@ export const actions: Actions = {
         keyId: result.createAppKey.key.id,
       };
     } catch (e: unknown) {
-      return message(
-        form,
-        { type: 'error', text: extractGqlError(e, 'Failed to create key') },
-        { status: 500 },
-      );
+      // portal#1068: a manager refusal names the rule, as a 403.
+      const { status, text } = appKeyRefusal(e, 'Failed to create key');
+      return message(form, { type: 'error', text }, { status });
     }
   },
 
@@ -1203,11 +1202,8 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(REVOKE_APP_KEY_MUTATION, { id: form.data.keyId });
       return message(form, { type: 'success', text: t('app.key.revoked', 'Key revoked.') });
     } catch (e: unknown) {
-      return message(
-        form,
-        { type: 'error', text: extractGqlError(e, 'Failed to revoke key') },
-        { status: 500 },
-      );
+      const { status, text } = appKeyRefusal(e, 'Failed to revoke key');
+      return message(form, { type: 'error', text }, { status });
     }
   },
 

@@ -520,3 +520,52 @@ describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
     expect(m.target.querySelector('#panel-ai-configs')).not.toBeNull();
   });
 });
+
+// portal#1068 — the Client tab's "Download setup files" mints a key through
+// /api/create-app-key. A manager refusal must reach the reader as the rule,
+// not as "Failed to create client key." with the reason dropped.
+describe('Client tab: a refused key mint (#1068)', () => {
+  const MANAGERS_ONLY = 'Only people who manage this App can create or revoke its keys: its owners and, for an organization’s App, that organization’s owners and admins.';
+
+  async function mountClient(fetchImpl: (url: string) => Promise<Response>) {
+    setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=client');
+    vi.stubGlobal('fetch', vi.fn(fetchImpl));
+    const data = await pageData();
+    const m = mountComponent(Page as never, {
+      data: { ...data, app: { ...data.app, agentTools: ['CLAUDE_CODE'] }, user: { id: 'u1' }, initialTab: 'client' },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const label = m.target.querySelector<HTMLInputElement>('input#keyLabel')!;
+    label.value = 'laptop';
+    label.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    return m.target;
+  }
+  function downloadButton(target: HTMLElement) {
+    return [...target.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Download setup files'))!;
+  }
+
+  it('shows the server’s refusal copy, not a generic alert', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const target = await mountClient(async () =>
+      new Response(JSON.stringify({ error: MANAGERS_ONLY }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
+    downloadButton(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    expect(alertSpy).not.toHaveBeenCalled();
+    const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes(MANAGERS_ONLY));
+    expect(alertEl).toBeTruthy();
+    expect(target.textContent).not.toContain('Failed to create client key.');
+  });
+
+  it('a body with no error text falls back to the generic copy, inline', async () => {
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const target = await mountClient(async () => new Response('gateway', { status: 502 }));
+    downloadButton(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes('Failed to create client key.'));
+    expect(alertEl).toBeTruthy();
+  });
+});
