@@ -762,10 +762,11 @@ it('self-audits the actual loaded Agent by full URN, never its ambiguous id', as
       if (variables.resource !== 'hrn:agent:example.com:child' || variables.user !== 'me') throw new Error('Resource not found');
       return { effectiveAccess: { canManage: true } };
     }
-    if (query === AGENT_INDEX_REFS_QUERY) return { agent: { extendsAgentId: null, tasksIndexRef: null, processesIndexRef: null } };
+    if (query === AGENT_INDEX_REFS_QUERY) return { agent: { extendsAgentId: 'raw-base-id', tasksIndexRef: null, processesIndexRef: null } };
     return fallback(query, variables);
   });
   const load = await importLoad();
-  const result = await load({ ...ev(), locals: { token: 'token', user: { id: 'me' }, impersonation: null } } as never) as unknown as { inheritanceManagement: { canManage: boolean; error: string | null } };
+  const result = await load({ ...ev(), locals: { token: 'token', user: { id: 'me' }, impersonation: null } } as never) as unknown as { inheritanceManagement: { canManage: boolean; error: string | null }; baseForm: { data: { baseRef: string } } };
+  expect(result.baseForm.data.baseRef).toBe('');
   expect(result.inheritanceManagement).toMatchObject({ canManage: true, error: null });
 });

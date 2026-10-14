@@ -273,7 +273,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   ]);
 
   const [baseForm, indexRefsForm] = await Promise.all([
-    superValidate({ _kind: 'setAgentBase', operation: 'set', baseRef: inheritanceManagement.refs?.extendsAgentId ?? '' }, zod4(agentBaseSchema), { id: 'agentBase', errors: false }),
+    superValidate({ _kind: 'setAgentBase', operation: 'set', baseRef: '' }, zod4(agentBaseSchema), { id: 'agentBase', errors: false }),
     superValidate({ _kind: 'setAgentIndexRefs', tasksOperation: 'keep', tasksIndexRef: '', processesOperation: 'keep', processesIndexRef: '' }, zod4(agentIndexRefsSchema), { id: 'agentIndexRefs', errors: false }),
   ]);
   return {

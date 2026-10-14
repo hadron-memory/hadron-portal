@@ -56,7 +56,7 @@ export async function loadInheritanceManagement(client: GraphQLClient, ref: stri
     if (!agent) throw new Error(t('agent.inheritance.unavailable', 'Agent inheritance settings are unavailable.'));
     result.refs = agent;
     const identity = async (id: string | null) => id
-      ? (await client.request<{ node: { urn: string; name: string } | null }>(INDEX_NODE_IDENTITY_QUERY, { ref: id })).node
+      ? (await client.request<{ node: { urn: string; name: string } | null }>(INDEX_NODE_IDENTITY_QUERY, { ref: id }).catch(() => ({ node: null }))).node
       : null;
     [result.tasksNode, result.processesNode] = await Promise.all([identity(agent.tasksIndexRef), identity(agent.processesIndexRef)]);
   } catch (e) {

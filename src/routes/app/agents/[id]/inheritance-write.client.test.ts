@@ -10,7 +10,7 @@ afterEach(() => { mounted?.unmount(); mounted = undefined; });
 it('returns a refused base submission to Settings with the server message', async () => {
   const baseForm = await superValidate({ _kind: 'setAgentBase', operation: 'set', baseRef: 'base' }, zod4(agentBaseSchema), { id: 'agentBase', errors: false });
   const indexRefsForm = await superValidate({ _kind: 'setAgentIndexRefs', tasksOperation: 'keep', tasksIndexRef: '', processesOperation: 'keep', processesIndexRef: '' }, zod4(agentIndexRefsSchema), { id: 'agentIndexRefs', errors: false });
-  const data = { ...await pageData('child', null), baseForm, indexRefsForm, inheritanceManagement: { canManage: true, refs: { extendsAgentId: null, tasksIndexRef: null, processesIndexRef: null }, tasksNode: null, processesNode: null, error: null } };
+  const data = { ...await pageData('child', null), inheritance: { base: { id: null, agent: null, error: null } }, baseForm, indexRefsForm, inheritanceManagement: { canManage: true, refs: { extendsAgentId: null, tasksIndexRef: null, processesIndexRef: null }, tasksNode: null, processesNode: null, error: null } };
   const form = { form: { ...baseForm, message: { type: 'error', text: 'AGENT_BASE_CYCLE: exact refusal' } } };
   mounted = mountComponent(Page as never, { data, form } as never) as Mounted<Record<string, unknown>>;
   await tick(); await tick();

@@ -28,3 +28,18 @@ describe('Agent inheritance writes', () => {
     expect(result.canManage).toBe(false);
   });
 });
+
+it('hides impersonated writes without issuing a permission query', async () => {
+  const request = vi.fn();
+  const result = await loadInheritanceManagement({ request } as never, 'child', 'hrn:agent:example.com:child', 'me', true);
+  expect(result.canManage).toBe(false);
+  expect(request).not.toHaveBeenCalled();
+});
+it('keeps manager controls available when an index identity cannot render', async () => {
+  const request = vi.fn().mockResolvedValueOnce({ effectiveAccess: { canManage: true } }).mockResolvedValueOnce({ agent: { extendsAgentId: null, tasksIndexRef: 'tasks-id', processesIndexRef: null } }).mockRejectedValueOnce(new Error('Template compile failed'));
+  const result = await loadInheritanceManagement({ request } as never, 'child', 'hrn:agent:example.com:child', 'me', false);
+  expect(result.canManage).toBe(true);
+  expect(result.error).toBeNull();
+  expect(result.tasksNode).toBeNull();
+  expect(result.refs?.tasksIndexRef).toBe('tasks-id');
+});
