@@ -1,0 +1,20 @@
+import { afterEach, expect, it } from 'vitest';
+import { superValidate } from 'sveltekit-superforms/server';
+import { zod4 } from 'sveltekit-superforms/adapters';
+import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import Page from './+page.svelte';
+import { pageData } from './page-fixture';
+import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
+let mounted: Mounted<Record<string, unknown>> | undefined;
+afterEach(() => { mounted?.unmount(); mounted = undefined; });
+it('returns a refused base submission to Settings with the server message', async () => {
+  const baseForm = await superValidate({ _kind: 'setAgentBase', operation: 'set', baseRef: 'base' }, zod4(agentBaseSchema), { id: 'agentBase', errors: false });
+  const indexRefsForm = await superValidate({ _kind: 'setAgentIndexRefs', tasksOperation: 'keep', tasksIndexRef: '', processesOperation: 'keep', processesIndexRef: '' }, zod4(agentIndexRefsSchema), { id: 'agentIndexRefs', errors: false });
+  const data = { ...await pageData('child', null), inheritance: { base: { id: null, agent: null, error: null } }, baseForm, indexRefsForm, inheritanceManagement: { canManage: true, refs: { extendsAgentId: null, tasksIndexRef: null, processesIndexRef: null }, tasksNode: null, processesNode: null, error: null } };
+  const form = { form: { ...baseForm, message: { type: 'error', text: 'AGENT_BASE_CYCLE: exact refusal' } } };
+  mounted = mountComponent(Page as never, { data, form } as never) as Mounted<Record<string, unknown>>;
+  await tick(); await tick();
+  expect(mounted.target.querySelector('form[action="?/setBase"]')).not.toBeNull();
+  expect(mounted.target.querySelector('#agent-base-error')?.textContent).toBe('AGENT_BASE_CYCLE: exact refusal');
+  expect(mounted.target.querySelector('#agent-index-error')).toBeNull();
+});

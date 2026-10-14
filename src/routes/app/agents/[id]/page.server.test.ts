@@ -1,3 +1,4 @@
+import { SELF_AGENT_MANAGE_QUERY, AGENT_INDEX_REFS_QUERY } from '$lib/server/agent-inheritance-write';
 /**
  * Spec 018 — /app/agents/[id] detail-page loader tests.
  *
@@ -742,4 +743,30 @@ describe('/app/agents/[id] register default (#942)', () => {
     const missing = await runRegisterDefaults({ _kind: 'registerDefaults' });
     expect((superFormFrom(missing)?.message as { text: string }).text).toBe('This agent is not available to you.');
   });
+});
+
+it('gives the inheritance forms distinct stable ids among all loaded forms', async () => {
+  routeMock({ agent: { data: { agent: personalAgent } } });
+  const load = await importLoad();
+  const result = await load(ev()) as unknown as Record<string, unknown>;
+  const ids = Object.values(result).filter((value): value is { id: string } => !!value && typeof value === 'object' && 'valid' in value && 'id' in value).map(value => value.id);
+  expect(ids.filter(id => id === 'agentBase')).toHaveLength(1);
+  expect(ids.filter(id => id === 'agentIndexRefs')).toHaveLength(1);
+});
+
+it('self-audits the actual loaded Agent by full URN, never its ambiguous id', async () => {
+  routeMock({ agent: { data: { agent: { ...personalAgent, urn: 'hrn:agent:example.com:child' } } } });
+  const fallback = mockRequest.getMockImplementation()!;
+  mockRequest.mockImplementation(async (query: string, variables: Record<string, unknown>) => {
+    if (query === SELF_AGENT_MANAGE_QUERY) {
+      if (variables.resource !== 'hrn:agent:example.com:child' || variables.user !== 'me') throw new Error('Resource not found');
+      return { effectiveAccess: { canManage: true } };
+    }
+    if (query === AGENT_INDEX_REFS_QUERY) return { agent: { extendsAgentId: 'raw-base-id', tasksIndexRef: null, processesIndexRef: null } };
+    return fallback(query, variables);
+  });
+  const load = await importLoad();
+  const result = await load({ ...ev(), locals: { token: 'token', user: { id: 'me' }, impersonation: null } } as never) as unknown as { inheritanceManagement: { canManage: boolean; error: string | null }; baseForm: { data: { baseRef: string } } };
+  expect(result.baseForm.data.baseRef).toBe('');
+  expect(result.inheritanceManagement).toMatchObject({ canManage: true, error: null });
 });
