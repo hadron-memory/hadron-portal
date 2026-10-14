@@ -332,6 +332,12 @@ describe('/api/nodes/search approval and minting filters (#992)', () => {
     expect(vars).toMatchObject({ approvalState: 'SUPERSEDED', minted: false, memoryIds: ['m1'], query: null });
   });
 
+  it('forwards NOT_APPLICABLE, the encrypted-memory state (portal#1088, hadron-server#1637)', async () => {
+    mockRequest.mockResolvedValue(findNodesResult(1, 1));
+    await POST(ev({ memoryIds: ['m1'], filter: { approvalState: 'NOT_APPLICABLE' } }));
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ approvalState: 'NOT_APPLICABLE' });
+  });
+
   it('drops an unknown approval state and a non-boolean minted, so a bare browse stays local', async () => {
     const res = await POST(ev({ memoryIds: ['m1'], filter: { approvalState: 'MINTED', minted: 'yes' } }));
     expect(await res.json()).toEqual({ nodes: [], total: null });

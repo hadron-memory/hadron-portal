@@ -52,13 +52,16 @@ export function approveAllSummary(r: ApproveMemoryNodesResult): string {
  * refusals are raised before the transaction starts (authorization, memory
  * lookup, key availability), so for those "nothing was approved" is true.
  */
-export function approveAllFailure(code: string | null | undefined): { status: 403 | 404 | 423 | 500; text: string } {
+export function approveAllFailure(code: string | null | undefined): { status: 403 | 404 | 409 | 423 | 500; text: string } {
   switch (code) {
     case 'FORBIDDEN':
       return { status: 403, text: t('memory.approve-all.refused.forbidden', "You don't have permission to approve nodes in this memory.") };
     case 'NOT_FOUND':
     case 'MEMORY_NOT_FOUND':
       return { status: 404, text: t('memory.approve-all.refused.not-found', 'This memory no longer exists, or you no longer have access to it.') };
+    // portal#1088 (hadron-server#1637): refused before the transaction.
+    case 'ENCRYPTED_MEMORY_NOT_APPLICABLE':
+      return { status: 409, text: t('memory.approve-all.refused.encrypted', "Nodes in an encrypted memory can't be approved, so nothing was approved.") };
     // #1592 answers this when an ENCRYPTED memory's key isn't held for the
     // session (approving hashes the plaintext), not for an expired sign-in.
     case 'SESSION_EXPIRED':

@@ -168,6 +168,8 @@ describe('approveNode action', () => {
     ['NODE_IS_PLACEHOLDER', 409, 'reserved placeholder'],
     ['NODE_NOT_FOUND', 404, 'no longer exists'],
     ['SESSION_EXPIRED', 423, 'encrypted and its key'],
+    // portal#1088 (hadron-server#1637)
+    ['ENCRYPTED_MEMORY_NOT_APPLICABLE', 409, "encrypted memory can't be approved"],
   ])('%s maps to fixed copy, never the server text', async (code, status, copy) => {
     mockRequest.mockRejectedValue(gqlError(code));
     const r = await runAction('approveNode', { _kind: 'approveNode', revision: '4' });
@@ -209,6 +211,13 @@ describe('verifyNode action', () => {
     const r = await runAction('verifyNode', { _kind: 'verifyNode' });
     expect(r.status).toBe(423);
     expect((messageOf(r) as { text: string }).text).toContain('encrypted and its key');
+  });
+
+  it('an encrypted memory is refused as not applicable (portal#1088, hadron-server#1637)', async () => {
+    mockRequest.mockRejectedValue(gqlError('ENCRYPTED_MEMORY_NOT_APPLICABLE'));
+    const r = await runAction('verifyNode', { _kind: 'verifyNode' });
+    expect(r.status).toBe(409);
+    expect((messageOf(r) as { text: string }).text).toBe("Nodes in an encrypted memory are never approved, so there's nothing to verify.");
   });
 
   it('a failed check says it did not run, without the server text', async () => {

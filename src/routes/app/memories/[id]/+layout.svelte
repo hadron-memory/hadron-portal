@@ -40,7 +40,8 @@
     { id: 'edit', label: t('memory-actions.edit', 'Edit memory') },
     ...(cloneable ? [{ id: 'clone', label: t('memory-actions.clone', 'Clone memory') }] : []),
     // #992: system memories hold an agent's own state, not specs to approve.
-    ...(g.class !== 'system' ? [{ id: 'approve-all', label: t('memory-actions.approve-all', 'Approve all nodes') }] : []),
+    // portal#1088 (hadron-server#1637): encrypted memories are never approved.
+    ...(g.class !== 'system' && !g.isEncrypted ? [{ id: 'approve-all', label: t('memory-actions.approve-all', 'Approve all nodes') }] : []),
     // #992 slice C: the server refuses encrypted memories outright.
     ...(g.class !== 'system' && !g.isEncrypted ? [{ id: 'mint', label: t('memory-actions.mint', 'Mint nodes') }] : []),
     ...(canDelete ? [{ id: 'delete', label: t('memory-actions.delete', 'Delete memory'), danger: true }] : []),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { approveAllFeedbackWarning, approveAllSummary } from './memory-approval';
+import { approveAllFailure, approveAllFeedbackWarning, approveAllSummary } from './memory-approval';
 
 describe('approveAllSummary (#992)', () => {
   it('counts what was approved, what already was, and the skipped placeholders', () => {
@@ -17,5 +17,11 @@ describe('approveAllFeedbackWarning (portal#1014)', () => {
     // local review on #1025, P3: one node, several threads, says so.
     expect(approveAllFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 2 }] })).toMatch(/^1 node in this memory has 2 open discussions\./);
     expect(approveAllFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 1 }, { urn: 'hrn:node:a:b:d', openThreads: 1 }] })).toMatch(/^2 nodes in this memory/);
+  });
+});
+
+describe('approveAllFailure (portal#1088, hadron-server#1637)', () => {
+  it('an encrypted memory is a 409 refusal: nothing was approved', () => {
+    expect(approveAllFailure('ENCRYPTED_MEMORY_NOT_APPLICABLE')).toEqual({ status: 409, text: "Nodes in an encrypted memory can't be approved, so nothing was approved." });
   });
 });
