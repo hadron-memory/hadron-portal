@@ -1,5 +1,4 @@
 <script lang="ts">
-  import InheritedFrom from '$lib/components/InheritedFrom.svelte';
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
@@ -2088,7 +2087,6 @@
   <!-- Header -->
   <div class="flex items-start justify-between gap-3">
     <div class="min-w-0">
-      {#if node.inheritedFrom}<InheritedFrom origin={node.inheritedFrom} />{/if}
       <h1 class="flex flex-wrap items-center gap-2 text-xl font-bold text-zinc-900 dark:text-white">
         {#if node.isRunnable}
           <svg class="h-5 w-5 shrink-0 text-indigo-500 dark:text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">

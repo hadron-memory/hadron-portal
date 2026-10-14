@@ -19,8 +19,8 @@ describe('Agent definition grids', () => {
     expect(rows[0].textContent).toContain('zeta');
     expect(rows[0].textContent).toContain('when ready');
     expect(rows[0].textContent).toContain('Involved');
-    expect(rows[0].textContent).toContain('Inherited from');
-    expect(rows[0].querySelector('[title="hrn:node:example.com:base:zeta"]')).not.toBeNull();
+    expect(rows[0].querySelector('a[href="/app/u/hrn:agent:example.com:base"]')).not.toBeNull();
+    expect(rows[0].querySelector('a[href="/app/u/hrn:node:example.com:base:zeta"]')).not.toBeNull();
     expect(rows[0].querySelector('a')?.getAttribute('href')).toBe('/app/agents/child/definitions/tasks%3Aship');
     expect(rows[1].querySelector('a')?.getAttribute('href')).toBe('/app/memories/memory/nodes/alpha');
   });

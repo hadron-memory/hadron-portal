@@ -7,8 +7,8 @@ it('identifies the base while keeping the node own URN and safely displaying con
     node: { id: 'node', name: 'Ship', loc: 'tasks:ship', urn: 'hrn:node:example.com:base:tasks:ship', content: '<script>danger()</script>', inheritedFrom: { agentId: 'base', agentUrn: 'hrn:agent:example.com:base' } },
   } as never } });
   expect(body).toContain('Inherited from');
-  expect(body).toContain('/app/agents/base');
-  expect(body).toContain('hrn:node:example.com:base:tasks:ship');
+  expect(body).toContain('/app/u/hrn:agent:example.com:base');
+  expect(body).toContain('href="/app/u/hrn:node:example.com:base:tasks:ship"');
   expect(body).not.toContain('<script>danger()');
   expect(body).toContain('&lt;script>danger()&lt;/script>');
 });

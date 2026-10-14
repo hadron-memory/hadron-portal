@@ -120,7 +120,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }>;
   };
 
-  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance] = await Promise.all([
     allMemoryIds.length > 0
       ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
           GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
@@ -165,6 +165,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       )
       .then((r) => r.agent?.registerDefaults ?? null)
       .catch(() => null),
+    loadAgentInheritance(client, agent.id),
   ]);
 
   // An agent can be installed into several apps (as the primary agentId or via
@@ -267,8 +268,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       { errors: false },
     ),
   ]);
-
-  const inheritance = await loadAgentInheritance(client, agent.id);
 
   return {
     inheritance,
