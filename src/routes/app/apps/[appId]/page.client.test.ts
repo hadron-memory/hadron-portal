@@ -560,12 +560,72 @@ describe('Client tab: a refused key mint (#1068)', () => {
     expect(target.textContent).not.toContain('Failed to create client key.');
   });
 
-  it('a body with no error text falls back to the generic copy, inline', async () => {
+  it('a body with no error text falls back to the generic copy, inline (unchanged by #1106)', async () => {
     vi.spyOn(window, 'alert').mockImplementation(() => {});
     const target = await mountClient(async () => new Response('gateway', { status: 502 }));
     downloadButton(target).click();
     await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
     const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes('Failed to create client key.'));
     expect(alertEl).toBeTruthy();
+  });
+});
+
+// portal#1106 — the Client tab's plugin checkboxes auto-submit updateApp on
+// every tick. A viewer the server says cannot manage the App gets them
+// read-only: no tick mutates, and none reaches the server to come back as a
+// refusal. Pinned in both directions, plus the unknown case, which keeps the
+// controls because the server, not the page, is the gate.
+describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
+  async function mountClient(canManageApp: boolean | null) {
+    setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=client');
+    const data = await pageData();
+    const m = mountComponent(Page as never, {
+      data: { ...data, app: { ...data.app, agentTools: ['CLAUDE_CODE'] }, initialTab: 'client', canManageApp },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  const boxes = (target: HTMLElement) =>
+    [...target.querySelectorAll<HTMLInputElement>('form[action="?/updateAgentTools"] input[type="checkbox"]')];
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+
+  it('a non-manager’s boxes are disabled and a tick submits nothing', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountClient(false);
+    const all = boxes(target);
+    expect(all.length).toBeGreaterThan(0);
+    expect(all.every((b) => b.disabled)).toBe(true);
+    // Both the element's own click and a raw dispatched event: the second
+    // reaches the handler even where a disabled control drops the first.
+    all[1].click();
+    all[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await settle();
+    expect(requestSubmit).not.toHaveBeenCalled();
+    expect(all[0].checked).toBe(true);
+    expect(target.textContent).toContain('Only people who manage this App can change its plugins');
+  });
+
+  it('a manager’s tick still saves', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountClient(true);
+    const all = boxes(target);
+    expect(all.some((b) => b.disabled)).toBe(false);
+    all[1].click();
+    await settle();
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    expect(target.textContent).not.toContain('Only people who manage this App can change its plugins');
+  });
+
+  it('an unknown answer keeps the controls; the server stays the gate', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountClient(null);
+    const all = boxes(target);
+    expect(all.some((b) => b.disabled)).toBe(false);
+    all[1].click();
+    await settle();
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
   });
 });
