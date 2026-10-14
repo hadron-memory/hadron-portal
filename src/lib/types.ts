@@ -409,6 +409,19 @@ export interface Worker {
   /** When the current hold was taken. Null exactly when `heldByUserId` is —
    *  including when both are masked on deny. */
   heldAt?: string | null;
+  /**
+   * portal#1067 (hadron-server#1726) — the one Worker this one reports to.
+   * Staffing, masked on deny like `heldByUserId`: null is "nobody" OR "you may
+   * not see", and `reportsToRetired` answers false on deny. See
+   * `$lib/worker-reports-to`. `undefined` means "not selected".
+   */
+  reportsToWorkerId?: string | null;
+  reportsToRetired?: boolean;
+  /** The target, selected only by the single-worker read. */
+  reportsTo?: { id: string; name: string; urn: string | null; retiredAt: string | null } | null;
+  /** hadron-cli#487 — when this worker was last driven. Null when never bound,
+   *  and masked to null on deny. Selected by the roster only. */
+  lastActiveAt?: string | null;
   createdAt: string;
 }
 

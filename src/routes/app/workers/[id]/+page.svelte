@@ -14,6 +14,7 @@
   import { updateBriefingSchema, type UpdateBriefingForm } from './schema';
   import { t } from '$lib/i18n/t';
   import { isHeld, workerHold } from '$lib/worker-hold';
+  import { reportsToOf } from '$lib/worker-reports-to';
   import type { PageData } from './$types';
 
   let { data, form }: { data: PageData; form: unknown } = $props();
@@ -228,6 +229,8 @@
   // is. `data.user` merges down from the /app layout, so the viewer id needs
   // no loader change.
   const hold = $derived(workerHold(worker, data.user?.id));
+  // portal#1067 — masked like the hold, so `none` renders no row at all.
+  const reportsTo = $derived(reportsToOf(worker));
 
   // Mirrors the App detail page's own `appsHref`. `/app/apps` is the ORG-LESS
   // "My apps" list (#647) — it shows only the caller's user-owned Apps, so for
@@ -413,6 +416,31 @@
         </dt>
         <dd class="mt-1 text-sm text-zinc-900 dark:text-white">{formatDate(worker.createdAt)}</dd>
       </div>
+
+      <!-- portal#1067 (hadron-server#1726) — who this worker reports to.
+           Rendered ONLY when known, for the hold's reason below: the field is
+           masked on deny, so "Reports to nobody" could be a false claim. A
+           retired target is flagged, not hidden: retiring a worker leaves the
+           workers reporting to it alone, and that stale claim is the point. -->
+      {#if reportsTo.kind === 'known'}
+        <div class="bg-white p-4 dark:bg-zinc-950">
+          <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            {t('worker.field.reports-to', 'Reports to')}
+          </dt>
+          <dd class="mt-1 text-sm text-zinc-900 dark:text-white">
+            <a href="/app/workers/{reportsTo.id}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+              >{reportsTo.name ?? t('worker.field.reports-to.unnamed', 'Another worker')}</a
+            >
+            {#if reportsTo.retired}
+              <span class="text-zinc-500">{t('worker.field.reports-to.retired', '(retired)')}</span>
+            {/if}
+            <!-- hrn:node:hadronmemory.com:hadron-portal:review:render-urn — nullable, so absent rather than empty. -->
+            {#if reportsTo.urn}
+              <div class="mt-1"><Urn value={reportsTo.urn} type="worker" size={8} linked /></div>
+            {/if}
+          </dd>
+        </div>
+      {/if}
 
       <!-- #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — the hold,
            rendered ONLY when one is known.

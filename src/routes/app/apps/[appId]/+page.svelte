@@ -60,6 +60,7 @@
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
+  import { reportsToOf, reportsToSortKey } from '$lib/worker-reports-to';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -281,6 +282,15 @@
   // (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant). The date stays supplementary text
   // inside the cell.
   let staffFilter = $state('');
+  // portal#1067 — the roster holds every target (includeRetired), so who a
+  // worker reports to is resolved from its own rows rather than selected
+  // nested, which would be one server lookup per row.
+  const staffById = $derived(new Map((staff ?? []).map((w) => [w.id, w])));
+  function staffDateMs(value: string | null | undefined): number | null {
+    if (!value) return null;
+    const ms = new Date(value).getTime();
+    return isNaN(ms) ? null : ms;
+  }
   const staffColumns: PortalColumnDef<Worker>[] = [
     // #1009: the URN rides a second line of the Name cell, not its own column.
     // Search still matches it: the column below keeps `urn` in the filter text.
@@ -295,6 +305,23 @@
       id: 'hold',
       header: t('app.staff.column.hold', 'Name held by'),
       size: 200,
+    },
+    // portal#1067 — sorting on the target's name groups each worker under the
+    // one it reports to (the sort is stable and rows arrive name-sorted), with
+    // the unassigned at the top level. See reportsToSortKey.
+    {
+      accessorFn: (row) => reportsToSortKey(reportsToOf(row, staffById)),
+      id: 'reportsTo',
+      header: t('app.staff.column.reports-to', 'Reports to'),
+      size: 160,
+    },
+    // Next to Reports to, so a claim on a worker nobody drives is visible.
+    // Sorted by instant (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant).
+    {
+      accessorFn: (row) => staffDateMs(row.lastActiveAt),
+      id: 'lastActive',
+      header: t('app.staff.column.last-active', 'Last active'),
+      size: 170,
     },
     { accessorFn: (row) => (row.memoryId ? 1 : 0), id: 'memory', header: t('app.staff.column.memory', 'Working memory'), size: 140 },
     { id: 'actions', header: t('app.staff.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
@@ -2119,6 +2146,23 @@
               {:else}
                 <span class="text-xs text-zinc-400">—</span>
               {/if}
+            {:else if cell.column.id === 'reportsTo'}
+              <!-- portal#1067 — masked on deny like the hold, so `none` is a dash,
+                   never "nobody". A retired target is flagged: retiring a
+                   worker leaves those reporting to it alone, and that stale
+                   claim is what a reader of the roster needs to see. -->
+              {@const rt = reportsToOf(worker, staffById)}
+              {#if rt.kind === 'known'}
+                <span class="truncate text-xs">
+                  <a href="/app/workers/{rt.id}" class="text-indigo-600 hover:underline dark:text-indigo-400"
+                    >{rt.name ?? t('app.staff.reports-to.unnamed', 'Another worker')}</a
+                  >{#if rt.retired}{' '}<span class="text-zinc-500">{t('app.staff.reports-to.retired', '(retired)')}</span>{/if}
+                </span>
+              {:else}
+                <span class="text-xs text-zinc-400">—</span>
+              {/if}
+            {:else if cell.column.id === 'lastActive'}
+              <span class="text-xs text-zinc-500">{formatDate(worker.lastActiveAt)}</span>
             {:else if cell.column.id === 'memory'}
               {#if worker.memoryId}
                 <a href="/app/memories/{worker.memoryId}" class="text-xs text-indigo-600 hover:underline dark:text-indigo-400">
