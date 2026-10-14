@@ -184,6 +184,22 @@ describe('WORKER_QUERY selection', () => {
   //
   // Asserted against the ROSTER operation rather than the fragment source, so
   // it stays true however the fragment is composed.
+  // portal#1067 (hadron-server#1726): who this worker reports to. The page
+  // names the target, so the nested Worker rides along here; the roster
+  // resolves it from its own rows instead (one lookup per row otherwise).
+  it('selects who the worker reports to, with the target named', () => {
+    expect(WORKER_QUERY).toMatch(/^\s*reportsToWorkerId\s*$/m);
+    expect(WORKER_QUERY).toMatch(/^\s*reportsToRetired\s*$/m);
+    expect(WORKER_QUERY).toMatch(/reportsTo \{ id name urn retiredAt \}/);
+  });
+
+  it('the roster selects the reports-to id, its retired flag and last activity, not the nested target', () => {
+    expect(WORKERS_QUERY).toMatch(/\breportsToWorkerId\b/);
+    expect(WORKERS_QUERY).toMatch(/\breportsToRetired\b/);
+    expect(WORKERS_QUERY).toMatch(/\blastActiveAt\b/);
+    expect(WORKERS_QUERY).not.toMatch(/reportsTo \{/);
+  });
+
   it('keeps the boot prompt OFF the staff roster', () => {
     expect(WORKERS_QUERY).not.toMatch(/^\s*prompt\s*$/m);
   });
