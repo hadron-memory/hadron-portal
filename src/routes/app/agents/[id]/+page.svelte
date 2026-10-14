@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
   import AgentDefinitions from '$lib/components/AgentDefinitions.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -424,7 +425,7 @@
   // fresh page on Profile; open Settings so its result and the attempted value
   // are visible, as the delete form above does (#971 Codex P2).
   $effect(() => {
-    if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults')) activeTab = 'settings';
+    if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults') || submittedForm<{ _kind: 'setAgentBase' }>(form, 'setAgentBase') || submittedForm<{ _kind: 'setAgentIndexRefs' }>(form, 'setAgentIndexRefs')) activeTab = 'settings';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -1216,6 +1217,9 @@
   <!-- SETTINGS TAB — the rest (#352)                                      -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
+    {#if data.inheritanceManagement}
+      <AgentInheritanceSettings management={data.inheritanceManagement} baseForm={data.baseForm} indexRefsForm={data.indexRefsForm} actionData={form} />
+    {/if}
     <div class="space-y-8">
       <!-- Agent settings (editable). #352 follow-up: the editable agent form
            lives here; the Profile tab shows the same info read-only. -->

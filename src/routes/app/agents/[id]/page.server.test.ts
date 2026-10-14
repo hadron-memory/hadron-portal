@@ -743,3 +743,12 @@ describe('/app/agents/[id] register default (#942)', () => {
     expect((superFormFrom(missing)?.message as { text: string }).text).toBe('This agent is not available to you.');
   });
 });
+
+it('gives the inheritance forms distinct stable ids among all loaded forms', async () => {
+  routeMock({ agent: { data: { agent: personalAgent } } });
+  const load = await importLoad();
+  const result = await load(ev()) as unknown as Record<string, unknown>;
+  const ids = Object.values(result).filter((value): value is { id: string } => !!value && typeof value === 'object' && 'valid' in value && 'id' in value).map(value => value.id);
+  expect(ids.filter(id => id === 'agentBase')).toHaveLength(1);
+  expect(ids.filter(id => id === 'agentIndexRefs')).toHaveLength(1);
+});
