@@ -20,6 +20,14 @@ describe('NodeApprovalBadge (#992)', () => {
     expect(body).toContain('Revision 3 approved');
   });
 
+  it('labels an encrypted memory\'s node not applicable, with no detail even from a retained record (portal#1088)', () => {
+    const { body } = render(NodeApprovalBadge, { props: { view: approvalView({ ok: true, value: { state: 'NOT_APPLICABLE', approval } }) } });
+    expect(body).toContain('data-state="NOT_APPLICABLE"');
+    expect(body).toContain('Not applicable (encrypted memory)');
+    expect(body).not.toContain('approval-detail');
+    expect(body).not.toContain('Revision 3 approved');
+  });
+
   it('shows no approval detail for a never-approved node', () => {
     const { body } = render(NodeApprovalBadge, { props: { view: approvalView({ ok: true, value: { state: 'NOT_APPROVED', approval: null } }) } });
     expect(body).toContain('Not approved');

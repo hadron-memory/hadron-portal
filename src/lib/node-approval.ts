@@ -9,11 +9,15 @@
  *   is refused (REVISION_MISMATCH) instead of approving unread text.
  * - Every refusal and verify outcome maps to FIXED copy keyed by its code. The
  *   server's prose is never shown (the same rule as `$lib/sync-error`).
+ * - portal#1088 (hadron-server#1637): an encrypted memory's nodes are never
+ *   approved. They read NOT_APPLICABLE, retained approval records are ignored,
+ *   and approve/verify are refused with ENCRYPTED_MEMORY_NOT_APPLICABLE. Like
+ *   an unknown state, it is never shown as approved and offers no Approve.
  */
 import { t } from '$lib/i18n/t';
 import type { ProvenanceResult } from '$lib/node-provenance';
 
-export type NodeApprovalState = 'NOT_APPROVED' | 'APPROVED' | 'SUPERSEDED';
+export type NodeApprovalState = 'NOT_APPROVED' | 'APPROVED' | 'SUPERSEDED' | 'NOT_APPLICABLE';
 
 export interface NodeApproval {
   revision: number;
@@ -60,7 +64,7 @@ export interface ApprovalView {
   canApprove: boolean;
 }
 
-const KNOWN: readonly NodeApprovalState[] = ['NOT_APPROVED', 'APPROVED', 'SUPERSEDED'];
+const KNOWN: readonly NodeApprovalState[] = ['NOT_APPROVED', 'APPROVED', 'SUPERSEDED', 'NOT_APPLICABLE'];
 
 export function approvalView(result: ProvenanceResult<NodeApprovalStatus | null | undefined>): ApprovalView {
   if (!result.ok) {
@@ -70,12 +74,14 @@ export function approvalView(result: ProvenanceResult<NodeApprovalStatus | null 
   if (!status || !KNOWN.includes(status.state)) {
     return { state: 'UNAVAILABLE', tone: 'neutral', approval: null, canApprove: false };
   }
-  const approval = status.state === 'NOT_APPROVED' ? null : status.approval;
+  // NOT_APPLICABLE carries no approval even if a retained record comes back,
+  // and offers no Approve: the server refuses it (#1637).
+  const approvalApplies = status.state === 'APPROVED' || status.state === 'SUPERSEDED';
   return {
     state: status.state,
     tone: status.state === 'APPROVED' ? 'approved' : status.state === 'SUPERSEDED' ? 'attention' : 'neutral',
-    approval,
-    canApprove: status.state !== 'APPROVED',
+    approval: approvalApplies ? status.approval : null,
+    canApprove: status.state === 'NOT_APPROVED' || status.state === 'SUPERSEDED',
   };
 }
 
@@ -87,6 +93,8 @@ export function approvalText(view: ApprovalView): string {
       return t('node.approval.superseded', 'Changed since approval');
     case 'NOT_APPROVED':
       return t('node.approval.not-approved', 'Not approved');
+    case 'NOT_APPLICABLE':
+      return t('node.approval.not-applicable', 'Not applicable (encrypted memory)');
     case 'CHANGED':
       return t('node.approval.changed', 'Approval status changed; reload to see it');
     default:
@@ -122,6 +130,7 @@ export function approvalRefusalStatus(code: string | null | undefined): 403 | 40
       return 404;
     case 'REVISION_MISMATCH':
     case 'NODE_IS_PLACEHOLDER':
+    case 'ENCRYPTED_MEMORY_NOT_APPLICABLE':
       return 409;
     case 'SESSION_EXPIRED':
       return 423;
@@ -139,6 +148,8 @@ export function approveRefusalText(code: string | null | undefined): string {
       return t('node.approval.refused.revision-mismatch', 'This node changed after you opened it, so nothing was approved. Review the current revision, then approve it.');
     case 'NODE_IS_PLACEHOLDER':
       return t('node.approval.refused.placeholder', 'This node is a reserved placeholder. It has no spec to approve yet.');
+    case 'ENCRYPTED_MEMORY_NOT_APPLICABLE':
+      return t('node.approval.refused.encrypted', "Nodes in an encrypted memory can't be approved, so nothing was approved.");
     // Not an expired sign-in: #1592 answers this when an ENCRYPTED memory's
     // key isn't held for this session, and approving has to hash the plaintext.
     case 'SESSION_EXPIRED':
@@ -186,6 +197,8 @@ export function verifyFailureText(code: string | null | undefined): string {
   switch (code) {
     case 'FORBIDDEN':
       return t('node.approval.verify-refused.forbidden', "You don't have permission to verify this node.");
+    case 'ENCRYPTED_MEMORY_NOT_APPLICABLE':
+      return t('node.approval.verify-refused.encrypted', "Nodes in an encrypted memory are never approved, so there's nothing to verify.");
     case 'SESSION_EXPIRED':
       return t('node.approval.verify-refused.key-unavailable', "This memory is encrypted and its key isn't available to your session right now, so it couldn't be verified.");
     case 'NODE_NOT_FOUND':

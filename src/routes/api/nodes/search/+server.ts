@@ -59,7 +59,7 @@ function parseSortProperty(raw: unknown):
   return { path: path as string[], field: f, as: a, direction: d };
 }
 
-const APPROVAL_STATES = ['NOT_APPROVED', 'APPROVED', 'SUPERSEDED'] as const;
+const APPROVAL_STATES = ['NOT_APPROVED', 'APPROVED', 'SUPERSEDED', 'NOT_APPLICABLE'] as const;
 type ApprovalState = (typeof APPROVAL_STATES)[number];
 
 export const POST: RequestHandler = async ({ request, locals }) => {

@@ -353,7 +353,7 @@
   let includeDeleted = $state(false);
   // #992 (server #1591): approval and minting state, both answered by the
   // server (findNodes filter) so the list never reads approval per row.
-  let approvalFilter = $state<'' | 'APPROVED' | 'NOT_APPROVED' | 'SUPERSEDED'>('');
+  let approvalFilter = $state<'' | 'APPROVED' | 'NOT_APPROVED' | 'SUPERSEDED' | 'NOT_APPLICABLE'>('');
   let mintedFilter = $state<'any' | 'minted' | 'unminted'>('any');
   // portal#1015 (hrn:node:hadronmemory.com:specs:cor:dmo:110:08): Content / Comments / All. Content is the
   // default (the server's too). The SERVER applies it before ranking, paging and
@@ -1216,6 +1216,8 @@
       <option value="APPROVED">{t('memory-browser.approval.approved', 'Approved')}</option>
       <option value="SUPERSEDED">{t('memory-browser.approval.superseded', 'Changed since approval')}</option>
       <option value="NOT_APPROVED">{t('memory-browser.approval.not-approved', 'Not approved')}</option>
+      <!-- portal#1088 (hadron-server#1637): every node of an encrypted memory, and only those. -->
+      <option value="NOT_APPLICABLE">{t('memory-browser.approval.not-applicable', 'Not applicable (encrypted memory)')}</option>
     </select>
     <select bind:value={mintedFilter} data-testid="minted-filter" aria-label={t('memory-browser.minted-filter', 'Filter by minting')} title={t('memory-browser.minted-filter', 'Filter by minting')}
       class="rounded-lg border px-2 py-1.5 text-xs
