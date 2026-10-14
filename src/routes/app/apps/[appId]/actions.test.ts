@@ -156,6 +156,8 @@ describe('load', () => {
       if (query === TEAM_WORK_ITEMS_QUERY) {
         return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
       }
+      // #1106: the viewer's manage self-audit (the Client tab's plugin grid).
+      if (query === SELF_CAN_MANAGE_QUERY) return Promise.resolve({ effectiveAccess: { canManage: true } });
       throw new Error('Unexpected query');
     });
 
