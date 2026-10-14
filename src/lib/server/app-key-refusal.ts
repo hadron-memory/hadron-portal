@@ -7,7 +7,8 @@ import { t } from '$lib/i18n/t';
  *
  * Holger, 2026-10-10 (team chat #8095): "whoever manages the App mints,
  * revokes and scopes its App keys" — the App's owner, its owner-role members,
- * the org's admins and owners, and platform admins (cor:acl:010:01). The
+ * the org’s admins and owners, and platform admins
+ * (hrn:node:hadronmemory.com:specs:cor:acl:010:01). The
  * SERVER is the gate; the portal never guesses a viewer's role to hide the
  * controls (an App's `role` is its default member role, not the viewer's). So
  * a non-manager learns the rule from the refusal, and this is that refusal.
