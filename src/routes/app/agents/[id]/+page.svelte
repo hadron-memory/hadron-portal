@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AgentDefinitions from '$lib/components/AgentDefinitions.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -86,7 +87,7 @@
   // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
   // AI Providers were split out of the old Settings tab; the old "Memory"
   // node browser is now "Nodes"; Settings keeps the danger zone.
-  type TabId = 'profile' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
+  type TabId = 'tasks' | 'processes' | 'profile' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
   let activeTab = $state<TabId>('profile');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
@@ -171,6 +172,8 @@
   // the /test tester.
   const tabs = $derived<{ id: TabId; label: string }[]>([
     { id: 'profile', label: 'Profile' },
+    { id: 'tasks', label: t('agent.tasks.tab', 'Tasks') },
+    { id: 'processes', label: t('agent.processes.tab', 'Processes') },
     { id: 'memories', label: 'Memories' },
     { id: 'apps', label: 'Apps' },
     // #713: only for an agent that actually bundles others (a Team Agent and
@@ -673,7 +676,26 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- PROFILE TAB — info of this agent (#352)                             -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'tasks' && data.inheritance}
+    <AgentDefinitions agentId={agent.id} read={data.inheritance.tasks} />
+  {/if}
+  {#if activeTab === 'processes' && data.inheritance}
+    <AgentDefinitions agentId={agent.id} read={data.inheritance.processes} processes />
+  {/if}
   {#if activeTab === 'profile'}
+    {#if data.inheritance}
+      <section class="mb-6 min-w-0 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-label={t('agent.base.label', 'base Agent')}>
+        <h2 class="mb-2 font-semibold">{t('agent.base.heading', 'Base Agent')}</h2>
+        {#if data.inheritance.base.id}
+          <a class="break-words text-indigo-600 hover:underline dark:text-indigo-400" href="/app/agents/{encodeURIComponent(data.inheritance.base.id)}">{data.inheritance.base.agent?.name ?? data.inheritance.base.id}</a>
+          {#if data.inheritance.base.agent?.urn}<Urn value={data.inheritance.base.agent.urn} label={t('agent.base.label', 'base Agent')} linked />{/if}
+          {#if !data.inheritance.base.agent && !data.inheritance.base.error}<p class="text-sm text-zinc-500">{t('agent.base.unavailable', 'Base Agent details are unavailable.')}</p>{/if}
+        {:else if !data.inheritance.base.error}
+          <p class="text-sm text-zinc-500">{t('agent.base.none', 'No base Agent.')}</p>
+        {/if}
+        {#if data.inheritance.base.error}<p role="alert" class="break-words text-sm text-red-600">{data.inheritance.base.error}</p>{/if}
+      </section>
+    {/if}
     <div class="space-y-8">
 
       <!-- Agent info (read-only). #352 follow-up: Profile is an info-only tab;
