@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
+import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
 import {
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
@@ -610,6 +611,33 @@ describe('createKey action', () => {
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
   });
+
+  // portal#1068 (Holger #8095): whoever manages the App mints its keys. The
+  // server is the gate; the portal names the rule instead of a 500.
+  it('a FORBIDDEN refusal is a 403 naming who may manage keys, not the raw server text', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('createKey', { label: 'production' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+  });
+
+  it('an impersonation session’s refusal is a 403 too, never a key', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'read-only', extensions: { code: 'IMPERSONATION_READ_ONLY' } }] },
+    });
+    const result = (await runAction('createKey', { label: 'production' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } }; rawKey?: string };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message.text).toBe(APP_KEY_IMPERSONATION_READ_ONLY());
+    expect(result.data.rawKey).toBeUndefined();
+  });
 });
 
 describe('removeAgent action', () => {
@@ -758,6 +786,20 @@ describe('revokeKey action', () => {
     };
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+
+  it('a FORBIDDEN revoke is a 403 with the same manager copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('revokeKey', { keyId: 'key-1' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+    // The copy is generic: it never echoes the key it refused.
+    expect(result.data.form.message.text).not.toContain('key-1');
   });
 });
 

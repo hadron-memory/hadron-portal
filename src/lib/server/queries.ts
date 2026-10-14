@@ -1768,13 +1768,6 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
   }
 `;
 
-export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation RegenerateAppKey($appRef: ID!) {
-    regenerateAppKey(appRef: $appRef) { rawKey app { ...AppFields } }
-  }
-`;
-
 // ---------------------------------------------------------------------------
 // App Keys
 // ---------------------------------------------------------------------------

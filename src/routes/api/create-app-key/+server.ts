@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { CREATE_APP_KEY_MUTATION } from '$lib/server/queries';
 import type { RequestHandler } from './$types';
 
@@ -21,9 +21,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     return json(result.createAppKey);
   } catch (e: unknown) {
-    return json(
-      { error: extractGqlError(e, 'Failed to create app key') },
-      { status: 500 },
-    );
+    // portal#1068: the same refusal copy as the App Keys tab, as a 403.
+    const { status, text } = appKeyRefusal(e, 'Failed to create app key');
+    return json({ error: text }, { status });
   }
 };

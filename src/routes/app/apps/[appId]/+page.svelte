@@ -1058,6 +1058,10 @@
   ];
 
   let downloading = $state(false);
+  // portal#1068 — why the last mint failed, rendered inline. The server's own
+  // reason (a manager or impersonation refusal) is shown as it was sent; an
+  // alert() with fixed text dropped it.
+  let downloadError = $state<string | null>(null);
   let agentToolsForm = $state<HTMLFormElement>();
   let selectedTools = $derived(new Set(app.agentTools ?? []));
   let newKeyLabel = $state('');
@@ -1282,15 +1286,19 @@
     if (!canDownload) return;
     const label = trimmedLabel;
     downloading = true;
+    downloadError = null;
+    const failed = t('app.client.key.error', 'Failed to create client key.');
     try {
       const res = await fetch('/api/create-app-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ appId: app.id, label }),
       });
-      if (!res.ok) { alert('Failed to create client key.'); return; }
-      const { rawKey } = await res.json();
-      if (!rawKey) { alert('Failed to create client key.'); return; }
+      // A non-JSON body (a proxy's error page) has no reason to show.
+      const body = (await res.json().catch(() => null)) as { rawKey?: string; error?: string } | null;
+      if (!res.ok) { downloadError = body?.error || failed; return; }
+      const rawKey = body?.rawKey;
+      if (!rawKey) { downloadError = failed; return; }
       newKeyLabel = '';
       await generateAndDownloadZip(rawKey, label);
     } finally { downloading = false; }
@@ -2739,6 +2747,11 @@
               class="w-full rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
               {downloading ? 'Generating...' : 'Download setup files (.zip)'}
             </button>
+            {#if downloadError}
+              <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+                {downloadError}
+              </div>
+            {/if}
             <p class="text-[10px] text-zinc-400">Creates a new client key and downloads a zip with the selected plugin configs. Extract in your project root.</p>
           </div>
         {/if}
