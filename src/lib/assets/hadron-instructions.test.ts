@@ -8,7 +8,11 @@
 import { describe, expect, it } from 'vitest';
 import instructions from './hadron-instructions.md?raw';
 
-const startSessionRows = instructions.split('\n').filter((l) => l.includes('`hadron_start_session`'));
+// The tool table's row. (The workflow list also names the tool in prose, with
+// no arguments, which the no-level check above already covers.)
+const startSessionRows = instructions
+  .split('\n')
+  .filter((l) => l.startsWith('| `hadron_start_session`'));
 
 describe('hadron-instructions.md (#986)', () => {
   it('claims no level argument anywhere', () => {
