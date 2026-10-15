@@ -41,6 +41,9 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
     // detail page asked for its org with no token and answered 404), and a load
     // that awaited `parent()` first always saw the cleared values. The cookie
     // going is what ends the session, from the next request on.
-    return { user: null };
+    // `sessionCleared` says so to the App layout (#1117, Atilla's P2-2): only
+    // after a drop does a reload of the same URL come back different, so only
+    // then may it redirect to itself. A `me` of null (above) drops nothing.
+    return { user: null, sessionCleared: true };
   }
 };

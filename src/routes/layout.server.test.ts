@@ -42,8 +42,15 @@ describe('root layout: a failed `me` leaves the shared locals alone (#1117)', ()
   it('returns no user and drops the session cookie, as before', async () => {
     mockRequest.mockRejectedValueOnce(new Error('HTTP 500'));
     const ev = event();
-    expect(await rootLoad(ev)).toEqual({ user: null });
+    expect(await rootLoad(ev)).toEqual({ user: null, sessionCleared: true });
     expect(ev.deleted).toEqual(['hadron_token']);
+  });
+
+  it('a `me` of null drops nothing and says so: no sessionCleared (Atilla P2-2)', async () => {
+    mockRequest.mockResolvedValueOnce({ me: null });
+    const ev = event();
+    expect(await rootLoad(ev)).toEqual({ user: null });
+    expect(ev.deleted).toEqual([]);
   });
 
   it('does not clear locals.token or locals.user for the loads still running', async () => {

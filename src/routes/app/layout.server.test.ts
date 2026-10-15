@@ -639,7 +639,7 @@ describe('#1117: the root and App layouts answer one identity decision', () => {
 
   it('signed out by the root: no signed-in App content, a redirect to the same URL', async () => {
     const r = await composed({ meFails: true, pathname: '/app/account?tab=x' });
-    expect(r.root).toEqual({ user: null });
+    expect(r.root).toEqual({ user: null, sessionCleared: true });
     expect(r.data).toBeNull();
     expect(r.redirect).toEqual({ status: 303, location: '/app/account?tab=x' });
     expect(r.deleted).toEqual(['hadron_token']);
@@ -647,7 +647,7 @@ describe('#1117: the root and App layouts answer one identity decision', () => {
 
   it('impersonating, signed out by the root: no target content or banner either', async () => {
     const r = await composed({ impersonating: true, meFails: true });
-    expect(r.root).toEqual({ user: null });
+    expect(r.root).toEqual({ user: null, sessionCleared: true });
     expect(r.data).toBeNull();
     expect(r.redirect).toEqual({ status: 303, location: '/app/account' });
     // Only the impersonation cookie goes: the next request is the admin's own.
