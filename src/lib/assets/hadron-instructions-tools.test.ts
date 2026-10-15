@@ -64,3 +64,28 @@ describe('hadron-instructions.md describes the resume claim (#1123)', () => {
     );
   });
 });
+
+/**
+ * #1125: hadron-server#1978 (deployed in 4c55560a) made hadron_team_chat_post's
+ * authorship explicit, the hadron_channel_post contract (#1697). An agent
+ * following the instructions that posted without naming its session is now
+ * refused, so the row says how to post as your worker or as yourself.
+ */
+describe('hadron-instructions.md describes team-chat authorship (#1125)', () => {
+  const row = instructions.split('\n').find((l) => l.startsWith('| `hadron_team_chat_post`')) ?? '';
+
+  it('has a hadron_team_chat_post row naming `session` and `asMe`', () => {
+    expect(row).toMatch(/`session`/);
+    expect(row).toMatch(/`asMe: true`/);
+  });
+
+  it('names every refusal of the deployed contract', () => {
+    expect(row).toMatch(/`\[authorship_required\]`/);
+    expect(row).toMatch(/`SESSION_AMBIGUOUS`/);
+    expect(row).toMatch(/`\[bad_user_input\]`/);
+  });
+
+  it('points a refused agent at hadron_whoami for its session id', () => {
+    expect(row).toMatch(/`hadron_whoami`/);
+  });
+});
