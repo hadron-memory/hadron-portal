@@ -23,7 +23,7 @@ function activeOrgCookieName(userId: string): string {
   return `${ACTIVE_ORG_COOKIE_PREFIX}_${userId}`;
 }
 
-export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) => {
+export const load: LayoutServerLoad = async ({ locals, url, params, cookies, parent }) => {
   if (!locals.user) {
     // #761: `url.search`, not `url.pathname` alone. This is the redirect a
     // SIGNED-OUT visitor hits, which makes it the common case for a shared deep
@@ -50,7 +50,9 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // we must fetch them to render the sidebar avatar correctly.
   let meThrew = false;
   let orgsThrew = false;
-  const [orgs, meData] = await Promise.all([
+  // `parent()` (the root layout's data) is awaited ALONGSIDE this layout's own
+  // requests, so it costs no extra round trip; see the identity check below.
+  const [orgs, meData, rootData] = await Promise.all([
     fetchAllItems<Organization>(apiClient, ORGANIZATIONS_NAV_QUERY, 'organizations')
       // Keep the app up if the org list fails, but REMEMBER it failed: an empty
       // list must not be read as "zero memberships" and flip a real org member
@@ -74,7 +76,22 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
         console.error('[app-layout] `me` query threw — user handle will be blank (name/avatar fall back to the JWT):', e);
         return { me: null as UserSummary | null };
       }),
+    parent(),
   ]);
+  // #1117: one response, one identity decision, and it's the root layout's.
+  // When its own `me` fails it decides this response is signed out: it returns
+  // `user: null` (the nav renders "Sign in") and drops the session cookie.
+  // Rendering signed-in App content under that nav, or a target's
+  // impersonation banner, made one response claim two identities (Atilla and
+  // Colin on #1119). So defer: redirect to this same URL, and the next request,
+  // without the dropped cookie, takes the existing path: the guard above sends
+  // a user to /signin, and an admin whose impersonation was dropped comes back
+  // as themselves. No loop: the root returns `user: null` with a token present
+  // only from its catch, which always drops the cookie behind that token.
+  // Whether a failed `me` should end the session at all is portal#1120.
+  if (!(rootData as { user?: unknown }).user) {
+    redirect(303, withQuery(url.pathname, url.search));
+  }
   // A `me` of null WITHOUT an error is the more common cause of a blank handle:
   // the `me` resolver returns null when `ctx.userId` is unset, i.e. the server
   // did not accept the session token even though the portal decoded it locally

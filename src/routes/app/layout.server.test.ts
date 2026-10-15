@@ -618,17 +618,17 @@ describe('#1117: the root and App layouts answer one identity decision', () => {
     const locals = event.locals as { impersonation?: unknown };
     locals.impersonation = opts.impersonating ? { adminId: 'admin-1' } : null;
     const deleted: string[] = [];
-    (event.cookies as { delete: (n: string) => void }).delete = (n: string) => deleted.push(n);
+    (event.cookies as unknown as { delete: (n: string) => void }).delete = (n: string) => { deleted.push(n); };
     if (opts.meFails) mockMeRequest.mockRejectedValue(new Error('HTTP 500'));
     else mockMeRequest.mockResolvedValue({ me: { id: 'user-1', handle: 'ada', roles: ['user'] } });
     mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
 
     const root = await import('../+layout.server');
-    const rootData = root.load(event as never);
-    (event as { parent: () => Promise<unknown> }).parent = () => rootData;
+    const rootData = Promise.resolve(root.load(event as never));
+    (event as unknown as { parent: () => Promise<unknown> }).parent = () => rootData;
     const app = await importLoad();
-    const outcome = await app(event).then(
-      (data) => ({ data, redirect: null as null | { status: number; location: string } }),
+    const outcome = await Promise.resolve(app(event)).then(
+      (data: unknown) => ({ data, redirect: null as null | { status: number; location: string } }),
       (e: { status?: number; location?: string }) => {
         if (e?.status && e.location) return { data: null, redirect: { status: e.status, location: e.location } };
         throw e;
