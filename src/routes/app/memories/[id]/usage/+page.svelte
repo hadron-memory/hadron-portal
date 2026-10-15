@@ -100,9 +100,14 @@
 <svelte:head><title>{g.name} &middot; Usage &middot; Hadron</title></svelte:head>
 
 <section>
-  <div class="mb-4 flex items-center justify-between gap-3">
+  <!-- #1112: both rows wrap. At 390px the chart pane's Style, Window and
+       Table|Chart controls ran to x≈500 and scrolled the whole page sideways.
+       They are controls, not navigation, so they reflow rather than scroll:
+       the toolbar drops below the heading, and its own controls wrap within
+       it, staying right-aligned (`ml-auto`, `justify-end`) as on desktop. -->
+  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
     <h2 class="font-semibold text-zinc-900 dark:text-white">{t('usage.heading', 'Usage events')}</h2>
-    <div class="flex items-center gap-3">
+    <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
       {#if pane === 'chart'}
         <label class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400" for="usage-style">
           {t('usage.style', 'Style')}

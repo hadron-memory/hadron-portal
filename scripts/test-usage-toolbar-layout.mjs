@@ -60,10 +60,13 @@ try {
       assert.ok(got.reachable, `${label}: a toolbar control is off-screen or covered`);
 
       if (width === 390 && pane === 'chart') {
-        // Prove the browser sees the defect: take the wrap away again and the
-        // page must overflow, or this check cannot tell fixed from broken.
-        const mutant = await page.addStyleTag({ content: 'section .flex-wrap { flex-wrap: nowrap !important; }' });
-        assert.ok((await measure()).scrollWidth > width, 'no-wrap mutant must overflow');
+        // Prove the browser sees the defect: take the toolbar's own wrap away
+        // and the page must overflow, or this check cannot tell fixed from
+        // broken. (The heading row's wrap is layout, not containment: without
+        // it the toolbar still fits, squeezed into a column beside the heading.)
+        const row = 'section > div:first-child > div';
+        const mutant = await page.addStyleTag({ content: `${row} { flex-wrap: nowrap !important; }` });
+        assert.ok((await measure()).scrollWidth > width, 'toolbar no-wrap mutant must overflow');
         await mutant.evaluate((el) => el.remove());
         assert.equal((await measure()).scrollWidth, width);
       }
