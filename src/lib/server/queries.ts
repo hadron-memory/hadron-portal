@@ -183,6 +183,7 @@ export const ME_QUERY = /* GraphQL */ `
     me {
       id
       handle
+      urn
       githubUsername
       name
       avatarUrl
@@ -1783,13 +1784,6 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
     ) {
       ...AppFields
     }
-  }
-`;
-
-export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation RegenerateAppKey($appRef: ID!) {
-    regenerateAppKey(appRef: $appRef) { rawKey app { ...AppFields } }
   }
 `;
 

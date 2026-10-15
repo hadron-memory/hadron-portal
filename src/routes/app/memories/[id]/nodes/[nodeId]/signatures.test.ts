@@ -3,6 +3,11 @@
  * a request of its own, bound to the rendered revision. A refusal there (the
  * server's signing switch, hadron-server#1895) leaves the signatures unshown
  * and never takes the approval read down with it.
+ *
+ * portal#1022 gate: `Node.signatureStatus` exists only while the deployment
+ * offers signing, so selecting it with signing off fails GraphQL validation on
+ * every node view. The page asks the deployment first and, when it says off,
+ * sends no signature query at all.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
@@ -15,12 +20,17 @@ const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
 }));
+const offersSigning = vi.fn();
+vi.mock('$lib/server/signing-capability', () => ({
+  deploymentOffersSigning: (token: string) => offersSigning(token),
+}));
 vi.mock('$lib/server/guards', () => ({
   requireNonConsumer: vi.fn().mockResolvedValue(undefined),
 }));
 
 beforeEach(() => {
   mockRequest.mockReset();
+  offersSigning.mockReset().mockResolvedValue(true);
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -96,5 +106,21 @@ describe('node page — signature status (portal#1022)', () => {
     const data = await load();
     expect(await data.signatures).toEqual({ ok: false });
     expect(await data.approval).toEqual({ ok: true, value: APPROVED });
+  });
+
+  it('signing off: no signature query goes out, and the approval is untouched', async () => {
+    offersSigning.mockResolvedValue(false);
+    serve(() => ({ node: { id: 'leaf-pk', revision: 4, signatureStatus: SIGNED } }));
+    const data = await load();
+    expect(await data.signatures).toEqual({ ok: false });
+    expect(await data.approval).toEqual({ ok: true, value: APPROVED });
+    expect(mockRequest.mock.calls.filter(([doc]) => String(doc).includes('signatureStatus'))).toEqual([]);
+    expect(offersSigning).toHaveBeenCalledWith('tok');
+  });
+
+  it('signing on: the signatures still render', async () => {
+    offersSigning.mockResolvedValue(true);
+    serve(() => ({ node: { id: 'leaf-pk', revision: 4, signatureStatus: SIGNED } }));
+    expect(await (await load()).signatures).toEqual({ ok: true, value: SIGNED });
   });
 });

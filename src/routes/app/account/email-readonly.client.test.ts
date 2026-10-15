@@ -41,6 +41,30 @@ describe('Account profile form — email', () => {
     expect(t.querySelector<HTMLInputElement>('#editHandle')!.readOnly).toBe(false);
   });
 
+  it('shows the field error on the field only, not again in the banner (#1080, item 1)', () => {
+    const t = openEditor({ errors: { email: ['Changing your email address is not supported here.'] } });
+    const field = t.querySelector('#editEmailError')!;
+    expect(field.textContent).toContain('not supported here');
+    // Nowhere else on the form: no banner repeating it.
+    const elsewhere = [...t.querySelectorAll('p, div')].filter(
+      (el) => el.children.length === 0 && !field.contains(el) && el.textContent?.includes('not supported here'),
+    );
+    expect(elsewhere).toEqual([]);
+  });
+
+  it("shows the server's own words under the fixed copy (#1080, item 3)", () => {
+    const t = openEditor({
+      errors: { email: ['Changing your email address is not supported here.', 'The server said: email is not a valid address'] },
+    });
+    expect(t.querySelector('#editEmailError')?.textContent).toContain('not supported here');
+    expect(t.querySelector('#editEmailError')?.textContent).toContain('The server said: email is not a valid address');
+  });
+
+  it('gives the help line a dark-mode colour (#1080, item 4)', () => {
+    const t = openEditor();
+    expect(t.querySelector('#editEmailHelp')!.className).toMatch(/\bdark:text-zinc-400\b/);
+  });
+
   it('shows a refusal that arrives anyway as a field error, in place of the help line', () => {
     const t = openEditor({ errors: { email: ['Changing your email address is not supported here.'] } });
     expect(t.querySelector('#editEmailError')?.textContent).toContain('not supported here');

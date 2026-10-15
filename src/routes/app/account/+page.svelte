@@ -2,7 +2,9 @@
   import { untrack } from 'svelte';
   import { browser } from '$app/environment';
   import { enhance } from '$app/forms';
+  import { accountProfileStrings } from '$lib/i18n/account-profile-strings';
   import { deleteAccountStrings, DELETE_CONFIRMATION_TOKEN } from '$lib/i18n/delete-account-strings';
+  import Urn from '$lib/components/Urn.svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PageData, ActionData } from './$types';
@@ -48,11 +50,14 @@
   }
 
   const handleError = $derived($profileErrors.handle?.[0] ?? null);
-  const emailError = $derived($profileErrors.email?.[0] ?? null);
+  // #1080: the email field's errors render on the field only. The banner takes
+  // everything else, so a refused change isn't shown twice.
+  const emailErrors = $derived($profileErrors.email ?? []);
+  const emailError = $derived(emailErrors[0] ?? null);
   const profileActionError = $derived(
     $profileMessage?.type === 'error'
       ? $profileMessage.text
-      : ($profileAllErrors[0]?.messages[0] ?? null),
+      : ($profileAllErrors.find((e) => e.path !== 'email')?.messages[0] ?? null),
   );
 
   // Danger zone (#662): single-button → expanded confirmation form (the portal
@@ -139,9 +144,11 @@
             {...$profileConstraints.email}
             class="{inputClass} read-only:cursor-not-allowed read-only:bg-zinc-100 read-only:text-zinc-600 dark:read-only:bg-zinc-800 dark:read-only:text-zinc-400" />
           {#if emailError}
-            <p id="editEmailError" class="mt-1 text-xs text-red-600 dark:text-red-400">{emailError}</p>
+            <div id="editEmailError" class="mt-1 text-xs text-red-600 dark:text-red-400">
+              {#each emailErrors as line, i (i)}<p>{line}</p>{/each}
+            </div>
           {:else}
-            <p id="editEmailHelp" class="mt-1 text-xs text-zinc-500">Changing your email address is not supported here.</p>
+            <p id="editEmailHelp" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{accountProfileStrings.emailNotChangeable()}</p>
           {/if}
         </div>
 
@@ -162,8 +169,10 @@
           {/if}
           <div>
             <p class="font-medium text-zinc-900 dark:text-white">{user?.name ?? 'No name set'}</p>
-            {#if user?.handle}
-              <p class="text-sm text-zinc-500">@{user.handle}</p>
+            <!-- #998: the URN, not the bare handle, which the Handle row below
+                 still shows. A handle-less user has no URN: nothing renders. -->
+            {#if user?.urn}
+              <Urn value={user.urn} type="user" />
             {/if}
           </div>
         </div>

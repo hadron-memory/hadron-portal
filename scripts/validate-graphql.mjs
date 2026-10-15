@@ -321,11 +321,23 @@ export function findUnmarkedDocuments(file, text) {
 
   const visit = (node) => {
     let body = null;
+    let quoted = false;
     if (ts.isNoSubstitutionTemplateLiteral(node)) body = node.text;
     else if (ts.isTemplateExpression(node)) {
       body = node.head.text + node.templateSpans.map((span) => span.literal.text).join('');
+    } else if (ts.isStringLiteral(node)) {
+      // #877: a document can be QUOTED as well as backticked, and the extractor
+      // reads neither unmarked. But `parse` is syntax-only, so a quoted string
+      // needs a stricter test than a template: the Svelte class attribute
+      // "{tabBase} {activeTab}" parses as two anonymous selection sets. Every
+      // real document here is named (`gql:validate` counts 0 misnamed), so a
+      // quoted string counts only when it declares a NAMED operation or
+      // fragment. A template keeps the looser rule, where an anonymous
+      // document is a real document written wrongly, not a false positive.
+      body = node.text;
+      quoted = true;
     }
-    if (body !== null && body.trim() !== '' && isGraphQLDocument(body)) {
+    if (body !== null && body.trim() !== '' && isGraphQLDocument(body, { named: quoted })) {
       if (!collected.has(node.getStart(source) + 1)) {
         // The marker sits in the trivia immediately before the backtick — which
         // is where it lands in every position, not just after a `=`.
@@ -386,7 +398,7 @@ function markerWouldCollect(file, text, backtick) {
 }
 
 /** Does this text parse as GraphQL AND declare an operation or fragment? */
-function isGraphQLDocument(body) {
+function isGraphQLDocument(body, { named = false } = {}) {
   let ast;
   try {
     ast = parse(body);
@@ -394,7 +406,9 @@ function isGraphQLDocument(body) {
     return false;
   }
   return ast.definitions.some(
-    (d) => d.kind === 'OperationDefinition' || d.kind === 'FragmentDefinition',
+    (d) =>
+      (d.kind === 'OperationDefinition' || d.kind === 'FragmentDefinition') &&
+      (!named || !!d.name),
   );
 }
 

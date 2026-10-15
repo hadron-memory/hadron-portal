@@ -27,10 +27,19 @@ You have access to these tools via the Hadron MCP server:
 
 | Tool | Description |
 |------|-------------|
-| `hadron_start_session` | Start a new session (level: basic/guided/learn) |
-| `hadron_resume_session` | Resume an open session from a previous conversation |
-| `hadron_save_session_task` | Save the current task definition |
-| `hadron_end_session` | End session with summary and outcome |
+| `hadron_start_session` | Start a new session: `description` (required) says what it is about; pass `workerRef` (a worker's name, URN or id) to work as that named teammate |
+| `hadron_whoami` | Show your open session id and the worker it is bound to |
+| `hadron_get_worker` | Re-read a worker's boot briefing |
+| `hadron_create_resume_claim` | Before a deliberate context reset that keeps your session open, write a resume claim as the last step: single use, 60 seconds, and only you can redeem it |
+| `hadron_resume_session` | After a context reset, call it first, with no arguments: your resume claim rebinds your worker and returns its briefing and handoff. Several are listed for you to pick from, never guessed; with nothing to resume it answers `NOTHING_TO_RESUME` and binds nothing |
+| `hadron_end_session` | End session with summary and outcome; pass `resumeClaim: true` to leave a resume claim for the session that follows |
+
+**Recovering after a context reset.** If your conversation loses its context
+(a compaction, or a new chat window), don't start a new session: the open one
+is still yours, and starting another leaves it behind. Call `hadron_whoami` to
+get your open session id (and, if you work as a named worker, which one), and
+`hadron_get_worker` to re-read that worker's briefing. Then carry on with the
+same session id.
 
 ### Reading & Searching
 
@@ -53,13 +62,6 @@ also in the local config file at `.hadron/config.yml`.
 | `hadron_create_parent_node` | Create a section/category node for organizing children |
 | `hadron_update_node` | Update an existing node (upsert) |
 | `hadron_move_node` | Move a node and its children to a new location |
-
-### Planning & PRs
-
-| Tool | Description |
-|------|-------------|
-| `hadron_save_plan` | Save an implementation plan for the current task |
-| `hadron_create_pr` | Create a GitHub PR with context |
 
 ## Workflow
 

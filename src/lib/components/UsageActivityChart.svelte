@@ -11,6 +11,7 @@
   // Palette: categorical slots 1–2 (blue/orange), validated for both modes
   // against the card surfaces (all six checks pass; see portal PR #666).
   import { t } from '$lib/i18n/t';
+  import { TICK_GAP, formatTick, tickPadLeft } from './usage-chart-ticks';
 
   interface Bucket {
     date: string;
@@ -68,9 +69,7 @@
   let plotWidth = $state(560);
   const H = 150; // plot height (px)
   const PAD_T = 8; // headroom so the top tick label isn't clipped
-  const PAD_L = 30; // y tick labels
   const PAD_R = 6;
-  const innerW = $derived(Math.max(60, plotWidth - PAD_L - PAD_R));
 
   /** Round a max up to a clean 1/2/5×10ⁿ tick ceiling. */
   function niceCeil(v: number): number {
@@ -80,6 +79,11 @@
     return 10 * pow;
   }
   const yMax = $derived(niceCeil(Math.max(1, ...series.map((b) => Math.max(b.reads, b.writes)))));
+  // #1085: compact labels, and a left pad sized from the widest one, so a
+  // 5- or 6-digit axis no longer clips its leading digit at a fixed 30px.
+  const yTicks = $derived([0, yMax / 2, yMax].map((value) => ({ value, label: formatTick(value) })));
+  const PAD_L = $derived(tickPadLeft(yTicks.map((tick) => tick.label)));
+  const innerW = $derived(Math.max(60, plotWidth - PAD_L - PAD_R));
   const yOf = (v: number): number => PAD_T + H - (v / yMax) * H;
 
   // Bar geometry: each day gets a band; a pair of bars ≤24px each with a 2px
@@ -160,10 +164,10 @@
             )}
       >
         <!-- Hairline gridlines at the clean ticks; recessive. -->
-        {#each [0, yMax / 2, yMax] as tick (tick)}
-          <line x1={PAD_L} x2={plotWidth - PAD_R} y1={yOf(tick)} y2={yOf(tick)} class="viz-grid" />
-          <text x={PAD_L - 5} y={yOf(tick) + 3} text-anchor="end" class="viz-tick">
-            {tick}
+        {#each yTicks as tick (tick.value)}
+          <line x1={PAD_L} x2={plotWidth - PAD_R} y1={yOf(tick.value)} y2={yOf(tick.value)} class="viz-grid" />
+          <text x={PAD_L - TICK_GAP} y={yOf(tick.value) + 3} text-anchor="end" class="viz-tick">
+            {tick.label}
           </text>
         {/each}
 

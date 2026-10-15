@@ -90,6 +90,33 @@ describe('account update action — a refused email change (hadron-server#1801)'
     expect(result).toMatchObject({ status: 400 });
   });
 
+  it("keeps the server's own words beside the fixed copy (#1080, item 3)", async () => {
+    // A different BAD_USER_INPUT that mentions email (a format check, say) would
+    // otherwise be shown only as "not supported here", which is a mislabel. The
+    // original text rides along, so the reader always sees what the server said.
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'email is not a valid address', extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const actions = await importActions();
+    const result = await actions.update(actionEv({ name: 'Ada', handle: 'ada', email: 'x@example.com' }));
+    expect(superFormFrom(result)?.errors?.email).toEqual([
+      'Changing your email address is not supported here.',
+      'The server said: email is not a valid address',
+    ]);
+  });
+
+  it('keeps an email-mentioning error with any OTHER code in the banner (#1080, item 2)', async () => {
+    // The guard's code half: only BAD_USER_INPUT is a refused change. A
+    // FORBIDDEN that happens to mention email is a banner error like any other.
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'not allowed to change email settings', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const actions = await importActions();
+    const result = await actions.update(actionEv({ name: 'Ada', handle: 'ada', email: 'ada@example.com' }));
+    expect(fieldError(result, 'email')).toBeUndefined();
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error', text: 'not allowed to change email settings' });
+  });
+
   it('keeps other BAD_USER_INPUT refusals as the banner', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'handle is taken', extensions: { code: 'BAD_USER_INPUT' } }] },
@@ -194,5 +221,42 @@ describe('account deleteAccount action', () => {
     const result = await actions.deleteAccount(ev);
     expect(result).toMatchObject({ status: 500, data: { deleteError: 'boom' } });
     expect(cookies.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('account load — the user URN (#998)', () => {
+  it('selects urn in ME_QUERY and passes it through to the page', async () => {
+    const { ME_QUERY } = await import('$lib/server/queries');
+    expect(ME_QUERY).toMatch(/\burn\b/);
+    mockRequest.mockResolvedValueOnce({
+      me: { id: 'u1', handle: 'ada', urn: 'hrn:user:ada', githubUsername: null, name: 'Ada', avatarUrl: null, email: 'a@x.io', roles: [] },
+    });
+    const { load } = await import('./+page.server');
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { user: { urn?: string | null } };
+    expect(out.user.urn).toBe('hrn:user:ada');
+  });
+});
+
+/**
+ * #1117: the account loader awaits `me` and then falls back to `locals.user`.
+ * The root layout, loading in parallel, clears `locals.user` when its own `me`
+ * fails, so the fallback spread `null` and built a user with no id. The loader
+ * must fall back to the user it started with.
+ */
+describe('account load: the root layout clears locals.user mid-load (#1117)', () => {
+  it('falls back to the user it started with, not the cleared value', async () => {
+    const locals: { token: string | null; user: unknown } = {
+      token: 't',
+      user: { id: 'u1', name: 'Ada', email: 'a@x.io', roles: ['user'], githubUsername: null, avatarUrl: null },
+    };
+    mockRequest.mockImplementationOnce(async () => {
+      await Promise.resolve();
+      locals.user = null;
+      locals.token = null;
+      throw new Error('HTTP 500');
+    });
+    const { load } = await import('./+page.server');
+    const out = (await load({ locals } as never)) as { user: { id?: string; name?: string | null; handle: string | null } };
+    expect(out.user).toMatchObject({ id: 'u1', name: 'Ada', handle: null });
   });
 });

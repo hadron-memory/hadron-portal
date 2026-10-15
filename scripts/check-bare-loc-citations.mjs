@@ -357,17 +357,37 @@ export function scanDiff(diff) {
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const { execSync } = await import('node:child_process');
+  const { execFileSync, spawnSync } = await import('node:child_process');
   const base = process.argv[2] ?? 'origin/main';
+  const git = (...args) =>
+    execFileSync('git', args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  // #876: compare the WORKING TREE, not just HEAD. `${base}...HEAD` saw
+  // committed state only, so the pre-commit run every other gate here gets
+  // right printed the clean "OK" over an uncommitted citation (#875 reached CI
+  // that way). Diffing the merge base against the working tree keeps the
+  // three-dot meaning (only this branch's changes) and adds what isn't
+  // committed yet; untracked files, which `git diff` never shows, are diffed
+  // from /dev/null. In CI the tree is the commit, so nothing changes there.
+  //
   // No pathspec (@copilot): the policy is repo-wide, so scoping to src/ +
   // scripts/ + CLAUDE.md quietly exempted docs, workflows and the README — the
   // authoring surfaces where a citation is MOST likely to be pasted onward.
   // A pathspec is an exemption wearing a different hat, and this one was not
   // enumerated anywhere.
-  const diff = execSync(`git diff --unified=0 ${base}...HEAD`, {
-    encoding: 'utf8',
-    maxBuffer: 256 * 1024 * 1024,
-  });
+  const mergeBase = git('merge-base', base, 'HEAD').trim();
+  const tracked = git('diff', '--unified=0', mergeBase);
+  const changedTracked = git('diff', '--name-only', mergeBase).split('\n').filter(Boolean);
+  const untracked = git('ls-files', '--others', '--exclude-standard', '-z').split('\0').filter(Boolean);
+  // `--no-index` exits 1 when the files differ, which they always do here, so
+  // read its output rather than its status.
+  const untrackedDiffs = untracked.map(
+    (f) => spawnSync('git', ['diff', '--no-index', '--unified=0', '--', '/dev/null', f], {
+      encoding: 'utf8',
+      maxBuffer: 256 * 1024 * 1024,
+    }).stdout,
+  );
+  const diff = [tracked, ...untrackedDiffs].join('\n');
+  const compared = changedTracked.length + untracked.length;
   const { readFileSync } = await import('node:fs');
   const findings = scanAddedWithContext(diff, (f) => {
     try {
@@ -391,5 +411,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     );
     process.exit(1);
   }
-  console.log('OK — no newly added bare-loc citations.');
+  // Say what was compared: "0 files changed" prompts the question a bare OK
+  // does not (#876; the same lesson as #872's document count).
+  console.log(
+    `OK — no newly added bare-loc citations (${compared} file${compared === 1 ? '' : 's'} changed vs ${base}, working tree included).`,
+  );
 }

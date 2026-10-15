@@ -11,6 +11,7 @@ import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NOD
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
+import { deploymentOffersSigning } from '$lib/server/signing-capability';
 import { approvalRefusalStatus, approveRefusalText, bindApprovalToRevision, integrityText, verifyFailureText, type NodeApprovalRead, type NodeApprovalStatus, type NodeIntegrityCheck } from '$lib/node-approval';
 // #868: every node write on this page goes through the door chooser. The
 // mutation documents are deliberately NOT imported here — naming one directly
@@ -347,9 +348,12 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     read === undefined ? { ok: false } : bindMintToRevision(read, node.revision),
   );
   // portal#1022: passkey signatures, streamed and bound like the approval but
-  // a request of their own, so a refusal (the server's signing switch,
-  // hadron-server#1895) or a failure only leaves the signatures unshown.
+  // a request of their own, so a refusal or a failure only leaves the
+  // signatures unshown. The field exists only while the deployment offers
+  // signing (hadron-server#1895/#1918); with signing off, selecting it fails
+  // validation, so no signature query goes out at all.
   const signatures: Promise<ProvenanceResult<NodeSignatureStatus>> = (async () => {
+    if (!(await deploymentOffersSigning(locals.token))) return { ok: false } as const;
     try {
       const r = await gqlClient(locals.token).request<{ node: NodeSignatureRead | null }>(NODE_SIGNATURES_QUERY, { ref: node.id });
       return bindSignaturesToRevision(r?.node, node.revision);
