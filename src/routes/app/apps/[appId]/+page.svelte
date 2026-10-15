@@ -1118,7 +1118,14 @@
     trimmedLabel.length > 0 ? `${sanitizedNewLabel}/${new Date().toISOString().replace(/[-:T]/g, '').slice(0, 12)}/••••••••••••` : ''
   );
 
+  // portal#1106: the plugin grid saves the App (updateApp) on every tick, so
+  // a viewer the server says cannot manage the App gets it read-only. Only an
+  // explicit `false` locks it: `null` is "the self-audit didn't answer", and
+  // the server stays the gate for that case (its refusal is a 403 with copy).
+  const pluginsReadOnly = $derived(data.canManageApp === false);
+
   function toggleTool(value: string) {
+    if (pluginsReadOnly) return;
     if (selectedTools.has(value)) { selectedTools.delete(value); } else { selectedTools.add(value); }
     selectedTools = new Set(selectedTools);
     updateAgentToolsForm.update((current) => ({ ...current, agentTools: [...selectedTools] }), { taint: false });
@@ -2776,6 +2783,7 @@
                   {#each AGENT_TOOL_OPTIONS as tool (tool.value)}
                     <label class="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
                       <input type="checkbox" checked={selectedTools.has(tool.value)} onclick={() => toggleTool(tool.value)}
+                        disabled={pluginsReadOnly}
                         class="rounded border-zinc-300 bg-white text-indigo-500 focus:ring-indigo-500 dark:border-zinc-600 dark:bg-zinc-800" />
                       {tool.label}
                       {#if tool.scope === 'global'}
@@ -2785,6 +2793,11 @@
                   {/each}
                 </div>
               </form>
+              {#if pluginsReadOnly}
+                <p class="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                  {t('app.agent-tools.read-only', 'Only people who manage this App can change its plugins: the App’s owner or, for an organization’s App, that organization’s owners and admins.')}
+                </p>
+              {/if}
             </div>
 
             <button onclick={downloadSetupZip} disabled={downloading || !canDownload}
