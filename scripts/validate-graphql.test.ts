@@ -514,6 +514,44 @@ describe('the portal itself has no comment-terminated documents', () => {
 const unmarked = (source: string) => findUnmarkedDocuments('test.ts', source);
 
 describe('findUnmarkedDocuments', () => {
+  /**
+   * #877: a document written as a QUOTED string escaped the gate, which visited
+   * template literals only. Quoted strings need a stricter rule than templates,
+   * because `parse` is syntax-only: the Svelte class attribute "{tabBase}
+   * {activeTab}" is a pair of anonymous selection sets and parses fine. So a
+   * quoted string counts only when it declares a NAMED operation or fragment.
+   */
+  describe('quoted-string documents (#877)', () => {
+    it.each([
+      ['a double-quoted query passed inline', 'await client.request("query Me { me { id } }", vars);'],
+      ["a single-quoted named fragment", "const F = 'fragment F on Thing { id }';"],
+      ['a named mutation in a property', 'const ops = { m: "mutation Do { do { id } }" };'],
+    ])('flags %s', (_what, code) => {
+      const found = unmarked(code);
+      expect(found).toHaveLength(1);
+      // The marker cannot collect a quoted string, so the advice must be to bind
+      // it as a marked template, not to add the marker (the #880 diagnostic).
+      expect(found[0].markerWouldSuffice).toBe(false);
+    });
+
+    it.each([
+      ['a Svelte class attribute (ViewTabs)', '<a class="{tabBase} {activeTab}">x</a>'],
+      ['an anonymous selection set in a string', 'const s = "{ me { id } }";'],
+      ['prose in a string', 'const s = "query failed: try again";'],
+    ])('stays silent on %s', (_what, code) => {
+      expect(unmarked(code)).toEqual([]);
+    });
+
+    it('stays silent on the real ViewTabs.svelte, which has two such class attributes', () => {
+      const file = 'src/lib/components/table/ViewTabs.svelte';
+      expect(findUnmarkedDocuments(file, readFileSync(file, 'utf8'))).toEqual([]);
+    });
+
+    it('still flags an ANONYMOUS document in a template literal: the named rule is for strings only', () => {
+      expect(unmarked('const Q = `{ me { id } }`;')).toHaveLength(1);
+    });
+  });
+
   it.each([
     ['a query', 'const Q = `query Thing($ref: ID!) { thing(ref: $ref) { id } }`;'],
     ['a mutation', 'const M = `mutation Do($input: DoInput!) { do(input: $input) { id } }`;'],
