@@ -43,10 +43,13 @@ describe('Account profile form — email', () => {
 
   it('shows the field error on the field only, not again in the banner (#1080, item 1)', () => {
     const t = openEditor({ errors: { email: ['Changing your email address is not supported here.'] } });
-    const hits = [...t.querySelectorAll('p, div')].filter(
-      (el) => el.children.length === 0 && el.textContent?.includes('not supported here'),
+    const field = t.querySelector('#editEmailError')!;
+    expect(field.textContent).toContain('not supported here');
+    // Nowhere else on the form: no banner repeating it.
+    const elsewhere = [...t.querySelectorAll('p, div')].filter(
+      (el) => el.children.length === 0 && !field.contains(el) && el.textContent?.includes('not supported here'),
     );
-    expect(hits.map((el) => el.id)).toEqual(['editEmailError']);
+    expect(elsewhere).toEqual([]);
   });
 
   it("shows the server's own words under the fixed copy (#1080, item 3)", () => {

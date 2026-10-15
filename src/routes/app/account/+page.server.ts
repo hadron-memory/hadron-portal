@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { accountProfileStrings } from '$lib/i18n/account-profile-strings';
 import { DELETE_CONFIRMATION_TOKEN, deleteAccountStrings } from '$lib/i18n/delete-account-strings';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { DELETE_USER_MUTATION, ME_QUERY, UPDATE_MY_PROFILE_MUTATION } from '$lib/server/queries';
@@ -82,14 +83,22 @@ export const actions: Actions = {
     const email = form.data.email || null;
     try {
       await gqlClient(locals.token).request(UPDATE_MY_PROFILE_MUTATION, { name, handle, email });
-      return message(form, { type: 'success', text: 'Profile updated.' });
+      return message(form, { type: 'success', text: accountProfileStrings.updated() });
     } catch (e: unknown) {
-      const text = extractGqlError(e, 'Failed to update profile');
+      const text = extractGqlError(e, accountProfileStrings.updateFailed());
       // hadron-server#1801: a changed address is refused (BAD_USER_INPUT, nothing
       // written). The page keeps the field read-only, so this only arrives from a
       // stale or hand-built form; say so on the field rather than in a banner.
+      // #1080: the server's own words go beside the fixed copy, so a different
+      // BAD_USER_INPUT that mentions email (a format check) isn't mislabelled.
+      // Any other code stays a banner error, whatever it mentions.
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT' && /email/i.test(text)) {
-        return setError(form, 'email', 'Changing your email address is not supported here.', { status: 400 });
+        return setError(
+          form,
+          'email',
+          [accountProfileStrings.emailNotChangeable(), accountProfileStrings.serverSaid(text)],
+          { status: 400 },
+        );
       }
       return message(form, { type: 'error', text }, { status: 500 });
     }
