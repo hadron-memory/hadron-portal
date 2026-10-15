@@ -209,3 +209,27 @@ describe('account load — the user URN (#998)', () => {
     expect(out.user.urn).toBe('hrn:user:ada');
   });
 });
+
+/**
+ * #1117: the account loader awaits `me` and then falls back to `locals.user`.
+ * The root layout, loading in parallel, clears `locals.user` when its own `me`
+ * fails, so the fallback spread `null` and built a user with no id. The loader
+ * must fall back to the user it started with.
+ */
+describe('account load: the root layout clears locals.user mid-load (#1117)', () => {
+  it('falls back to the user it started with, not the cleared value', async () => {
+    const locals: { token: string | null; user: unknown } = {
+      token: 't',
+      user: { id: 'u1', name: 'Ada', email: 'a@x.io', roles: ['user'], githubUsername: null, avatarUrl: null },
+    };
+    mockRequest.mockImplementationOnce(async () => {
+      await Promise.resolve();
+      locals.user = null;
+      locals.token = null;
+      throw new Error('HTTP 500');
+    });
+    const { load } = await import('./+page.server');
+    const out = (await load({ locals } as never)) as { user: { id?: string; name?: string | null; handle: string | null } };
+    expect(out.user).toMatchObject({ id: 'u1', name: 'Ada', handle: null });
+  });
+});

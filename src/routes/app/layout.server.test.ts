@@ -549,3 +549,52 @@ describe('+layout.server.ts — hadron-server#473 admin/non-member org handling'
     expect(redirected?.location).toBe('/app/orgs/org-own/agents');
   });
 });
+
+/**
+ * #1117 (Colin, QA on #1115): the root layout and this one load in PARALLEL and
+ * share `locals`. When `me` fails, the root layout's catch sets `locals.user`
+ * (and `locals.impersonation`) to null, which can land after this layout has
+ * passed its guard and while it awaits its own requests. Reading `locals.user`
+ * after that await threw `Cannot read properties of null (reading 'id')`, and
+ * the signed-in page answered a bare 500. The shared value is read once, at
+ * the guard; the load must finish on that snapshot with the existing
+ * me-failed fallback.
+ */
+describe('#1117: the root layout clears locals.user mid-load', () => {
+  function raceEvent() {
+    const event = ev({});
+    (event.locals as { impersonation?: unknown }).impersonation = { adminId: 'admin-1' };
+    // `me` fails, and the root layout's catch clears the shared locals while
+    // this layout is still awaiting: both happen inside the in-flight request.
+    mockMeRequest.mockImplementation(async () => {
+      await Promise.resolve();
+      const locals = event.locals as { user: unknown; token: unknown; impersonation: unknown };
+      locals.user = null;
+      locals.token = null;
+      locals.impersonation = null;
+      throw new Error('HTTP 500');
+    });
+    mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
+    return event;
+  }
+
+  it('finishes on the snapshot taken at the guard: no TypeError', async () => {
+    const load = await importLoad();
+    await expect(load(raceEvent())).resolves.toBeTruthy();
+  });
+
+  it('answers the existing me-failed fallback for the user who passed the guard', async () => {
+    const load = await importLoad();
+    const data = (await load(raceEvent())) as {
+      user: { id: string; handle: string | null; roles: string[] };
+      navOrgs: Array<{ id: string }>;
+      impersonation: unknown;
+    };
+    expect(data.user).toMatchObject({ id: 'user-1', handle: null, roles: ['user'] });
+    // Membership filtering and the cookie scope used the same user.
+    expect(data.navOrgs.map((o) => o.id)).toEqual(['org-a']);
+    // The impersonation banner reports what this load started with, not a
+    // half-cleared mix.
+    expect(data.impersonation).toEqual({ adminId: 'admin-1' });
+  });
+});
