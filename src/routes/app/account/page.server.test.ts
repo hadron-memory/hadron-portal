@@ -196,3 +196,16 @@ describe('account deleteAccount action', () => {
     expect(cookies.delete).not.toHaveBeenCalled();
   });
 });
+
+describe('account load — the user URN (#998)', () => {
+  it('selects urn in ME_QUERY and passes it through to the page', async () => {
+    const { ME_QUERY } = await import('$lib/server/queries');
+    expect(ME_QUERY).toMatch(/\burn\b/);
+    mockRequest.mockResolvedValueOnce({
+      me: { id: 'u1', handle: 'ada', urn: 'hrn:user:ada', githubUsername: null, name: 'Ada', avatarUrl: null, email: 'a@x.io', roles: [] },
+    });
+    const { load } = await import('./+page.server');
+    const out = (await load({ locals: { token: 't', user: { id: 'u1' } } } as never)) as { user: { urn?: string | null } };
+    expect(out.user.urn).toBe('hrn:user:ada');
+  });
+});
