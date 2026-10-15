@@ -993,6 +993,14 @@ export const WORKER_QUERY = /* GraphQL */ `
       # briefing may still get null here. Render that as "not visible to you",
       # never as "no template".
       agent { systemPrompt }
+      # portal#1067 (hadron-server#1726) — who this worker reports to. Masked on
+      # deny like heldByUserId (reportsToRetired answers false), so a null
+      # renders as no line, never as "reports to nobody". The nested target is
+      # selected HERE only: on the roster it would be one lookup per row, and
+      # the roster already holds every target (includeRetired).
+      reportsToWorkerId
+      reportsToRetired
+      reportsTo { id name urn retiredAt }
       # The resolved boot briefing (#737): the agent's template with
       # {{name}}/{{role}} bound, plus any per-worker override. The most literal
       # answer to "who is this" — it is the worker's operating instructions in
@@ -1043,7 +1051,17 @@ export const WORKERS_QUERY = /* GraphQL */ `
   ${WORKER_FIELDS}
   query Workers($appRef: ID!, $includeRetired: Boolean, $limit: Int, $offset: Int) {
     workers(appRef: $appRef, includeRetired: $includeRetired, limit: $limit, offset: $offset) {
-      items { ...WorkerFields }
+      items {
+        ...WorkerFields
+        # portal#1067 — the roster's Reports to and Last active columns. Kept
+        # out of WorkerFields, which also shapes the cast/retire/release
+        # payloads that render none of this. The target is resolved from the
+        # roster's own rows, not selected nested (see WORKER_QUERY).
+        # lastActiveAt is masked to null on deny, like the hold.
+        reportsToWorkerId
+        reportsToRetired
+        lastActiveAt
+      }
       total
     }
   }
@@ -1765,13 +1783,6 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
     ) {
       ...AppFields
     }
-  }
-`;
-
-export const REGENERATE_APP_KEY_MUTATION = /* GraphQL */ `
-  ${APP_FIELDS}
-  mutation RegenerateAppKey($appRef: ID!) {
-    regenerateAppKey(appRef: $appRef) { rawKey app { ...AppFields } }
   }
 `;
 

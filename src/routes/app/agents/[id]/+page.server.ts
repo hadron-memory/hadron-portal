@@ -1,3 +1,6 @@
+import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
+import { loadInheritanceManagement, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
+import { loadAgentInheritance } from '$lib/server/agent-inheritance';
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -119,7 +122,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }>;
   };
 
-  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement] = await Promise.all([
     allMemoryIds.length > 0
       ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
           GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
@@ -164,6 +167,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       )
       .then((r) => r.agent?.registerDefaults ?? null)
       .catch(() => null),
+    loadAgentInheritance(client, agent.id),
+    loadInheritanceManagement(client, agent.id, agent.urn, locals.user?.id ?? null, !!locals.impersonation),
   ]);
 
   // An agent can be installed into several apps (as the primary agentId or via
@@ -267,7 +272,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     ),
   ]);
 
+  const [baseForm, indexRefsForm] = await Promise.all([
+    superValidate({ _kind: 'setAgentBase', operation: 'set', baseRef: '' }, zod4(agentBaseSchema), { id: 'agentBase', errors: false }),
+    superValidate({ _kind: 'setAgentIndexRefs', tasksOperation: 'keep', tasksIndexRef: '', processesOperation: 'keep', processesIndexRef: '' }, zod4(agentIndexRefsSchema), { id: 'agentIndexRefs', errors: false }),
+  ]);
   return {
+    inheritanceManagement, baseForm, indexRefsForm,
+    inheritance,
     agent,
     org,
     agentNodes,
@@ -291,6 +302,26 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 };
 
 export const actions: Actions = {
+  setBase: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(agentBaseSchema), { id: 'agentBase', strict: true });
+    if (!form.valid) return fail(400, { form });
+    try {
+      await gqlClient(locals.token).request(SET_AGENT_BASE_MUTATION, baseVariables(params.id, form.data));
+      return message(form, { type: 'success', text: t('agent.inheritance.base-saved', 'Base Agent saved.') });
+    } catch (e) {
+      return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.base-save-failed', 'Could not update the base Agent.')) }, { status: 500 });
+    }
+  },
+  setIndexRefs: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(agentIndexRefsSchema), { id: 'agentIndexRefs', strict: true });
+    if (!form.valid) return fail(400, { form });
+    try {
+      await gqlClient(locals.token).request(SET_AGENT_INDEX_REFS_MUTATION, indexVariables(params.id, form.data));
+      return message(form, { type: 'success', text: t('agent.inheritance.indexes-saved', 'Index references saved.') });
+    } catch (e) {
+      return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.indexes-save-failed', 'Could not update index references.')) }, { status: 500 });
+    }
+  },
   update: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), agentSettingsFormAdapter);
     if (!form.valid) return fail(400, { form });

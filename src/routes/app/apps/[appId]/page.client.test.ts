@@ -227,6 +227,77 @@ describe('Worker agents tab (#1009)', () => {
     expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open role agent', 'Retire']);
   });
 
+  // portal#1067 — who each worker reports to, next to last activity.
+  function columnTexts(target: HTMLElement, header: string): string[] {
+    const ths = [...target.querySelectorAll('thead th')];
+    const idx = ths.findIndex((th) => th.textContent?.trim().startsWith(header));
+    if (idx < 0) throw new Error(`no ${header} column`);
+    return [...target.querySelectorAll('tbody tr')].map((tr) => tr.children[idx]?.textContent?.trim() ?? '');
+  }
+  function names(target: HTMLElement): string[] {
+    return [...target.querySelectorAll<HTMLAnchorElement>('tbody a[href^="/app/workers/"]')]
+      .filter((a) => !a.closest('td')?.previousElementSibling)
+      .map((a) => a.textContent!.trim());
+  }
+
+  it('shows who each worker reports to, linked, with a retired target flagged', async () => {
+    const target = await mountStaff([
+      worker({ id: 'w1', name: 'Ada', reportsToWorkerId: null, reportsToRetired: false }),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', reportsToWorkerId: 'w1', reportsToRetired: false }),
+      worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy', reportsToWorkerId: 'w4', reportsToRetired: true }),
+      worker({ id: 'w4', name: 'Dee', urn: 'hrn:worker:acme.com:team:dee', retiredAt: '2026-09-01T00:00:00.000Z' }),
+    ]);
+    expect(columnTexts(target, 'Reports to')).toEqual(['—', 'Ada', 'Dee (retired)', '—']);
+    const boRow = target.querySelector('a[href="/app/workers/w2"]')!.closest('tr')!;
+    expect(boRow.querySelectorAll('a[href="/app/workers/w1"]').length).toBe(1);
+  });
+
+  it('sorting by Reports to groups workers under their target, unassigned at the top level', async () => {
+    const target = await mountStaff([
+      worker({ id: 'w1', name: 'Ada', reportsToWorkerId: null }),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', reportsToWorkerId: 'w5' }),
+      worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy', reportsToWorkerId: 'w1', heldByUserId: null, heldAt: null }),
+      worker({ id: 'w4', name: 'Dee', urn: 'hrn:worker:acme.com:team:dee', reportsToWorkerId: 'w1' }),
+      worker({ id: 'w5', name: 'Eve', urn: 'hrn:worker:acme.com:team:eve', reportsToWorkerId: null }),
+    ]);
+    const header = [...target.querySelectorAll<HTMLElement>('thead th')].find((th) => th.textContent?.trim().startsWith('Reports to'))!;
+    header.querySelector<HTMLElement>('button, [role="button"]')?.click() ?? header.click();
+    flushSync();
+    // Cy holds no name (no session bound): it still sits under its target.
+    expect(columnTexts(target, 'Reports to')).toEqual(['—', '—', 'Ada', 'Ada', 'Eve']);
+    expect(names(target)).toEqual(['Ada', 'Eve', 'Cy', 'Dee', 'Bo']);
+  });
+
+  it('a Last active column renders the date, and absence as a dash', async () => {
+    const target = await mountStaff([
+      worker({ id: 'w1', name: 'Ada', lastActiveAt: '2026-10-14T10:00:00.000Z' }),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', lastActiveAt: null }),
+    ]);
+    const cells = columnTexts(target, 'Last active');
+    expect(cells[0]).not.toBe('—');
+    expect(cells[0]).toMatch(/2026/);
+    expect(cells[1]).toBe('—');
+  });
+
+  it('sorting by Last active orders by instant, not by wall clock', async () => {
+    // Bo's 23:00+02:00 is 21:00Z, an hour BEFORE Ada's 22:00Z; a raw-string
+    // accessor gets TanStack's offset-blind alphanumeric sort and puts Bo last
+    // (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant).
+    const target = await mountStaff([
+      worker({ id: 'w1', name: 'Ada', lastActiveAt: '2026-07-30T22:00:00Z' }),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', lastActiveAt: '2026-07-30T23:00:00+02:00' }),
+    ]);
+    const header = [...target.querySelectorAll<HTMLElement>('thead th')].find((th) => th.textContent?.trim().startsWith('Last active'))!;
+    header.querySelector<HTMLElement>('button, [role="button"]')?.click() ?? header.click();
+    flushSync();
+    // TanStack opens a NUMERIC column descending and a string one ascending,
+    // so read the direction rather than assume it: either way, the order must
+    // be chronological in the direction the header announces.
+    const dir = header.getAttribute('aria-sort');
+    expect(dir === 'ascending' || dir === 'descending').toBe(true);
+    expect(names(target)).toEqual(dir === 'ascending' ? ['Bo', 'Ada'] : ['Ada', 'Bo']);
+  });
+
   it('a retired worker keeps only the links: nothing to edit, release or retire', async () => {
     const target = await mountStaff([worker({ id: 'w4', name: 'Dee', retiredAt: '2026-09-01T00:00:00.000Z' })]);
     expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open role agent']);
@@ -447,5 +518,114 @@ describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
     await tick(2);
     expect(m.target.querySelector('[role="tab"][aria-selected="true"]')?.id).toBe('tab-ai-configs');
     expect(m.target.querySelector('#panel-ai-configs')).not.toBeNull();
+  });
+});
+
+// portal#1068 — the Client tab's "Download setup files" mints a key through
+// /api/create-app-key. A manager refusal must reach the reader as the rule,
+// not as "Failed to create client key." with the reason dropped.
+describe('Client tab: a refused key mint (#1068)', () => {
+  const MANAGERS_ONLY = 'Only people who manage this App can create or revoke its keys: its owners and, for an organization’s App, that organization’s owners and admins.';
+
+  async function mountClient(fetchImpl: (url: string) => Promise<Response>) {
+    setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=client');
+    vi.stubGlobal('fetch', vi.fn(fetchImpl));
+    const data = await pageData();
+    const m = mountComponent(Page as never, {
+      data: { ...data, app: { ...data.app, agentTools: ['CLAUDE_CODE'] }, user: { id: 'u1' }, initialTab: 'client' },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const label = m.target.querySelector<HTMLInputElement>('input#keyLabel')!;
+    label.value = 'laptop';
+    label.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    return m.target;
+  }
+  function downloadButton(target: HTMLElement) {
+    return [...target.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes('Download setup files'))!;
+  }
+
+  it('shows the server’s refusal copy, not a generic alert', async () => {
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const target = await mountClient(async () =>
+      new Response(JSON.stringify({ error: MANAGERS_ONLY }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
+    downloadButton(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    expect(alertSpy).not.toHaveBeenCalled();
+    const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes(MANAGERS_ONLY));
+    expect(alertEl).toBeTruthy();
+    expect(target.textContent).not.toContain('Failed to create client key.');
+  });
+
+  it('a body with no error text falls back to the generic copy, inline (unchanged by #1106)', async () => {
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    const target = await mountClient(async () => new Response('gateway', { status: 502 }));
+    downloadButton(target).click();
+    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')).not.toBeNull());
+    const alertEl = [...target.querySelectorAll('[role="alert"]')].find((el) => el.textContent?.includes('Failed to create client key.'));
+    expect(alertEl).toBeTruthy();
+  });
+});
+
+// portal#1106 — the Client tab's plugin checkboxes auto-submit updateApp on
+// every tick. A viewer the server says cannot manage the App gets them
+// read-only: no tick mutates, and none reaches the server to come back as a
+// refusal. Pinned in both directions, plus the unknown case, which keeps the
+// controls because the server, not the page, is the gate.
+describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
+  async function mountClient(canManageApp: boolean | null) {
+    setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=client');
+    const data = await pageData();
+    const m = mountComponent(Page as never, {
+      data: { ...data, app: { ...data.app, agentTools: ['CLAUDE_CODE'] }, initialTab: 'client', canManageApp },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  const boxes = (target: HTMLElement) =>
+    [...target.querySelectorAll<HTMLInputElement>('form[action="?/updateAgentTools"] input[type="checkbox"]')];
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+
+  it('a non-manager’s boxes are disabled and a tick submits nothing', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountClient(false);
+    const all = boxes(target);
+    expect(all.length).toBeGreaterThan(0);
+    expect(all.every((b) => b.disabled)).toBe(true);
+    // Both the element's own click and a raw dispatched event: the second
+    // reaches the handler even where a disabled control drops the first.
+    all[1].click();
+    all[1].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await settle();
+    expect(requestSubmit).not.toHaveBeenCalled();
+    expect(all[0].checked).toBe(true);
+    expect(target.textContent).toContain('Only people who manage this App can change its plugins');
+  });
+
+  it('a manager’s tick still saves', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountClient(true);
+    const all = boxes(target);
+    expect(all.some((b) => b.disabled)).toBe(false);
+    all[1].click();
+    await settle();
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    expect(target.textContent).not.toContain('Only people who manage this App can change its plugins');
+  });
+
+  it('an unknown answer keeps the controls; the server stays the gate', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountClient(null);
+    const all = boxes(target);
+    expect(all.some((b) => b.disabled)).toBe(false);
+    all[1].click();
+    await settle();
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
   });
 });

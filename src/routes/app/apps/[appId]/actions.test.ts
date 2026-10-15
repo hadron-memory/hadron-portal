@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
+import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
+import { AGENT_TOOLS_IMPERSONATION_READ_ONLY, AGENT_TOOLS_MANAGERS_ONLY } from './agent-tools-refusal';
 import {
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
@@ -14,6 +16,7 @@ import {
   RELEASE_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
   REVOKE_APP_KEY_MUTATION,
+  SELF_CAN_MANAGE_QUERY,
   TEAM_CHAT_MESSAGES_QUERY,
   TEAM_WORK_ITEMS_QUERY,
   APP_CHAT_ROOTS_QUERY,
@@ -153,6 +156,8 @@ describe('load', () => {
       if (query === TEAM_WORK_ITEMS_QUERY) {
         return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
       }
+      // #1106: the viewer's manage self-audit (the Client tab's plugin grid).
+      if (query === SELF_CAN_MANAGE_QUERY) return Promise.resolve({ effectiveAccess: { canManage: true } });
       throw new Error('Unexpected query');
     });
 
@@ -610,6 +615,33 @@ describe('createKey action', () => {
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
   });
+
+  // portal#1068 (Holger #8095): whoever manages the App mints its keys. The
+  // server is the gate; the portal names the rule instead of a 500.
+  it('a FORBIDDEN refusal is a 403 naming who may manage keys, not the raw server text', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('createKey', { label: 'production' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+  });
+
+  it('an impersonation session’s refusal is a 403 too, never a key', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'read-only', extensions: { code: 'IMPERSONATION_READ_ONLY' } }] },
+    });
+    const result = (await runAction('createKey', { label: 'production' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } }; rawKey?: string };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message.text).toBe(APP_KEY_IMPERSONATION_READ_ONLY());
+    expect(result.data.rawKey).toBeUndefined();
+  });
 });
 
 describe('removeAgent action', () => {
@@ -710,6 +742,46 @@ describe('updateAgentTools action', () => {
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
   });
+
+  // portal#1106: a non-manager's tick is refused by updateApp's gate. That is
+  // a permission answer, so it is a 403 naming the rule, never the raw
+  // "Forbidden" in the 500 class kept for server faults.
+  it('a FORBIDDEN refusal is a 403 naming who may change plugins, not a raw 500', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('updateAgentTools', { agentTools: 'CLAUDE_CODE' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: AGENT_TOOLS_MANAGERS_ONLY() });
+    expect(result.data.form.message.text).not.toBe('Forbidden');
+  });
+
+  it('an impersonation session’s refusal is a 403 with its own copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'read-only', extensions: { code: 'IMPERSONATION_READ_ONLY' } }] },
+    });
+    const result = (await runAction('updateAgentTools', { agentTools: 'CLAUDE_CODE' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message.text).toBe(AGENT_TOOLS_IMPERSONATION_READ_ONLY());
+  });
+
+  it('an unknown GraphQL code stays a 500 with the server’s message', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'db down', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
+    });
+    const result = (await runAction('updateAgentTools', { agentTools: 'CLAUDE_CODE' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(500);
+    expect(result.data.form.message.text).toBe('db down');
+  });
 });
 
 describe('revokeKey action', () => {
@@ -758,6 +830,20 @@ describe('revokeKey action', () => {
     };
     expect(result.status).toBe(500);
     expect(result.data.form.message).toEqual({ type: 'error', text: 'nope' });
+  });
+
+  it('a FORBIDDEN revoke is a 403 with the same manager copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const result = (await runAction('revokeKey', { keyId: 'key-1' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.status).toBe(403);
+    expect(result.data.form.message).toEqual({ type: 'error', text: APP_KEY_MANAGERS_ONLY() });
+    // The copy is generic: it never echoes the key it refused.
+    expect(result.data.form.message.text).not.toContain('key-1');
   });
 });
 
@@ -1580,6 +1666,60 @@ describe('team chat tail paging (#1536)', () => {
     stubChat({ items, total: 20 });
     await runLoad();
     expect(mockRequest.mock.calls.filter((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY)).toHaveLength(1);
+  });
+});
+
+// portal#1106 — whether the viewer may change the App's plugins comes from the
+// server: a self-audit of the App (`effectiveAccess.canManage`), whose App arm
+// grants manage to exactly the principals updateApp's gate admits. `null` is
+// "unknown", never "no": the page keeps the controls and the server answers.
+describe('canManageApp (#1106)', () => {
+  function stub(manage: { canManage: boolean } | Error) {
+    mockRequest.mockImplementation((query, vars) => {
+      if (query === APP_QUERY) return Promise.resolve({ app: baseApp({ urn: 'hrn:app:acme.com:demo' }) });
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      if (query === SELF_CAN_MANAGE_QUERY) {
+        expect(vars).toEqual({ user: 'user-1', resource: 'hrn:app:acme.com:demo' });
+        return manage instanceof Error ? Promise.reject(manage) : Promise.resolve({ effectiveAccess: manage });
+      }
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    mockFetchAllItems.mockResolvedValue([]);
+  }
+
+  async function runLoad(user: { id: string } | null = { id: 'user-1' }) {
+    const { load } = await import('./+page.server');
+    return (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user },
+      parent: async () => ({}),
+      depends: () => {},
+      url: new URL('http://localhost/app/apps/app-1'),
+    } as unknown as Parameters<typeof load>[0])) as Record<string, unknown>;
+  }
+
+  it('is false when the server says the viewer cannot manage the App', async () => {
+    stub({ canManage: false });
+    expect((await runLoad()).canManageApp).toBe(false);
+  });
+
+  it('is true for a manager', async () => {
+    stub({ canManage: true });
+    expect((await runLoad()).canManageApp).toBe(true);
+  });
+
+  it('is null, not false, when the self-audit fails', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    stub(new Error('down'));
+    expect((await runLoad()).canManageApp).toBeNull();
+  });
+
+  it('is null without a signed-in user, and asks nothing', async () => {
+    stub({ canManage: true });
+    expect((await runLoad(null)).canManageApp).toBeNull();
+    expect(mockRequest.mock.calls.some((c) => c[0] === SELF_CAN_MANAGE_QUERY)).toBe(false);
   });
 });
 

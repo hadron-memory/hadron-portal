@@ -3,6 +3,8 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
+import { appKeyRefusal } from '$lib/server/app-key-refusal';
+import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
 import { lookupOwn } from '$lib/lookup';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -14,6 +16,7 @@ import {
   APP_ORG_AGENTS_QUERY,
   APP_QUERY,
   APP_MEMBERS_QUERY,
+  SELF_CAN_MANAGE_QUERY,
   MY_AGENTS_QUERY,
   PUBLIC_AGENTS_QUERY,
   UPDATE_APP_MUTATION,
@@ -599,7 +602,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // LLM-readiness gate. App-membership gated; coerce errors to null (unknown
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots] = await Promise.all([
+  const userId = locals.user?.id ?? null;
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -672,7 +676,22 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       .catch((e) => {
         console.warn(`[app-chats] chat-root fetch failed for ${params.appId}:`, e);
         return null;
-      })
+      }),
+    // portal#1106: may the viewer change the App (the Client tab's plugin
+    // grid)? A self-audit: effectiveAccess's App arm grants manage to exactly
+    // the principals updateApp's gate admits (the owner of a user-owned App;
+    // org admins/owners and platform admins on an org-owned one). null means
+    // UNKNOWN, never "no": the page then keeps the controls and the server,
+    // which is the gate either way, answers the write.
+    userId && app.urn
+      ? client
+          .request<{ effectiveAccess: { canManage: boolean } }>(SELF_CAN_MANAGE_QUERY, { user: userId, resource: app.urn })
+          .then((r) => r.effectiveAccess.canManage)
+          .catch((e) => {
+            console.warn(`[app-manage] manage check failed for ${params.appId}:`, e);
+            return null;
+          })
+      : Promise.resolve(null),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -843,6 +862,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       tool: worklogTool ?? '',
     },
     currentUserId: locals.user?.id ?? null,
+    canManageApp: canManageApp as boolean | null,
     appSettingsForm,
     addAgentForm,
     createKeyForm,
@@ -969,11 +989,9 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: t('app.agent-tools.saved', 'Client tools saved.') });
     } catch (e: unknown) {
-      return message(
-        form,
-        { type: 'error', text: extractGqlError(e, 'Failed to update agent tools') },
-        { status: 500 },
-      );
+      // portal#1106: a manager refusal names the rule, as a 403.
+      const { status, text } = agentToolsRefusal(e, 'Failed to update agent tools');
+      return message(form, { type: 'error', text }, { status });
     }
   },
 
@@ -1184,11 +1202,9 @@ export const actions: Actions = {
         keyId: result.createAppKey.key.id,
       };
     } catch (e: unknown) {
-      return message(
-        form,
-        { type: 'error', text: extractGqlError(e, 'Failed to create key') },
-        { status: 500 },
-      );
+      // portal#1068: a manager refusal names the rule, as a 403.
+      const { status, text } = appKeyRefusal(e, 'Failed to create key');
+      return message(form, { type: 'error', text }, { status });
     }
   },
 
@@ -1203,11 +1219,8 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(REVOKE_APP_KEY_MUTATION, { id: form.data.keyId });
       return message(form, { type: 'success', text: t('app.key.revoked', 'Key revoked.') });
     } catch (e: unknown) {
-      return message(
-        form,
-        { type: 'error', text: extractGqlError(e, 'Failed to revoke key') },
-        { status: 500 },
-      );
+      const { status, text } = appKeyRefusal(e, 'Failed to revoke key');
+      return message(form, { type: 'error', text }, { status });
     }
   },
 
