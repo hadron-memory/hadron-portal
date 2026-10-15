@@ -90,6 +90,33 @@ describe('account update action — a refused email change (hadron-server#1801)'
     expect(result).toMatchObject({ status: 400 });
   });
 
+  it("keeps the server's own words beside the fixed copy (#1080, item 3)", async () => {
+    // A different BAD_USER_INPUT that mentions email (a format check, say) would
+    // otherwise be shown only as "not supported here", which is a mislabel. The
+    // original text rides along, so the reader always sees what the server said.
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'email is not a valid address', extensions: { code: 'BAD_USER_INPUT' } }] },
+    });
+    const actions = await importActions();
+    const result = await actions.update(actionEv({ name: 'Ada', handle: 'ada', email: 'x@example.com' }));
+    expect(superFormFrom(result)?.errors?.email).toEqual([
+      'Changing your email address is not supported here.',
+      'The server said: email is not a valid address',
+    ]);
+  });
+
+  it('keeps an email-mentioning error with any OTHER code in the banner (#1080, item 2)', async () => {
+    // The guard's code half: only BAD_USER_INPUT is a refused change. A
+    // FORBIDDEN that happens to mention email is a banner error like any other.
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'not allowed to change email settings', extensions: { code: 'FORBIDDEN' } }] },
+    });
+    const actions = await importActions();
+    const result = await actions.update(actionEv({ name: 'Ada', handle: 'ada', email: 'ada@example.com' }));
+    expect(fieldError(result, 'email')).toBeUndefined();
+    expect(superFormFrom(result)?.message).toMatchObject({ type: 'error', text: 'not allowed to change email settings' });
+  });
+
   it('keeps other BAD_USER_INPUT refusals as the banner', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'handle is taken', extensions: { code: 'BAD_USER_INPUT' } }] },
