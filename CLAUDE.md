@@ -237,6 +237,27 @@ URN is what a reader copies into a
 CLI, an MCP call, or a message to a teammate, and a name alone is not
 addressable. Nullable-by-contract URNs render as absent, never as an empty chip.
 
+### Any new screen, section or form follows the UI ground rules
+
+Before building or changing anything a user sees, run the portal engineer's task
+[`hrn:node:hadronmemory.com:portal-engineer-system:tasks:build-portal-ui`](https://hadronmemory.com/app/u/hrn:node:hadronmemory.com:portal-engineer-system:tasks:build-portal-ui).
+It holds the full ground rules and the procedure; in short:
+
+1. **Start from what the user wants to do, not the API.** A keep/set/clear
+   mutation becomes buttons ("Change…", "Clear"), never a "mode" dropdown.
+2. **Pick entities with the existing pickers.** `SelectAgent`, `SelectMemory`,
+   `SelectOrg`, `SelectUser`, `SelectPublicAgent`. Never a free-text URN or ID
+   field.
+3. **One title per section.** No caption, heading and label repeating each other.
+4. **Show an entity once:** name, then its `Urn` chip directly below.
+5. **Plain copy:** buttons are a plain verb ("Save"), and labels carry no
+   parenthesised instructions.
+6. **Check the running page** in dark and light, and put the screenshots in the
+   PR.
+
+Passing tests and reviews don't make a UI good: #1105 shipped green and still
+needed six UI fixes, filed as #1108. Each one breaks a rule above.
+
 ## Git and PR conventions
 
 - **Branch naming**: Use `feature/`, `fix/`, `refactor/`, or `docs/` prefixes (e.g., `feature/node-detail-redesign`)
