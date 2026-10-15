@@ -117,11 +117,13 @@ export type Discussion =
 
 /**
  * Memory classes whose nodes can be discussed (`hrn:node:hadronmemory.com:specs:cor:dmo:110:02`): comments
- * live in the target's memory, and `private` / `system` memories take none.
+ * live in the target's memory, and only `private` memories take none. `system`
+ * joined the list with Holger's 2026-10-14 ruling (team chat #11565,
+ * hadron-server#1935; portal#1101).
  * Used only to decide whether to offer the tab; the server refuses the rest
  * (`COMMENT_MEMORY_NOT_COMMENTABLE`) whatever this says.
  */
-const COMMENTABLE_CLASSES: ReadonlySet<string> = new Set(['app', 'knowledge', 'personal', 'group']);
+const COMMENTABLE_CLASSES: ReadonlySet<string> = new Set(['app', 'knowledge', 'personal', 'group', 'system']);
 
 export function isCommentableClass(memoryClass: string | null | undefined): boolean {
   return memoryClass != null && COMMENTABLE_CLASSES.has(memoryClass);
