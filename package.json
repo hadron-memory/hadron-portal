@@ -10,6 +10,7 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "test": "vitest run",
     "test:node-phone-layout": "node scripts/test-node-phone-layout.mjs",
+    "test:usage-toolbar-layout": "node scripts/test-usage-toolbar-layout.mjs",
     "test:watch": "vitest",
     "gql:validate": "node scripts/validate-graphql.mjs",
     "gql:schema": "node scripts/refresh-schema.mjs",

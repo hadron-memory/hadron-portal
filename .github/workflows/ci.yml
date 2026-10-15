@@ -76,6 +76,9 @@ jobs:
       - name: Check node phone layout
         run: pnpm test:node-phone-layout
 
+      - name: Check memory Usage toolbar phone layout
+        run: pnpm test:usage-toolbar-layout
+
       - name: Check
         run: pnpm check
 
