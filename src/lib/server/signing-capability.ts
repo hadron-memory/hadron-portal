@@ -7,7 +7,8 @@ import { serverBaseUrl } from '$lib/server/api';
  * `deploymentSchema()` removes the field — and `Node.signatureStatus` with it —
  * so SELECTING either fails GraphQL validation. The answer comes from
  * `GET /capabilities` instead (hadron-server#1925, Holger 2026-10-14;
- * `cor:api:020:01`): `{"capabilities":[...]}`, the ON switches as MCP's token
+ * hrn:node:hadronmemory.com:specs:cor:api:020:01): `{"capabilities":[...]}`,
+ * the ON switches as MCP's token
  * words, readable before sign-in. An off switch is left out, never `false`.
  * This replaced #1097's stopgap, which parsed the authenticated SDL route
  * (portal#1098).
