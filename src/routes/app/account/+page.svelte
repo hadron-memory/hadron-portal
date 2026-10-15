@@ -3,6 +3,7 @@
   import { browser } from '$app/environment';
   import { enhance } from '$app/forms';
   import { deleteAccountStrings, DELETE_CONFIRMATION_TOKEN } from '$lib/i18n/delete-account-strings';
+  import Urn from '$lib/components/Urn.svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PageData, ActionData } from './$types';
@@ -162,8 +163,10 @@
           {/if}
           <div>
             <p class="font-medium text-zinc-900 dark:text-white">{user?.name ?? 'No name set'}</p>
-            {#if user?.handle}
-              <p class="text-sm text-zinc-500">@{user.handle}</p>
+            <!-- #998: the URN, not the bare handle, which the Handle row below
+                 still shows. A handle-less user has no URN: nothing renders. -->
+            {#if user?.urn}
+              <Urn value={user.urn} type="user" />
             {/if}
           </div>
         </div>

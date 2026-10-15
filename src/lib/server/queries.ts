@@ -183,6 +183,7 @@ export const ME_QUERY = /* GraphQL */ `
     me {
       id
       handle
+      urn
       githubUsername
       name
       avatarUrl

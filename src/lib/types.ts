@@ -539,6 +539,8 @@ export interface OrgMember {
 export interface UserSummary {
   id: string;
   handle: string | null;
+  /** `hrn:user:<handle>`; null for a handle-less user, who has no URN (#998). */
+  urn?: string | null;
   githubUsername: string | null;
   name: string | null;
   avatarUrl: string | null;

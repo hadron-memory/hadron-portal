@@ -27,7 +27,7 @@ You have access to these tools via the Hadron MCP server:
 
 | Tool | Description |
 |------|-------------|
-| `hadron_start_session` | Start a new session (level: basic/guided/learn) |
+| `hadron_start_session` | Start a new session: `description` (required) says what it is about; pass `workerRef` (a worker's name, URN or id) to work as that named teammate |
 | `hadron_resume_session` | Resume an open session from a previous conversation |
 | `hadron_save_session_task` | Save the current task definition |
 | `hadron_end_session` | End session with summary and outcome |
