@@ -87,6 +87,8 @@ function ev(opts: {
         },
     url: new URL(`http://localhost${opts.pathname ?? '/app/dashboard'}`),
     params: opts.paramsId ? { id: opts.paramsId } : {},
+    // The root layout's data: signed in unless a test wires the real root load.
+    parent: async () => ({ user: { id: 'user-1' } }),
     cookies: {
       get: (name: string) => cookieJar.get(name),
       set: (name: string, value: string, o: unknown) => {
@@ -596,5 +598,66 @@ describe('#1117: the root layout clears locals.user mid-load', () => {
     // The impersonation banner reports what this load started with, not a
     // half-cleared mix.
     expect(data.impersonation).toEqual({ adminId: 'admin-1' });
+  });
+});
+
+/**
+ * #1117, Atilla's and Colin's WAIT FIX at afba05df (Eden's ruling, #12446): one
+ * response, one identity decision. With `me` failing, the root layout decides
+ * this response is signed out (`user: null`, and drops the session cookie), so
+ * the root nav says "Sign in". The App layout must not render signed-in
+ * content beneath it. It now defers to the root: it redirects to the same URL,
+ * and the next request (without the dropped cookie) takes the existing path.
+ * That's /signin for a user; for an admin whose impersonation was dropped,
+ * their own session. These pins run the REAL root load and the REAL App load
+ * together, joined by `parent()` as SvelteKit joins them.
+ */
+describe('#1117: the root and App layouts answer one identity decision', () => {
+  async function composed(opts: { impersonating?: boolean; meFails: boolean; pathname?: string }) {
+    const event = ev({ pathname: opts.pathname ?? '/app/account' });
+    const locals = event.locals as { impersonation?: unknown };
+    locals.impersonation = opts.impersonating ? { adminId: 'admin-1' } : null;
+    const deleted: string[] = [];
+    (event.cookies as { delete: (n: string) => void }).delete = (n: string) => deleted.push(n);
+    if (opts.meFails) mockMeRequest.mockRejectedValue(new Error('HTTP 500'));
+    else mockMeRequest.mockResolvedValue({ me: { id: 'user-1', handle: 'ada', roles: ['user'] } });
+    mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
+
+    const root = await import('../+layout.server');
+    const rootData = root.load(event as never);
+    (event as { parent: () => Promise<unknown> }).parent = () => rootData;
+    const app = await importLoad();
+    const outcome = await app(event).then(
+      (data) => ({ data, redirect: null as null | { status: number; location: string } }),
+      (e: { status?: number; location?: string }) => {
+        if (e?.status && e.location) return { data: null, redirect: { status: e.status, location: e.location } };
+        throw e;
+      },
+    );
+    return { root: await rootData, ...outcome, deleted };
+  }
+
+  it('signed out by the root: no signed-in App content, a redirect to the same URL', async () => {
+    const r = await composed({ meFails: true, pathname: '/app/account?tab=x' });
+    expect(r.root).toEqual({ user: null });
+    expect(r.data).toBeNull();
+    expect(r.redirect).toEqual({ status: 303, location: '/app/account?tab=x' });
+    expect(r.deleted).toEqual(['hadron_token']);
+  });
+
+  it('impersonating, signed out by the root: no target content or banner either', async () => {
+    const r = await composed({ impersonating: true, meFails: true });
+    expect(r.root).toEqual({ user: null });
+    expect(r.data).toBeNull();
+    expect(r.redirect).toEqual({ status: 303, location: '/app/account' });
+    // Only the impersonation cookie goes: the next request is the admin's own.
+    expect(r.deleted).toEqual(['hadron_impersonation']);
+  });
+
+  it('signed in by the root: the App layout renders as before (control)', async () => {
+    const r = await composed({ meFails: false });
+    expect(r.root).toMatchObject({ user: { id: 'user-1' } });
+    expect(r.redirect).toBeNull();
+    expect((r.data as { user: { id: string } }).user.id).toBe('user-1');
   });
 });
