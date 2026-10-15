@@ -36,11 +36,12 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
     redirect(303, `/signin?redirect=${encodeURIComponent(withQuery(url.pathname, url.search))}`);
   }
   // #1117: read the shared `locals` ONCE, here at the guard, and use only the
-  // snapshot below. The root layout loads in parallel and, when its own `me`
-  // fails, nulls `locals.user` / `locals.impersonation` from its catch. That
-  // can land while this load awaits, and reading `locals.user.id` afterwards
-  // threw, so the page answered a bare 500. On the snapshot this load finishes
-  // as it began, with the me-failed fallback below.
+  // snapshot below. Every load of the request shares `locals` and runs in
+  // parallel; the root layout used to null `locals.user` / `.impersonation`
+  // when its `me` failed (it no longer writes them), which landed while this
+  // load awaited and made `locals.user.id` throw. Reading once keeps this load
+  // coherent whatever another load does; it finishes as it began, with the
+  // me-failed fallback below.
   const sessionUser = locals.user;
   const impersonation = locals.impersonation;
   const apiClient = gqlClient(locals.token);

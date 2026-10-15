@@ -54,8 +54,8 @@ function profileFormDefaults(user: UserSummary) {
 
 export const load: PageServerLoad = async ({ locals }) => {
   // #1117: snapshot before the await. The root layout, loading in parallel,
-  // nulls `locals.user` when its own `me` fails, so reading it after the await
-  // built a fallback user with no id.
+  // used to null `locals.user` when its own `me` failed (it no longer does),
+  // and reading it after the await built a fallback user with no id.
   const sessionUser = locals.user;
   const data = await gqlClient(locals.token)
     .request<{ me: UserSummary | null }>(ME_QUERY)
