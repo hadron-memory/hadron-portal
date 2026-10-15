@@ -661,3 +661,89 @@ describe('#1117: the root and App layouts answer one identity decision', () => {
     expect((r.data as { user: { id: string } }).user.id).toBe('user-1');
   });
 });
+
+/**
+ * #1117, Atilla's P2-2 at f4d112ad: the 303-to-self is safe only when the root
+ * actually dropped a cookie. When `me` SUCCEEDS with null (no auth, or a
+ * revoked impersonation), the root answers `user: null` without touching a
+ * cookie, so the next request carried the same credential and the 303 repeated
+ * forever. These pins follow the redirects hop by hop, building each request's
+ * credential from the cookie jar as hooks.server.ts does, and require every
+ * path to come to rest within two hops: /signin, or a rendered page.
+ */
+describe('#1117: every signed-out path terminates (no redirect loop)', () => {
+  type Me = 'throws' | 'null' | 'ok';
+  /** One request through the real root + App loads, from this cookie jar. */
+  async function hop(jar: Map<string, string>, me: Me, path: string) {
+    const imp = jar.get('hadron_impersonation');
+    const tok = jar.get('hadron_token');
+    const event = ev({ pathname: path, authed: !!(imp || tok) });
+    const locals = event.locals as { token: unknown; user: unknown; impersonation?: unknown };
+    locals.impersonation = imp ? { adminId: 'admin-1' } : null;
+    locals.token = imp ?? tok ?? null;
+    (event.cookies as unknown as { delete: (n: string) => void }).delete = (n: string) => { jar.delete(n); };
+    mockMeRequest.mockReset();
+    if (me === 'throws') mockMeRequest.mockRejectedValue(new Error('HTTP 500'));
+    else if (me === 'null') mockMeRequest.mockResolvedValue({ me: null });
+    else mockMeRequest.mockResolvedValue({ me: { id: 'user-1', handle: 'ada', roles: ['user'] } });
+    mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
+
+    const root = await import('../+layout.server');
+    const rootData = Promise.resolve(root.load(event as never));
+    (event as unknown as { parent: () => Promise<unknown> }).parent = () => rootData;
+    const app = await importLoad();
+    return Promise.resolve(app(event)).then(
+      () => ({ rendered: true, location: null as string | null }),
+      (e: { status?: number; location?: string }) => {
+        if (e?.status === 303 && e.location) return { rendered: false, location: e.location };
+        throw e;
+      },
+    );
+  }
+
+  /** Follow redirects until a page renders or we leave /app; return the hops. */
+  async function follow(start: { imp?: boolean }, me: Me) {
+    const jar = new Map<string, string>([['hadron_token', 'tok']]);
+    if (start.imp) jar.set('hadron_impersonation', 'imp');
+    const trail: string[] = [];
+    let path = '/app/account?tab=x';
+    for (let i = 0; i < 5; i++) {
+      const r = await hop(jar, me, path);
+      if (r.rendered) return { trail, end: `rendered ${path}`, jar };
+      trail.push(r.location!);
+      if (!r.location!.startsWith('/app')) return { trail, end: r.location!, jar };
+      path = r.location!;
+    }
+    return { trail, end: 'LOOP', jar };
+  }
+
+  const toSignin = '/signin?redirect=%2Fapp%2Faccount%3Ftab%3Dx';
+
+  it('me succeeds with null, ordinary: straight to /signin, one hop', async () => {
+    const r = await follow({}, 'null');
+    expect(r.end).toBe(toSignin);
+    expect(r.trail).toEqual([toSignin]);
+  });
+
+  it('me succeeds with null, revoked impersonation: straight to /signin, one hop', async () => {
+    const r = await follow({ imp: true }, 'null');
+    expect(r.end).toBe(toSignin);
+    expect(r.trail).toEqual([toSignin]);
+  });
+
+  it('me throws, ordinary: the cookie drops, then /signin, two hops', async () => {
+    const r = await follow({}, 'throws');
+    expect(r.trail).toEqual(['/app/account?tab=x', toSignin]);
+    expect(r.jar.has('hadron_token')).toBe(false);
+  });
+
+  it('me throws while impersonating: the impersonation cookie drops, and the admin comes back', async () => {
+    // Only the first hop fails; the admin's own session then answers.
+    const jar = new Map<string, string>([['hadron_token', 'tok'], ['hadron_impersonation', 'imp']]);
+    const first = await hop(jar, 'throws', '/app/account?tab=x');
+    expect(first.location).toBe('/app/account?tab=x');
+    expect(jar.has('hadron_impersonation')).toBe(false);
+    const second = await hop(jar, 'ok', first.location!);
+    expect(second.rendered).toBe(true);
+  });
+});
