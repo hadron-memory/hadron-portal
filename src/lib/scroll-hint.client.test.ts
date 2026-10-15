@@ -160,6 +160,7 @@ describe('scrollHint (action)', () => {
     strip.querySelector('[data-active]')!.removeAttribute('data-active');
     strip.children[6].setAttribute('aria-current', 'page');
     action.update('edges');
+    flushFrames(); // the reveal waits a frame for the tabs' attributes to move
     expect(strip.scrollLeft).toBe(560 - 350 + SCROLL_HINT_PAD);
   });
 

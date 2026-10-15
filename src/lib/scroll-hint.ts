@@ -12,6 +12,10 @@
  * - the active tab scrolled into view on mount and whenever the active key
  *   changes, so a deep link (`?tab=settings`) lands on a visible tab.
  *
+ * The reveal on a key change waits a frame: Svelte runs an action's `update`
+ * BEFORE the tabs' own attributes move, so a synchronous reveal found the OLD
+ * active tab (Atilla's P2 on #1111, a static-button strip like the node page's).
+ *
  * The reveal sets the strip's own `scrollLeft` rather than calling
  * `scrollIntoView`, which also scrolls the PAGE vertically when the strip is
  * below the fold.
@@ -56,6 +60,7 @@ const ACTIVE = '[data-active], [aria-current="page"], [aria-selected="true"]';
 export function scrollHint(node: HTMLElement, active?: unknown) {
   let current = active;
   let frame = 0;
+  let revealFrame = 0;
 
   const mark = () => {
     frame = 0;
@@ -93,13 +98,18 @@ export function scrollHint(node: HTMLElement, active?: unknown) {
     update(next?: unknown) {
       if (next === current) return;
       current = next;
-      reveal();
+      if (revealFrame) cancelAnimationFrame(revealFrame);
+      revealFrame = requestAnimationFrame(() => {
+        revealFrame = 0;
+        reveal();
+      });
     },
     destroy() {
       observer?.disconnect();
       node.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
       if (frame) cancelAnimationFrame(frame);
+      if (revealFrame) cancelAnimationFrame(revealFrame);
     },
   };
 }
