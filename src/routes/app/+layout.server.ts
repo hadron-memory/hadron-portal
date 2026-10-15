@@ -35,6 +35,14 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
     // /app/* deep link, not just the URN resolver.
     redirect(303, `/signin?redirect=${encodeURIComponent(withQuery(url.pathname, url.search))}`);
   }
+  // #1117: read the shared `locals` ONCE, here at the guard, and use only the
+  // snapshot below. The root layout loads in parallel and, when its own `me`
+  // fails, nulls `locals.user` / `locals.impersonation` from its catch. That
+  // can land while this load awaits, and reading `locals.user.id` afterwards
+  // threw, so the page answered a bare 500. On the snapshot this load finishes
+  // as it began, with the me-failed fallback below.
+  const sessionUser = locals.user;
+  const impersonation = locals.impersonation;
   const apiClient = gqlClient(locals.token);
   // Fetch orgs AND the full `me` profile in parallel. The JWT only carries
   // id/roles/githubUsername, so the avatar URL and name live server-side and
@@ -74,7 +82,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // change — re-authenticating fixes it. Log it distinctly so it's diagnosable.
   // Deliberately NO user id in the message: `sub` comes from an unverified JWT,
   // so it's attacker-controllable and must never reach the logs (log-injection,
-  // #637 review). `locals.user` is guaranteed set here (the load redirects
+  // #637 review). `sessionUser` is guaranteed set here (the load redirects
   // unauthenticated requests above).
   if (!meThrew && meData.me === null) {
     console.warn(
@@ -89,7 +97,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // which fetches its own list). filterToMemberOrgs stays as cheap
   // defense-in-depth for consumer-mode detection and active-/personal-org
   // resolution.
-  const memberOrgs = filterToMemberOrgs(orgs, locals.user.id);
+  const memberOrgs = filterToMemberOrgs(orgs, sessionUser.id);
   // Consumer (individual) mode = the user belongs to NO organization. Since
   // #627 removed the per-user "personal org" (and its `isVisible` marker),
   // an individual simply has zero orgs and works out of org-less, user-owned
@@ -102,8 +110,8 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // Merge fresh server-side fields (name, avatarUrl, email) over the JWT
   // payload, so the layout always has current user metadata.
   const user: UserSummary & { roles: string[] } = meData.me
-    ? { ...locals.user, ...meData.me, roles: locals.user.roles }
-    : { ...locals.user, handle: null };
+    ? { ...sessionUser, ...meData.me, roles: sessionUser.roles }
+    : { ...sessionUser, handle: null };
 
   // Spec 014: resolve the active organization (URL → lastActiveOrgId →
   // first membership). #232 fix: feed the persisted cookie as the lastActiveOrgId
@@ -114,7 +122,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
   // it over the cookie for cross-device persistence — the cookie remains
   // the same-device fast path.
   const paramsId = typeof params.id === 'string' ? params.id : undefined;
-  const cookieName = activeOrgCookieName(locals.user.id);
+  const cookieName = activeOrgCookieName(sessionUser.id);
   const cookieOrgId = cookies.get(cookieName) ?? null;
   const resolution = resolveActiveOrg({
     paramsId,
@@ -168,7 +176,7 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies }) =
     // Admin impersonation: the acting-as facts for the banner (null normally).
     // `user` above already IS the target under impersonation — hooks.server
     // swapped locals.token/user, and `me` resolves as the target.
-    impersonation: locals.impersonation,
+    impersonation,
     // The nav/OrgSwitcher list — memberships only (an admin reaches the
     // all-orgs view on /app/orgs). memberOrgs, not the raw fetch, so the
     // client-side defense-in-depth applies to what the UI renders too.

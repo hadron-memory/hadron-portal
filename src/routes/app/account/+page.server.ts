@@ -53,6 +53,10 @@ function profileFormDefaults(user: UserSummary) {
 }
 
 export const load: PageServerLoad = async ({ locals }) => {
+  // #1117: snapshot before the await. The root layout, loading in parallel,
+  // nulls `locals.user` when its own `me` fails, so reading it after the await
+  // built a fallback user with no id.
+  const sessionUser = locals.user;
   const data = await gqlClient(locals.token)
     .request<{ me: UserSummary | null }>(ME_QUERY)
     // Surface a failed `me` instead of silently blanking the profile. The
@@ -63,7 +67,7 @@ export const load: PageServerLoad = async ({ locals }) => {
       console.error('[account] `me` query failed — handle will be blank (name/email fall back to the JWT):', e);
       return { me: null as UserSummary | null };
     });
-  const user: UserSummary = data.me ?? { ...locals.user!, handle: null };
+  const user: UserSummary = data.me ?? { ...sessionUser!, handle: null };
   const form = await superValidate(profileFormDefaults(user), accountProfileFormAdapter, { errors: false });
   return { user, form };
 };
