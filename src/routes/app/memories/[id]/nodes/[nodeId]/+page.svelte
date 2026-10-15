@@ -68,6 +68,7 @@
     type ExtractionRow,
   } from '$lib/flow/extraction';
   import { fillViewport } from '$lib/fill-viewport';
+  import { scrollHint } from '$lib/scroll-hint';
   import type { NodeEdge, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import NodeStorageForm from './NodeStorageForm.svelte';
@@ -2566,11 +2567,14 @@
 
   <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
   <div class="border-t border-zinc-200 pt-4 dark:border-zinc-800">
-    <!-- #858: keep tabs in their own horizontal scroller at phone widths. -->
-    <div class="mb-3 flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
+    <!-- #858: keep tabs in their own horizontal scroller at phone widths.
+         #1086: `scrollHint` fades the edge with more tabs past it and keeps the
+         active tab (a `?tab=` deep link included) scrolled into view. -->
+    <div class="scroll-hint mb-3 flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800" use:scrollHint={activeTab}>
       <!-- Chat nodes only: the thread as bubbles, same view as /chat. -->
       {#if isChat}
         <button
+          data-active={activeTab === 'chat' || undefined}
           class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'chat' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
           onclick={() => activeTab = 'chat'}
         >Chat
@@ -2581,6 +2585,7 @@
            surface, or there's no portal path to add content. Mirrors the
            Abstract tab's always-on treatment below. -->
       <button
+        data-active={activeTab === 'content' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'content' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'content'}
       >Content
@@ -2588,6 +2593,7 @@
       </button>
       {#if commentable}
         <button
+          data-active={activeTab === 'discussion' || undefined}
           class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'discussion' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
           onclick={() => activeTab = 'discussion'}
         >{t('comments.tab', 'Discussion')}
@@ -2602,6 +2608,7 @@
       <!-- Always shown — an empty abstract still needs an authoring surface
            (a vector-index source where the memory says so, #936), same rationale as Content (#256). -->
       <button
+        data-active={activeTab === 'abstract' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'abstract' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'abstract'}
       >Abstract
@@ -2610,6 +2617,7 @@
       <!-- Always shown — Node.data is free-form JSON; an empty node still
            needs an authoring surface, same rationale as Content/Abstract. -->
       <button
+        data-active={activeTab === 'data' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'data' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'data'}
       >Data
@@ -2619,6 +2627,7 @@
            server-set provenance. Always shown for discoverability, and since
            #1031 its editor lives on the tab itself. -->
       <button
+        data-active={activeTab === 'properties' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'properties' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'properties'}
       >{t('node.properties.tab', 'Properties')}
@@ -2627,6 +2636,7 @@
       <!-- Always shown (#478) — turning a plain node into a flow node (extract
            fields, write output) needs an authoring surface. -->
       <button
+        data-active={activeTab === 'flow' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'flow' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'flow'}
       >Flow
@@ -2634,11 +2644,13 @@
       </button>
       {#if hasChildren}
         <button
+          data-active={activeTab === 'children' || undefined}
           class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
           onclick={() => activeTab = 'children'}
         >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}</span></button>
       {/if}
       <button
+        data-active={activeTab === 'references' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'references'}
       >Edges
@@ -2649,11 +2661,13 @@
       <!-- Comments keep no revision history (server#1727). -->
       {#if !isComment}
       <button
+        data-active={activeTab === 'history' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'history'}
       >{t('node.history.tab', 'Revisions')}</button>
       {/if}
       <button
+        data-active={activeTab === 'settings' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'settings'}
       >Settings</button>

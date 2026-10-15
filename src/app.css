@@ -117,3 +117,38 @@ html:not(.dark) textarea::placeholder {
 .dark .prose .wikilink-unresolved {
   color: rgb(253 164 175); /* rose-300 */
 }
+
+/*
+ * #1086 — a scrolling tab strip fades on each edge that has more tabs past it,
+ * so a phone user (whose browser hides the horizontal scrollbar) can see there
+ * is more. The `scrollHint` action (src/lib/scroll-hint.ts) sets the two
+ * attributes; with neither set there is no mask at all. A mask, not an
+ * overlay: it fades the tabs into whatever surface is behind, in both themes.
+ */
+.scroll-hint {
+  --scroll-hint-start: 0px;
+  --scroll-hint-end: 0px;
+}
+.scroll-hint[data-overflow-start] {
+  --scroll-hint-start: 24px;
+}
+.scroll-hint[data-overflow-end] {
+  --scroll-hint-end: 24px;
+}
+.scroll-hint[data-overflow-start],
+.scroll-hint[data-overflow-end] {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--scroll-hint-start),
+    #000 calc(100% - var(--scroll-hint-end)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--scroll-hint-start),
+    #000 calc(100% - var(--scroll-hint-end)),
+    transparent
+  );
+}
