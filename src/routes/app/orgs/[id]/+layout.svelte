@@ -11,6 +11,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import { t } from '$lib/i18n/t';
+  import { scrollHint } from '$lib/scroll-hint';
   import type { LayoutData } from './$types';
 
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
@@ -111,7 +112,8 @@
            tab put 76px of the page off the right of a phone screen; with this
            fix the same five tabs scroll by 92px and document overflow is 0. -->
       <nav aria-label={t('org-detail.nav.aria-label', 'Organization sections')} class="mb-4 flex items-end justify-between border-b border-zinc-200 dark:border-zinc-800">
-        <div class="flex min-w-0 gap-0 overflow-x-auto">
+        <!-- #1086: edge fade + active tab kept in view (src/lib/scroll-hint.ts). -->
+        <div class="scroll-hint flex min-w-0 gap-0 overflow-x-auto" use:scrollHint={activeTab?.id}>
           {#each tabs as tab (tab.id)}
             <a
               href={tab.href}

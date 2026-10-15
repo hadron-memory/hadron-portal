@@ -12,6 +12,7 @@
   import ApproveAllDialog from '$lib/components/memory/ApproveAllDialog.svelte';
   import MintDialog from '$lib/components/memory/MintDialog.svelte';
   import { canSeeShares } from '$lib/memory/can-manage-shares';
+  import { scrollHint } from '$lib/scroll-hint';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
 
@@ -252,11 +253,14 @@
            `justify-between` row beside the ⋯ menu, and without it the flex item
            refuses to shrink below its content and never scrolls.
            `shrink-0 whitespace-nowrap` on each tab is what makes the strip
-           SCROLL rather than squash the labels. -->
-      <div class="flex min-w-0 gap-0 overflow-x-auto">
+           SCROLL rather than squash the labels.
+           #1086: `scrollHint` fades the edge with more tabs past it and keeps
+           the active tab scrolled into view. -->
+      <div class="scroll-hint flex min-w-0 gap-0 overflow-x-auto" use:scrollHint={activeTab}>
         {#each tabs as tab (tab.id)}
           <a
             href={tab.href}
+            data-active={activeTab === tab.id || undefined}
             class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
               {activeTab === tab.id
                 ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
