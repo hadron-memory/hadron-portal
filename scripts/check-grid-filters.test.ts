@@ -73,7 +73,8 @@ describe('scanSource', () => {
 describe('the repository as it stands', () => {
   // #862: the assertion below walks the real tree but cannot tell "no grid is
   // broken" from "no grid was examined": with the walk stubbed to [], it stays
-  // green. The floor is what fails then (review:guard-must-be-proven-to-fail;
+  // green. The floor is what fails then
+  // (hrn:node:hadronmemory.com:hadron-portal:review:guard-must-be-proven-to-fail;
   // the same floor check-hook-teardown and check-tab-strips carry).
   it('scans a plausible number of files, so a broken walk cannot read as clean', () => {
     expect(svelteFilesUnder('src').length).toBeGreaterThan(100);
