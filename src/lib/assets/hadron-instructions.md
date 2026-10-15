@@ -27,7 +27,7 @@ You have access to these tools via the Hadron MCP server:
 
 | Tool | Description |
 |------|-------------|
-| `hadron_start_session` | Start a new session (level: basic/guided/learn) |
+| `hadron_start_session` | Start a new session: `description` (required) says what it is about; pass `workerRef` (a worker's name, URN or id) to work as that named teammate |
 | `hadron_whoami` | Show your open session id and the worker it is bound to |
 | `hadron_get_worker` | Re-read a worker's boot briefing |
 | `hadron_end_session` | End session with summary and outcome |
