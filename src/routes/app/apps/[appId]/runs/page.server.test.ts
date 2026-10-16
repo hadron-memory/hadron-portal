@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  AGENT_TASKS_APP_QUERY,
   APP_NODES_QUERY,
   APP_QUERY,
   APP_RUNS_QUERY,
@@ -81,7 +82,7 @@ function superFormFrom(result: unknown) {
 describe('app runs load()', () => {
   it('returns runs, flows, and a seeded run Superform', async () => {
     mockRequest.mockImplementation(async (query: string) => {
-      if (query === APP_QUERY) return { app };
+      if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
       if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
       if (query === APP_NODES_QUERY) return { appNodes: [flowNode] };
       throw new Error(`unexpected query: ${query.slice(0, 60)}`);
@@ -105,6 +106,62 @@ describe('app runs load()', () => {
       _kind: 'runFlow',
       entryUrn: '',
     });
+  });
+});
+
+// portal#1130: a viewer with no access gets the App page's 404, not a 500.
+// The server conceals the App (FORBIDDEN on app(ref:)) and its runs (NOT_FOUND
+// on appRuns); only those codes become a 404, and any other failure stays a
+// failure (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+describe('app runs load(): a no-access viewer (#1130)', () => {
+  const gqlError = (code: string) => ({ response: { errors: [{ message: code, extensions: { code } }] } });
+
+  async function loadWith(answer: (query: string) => unknown) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockRequest.mockImplementation(async (query: string) => answer(query));
+    const { load } = await importServer();
+    return load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok' },
+      parent: async () => ({}),
+      url: new URL('https://example.test/app/apps/app-1/runs'),
+    } as unknown as Parameters<typeof load>[0]);
+  }
+
+  it('a refused App read (FORBIDDEN) is a 404', async () => {
+    await expect(loadWith((q) => {
+      if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) throw gqlError('FORBIDDEN');
+      if (q === APP_RUNS_QUERY) throw gqlError('NOT_FOUND');
+      throw gqlError('FORBIDDEN');
+    })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('concealed runs (NOT_FOUND on appRuns) are a 404, as the issue observed', async () => {
+    await expect(loadWith((q) => {
+      if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) return { app };
+      if (q === APP_RUNS_QUERY) throw gqlError('NOT_FOUND');
+      throw gqlError('FORBIDDEN');
+    })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('any other failure of the runs read stays a failure, not a 404', async () => {
+    await expect(loadWith((q) => {
+      if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) return { app };
+      if (q === APP_RUNS_QUERY) throw gqlError('INTERNAL_SERVER_ERROR');
+      return { appNodes: [] };
+    })).rejects.not.toMatchObject({ status: 404 });
+    await expect(loadWith((q) => {
+      if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) return { app };
+      if (q === APP_RUNS_QUERY) throw new Error('ECONNREFUSED');
+      return { appNodes: [] };
+    })).rejects.toThrow('ECONNREFUSED');
+  });
+
+  it('an App read failing with a server fault stays a failure, not a 404', async () => {
+    await expect(loadWith((q) => {
+      if (q === APP_QUERY || q === AGENT_TASKS_APP_QUERY) throw gqlError('INTERNAL_SERVER_ERROR');
+      return { appRuns: { items: [], total: 0 }, appNodes: [] };
+    })).rejects.not.toMatchObject({ status: 404 });
   });
 });
 
