@@ -89,3 +89,52 @@ export interface AgentTeamEvent {
   acknowledgedBy: AgentTaskParty | null;
   wakes: AgentTeamAlarmWake[] | null;
 }
+
+/** portal#1052 slice 2 — one worker on the roster (`teamRoster`). Task references are bare ids. */
+export interface TeamRosterEntry {
+  worker: AgentTaskParty;
+  role: string | null;
+  state: string;
+  family: string | null;
+  freeFamilies: string[];
+  launchableFamilies: string[];
+  unavailableFamilies: string[];
+  unavailableReason: 'STALLED' | 'OUT_OF_TOKENS' | 'HOST_DOWN' | 'OTHER' | null;
+  unavailableUntil: string | null;
+  bound: boolean;
+  liveSession: boolean;
+  lastActiveAt: string | null;
+  lastAssignedAt: string | null;
+  reportsTo: AgentTaskParty | null;
+  reportsToRetired: boolean;
+  startedTasks: string[];
+  pendingTasks: string[];
+  waitingOn: string[];
+  waitingSince: string | null;
+  unreactedChildTask: string | null;
+  alarms: string[];
+}
+
+export interface TeamRoster {
+  asOf: string;
+  workers: TeamRosterEntry[];
+}
+
+/** An alarm as the Alarms list reads it: `AgentTeamEvent` with `alarmsOnly`. */
+export interface AgentAlarm {
+  id: string;
+  type: string;
+  severity: 'ALARM' | null;
+  taskId: string | null;
+  createdAt: string;
+  subjectWorker: AgentTaskParty | null;
+  acknowledgedAt: string | null;
+  acknowledgedBy: AgentTaskParty | null;
+  wakes: AgentTeamAlarmWake[] | null;
+}
+
+/**
+ * A Tasks-view read's outcome (portal#1052): the value, a non-participant
+ * (the server's APP_NOT_FOUND), or a failure that is never shown as empty.
+ */
+export type TaskRead<T> = { kind: 'ok'; value: T } | { kind: 'not-participant' } | { kind: 'failed' };

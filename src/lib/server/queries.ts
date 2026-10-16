@@ -4455,3 +4455,59 @@ export const AGENT_TASK_EVENTS_QUERY = /* GraphQL */ `
     }
   }
 `;
+
+// portal#1052 slice 2 — the Roster and the Alarms list.
+
+export const TEAM_ROSTER_QUERY = /* GraphQL */ `
+  query TasksTeamRoster($appRef: ID!) {
+    teamRoster(appRef: $appRef) {
+      asOf
+      workers {
+        worker { id kind name urn }
+        role
+        state
+        family
+        freeFamilies
+        launchableFamilies
+        unavailableFamilies
+        unavailableReason
+        unavailableUntil
+        bound
+        liveSession
+        lastActiveAt
+        lastAssignedAt
+        reportsTo { id kind name urn }
+        reportsToRetired
+        startedTasks
+        pendingTasks
+        waitingOn
+        waitingSince
+        unreactedChildTask
+        alarms
+      }
+    }
+  }
+`;
+
+/** The App's open tasks (any depth), read once to put titles on bare task ids. */
+export const AGENT_TASKS_OPEN_TITLES_QUERY = /* GraphQL */ `
+  query AgentTasksOpenTitles($appRef: ID!, $limit: Int) {
+    agentTasks(appRef: $appRef, status: [PENDING, STARTED], limit: $limit) { id title }
+  }
+`;
+
+export const AGENT_ALARMS_QUERY = /* GraphQL */ `
+  query AgentAlarms($appRef: ID!, $after: ID, $limit: Int) {
+    agentTeamEvents(appRef: $appRef, alarmsOnly: true, after: $after, limit: $limit) {
+      id
+      type
+      severity
+      taskId
+      createdAt
+      subjectWorker { id kind name urn }
+      acknowledgedAt
+      acknowledgedBy { id kind name urn }
+      wakes { chainIndex dueAt wokenAt owner { id kind name urn } }
+    }
+  }
+`;

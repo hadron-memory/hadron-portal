@@ -2,7 +2,7 @@
  * portal#1052 — the board's and the task page's loaders.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY } from '$lib/server/queries';
+import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASKS_OPEN_TITLES_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -93,6 +93,40 @@ async function loadDetail() {
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
   } as never)) as Record<string, unknown>;
 }
+
+describe('views (slice 2)', () => {
+  const answer = async (q: string) => {
+    if (q === AGENT_TASKS_APP_QUERY) return { app };
+    if (q === TEAM_ROSTER_QUERY) return { teamRoster: { asOf: '2026-10-16T00:00:00Z', workers: [] } };
+    if (q === AGENT_TASKS_OPEN_TITLES_QUERY) return { agentTasks: [{ id: 't1', title: 'Ship it' }] };
+    if (q === AGENT_ALARMS_QUERY) return { agentTeamEvents: [] };
+    if (q === AGENT_TASKS_BOARD_QUERY) return { agentTasks: [] };
+    throw new Error('unexpected');
+  };
+
+  it('reads only the view on screen: the roster, with titles, and no board', async () => {
+    request.mockImplementation(answer);
+    const r = await loadBoard('?view=roster');
+    expect(r.view).toBe('roster');
+    expect(r.roster).toMatchObject({ kind: 'ok' });
+    expect(r.titles).toEqual({ t1: 'Ship it' });
+    expect(r.board).toBeNull();
+    expect(request.mock.calls.map((c) => c[0])).not.toContain(AGENT_TASKS_BOARD_QUERY);
+  });
+
+  it('the alarms view reads alarms, defaulting the filter to open', async () => {
+    request.mockImplementation(answer);
+    const r = await loadBoard('?view=alarms');
+    expect(r.alarms).toMatchObject({ kind: 'ok' });
+    expect(r.alarmFilter).toBe('open');
+    expect(request.mock.calls.map((c) => c[0])).not.toContain(TEAM_ROSTER_QUERY);
+  });
+
+  it('an unknown view falls back to the board', async () => {
+    request.mockImplementation(answer);
+    expect((await loadBoard('?view=bogus')).view).toBe('board');
+  });
+});
 
 describe('task loader', () => {
   it('a null task is a 404 that doesn’t say which of missing or unreadable', async () => {
