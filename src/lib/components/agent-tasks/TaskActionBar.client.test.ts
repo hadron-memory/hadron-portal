@@ -9,6 +9,7 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import TaskActionBar from './TaskActionBar.svelte';
 
 const dara = { id: 'w1', kind: 'WORKER' as const, name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' };
@@ -99,6 +100,46 @@ describe('TaskActionBar', () => {
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
     expect(root.querySelector('#task-panel-ready')).toBeNull();
     expect(root.textContent).toContain('Only a backlog task is made ready to be worked.');
+  });
+
+  // Uma's P3-1 on #1135: when the reload ends the task, its actions go, and
+  // the TASK_ENDED refusal must stay in view rather than vanish with them.
+  it('a TASK_ENDED refusal stays in view after the reload ends the task', async () => {
+    const props = reactiveProps<Record<string, unknown>>({
+      task: task(), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false },
+    });
+    const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    button(m.target, 'Cancel…').click();
+    await tick(2);
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('#task-panel-cancel')!, {
+      type: 'failure', status: 409,
+      data: { action: 'cancel', refusal: { kind: 'refused', code: 'TASK_ENDED', message: 'This task is cancelled; an ended task never moves again.' } },
+    });
+    props.task = task({ status: 'CANCELLED' });
+    await tick(3);
+    expect(m.target.querySelector('[data-testid="task-actions"]')).toBeNull();
+    expect(m.target.textContent).toContain('This task is cancelled; an ended task never moves again.');
+    expect(m.target.textContent).toContain('TASK_ENDED');
+  });
+
+  // Uma's P3-5: each panel is named by its heading.
+  it('names each panel by its heading', async () => {
+    const root = await mountBar();
+    button(root, 'Cancel…').click();
+    await tick(2);
+    const panel = root.querySelector('#task-panel-cancel')!;
+    const heading = root.querySelector(`#${panel.getAttribute('aria-labelledby')}`);
+    expect(heading?.textContent).toContain('Cancel “Ship it”?');
+  });
+
+  // Uma's P3-4: "Task created." gets focus, like every other result line.
+  it('focuses "Task created." after a create', async () => {
+    const root = await mountBar({}, { created: true });
+    const status = root.querySelector('[role="status"]');
+    expect(status?.textContent?.trim()).toBe('Task created.');
+    expect(document.activeElement).toBe(status);
   });
 
   it('an unknown failure shows the fixed uncertainty line', async () => {

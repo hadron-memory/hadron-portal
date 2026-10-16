@@ -63,8 +63,16 @@ describe('cancelConsequences', () => {
   });
 
   it('open subtasks are said to stay open, counted, and "at least" when the tree read was capped', () => {
-    expect(cancelConsequences(task(), { count: 2, capped: false })).toContain('Its 2 open subtask(s) aren’t cancelled. They stay as they are.');
-    expect(cancelConsequences(task(), { count: 2, capped: true })).toContain('At least 2 open subtask(s) aren’t cancelled. They stay as they are.');
+    expect(cancelConsequences(task(), { count: 2, capped: false })).toContain('Its 2 open subtasks aren’t cancelled. They stay as they are.');
+    expect(cancelConsequences(task(), { count: 1, capped: false })).toContain('Its 1 open subtask isn’t cancelled. It stays as it is.');
+    expect(cancelConsequences(task(), { count: 2, capped: true })).toContain('At least 2 open subtasks aren’t cancelled. They stay as they are.');
     expect(cancelConsequences(task(), { count: 0, capped: false }).join(' ')).not.toContain('subtask');
+  });
+
+  // Uma's P3-2: when the tree read failed, the page can't count, and says so.
+  it('says it couldn’t check when the subtask count is unknown', () => {
+    expect(cancelConsequences(task(), { count: 0, capped: false, unknown: true })).toContain(
+      'We couldn’t check for open subtasks. They aren’t cancelled either way.',
+    );
   });
 });

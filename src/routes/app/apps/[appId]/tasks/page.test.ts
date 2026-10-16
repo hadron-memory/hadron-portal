@@ -39,7 +39,8 @@ function board(over: Record<string, unknown> = {}) {
  * (held pending a ruling).
  */
 function expectBoardWrites(html: string) {
-  expect(html).toContain('Create and direct tasks from a task’s page, the CLI or MCP.');
+  // Uma's P3-3: New task is on the board, so the note says so.
+  expect(html).toContain('Create a task with New task; direct it from its page, the CLI or MCP.');
   expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\/new"[^>]*>\s*New task/);
   expect(html).not.toMatch(/<form/);
   expect(html).not.toMatch(/\bPark\b/);
