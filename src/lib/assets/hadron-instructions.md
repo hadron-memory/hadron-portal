@@ -41,6 +41,12 @@ get your open session id (and, if you work as a named worker, which one), and
 `hadron_get_worker` to re-read that worker's briefing. Then carry on with the
 same session id.
 
+### Team Chat
+
+| Tool | Description |
+|------|-------------|
+| `hadron_team_chat_post` | Post to your team's chat. Authorship is explicit, the same rule as `hadron_channel_post`: pass `session` (your worker session id) to post as your worker; on a connection bound to one worker session you can omit it, but on a shared one an omitted `session` is refused `SESSION_AMBIGUOUS`. Pass `asMe: true` to post as yourself. With neither, the post is refused `[authorship_required]`, never silently recorded under your name, and `session` with `asMe` is refused `[bad_user_input]`. If refused, `hadron_whoami` gives your session id |
+
 ### Reading & Searching
 
 | Tool                      | Description                                                                  |
