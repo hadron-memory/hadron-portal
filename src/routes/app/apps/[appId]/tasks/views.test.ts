@@ -97,6 +97,18 @@ describe('alarms', () => {
     expect(html).not.toContain('hadron team alarm ack');
   });
 
+  // Uma on #1128: a long title in the Task cell drew over Concerns and Woke
+  // (an inline truncate never truncates); and Status sits before them so the
+  // open state and its ack command are on screen at 1280.
+  it('keeps a long task title in its cell, and puts Status before Concerns and Woke', () => {
+    const html = page({ ...alarms([a('e1')]), titles: { t1: 'T'.repeat(300) } });
+    expect(html).toMatch(/<a href="\/app\/apps\/app-1\/tasks\/t1" class="block max-w-full truncate/);
+    const at = (h: string) => html.indexOf(`>${h}<`);
+    expect(at('Status')).toBeGreaterThan(-1);
+    expect(at('Status')).toBeLessThan(at('Concerns'));
+    expect(at('Status')).toBeLessThan(at('Woke'));
+  });
+
   it('says which kind of empty it is', () => {
     expect(page(alarms([]))).toContain('No alarms have been raised in this App.');
     expect(page(alarms([a('e2', { acknowledgedAt: '2026-10-15T11:00:00Z' })]))).toContain('No open alarms.');
