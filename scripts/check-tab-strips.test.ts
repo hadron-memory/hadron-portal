@@ -755,6 +755,7 @@ describe('the repository as it stands', () => {
     'src/routes/app/account/+layout.svelte',
     'src/routes/app/agents/[id]/+page.svelte',
     'src/routes/app/apps/[appId]/+page.svelte',
+    'src/routes/app/apps/[appId]/tasks/+page.svelte',
     'src/routes/app/assets/+page.svelte',
     'src/routes/app/memories/+page.svelte',
     'src/routes/app/memories/[id]/+layout.svelte',
@@ -765,8 +766,8 @@ describe('the repository as it stands', () => {
     'src/routes/app/workers/[id]/+page.svelte',
   ];
 
-  /** Thirteen strips across twelve files — the agent detail page carries two. */
-  const STRIPS_TOTAL = 13;
+  /** Fourteen strips across thirteen files — the agent detail page carries two. #1052 added the Tasks sub-navigation. */
+  const STRIPS_TOTAL = 14;
 
   /**
    * The rails that resolve to NO tabs — pinned by name, because the CI line
