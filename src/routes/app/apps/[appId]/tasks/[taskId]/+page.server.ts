@@ -1,9 +1,8 @@
 import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { AGENT_TASK_DETAIL_QUERY, AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
-import { loadAncestors, loadHistory, loadTree } from '$lib/server/agent-tasks';
+import { AGENT_TASK_DETAIL_QUERY } from '$lib/server/queries';
+import { loadAncestors, loadHistory, loadTasksApp, loadTree } from '$lib/server/agent-tasks';
 import type { AgentTaskDetail } from '$lib/agent-tasks/types';
-import type { TasksApp } from '../+page.server';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -18,12 +17,11 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
 
-  const [appData, taskData] = await Promise.all([
-    client.request<{ app: TasksApp | null }>(AGENT_TASKS_APP_QUERY, { ref: params.appId }),
-    client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: params.taskId }),
-  ]);
-  if (!appData.app) throw error(404, 'App not found');
-  const app = appData.app;
+  // The App first and alone: a viewer it refuses gets the App page's 404
+  // before any task read (Uma's P2-2 on #1127).
+  const app = await loadTasksApp(client, params.appId);
+  if (!app) throw error(404, 'App not found');
+  const taskData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: params.taskId });
   const task = taskData.agentTask;
   if (!task) throw error(404, 'Task not found, or you can’t see it');
 

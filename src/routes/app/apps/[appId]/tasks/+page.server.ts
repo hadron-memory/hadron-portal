@@ -1,11 +1,9 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
-import { BOARD_LIMIT, loadBoard } from '$lib/server/agent-tasks';
+import { BOARD_LIMIT, loadBoard, loadTasksApp } from '$lib/server/agent-tasks';
 import { parseBoardFilter } from '$lib/agent-tasks/status';
 import type { PageServerLoad } from './$types';
 
-export type TasksApp = { id: string; name: string; urn: string; organizationId: string | null };
 
 /**
  * portal#1052 — the App's task board: its root tasks, read-only (Holger
@@ -20,9 +18,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   // The App's header comes first and alone: a missing App is a 404 whatever
   // the task read would have said.
-  const appData = await client.request<{ app: TasksApp | null }>(AGENT_TASKS_APP_QUERY, { ref: params.appId });
-  if (!appData.app) throw error(404, 'App not found');
-  const app = appData.app;
+  const app = await loadTasksApp(client, params.appId);
+  if (!app) throw error(404, 'App not found');
 
   const board = await loadBoard(client, app.id, filter);
 

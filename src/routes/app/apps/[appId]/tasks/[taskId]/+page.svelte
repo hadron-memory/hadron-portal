@@ -54,6 +54,15 @@
           ? t('app.tasks.session-end.no-host', 'No live host')
           : null;
 
+  /** The task's own people, so its history can name a person an event names by id only. */
+  const people = $derived(
+    Object.fromEntries(
+      [task.owner, task.assignee, task.createdBy, task.assignedBy]
+        .filter((p): p is NonNullable<typeof p> => !!p && p.kind === 'USER' && !!p.name)
+        .map((p) => [p.id, p.name as string]),
+    ),
+  );
+
   /** Description is free text from any participant: plain text, line breaks kept, http(s) URLs linked. No {@html}. */
   const descriptionParts = $derived(
     (task.description ?? '').split(/(https?:\/\/[^\s<>"']+)/g).map((part, i) => ({ part, link: i % 2 === 1 })),
@@ -79,12 +88,12 @@
 
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-facts">
     <h2 id="task-facts" class="sr-only">{t('app.tasks.facts', 'Facts')}</h2>
-    <dl class="grid grid-cols-1 gap-x-6 gap-y-3 text-sm md:grid-cols-[max-content_1fr_max-content_1fr]">
+    <dl class="grid grid-cols-1 gap-x-6 gap-y-3 text-sm md:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]">
       <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.owner', 'Owner')}</dt>
-      <dd><PartyLabel party={task.owner} /></dd>
+      <dd class="min-w-0"><PartyLabel party={task.owner} /></dd>
 
       <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.assignee', 'Assignee')}</dt>
-      <dd>
+      <dd class="min-w-0">
         {#if state === 'queued'}
           <span class="text-zinc-700 dark:text-zinc-300">
             {waitingFor
@@ -103,7 +112,7 @@
 
       {#if task.parentTaskId}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.parent', 'Parent')}</dt>
-        <dd>
+        <dd class="min-w-0">
           <a href="{basePath}/tasks/{task.parentTaskId}" class="text-indigo-600 hover:underline dark:text-indigo-300">
             {parent && parent.id === task.parentTaskId ? parent.title : t('app.tasks.fact.parent-task', 'Parent task')}
           </a>
@@ -117,11 +126,11 @@
 
       {#if task.startBy}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.start-by', 'Start by')}</dt>
-        <dd>{fmtRunTime(task.startBy)}</dd>
+        <dd class="min-w-0">{fmtRunTime(task.startBy)}</dd>
       {/if}
 
       <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.created', 'Created')}</dt>
-      <dd class="flex flex-wrap items-center gap-x-2">
+      <dd class="min-w-0 flex flex-wrap items-center gap-x-2">
         <span>{fmtRunTime(task.createdAt)}</span>
         {#if task.createdBy}
           <PartyLabel party={task.createdBy} showUrn={false} />
@@ -134,27 +143,27 @@
 
       {#if task.assignedAt}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.assigned', 'Assigned')}</dt>
-        <dd class="flex flex-wrap items-center gap-x-2">
+        <dd class="min-w-0 flex flex-wrap items-center gap-x-2">
           <span>{fmtRunTime(task.assignedAt)}</span>
           {#if task.assignedBy}<PartyLabel party={task.assignedBy} showUrn={false} />{/if}
         </dd>
       {/if}
       {#if task.startedAt}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.started', 'Started')}</dt>
-        <dd>{fmtRunTime(task.startedAt)}</dd>
+        <dd class="min-w-0">{fmtRunTime(task.startedAt)}</dd>
       {/if}
       {#if task.finishedAt}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.finished', 'Finished')}</dt>
-        <dd>{fmtRunTime(task.finishedAt)}</dd>
+        <dd class="min-w-0">{fmtRunTime(task.finishedAt)}</dd>
       {/if}
       {#if task.cancelledAt}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.cancelled', 'Cancelled')}</dt>
-        <dd>{fmtRunTime(task.cancelledAt)}</dd>
+        <dd class="min-w-0">{fmtRunTime(task.cancelledAt)}</dd>
       {/if}
 
       {#if task.result}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.result', 'Result')}</dt>
-        <dd class="space-y-1">
+        <dd class="min-w-0 space-y-1">
           <span class="font-medium {outcomeClass(task.result.outcome)}">{task.result.outcome}</span>
           {#if task.result.summary}<p class="whitespace-pre-line text-zinc-700 dark:text-zinc-300">{task.result.summary}</p>{/if}
           {#if task.result.evidence}<div><TaskSource source={task.result.evidence} /></div>{/if}
@@ -162,7 +171,7 @@
       {/if}
 
       <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.session', 'Session when done')}</dt>
-      <dd>
+      <dd class="min-w-0">
         {task.closeSessionWhenDone
           ? t('app.tasks.fact.session-ends', 'Ends the assignee’s session when done')
           : t('app.tasks.fact.session-open', 'Leaves the session open')}
@@ -178,7 +187,7 @@
 
       {#if task.tags.length}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.tags', 'Tags')}</dt>
-        <dd class="flex flex-wrap gap-1">
+        <dd class="min-w-0 flex flex-wrap gap-1">
           {#each task.tags as tag (tag)}
             <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{tag}</span>
           {/each}
@@ -220,7 +229,7 @@
       {/if}
     </div>
     {#if data.history.kind === 'ok'}
-      <TaskHistory events={data.history.value.events} {basePath} />
+      <TaskHistory events={data.history.value.events} {basePath} {people} />
       {#if data.history.value.capped}
         <p role="status" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
           {t('app.tasks.history.capped', 'Showing the first 1000 events; later ones aren’t shown.')}

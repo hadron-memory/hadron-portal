@@ -2,6 +2,7 @@ import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import {
   AGENT_TASK_ANCESTOR_QUERY,
+  AGENT_TASKS_APP_QUERY,
   AGENT_TASK_EVENTS_QUERY,
   AGENT_TASK_TREE_QUERY,
   AGENT_TASKS_BOARD_QUERY,
@@ -138,4 +139,28 @@ export async function loadAncestors(
     return { ancestors: chain.reverse(), truncated: true };
   }
   return { ancestors: chain.reverse(), truncated: next !== null };
+}
+
+export type TasksApp = { id: string; name: string; urn: string; organizationId: string | null };
+
+/**
+ * The App a Tasks view hangs off, or null when the viewer can't see it.
+ *
+ * `app(ref:)` refuses a viewer with no access to the App (FORBIDDEN), and
+ * graphql-request throws on that. The App page answers it with a 404
+ * (`apps/[appId]/+page.server.ts` salvages the partial response), so the
+ * Tasks views do the same instead of a 500 (Uma's P2-2 on #1127). Only a
+ * GraphQL error carries `response`; a transport failure rethrows and stays
+ * a 500, never a misleading 404.
+ */
+export async function loadTasksApp(client: GraphQLClient, ref: string): Promise<TasksApp | null> {
+  try {
+    const r = await client.request<{ app: TasksApp | null }>(AGENT_TASKS_APP_QUERY, { ref });
+    return r.app;
+  } catch (e) {
+    if (e && typeof e === 'object' && 'response' in e) {
+      return (e as { response?: { data?: { app?: TasksApp | null } } }).response?.data?.app ?? null;
+    }
+    throw e;
+  }
 }

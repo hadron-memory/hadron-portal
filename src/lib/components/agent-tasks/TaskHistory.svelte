@@ -11,13 +11,13 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
   import { fmtRunTime } from '$lib/flow/runs';
-  import { alarmRuleName, eventActor, eventSentence, isAlarm } from '$lib/agent-tasks/events';
+  import { alarmRuleName, eventActor, eventSentence, isAlarm, type KnownPeople } from '$lib/agent-tasks/events';
   import { partyName } from '$lib/agent-tasks/status';
   import type { AgentTeamEvent } from '$lib/agent-tasks/types';
   import CopyCode from './CopyCode.svelte';
   import PartyLabel from './PartyLabel.svelte';
 
-  let { events, basePath }: { events: AgentTeamEvent[]; basePath: string } = $props();
+  let { events, basePath, people = {} }: { events: AgentTeamEvent[]; basePath: string; people?: KnownPeople } = $props();
 
   const sortedWakes = (e: AgentTeamEvent) => [...(e.wakes ?? [])].sort((a, b) => a.chainIndex - b.chainIndex);
 </script>
@@ -49,7 +49,7 @@
             {:else}
               <span class="font-medium" title={t('app.tasks.history.hadron-title', 'Recorded automatically by the platform')}>Hadron</span>
             {/if}
-            {@const sentence = eventSentence(e)}
+            {@const sentence = eventSentence(e, people)}
             {#if sentence.known}
               <span>{sentence.text}</span>
             {:else}

@@ -11,9 +11,9 @@
 </script>
 
 {#if kind === 'url'}
-  <a href={source} rel="noopener noreferrer" target="_blank" class="truncate text-xs text-indigo-600 hover:underline dark:text-indigo-300">{source}</a>
+  <a href={source} rel="noopener noreferrer" target="_blank" class="block max-w-full truncate text-xs text-indigo-600 hover:underline dark:text-indigo-300">{source}</a>
 {:else if kind === 'urn'}
-  <span class="min-w-0"><Urn value={source} size={10} compact /></span>
+  <span class="block max-w-full min-w-0 overflow-hidden"><Urn value={source} size={10} compact /></span>
 {:else}
-  <span class="truncate text-xs text-zinc-500 dark:text-zinc-400">{source}</span>
+  <span class="block max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400">{source}</span>
 {/if}

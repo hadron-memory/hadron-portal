@@ -24,13 +24,13 @@
 {#if !party}
   <span class="text-zinc-500 dark:text-zinc-400" title={emptyTitle}>{empty}</span>
 {:else if party.kind === 'WORKER'}
-  <span class="inline-flex min-w-0 flex-col">
+  <span class="inline-flex max-w-full min-w-0 flex-col">
     <span class="inline-flex min-w-0 items-center gap-1.5">
       <a href="/app/workers/{party.id}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{partyName(party)}</a>
       <WorkerBadge size="xs" />
     </span>
     {#if showUrn && party.urn}
-      <span class="min-w-0"><Urn value={party.urn} type="worker" size={10} compact /></span>
+      <span class="block max-w-full min-w-0 overflow-hidden"><Urn value={party.urn} type="worker" size={10} compact /></span>
     {/if}
   </span>
 {:else}
