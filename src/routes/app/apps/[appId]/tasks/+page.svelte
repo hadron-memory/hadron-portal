@@ -7,6 +7,9 @@
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
   import TasksReadOnlyNote from '$lib/components/agent-tasks/TasksReadOnlyNote.svelte';
   import NotParticipant from '$lib/components/agent-tasks/NotParticipant.svelte';
+  import TasksRoster from '$lib/components/agent-tasks/TasksRoster.svelte';
+  import TasksAlarms from '$lib/components/agent-tasks/TasksAlarms.svelte';
+  import { TASK_VIEWS, taskViewLabel, type TaskView } from '$lib/agent-tasks/views';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -56,7 +59,7 @@
   const fmtMs = (v: unknown) => (typeof v === 'number' && v > 0 ? fmtRunTime(String(v)) : '');
 
   const rows = $derived<BoardRow[]>(
-    board.kind === 'ok'
+    board?.kind === 'ok'
       ? board.value.tasks.map((task) => {
           const state = taskDisplayState(task);
           return {
@@ -107,6 +110,10 @@
     },
   });
 
+  function viewHref(v: TaskView): string {
+    return v === 'board' ? `${basePath}/tasks` : `${basePath}/tasks?view=${v}`;
+  }
+
   function filterHref(f: BoardFilter): string {
     return f === 'active' ? `${basePath}/tasks` : `${basePath}/tasks?status=${f}`;
   }
@@ -141,7 +148,29 @@
     <TasksReadOnlyNote />
   </div>
 
-  {#if board.kind === 'not-participant'}
+  <!-- §2: Board · Roster · Alarms, addressed by ?view=. Its own row scrolls on a phone, never the page. -->
+  <nav aria-label={t('app.tasks.view.label', 'Task views')} class="-mx-1 flex overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
+    {#each TASK_VIEWS as v (v)}
+      <a
+        href={viewHref(v)}
+        aria-current={data.view === v ? 'page' : undefined}
+        class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium {data.view === v
+          ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+          : 'border-transparent text-zinc-500 hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200'}"
+      >{taskViewLabel(v)}</a>
+    {/each}
+  </nav>
+
+  {#if data.view === 'roster' && data.roster}
+    <TasksRoster roster={data.roster} titles={data.titles} {basePath} impersonating={data.impersonating} />
+  {:else if data.view === 'alarms' && data.alarms}
+    <TasksAlarms alarms={data.alarms} filter={data.alarmFilter} limit={data.alarmsLimit} titles={data.titles} {basePath} impersonating={data.impersonating} />
+  {:else if !board}
+    <!-- The loader always reads the board for the board view; if it ever doesn't, say so rather than show nothing. -->
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+      {t('app.tasks.load-failed', 'Couldn’t load tasks.')}
+    </div>
+  {:else if board.kind === 'not-participant'}
     <NotParticipant impersonating={data.impersonating} />
   {:else}
     <div class="flex flex-wrap items-center justify-between gap-2">

@@ -1,13 +1,16 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import {
+  AGENT_ALARMS_QUERY,
   AGENT_TASK_ANCESTOR_QUERY,
   AGENT_TASK_EVENTS_QUERY,
   AGENT_TASK_TREE_QUERY,
   AGENT_TASKS_BOARD_QUERY,
+  AGENT_TASKS_OPEN_TITLES_QUERY,
+  TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
-import type { AgentTaskRow, AgentTeamEvent } from '$lib/agent-tasks/types';
+import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TeamRoster } from '$lib/agent-tasks/types';
 
 /**
  * portal#1052 — the Tasks views' reads.
@@ -21,7 +24,7 @@ import type { AgentTaskRow, AgentTeamEvent } from '$lib/agent-tasks/types';
  *     here (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only);
  *   - `failed`: anything else, never shown as an empty list.
  */
-export type TaskRead<T> = { kind: 'ok'; value: T } | { kind: 'not-participant' } | { kind: 'failed' };
+export type { TaskRead };
 
 function classify<T>(e: unknown, what: string): TaskRead<T> {
   if (extractGqlErrorCode(e) === 'APP_NOT_FOUND') return { kind: 'not-participant' };
@@ -138,4 +141,62 @@ export async function loadAncestors(
     return { ancestors: chain.reverse(), truncated: true };
   }
   return { ancestors: chain.reverse(), truncated: next !== null };
+}
+
+// ── slice 2: the Roster and the Alarms list ────────────────────────────────
+
+export async function loadRoster(client: GraphQLClient, appRef: string): Promise<TaskRead<TeamRoster>> {
+  try {
+    const r = await client.request<{ teamRoster: TeamRoster }>(TEAM_ROSTER_QUERY, { appRef });
+    return { kind: 'ok', value: r.teamRoster };
+  } catch (e) {
+    return classify(e, `roster read for ${appRef}`);
+  }
+}
+
+/**
+ * Titles for the bare task ids the Roster and Alarms carry: the App's open
+ * tasks, read once (design §6). An id outside this set still renders, as
+ * "Task <short id>" linked to its page, never as "no task". A failure here
+ * only costs the titles, so it reads as an empty map and is logged.
+ */
+export async function loadOpenTaskTitles(client: GraphQLClient, appRef: string): Promise<Record<string, string>> {
+  try {
+    const r = await client.request<{ agentTasks: { id: string; title: string }[] }>(AGENT_TASKS_OPEN_TITLES_QUERY, {
+      appRef,
+      limit: BOARD_LIMIT,
+    });
+    return Object.fromEntries(r.agentTasks.map((t) => [t.id, t.title]));
+  } catch (e) {
+    console.warn(`[agent-tasks] open-task titles failed for ${appRef}:`, e);
+    return {};
+  }
+}
+
+/** The Alarms list reads this many alarms at most; past it the view says so. */
+export const ALARMS_LIMIT = 2000;
+
+/**
+ * Every alarm in the App, oldest first, walked forward by `after` (design §7).
+ * The server reads alarms only oldest-first today, so reaching the newest
+ * means walking the stream; the view sorts newest first. Past the bound it
+ * says newer alarms may be missing.
+ */
+export async function loadAlarms(
+  client: GraphQLClient,
+  appRef: string,
+): Promise<TaskRead<{ alarms: AgentAlarm[]; capped: boolean }>> {
+  const alarms: AgentAlarm[] = [];
+  let after: string | undefined;
+  try {
+    while (alarms.length < ALARMS_LIMIT) {
+      const r = await client.request<{ agentTeamEvents: AgentAlarm[] }>(AGENT_ALARMS_QUERY, { appRef, after, limit: EVENTS_PAGE });
+      alarms.push(...r.agentTeamEvents);
+      if (r.agentTeamEvents.length < EVENTS_PAGE) return { kind: 'ok', value: { alarms, capped: false } };
+      after = r.agentTeamEvents[r.agentTeamEvents.length - 1].id;
+    }
+    return { kind: 'ok', value: { alarms: alarms.slice(0, ALARMS_LIMIT), capped: true } };
+  } catch (e) {
+    return classify(e, `alarms read for ${appRef}`);
+  }
 }
