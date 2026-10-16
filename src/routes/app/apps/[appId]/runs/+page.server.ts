@@ -3,10 +3,10 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { APP_QUERY, APP_RUNS_QUERY, APP_NODES_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
+import { APP_RUNS_QUERY, APP_NODES_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
+import { isAccessRefusal, loadTasksApp } from '$lib/server/agent-tasks';
 import { flowRoots, type FlowGraphNode } from '$lib/flow/flows';
 import { RUN_STATUSES, type AppRun, type AppRunStatus } from '$lib/flow/runs';
-import type { App } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { runAppFlowSchema } from './schema';
 
@@ -27,14 +27,26 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     : null;
   const page = Math.max(1, Number(url.searchParams.get('page')) || 1);
 
-  const [appData, runsData, nodesData] = await Promise.all([
-    client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId }),
-    client.request<{ appRuns: { items: AppRun[]; total: number } }>(APP_RUNS_QUERY, {
-      appRef: params.appId,
-      status,
-      limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
-    }),
+  // portal#1130: the App first and alone. A viewer the server conceals it
+  // from gets the App page's 404, not a 500; any other failure stays one.
+  const app = await loadTasksApp(client, params.appId);
+  if (!app) throw error(404, 'App not found');
+
+  const [runsData, nodesData] = await Promise.all([
+    client
+      .request<{ appRuns: { items: AppRun[]; total: number } }>(APP_RUNS_QUERY, {
+        appRef: params.appId,
+        status,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
+      })
+      .catch((e) => {
+        // appRuns conceals a foreign App's runs as NOT_FOUND
+        // (hrn:node:hadronmemory.com:specs:cor:api:120:01):
+        // the same 404, never a different existence signal.
+        if (isAccessRefusal(e)) throw error(404, 'App not found');
+        throw e;
+      }),
     // Flows this app can start (#483): derived from the app's accessible
     // nodes (runnable + routing edges, no schema marker). Best-effort — a
     // failure only hides the Flows section, never the audit list (auxiliary
@@ -46,12 +58,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         return { appNodes: [] as FlowGraphNode[] };
       }),
   ]);
-  if (!appData.app) throw error(404, 'App not found');
 
   const runForm = await superValidate(zod4(runAppFlowSchema), { errors: false });
 
   return {
-    app: appData.app,
+    app,
     runs: runsData.appRuns.items,
     total: runsData.appRuns.total,
     page,

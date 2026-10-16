@@ -219,13 +219,23 @@ export type TasksApp = { id: string; name: string; urn: string; organizationId: 
  */
 const APP_REFUSED_CODES = new Set(['FORBIDDEN', 'NOT_FOUND']);
 
+/**
+ * Whether a read failed because the server conceals the entity from this
+ * viewer (FORBIDDEN or NOT_FOUND), which an App sub-route shows as its 404.
+ * Shared by the Tasks views and the runs pages (portal#1130), so every App
+ * sub-route answers a no-access viewer the same way.
+ */
+export function isAccessRefusal(e: unknown): boolean {
+  const code = extractGqlErrorCode(e);
+  return code !== null && APP_REFUSED_CODES.has(code);
+}
+
 export async function loadTasksApp(client: GraphQLClient, ref: string): Promise<TasksApp | null> {
   try {
     const r = await client.request<{ app: TasksApp | null }>(AGENT_TASKS_APP_QUERY, { ref });
     return r.app;
   } catch (e) {
-    const code = extractGqlErrorCode(e);
-    if (code && APP_REFUSED_CODES.has(code)) return null;
+    if (isAccessRefusal(e)) return null;
     throw e;
   }
 }
