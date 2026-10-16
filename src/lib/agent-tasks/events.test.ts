@@ -33,6 +33,15 @@ describe('eventSentence', () => {
     expect(eventSentence(ev('task.assigned'))).toEqual({ known: true, text: 'assigned it to a person' });
   });
 
+  // Uma's P3 on #1127: a person the page already knows (one of the task's own
+  // parties) is named, by the payload's user id.
+  it('names a known person by the payload’s user id', () => {
+    const people = { u1: 'Holger' };
+    expect(eventSentence(ev('task.assigned', { assignee: { userId: 'u1' } }), people)).toEqual({ known: true, text: 'assigned it to Holger' });
+    expect(eventSentence(ev('task.reassigned', { to: { userId: 'u1' } }), people)).toEqual({ known: true, text: 'reassigned it to Holger' });
+    expect(eventSentence(ev('task.assigned', { assignee: { userId: 'u9' } }), people)).toEqual({ known: true, text: 'assigned it to a person' });
+  });
+
   it('an unknown type returns the raw type and no sentence', () => {
     expect(eventSentence(ev('host.operation.failed'))).toEqual({ known: false, type: 'host.operation.failed' });
   });
