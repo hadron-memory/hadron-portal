@@ -4,6 +4,7 @@
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import WorkerSessionsTable from '$lib/components/WorkerSessionsTable.svelte';
+  import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { onMount, tick, untrack } from 'svelte';
@@ -30,7 +31,7 @@
   // of every `hrn:worker:` URN a worker signs its outward-facing work with, so
   // a deep link here is exactly the link #761 taught to survive the resolver.
   // Labels may be reworded; these ids may not.
-  type WorkerTabId = 'profile' | 'briefing' | 'sessions' | 'worklog';
+  type WorkerTabId = 'profile' | 'briefing' | 'sessions' | 'worklog' | 'wake';
   let activeTab = $state<WorkerTabId>(
     untrack(() => (data.initialTab as WorkerTabId | null) ?? 'profile'),
   );
@@ -46,6 +47,8 @@
     // list is information, and hiding the tab would hide that.
     { id: 'sessions', label: t('worker.tabs.sessions', 'Worker sessions') },
     { id: 'worklog', label: t('worker.tabs.worklog', 'Worklog') },
+    // portal#1099 — why this worker is or isn't woken (Tickers S7a, read-only).
+    { id: 'wake', label: t('worker.tabs.wake', 'Wake-ups') },
   ];
 
   // ── Boot briefing (#1010) ──────────────────────────────────────────
@@ -817,6 +820,22 @@
       {/if}
     </section>
 
+    </div>
+  {/if}
+
+  {#if activeTab === 'wake'}
+    <div id="panel-wake" role="tabpanel" aria-labelledby="tab-wake" tabindex="0" class="space-y-6 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+      <div>
+        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('worker.wake.title', 'Wake-ups')}</h2>
+        <p class="mt-1 text-sm text-zinc-500">{t('worker.wake.description', 'When this worker is due a wake-up: from a mention, or from the tickers it follows.')}</p>
+      </div>
+      <WakeUpsPanel
+        wake={data.wake}
+        appSettings={data.wakeAppSettings}
+        worker={data.worker}
+        appId={data.worker.app?.id ?? null}
+        loadedAt={data.wakeLoadedAt}
+      />
     </div>
   {/if}
 </div>

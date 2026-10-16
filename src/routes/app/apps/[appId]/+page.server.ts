@@ -66,6 +66,7 @@ import type {
   TeamChatMessage,
   TeamWorkItem,
 } from '$lib/types';
+import { loadAppKeyScopes } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
 import {
   addAgentSchema,
@@ -603,7 +604,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -692,6 +693,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
             return null;
           })
       : Promise.resolve(null),
+    // portal#1099 — the App Keys tab's Scopes column, in its OWN request and
+    // classified (never throws): `AppKey.scopes` is manager-only and non-null,
+    // so selecting it on the keys themselves would null the whole list for
+    // everyone else.
+    loadAppKeyScopes(client, app.id),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -863,6 +869,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     },
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
+    keyScopes,
     appSettingsForm,
     addAgentForm,
     createKeyForm,

@@ -7,6 +7,7 @@ import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import { TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_MUTATION, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
+import { loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
 import { updateBriefingSchema } from './schema';
 
@@ -23,7 +24,7 @@ const updateBriefingAdapter = zod4(updateBriefingSchema);
  * URL parsing lives in one place and an unknown value falls back to the default
  * instead of rendering a page where no panel matches.
  */
-const WORKER_TAB_IDS: readonly string[] = ['profile', 'briefing', 'sessions', 'worklog'];
+const WORKER_TAB_IDS: readonly string[] = ['profile', 'briefing', 'sessions', 'worklog', 'wake'];
 
 /**
  * #1010 — the Briefing tab's view mode, validated here for the same reason
@@ -130,6 +131,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   const sessionsTruncated = !!sessions && sessions.length > SESSION_PAGE_SIZE;
 
+  // portal#1099 — the Wake-ups tab (Tickers S7a, read-only). Each read is
+  // classified on its own (ok / not-participant / failed) and never throws, so
+  // neither can blank the rest of the page. The App's settings only supply the
+  // wake-rate floor line; without a readable App there is nothing to ask.
+  const [wake, wakeAppSettings] = await Promise.all([
+    loadWakeSettings(client, worker.id),
+    worker.app?.id ? loadAppTickerSettings(client, worker.app.id) : Promise.resolve(null),
+  ]);
+
   // #1010: seeded with the worker's CURRENT override, so the Source view opens
   // on what is stored rather than on an empty box a reader could mistake for
   // "there is no override" and save over.
@@ -148,6 +158,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     sessionsTruncated,
     worklog: worklog?.items ?? null,
     worklogTotal: worklog?.total ?? 0,
+    wake,
+    wakeAppSettings,
+    wakeLoadedAt: new Date().toISOString(),
   };
 };
 

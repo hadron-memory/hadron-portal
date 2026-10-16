@@ -79,6 +79,10 @@ jobs:
       - name: Check memory Usage toolbar phone layout
         run: pnpm test:usage-toolbar-layout
 
+      # portal#1099: the Tickers views at 390px and 1280px.
+      - name: Check Tickers phone layout
+        run: pnpm test:tickers-layout
+
       - name: Check
         run: pnpm check
 

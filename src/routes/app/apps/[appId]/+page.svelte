@@ -233,12 +233,22 @@
   // dead branches into the grid would have made a column that always reads
   // "active".
   let appKeyFilter = $state('');
+  const keyScopesOf = (id: string) => (data.keyScopes?.kind === 'ok' ? (data.keyScopes.byKey[id] ?? []) : []);
+  const scopeLabel = (s: { scope: string; hostId: string | null }) => (s.hostId ? `${s.scope} · ${s.hostId}` : s.scope);
+  const keyScopesText = (id: string) => keyScopesOf(id).map(scopeLabel).join(' ');
   const appKeys = $derived(app.keys ?? []);
   const appKeyColumns: PortalColumnDef<AppKey>[] = [
     { accessorKey: 'label', header: t('app.keys.column.label', 'Label'), enableHiding: false, size: 200 },
     { accessorKey: 'keyPreview', header: t('app.keys.column.preview', 'Preview'), size: 120 },
     { accessorFn: (row) => keyDateMs(row.createdAt), id: 'createdAt', header: t('app.keys.column.created', 'Created'), size: 170 },
     { accessorFn: (row) => keyDateMs(row.lastUsedAt), id: 'lastUsedAt', header: t('app.keys.column.last-used', 'Last used'), size: 170 },
+    // portal#1099 — what each key may do (hrn:node:hadronmemory.com:specs:cor:aut:010:03). The field is
+    // readable only by whoever manages the App, so the column exists only when
+    // the server answered the scopes read; for anyone else it isn't there at
+    // all, never an empty chip. Read-only: giving and taking back scopes is S7b.
+    ...(untrack(() => data.keyScopes?.kind === 'ok')
+      ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 220 } satisfies PortalColumnDef<AppKey>]
+      : []),
     { id: 'actions', header: t('app.keys.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 100 },
   ];
   const appKeyFmt: Record<string, (v: unknown) => string> = {
@@ -1450,6 +1460,14 @@
     >
       {t('app.tabs.tasks', 'Tasks')}
     </a>
+    <!-- #1099: Tickers is a subroute for the same reason: a ticker read
+         answers a non-participant APP_NOT_FOUND. -->
+    <a
+      href="/app/apps/{app.id}/tickers"
+      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+    >
+      {t('app.tabs.tickers', 'Tickers')}
+    </a>
   </div>
 
   <!-- ───────────── CHATS TAB (#744) ─────────────
@@ -1776,7 +1794,7 @@
   {/if}
 
   <!-- ───────────── WORKLOG TAB (#733) ─────────────
-       The authoritative artifact-to-worker-session join (cor:agt:020:05) — what
+       The authoritative artifact-to-worker-session join (hrn:node:hadronmemory.com:specs:cor:agt:020:05) — what
        lets a merged PR trace back to the worker and transcript that produced
        it. Read through `teamWorkItems`, not appNodes.
 
@@ -1808,7 +1826,7 @@
 
   <!-- ───────────── STAFF TAB (#974) ─────────────
        The App's Workers: the named castings of its installed agents. This IS
-       App context, so names render BARE (`cor:agt:020:02` — per-App uniqueness
+       App context, so names render BARE (`hrn:node:hadronmemory.com:specs:cor:agt:020:02` — per-App uniqueness
        makes them unambiguous here). The app-qualified compound belongs on
        org-wide surfaces, never here. -->
   {#if activeTab === 'staff'}
@@ -2386,6 +2404,9 @@
           </button>
         </form>
 
+        {#if data.keyScopes?.kind === 'failed'}
+          <p role="status" class="text-xs text-amber-700 dark:text-amber-300">{t('app.keys.scopes.failed', 'Couldn’t load what these keys may do, so the Scopes column isn’t shown.')}</p>
+        {/if}
         {#if appKeys.length === 0}
           <p class="text-sm text-zinc-400">{t('app.keys.empty', 'No keys yet.')}</p>
         {:else}
@@ -2404,6 +2425,17 @@
             {#snippet cell(cell, key)}
               {#if cell.column.id === 'keyPreview'}
                 <span class="font-mono text-xs text-zinc-500">{key.keyPreview}</span>
+              {:else if cell.column.id === 'scopes'}
+                {@const scopes = keyScopesOf(key.id)}
+                {#if scopes.length === 0}
+                  <span class="text-zinc-400">{t('app.keys.scopes.none', 'None')}</span>
+                {:else}
+                  <span class="flex flex-wrap gap-1" data-testid="key-scopes">
+                    {#each scopes as sc (scopeLabel(sc))}
+                      <span class="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">{scopeLabel(sc)}</span>
+                    {/each}
+                  </span>
+                {/if}
               {:else if cell.column.id === 'actions'}
                 <!-- Keep BOTH handlers: onclick updates before client
                      validation for button activation; onsubmit covers

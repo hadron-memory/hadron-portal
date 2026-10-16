@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { gqlClient } from '$lib/server/api';
 import { RESOLVE_URN_QUERY } from '$lib/server/queries';
+import { loadTicker } from '$lib/server/tickers';
 import { withQuery } from '$lib/safeRedirect';
 import { normalizeUrn } from '$lib/urn/parse-urn';
 import type { PageServerLoad } from './$types';
@@ -53,6 +54,17 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>([
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const urn = normalizeUrn(params.urn);
+
+  // portal#1099 — `resolveUrn` doesn't resolve ticker URNs yet (hrn:node:hadronmemory.com:specs:cor:agt:080:01
+  // lists that as partly built), but `ticker(ref:)` takes one and runs the
+  // ticker's own read gate, answering null for a missing ticker and an
+  // unreachable one alike. So a ticker link resolves here, with the same
+  // no-oracle 404 and the same temporary redirect as every other kind.
+  if (urn.startsWith('hrn:ticker:')) {
+    const ticker = await loadTicker(gqlClient(locals.token), urn);
+    if (!ticker) throw error(404, notFoundMessage(urn));
+    redirect(307, withQuery(`/app/apps/${ticker.app.id}/tickers/${ticker.id}`, url.search));
+  }
 
   // #567: a URN the server *rejects* (GraphQL error) must not surface as an
   // unhandled 500 — but only KNOWN rejection codes are mapped, and only when
