@@ -2131,11 +2131,11 @@
           {t('comments.node-note', 'This node is a comment in a discussion. Comments are never approved or minted.')}
         </p>
       {:else}
-      <!-- #992: approval of the revision on screen, with Approve / Verify. -->
+      <!-- #1129: content approval, bound to the revision on screen, with Approve / Verify. -->
       <div data-testid="node-approval" class="mt-1 flex flex-wrap items-center gap-2">
         {#if approvalState}
           {#if mintState}<NodeMintLabel view={mintState} />{/if}
-          <NodeApprovalBadge view={approvalState} />
+          <NodeApprovalBadge view={approvalState} currentRevision={node.revision} />
           {#if approvalState.canApprove}
             <form method="POST" action="?/approveNode" use:approveEnhance novalidate class="flex items-center">
               <input type="hidden" name="_kind" value="approveNode" />

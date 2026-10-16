@@ -195,7 +195,7 @@ describe('verifyNode action', () => {
     mockRequest.mockResolvedValue(check('INTACT'));
     const r = await runAction('verifyNode', { _kind: 'verifyNode' });
     expect(mockRequest).toHaveBeenCalledWith(VERIFY_NODE_QUERY, { nodeRef: 'leaf-pk' });
-    expect(messageOf(r)).toEqual({ type: 'success', text: 'Verified: revision 4 matches what was approved.' });
+    expect(messageOf(r)).toEqual({ type: 'success', text: 'Verified: the current title, abstract and content match the approval recorded at revision 3 (current revision 4).' });
     expect((r as { verifyIntegrity?: unknown }).verifyIntegrity).toEqual({ state: 'INTACT', expectedHash: 'a', actualHash: 'b' });
   });
 

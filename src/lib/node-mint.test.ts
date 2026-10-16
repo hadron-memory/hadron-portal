@@ -71,3 +71,10 @@ describe('openFeedbackWarning (portal#1014)', () => {
     expect(openFeedbackWarning({ openFeedback: [{ urn: 'hrn:node:a:b:c', openThreads: 1 }, { urn: 'hrn:node:a:b:d', openThreads: 1 }] })).toMatch(/^2 nodes have open discussions/);
   });
 });
+
+
+it('mint blockers refer to current content and keep tampering distinct (#1129)', () => {
+  expect(findingKindText('NOT_APPROVED')).toBe('Current content not approved');
+  expect(findingKindText('TAMPERED')).toContain('outside the revision history');
+  expect(findingKindText('TAMPERED')).not.toBe(findingKindText('NOT_APPROVED'));
+});

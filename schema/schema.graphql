@@ -1,4 +1,4 @@
-# Exported from hadron-server 4c55560a4ce681a00ead428389b1f3db86884d15 (4c55560a, 2026-10-15T14:09:07-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server f693a50e6c371d33970b7b35f009114f61aab44e (origin/main, 2026-10-15T22:01:08-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -3789,7 +3789,9 @@ type HomeAssistantOp {
 #1709 — one use of a host key (hrn:node:hadronmemory.com:specs:cor:agt:070:07).
 """
 type HostKeyUse {
-  """register, collect, report, availability or read."""
+  """
+  register, collect, report, availability, read or (#1969) session: a refused session write (updateSession, endSession).
+  """
   action: String!
 
   """
@@ -8398,9 +8400,13 @@ type NodeApprovalReceipt {
   urn: String!
 }
 
-"""#1591 — whether a node's current revision is approved."""
+"""
+#1591 — whether a node's approval still covers its current text (#1611: title, abstract and content under approval-hash v1; a metadata-only revision keeps it).
+"""
 enum NodeApprovalState {
-  """The current revision is approved."""
+  """
+  The approval covers the current text: it was recorded at the revision in NodeApproval.revision, which can be older than Node.revision when only metadata (tags, properties, role, description, alias, loc, edges) changed since.
+  """
   APPROVED
 
   """Approval is not applicable in an encrypted memory."""
@@ -8409,7 +8415,9 @@ enum NodeApprovalState {
   """Never approved."""
   NOT_APPROVED
 
-  """Approved once, edited since: the approval covers an older revision."""
+  """
+  Approved once, then the title, abstract or content changed (or the text no longer hashes to the approval, see verifyNode's TAMPERED).
+  """
   SUPERSEDED
 }
 
