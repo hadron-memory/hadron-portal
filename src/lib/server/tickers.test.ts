@@ -1,0 +1,78 @@
+/**
+ * portal#1099 — the Tickers reads: S7a is read-only, and each read maps only
+ * the server's concealment codes (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+ */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as tickers from './tickers';
+
+const request = vi.fn();
+const client = { request } as never;
+const gqlError = (code: string) => ({ response: { errors: [{ message: code, extensions: { code } }] } });
+
+beforeEach(() => {
+  request.mockReset();
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
+});
+
+describe('S7a is read-only', () => {
+  it('every GraphQL document in the module is a query, none a mutation', () => {
+    const docs = Object.entries(tickers).filter(([k, v]) => k.endsWith('_QUERY') && typeof v === 'string') as [string, string][];
+    expect(docs.length).toBeGreaterThanOrEqual(5);
+    for (const [, doc] of docs) {
+      expect(doc).toMatch(/\bquery \w+/);
+      expect(doc).not.toMatch(/\bmutation\b/);
+    }
+  });
+});
+
+describe('loadTickers', () => {
+  it('ok with the rows', async () => {
+    request.mockResolvedValueOnce({ tickers: [{ id: 't1' }] });
+    await expect(tickers.loadTickers(client, 'app-1')).resolves.toEqual({ kind: 'ok', value: [{ id: 't1' }] });
+    expect(request).toHaveBeenCalledWith(tickers.APP_TICKERS_QUERY, { appRef: 'app-1', first: tickers.SUBSCRIBER_COUNT_PAGE });
+  });
+  it('APP_NOT_FOUND is the not-participant state', async () => {
+    request.mockRejectedValueOnce(gqlError('APP_NOT_FOUND'));
+    await expect(tickers.loadTickers(client, 'app-1')).resolves.toEqual({ kind: 'not-participant' });
+  });
+  it('anything else is a failure, never an empty list', async () => {
+    request.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR'));
+    await expect(tickers.loadTickers(client, 'app-1')).resolves.toEqual({ kind: 'failed' });
+    request.mockRejectedValueOnce(new Error('ECONNREFUSED'));
+    await expect(tickers.loadTickers(client, 'app-1')).resolves.toEqual({ kind: 'failed' });
+  });
+});
+
+describe('loadWakeSettings', () => {
+  it('WORKER_NOT_FOUND (the server’s answer to a non-participant) is not-participant', async () => {
+    request.mockRejectedValueOnce(gqlError('WORKER_NOT_FOUND'));
+    await expect(tickers.loadWakeSettings(client, 'w1')).resolves.toEqual({ kind: 'not-participant' });
+  });
+  it('FORBIDDEN is not one of its concealment codes, so it is a failure', async () => {
+    request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
+    await expect(tickers.loadWakeSettings(client, 'w1')).resolves.toEqual({ kind: 'failed' });
+  });
+});
+
+describe('loadAppKeyScopes', () => {
+  it('maps scopes by key', async () => {
+    request.mockResolvedValueOnce({ appKeys: [{ id: 'k1', scopes: [{ scope: 'attention:deliver', hostId: null, grantedAt: 'x' }] }] });
+    await expect(tickers.loadAppKeyScopes(client, 'app-1')).resolves.toEqual({
+      kind: 'ok',
+      byKey: { k1: [{ scope: 'attention:deliver', hostId: null, grantedAt: 'x' }] },
+    });
+  });
+  it('FORBIDDEN (not a manager, cor:aut:010:03) hides the column; it is not an error', async () => {
+    request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
+    await expect(tickers.loadAppKeyScopes(client, 'app-1')).resolves.toEqual({ kind: 'hidden' });
+  });
+  it('anything else is a failure', async () => {
+    request.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR'));
+    await expect(tickers.loadAppKeyScopes(client, 'app-1')).resolves.toEqual({ kind: 'failed' });
+  });
+  it('is its own request: the keys list query never selects scopes', async () => {
+    const { APP_KEYS_QUERY } = await import('./queries');
+    expect(APP_KEYS_QUERY).not.toMatch(/scopes/);
+    expect(tickers.APP_KEY_SCOPES_QUERY).toMatch(/scopes/);
+  });
+});

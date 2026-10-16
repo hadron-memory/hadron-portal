@@ -498,6 +498,56 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
   });
 });
 
+// portal#1099 — the App Keys tab's Scopes column (hrn:node:hadronmemory.com:specs:cor:aut:010:03). Read-only,
+// and present only when the server answered the manager-only scopes read.
+describe('App Keys Scopes column (portal#1099)', () => {
+  const key = {
+    id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
+    createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
+  };
+  async function mountKeys(keyScopes: unknown) {
+    setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
+    const data = await pageData();
+    const props = reactiveProps({ data: { ...data, initialTab: 'keys', app: { ...data.app, keys: [key] }, keyScopes }, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target.querySelector('#panel-keys')!;
+  }
+  const headers = (panel: Element) => [...panel.querySelectorAll('th')].map((th) => th.textContent?.trim() ?? '');
+
+  it('a manager sees each key’s scopes, a host scope with its host', async () => {
+    const panel = await mountKeys({ kind: 'ok', byKey: { k1: [{ scope: 'attention:deliver', hostId: null, grantedAt: 'x' }, { scope: 'host:operate', hostId: 'h-1', grantedAt: 'x' }] } });
+    expect(headers(panel).some((h) => h.startsWith('Scopes'))).toBe(true);
+    const chips = [...panel.querySelectorAll('[data-testid="key-scopes"] span')].map((s) => s.textContent?.trim());
+    expect(chips).toEqual(['attention:deliver', 'host:operate · h-1']);
+  });
+
+  it('a key with no scopes reads None, not an empty chip', async () => {
+    const panel = await mountKeys({ kind: 'ok', byKey: { k1: [] } });
+    expect(panel.querySelector('[data-testid="key-scopes"]')).toBeNull();
+    expect(panel.textContent).toContain('None');
+  });
+
+  it('for anyone the server refused (not a manager), there is no Scopes column at all', async () => {
+    const panel = await mountKeys({ kind: 'hidden' });
+    expect(headers(panel).some((h) => h.startsWith('Scopes'))).toBe(false);
+    expect(panel.textContent).toContain('router');
+  });
+
+  it('a failed scopes read says so and keeps the keys', async () => {
+    const panel = await mountKeys({ kind: 'failed' });
+    expect(panel.textContent).toContain('Couldn’t load what these keys may do');
+    expect(headers(panel).some((h) => h.startsWith('Scopes'))).toBe(false);
+    expect(panel.textContent).toContain('router');
+  });
+
+  it('offers no scope write', async () => {
+    const panel = await mountKeys({ kind: 'ok', byKey: { k1: [] } });
+    expect(panel.textContent).not.toMatch(/Give scope|Take scope back/);
+  });
+});
+
 describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
   it('sends the reader to AI Service Configs, where the providers now live', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });

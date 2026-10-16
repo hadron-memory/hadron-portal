@@ -1,0 +1,226 @@
+/**
+ * portal#1099 — the Tickers list, a ticker page and the Wake-ups panel,
+ * rendered on the server. S7a is read-only (Holger via Vera, team chat
+ * #11540): no view renders a write control.
+ */
+import { describe, expect, it, vi } from 'vitest';
+import { render } from 'svelte/server';
+
+vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
+vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
+import List from './+page.svelte';
+import Detail from './[tickerId]/+page.svelte';
+import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
+
+const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
+const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 480, dailyWakeBudgetDerived: true } };
+const LOADED = '2026-10-16T10:00:00Z';
+
+const ticker = (over: Record<string, unknown> = {}) => ({
+  id: 'tk-1', name: 'engineering', slug: 'engineering', urn: 'hrn:ticker:acme.com:team:engineering',
+  enabled: true, cadenceSeconds: 600, anchorAt: '2026-10-01T00:00:00Z',
+  nextTickAt: '2026-10-16T10:10:00Z', lastTickAt: '2026-10-16T10:00:00Z',
+  quietHours: { timezone: 'Europe/Berlin', windows: [{ days: [1, 2, 3, 4, 5], from: '22:00', to: '07:00' }] },
+  relevance: 'ALL', channels: [], owner: { id: 'w-dara', name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' },
+  createdAt: '2026-10-01T00:00:00Z', updatedAt: null,
+  subscribers: { hasNextPage: false, items: [{ id: 's1' }, { id: 's2' }] },
+  ...over,
+});
+
+function list(over: Record<string, unknown> = {}) {
+  return render(List as never, {
+    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
+  } as never).body;
+}
+
+/**
+ * No write control: no form, no named form field (the grid's own search box
+ * is chrome, not a field), and no button or link naming an S7b write.
+ */
+function expectReadOnly(html: string) {
+  expect(html).not.toMatch(/<form/);
+  expect(html).not.toMatch(/<(input|select|textarea)[^>]*\bname=/);
+  expect(html).not.toMatch(/<(button|a)\b[^>]*>\s*(Create ticker|Edit|Disable|Enable|Delete|Add subscriber|Remove|Subscribe|Pause|Resume|Give scope|Take scope back|Save)\b/i);
+}
+
+describe('Tickers list', () => {
+  it('the empty state never claims a ticker wakes anyone today, and separates due from delivery', () => {
+    const html = list();
+    expect(html).toContain('No tickers yet.');
+    expect(html).toContain('A mention already makes a worker due at once, unless its mentions are off or it is paused.');
+    expect(html).toContain('A router delivers the wake-ups. This page only decides who is due and when.');
+    expect(html).not.toMatch(/tickers (already )?wake/i);
+    expectReadOnly(html);
+  });
+
+  it('counts against the live cap from the settings', () => {
+    expect(list({ tickers: { kind: 'ok', value: [ticker()] } })).toContain('1 of 20 tickers');
+  });
+
+  it('renders a ticker row: linked name, URN, state, cadence, quiet hours, a counted page of subscribers', () => {
+    const html = list({ tickers: { kind: 'ok', value: [ticker()] } });
+    expect(html).toContain('href="/app/apps/app-1/tickers/tk-1"');
+    expect(html).toContain('hrn:ticker:acme.com:team:engineering');
+    expect(html).toContain('Ticking');
+    expect(html).toContain('10 min');
+    expect(html).toContain('22:00–07:00 Mon–Fri');
+    expect(html).toContain('Every channel the subscriber watches');
+    expectReadOnly(html);
+  });
+
+  it('a full subscriber page reads 50+, never a guessed total', () => {
+    const html = list({ tickers: { kind: 'ok', value: [ticker({ subscribers: { hasNextPage: true, items: [] } })] } });
+    expect(html).toContain('50+');
+  });
+
+  it('a non-participant sees the inline state, not the grid or the settings', () => {
+    const html = list({ tickers: { kind: 'not-participant' }, settings: { kind: 'not-participant' } });
+    expect(html).toContain('data-testid="tickers-not-participant"');
+    expect(html).not.toContain('data-testid="ticker-settings"');
+    expect(html).not.toContain('No tickers yet.');
+  });
+
+  it('a failed read is an alert with a retry, never an empty list', () => {
+    const html = list({ tickers: { kind: 'failed' } });
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('Couldn’t load tickers.');
+    expect(html).not.toContain('No tickers yet.');
+  });
+
+  it('shows the App’s settings read-only, saying who can change them', () => {
+    const html = list();
+    expect(html).toContain('Fastest ticker: every 2 min');
+    expect(html).toContain('Up to 20 tickers');
+    expect(html).toContain('480 wake-ups a day');
+    expect(html).toContain('(set automatically from the team’s size)');
+    expect(html).toContain('Only whoever manages the App can change these settings.');
+  });
+});
+
+function detail(over: Record<string, unknown> = {}) {
+  return render(Detail as never, {
+    props: {
+      data: {
+        app, ticker: ticker(), settings, paged: false, loadedAt: LOADED, impersonating: null,
+        subscribers: { kind: 'ok', value: { items: [], hasNextPage: false, endCursor: null } },
+        ...over,
+      },
+    },
+  } as never).body;
+}
+
+describe('Ticker page', () => {
+  it('shows the facts, read-only', () => {
+    const html = detail();
+    expect(html).toContain('data-testid="ticker-facts"');
+    expect(html).toContain('22:00–07:00 Mon–Fri (overnight, ends next day)');
+    expect(html).toContain('Time zone: Europe/Berlin.');
+    expect(html).toContain('All unread: makes a subscriber due when it has unread messages in these channels.');
+    expect(html).toContain('Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.');
+    expectReadOnly(html);
+  });
+
+  it('no subscribers reads “Nobody follows this ticker yet.”', () => {
+    expect(detail()).toContain('Nobody follows this ticker yet.');
+  });
+
+  it('subscribers show the creator only, a grant chip, and a forward page link when there are more', () => {
+    const html = detail({
+      subscribers: {
+        kind: 'ok',
+        value: {
+          items: [{ id: 's1', createdAt: '2026-10-10T00:00:00Z', viaGrant: true, createdBy: { id: 'w-ada', name: 'Ada', urn: null }, worker: { id: 'w-liam', name: 'Liam', urn: 'hrn:worker:acme.com:team:liam', retiredAt: null } }],
+          hasNextPage: true,
+          endCursor: 's1',
+        },
+      },
+    });
+    expect(html).toContain('Liam');
+    expect(html).toContain('href="/app/workers/w-liam?tab=wake"');
+    expect(html).toContain('Ada');
+    expect(html).toContain('via grant');
+    expect(html).toContain('href="/app/apps/app-1/tickers/tk-1?after=s1"');
+    expectReadOnly(html);
+  });
+
+  it('a disabled ticker says it wakes no one', () => {
+    expect(detail({ ticker: ticker({ enabled: false, nextTickAt: null }) })).toContain('A disabled ticker keeps its subscribers but wakes no one.');
+  });
+
+  it('a failed subscriber read is an alert, not “Nobody follows”', () => {
+    const html = detail({ subscribers: { kind: 'failed' } });
+    expect(html).toContain('Couldn’t load this ticker’s subscribers.');
+    expect(html).not.toContain('Nobody follows this ticker yet.');
+  });
+});
+
+const wake = (over: Record<string, unknown> = {}) => ({
+  kind: 'ok',
+  value: { mentions: 'IMMEDIATE', pausedUntil: null, dormant: false, effectiveCadenceSeconds: null, subscriptions: [], ...over },
+});
+function panel(props: Record<string, unknown> = {}) {
+  return render(WakeUpsPanel as never, {
+    props: { wake: wake(), appSettings: settings, worker: { retiredAt: null }, appId: 'app-1', loadedAt: LOADED, ...props },
+  } as never).body;
+}
+
+describe('Wake-ups panel', () => {
+  it('leads with the sentence, then the floor and the router line', () => {
+    const html = panel();
+    expect(html.indexOf('data-testid="wake-status"')).toBeLessThan(html.indexOf('data-testid="wake-settings"'));
+    expect(html).toContain('Woken at once when mentioned. No ticker wakes it for other unread messages.');
+    expect(html).toContain('No worker is woken more often than every 2 min in this App.');
+    expect(html).toContain('This page shows when the worker is due, not whether a wake-up was delivered.');
+    expect(html).toContain('Not subscribed to any ticker.');
+    expectReadOnly(html);
+  });
+
+  // Xavier's stamp: the dormant case, pinned in the rendered tab too.
+  it('a dormant worker reads “Not woken: dormant.”', () => {
+    const html = panel({ wake: wake({ dormant: true }) });
+    expect(html).toContain('data-kind="dormant"');
+    expect(html).toContain('Not woken: dormant.');
+  });
+
+  it('an uncovered combination says “Wake state unknown.” and lists the raw fields', () => {
+    const html = panel({ wake: wake({ effectiveCadenceSeconds: 600 }) });
+    expect(html).toContain('Wake state unknown.');
+    expect(html).toContain('data-testid="wake-raw"');
+    expect(html).toContain('effectiveCadenceSeconds');
+  });
+
+  it('a non-participant sees the inline state, not the worker’s settings', () => {
+    const html = panel({ wake: { kind: 'not-participant' } });
+    expect(html).toContain('You don’t take part in this worker’s App, so its wake-ups aren’t shown.');
+    expect(html).not.toContain('data-testid="wake-settings"');
+  });
+
+  it('a failed read is an alert', () => {
+    expect(panel({ wake: { kind: 'failed' } })).toContain('Couldn’t load this worker’s wake-ups.');
+  });
+
+  it('lists subscriptions with their tickers linked', () => {
+    const html = panel({
+      wake: wake({
+        effectiveCadenceSeconds: 600,
+        subscriptions: [{ id: 's1', createdAt: '2026-10-10T00:00:00Z', viaGrant: false, createdBy: null, ticker: { id: 'tk-1', name: 'engineering', urn: null, enabled: true, cadenceSeconds: 600, quietHours: null } }],
+      }),
+    });
+    expect(html).toContain('href="/app/apps/app-1/tickers/tk-1"');
+    expect(html).toContain('Woken at once when mentioned, and by its tickers at most every 10 min');
+    expectReadOnly(html);
+  });
+});
+
+// Pin both directions: the guard above must fail on the controls it exists to catch.
+describe('expectReadOnly (positive control)', () => {
+  it.each([
+    '<form method="POST"><button>Go</button></form>',
+    '<input type="number" name="cadenceSeconds">',
+    '<button type="button">Delete ticker</button>',
+    '<a href="/x">Add subscriber</a>',
+    '<button class="x">Pause for…</button>',
+  ])('rejects %s', (html) => {
+    expect(() => expectReadOnly(html)).toThrow();
+  });
+});

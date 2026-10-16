@@ -542,3 +542,31 @@ describe('/app/u/[urn] — GraphQL rejections do not surface as 500s (#567)', ()
     await expect(load(ev('urn:memory:acme.com::dev'))).rejects.toThrow('ECONNREFUSED');
   });
 });
+
+// portal#1099 — `resolveUrn` doesn't resolve ticker URNs yet (hrn:node:hadronmemory.com:specs:cor:agt:080:01),
+// so the route asks `ticker(ref:)`, which runs the ticker's own read gate.
+describe('hrn:ticker: URNs (portal#1099)', () => {
+  const urn = 'hrn:ticker:acme.com:team:engineering';
+
+  it('redirects to the ticker page in its App, 307, keeping the query', async () => {
+    const { TICKER_QUERY } = await import('$lib/server/tickers');
+    mockRequest.mockResolvedValueOnce({ ticker: { id: 'tk-1', app: { id: 'app-1' } } });
+    const load = await importLoad();
+    await expect(load(ev(urn, '?after=s1') as never)).rejects.toMatchObject({ status: 307, location: '/app/apps/app-1/tickers/tk-1?after=s1' });
+    expect(mockRequest).toHaveBeenCalledWith(TICKER_QUERY, { ref: urn });
+  });
+
+  it('a missing or unreachable ticker (null for both) is the same no-oracle 404', async () => {
+    mockRequest.mockResolvedValueOnce({ ticker: null });
+    const load = await importLoad();
+    await expect(load(ev(urn) as never)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('never asks resolveUrn for a ticker', async () => {
+    const { RESOLVE_URN_QUERY } = await import('$lib/server/queries');
+    mockRequest.mockResolvedValueOnce({ ticker: null });
+    const load = await importLoad();
+    await Promise.resolve(load(ev(urn) as never)).catch(() => {});
+    expect(mockRequest).not.toHaveBeenCalledWith(RESOLVE_URN_QUERY, expect.anything());
+  });
+});
