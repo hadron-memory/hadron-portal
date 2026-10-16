@@ -5,8 +5,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQLClient } from 'graphql-request';
-import { AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY } from '$lib/server/queries';
-import { BOARD_LIMIT, HISTORY_LIMIT, loadAncestors, loadBoard, loadHistory, loadTree } from './agent-tasks';
+import { AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadOpenTaskTitles, loadRoster, loadTree } from './agent-tasks';
 
 const request = vi.fn();
 const client = { request } as unknown as GraphQLClient;
@@ -94,5 +94,41 @@ describe('loadAncestors', () => {
   it('a failed or unreadable link ends the chain as truncated', async () => {
     request.mockResolvedValueOnce({ agentTask: { id: 'p', title: 'Parent', parentTaskId: 'g' } }).mockRejectedValueOnce(new Error('down'));
     expect(await loadAncestors(client, 'p')).toEqual({ ancestors: [{ id: 'p', title: 'Parent' }], truncated: true });
+  });
+});
+
+describe('slice 2: roster, titles and alarms', () => {
+  it('the roster read keeps the three outcomes', async () => {
+    request.mockResolvedValueOnce({ teamRoster: { asOf: 'x', workers: [] } });
+    expect(await loadRoster(client, 'app-1')).toEqual({ kind: 'ok', value: { asOf: 'x', workers: [] } });
+    expect(request).toHaveBeenCalledWith(TEAM_ROSTER_QUERY, { appRef: 'app-1' });
+    request.mockRejectedValueOnce(gqlError('APP_NOT_FOUND'));
+    expect(await loadRoster(client, 'app-1')).toEqual({ kind: 'not-participant' });
+    request.mockRejectedValueOnce(new Error('down'));
+    expect(await loadRoster(client, 'app-1')).toEqual({ kind: 'failed' });
+  });
+
+  it('titles map ids to titles; a failure costs only the titles', async () => {
+    request.mockResolvedValueOnce({ agentTasks: [{ id: 't1', title: 'Ship it' }] });
+    expect(await loadOpenTaskTitles(client, 'app-1')).toEqual({ t1: 'Ship it' });
+    request.mockRejectedValueOnce(new Error('down'));
+    expect(await loadOpenTaskTitles(client, 'app-1')).toEqual({});
+  });
+
+  it('alarms walk forward by the last id, alarmsOnly, up to the bound', async () => {
+    const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ id: `a${from + i}` }));
+    request.mockResolvedValueOnce({ agentTeamEvents: page(200, 0) }).mockResolvedValueOnce({ agentTeamEvents: page(1, 200) });
+    const r = await loadAlarms(client, 'app-1');
+    expect(r).toMatchObject({ kind: 'ok', value: { capped: false } });
+    expect(request.mock.calls[0]).toEqual([AGENT_ALARMS_QUERY, { appRef: 'app-1', after: undefined, limit: 200 }]);
+    expect(request.mock.calls[1][1]).toMatchObject({ after: 'a199' });
+    expect(AGENT_ALARMS_QUERY).toContain('alarmsOnly: true');
+
+    request.mockReset();
+    let n = 0;
+    request.mockImplementation(async () => ({ agentTeamEvents: page(200, (n++) * 200) }));
+    const capped = await loadAlarms(client, 'app-1');
+    expect(capped).toMatchObject({ kind: 'ok', value: { capped: true } });
+    expect(capped.kind === 'ok' && capped.value.alarms).toHaveLength(ALARMS_LIMIT);
   });
 });
