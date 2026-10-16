@@ -147,20 +147,24 @@ export type TasksApp = { id: string; name: string; urn: string; organizationId: 
  * The App a Tasks view hangs off, or null when the viewer can't see it.
  *
  * `app(ref:)` refuses a viewer with no access to the App (FORBIDDEN), and
- * graphql-request throws on that. The App page answers it with a 404
- * (`apps/[appId]/+page.server.ts` salvages the partial response), so the
- * Tasks views do the same instead of a 500 (Uma's P2-2 on #1127). Only a
- * GraphQL error carries `response`; a transport failure rethrows and stays
- * a 500, never a misleading 404.
+ * graphql-request throws on that. The App page answers it with a 404, so the
+ * Tasks views do the same instead of a 500 (Uma's P2-2 on #1127).
+ *
+ * Only the access and missing codes become a 404 (Atilla's P2 on #1127,
+ * hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+ * Anything else, an INTERNAL_SERVER_ERROR, an HTTP 500 with no data, a
+ * transport failure, rethrows and stays a failure, never a misleading
+ * "not found".
  */
+const APP_REFUSED_CODES = new Set(['FORBIDDEN', 'NOT_FOUND']);
+
 export async function loadTasksApp(client: GraphQLClient, ref: string): Promise<TasksApp | null> {
   try {
     const r = await client.request<{ app: TasksApp | null }>(AGENT_TASKS_APP_QUERY, { ref });
     return r.app;
   } catch (e) {
-    if (e && typeof e === 'object' && 'response' in e) {
-      return (e as { response?: { data?: { app?: TasksApp | null } } }).response?.data?.app ?? null;
-    }
+    const code = extractGqlErrorCode(e);
+    if (code && APP_REFUSED_CODES.has(code)) return null;
     throw e;
   }
 }
