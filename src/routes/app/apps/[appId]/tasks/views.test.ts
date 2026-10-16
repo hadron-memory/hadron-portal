@@ -32,6 +32,19 @@ function page(data: Record<string, unknown>) {
 }
 
 describe('sub-navigation', () => {
+  // portal#1090: Roster and Alarms stay read-only; their line says so.
+  it('roster and alarms are read-only: no form, no write button, and a line that says so', () => {
+    for (const html of [
+      page({ view: 'roster', roster: { kind: 'ok', value: { asOf: '2026-10-16T00:00:00Z', workers: [] } } }),
+      page({ view: 'alarms', alarms: { kind: 'ok', value: { alarms: [], capped: false } } }),
+    ]) {
+      expect(html).toContain('This view is read-only.');
+      expect(html).not.toMatch(/<form/);
+      expect(html).not.toMatch(/<button[^>]*>\s*(Create|Assign|Reassign|Cancel|Park|Ready|Make ready|Acknowledge)/i);
+      expect(html).not.toContain('New task');
+    }
+  });
+
   it('offers Board · Roster · Alarms and marks the current view', () => {
     const html = page({ view: 'roster', roster: { kind: 'ok', value: { asOf: '2026-10-16T00:00:00Z', workers: [] } } });
     expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks"[^>]*>Board</);
