@@ -4,13 +4,12 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import {
-  APP_QUERY,
   APP_RUN_QUERY,
   APP_RUN_ENVELOPE_QUERY,
   CANCEL_APP_RUN_MUTATION,
 } from '$lib/server/queries';
 import type { AppRun } from '$lib/flow/runs';
-import type { App } from '$lib/types';
+import { isAccessRefusal, loadTasksApp } from '$lib/server/agent-tasks';
 import type { Actions, PageServerLoad } from './$types';
 import { cancelAppRunSchema } from './schema';
 
@@ -23,11 +22,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // auth.
   const client = gqlClient(locals.token);
 
-  const [appData, runData] = await Promise.all([
-    client.request<{ app: App | null }>(APP_QUERY, { ref: params.appId }),
-    client.request<{ appRun: AppRun | null }>(APP_RUN_QUERY, { ref: params.runId }),
-  ]);
-  if (!appData.app) throw error(404, 'App not found');
+  // portal#1130: the App first and alone. A viewer the server conceals it
+  // from gets the App page's 404, not a 500; any other failure stays one.
+  const app = await loadTasksApp(client, params.appId);
+  if (!app) throw error(404, 'App not found');
+
+  const runData = await client
+    .request<{ appRun: AppRun | null }>(APP_RUN_QUERY, { ref: params.runId })
+    .catch((e) => {
+      // A run concealed from this viewer reads as missing, the same 404.
+      if (isAccessRefusal(e)) throw error(404, 'Run not found');
+      throw e;
+    });
   const run = runData.appRun;
   if (!run) throw error(404, 'Run not found');
 
@@ -57,7 +63,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   const cancelForm = await superValidate(zod4(cancelAppRunSchema), { errors: false });
 
-  return { app: appData.app, run, envelope, envelopeSupported, cancelForm };
+  return { app, run, envelope, envelopeSupported, cancelForm };
 };
 
 export const actions: Actions = {
