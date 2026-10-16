@@ -145,6 +145,46 @@ describe('create action (tasks/new)', () => {
     expect(input).not.toHaveProperty('requirements');
   });
 
+  // Diego's P2-2 on #1135: an explicit "Someone else…" left blank is not Me
+  // or Nobody. It is refused on its field, and nothing is created.
+  it('a blank "Someone else" owner is refused on the owner, not read as Me', async () => {
+    answer({ createAgentTask: { id: 't9' } });
+    const r = (await create({ title: 'T', start: 'now', owner: 'other', ownerOther: '  @ ', assignee: 'nobody' })) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(400);
+    expect(r.data).toMatchObject({ refusal: { kind: 'invalid', field: 'owner' }, values: { owner: 'other' } });
+    expect(request.mock.calls.some((c) => c[0] === CREATE_AGENT_TASK_MUTATION)).toBe(false);
+  });
+
+  it('a blank "Someone else" assignee is refused on the assignee, not read as Nobody', async () => {
+    answer({ createAgentTask: { id: 't9' } });
+    const r = (await create({ title: 'T', start: 'now', owner: 'me', assignee: 'other', assigneeOther: '' })) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(400);
+    expect(r.data).toMatchObject({ refusal: { kind: 'invalid', field: 'assignee' } });
+    expect(request.mock.calls.some((c) => c[0] === CREATE_AGENT_TASK_MUTATION)).toBe(false);
+  });
+
+  it('a backlog task still ignores a hidden blank "Someone else" assignee', async () => {
+    answer({ createAgentTask: { id: 't9' } });
+    await expect(create({ title: 'T', start: 'backlog', owner: 'me', assignee: 'other', assigneeOther: '' })).rejects.toMatchObject({ status: 303 });
+  });
+
+  // Diego's P2-3 on #1135: the browser converts the chosen local time with
+  // that DATE's own offset and sends the instant; without JS it reads as UTC.
+  it('Start by uses the instant the browser computed for the chosen date', async () => {
+    answer({ createAgentTask: { id: 't9' } });
+    await expect(create({ title: 'T', start: 'now', owner: 'me', assignee: 'nobody', startBy: '2026-12-01T09:00', startByUtc: '2026-12-01T14:00:00.000Z' }))
+      .rejects.toMatchObject({ status: 303 });
+    const input = (request.mock.calls.find((c) => c[0] === CREATE_AGENT_TASK_MUTATION)?.[1] as { input: Record<string, unknown> }).input;
+    expect(input.startBy).toBe('2026-12-01T14:00:00.000Z');
+  });
+
+  it('without the browser’s instant, Start by reads as UTC', async () => {
+    answer({ createAgentTask: { id: 't9' } });
+    await expect(create({ title: 'T', start: 'now', owner: 'me', assignee: 'nobody', startBy: '2026-12-01T09:00' })).rejects.toMatchObject({ status: 303 });
+    const input = (request.mock.calls.find((c) => c[0] === CREATE_AGENT_TASK_MUTATION)?.[1] as { input: Record<string, unknown> }).input;
+    expect(input.startBy).toBe('2026-12-01T09:00:00.000Z');
+  });
+
   it('an empty title is refused on the title, and calls nothing', async () => {
     answer({});
     const r = (await create({ title: '   ', start: 'now' })) as { status: number; data: Record<string, unknown> };
