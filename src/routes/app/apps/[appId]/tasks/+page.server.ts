@@ -1,13 +1,11 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
-import { ALARMS_LIMIT, BOARD_LIMIT, loadAlarms, loadBoard, loadOpenTaskTitles, loadRoster } from '$lib/server/agent-tasks';
+import { ALARMS_LIMIT, BOARD_LIMIT, loadAlarms, loadBoard, loadOpenTaskTitles, loadRoster, loadTasksApp } from '$lib/server/agent-tasks';
 import { parseBoardFilter } from '$lib/agent-tasks/status';
 import { parseAlarmFilter } from '$lib/agent-tasks/roster';
 import { parseTaskView } from '$lib/agent-tasks/views';
 import type { PageServerLoad } from './$types';
 
-export type TasksApp = { id: string; name: string; urn: string; organizationId: string | null };
 
 /**
  * portal#1052 — the App's Tasks sub-route: Board · Roster · Alarms, read-only
@@ -26,9 +24,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   // The App's header comes first and alone: a missing App is a 404 whatever
   // the task read would have said.
-  const appData = await client.request<{ app: TasksApp | null }>(AGENT_TASKS_APP_QUERY, { ref: params.appId });
-  if (!appData.app) throw error(404, 'App not found');
-  const app = appData.app;
+  const app = await loadTasksApp(client, params.appId);
+  if (!app) throw error(404, 'App not found');
 
   const base = {
     app,

@@ -12,9 +12,13 @@
   function copy() {
     // Undefined outside secure contexts: bail rather than throw.
     if (!navigator.clipboard) return;
-    navigator.clipboard.writeText(value).catch((e) => console.error('Failed to copy', e));
-    copied = true;
-    setTimeout(() => (copied = false), 2000);
+    navigator.clipboard
+      .writeText(value)
+      .then(() => {
+        copied = true;
+        setTimeout(() => (copied = false), 2000);
+      })
+      .catch((e) => console.error('Failed to copy', e));
   }
 </script>
 

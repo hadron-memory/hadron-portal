@@ -104,7 +104,7 @@
     // Dates sort by instant but search by what the cell shows (#820).
     globalFilterFn: makeGlobalFilterFn<BoardRow>({ startBy: fmtMs, updated: fmtMs, created: fmtMs }),
     initialState: {
-      pagination: { pageIndex: 0, pageSize: 25 },
+      pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'updated', desc: true }],
       columnVisibility: { created: false, tags: false, id: false },
     },
@@ -244,7 +244,7 @@
               href="{basePath}/tasks/{row.task.id}#subtasks"
               aria-label={t('app.tasks.subtasks-of', 'Subtasks of {title}', { title: row.task.title })}
               class="text-sm text-indigo-600 hover:underline dark:text-indigo-300"
-            >{t('app.tasks.subtasks.open', 'Show')}</a>
+            >{t('app.tasks.subtasks.open', 'View subtasks')}</a>
           {:else if cell.column.id === 'startBy'}
             {#if row.task.startBy}
               <span class="whitespace-nowrap">{fmtRunTime(row.task.startBy)}</span>

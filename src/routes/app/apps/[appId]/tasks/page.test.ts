@@ -81,6 +81,10 @@ describe('board', () => {
     expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks"[^>]*>Active</);
   });
 
+  it('starts on a page size the rows-per-page menu offers (20)', () => {
+    expect(board()).toMatch(/<option value="20"[^>]*selected/);
+  });
+
   it('a full page says there may be more', () => {
     const html = board({ board: { kind: 'ok', value: { capped: true, tasks: [task()] } } });
     expect(html).toContain('Showing the newest 200 tasks. There may be more');
@@ -169,6 +173,25 @@ describe('task page', () => {
     expect(html).toContain('hadron team alarm ack e2');
     expect(html).toContain('This kind of event isn’t described in the portal yet.');
     expectReadOnly(html);
+  });
+
+  // Uma's P2-1 on #1127: an inline <a class="truncate"> never truncates, so a
+  // long Source URL pushed the page sideways. Each source element is a block
+  // bounded by its cell, and the facts' value tracks may shrink.
+  it('a long source can’t widen the page', () => {
+    const html = taskPage({ task: detail({ source: 'https://example.com/' + 'x'.repeat(300) }) });
+    expect(html).toMatch(/<a href="https:\/\/example\.com\/x+"[^>]*class="block max-w-full truncate/);
+    expect(html).toContain('md:grid-cols-[max-content_minmax(0,1fr)_max-content_minmax(0,1fr)]');
+  });
+
+  it('names a person the task already knows in its history', () => {
+    const html = taskPage({
+      task: detail({ assignee: holger }),
+      history: { kind: 'ok', value: { capped: false, events: [
+        { id: 'e1', type: 'task.assigned', severity: null, createdAt: '2026-10-15T10:00:00Z', actor: holger, actorRunId: null, subjectWorker: null, payload: { assignee: { userId: 'u1' } }, acknowledgedAt: null, acknowledgedBy: null, wakes: null },
+      ] } },
+    });
+    expect(html).toContain('assigned it to Holger');
   });
 
   it('a failed history is an alert while the facts still render', () => {

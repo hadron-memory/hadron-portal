@@ -34,20 +34,34 @@ function str(v: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
-/** The subject's name, or a stand-in that says what it is without guessing a name. */
-function subject(e: Pick<AgentTeamEvent, 'subjectWorker'>): string {
-  return e.subjectWorker ? partyName(e.subjectWorker) : t('app.tasks.history.a-person', 'a person');
+/** People the page already knows by id (the task's own parties), to name a person a payload names by id only. */
+export type KnownPeople = Record<string, string>;
+
+/**
+ * The subject's name. A worker comes from the event's `subjectWorker`; a
+ * person is named only when the payload's user id is one the page already
+ * knows. Otherwise a stand-in says what it is without guessing a name.
+ */
+function subject(e: Pick<AgentTeamEvent, 'subjectWorker' | 'payload'>, people: KnownPeople): string {
+  if (e.subjectWorker) return partyName(e.subjectWorker);
+  const p = e.payload ?? {};
+  const party = (p.assignee ?? p.to) as { userId?: unknown } | undefined;
+  const userId = typeof party?.userId === 'string' ? party.userId : null;
+  return (userId && people[userId]) || t('app.tasks.history.a-person', 'a person');
 }
 
-export function eventSentence(e: Pick<AgentTeamEvent, 'type' | 'payload' | 'subjectWorker'>): EventSentence {
+export function eventSentence(
+  e: Pick<AgentTeamEvent, 'type' | 'payload' | 'subjectWorker'>,
+  people: KnownPeople = {},
+): EventSentence {
   const p = e.payload ?? {};
   switch (e.type) {
     case 'task.created':
       return { known: true, text: t('app.tasks.history.created', 'created this task') };
     case 'task.assigned':
-      return { known: true, text: t('app.tasks.history.assigned', 'assigned it to {who}', { who: subject(e) }) };
+      return { known: true, text: t('app.tasks.history.assigned', 'assigned it to {who}', { who: subject(e, people) }) };
     case 'task.reassigned':
-      return { known: true, text: t('app.tasks.history.reassigned', 'reassigned it to {who}', { who: subject(e) }) };
+      return { known: true, text: t('app.tasks.history.reassigned', 'reassigned it to {who}', { who: subject(e, people) }) };
     case 'assignment.queued':
       return { known: true, text: t('app.tasks.history.queued', 'queued it: waiting for a matching worker') };
     case 'assignment.matched': {
@@ -55,8 +69,8 @@ export function eventSentence(e: Pick<AgentTeamEvent, 'type' | 'payload' | 'subj
       return {
         known: true,
         text: family
-          ? t('app.tasks.history.matched-family', 'matched it to {who} as {family}', { who: subject(e), family })
-          : t('app.tasks.history.matched', 'matched it to {who}', { who: subject(e) }),
+          ? t('app.tasks.history.matched-family', 'matched it to {who} as {family}', { who: subject(e, people), family })
+          : t('app.tasks.history.matched', 'matched it to {who}', { who: subject(e, people) }),
       };
     }
     case 'task.started':
@@ -89,7 +103,7 @@ export function eventSentence(e: Pick<AgentTeamEvent, 'type' | 'payload' | 'subj
     case 'task.session-end-requested':
       return {
         known: true,
-        text: t('app.tasks.history.session-end', 'asked {who} to end its session when done', { who: subject(e) }),
+        text: t('app.tasks.history.session-end', 'asked {who} to end its session when done', { who: subject(e, people) }),
       };
     default:
       return { known: false, type: e.type };

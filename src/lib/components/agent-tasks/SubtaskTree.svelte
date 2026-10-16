@@ -39,7 +39,7 @@
               type="button"
               onclick={() => toggle(node.task.id)}
               aria-expanded={isOpen(node)}
-              aria-controls="subtasks-of-{node.task.id}"
+              aria-controls={isOpen(node) ? `subtasks-of-${node.task.id}` : undefined}
               aria-label={isOpen(node)
                 ? t('app.tasks.tree.collapse', 'Hide subtasks of {title}', { title: node.task.title })
                 : t('app.tasks.tree.expand', 'Show subtasks of {title}', { title: node.task.title })}
