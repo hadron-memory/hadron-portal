@@ -1,0 +1,238 @@
+<script lang="ts">
+  import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import CopyCode from '$lib/components/agent-tasks/CopyCode.svelte';
+  import NotParticipant from '$lib/components/agent-tasks/NotParticipant.svelte';
+  import PartyLabel from '$lib/components/agent-tasks/PartyLabel.svelte';
+  import SubtaskTree from '$lib/components/agent-tasks/SubtaskTree.svelte';
+  import TaskHistory from '$lib/components/agent-tasks/TaskHistory.svelte';
+  import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
+  import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
+  import TasksReadOnlyNote from '$lib/components/agent-tasks/TasksReadOnlyNote.svelte';
+  import { fmtRunTime } from '$lib/flow/runs';
+  import { t } from '$lib/i18n/t';
+  import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
+  import type { PageData } from './$types';
+
+  /**
+   * portal#1052 — one task (design §5): facts, description, subtasks and
+   * history. Read-only: nothing here writes.
+   */
+  let { data }: { data: PageData } = $props();
+
+  const task = $derived(data.task);
+  const basePath = $derived(`/app/apps/${data.app.id}`);
+  const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
+  const state = $derived(taskDisplayState(task));
+
+  const crumbs = $derived([
+    { label: t('app.tasks.crumb.apps', 'Apps'), href: appsHref },
+    { label: data.app.name, href: basePath },
+    { label: t('app.tasks.crumb.tasks', 'Tasks'), href: `${basePath}/tasks` },
+    ...(data.ancestorsTruncated ? [{ label: '…' }] : []),
+    ...data.ancestors.map((a) => ({ label: a.title, href: `${basePath}/tasks/${a.id}` })),
+    { label: task.title },
+  ]);
+
+  const parent = $derived(data.ancestors.length ? data.ancestors[data.ancestors.length - 1] : null);
+
+  /** §5.1: who a queued task is waiting for, in the requirements' own terms. */
+  const waitingFor = $derived.by(() => {
+    const r = task.requirements;
+    const parts: string[] = [];
+    if (r?.role) parts.push(t('app.tasks.req.role', 'role {role}', { role: r.role }));
+    if (r?.familyIn?.length) parts.push(t('app.tasks.req.family-in', 'model family {families}', { families: r.familyIn.join(', ') }));
+    if (r?.familyNotIn?.length) parts.push(t('app.tasks.req.family-not-in', 'not {families}', { families: r.familyNotIn.join(', ') }));
+    return parts.join(', ');
+  });
+
+  const resolutionLabel = (r: string | null) =>
+    r === 'ENDED'
+      ? t('app.tasks.session-end.ended', 'Ended')
+      : r === 'END_ISSUED'
+        ? t('app.tasks.session-end.issued', 'End issued to host')
+        : r === 'NO_LIVE_HOST'
+          ? t('app.tasks.session-end.no-host', 'No live host')
+          : null;
+
+  /** Description is free text from any participant: plain text, line breaks kept, http(s) URLs linked. No {@html}. */
+  const descriptionParts = $derived(
+    (task.description ?? '').split(/(https?:\/\/[^\s<>"']+)/g).map((part, i) => ({ part, link: i % 2 === 1 })),
+  );
+</script>
+
+<svelte:head><title>{task.title} · {t('app.tasks.head', 'Tasks')} · {data.app.name} · Hadron</title></svelte:head>
+
+<div class="space-y-5">
+  <Breadcrumb items={crumbs} />
+
+  <div class="flex flex-wrap items-start justify-between gap-3">
+    <div class="min-w-0">
+      <h1 class="text-xl font-bold break-words text-zinc-900 dark:text-white">{task.title}</h1>
+      <div class="mt-1"><TaskStateChips {task} /></div>
+      <TasksReadOnlyNote />
+    </div>
+    <div class="flex min-w-0 flex-col items-start gap-1 sm:items-end">
+      <CopyCode value={task.id} label={t('app.tasks.copy-id', 'Copy the task id')} />
+      <CopyCode value="hadron team task get {task.id}" label={t('app.tasks.copy-cli', 'Copy the CLI command that reads this task')} />
+    </div>
+  </div>
+
+  <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-facts">
+    <h2 id="task-facts" class="sr-only">{t('app.tasks.facts', 'Facts')}</h2>
+    <dl class="grid grid-cols-1 gap-x-6 gap-y-3 text-sm md:grid-cols-[max-content_1fr_max-content_1fr]">
+      <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.owner', 'Owner')}</dt>
+      <dd><PartyLabel party={task.owner} /></dd>
+
+      <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.assignee', 'Assignee')}</dt>
+      <dd>
+        {#if state === 'queued'}
+          <span class="text-zinc-700 dark:text-zinc-300">
+            {waitingFor
+              ? t('app.tasks.fact.queued-for', 'Nobody yet: waiting for a worker with {req}', { req: waitingFor })
+              : t('app.tasks.fact.queued', 'Nobody yet: waiting for a worker')}
+          </span>
+          {#if task.requirements?.excludeWorkerIds?.length}
+            <span class="block text-xs text-zinc-500">{t('app.tasks.fact.excluded', 'Excludes {n} worker(s)', { n: task.requirements.excludeWorkerIds.length })}</span>
+          {/if}
+        {:else if state === 'backlog'}
+          <span class="text-zinc-700 dark:text-zinc-300">{t('app.tasks.fact.backlog-assignee', 'None: backlog tasks have no assignee and aren’t matched')}</span>
+        {:else}
+          <PartyLabel party={task.assignee} />
+        {/if}
+      </dd>
+
+      {#if task.parentTaskId}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.parent', 'Parent')}</dt>
+        <dd>
+          <a href="{basePath}/tasks/{task.parentTaskId}" class="text-indigo-600 hover:underline dark:text-indigo-300">
+            {parent && parent.id === task.parentTaskId ? parent.title : t('app.tasks.fact.parent-task', 'Parent task')}
+          </a>
+        </dd>
+      {/if}
+
+      {#if task.source}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.source', 'Source')}</dt>
+        <dd class="min-w-0" data-source-kind={sourceKind(task.source)}><TaskSource source={task.source} /></dd>
+      {/if}
+
+      {#if task.startBy}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.start-by', 'Start by')}</dt>
+        <dd>{fmtRunTime(task.startBy)}</dd>
+      {/if}
+
+      <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.created', 'Created')}</dt>
+      <dd class="flex flex-wrap items-center gap-x-2">
+        <span>{fmtRunTime(task.createdAt)}</span>
+        {#if task.createdBy}
+          <PartyLabel party={task.createdBy} showUrn={false} />
+        {:else if task.createdByRunId}
+          <a href="{basePath}/runs/{task.createdByRunId}" class="text-indigo-600 hover:underline dark:text-indigo-300">
+            {t('app.tasks.history.run', 'Run {id}', { id: task.createdByRunId.slice(0, 8) })}
+          </a>
+        {/if}
+      </dd>
+
+      {#if task.assignedAt}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.assigned', 'Assigned')}</dt>
+        <dd class="flex flex-wrap items-center gap-x-2">
+          <span>{fmtRunTime(task.assignedAt)}</span>
+          {#if task.assignedBy}<PartyLabel party={task.assignedBy} showUrn={false} />{/if}
+        </dd>
+      {/if}
+      {#if task.startedAt}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.started', 'Started')}</dt>
+        <dd>{fmtRunTime(task.startedAt)}</dd>
+      {/if}
+      {#if task.finishedAt}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.finished', 'Finished')}</dt>
+        <dd>{fmtRunTime(task.finishedAt)}</dd>
+      {/if}
+      {#if task.cancelledAt}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.cancelled', 'Cancelled')}</dt>
+        <dd>{fmtRunTime(task.cancelledAt)}</dd>
+      {/if}
+
+      {#if task.result}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.result', 'Result')}</dt>
+        <dd class="space-y-1">
+          <span class="font-medium {outcomeClass(task.result.outcome)}">{task.result.outcome}</span>
+          {#if task.result.summary}<p class="whitespace-pre-line text-zinc-700 dark:text-zinc-300">{task.result.summary}</p>{/if}
+          {#if task.result.evidence}<div><TaskSource source={task.result.evidence} /></div>{/if}
+        </dd>
+      {/if}
+
+      <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.session', 'Session when done')}</dt>
+      <dd>
+        {task.closeSessionWhenDone
+          ? t('app.tasks.fact.session-ends', 'Ends the assignee’s session when done')
+          : t('app.tasks.fact.session-open', 'Leaves the session open')}
+        {#if task.sessionEndRequest}
+          <span class="block text-xs text-zinc-500 dark:text-zinc-400">
+            {t('app.tasks.fact.session-asked', 'Asked {asked}, due {due}', {
+              asked: fmtRunTime(task.sessionEndRequest.requestedAt),
+              due: fmtRunTime(task.sessionEndRequest.dueAt),
+            })}{#if resolutionLabel(task.sessionEndRequest.resolution)}: {resolutionLabel(task.sessionEndRequest.resolution)}{/if}
+          </span>
+        {/if}
+      </dd>
+
+      {#if task.tags.length}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.tags', 'Tags')}</dt>
+        <dd class="flex flex-wrap gap-1">
+          {#each task.tags as tag (tag)}
+            <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">{tag}</span>
+          {/each}
+        </dd>
+      {/if}
+    </dl>
+
+    {#if task.description}
+      <div class="mt-5 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+        <h2 class="mb-1 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.description', 'Description')}</h2>
+        <p class="text-sm whitespace-pre-line break-words text-zinc-700 dark:text-zinc-300" data-testid="task-description">{#each descriptionParts as p, i (i)}{#if p.link}<a href={p.part} rel="noopener noreferrer" target="_blank" class="text-indigo-600 hover:underline dark:text-indigo-300">{p.part}</a>{:else}{p.part}{/if}{/each}</p>
+      </div>
+    {/if}
+  </section>
+
+  <section id="subtasks" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="subtasks-heading">
+    <h2 id="subtasks-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.subtasks', 'Subtasks')}</h2>
+    {#if data.tree.kind === 'ok' && data.tree.value}
+      {#if data.tree.value.capped}
+        <p role="status" class="mb-2 text-xs text-amber-700 dark:text-amber-300">
+          {t('app.tasks.tree.capped', 'Showing the first 1000 tasks in this tree; deeper or later subtasks aren’t shown.')}
+        </p>
+      {/if}
+      <SubtaskTree rows={data.tree.value.rows} rootId={task.id} {basePath} />
+    {:else if data.tree.kind === 'not-participant'}
+      <NotParticipant />
+    {:else}
+      <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        {t('app.tasks.tree.failed', 'Couldn’t load the subtasks.')}
+      </div>
+    {/if}
+  </section>
+
+  <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="history-heading">
+    <div class="mb-2 flex items-center justify-between gap-2">
+      <h2 id="history-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.history', 'History')}</h2>
+      {#if data.history.kind === 'ok' && data.history.value.events.length > 8}
+        <a href="#history-end" class="text-xs text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.history.latest', 'Jump to latest')}</a>
+      {/if}
+    </div>
+    {#if data.history.kind === 'ok'}
+      <TaskHistory events={data.history.value.events} {basePath} />
+      {#if data.history.value.capped}
+        <p role="status" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+          {t('app.tasks.history.capped', 'Showing the first 1000 events; later ones aren’t shown.')}
+        </p>
+      {/if}
+      <span id="history-end"></span>
+    {:else if data.history.kind === 'not-participant'}
+      <NotParticipant />
+    {:else}
+      <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+        {t('app.tasks.history.failed', 'Couldn’t load the history.')}
+      </div>
+    {/if}
+  </section>
+</div>
