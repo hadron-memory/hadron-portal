@@ -39,7 +39,8 @@
    * the tree the page already loaded ("at least" when that read was capped).
    */
   const openChildren = $derived.by(() => {
-    if (data.tree.kind !== 'ok' || !data.tree.value) return { count: 0, capped: false };
+    // Uma's P3-2 on #1135: a failed tree read can't be counted; the panel says so.
+    if (data.tree.kind !== 'ok' || !data.tree.value) return { count: 0, capped: false, unknown: data.tree.kind !== 'ok' };
     const count = data.tree.value.rows.filter(
       (r) => r.parentTaskId === task.id && (r.status === 'PENDING' || r.status === 'STARTED'),
     ).length;

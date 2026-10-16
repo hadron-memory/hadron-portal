@@ -54,7 +54,7 @@ export function taskActionLabel(a: TaskAction): string {
  */
 export function cancelConsequences(
   task: Pick<AgentTaskRow, 'status' | 'assignee'> & { closeSessionWhenDone: boolean },
-  openChildren: { count: number; capped: boolean },
+  openChildren: { count: number; capped: boolean; unknown?: boolean },
 ): string[] {
   const lines = [t('app.tasks.write.cancel.final', 'A cancelled task can’t be reopened.')];
   const who = task.assignee ? partyName(task.assignee) : null;
@@ -64,12 +64,15 @@ export function cancelConsequences(
   if (task.closeSessionWhenDone && task.assignee?.kind === 'WORKER' && who) {
     lines.push(t('app.tasks.write.cancel.session', '{who} will be asked to end its session, if it has one open.', { who }));
   }
-  if (openChildren.count > 0) {
-    lines.push(
-      openChildren.capped
-        ? t('app.tasks.write.cancel.children-capped', 'At least {n} open subtask(s) aren’t cancelled. They stay as they are.', { n: openChildren.count })
-        : t('app.tasks.write.cancel.children', 'Its {n} open subtask(s) aren’t cancelled. They stay as they are.', { n: openChildren.count }),
-    );
+  if (openChildren.unknown) {
+    // Uma's P3-2 on #1135: the tree read failed, so the page can't count. The fact holds either way.
+    lines.push(t('app.tasks.write.cancel.children-unknown', 'We couldn’t check for open subtasks. They aren’t cancelled either way.'));
+  } else if (openChildren.capped) {
+    lines.push(t('app.tasks.write.cancel.children-capped', 'At least {n} open subtasks aren’t cancelled. They stay as they are.', { n: openChildren.count }));
+  } else if (openChildren.count === 1) {
+    lines.push(t('app.tasks.write.cancel.children-one', 'Its 1 open subtask isn’t cancelled. It stays as it is.'));
+  } else if (openChildren.count > 1) {
+    lines.push(t('app.tasks.write.cancel.children', 'Its {n} open subtasks aren’t cancelled. They stay as they are.', { n: openChildren.count }));
   }
   return lines;
 }

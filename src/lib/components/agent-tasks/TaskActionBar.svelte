@@ -13,7 +13,7 @@
     in a status line; a refusal stays next to the submit, with the values.
 -->
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
@@ -41,7 +41,7 @@
     canWrite: boolean;
     impersonating?: string | null;
     candidates: WriteCandidates;
-    openChildren: { count: number; capped: boolean };
+    openChildren: { count: number; capped: boolean; unknown?: boolean };
     created?: boolean;
   } = $props();
 
@@ -57,6 +57,11 @@
   let panelHeading = $state<HTMLElement | null>(null);
   let defaultButton = $state<HTMLButtonElement | null>(null);
   let statusLine = $state<HTMLElement | null>(null);
+  let createdLine = $state<HTMLElement | null>(null);
+  // Uma's P3-4 on #1135: "Task created." takes focus like every other result line.
+  onMount(() => {
+    if (created) createdLine?.focus();
+  });
 
   async function openPanel(a: TaskAction) {
     open = a;
@@ -158,11 +163,15 @@
 
 <div class="mt-3 space-y-2">
   {#if created && !status}
-    <p role="status" class="text-sm font-medium text-green-700 dark:text-green-300">{t('app.tasks.write.done.created', 'Task created.')}</p>
+    <p bind:this={createdLine} tabindex="-1" role="status" class="text-sm font-medium text-green-700 dark:text-green-300">{t('app.tasks.write.done.created', 'Task created.')}</p>
   {/if}
   {#if status}
     <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
   {/if}
+
+  <!-- Uma's P3-1 on #1135: a stale-view refusal (e.g. TASK_ENDED) renders here, outside the
+       has-actions branch, so it stays in view when the reload ends the task's actions. -->
+  {@render refusalFor(refusal?.action ?? 'cancel', false)}
 
   {#if !canWrite}
     <p class="text-sm text-zinc-500 dark:text-zinc-400" data-testid="task-actions-off">
@@ -186,18 +195,18 @@
       {/each}
     </div>
     <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.who', 'You can change a task you own, or any task if you manage the App.')}</p>
-    {@render refusalFor(refusal?.action ?? 'cancel', false)}
 
     {#if open === 'assign' || open === 'reassign'}
       {@const reassigning = open === 'reassign'}
       <form
         id="task-panel-{open}"
+        aria-labelledby="task-panel-{open}-title"
         method="POST"
         action="?/{open}"
         use:enhance={submitter(open)}
         class="w-full space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
       >
-        <h3 bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
+        <h3 id="task-panel-{open}-title" bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
           {reassigning ? t('app.tasks.write.reassign.title', 'Reassign this task') : t('app.tasks.write.assign.title', 'Assign this task')}
         </h3>
         <PartyPicker
@@ -243,12 +252,13 @@
     {:else if open === 'ready'}
       <form
         id="task-panel-ready"
+        aria-labelledby="task-panel-ready-title"
         method="POST"
         action="?/ready"
         use:enhance={submitter('ready')}
         class="w-full space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
       >
-        <h3 bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
+        <h3 id="task-panel-ready-title" bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
           {t('app.tasks.write.ready.title', 'Make “{title}” ready?', { title: task.title })}
         </h3>
         <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('app.tasks.write.ready.body', 'It becomes pending and joins the queue, where Hadron can match it to a worker.')}</p>
@@ -264,12 +274,13 @@
     {:else if open === 'cancel'}
       <form
         id="task-panel-cancel"
+        aria-labelledby="task-panel-cancel-title"
         method="POST"
         action="?/cancel"
         use:enhance={submitter('cancel')}
         class="w-full space-y-3 rounded-lg border border-red-200 bg-white p-4 dark:border-red-900 dark:bg-zinc-900"
       >
-        <h3 bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
+        <h3 id="task-panel-cancel-title" bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
           {t('app.tasks.write.cancel.title', 'Cancel “{title}”?', { title: task.title })}
         </h3>
         <ul class="list-disc space-y-0.5 pl-5 text-sm text-zinc-700 dark:text-zinc-300" data-testid="cancel-consequences">

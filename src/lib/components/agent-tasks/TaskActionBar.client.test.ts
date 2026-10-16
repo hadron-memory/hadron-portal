@@ -55,7 +55,7 @@ describe('TaskActionBar', () => {
       'A cancelled task can’t be reopened.',
       'Dara can no longer work on it.',
       'Dara will be asked to end its session, if it has one open.',
-      'Its 2 open subtask(s) aren’t cancelled. They stay as they are.',
+      'Its 2 open subtasks aren’t cancelled. They stay as they are.',
     ]);
     expect(button(root, 'Cancel…').getAttribute('aria-expanded')).toBe('true');
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));

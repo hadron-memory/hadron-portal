@@ -251,6 +251,7 @@ describe('task page action bar (#1090)', () => {
 
 describe('board New task (#1090)', () => {
   it('is hidden in an impersonation session', () => {
-    expect(board({ impersonating: 'Mike' })).not.toContain('New task');
+    // The note names New task (Uma's P3-3); the LINK is what an impersonation session must not get.
+    expect(board({ impersonating: 'Mike' })).not.toMatch(/href="\/app\/apps\/app-1\/tasks\/new"/);
   });
 });
