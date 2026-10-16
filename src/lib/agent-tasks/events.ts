@@ -102,8 +102,9 @@ export function isAlarm(e: Pick<AgentTeamEvent, 'severity'>): boolean {
 }
 
 /**
- * The rule an alarm stands for (cor:agt:050:14–:17). `assignment.unassignable`
- * is "Couldn't be assigned": confirmed against hadron-server 4c55560a's
+ * The rule an alarm stands for (hrn:node:hadronmemory.com:specs:cor:agt:050:14
+ * to :17). `assignment.unassignable` is "Couldn't be assigned": confirmed
+ * against hadron-server 4c55560a's
  * ALARM_EVENT_TYPES (design §11.4). Its payload carries only `windowMinutes`,
  * so no reason is shown.
  */

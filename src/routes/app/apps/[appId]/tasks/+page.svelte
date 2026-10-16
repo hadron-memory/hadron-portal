@@ -8,6 +8,7 @@
   import TasksReadOnlyNote from '$lib/components/agent-tasks/TasksReadOnlyNote.svelte';
   import NotParticipant from '$lib/components/agent-tasks/NotParticipant.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
@@ -51,6 +52,8 @@
   }
 
   const ms = (s: string | null | undefined) => parseApiDate(s)?.getTime() ?? 0;
+  /** A date column's rendered text from its epoch accessor; 0 is "no date". */
+  const fmtMs = (v: unknown) => (typeof v === 'number' && v > 0 ? fmtRunTime(String(v)) : '');
 
   const rows = $derived<BoardRow[]>(
     board.kind === 'ok'
@@ -81,9 +84,9 @@
     { id: 'owner', accessorFn: (r) => r.ownerText, header: t('app.tasks.col.owner', 'Owner'), size: 200 },
     { id: 'assignee', accessorFn: (r) => r.assigneeText, header: t('app.tasks.col.assignee', 'Assignee'), size: 200 },
     { id: 'subtasks', accessorFn: () => '', header: t('app.tasks.col.subtasks', 'Subtasks'), enableSorting: false, enableGlobalFilter: false, size: 120 },
-    { id: 'startBy', accessorFn: (r) => r.startByMs, header: t('app.tasks.col.start-by', 'Start by'), enableGlobalFilter: false, size: 170 },
-    { id: 'updated', accessorFn: (r) => r.updatedMs, header: t('app.tasks.col.updated', 'Updated'), enableGlobalFilter: false, size: 170 },
-    { id: 'created', accessorFn: (r) => r.createdMs, header: t('app.tasks.col.created', 'Created'), enableGlobalFilter: false, size: 170 },
+    { id: 'startBy', accessorFn: (r) => r.startByMs, header: t('app.tasks.col.start-by', 'Start by'), size: 170 },
+    { id: 'updated', accessorFn: (r) => r.updatedMs, header: t('app.tasks.col.updated', 'Updated'), size: 170 },
+    { id: 'created', accessorFn: (r) => r.createdMs, header: t('app.tasks.col.created', 'Created'), size: 170 },
     { id: 'tags', accessorFn: (r) => r.tagsText, header: t('app.tasks.col.tags', 'Tags'), size: 180 },
     { id: 'id', accessorFn: (r) => r.id, header: t('app.tasks.col.id', 'Id'), size: 260 },
   ];
@@ -95,7 +98,8 @@
     columnResizeMode: 'onChange',
     state: { get globalFilter() { return globalFilter; } },
     onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
-    globalFilterFn: 'includesString',
+    // Dates sort by instant but search by what the cell shows (#820).
+    globalFilterFn: makeGlobalFilterFn<BoardRow>({ startBy: fmtMs, updated: fmtMs, created: fmtMs }),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 25 },
       sorting: [{ id: 'updated', desc: true }],
