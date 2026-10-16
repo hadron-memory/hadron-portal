@@ -95,6 +95,15 @@ describe('App page tab strip (#1005, #1006)', () => {
     expect(target.querySelector('#tab-members')?.textContent?.trim()).toBe('Human Team');
     expect(target.querySelector('#tab-agents')?.textContent?.trim()).toBe('Agents');
   });
+
+  // #1052: Tasks is a sub-route like Runs and Channels: a link styled as a
+  // tab, not an in-page panel, so a task read's refusal never reaches this page.
+  it('links to the Tasks sub-route', async () => {
+    const target = await mountTab('chats');
+    const link = [...target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Tasks');
+    expect(link?.getAttribute('href')).toBe('/app/apps/a1/tasks');
+    expect(tabLabels(target)).not.toContain('Tasks');
+  });
 });
 
 describe('Settings no longer carries the agent section (#1004, #1006)', () => {

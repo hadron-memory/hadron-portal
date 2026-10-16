@@ -4353,3 +4353,105 @@ export const MINT_MEMORY_NODES_MUTATION = /* GraphQL */ `
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// portal#1052 — the App's agent tasks, read-only (Holger #10660): the board,
+// task detail, subtask tree and history. Each selects exactly what a view
+// renders (hrn:node:hadronmemory.com:hadron-portal:review:graphql-fetch-rendered-subfields).
+// The App's participants read them; anyone else gets APP_NOT_FOUND
+// (hrn:node:hadronmemory.com:specs:cor:agt:050:21).
+// ---------------------------------------------------------------------------
+
+const AGENT_TASK_PARTY_FIELDS = /* GraphQL */ `
+  fragment AgentTaskPartyFields on AgentTaskParty { id kind name urn }
+`;
+
+const AGENT_TASK_ROW_FIELDS = /* GraphQL */ `
+  fragment AgentTaskRowFields on AgentTask {
+    id
+    parentTaskId
+    title
+    status
+    queued
+    waitingOnChildren
+    source
+    owner { id kind name urn }
+    assignee { id kind name urn }
+    startBy
+    createdAt
+    updatedAt
+    tags
+  }
+`;
+
+/** The App light enough for a sub-route's header (no agents, no keys). */
+export const AGENT_TASKS_APP_QUERY = /* GraphQL */ `
+  query AgentTasksApp($ref: ID!) {
+    app(ref: $ref) { id name urn organizationId }
+  }
+`;
+
+export const AGENT_TASKS_BOARD_QUERY = /* GraphQL */ `
+  ${AGENT_TASK_ROW_FIELDS}
+  query AgentTasksBoard($appRef: ID!, $status: [AgentTaskStatus!], $queued: Boolean, $limit: Int) {
+    agentTasks(appRef: $appRef, rootsOnly: true, status: $status, queued: $queued, limit: $limit) {
+      ...AgentTaskRowFields
+    }
+  }
+`;
+
+export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
+  ${AGENT_TASK_PARTY_FIELDS}
+  ${AGENT_TASK_ROW_FIELDS}
+  query AgentTaskDetail($id: ID!) {
+    agentTask(id: $id) {
+      ...AgentTaskRowFields
+      appId
+      description
+      requirements { role familyIn familyNotIn excludeWorkerIds }
+      createdBy { ...AgentTaskPartyFields }
+      createdByRunId
+      assignedAt
+      assignedBy { ...AgentTaskPartyFields }
+      startedAt
+      finishedAt
+      cancelledAt
+      closeSessionWhenDone
+      result { outcome summary evidence }
+      sessionEndRequest { requestedAt dueAt resolution resolvedAt }
+    }
+  }
+`;
+
+/** A breadcrumb ancestor: its title and its own parent, nothing else. */
+export const AGENT_TASK_ANCESTOR_QUERY = /* GraphQL */ `
+  query AgentTaskAncestor($id: ID!) {
+    agentTask(id: $id) { id title parentTaskId }
+  }
+`;
+
+export const AGENT_TASK_TREE_QUERY = /* GraphQL */ `
+  ${AGENT_TASK_ROW_FIELDS}
+  query AgentTaskTree($root: ID!) {
+    agentTaskTree(root: $root) { ...AgentTaskRowFields }
+  }
+`;
+
+export const AGENT_TASK_EVENTS_QUERY = /* GraphQL */ `
+  ${AGENT_TASK_PARTY_FIELDS}
+  query AgentTaskEvents($appRef: ID!, $taskId: ID!, $after: ID, $limit: Int) {
+    agentTeamEvents(appRef: $appRef, taskId: $taskId, after: $after, limit: $limit) {
+      id
+      type
+      severity
+      createdAt
+      actor { ...AgentTaskPartyFields }
+      actorRunId
+      subjectWorker { ...AgentTaskPartyFields }
+      payload
+      acknowledgedAt
+      acknowledgedBy { ...AgentTaskPartyFields }
+      wakes { chainIndex dueAt wokenAt owner { ...AgentTaskPartyFields } }
+    }
+  }
+`;
