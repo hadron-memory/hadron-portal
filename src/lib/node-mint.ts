@@ -123,7 +123,7 @@ export function findingKindText(kind: string): string {
     case 'STALE_ABSTRACT':
       return t('memory.mint.blocker.stale-abstract', 'Abstract written for an earlier body');
     case 'NOT_APPROVED':
-      return t('memory.mint.blocker.not-approved', 'Current revision not approved');
+      return t('memory.mint.blocker.not-approved', 'Current content not approved');
     case 'TAMPERED':
       return t('memory.mint.blocker.tampered', 'Approved text changed outside the revision history; re-approve it');
     case 'CITES_UNMINTED':

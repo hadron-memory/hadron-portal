@@ -2,9 +2,10 @@
  * #992 — node approvals (hadron-server#1591 PR 1), turned into what the
  * portal renders. Pure: no fetching, no DOM.
  *
- * - An approval belongs to ONE revision. A node edited since its approval is
- *   SUPERSEDED: the old approval still exists, but it vouches for text the
- *   page no longer shows.
+ * - An approval records the revision at which the title, abstract and content
+ *   were approved. Metadata-only revisions keep that content approved; only
+ *   a change to the hashed fields (under v1 normalization) supersedes it.
+ *   The server supplies this state; clients do not infer it from revision equality.
  * - Approve sends the revision the reader saw, so an edit landing in between
  *   is refused (REVISION_MISMATCH) instead of approving unread text.
  * - Every refusal and verify outcome maps to FIXED copy keyed by its code. The
@@ -60,7 +61,7 @@ export interface ApprovalView {
   state: NodeApprovalState | 'UNAVAILABLE' | 'CHANGED';
   tone: ApprovalTone;
   approval: NodeApproval | null;
-  /** True when Approve is worth offering: the shown revision isn't approved yet. */
+  /** True when Approve is worth offering: the current content is not approved. */
   canApprove: boolean;
 }
 
@@ -90,7 +91,7 @@ export function approvalText(view: ApprovalView): string {
     case 'APPROVED':
       return t('node.approval.approved', 'Approved');
     case 'SUPERSEDED':
-      return t('node.approval.superseded', 'Changed since approval');
+      return t('node.approval.superseded', 'Content changed since approval');
     case 'NOT_APPROVED':
       return t('node.approval.not-approved', 'Not approved');
     case 'NOT_APPLICABLE':
@@ -180,11 +181,11 @@ export interface NodeIntegrityCheck {
 export function integrityText(check: Pick<NodeIntegrityCheck, 'state' | 'revision' | 'approvedRevision'>): { text: string; problem: boolean } {
   switch (check.state) {
     case 'INTACT':
-      return { text: t('node.approval.verify.intact', 'Verified: revision {rev} matches what was approved.', { rev: check.revision }), problem: false };
+      return { text: t('node.approval.verify.intact', 'Verified: the current title, abstract and content match the approval recorded at revision {approved} (current revision {rev}).', { approved: check.approvedRevision ?? check.revision, rev: check.revision }), problem: false };
     case 'TAMPERED':
       return { text: t('node.approval.verify.tampered', "Verification failed: the approved text of revision {rev} has changed since it was approved. Treat this node's content as unverified.", { rev: check.approvedRevision ?? check.revision }), problem: true };
     case 'SUPERSEDED':
-      return { text: t('node.approval.verify.superseded', 'Revision {approved} was approved, but the node has changed since (now revision {rev}). The current revision is not approved.', { approved: check.approvedRevision ?? '?', rev: check.revision }), problem: false };
+      return { text: t('node.approval.verify.superseded', 'Content was approved at revision {approved}, but the content has changed since (current revision {rev}). The current content is not approved.', { approved: check.approvedRevision ?? '?', rev: check.revision }), problem: false };
     case 'NOT_APPROVED':
       return { text: t('node.approval.verify.not-approved', 'Nothing to verify: this node has never been approved.'), problem: false };
     default:

@@ -7,7 +7,7 @@ const approval = { revision: 3, approvedAt: '2026-10-01T10:00:00Z', approvedBy: 
 
 describe('NodeApprovalBadge (#992)', () => {
   it('says who approved which revision, with the approver URN and a short hash', () => {
-    const { body } = render(NodeApprovalBadge, { props: { view: approvalView({ ok: true, value: { state: 'APPROVED', approval } }) } });
+    const { body } = render(NodeApprovalBadge, { props: { view: approvalView({ ok: true, value: { state: 'APPROVED', approval } }), currentRevision: 3 } });
     expect(body).toContain('data-state="APPROVED"');
     expect(body).toContain('Content approved at revision 3 by @ada');
     expect(body).toContain('hrn:user:hadronmemory.com:ada');
@@ -38,7 +38,7 @@ describe('NodeApprovalBadge (#992)', () => {
 
 it('shows the current revision separately when metadata kept older approved content current', () => {
   const view = approvalView({ ok: true, value: { state: 'APPROVED', approval } });
-  const { body } = render(NodeApprovalBadge, { props: { view, currentRevision: 5 } as never });
+  const { body } = render(NodeApprovalBadge, { props: { view, currentRevision: 5 } });
   expect(body).toContain('Content approved at revision 3');
   expect(body).toContain('Current revision 5');
   expect(body).toContain('title, abstract and content are unchanged');
