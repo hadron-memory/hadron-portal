@@ -99,9 +99,9 @@
     { id: 'raised', accessorFn: (r) => r.raisedMs, header: t('app.tasks.alarms.col.raised', 'Raised'), size: 170 },
     { id: 'rule', accessorFn: (r) => r.rule, header: t('app.tasks.alarms.col.rule', 'Rule'), enableHiding: false, size: 170 },
     { id: 'task', accessorFn: (r) => r.task, header: t('app.tasks.alarms.col.task', 'Task'), size: 260 },
+    { id: 'status', accessorFn: (r) => r.status, header: t('app.tasks.alarms.col.status', 'Status'), enableHiding: false, size: 300 },
     { id: 'concerns', accessorFn: (r) => r.concerns, header: t('app.tasks.alarms.col.concerns', 'Concerns'), size: 200 },
     { id: 'woke', accessorFn: (r) => r.woke, header: t('app.tasks.alarms.col.woke', 'Woke'), enableSorting: false, size: 240 },
-    { id: 'status', accessorFn: (r) => r.status, header: t('app.tasks.alarms.col.status', 'Status'), enableHiding: false, size: 300 },
     { id: 'chain', accessorFn: (r) => r.chain, header: t('app.tasks.alarms.col.chain', 'Chain'), enableSorting: false, size: 260 },
   ];
   const table = createSvelteTable<AlarmRow>({
@@ -114,7 +114,7 @@
     onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
     globalFilterFn: makeGlobalFilterFn<AlarmRow>({ raised: fmtMs }),
     initialState: {
-      pagination: { pageIndex: 0, pageSize: 25 },
+      pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'raised', desc: true }],
       columnVisibility: { chain: false },
     },
@@ -198,7 +198,7 @@
         <span class="font-medium text-red-700 dark:text-red-300">{row.rule}</span>
       {:else if cell.column.id === 'task'}
         {#if a.taskId}
-          <a href="{basePath}/tasks/{a.taskId}" class="truncate text-indigo-600 hover:underline dark:text-indigo-300">{row.task}</a>
+          <a href="{basePath}/tasks/{a.taskId}" class="block max-w-full truncate text-indigo-600 hover:underline dark:text-indigo-300">{row.task}</a>
         {:else}
           <span class="text-zinc-400">—</span>
         {/if}
@@ -214,7 +214,7 @@
           </span>
         {/if}
       {:else}
-        <span class="truncate">{cell.getValue() || '—'}</span>
+        <span class="block max-w-full truncate">{cell.getValue() || '—'}</span>
       {/if}
     {/snippet}
   </DataTable>

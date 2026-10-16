@@ -149,7 +149,7 @@
     onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
     globalFilterFn: makeGlobalFilterFn<RosterRow>({ lastActive: fmtMs, lastAssigned: fmtMs }),
     initialState: {
-      pagination: { pageIndex: 0, pageSize: 25 },
+      pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'state', desc: false }],
       columnVisibility: { freeAs: false, launchableAs: false, lastAssigned: false },
     },
@@ -212,7 +212,7 @@
           {#if detailTasks(e).length}
             <span class="flex flex-wrap gap-x-2">
               {#each detailTasks(e) as id (id)}
-                <a href="{basePath}/tasks/{id}" class="truncate text-indigo-600 hover:underline dark:text-indigo-300">{taskRefLabel(id, titles)}</a>
+                <a href="{basePath}/tasks/{id}" class="block max-w-full truncate text-indigo-600 hover:underline dark:text-indigo-300">{taskRefLabel(id, titles)}</a>
               {/each}
               {#if e.state === 'YOUR_MOVE'}<span class="text-zinc-500">{t('app.tasks.roster.detail.ended-unreacted', 'ended; not reacted to')}</span>{/if}
             </span>
@@ -231,7 +231,7 @@
           {#if e.reportsToRetired}<span class="text-xs text-zinc-500">{t('app.tasks.roster.retired', '(retired)')}</span>{/if}
         </span>
       {:else}
-        <span class="truncate">{cell.getValue() || '—'}</span>
+        <span class="block max-w-full truncate">{cell.getValue() || '—'}</span>
       {/if}
     {/snippet}
   </DataTable>
