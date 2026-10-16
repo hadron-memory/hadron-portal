@@ -7,7 +7,7 @@
   import TaskHistory from '$lib/components/agent-tasks/TaskHistory.svelte';
   import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
-  import TasksReadOnlyNote from '$lib/components/agent-tasks/TasksReadOnlyNote.svelte';
+  import TaskActionBar from '$lib/components/agent-tasks/TaskActionBar.svelte';
   import { fmtRunTime } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
   import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
@@ -32,6 +32,19 @@
     ...data.ancestors.map((a) => ({ label: a.title, href: `${basePath}/tasks/${a.id}` })),
     { label: task.title },
   ]);
+
+  /**
+   * portal#1090: cancelling counts the task's open (pending or started) DIRECT
+   * children and leaves them as they are; the confirmation says how many, from
+   * the tree the page already loaded ("at least" when that read was capped).
+   */
+  const openChildren = $derived.by(() => {
+    if (data.tree.kind !== 'ok' || !data.tree.value) return { count: 0, capped: false };
+    const count = data.tree.value.rows.filter(
+      (r) => r.parentTaskId === task.id && (r.status === 'PENDING' || r.status === 'STARTED'),
+    ).length;
+    return { count, capped: data.tree.value.capped };
+  });
 
   const parent = $derived(data.ancestors.length ? data.ancestors[data.ancestors.length - 1] : null);
 
@@ -78,7 +91,14 @@
     <div class="min-w-0">
       <h1 class="text-xl font-bold break-words text-zinc-900 dark:text-white">{task.title}</h1>
       <div class="mt-1"><TaskStateChips {task} /></div>
-      <TasksReadOnlyNote />
+      <TaskActionBar
+        {task}
+        canWrite={data.canWrite}
+        impersonating={data.impersonating}
+        candidates={data.candidates}
+        {openChildren}
+        created={data.created}
+      />
     </div>
     <div class="flex min-w-0 flex-col items-start gap-1 sm:items-end">
       <CopyCode value={task.id} label={t('app.tasks.copy-id', 'Copy the task id')} />

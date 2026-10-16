@@ -1,7 +1,7 @@
 /**
  * portal#1090 — the task page's write actions and the create page's action.
  * Each calls the existing mutation and surfaces its typed refusal (design §5);
- * authority stays the server's (cor:agt:050:09). Impersonation writes nothing.
+ * authority stays the server's (hrn:node:hadronmemory.com:specs:cor:agt:050:09). Impersonation writes nothing.
  * Park is held: there is no park action.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';

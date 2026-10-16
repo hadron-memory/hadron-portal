@@ -4511,3 +4511,47 @@ export const AGENT_ALARMS_QUERY = /* GraphQL */ `
     }
   }
 `;
+
+// ---------------------------------------------------------------------------
+// portal#1090 — task writes (create, assign, reassign, cancel, make ready).
+// Park is held pending a ruling: no parkAgentTask document here. Each write
+// selects only the id: the page reloads its data afterwards, never trusting
+// an optimistic view.
+// ---------------------------------------------------------------------------
+
+export const CREATE_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation CreateAgentTask($input: CreateAgentTaskInput!) {
+    createAgentTask(input: $input) { id }
+  }
+`;
+
+export const ASSIGN_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation AssignAgentTask($taskId: ID!, $assignee: AgentTaskPartyInput!, $closeSessionWhenDone: Boolean) {
+    assignAgentTask(taskId: $taskId, assignee: $assignee, closeSessionWhenDone: $closeSessionWhenDone) { id }
+  }
+`;
+
+export const REASSIGN_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation ReassignAgentTask($taskId: ID!, $assignee: AgentTaskPartyInput!, $closeSessionWhenDone: Boolean) {
+    reassignAgentTask(taskId: $taskId, assignee: $assignee, closeSessionWhenDone: $closeSessionWhenDone) { id }
+  }
+`;
+
+export const CANCEL_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation CancelAgentTask($taskId: ID!) {
+    cancelAgentTask(taskId: $taskId) { id }
+  }
+`;
+
+export const MAKE_AGENT_TASK_READY_MUTATION = /* GraphQL */ `
+  mutation MakeAgentTaskReady($taskId: ID!) {
+    makeAgentTaskReady(taskId: $taskId) { id }
+  }
+`;
+
+/** The App's people, for the owner and assignee pickers: id, handle and name only. */
+export const APP_PEOPLE_QUERY = /* GraphQL */ `
+  query AppPeople($ref: ID!) {
+    app(ref: $ref) { id members { user { id handle name } } }
+  }
+`;

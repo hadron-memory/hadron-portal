@@ -1,7 +1,7 @@
 /**
  * portal#1090 — which write actions a task's STATE offers (design §3) and what
  * cancelling it will do (design §4). State is a fact on the row; authority is
- * never inferred (cor:agt:050:09), and Park is HELD (Xavier's gate): it is
+ * never inferred (hrn:node:hadronmemory.com:specs:cor:agt:050:09), and Park is HELD (Xavier's gate): it is
  * never offered.
  */
 import { describe, expect, it } from 'vitest';

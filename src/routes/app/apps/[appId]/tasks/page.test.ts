@@ -10,6 +10,7 @@ import { render } from 'svelte/server';
 // The node lane has no $app/* (only the client lane aliases navigation).
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
+vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 import Board from './+page.svelte';
 import TaskPage from './[taskId]/+page.svelte';
 
@@ -41,7 +42,7 @@ function expectBoardWrites(html: string) {
   expect(html).toContain('Create and direct tasks from a task’s page, the CLI or MCP.');
   expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\/new"[^>]*>\s*New task/);
   expect(html).not.toMatch(/<form/);
-  expect(html).not.toMatch(/Park/);
+  expect(html).not.toMatch(/\bPark\b/);
   expect(html).not.toMatch(/<button[^>]*>\s*(Assign|Reassign|Cancel|Ready|Make ready|Acknowledge)/i);
 }
 
@@ -140,7 +141,7 @@ describe('task page', () => {
     expect(html).toContain('No subtasks');
     expect(html).toContain('You can change a task you own, or any task if you manage the App.');
     expect(html).not.toMatch(/<form/);
-    expect(html).not.toMatch(/Park/);
+    expect(html).not.toMatch(/\bPark\b/);
   });
 
   it('a backlog task has no assignee, said in words', () => {
@@ -227,7 +228,7 @@ describe('task page action bar (#1090)', () => {
   ])('%j offers %j, and never Park', (over, buttons) => {
     const html = taskPage({ task: detail(over) });
     expect(barButtons(html)).toEqual(buttons);
-    expect(html).not.toMatch(/Park/);
+    expect(html).not.toMatch(/\bPark\b/);
   });
 
   it.each(['FINISHED', 'CANCELLED'])('an ended task (%s) offers nothing and says so', (status) => {

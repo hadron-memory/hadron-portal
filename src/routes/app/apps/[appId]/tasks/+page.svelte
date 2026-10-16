@@ -145,7 +145,7 @@
     <h1 class="text-xl font-bold text-zinc-900 dark:text-white">
       <span class="font-normal text-zinc-400">{t('app.tasks.title.prefix', 'Tasks:')}</span> {data.app.name}
     </h1>
-    <TasksReadOnlyNote />
+    <TasksReadOnlyNote view={data.view ?? 'board'} />
   </div>
 
   <!-- §2: Board · Roster · Alarms, addressed by ?view=. Its own row scrolls on a phone, never the page. -->
@@ -193,6 +193,13 @@
           disabled={refreshing}
           class="rounded-md border border-zinc-300 px-2 py-1 font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
         >{t('app.tasks.refresh', 'Refresh')}</button>
+        <!-- portal#1090: the board's one write entry point. A support session writes nothing, so it gets none. -->
+        {#if !data.impersonating}
+          <a
+            href="{basePath}/tasks/new"
+            class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
+          >{t('app.tasks.write.new', 'New task')}</a>
+        {/if}
       </div>
     </div>
 

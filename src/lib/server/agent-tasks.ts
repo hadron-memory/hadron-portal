@@ -8,10 +8,11 @@ import {
   AGENT_TASK_TREE_QUERY,
   AGENT_TASKS_BOARD_QUERY,
   AGENT_TASKS_OPEN_TITLES_QUERY,
+  APP_PEOPLE_QUERY,
   TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
-import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TeamRoster } from '$lib/agent-tasks/types';
+import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
 
 /**
  * portal#1052 — the Tasks views' reads.
@@ -238,4 +239,47 @@ export async function loadTasksApp(client: GraphQLClient, ref: string): Promise<
     if (isAccessRefusal(e)) return null;
     throw e;
   }
+}
+
+// ── portal#1090: who the write forms offer ───────────────────────────────
+
+export type { WriteCandidates };
+
+/**
+ * The owner and assignee pickers' options (design §3.1, §6): the App's
+ * workers from the roster (the server already leaves retired ones out) and
+ * its members. The server's participant test is wider than this list, so
+ * the pickers also take "Someone else…", and `TASK_ASSIGNEE_INVALID` /
+ * `TASK_OWNER_INVALID` say the rest. A failed read costs only options, never
+ * the page: it reads as an empty list and is logged.
+ */
+export async function loadWriteCandidates(
+  client: GraphQLClient,
+  appRef: string,
+): Promise<WriteCandidates & { roles: string[]; families: string[] }> {
+  const [roster, people] = await Promise.all([
+    client
+      .request<{ teamRoster: TeamRoster }>(TEAM_ROSTER_QUERY, { appRef })
+      .then((r) => r.teamRoster.workers)
+      .catch((e) => {
+        console.warn(`[agent-tasks] picker roster read failed for ${appRef}:`, e);
+        return [] as TeamRoster['workers'];
+      }),
+    client
+      .request<{ app: { members: { user: { id: string; handle: string | null; name: string | null } | null }[] } | null }>(
+        APP_PEOPLE_QUERY,
+        { ref: appRef },
+      )
+      .then((r) => (r.app?.members ?? []).flatMap((m) => (m.user ? [m.user] : [])))
+      .catch((e) => {
+        console.warn(`[agent-tasks] picker people read failed for ${appRef}:`, e);
+        return [] as WriteCandidates['people'];
+      }),
+  ]);
+  const workers = roster.map((e) => ({ id: e.worker.id, name: e.worker.name ?? e.worker.id, role: e.role, urn: e.worker.urn }));
+  const roles = [...new Set(roster.flatMap((e) => (e.role ? [e.role] : [])))].sort();
+  const families = [
+    ...new Set(roster.flatMap((e) => [e.family, ...e.freeFamilies, ...e.launchableFamilies, ...e.unavailableFamilies]).filter((f): f is string => !!f)),
+  ].sort();
+  return { workers, people, roles, families };
 }
