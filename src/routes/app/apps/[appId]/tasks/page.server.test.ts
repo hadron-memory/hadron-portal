@@ -47,6 +47,23 @@ describe('board loader', () => {
     await expect(loadBoard()).rejects.toMatchObject({ status: 404 });
   });
 
+  // Atilla's P2 on #1127: only the access and missing codes become a 404. A
+  // server fault that happens to carry a GraphQL response stays a failure.
+  it('a NOT_FOUND App read is a 404 too', async () => {
+    request.mockRejectedValueOnce(gqlError('NOT_FOUND'));
+    await expect(loadBoard()).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('an INTERNAL_SERVER_ERROR with app:null is a failure, not a 404', async () => {
+    request.mockRejectedValueOnce({ response: { data: { app: null }, errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } });
+    await expect(loadBoard()).rejects.not.toMatchObject({ status: 404 });
+  });
+
+  it('an HTTP 500 with no data is a failure, not a 404', async () => {
+    request.mockRejectedValueOnce({ response: { status: 500 } });
+    await expect(loadBoard()).rejects.not.toMatchObject({ status: 404 });
+  });
+
   it('a transport failure on the App read is not dressed up as a 404', async () => {
     request.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     await expect(loadBoard()).rejects.toThrow('ECONNREFUSED');
