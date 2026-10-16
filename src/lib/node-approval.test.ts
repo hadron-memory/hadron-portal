@@ -66,3 +66,29 @@ describe('display helpers', () => {
     expect(integrityText({ state: 'X' as never, revision: 4, approvedRevision: 3 }).problem).toBe(true);
   });
 });
+
+
+describe('content-based approval (#1129)', () => {
+  it('accepts an older approval record when the server status describes the shown revision', () => {
+    const read = { id: 'n', revision: 5, approvalStatus: { state: 'APPROVED' as const, approval } };
+    const bound = bindApprovalToRevision(read, 5);
+    expect(approvalView(bound)).toMatchObject({ state: 'APPROVED', canApprove: false, approval });
+    expect(bindApprovalToRevision(read, 4)).toEqual({ ok: false, changed: true });
+  });
+  it('intact verification names the recorded approval and the current revision', () => {
+    const verdict = integrityText({ state: 'INTACT', revision: 5, approvedRevision: 3 });
+    expect(verdict.problem).toBe(false);
+    expect(verdict.text).toContain('approval recorded at revision 3');
+    expect(verdict.text).toContain('current revision 5');
+    expect(verdict.text).toContain('title, abstract and content');
+  });
+  it('ordinary content changes and tampering remain different verdicts after metadata revisions', () => {
+    const changed = integrityText({ state: 'SUPERSEDED', revision: 5, approvedRevision: 3 });
+    expect(changed.text).toContain('content has changed');
+    expect(changed.problem).toBe(false);
+    const tampered = integrityText({ state: 'TAMPERED', revision: 5, approvedRevision: 3 });
+    expect(tampered.problem).toBe(true);
+    expect(tampered.text).toContain('approved text of revision 3 has changed');
+    expect(tampered.text).not.toBe(changed.text);
+  });
+});
