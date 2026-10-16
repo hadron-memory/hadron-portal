@@ -6,6 +6,7 @@
   import WriteRefusalAlert from '$lib/components/agent-tasks/WriteRefusal.svelte';
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
+  import { localDateTimeToIso } from '$lib/agent-tasks/start-by';
   import type { ActionData, PageData } from './$types';
 
   /**
@@ -41,11 +42,16 @@
   const fieldRefusal = (field: string) =>
     result?.refusal?.kind === 'invalid' && result.refusal.field === field ? result.refusal.message : null;
 
-  /** The browser's zone, so a Start by time means what the reader typed. Without it the server reads UTC. */
-  let tzOffset = $state('');
+  /**
+   * Start by in the browser's zone: the instant is computed from the CHOSEN
+   * date's own offset (Diego's P2-3 on #1135), and sent as `startByUtc`.
+   * Without JS there is none, and the server reads the time as UTC, which
+   * the label then says.
+   */
+  let startByLocal = $state(v('startBy'));
+  const startByUtc = $derived(localDateTimeToIso(startByLocal));
   let zoneLabel = $state(t('app.tasks.new.zone-utc', 'UTC'));
   onMount(() => {
-    tzOffset = String(new Date().getTimezoneOffset());
     try {
       zoneLabel = Intl.DateTimeFormat().resolvedOptions().timeZone || zoneLabel;
     } catch {
@@ -64,9 +70,21 @@
   }
 
   let alertBox = $state<HTMLElement | null>(null);
+  /** A browser-to-portal failure (Diego's P2-1 on #1135): the task may exist, so the fixed line, and the form stays. */
+  let transportRefusal = $state<WriteRefusal | null>(null);
+  const shownRefusal = $derived(transportRefusal ?? result?.refusal ?? null);
   const submit = () => {
     submitting = true;
-    return async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => {
+    transportRefusal = null;
+    return async ({ result: r0, update }: { result: { type: string }; update: (o?: { reset?: boolean }) => Promise<void> }) => {
+      if (r0.type === 'error') {
+        // Not the error page: the create may have landed. Keep every field as typed.
+        submitting = false;
+        transportRefusal = { kind: 'uncertain' };
+        await tick();
+        alertBox?.focus();
+        return;
+      }
       await update({ reset: false });
       submitting = false;
       await tick();
@@ -74,7 +92,7 @@
       if (r?.kind === 'refused' && (r.code === 'TASK_ASSIGNEE_INVALID' || r.code === 'TASK_OWNER_INVALID')) {
         document.getElementById(r.code === 'TASK_OWNER_INVALID' ? 'new-owner' : 'new-assignee')?.focus();
       } else if (r?.kind === 'invalid') {
-        document.getElementById(`new-${r.field}`)?.focus();
+        (document.getElementById(`new-${r.field}-other`) ?? document.getElementById(`new-${r.field}`))?.focus();
       } else if (r) {
         alertBox?.focus();
       }
@@ -110,7 +128,7 @@
     </p>
   {:else}
     <form method="POST" use:enhance={submit} class="space-y-5 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-      <input type="hidden" name="tzOffset" value={tzOffset} />
+      <input type="hidden" name="startByUtc" value={startByUtc} />
 
       <div class="space-y-1">
         <label for="new-title" class={labelClass}>{t('app.tasks.new.title', 'Title')}</label>
@@ -147,6 +165,7 @@
         workers={data.candidates.workers}
         people={data.candidates.people}
       />
+      {#if fieldRefusal('owner')}<p class="text-xs text-red-700 dark:text-red-300" role="alert">{fieldRefusal('owner')}</p>{/if}
 
       <!-- A backlog task takes no assignee (hrn:node:hadronmemory.com:specs:cor:agt:050:02): hidden, not disabled. -->
       {#if !backlog}
@@ -160,6 +179,7 @@
           workers={data.candidates.workers}
           people={data.candidates.people}
         />
+        {#if fieldRefusal('assignee')}<p class="text-xs text-red-700 dark:text-red-300" role="alert">{fieldRefusal('assignee')}</p>{/if}
 
         {#if assignee === 'nobody'}
           <details class="rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
@@ -198,7 +218,7 @@
 
       <div class="space-y-1">
         <label for="new-start-by" class={labelClass}>{t('app.tasks.new.start-by', 'Start by')} <span class="font-normal text-zinc-500">({zoneLabel})</span></label>
-        <input id="new-start-by" name="startBy" type="datetime-local" value={v('startBy')} aria-describedby="new-start-by-help" class="{inputClass} max-w-xs" />
+        <input id="new-start-by" name="startBy" type="datetime-local" bind:value={startByLocal} aria-describedby="new-start-by-help" class="{inputClass} max-w-xs" />
         <p id="new-start-by-help" class={helpClass}>{t('app.tasks.new.start-by.help', 'If it’s still pending then, an alarm is raised.')}</p>
       </div>
 
@@ -223,8 +243,8 @@
         </p>
       </div>
 
-      {#if result?.refusal && result.refusal.kind !== 'invalid'}
-        <div bind:this={alertBox} tabindex="-1"><WriteRefusalAlert refusal={result.refusal} /></div>
+      {#if shownRefusal && shownRefusal.kind !== 'invalid'}
+        <div bind:this={alertBox} tabindex="-1"><WriteRefusalAlert refusal={shownRefusal} /></div>
       {/if}
 
       <div class="flex flex-wrap items-center gap-3">

@@ -39,17 +39,28 @@ const str = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim();
 const list = (fd: FormData, k: string) => fd.getAll(k).map((v) => String(v).trim()).filter(Boolean);
 
 /**
- * A `datetime-local` value read in the browser's zone: `tzOffset` is the
- * browser's `getTimezoneOffset()` (minutes behind UTC), set when the page
- * runs. Without it the time is read as UTC, which the form says.
+ * Start by as an instant. The browser sends `startByUtc`, computed with the
+ * CHOSEN date's own offset (Diego's P2-3 on #1135: today's offset is an hour
+ * off across a DST change). Without JS there is none, and the local value is
+ * read as UTC, which the form's label says.
  */
-function startByIso(local: string, tzOffset: string): string | null {
-  if (!local) return null;
+function startByIso(local: string, utc: string): string | null {
+  if (utc) {
+    const d = new Date(utc);
+    if (/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(utc) && !Number.isNaN(d.getTime())) return d.toISOString();
+  }
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local);
   if (!m) return null;
-  const utc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
-  const offset = /^-?\d+$/.test(tzOffset) ? Number(tzOffset) : 0;
-  return new Date(utc + offset * 60_000).toISOString();
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])).toISOString();
+}
+
+/**
+ * Diego's P2-2 on #1135: "Someone else…" with nothing usable typed is not a
+ * default. Only `me` (owner) or `nobody` (assignee) mean "no party"; an
+ * explicit choice that names nobody is refused on its field.
+ */
+function explicitBlank(fd: FormData, field: 'owner' | 'assignee'): boolean {
+  return str(fd, field) === 'other' && !str(fd, `${field}Other`).replace(/^@/, '').trim();
 }
 
 export const actions: Actions = {
@@ -72,6 +83,13 @@ export const actions: Actions = {
     const description = str(fd, 'description');
     if (description) input.description = description;
     if (backlog) input.status = 'BACKLOG';
+
+    if (explicitBlank(fd, 'owner')) {
+      return writeFailure('create', { kind: 'invalid', field: 'owner', message: t('app.tasks.write.other-required', 'Type their @handle or id, or choose someone from the list.') }, values);
+    }
+    if (!backlog && explicitBlank(fd, 'assignee')) {
+      return writeFailure('create', { kind: 'invalid', field: 'assignee', message: t('app.tasks.write.other-required', 'Type their @handle or id, or choose someone from the list.') }, values);
+    }
 
     const owner = parsePartyChoice(str(fd, 'owner'), str(fd, 'ownerOther'));
     if (owner) input.owner = owner; // "me" names no owner: the server makes the creator the owner.
@@ -97,7 +115,7 @@ export const actions: Actions = {
       }
     }
 
-    const startBy = startByIso(str(fd, 'startBy'), str(fd, 'tzOffset'));
+    const startBy = startByIso(str(fd, 'startBy'), str(fd, 'startByUtc'));
     if (startBy) input.startBy = startBy;
     const source = str(fd, 'source');
     if (source) input.source = source;
