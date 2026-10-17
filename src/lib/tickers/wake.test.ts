@@ -5,6 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { wakeStatus } from './wake';
+import { fmtRunTime } from '$lib/flow/runs';
 import type { WakeSubscription, WorkerWakeSettings } from './types';
 
 const NOW = Date.parse('2026-10-16T10:00:00Z');
@@ -48,7 +49,8 @@ describe('wakeStatus (design §4.1)', () => {
   it('a pause in the future stops everything, mentions included', () => {
     const s = wakeStatus(settings({ pausedUntil: '2026-10-16T12:00:00Z', effectiveCadenceSeconds: 600, subscriptions: [sub()] }), live, NOW);
     expect(s.kind).toBe('paused');
-    expect(s.lead).toMatch(/^Paused until /);
+    // Uma's P3-2 on #1136: the same format as the rest of the tab.
+    expect(s.lead).toBe(`Paused until ${fmtRunTime('2026-10-16T12:00:00Z')}.`);
     expect(s.text).toBe('Nothing wakes it until then, not even mentions.');
   });
 

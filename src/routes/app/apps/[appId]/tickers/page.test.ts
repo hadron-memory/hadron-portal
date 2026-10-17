@@ -49,6 +49,7 @@ describe('Tickers list', () => {
     expect(html).toContain('No tickers yet.');
     expect(html).toContain('A mention already makes a worker due at once, unless its mentions are off or it is paused.');
     expect(html).toContain('A router delivers the wake-ups. This page only decides who is due and when.');
+    expect(html).toContain('use the MCP tool hadron_ticker_create');
     expect(html).not.toMatch(/tickers (already )?wake/i);
     expectReadOnly(html);
   });
@@ -64,7 +65,11 @@ describe('Tickers list', () => {
     expect(html).toContain('Ticking');
     expect(html).toContain('10 min');
     expect(html).toContain('22:00–07:00 Mon–Fri');
-    expect(html).toContain('Every channel the subscriber watches');
+    // Anne's P2 on #1136: an empty channel list is also what the server sends
+    // when every named channel is hidden from this reader, so it never claims
+    // the ticker is unrestricted.
+    expect(html).not.toContain('Every channel the subscriber watches');
+    expect(html).toContain('Every watched channel, or channels hidden from you');
     expectReadOnly(html);
   });
 
@@ -118,6 +123,24 @@ describe('Ticker page', () => {
     expect(html).toContain('All unread: makes a subscriber due when it has unread messages in these channels.');
     expect(html).toContain('Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.');
     expectReadOnly(html);
+  });
+
+  // Anne's P2 on #1136: unrestricted and filtered-to-empty arrive as the same
+  // [] and must read the same, neutral text, never 'every channel'.
+  it('an empty channel list is described neutrally, not as every channel', () => {
+    const html = detail();
+    expect(html).not.toContain('Unread in every channel');
+    expect(html).toContain('No channel you can read is named.');
+    expect(html).toContain('either every channel each subscriber watches, or only channels hidden from you');
+  });
+
+  it('a named channel the reader can read is listed by name', () => {
+    expect(detail({ ticker: ticker({ channels: [{ id: 'c1', name: 'team-chat' }] }) })).toContain('Unread in team-chat');
+  });
+
+  // Uma's P3-1 on #1136: say where changes are made, not only who may make them.
+  it('says changes are made through MCP for now', () => {
+    expect(detail()).toContain('In the portal this is read-only for now; use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe) to change it.');
   });
 
   it('no subscribers reads “Nobody follows this ticker yet.”', () => {
@@ -187,6 +210,10 @@ describe('Wake-ups panel', () => {
     expect(html).toContain('Wake state unknown.');
     expect(html).toContain('data-testid="wake-raw"');
     expect(html).toContain('effectiveCadenceSeconds');
+  });
+
+  it('says wake settings are changed through MCP for now', () => {
+    expect(panel()).toContain('In the portal this is read-only for now; use the MCP tool hadron_worker_wake_settings to change it.');
   });
 
   it('a non-participant sees the inline state, not the worker’s settings', () => {

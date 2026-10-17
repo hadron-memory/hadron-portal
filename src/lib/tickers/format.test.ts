@@ -1,6 +1,6 @@
 /** portal#1099 — how a ticker's cadence, quiet hours and times read. */
 import { describe, expect, it } from 'vitest';
-import { cadenceText, daysText, parseQuietHours, quietHoursSummary, relativeTime, windowText } from './format';
+import { cadenceText, daysText, parseQuietHours, quietHoursSummary, relativeTime, subscriptionSearchText, tickerSearchText, windowText } from './format';
 
 describe('cadenceText', () => {
   it('uses the largest unit that divides the cadence', () => {
@@ -53,5 +53,25 @@ describe('relativeTime', () => {
   });
   it('a dash for no time', () => {
     expect(relativeTime(null, now)).toBe('—');
+  });
+});
+
+// Anne's P3 on #1136: grid search reaches the labels a reader sees in a cell.
+describe('search text carries the visible labels', () => {
+  const tk = { name: 'eng', urn: null, enabled: false, relevance: 'MENTIONS' as const, channels: [] };
+  it('a ticker’s Disabled and Mentions only labels', () => {
+    const text = tickerSearchText(tk);
+    expect(text).toContain('Disabled');
+    expect(text).toContain('Mentions only');
+  });
+  it('and not the labels it doesn’t show', () => {
+    const text = tickerSearchText({ ...tk, enabled: true, relevance: 'ALL' });
+    expect(text).not.toContain('Disabled');
+    expect(text).not.toContain('Mentions only');
+    expect(text).toContain('Ticking');
+  });
+  it('a subscription’s via grant label, only when it was made through the grant', () => {
+    expect(subscriptionSearchText({ name: 'Ada', viaGrant: true })).toContain('via grant');
+    expect(subscriptionSearchText({ name: 'Ada', viaGrant: false })).not.toContain('via grant');
   });
 });
