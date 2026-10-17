@@ -13,7 +13,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, quietHoursSummary } from '$lib/tickers/format';
+  import { cadenceText, quietHoursSummary, subscriptionSearchText, tickerStateLabel } from '$lib/tickers/format';
   import { wakeStatus } from '$lib/tickers/wake';
   import type { AppTickerSettings, TickerRead, WakeSubscription, WorkerWakeSettings } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
@@ -48,10 +48,11 @@
     wake.kind === 'ok'
       ? wake.value.subscriptions.map((sub) => ({
           sub,
-          tickerText: [sub.ticker.name, sub.ticker.urn ?? ''].join(' ').trim(),
+          // What the cell shows: name, URN, and "Disabled" only when it is (Anne's P3).
+          tickerText: [sub.ticker.name, sub.ticker.urn ?? '', sub.ticker.enabled ? '' : tickerStateLabel(false)].filter(Boolean).join(' '),
           cadence: sub.ticker.cadenceSeconds,
           quiet: quietHoursSummary(sub.ticker.quietHours),
-          byText: sub.createdBy?.name ?? '',
+          byText: subscriptionSearchText({ name: sub.createdBy?.name, viaGrant: sub.viaGrant }),
           sinceMs: parseApiDate(sub.createdAt)?.getTime() ?? 0,
         }))
       : [],
@@ -141,7 +142,8 @@
         </dd>
       </div>
     </dl>
-    <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.who', 'Only the worker itself, its holder, or whoever manages the App can change its mentions, pause or subscriptions. A pause covers every session and router of this worker.')}</p>
+    <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.who', 'Only the worker itself, its holder, or whoever manages the App can change its mentions, pause or subscriptions. A pause covers every session and router of this worker.')}
+      {t('worker.wake.where', 'In the portal this is read-only for now; use the MCP tool hadron_worker_wake_settings to change it.')}</p>
 
     <div class="space-y-2">
       <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('worker.wake.subscriptions', 'Subscriptions')}</h3>

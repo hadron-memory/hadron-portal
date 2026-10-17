@@ -9,7 +9,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, quietHoursSummary, relativeTime } from '$lib/tickers/format';
+  import { cadenceText, noVisibleChannelsText, quietHoursSummary, relativeTime, tickerSearchText, tickerStateLabel } from '$lib/tickers/format';
   import type { TickerListRow } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -44,9 +44,11 @@
   }
 
   const ms = (s: string | null | undefined) => parseApiDate(s)?.getTime() ?? 0;
-  const stateLabel = (enabled: boolean) => (enabled ? t('app.tickers.state.ticking', 'Ticking') : t('app.tickers.state.disabled', 'Disabled'));
+  const stateLabel = tickerStateLabel;
+  // Anne's P2 on #1136: [] is also the server's answer when every named
+  // channel is hidden from this reader, so it never reads as unrestricted.
   const channelsText = (tk: TickerListRow) =>
-    tk.channels.length === 0 ? t('app.tickers.channels.all', 'Every channel the subscriber watches') : tk.channels.map((c) => c.name).join(', ');
+    tk.channels.length === 0 ? noVisibleChannelsText() : tk.channels.map((c) => c.name).join(', ');
   const subscribersText = (tk: TickerListRow) =>
     tk.subscribers.hasNextPage
       ? t('app.tickers.subscribers.more', '{n}+', { n: data.subscriberCountPage })
@@ -56,7 +58,8 @@
     tickers.kind === 'ok'
       ? tickers.value.map((tk) => ({
           ticker: tk,
-          name: [tk.name, tk.urn ?? ''].join(' ').trim(),
+          // Search reaches what the row shows: name, URN, state, Mentions only (Anne's P3).
+          name: tickerSearchText(tk),
           stateText: stateLabel(tk.enabled),
           cadence: tk.cadenceSeconds,
           quiet: quietHoursSummary(tk.quietHours),
@@ -172,7 +175,7 @@
           {t('app.tickers.empty.body', 'A mention already makes a worker due at once, unless its mentions are off or it is paused. A ticker adds scheduled wake-ups: every so often, it makes the workers subscribed to it that have unread messages due.')}
         </p>
         <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.router', 'A router delivers the wake-ups. This page only decides who is due and when.')}</p>
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.create', 'Creating a ticker isn’t available in the portal yet.')}</p>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.create', 'Creating a ticker isn’t available in the portal yet; use the MCP tool hadron_ticker_create.')}</p>
       </div>
     {:else}
       <DataTable

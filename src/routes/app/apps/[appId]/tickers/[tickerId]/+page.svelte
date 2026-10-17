@@ -8,7 +8,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, parseQuietHours, windowText } from '$lib/tickers/format';
+  import { cadenceText, parseQuietHours, subscriptionSearchText, windowText } from '$lib/tickers/format';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -38,7 +38,7 @@
       ? subscribers.value.items.map((sub) => ({
           sub,
           workerText: [sub.worker.name, sub.worker.urn ?? ''].join(' ').trim(),
-          byText: sub.createdBy?.name ?? '',
+          byText: subscriptionSearchText({ name: sub.createdBy?.name, viaGrant: sub.viaGrant }),
           sinceMs: ms(sub.createdAt),
         }))
       : [],
@@ -134,8 +134,10 @@
     <div class="min-w-0 sm:col-span-2">
       <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('app.ticker.counts', 'Counts')}</dt>
       <dd class="text-zinc-900 dark:text-white">
+        <!-- Anne's P2 on #1136: the server lists only the named channels this reader can
+             read, so [] is "names none" OR "all hidden from you". Neither is claimed. -->
         {tk.channels.length === 0
-          ? t('app.ticker.counts.all-channels', 'Unread in every channel each subscriber watches')
+          ? t('app.ticker.counts.none-visible', 'No channel you can read is named. It counts unread in either every channel each subscriber watches, or only channels hidden from you.')
           : t('app.ticker.counts.channels', 'Unread in {channels}', { channels: tk.channels.map((c) => c.name).join(', ') })}
         ·
         {tk.relevance === 'MENTIONS'
@@ -160,7 +162,8 @@
       </dd>
     </div>
   </dl>
-  <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}</p>
+  <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}
+    {t('app.ticker.where', 'In the portal this is read-only for now; use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe) to change it.')}</p>
 
   <section aria-labelledby="subscribers-heading" class="space-y-2">
     <div class="flex flex-wrap items-center justify-between gap-2">

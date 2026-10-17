@@ -20,6 +20,7 @@
  */
 import { t } from '$lib/i18n/t';
 import { cadenceText } from './format';
+import { fmtRunTime } from '$lib/flow/runs';
 import type { WorkerWakeSettings } from './types';
 
 export type WakeStatusKind =
@@ -63,7 +64,8 @@ export function wakeStatus(
     if (until > now) {
       return {
         kind: 'paused',
-        lead: t('worker.wake.status.paused.lead', 'Paused until {time}.', { time: new Date(until).toLocaleString() }),
+        // Uma's P3-2 on #1136: fmtRunTime, like every other time on the tab.
+        lead: t('worker.wake.status.paused.lead', 'Paused until {time}.', { time: fmtRunTime(settings.pausedUntil) }),
         text: t('worker.wake.status.paused', 'Nothing wakes it until then, not even mentions.'),
       };
     }

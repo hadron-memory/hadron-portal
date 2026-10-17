@@ -109,3 +109,36 @@ export function relativeTime(iso: string | null | undefined, now: number): strin
   if (abs < 86400) return rtf.format(Math.round(diff / 3600), 'hour');
   return rtf.format(Math.round(diff / 86400), 'day');
 }
+
+/**
+ * Anne's P3 on #1136: a grid's search reaches the labels a reader sees in a
+ * cell (Ticking/Disabled, Mentions only, via grant), and not ones it doesn't
+ * show, so typing what's on screen finds the row.
+ */
+export function tickerStateLabel(enabled: boolean): string {
+  return enabled ? t('app.tickers.state.ticking', 'Ticking') : t('app.tickers.state.disabled', 'Disabled');
+}
+
+export function tickerSearchText(tk: { name: string; urn: string | null; enabled: boolean; relevance: string }): string {
+  return [
+    tk.name,
+    tk.urn ?? '',
+    tickerStateLabel(tk.enabled),
+    tk.relevance === 'MENTIONS' ? t('app.tickers.relevance.mentions', 'Mentions only') : '',
+  ].filter(Boolean).join(' ');
+}
+
+export function subscriptionSearchText(by: { name: string | null | undefined; viaGrant: boolean }): string {
+  return [by.name ?? '', by.viaGrant ? t('app.ticker.via-grant', 'via grant') : ''].filter(Boolean).join(' ');
+}
+
+/**
+ * Anne's P2 on #1136: what an empty `Ticker.channels` can honestly say. The
+ * server lists only the named channels THIS reader can read, so [] is both
+ * "names no channel" (every channel each subscriber watches) and "every named
+ * channel is hidden from you". Nothing in the payload tells them apart, so
+ * neither is claimed.
+ */
+export function noVisibleChannelsText(): string {
+  return t('app.tickers.channels.none-visible', 'Every watched channel, or channels hidden from you');
+}
