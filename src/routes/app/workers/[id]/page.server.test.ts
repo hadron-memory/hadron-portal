@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { UPDATE_WORKER_MUTATION, WORKERS_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import { TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_MUTATION, WORKERS_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -333,8 +333,10 @@ describe('worker page sections (#737)', () => {
     mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, app: null } });
     const data = (await runLoad()) as Record<string, unknown>;
     expect(data.worklog).toBeNull();
-    // Two calls, not three: the worklog request is never made.
-    expect(mockRequest.mock.calls).toHaveLength(2);
+    // The worklog request is never made. Asserted by document, not by a call
+    // count: portal#1099's wake read is a further, independent call.
+    expect(mockRequest.mock.calls.map((c) => c[0])).not.toContain(TEAM_WORK_ITEMS_QUERY);
+    expect(mockRequest.mock.calls.map((c) => c[0])).toContain(WORKER_SESSIONS_QUERY);
   });
 
   // `sessions` returns a bare [Session!]! with no total, so "is there more" can
@@ -599,5 +601,42 @@ describe('#1010/#1241 — WORKER_QUERY carries the inherited template', () => {
     // WorkerFields feeds the Staff roster, and a multi-KB template per row is
     // hadron-cli#459 in miniature.
     expect(WORKERS_QUERY).not.toMatch(/systemPrompt/);
+  });
+});
+
+// portal#1099 — the Wake-ups tab (Tickers S7a, read-only).
+describe('Wake-ups tab (portal#1099)', () => {
+  it('accepts ?tab=wake', async () => {
+    mockRequest.mockResolvedValueOnce({ worker: WORKER });
+    expect((await runLoad('w-1', '?tab=wake')).initialTab).toBe('wake');
+  });
+
+  it('reads the worker’s wake settings by id', async () => {
+    const { WORKER_WAKE_SETTINGS_QUERY } = await import('$lib/server/tickers');
+    mockRequest.mockResolvedValueOnce({ worker: WORKER });
+    await runLoad();
+    expect(mockRequest).toHaveBeenCalledWith(WORKER_WAKE_SETTINGS_QUERY, { workerRef: WORKER.id });
+  });
+
+  it('a non-participant’s WORKER_NOT_FOUND on the wake read is the inline state, and the page still loads', async () => {
+    const { WORKER_WAKE_SETTINGS_QUERY } = await import('$lib/server/tickers');
+    mockRequest.mockImplementation(async (q: string) => {
+      if (q === WORKER_WAKE_SETTINGS_QUERY) throw gqlError('WORKER_NOT_FOUND');
+      return { sessions: [], teamWorkItems: { items: [], total: 0 }, appTickerSettings: null };
+    });
+    mockRequest.mockResolvedValueOnce({ worker: WORKER });
+    const data = (await runLoad()) as unknown as { wake: unknown; worker: unknown };
+    expect(data.worker).toBeTruthy();
+    expect(data.wake).toEqual({ kind: 'not-participant' });
+  });
+
+  it('a failed wake read is a failure state and never 404s the worker', async () => {
+    const { WORKER_WAKE_SETTINGS_QUERY } = await import('$lib/server/tickers');
+    mockRequest.mockImplementation(async (q: string) => {
+      if (q === WORKER_WAKE_SETTINGS_QUERY) throw gqlError('INTERNAL_SERVER_ERROR');
+      return { sessions: [], teamWorkItems: { items: [], total: 0 }, appTickerSettings: null };
+    });
+    mockRequest.mockResolvedValueOnce({ worker: WORKER });
+    expect(((await runLoad()) as unknown as { wake: unknown }).wake).toEqual({ kind: 'failed' });
   });
 });

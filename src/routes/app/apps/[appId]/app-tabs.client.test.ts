@@ -104,6 +104,14 @@ describe('App page tab strip (#1005, #1006)', () => {
     expect(link?.getAttribute('href')).toBe('/app/apps/a1/tasks');
     expect(tabLabels(target)).not.toContain('Tasks');
   });
+
+  // portal#1099: Tickers likewise, since a ticker read answers a non-participant APP_NOT_FOUND.
+  it('links to the Tickers sub-route', async () => {
+    const target = await mountTab('chats');
+    const link = [...target.querySelectorAll<HTMLAnchorElement>('a')].find((a) => a.textContent?.trim() === 'Tickers');
+    expect(link?.getAttribute('href')).toBe('/app/apps/a1/tickers');
+    expect(tabLabels(target)).not.toContain('Tickers');
+  });
 });
 
 describe('Settings no longer carries the agent section (#1004, #1006)', () => {
