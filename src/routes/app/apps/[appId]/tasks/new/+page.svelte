@@ -32,6 +32,13 @@
 
   // The form's live choices; seeded from a refused submit so nothing typed is lost.
   let start = $state(v('start') || 'now');
+  // Clark's P2 on #1135: the text fields are bound state, not one-way `value=`.
+  // One-way values sit in a template effect that also reads `start`, and after
+  // hydration a radio change re-applied the server value ('') over what was typed.
+  let title = $state(v('title'));
+  let description = $state(v('description'));
+  let source = $state(v('source'));
+  let tags = $state(v('tags'));
   let owner = $state(v('owner') || 'me');
   let assignee = $state(v('assignee') || 'nobody');
   let familyIn = $state<string[]>(vs('familyIn'));
@@ -132,14 +139,14 @@
 
       <div class="space-y-1">
         <label for="new-title" class={labelClass}>{t('app.tasks.new.title', 'Title')}</label>
-        <input id="new-title" name="title" type="text" required aria-required="true" value={v('title')} class={inputClass}
+        <input id="new-title" name="title" type="text" required aria-required="true" bind:value={title} class={inputClass}
           aria-describedby={fieldRefusal('title') ? 'new-title-error' : undefined} />
         {#if fieldRefusal('title')}<p id="new-title-error" class="text-xs text-red-700 dark:text-red-300">{fieldRefusal('title')}</p>{/if}
       </div>
 
       <div class="space-y-1">
         <label for="new-description" class={labelClass}>{t('app.tasks.new.description', 'Description')}</label>
-        <textarea id="new-description" name="description" rows="4" class={inputClass}>{v('description')}</textarea>
+        <textarea id="new-description" name="description" rows="4" class={inputClass} bind:value={description}></textarea>
       </div>
 
       <fieldset class="space-y-1">
@@ -224,13 +231,13 @@
 
       <div class="space-y-1">
         <label for="new-source" class={labelClass}>{t('app.tasks.new.source', 'Source')}</label>
-        <input id="new-source" name="source" type="text" value={v('source')} aria-describedby="new-source-help" class={inputClass} />
+        <input id="new-source" name="source" type="text" bind:value={source} aria-describedby="new-source-help" class={inputClass} />
         <p id="new-source-help" class={helpClass}>{t('app.tasks.new.source.help', 'A link, a URN or a note on where this came from.')}</p>
       </div>
 
       <div class="space-y-1">
         <label for="new-tags" class={labelClass}>{t('app.tasks.new.tags', 'Tags')}</label>
-        <input id="new-tags" name="tags" type="text" value={v('tags')} placeholder="a, b" class={inputClass} />
+        <input id="new-tags" name="tags" type="text" bind:value={tags} placeholder="a, b" class={inputClass} />
       </div>
 
       <div>
