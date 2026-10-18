@@ -34,3 +34,72 @@ describe('create page: a transport error', () => {
     expect(m.target.querySelector('form')).not.toBeNull();
   });
 });
+
+// Clark's browser P2 on #1135: switching where the task starts must keep
+// what was typed. Only the assignee and requirements hide.
+//
+// The cause shows only after HYDRATION, as in the browser. Every text field's
+// `value` sits in one template effect that also reads the start radios.
+// Hydration's remove_input_defaults strips the SSR `value` attribute through
+// set_attribute(input, 'value', null), which leaves Svelte's cached value at
+// null; the radio's re-run then sees null !== '' and writes '' over the typed
+// text. A plain mount caches '' and skips that write. This test applies the
+// same set_attribute step hydration does, then switches the radio.
+// @ts-expect-error -- svelte/internal/client ships no types; it's used here only to apply hydration's exact step.
+import { set_attribute } from 'svelte/internal/client';
+
+describe('create page: switching to the backlog keeps the typed fields', () => {
+  it('keeps title, source and tags across a start-mode change, after hydration strips the value defaults', async () => {
+    const m = mountComponent(Page as never, {
+      data: { app, candidates: { workers: [{ id: 'w1', name: 'Dara', role: 'eng', urn: null }], people: [] }, roles: [], families: [], canWrite: true, impersonating: null },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    for (const sel of ['#new-title', '#new-source', '#new-tags']) set_attribute(m.target.querySelector(sel)!, 'value', null);
+    const type = (sel: string, value: string) => {
+      const el = m.target.querySelector<HTMLInputElement | HTMLTextAreaElement>(sel)!;
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    type('#new-title', 'Inspect backlog');
+    type('#new-description', 'Look closely');
+    type('#new-source', 'https://x.test/1');
+    type('#new-tags', 'a, b');
+    m.target.querySelector<HTMLInputElement>('input[name="start"][value="backlog"]')!.click();
+    await tick(3);
+    expect(m.target.querySelector<HTMLInputElement>('#new-title')?.value).toBe('Inspect backlog');
+    expect(m.target.querySelector<HTMLTextAreaElement>('#new-description')?.value).toBe('Look closely');
+    expect(m.target.querySelector<HTMLInputElement>('#new-source')?.value).toBe('https://x.test/1');
+    expect(m.target.querySelector<HTMLInputElement>('#new-tags')?.value).toBe('a, b');
+    expect(m.target.querySelector('#new-assignee')).toBeNull();
+    m.target.querySelector<HTMLInputElement>('input[name="start"][value="now"]')!.click();
+    await tick(3);
+    expect(m.target.querySelector<HTMLInputElement>('#new-title')?.value).toBe('Inspect backlog');
+  });
+});
+
+// Clark's trigger B (same P2): after a browser-to-portal error the fixed line
+// shows, and the typed fields must survive the re-render it causes.
+describe('create page: a transport error keeps the typed fields', () => {
+  it('keeps title, source and tags after an error result, after hydration strips the value defaults', async () => {
+    const m = mountComponent(Page as never, {
+      data: { app, candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    for (const sel of ['#new-title', '#new-source', '#new-tags']) set_attribute(m.target.querySelector(sel)!, 'value', null);
+    for (const [sel, value] of [['#new-title', 'Transport retained'], ['#new-source', 'note'], ['#new-tags', 'x']] as const) {
+      const el = m.target.querySelector<HTMLInputElement>(sel)!;
+      el.value = value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form')!, { type: 'error', status: 500, data: {} } as never);
+    await tick(3);
+    expect(m.target.textContent).toContain('The change may or may not have gone through. Reload to check.');
+    expect(m.target.querySelector<HTMLInputElement>('#new-title')?.value).toBe('Transport retained');
+    expect(m.target.querySelector<HTMLInputElement>('#new-source')?.value).toBe('note');
+    expect(m.target.querySelector<HTMLInputElement>('#new-tags')?.value).toBe('x');
+  });
+});
