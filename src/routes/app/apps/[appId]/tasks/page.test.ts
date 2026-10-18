@@ -10,6 +10,7 @@ import { render } from 'svelte/server';
 // The node lane has no $app/* (only the client lane aliases navigation).
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
+vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 import Board from './+page.svelte';
 import TaskPage from './[taskId]/+page.svelte';
 
@@ -32,11 +33,24 @@ function board(over: Record<string, unknown> = {}) {
   } as never).body;
 }
 
-/** No write control: no form, and no button naming a write. */
-function expectReadOnly(html: string) {
-  expect(html).toContain('Read-only for now. Create, assign, park and cancel tasks with the CLI or MCP.');
+/**
+ * portal#1090 narrows #1127's read-only pin: the board may now link to New
+ * task, and nothing else. No form renders on it, and Park never appears
+ * (held pending a ruling).
+ */
+function expectBoardWrites(html: string) {
+  // Uma's P3-3: New task is on the board, so the note says so.
+  expect(html).toContain('Create a task with New task; direct it from its page, the CLI or MCP.');
+  expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\/new"[^>]*>\s*New task/);
   expect(html).not.toMatch(/<form/);
-  expect(html).not.toMatch(/<button[^>]*>\s*(Create|Assign|Reassign|Cancel|Park|Ready|Acknowledge)/i);
+  expect(html).not.toMatch(/\bPark\b/);
+  expect(html).not.toMatch(/<button[^>]*>\s*(Assign|Reassign|Cancel|Ready|Make ready|Acknowledge)/i);
+}
+
+/** The task page's bar holds exactly these buttons, in order, and never Park or a form until a panel opens. */
+function barButtons(html: string): string[] {
+  const bar = html.match(/data-testid="task-actions"[\s\S]*?<\/div>/)?.[0] ?? '';
+  return [...bar.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map((m) => m[1].trim());
 }
 
 describe('board', () => {
@@ -54,7 +68,7 @@ describe('board', () => {
     expect(html).toMatch(/data-state="pending"[^>]*>Pending</);
     expect(html).toContain('Nobody yet');
     expect(html).toContain('href="/app/apps/app-1/tasks/b"');
-    expectReadOnly(html);
+    expectBoardWrites(html);
   });
 
   it('a started task waiting on subtasks gets a second chip, never a status', () => {
@@ -114,6 +128,7 @@ function taskPage(over: Record<string, unknown> = {}) {
   return render(TaskPage as never, {
     props: {
       data: { app, task: detail(), ancestors: [], ancestorsTruncated: false,
+        canWrite: true, impersonating: null, created: false, candidates: { workers: [], people: [] },
         tree: { kind: 'ok', value: { rows: [detail()], capped: false } },
         history: { kind: 'ok', value: { events: [], capped: false } }, ...over },
     },
@@ -121,11 +136,13 @@ function taskPage(over: Record<string, unknown> = {}) {
 }
 
 describe('task page', () => {
-  it('shows the id and the CLI line that reads it, and writes nothing', () => {
+  it('shows the id and the CLI line that reads it, and says where the right to change it comes from', () => {
     const html = taskPage();
     expect(html).toContain('hadron team task get t1');
     expect(html).toContain('No subtasks');
-    expectReadOnly(html);
+    expect(html).toContain('You can change a task you own, or any task if you manage the App.');
+    expect(html).not.toMatch(/<form/);
+    expect(html).not.toMatch(/\bPark\b/);
   });
 
   it('a backlog task has no assignee, said in words', () => {
@@ -172,7 +189,7 @@ describe('task page', () => {
     expect(html).toContain('Not acknowledged');
     expect(html).toContain('hadron team alarm ack e2');
     expect(html).toContain('This kind of event isn’t described in the portal yet.');
-    expectReadOnly(html);
+    expect(html).not.toMatch(/<button[^>]*>\s*Acknowledge/);
   });
 
   // Uma's P2-1 on #1127: an inline <a class="truncate"> never truncates, so a
@@ -198,5 +215,43 @@ describe('task page', () => {
     const html = taskPage({ history: { kind: 'failed' } });
     expect(html).toContain('Couldn’t load the history.');
     expect(html).toContain('Ship it');
+  });
+});
+
+// portal#1090 — the action bar (design §3). It follows the task's STATE only;
+// authority is the server's, so every non-impersonating participant sees it.
+describe('task page action bar (#1090)', () => {
+  it.each([
+    [{ status: 'BACKLOG', assignee: null }, ['Make ready', 'Assign…', 'Cancel…']],
+    [{ status: 'PENDING', queued: true, assignee: null }, ['Assign…', 'Cancel…']],
+    [{ status: 'PENDING', queued: false }, ['Reassign…', 'Cancel…']],
+    [{ status: 'STARTED' }, ['Reassign…', 'Cancel…']],
+  ])('%j offers %j, and never Park', (over, buttons) => {
+    const html = taskPage({ task: detail(over) });
+    expect(barButtons(html)).toEqual(buttons);
+    expect(html).not.toMatch(/\bPark\b/);
+  });
+
+  it.each(['FINISHED', 'CANCELLED'])('an ended task (%s) offers nothing and says so', (status) => {
+    const html = taskPage({ task: detail({ status }) });
+    expect(barButtons(html)).toEqual([]);
+    expect(html).toContain('An ended task can’t be changed.');
+  });
+
+  it('an impersonation session gets one muted line and no buttons', () => {
+    const html = taskPage({ task: detail({ status: 'BACKLOG', assignee: null }), canWrite: false, impersonating: 'Mike' });
+    expect(barButtons(html)).toEqual([]);
+    expect(html).toContain('Viewing as Mike: changes are switched off in a support session.');
+  });
+
+  it('a just-created task says so in a status line', () => {
+    expect(taskPage({ created: true })).toMatch(/role="status"[^>]*>[^<]*Task created\./);
+  });
+});
+
+describe('board New task (#1090)', () => {
+  it('is hidden in an impersonation session', () => {
+    // The note names New task (Uma's P3-3); the LINK is what an impersonation session must not get.
+    expect(board({ impersonating: 'Mike' })).not.toMatch(/href="\/app\/apps\/app-1\/tasks\/new"/);
   });
 });

@@ -138,3 +138,9 @@ export interface AgentAlarm {
  * (the server's APP_NOT_FOUND), or a failure that is never shown as empty.
  */
 export type TaskRead<T> = { kind: 'ok'; value: T } | { kind: 'not-participant' } | { kind: 'failed' };
+
+/** portal#1090 — the owner and assignee pickers' options. */
+export type WriteCandidates = {
+  workers: { id: string; name: string; role: string | null; urn: string | null }[];
+  people: { id: string; handle: string | null; name: string | null }[];
+};

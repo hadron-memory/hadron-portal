@@ -91,6 +91,8 @@ async function loadDetail() {
   return (await load({
     params: { appId: 'app-1', taskId: 't1' },
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
+    // portal#1090: the loader reads ?created=1 from the URL.
+    url: new URL('http://localhost/app/apps/app-1/tasks/t1'),
   } as never)) as Record<string, unknown>;
 }
 
