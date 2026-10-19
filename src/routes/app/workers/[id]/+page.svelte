@@ -5,6 +5,7 @@
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import WorkerSessionsTable from '$lib/components/WorkerSessionsTable.svelte';
   import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
+  import WorkerSignatureSection from './WorkerSignatureSection.svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { onMount, tick, untrack } from 'svelte';
@@ -706,6 +707,20 @@
           {/if}
         </form>
       {/if}
+
+      <!-- portal#1142 P4. Keyed on the worker: SvelteKit reuses this page across
+           /app/workers/[id] navigations, and a superForm seeded once would carry
+           worker A's draft onto worker B (the trap the override form handles in
+           afterNavigate). A remount per worker is the simpler honest answer. -->
+      {#key worker.id}
+        <WorkerSignatureSection
+          signature={worker.signature}
+          trailer={worker.trailer}
+          {retired}
+          initialForm={data.signatureForm}
+          actionResult={form}
+        />
+      {/key}
     </div>
   {/if}
 

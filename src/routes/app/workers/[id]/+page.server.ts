@@ -5,13 +5,20 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
-import { TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_MUTATION, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import {
+  TEAM_WORK_ITEMS_QUERY,
+  UPDATE_WORKER_MUTATION,
+  UPDATE_WORKER_SIGNATURE_MUTATION,
+  WORKER_QUERY,
+  WORKER_SESSIONS_QUERY,
+} from '$lib/server/queries';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import { loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
-import { updateBriefingSchema } from './schema';
+import { updateBriefingSchema, updateSignatureSchema } from './schema';
 
 const updateBriefingAdapter = zod4(updateBriefingSchema);
+const updateSignatureAdapter = zod4(updateSignatureSchema);
 
 /**
  * #758 — the worker page's tab ids. These are ADDRESSES, not labels: they are
@@ -149,9 +156,25 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     { errors: false },
   );
 
+  // portal#1142 P4: seeded with the stored templates and, as bases, the same
+  // values, so a save sends only what the reader changed. A masked (null) field
+  // seeds as '': the page shows it as "not shown" (it reads worker.signature,
+  // not this form) and posts nothing for it.
+  const signatureForm = await superValidate(
+    {
+      signature: worker.signature ?? '',
+      trailer: worker.trailer ?? '',
+      signatureBase: worker.signature ?? '',
+      trailerBase: worker.trailer ?? '',
+    },
+    updateSignatureAdapter,
+    { errors: false },
+  );
+
   return {
     worker,
     briefingForm,
+    signatureForm,
     initialTab,
     initialView,
     workerSessions: sessions ? sessions.slice(0, SESSION_PAGE_SIZE) : null,
@@ -165,6 +188,54 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 };
 
 export const actions: Actions = {
+  /**
+   * portal#1142 P4 (hadron-server#1602 / #2120) — save the signature and/or
+   * trailer TEMPLATE. Only a field the page showed AND the reader changed is
+   * sent: an unchanged one is omitted (the server preserves it), a masked one
+   * was never posted, and nothing is ever sent as null (the server refuses it).
+   * An emptied template goes as text: it stores '' and delivers nothing.
+   *
+   * Refusals are the server's to make. FORBIDDEN gets a fixed line that gives
+   * no reason: who may write is the server's rule (H26 is provisional), and the
+   * portal does not restate it. BAD_USER_INPUT and WORKER_RETIRED carry their
+   * reason, so their message is shown whole. Every path returns the posted
+   * form, so the draft stays on screen.
+   */
+  updateSignature: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), updateSignatureAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    const vars: { workerRef: string; signature?: string; trailer?: string } = { workerRef: params.id };
+    if (form.data.signature !== form.data.signatureBase) vars.signature = form.data.signature;
+    if (form.data.trailer !== form.data.trailerBase) vars.trailer = form.data.trailer;
+    if (!('signature' in vars) && !('trailer' in vars)) return { form };
+
+    try {
+      await gqlClient(locals.token).request(UPDATE_WORKER_SIGNATURE_MUTATION, vars);
+      return message(form, {
+        type: 'success',
+        text: t('worker.signature.saved', 'Saved. It applies from this worker’s next bind.'),
+      });
+    } catch (e: unknown) {
+      const code = extractGqlErrorCode(e);
+      if (code === 'FORBIDDEN') {
+        return message(
+          form,
+          { type: 'error', text: t('worker.signature.error.forbidden', "You can't change this worker's signature or trailer.") },
+          { status: 403 },
+        );
+      }
+      if (code === 'BAD_USER_INPUT' || code === 'WORKER_RETIRED') {
+        return message(form, { type: 'error', text: extractGqlError(e, '') }, { status: 400 });
+      }
+      return message(
+        form,
+        { type: 'error', text: t('worker.signature.error.failed', "The signature and trailer couldn't be saved.") },
+        { status: 500 },
+      );
+    }
+  },
+
   /**
    * #1010 — save the worker's prompt OVERRIDE.
    *
