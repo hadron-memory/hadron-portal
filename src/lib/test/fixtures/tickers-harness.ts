@@ -9,6 +9,8 @@ import WakeUpsPanel from '../../components/tickers/WakeUpsPanel.svelte';
 
 const app = { id: 'app-1', name: 'Product Team with a fairly long App name', urn: 'hrn:app:hadronmemory.com:hadron-dev-team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 4320, dailyWakeBudgetDerived: true } };
+// portal#1141 A: the Delivery section, as a manager sees it (the form is the wide case on a phone).
+const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: true, standbyEffective: false } };
 const LOADED = '2026-10-16T10:00:00Z';
 const quietHours = {
   timezone: 'America/Argentina/ComodRivadavia',
@@ -40,7 +42,7 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
   if (view === 'list') {
     page = mount(TickersList, {
       target,
-      props: { data: { app, tickers: { kind: 'ok', value: [ticker] }, settings, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null } } as never,
+      props: { data: { app, tickers: { kind: 'ok', value: [ticker] }, settings, delivery, canManage: true, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null } } as never,
     });
   } else if (view === 'detail') {
     page = mount(TickerPage, {
