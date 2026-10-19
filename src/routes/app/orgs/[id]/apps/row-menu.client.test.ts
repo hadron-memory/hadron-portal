@@ -17,7 +17,7 @@ afterEach(() => {
 
 const app = (id: string, name: string) => ({
   id, name, urn: `hrn:app:acme.com:${id}`, appType: 'WORKSTATION', createdAt: '2026-10-01T00:00:00.000Z',
-  agent: null, agents: [], keys: [], memberCount: 1, surfaces: [],
+  agent: null, agents: [], memberCount: 1, surfaces: [],
 });
 
 async function mountApps() {

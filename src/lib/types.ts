@@ -307,7 +307,6 @@ export interface App {
    * this list as "who works here".
    */
   agents: Array<{ id: string; urn: string; name: string; personaRole?: string | null }>;
-  keys: AppKey[];
   createdAt: string;
   updatedAt: string | null;
 }
