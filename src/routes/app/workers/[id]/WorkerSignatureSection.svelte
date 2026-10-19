@@ -55,10 +55,37 @@
     },
   );
 
+  // Jane's local P2 on #1157: a same-worker re-read (the loader reruns after
+  // any save on this page, or a query-only navigation) changes the stored
+  // template under this section, which the worker-id key does not remount.
+  // Each field reseeds on its own, against the base the editor was SEEDED
+  // from (kept in the form store, never the live prop):
+  //  - untouched (value === base), or already equal to the new stored text
+  //    (the reader's own save landing): value and base both take the new text;
+  //  - a real draft: kept, with its original base. A baseline is never moved
+  //    under a retained draft.
+  let seen = { signature: untrack(() => signature), trailer: untrack(() => trailer) };
+  $effect(() => {
+    const next = { signature, trailer };
+    untrack(() => {
+      for (const field of ['signature', 'trailer'] as const) {
+        const stored = next[field];
+        if (stored === seen[field]) continue;
+        seen = { ...seen, [field]: stored };
+        if (stored == null) continue;
+        const base = field === 'signature' ? 'signatureBase' : 'trailerBase';
+        if ($data[field] === $data[base] || $data[field] === stored) {
+          $data[field] = stored;
+          $data[base] = stored;
+        }
+      }
+    });
+  });
+
   const readable = $derived({ signature: signature != null, trailer: trailer != null });
   const anyReadable = $derived(readable.signature || readable.trailer);
   const dirty = $derived(
-    (readable.signature && $data.signature !== (signature ?? '')) || (readable.trailer && $data.trailer !== (trailer ?? '')),
+    (readable.signature && $data.signature !== $data.signatureBase) || (readable.trailer && $data.trailer !== $data.trailerBase),
   );
   const fieldClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100';
@@ -82,7 +109,7 @@
       <input type="hidden" name="_kind" value="updateSignature" />
 
       {#if readable.signature}
-        <input type="hidden" name="signatureBase" value={signature} />
+        <input type="hidden" name="signatureBase" value={$data.signatureBase} />
         <div class="space-y-1">
           <label for="workerSignature" class="text-sm font-medium text-zinc-900 dark:text-white">
             {t('worker.signature.signature-label', 'Signature template')}
@@ -94,7 +121,7 @@
       {/if}
 
       {#if readable.trailer}
-        <input type="hidden" name="trailerBase" value={trailer} />
+        <input type="hidden" name="trailerBase" value={$data.trailerBase} />
         <div class="space-y-1">
           <label for="workerTrailer" class="text-sm font-medium text-zinc-900 dark:text-white">
             {t('worker.signature.trailer-label', 'Trailer template')}
