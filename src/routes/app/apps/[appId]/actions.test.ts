@@ -6,6 +6,7 @@ import {
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
   APP_QUERY,
+  APP_KEYS_QUERY,
   APP_MEMBERS_QUERY,
   CAST_WORKER_MUTATION,
   CREATE_APP_KEY_MUTATION,
@@ -1940,4 +1941,57 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
     });
   });
 
+});
+
+// portal#1068 — hadron-server#2080 makes App.keys manager-only and non-null. The
+// App page must keep loading for a non-manager: the key inventory is its own
+// classified read, so a refusal there is a state, not a 404.
+describe('load: key inventory (portal#1068)', () => {
+  const forbidden = { response: { errors: [{ message: 'no', extensions: { code: 'FORBIDDEN' } }] } };
+  async function loadWith(keysRead: () => Promise<unknown>) {
+    mockFetchAllItems.mockResolvedValue([]);
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) {
+        return Promise.resolve({
+          app: {
+            id: 'app-1', name: 'Demo App', urn: 'hadronmemory.com:demo-org:demo-app', organizationId: null,
+            appType: 'CHATBOT', role: 'ADMIN', description: null, systemPrompt: null,
+            createUserPermission: 'DENY', identifyUserMethod: 'USER_ID',
+            sessionTimeoutSeconds: 3600, anonymousTtlDays: 14, agentId: null, agent: null,
+          },
+        });
+      }
+      if (query === APP_KEYS_QUERY) return keysRead();
+      if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    const { load } = await import('./+page.server');
+    return (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+      depends: () => {},
+      url: new URL('http://localhost/app/apps/app-1'),
+    } as unknown as Parameters<typeof load>[0])) as { app: { id: string }; appKeys: unknown };
+  }
+  it('the App query selects no keys field', () => {
+    expect(APP_QUERY).not.toMatch(/^\s*keys\s*\{/m);
+  });
+  it('a manager gets the keys', async () => {
+    const r = await loadWith(() => Promise.resolve({ appKeys: [{ id: 'k1' }] }));
+    expect(r.appKeys).toEqual({ kind: 'ok', keys: [{ id: 'k1' }] });
+  });
+  it('a non-manager still gets the App (no false 404) and a hidden inventory', async () => {
+    const r = await loadWith(() => Promise.reject(forbidden));
+    expect(r.app.id).toBe('app-1');
+    expect(r.appKeys).toEqual({ kind: 'hidden' });
+  });
+  it('a failed read still loads the App, and is failed, not an empty list', async () => {
+    const r = await loadWith(() => Promise.reject(new Error('boom')));
+    expect(r.app.id).toBe('app-1');
+    expect(r.appKeys).toEqual({ kind: 'failed' });
+  });
 });

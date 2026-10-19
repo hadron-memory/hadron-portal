@@ -236,7 +236,9 @@
   const keyScopesOf = (id: string) => (data.keyScopes?.kind === 'ok' ? (data.keyScopes.byKey[id] ?? []) : []);
   const scopeLabel = (s: { scope: string; hostId: string | null }) => (s.hostId ? `${s.scope} · ${s.hostId}` : s.scope);
   const keyScopesText = (id: string) => keyScopesOf(id).map(scopeLabel).join(' ');
-  const appKeys = $derived(app.keys ?? []);
+  const appKeys = $derived(data.appKeys?.kind === 'ok' ? data.appKeys.keys : []);
+  // portal#1068: hidden (not a manager) and failed are states of their own, never "no keys".
+  const keysState = $derived(data.appKeys?.kind ?? 'ok');
   const appKeyColumns: PortalColumnDef<AppKey>[] = [
     { accessorKey: 'label', header: t('app.keys.column.label', 'Label'), enableHiding: false, size: 200 },
     { accessorKey: 'keyPreview', header: t('app.keys.column.preview', 'Preview'), size: 120 },
@@ -1104,7 +1106,7 @@
   let newKeyLabel = $state('');
   let memoriesOpen = $state(false);
 
-  const activeKeys = $derived((app.keys ?? []).filter((k) => !k.revokedAt));
+  const activeKeys = $derived(appKeys.filter((k) => !k.revokedAt));
   let newKeySectionOpen = $state(false);
 
   function sanitizeLabel(label: string): string {
@@ -2407,7 +2409,11 @@
         {#if data.keyScopes?.kind === 'failed'}
           <p role="status" class="text-xs text-amber-700 dark:text-amber-300">{t('app.keys.scopes.failed', 'Couldn’t load what these keys may do, so the Scopes column isn’t shown.')}</p>
         {/if}
-        {#if appKeys.length === 0}
+        {#if keysState === 'hidden'}
+          <p role="status" class="text-sm text-zinc-500">{t('app.keys.hidden', 'Only the App’s managers can see its keys.')}</p>
+        {:else if keysState === 'failed'}
+          <p role="status" class="text-sm text-amber-700 dark:text-amber-300">{t('app.keys.load-failed', 'Couldn’t load this App’s keys.')}</p>
+        {:else if appKeys.length === 0}
           <p class="text-sm text-zinc-400">{t('app.keys.empty', 'No keys yet.')}</p>
         {:else}
           <!-- #719 — the shared grid, replacing a hand-rolled <table>.
@@ -2742,9 +2748,13 @@
       <section>
         <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">
           Client Keys
-          <span class="ml-1 text-sm font-normal text-zinc-500">({activeKeys.length})</span>
+          {#if keysState === 'ok'}<span class="ml-1 text-sm font-normal text-zinc-500">({activeKeys.length})</span>{/if}
         </h2>
-        {#if activeKeys.length}
+        {#if keysState === 'hidden'}
+          <p role="status" class="text-sm text-zinc-500">{t('app.keys.hidden', 'Only the App’s managers can see its keys.')}</p>
+        {:else if keysState === 'failed'}
+          <p role="status" class="text-sm text-amber-700 dark:text-amber-300">{t('app.keys.load-failed', 'Couldn’t load this App’s keys.')}</p>
+        {:else if activeKeys.length}
           <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
             {#each activeKeys as key (key.id)}
               <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">

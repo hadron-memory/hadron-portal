@@ -67,6 +67,7 @@ import type {
   TeamWorkItem,
 } from '$lib/types';
 import { loadAppKeyScopes } from '$lib/server/tickers';
+import { loadAppKeys } from '$lib/server/app-keys';
 import type { Actions, PageServerLoad } from './$types';
 import {
   addAgentSchema,
@@ -604,7 +605,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -698,6 +699,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // so selecting it on the keys themselves would null the whole list for
     // everyone else.
     loadAppKeyScopes(client, app.id),
+    // portal#1068 — the key inventory, in its OWN classified request: App.keys is
+    // manager-only and non-null (hadron-server#2080), so on the App fragment it
+    // nulled the whole App (a false 404 here) for every non-manager.
+    loadAppKeys(client, app.id),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -870,6 +875,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
     keyScopes,
+    appKeys,
     appSettingsForm,
     addAgentForm,
     createKeyForm,

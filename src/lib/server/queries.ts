@@ -161,14 +161,9 @@ export const APP_FIELDS = /* GraphQL */ `
     surfaces
     memberCount
     trainingMode
-    keys {
-      id
-      keyPreview
-      label
-      createdAt
-      lastUsedAt
-      revokedAt
-    }
+    # portal#1068: no keys field here. App.keys is manager-only and non-null, so a
+    # field error nulls the whole App for every non-manager (hadron-server#2080).
+    # The inventory is its own classified request (lib/server/app-keys.ts).
     createdAt
     updatedAt
   }
