@@ -106,6 +106,27 @@ describe('worker signature: save sends changed fields only', () => {
   });
 });
 
+// Gene's blind P2 on #1157: clear intent comes only from a posted template.
+// A schema default must never turn an OMITTED field into an explicit clear.
+describe('worker signature: posted presence, not defaults', () => {
+  it('an omitted template with a non-empty base is not sent', async () => {
+    mockRequest.mockResolvedValueOnce({ updateWorker: { id: 'w-1' } });
+    await runAction({ signatureBase: SIG, trailer: 'changed', trailerBase: TRL });
+    expect(writes()[0][1]).toEqual({ workerRef: 'w-1', trailer: 'changed' });
+    expect(writes()[0][1]).not.toHaveProperty('signature');
+  });
+
+  it('a posted template without its base is not sent', async () => {
+    await runAction({ signature: 'no base here' });
+    expect(writes()).toHaveLength(0);
+  });
+
+  it('an omitted template alone makes no request at all', async () => {
+    await runAction({ signatureBase: SIG, trailerBase: TRL });
+    expect(writes()).toHaveLength(0);
+  });
+});
+
 describe('worker signature: refusals keep the draft', () => {
   const changed = { signature: 'my draft', signatureBase: SIG, trailer: TRL, trailerBase: TRL };
 

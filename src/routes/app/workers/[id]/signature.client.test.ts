@@ -38,7 +38,7 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
 });
 
-async function mount(w: ReturnType<typeof worker>) {
+async function mount(w: ReturnType<typeof worker>, form: unknown = undefined) {
   const m = mountComponent(Page as never, {
     data: {
       worker: w,
@@ -51,9 +51,20 @@ async function mount(w: ReturnType<typeof worker>) {
       initialTab: 'briefing', initialView: null,
       workerSessions: [], sessionsTruncated: false, worklog: [], worklogTotal: 0,
     },
+    form,
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   return m.target;
+}
+
+/** An action result as SvelteKit hands it to the page: the posted form, by its _kind. */
+async function actionResult(signature: string, message: { type: 'success' | 'error'; text: string }) {
+  const f = await superValidate(
+    { _kind: 'updateSignature', signature, trailer: '', signatureBase: 'whatever', trailerBase: '' },
+    zod4(updateSignatureSchema),
+    { errors: false },
+  );
+  return { form: { ...f, message } };
 }
 
 const section = (t: HTMLElement) => t.querySelector<HTMLElement>('[data-testid="worker-signature"]');
@@ -97,5 +108,20 @@ describe('worker page: Signature and trailer (#1142 P4)', () => {
     const form = s.querySelector('form')!;
     expect(form.getAttribute('action')).toContain('/updateSignature');
     expect(form.querySelector('[name="promptOverride"]')).toBeNull();
+  });
+
+  // Gene's blind P2 on #1157: a SUCCESSFUL earlier save must not seed the
+  // editor over the fresher stored value on a remount (leaving and reopening
+  // the tab keeps the action result); a FAILED one must, so the draft survives.
+  it('a fresher stored template wins over an earlier successful save', async () => {
+    const res = await actionResult('old saved', { type: 'success', text: 'Saved.' });
+    const s = section(await mount(worker({ signature: 'new stored' }), res))!;
+    expect(s.querySelector<HTMLTextAreaElement>('textarea[name="signature"]')!.value).toBe('new stored');
+  });
+
+  it('a refused save keeps the reader’s draft', async () => {
+    const res = await actionResult('my draft', { type: 'error', text: "You can't change this worker's signature or trailer." });
+    const s = section(await mount(worker({ signature: 'stored' }), res))!;
+    expect(s.querySelector<HTMLTextAreaElement>('textarea[name="signature"]')!.value).toBe('my draft');
   });
 });
