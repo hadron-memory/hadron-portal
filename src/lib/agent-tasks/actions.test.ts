@@ -2,7 +2,7 @@
  * portal#1090 — which write actions a task's STATE offers (design §3) and what
  * cancelling it will do (design §4). State is a fact on the row; authority is
  * never inferred (hrn:node:hadronmemory.com:specs:cor:agt:050:09). portal#1143 adds Park for an unassigned
- * PENDING task only (cor:agt:050:02, R6 A).
+ * PENDING task only (hrn:node:hadronmemory.com:specs:cor:agt:050:02, R6 A).
  */
 import { describe, expect, it } from 'vitest';
 import { cancelConsequences, taskActions } from './actions';
