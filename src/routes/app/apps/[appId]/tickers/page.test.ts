@@ -1,11 +1,13 @@
 /**
  * portal#1099 — the Tickers list, a ticker page and the Wake-ups panel,
  * rendered on the server. S7a is read-only (Holger via Vera, team chat
- * #11540): no view renders a write control.
+ * #11540): no view renders a write control, except the Delivery section's own
+ * form for a manager (portal#1141 slice A).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
 
+vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
 import List from './+page.svelte';
@@ -14,6 +16,7 @@ import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 480, dailyWakeBudgetDerived: true } };
+const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false } };
 const LOADED = '2026-10-16T10:00:00Z';
 
 const ticker = (over: Record<string, unknown> = {}) => ({
@@ -29,7 +32,7 @@ const ticker = (over: Record<string, unknown> = {}) => ({
 
 function list(over: Record<string, unknown> = {}) {
   return render(List as never, {
-    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
+    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, delivery, canManage: false, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
   } as never).body;
 }
 
@@ -90,6 +93,23 @@ describe('Tickers list', () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain('Couldn’t load tickers.');
     expect(html).not.toContain('No tickers yet.');
+  });
+
+  // portal#1141 A: the Delivery section is the one write on this page, for a manager or an unknown caller.
+  it.each([[true], [null]])('canManage %s gets exactly one form, the Delivery one; the ticker settings stay read-only', (canManage) => {
+    const html = list({ canManage });
+    expect(html.match(/<form/g)).toHaveLength(1);
+    expect(html).toContain('action="?/delivery"');
+    expect(html).toContain('Save delivery settings');
+    expect(html).toContain('data-testid="ticker-settings"');
+    expect(html).not.toContain('name="standbyEnabled"');
+  });
+
+  it('canManage false and a support session get the Delivery values without a form', () => {
+    for (const html of [list(), list({ canManage: true, impersonating: 'Rae' })]) {
+      expect(html).not.toMatch(/<form/);
+      expect(html).toContain('Busy delay (seconds)');
+    }
   });
 
   it('shows the App’s settings read-only, saying who can change them', () => {

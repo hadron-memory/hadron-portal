@@ -15,17 +15,15 @@ import type { AppDeliverySettings, TickerRead } from '$lib/tickers/types';
  * FORBIDDEN sentence answers anyone else. Neither is inferred here.
  */
 
-const DELIVERY_FIELDS = 'batchWindowSeconds busyDelaySeconds stuckWindowSeconds standbyEnabled standbyEffective';
-
 export const APP_DELIVERY_SETTINGS_QUERY = /* GraphQL */ `
   query AppDeliverySettings($appRef: String!) {
-    appDeliverySettings(appRef: $appRef) { ${DELIVERY_FIELDS} }
+    appDeliverySettings(appRef: $appRef) { batchWindowSeconds busyDelaySeconds stuckWindowSeconds standbyEnabled standbyEffective }
   }
 `;
 
 export const SET_APP_DELIVERY_SETTINGS_MUTATION = /* GraphQL */ `
   mutation SetAppDeliverySettings($appRef: String!, $input: AppDeliverySettingsInput!) {
-    setAppDeliverySettings(appRef: $appRef, input: $input) { ${DELIVERY_FIELDS} }
+    setAppDeliverySettings(appRef: $appRef, input: $input) { batchWindowSeconds busyDelaySeconds stuckWindowSeconds standbyEnabled standbyEffective }
   }
 `;
 

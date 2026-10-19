@@ -1,4 +1,4 @@
-# Exported from hadron-server f693a50e6c371d33970b7b35f009114f61aab44e (origin/main, 2026-10-15T22:01:08-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server f9294e9256a50471783faca295d757dd355b77ce (f9294e92, 2026-10-18T20:43:08-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -1174,6 +1174,47 @@ Returned once at App creation / regenerateAppKey — the raw key is never stored
 type AppCreated {
   app: App!
   rawKey: String!
+}
+
+"""
+Delivery timing per App. Busy/stuck bounds and relation are Proposed (hrn:node:hadronmemory.com:specs:cor:agt:080:05).
+"""
+type AppDeliverySettings {
+  """
+  The existing ticker cadence floor and wake-rate ceiling, also the batching window. Changing it affects ticker cadence.
+  """
+  batchWindowSeconds: Int!
+
+  """Whole seconds, 1..86400; default 600."""
+  busyDelaySeconds: Int!
+
+  """
+  False until S7 supplies standby behavior; configuration alone has no effect.
+  """
+  standbyEffective: Boolean!
+
+  """
+  Stored configuration; default false. Enabling is refused until standby behavior ships.
+  """
+  standbyEnabled: Boolean!
+
+  """
+  Whole seconds, 1..604800; default 900. Must exceed busy delay plus batch window.
+  """
+  stuckWindowSeconds: Int!
+}
+
+"""
+Atomic patch: omit to preserve, explicit null refuses. Empty patch returns the current authorized settings.
+"""
+input AppDeliverySettingsInput {
+  """
+  Shared ticker floor/window; existing floor, self-cadence and live-ticker limits apply.
+  """
+  batchWindowSeconds: Int
+  busyDelaySeconds: Int
+  standbyEnabled: Boolean
+  stuckWindowSeconds: Int
 }
 
 """Filter for the uniform apps() list (#473). Clauses AND-combine."""
@@ -3790,7 +3831,7 @@ type HomeAssistantOp {
 """
 type HostKeyUse {
   """
-  register, collect, report, availability, read or (#1969) session: a refused session write (updateSession, endSession).
+  register, collect, report, availability, read, (#1969) session: a refused session write (updateSession, endSession), or (#1981) issue: a refused issueHostOperation.
   """
   action: String!
 
@@ -5300,10 +5341,12 @@ type Mutation {
   ): Worker!
 
   """
-  Clear an Agent's AI provider config.
+  Clear an Agent's AI provider config without returning or decrypting keys.
   
-  036-ai-service-config: deletes the Agent's registry config named
-  'default'.
+  Clearing a user-owned Agent, by its owner or a platform ADMIN/OWNER,
+  removes every named configuration, including disabled configurations.
+  hrn:node:hadronmemory.com:specs:cor:dmo:050:13
+  An org-owned Agent clear deletes only the configuration named 'default'.
   
   Accepts the entity's ID or URN.
   """
@@ -6088,7 +6131,10 @@ type Mutation {
   """
   deleteChannel(ref: ID!): Boolean!
 
-  """Soft-delete a saved chat and all its messages"""
+  """
+  Soft-delete a saved chat and all its messages. Requires current write access
+  to its host memory.
+  """
   deleteChat(chatId: String!): Boolean!
 
   """
@@ -6317,16 +6363,22 @@ type Mutation {
   (identity fields nulled, handle replaced with a random deleted-...
   value) and soft-deleted; a deleted account can no longer authenticate.
   """
-  deleteUser(userRef: ID): Boolean!
+  deleteUser(reason: String, userRef: ID): Boolean!
 
   """
-  #974 — hard-delete a NEVER-USED miscast (cor:dmo:050:11's only removal
-  escape): refused with WORKER_IN_USE unless no session was ever bound and
-  the worker's working memory holds no content. Anything with history
-  retires instead — its name is bound to that history forever. Also removes
-  the empty working memory. Same authorization as castWorker.
+  #1162 — hard-delete a never-referenced miscast only.
+  hrn:node:hadronmemory.com:specs:cor:dmo:050:11
+  Empty normally ended and released stints are repairable; persisted
+  attribution, including tombstones/history, refuses WORKER_IN_USE.
+  The requester must explicitly verify no signed commit, trailer, PR,
+  comment, review or published artifact attributes work to this Worker.
+  Database counts cannot prove external absence: known or uncertain
+  external history means retire instead. Omitted or false confirmation
+  refuses WORKER_EXTERNAL_ATTRIBUTION_UNCONFIRMED. No external crawl.
+  Also removes empty ended stints and the empty working memory.
+  Same staffing authorization as castWorker.
   """
-  deleteWorker(workerRef: ID!): Boolean!
+  deleteWorker(confirmNoExternalAttribution: Boolean, workerRef: ID!): Boolean!
 
   """
   #1606 — the author edits a comment's body and/or quote. COMMENT_NOT_AUTHOR otherwise.
@@ -7273,12 +7325,11 @@ type Mutation {
 
   """
   025-oauth-for-mcp FR-004: revoke a user-scoped API key owned by
-  the calling User. Returns the updated UserApiKey so the portal
-  can render the new revokedAt without a refetch (PR-137 review
-  delta D3 — was Boolean). Idempotent for already-revoked keys;
-  rejected with FORBIDDEN if the key belongs to another user;
-  NOT_FOUND if id does not exist; UNAUTHENTICATED for AppKey-
-  resolved callers.
+  the calling User, together with every recorded descendant. Unrelated
+  roots and siblings stay live; unknown legacy parents are not inferred.
+  Returns the named UserApiKey with its revokedAt. Idempotent for
+  already-revoked keys. NOT_FOUND for both unknown and foreign keys;
+  UNAUTHENTICATED for AppKey-resolved callers.
   """
   revokeUserApiKey(id: ID!): UserApiKey!
 
@@ -7377,8 +7428,14 @@ type Mutation {
   setAiModelPrice(input: SetAiModelPriceInput!): AiModelPrice!
 
   """
+  App managers only; omitted preserves, null refuses. Standby activation is unavailable until S7 (hrn:node:hadronmemory.com:specs:cor:agt:080:19).
+  """
+  setAppDeliverySettings(appRef: String!, input: AppDeliverySettingsInput!): AppDeliverySettings!
+
+  """
   #1747 — change an App ticker settings (hrn:node:hadronmemory.com:specs:cor:agt:080:05, :19). Whoever manages the App only.
-  Refusals: TICKER_SETTINGS_OUT_OF_RANGE, TICKER_SETTINGS_CONFLICT (a floor above a live ticker cadence).
+  Refusals: TICKER_SETTINGS_OUT_OF_RANGE, TICKER_SETTINGS_CONFLICT (a floor above a live ticker cadence),
+  DELIVERY_SETTINGS_CONFLICT (the shared cadence floor must keep stuckWindowSeconds greater than busyDelaySeconds + minCadenceSeconds).
   """
   setAppTickerSettings(appRef: String!, input: AppTickerSettingsInput!): AppTickerSettings!
 
@@ -7707,7 +7764,7 @@ type Mutation {
   """
   updateChannel(input: UpdateChannelInput!, ref: ID!): Channel!
 
-  """Rename a saved chat (user must own it)"""
+  """Rename a saved chat with current write access to its host memory."""
   updateChatTitle(chatId: String!, title: String!): Boolean!
 
   """
@@ -9068,9 +9125,22 @@ type NodeRoleRuleSourceTemplate {
   name: String!
 }
 
+"""
+#1331 — who may write a node whose role this rule governs, ON TOP OF memory write access (never instead of it).
+A write is judged against the role the node has BEFORE it and the role it has AFTER, so creating, editing, changing or clearing a role all need the level.
+"""
 enum NodeRoleWriters {
+  """
+  The owning organization's ADMINs and OWNERs, and the owning user (ROLE_WRITER_LEVEL_REQUIRED otherwise).
+  """
   ADMIN
+
+  """Anyone who may write the memory. Grants no new access."""
   ALL
+
+  """
+  NOT BUILT yet (#1333): any write touching this role is refused (ROLE_WRITERS_UNSUPPORTED). Never read as ALL.
+  """
   OWNER
 }
 
@@ -9598,6 +9668,11 @@ type Query {
   Accepts the entity's ID or URN.
   """
   appAIConfig(appRef: ID!): AppAIConfig
+
+  """
+  App delivery settings for participants; cadence/window is the ticker floor (hrn:node:hadronmemory.com:specs:cor:agt:080:05).
+  """
+  appDeliverySettings(appRef: String!): AppDeliverySettings!
 
   """
   List keys for an App (org ADMIN of the App's org).
@@ -10913,7 +10988,11 @@ type Query {
   mentionsRef filters to messages whose stored envelope mentions the
   referenced worker (a Worker id or name of THIS App, retired included) or
   user (handle/id) — matching runs against the mention tokens extracted at
-  write time, never by re-parsing bodies. The ref must name this App's own
+  write time, never by re-parsing bodies. For a worker it returns what
+  reaches that worker (#2020): its name, replies to it, and an @all/@team
+  broadcast the server stamped at post time because its author could wake
+  everyone (hrn:node:hadronmemory.com:specs:cor:agt:080:14); never the
+  worker's own posts. A user ref matches the handle alone. The ref must name this App's own
   staff or members (a Worker of the App, an AppMember, or the caller); an
   unresolvable or foreign mentionsRef yields the empty page identically (no
   existence oracle). limit defaults to 50 (cap 200); limit: 0 returns only
@@ -12066,6 +12145,11 @@ type Session {
   autoExpiredAt: DateTime
   branch: String
   customerId: String
+
+  """
+  #1156 — hrn:node:hadronmemory.com:specs:cor:dmo:070:05: null while open; stamped cause after end, unknown for legacy ends. Readable wherever this Session is; no ending actor.
+  """
+  endReason: SessionEndReason
   endedAt: DateTime
   errorCount: Int
   events: [UsageEvent!]!
@@ -12085,12 +12169,14 @@ type Session {
   inputTokens: Int
 
   """
-  hadron-cli#791 / cor:agt:020:11: whether THIS session is live: not ended,
+  hadron-cli#791 / hrn:node:hadronmemory.com:specs:cor:agt:020:11:
+  whether THIS session is live: not ended
+  or hard-expired (hrn:node:hadronmemory.com:specs:cor:agt:020:03),
   AND driven inside its type's idle window (activity is the latest of
   startedAt, the heartbeat updatedAt, and the latest attributed usage
   event, capped at endedAt). The same derived predicate as startSession's
   WORKER_TAKEN gate and Worker.hasLiveSession, so the three always agree.
-  An open session that is not live has LAPSED: nobody drove it inside the
+  An unexpired open session that is not live has LAPSED: nobody drove it inside the
   window, so another driver may bind its worker; it is not ended, and can
   still be ended with a handoff. False for an ended or deleted session.
   """
@@ -12098,13 +12184,12 @@ type Session {
   language: String
 
   """
-  #1617: the LAST instant this session still reads live unless something
-  drives it first: its last activity plus its type's idle window. The
-  predicate is inclusive, so the session is live AT this instant and lapsed
-  after it; an instant in the past means it has already LAPSED. Any
-  attributed read, post or mark-read through a live session renews it.
-  Derived from the same computation as isLive, so the two always agree.
-  Null for an ended or deleted session.
+  #1617 / #1036: the earlier of last activity plus the type's idle window
+  and a promised expiresAt (hrn:node:hadronmemory.com:specs:cor:agt:020:03).
+  The idle deadline is inclusive; a hard expiry is exclusive: the session
+  is expired at now >= expiresAt, even before the reaper runs. Driving it
+  can renew its idle deadline, never its promised expiry. Null for an
+  ended or deleted session.
   """
   lapsesAt: DateTime
 
@@ -12163,6 +12248,16 @@ type Session {
   #974 / cor:agt:020:03: the Worker (named casting) this session works as.
   """
   workerId: String
+}
+
+"""
+#1156 — hrn:node:hadronmemory.com:specs:cor:dmo:070:05: closed end causes; unknown is reserved for legacy rows.
+"""
+enum SessionEndReason {
+  ended
+  expired
+  superseded
+  unknown
 }
 
 input SessionInput {
@@ -13586,6 +13681,11 @@ type Ticker {
 
   """A timezone and weekly windows; null when none."""
   quietHours: JSON
+
+  """
+  #2068 — why the ticker fires. Never empty; existing tickers are READ_TEAM_CHANNEL.
+  """
+  reasons: [TickerReason!]!
   relevance: TickerRelevance!
 
   """Permanent: a re-created name gets a new slug (engineering-2)."""
@@ -13607,6 +13707,11 @@ input TickerInput {
   enabled: Boolean
   name: String!
   quietHours: JSON
+
+  """
+  Absent on create = [READ_TEAM_CHANNEL]; an empty list is refused. On update, absent = unchanged.
+  """
+  reasons: [TickerReason!]
   relevance: TickerRelevance
 }
 
@@ -13622,7 +13727,27 @@ input TickerPatch {
   enabled: Boolean
   name: String
   quietHours: JSON
+
+  """
+  Absent on create = [READ_TEAM_CHANNEL]; an empty list is refused. On update, absent = unchanged.
+  """
+  reasons: [TickerReason!]
   relevance: TickerRelevance
+}
+
+"""
+#2068 (hrn:node:hadronmemory.com:specs:cor:agt:080:01, :10) — why a ticker fires. A closed set; several fire it when any one holds.
+"""
+enum TickerReason {
+  """
+  Fires on every tick, with or without unread. The floor, budget, pause and dormancy still apply.
+  """
+  EVERY_TICK
+
+  """
+  Fires only when the subscriber has relevant unread in the ticker's channels (what relevance counts is the ticker's relevance).
+  """
+  READ_TEAM_CHANNEL
 }
 
 """
@@ -14036,13 +14161,20 @@ type UserApiKey {
   id: ID!
 
   """
-  Issuance path: portal (createUserApiKey) or oauth:<client_id>
-  (POST /oauth/token). Powers source labels in the revocation UI.
+  Issuance identity: portal for direct sign-in issuance, or oauth:<client_id>
+  for OAuth issuance. A key minted by a key inherits that credential's
+  issuance identity. Powers source labels in the revocation UI.
   """
   issuedVia: String
   keyPreview: String!
   label: String
   lastUsedAt: DateTime
+
+  """
+  Authenticated key that minted this key. Null for direct issuance or
+  unknown legacy ancestry; historical parents are never inferred.
+  """
+  mintedByKeyId: ID
 
   """
   Immutable OAuth scopes bound to this credential. Empty means an

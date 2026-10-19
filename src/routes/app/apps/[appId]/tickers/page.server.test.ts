@@ -15,7 +15,7 @@ vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const settings = { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 500, dailyWakeBudgetDerived: true };
 const delivery = { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false };
-const gqlError = (code: string) => ({ response: { errors: [{ message: code, extensions: { code } }] } });
+const gqlError = (code: string, message = code) => ({ response: { errors: [{ message, extensions: { code } }] } });
 const ticker = { id: 'tk-1', name: 'engineering', app: { id: 'app-1' } };
 
 beforeEach(() => {
@@ -168,7 +168,7 @@ describe('portal#1141 A — delivery settings on the list loader', () => {
       return { effectiveAccess: { canManage } };
     }
     if (q === APP_DELIVERY_SETTINGS_QUERY) {
-      if (deliveryResult instanceof Error) throw deliveryResult;
+      if (deliveryResult && typeof deliveryResult === 'object' && 'response' in deliveryResult) throw deliveryResult;
       return deliveryResult;
     }
     throw new Error(`unexpected ${q}`);
