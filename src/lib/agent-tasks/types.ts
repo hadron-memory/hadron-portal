@@ -143,4 +143,6 @@ export type TaskRead<T> = { kind: 'ok'; value: T } | { kind: 'not-participant' }
 export type WriteCandidates = {
   workers: { id: string; name: string; role: string | null; urn: string | null }[];
   people: { id: string; handle: string | null; name: string | null }[];
+  /** portal#1148 (hadron-server#2089): the App's member roster is WITHHELD from this viewer; `people` is then unknown, not empty. */
+  peopleWithheld?: boolean;
 };

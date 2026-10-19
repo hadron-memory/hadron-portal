@@ -217,6 +217,7 @@
           other={values.assigneeOther ?? ''}
           workers={candidates.workers}
           people={candidates.people}
+          peopleWithheld={candidates.peopleWithheld ?? false}
           exclude={reassigning ? currentAssignee : null}
           required
         />

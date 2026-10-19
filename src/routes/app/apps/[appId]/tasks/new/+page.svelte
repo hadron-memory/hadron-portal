@@ -171,6 +171,7 @@
         leading={[{ value: 'me', label: t('app.tasks.new.owner.me', 'Me') }]}
         workers={data.candidates.workers}
         people={data.candidates.people}
+        peopleWithheld={data.candidates.peopleWithheld ?? false}
       />
       {#if fieldRefusal('owner')}<p class="text-xs text-red-700 dark:text-red-300" role="alert">{fieldRefusal('owner')}</p>{/if}
 
@@ -185,6 +186,7 @@
           leading={[{ value: 'nobody', label: t('app.tasks.new.assignee.nobody', 'Nobody: let Hadron match a worker') }]}
           workers={data.candidates.workers}
           people={data.candidates.people}
+          peopleWithheld={data.candidates.peopleWithheld ?? false}
         />
         {#if fieldRefusal('assignee')}<p class="text-xs text-red-700 dark:text-red-300" role="alert">{fieldRefusal('assignee')}</p>{/if}
 

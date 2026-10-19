@@ -200,7 +200,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     id: string; name: string; urn: string; description: string | null;
     personaRole: string | null; via: string;
   }>();
+  // portal#1148 (hadron-server#2089): an App whose `agents` is null WITHHOLDS its roster; its
+  // siblings are unknown, which is not "none" — counted so the tab can say so.
+  let bundledWithheldApps = 0;
   for (const app of appsWithThisAgent) {
+    if (app.agents === null) bundledWithheldApps += 1;
     for (const sibling of app.agents ?? []) {
       if (sibling.id === agentId || bundledById.has(sibling.id)) continue;
       bundledById.set(sibling.id, {
@@ -284,6 +288,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     agentNodes,
     installedApps,
     bundledAgents,
+    bundledWithheldApps,
     allOrgs: orgs,
     orgSystemMemories,
     // Empty for an org agent; the caller's own memories for a user-owned agent (#642).

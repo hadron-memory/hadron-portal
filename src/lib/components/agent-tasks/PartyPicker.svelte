@@ -20,6 +20,7 @@
     leading = [],
     workers,
     people,
+    peopleWithheld = false,
     exclude = null,
     required = false,
     describedby,
@@ -32,6 +33,8 @@
     leading?: Option[];
     workers: { id: string; name: string; role: string | null; urn: string | null }[];
     people: { id: string; handle: string | null; name: string | null }[];
+    /** portal#1148: the member roster is withheld from this viewer; say so rather than offer no People silently. */
+    peopleWithheld?: boolean;
     /** A party to leave out, e.g. the current assignee when reassigning. */
     exclude?: string | null;
     required?: boolean;
@@ -73,6 +76,9 @@
     {/if}
     <option value="other" selected={value === 'other'}>{t('app.tasks.write.someone-else', 'Someone else…')}</option>
   </select>
+  {#if peopleWithheld}
+    <p class="text-xs text-zinc-500" role="status">{t('app.tasks.write.people-withheld', 'This App’s members aren’t visible to you, so they aren’t listed. Use “Someone else…” to name one.')}</p>
+  {/if}
   {#if value === 'other'}
     <label for="{id}-other" class="block text-xs text-zinc-600 dark:text-zinc-400">{t('app.tasks.write.someone-else.label', 'Their @handle or id')}</label>
     <input

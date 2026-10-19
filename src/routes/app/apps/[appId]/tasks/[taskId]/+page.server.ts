@@ -50,7 +50,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     loadTree(client, task.id),
     loadHistory(client, app.id, task.id),
     loadAncestors(client, task.parentTaskId),
-    canWrite ? loadWriteCandidates(client, app.id) : Promise.resolve({ workers: [], people: [], roles: [], families: [] }),
+    canWrite ? loadWriteCandidates(client, app.id) : Promise.resolve({ workers: [], people: [], peopleWithheld: false, roles: [], families: [] }),
   ]);
 
   return {
@@ -63,7 +63,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     ancestorsTruncated: crumbs.truncated,
     canWrite,
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
-    candidates: { workers: candidates.workers, people: candidates.people },
+    candidates: { workers: candidates.workers, people: candidates.people, peopleWithheld: candidates.peopleWithheld },
     // tasks/new redirects here with ?created=1 (design §6).
     created: url.searchParams.get('created') === '1',
   };

@@ -24,12 +24,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
   const canWrite = !locals.impersonation;
-  const c = canWrite ? await loadWriteCandidates(client, app.id) : { workers: [], people: [], roles: [], families: [] };
+  const c = canWrite ? await loadWriteCandidates(client, app.id) : { workers: [], people: [], peopleWithheld: false, roles: [], families: [] };
   return {
     app,
     canWrite,
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
-    candidates: { workers: c.workers, people: c.people },
+    candidates: { workers: c.workers, people: c.people, peopleWithheld: c.peopleWithheld },
     roles: c.roles,
     families: c.families,
   };
