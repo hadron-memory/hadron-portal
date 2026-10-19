@@ -49,8 +49,9 @@ async function pageData() {
   return {
     app: {
       id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION',
-      role: 'OWNER', surfaces: [], agentId: null, agent: null, agents: [], keys: [],
+      role: 'OWNER', surfaces: [], agentId: null, agent: null, agents: [],
     },
+    appKeys: { kind: 'ok', keys: [] },
     org: null, availableAgents: [], staff: [
       { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null },
     ],
@@ -396,7 +397,7 @@ describe('App Keys and AI Service Configs tabs (#1007/#1008)', () => {
   };
   async function keyedData(initialTab: string) {
     const data = await pageData();
-    return { ...data, initialTab, app: { ...data.app, keys: [key] } };
+    return { ...data, initialTab, appKeys: { kind: 'ok', keys: [key] } };
   }
   async function revokeResult() {
     const f = await superValidate({ _kind: 'revokeKey', keyId: 'k1' }, zod4(revokeAppKeySchema));
@@ -508,7 +509,7 @@ describe('App Keys Scopes column (portal#1099)', () => {
   async function mountKeys(keyScopes: unknown) {
     setStubPage('https://example.test/app/apps/a1?tab=keys', { appId: 'a1' });
     const data = await pageData();
-    const props = reactiveProps({ data: { ...data, initialTab: 'keys', app: { ...data.app, keys: [key] }, keyScopes }, form: null });
+    const props = reactiveProps({ data: { ...data, initialTab: 'keys', appKeys: { kind: 'ok', keys: [key] }, keyScopes }, form: null });
     const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
@@ -545,6 +546,49 @@ describe('App Keys Scopes column (portal#1099)', () => {
   it('offers no scope write', async () => {
     const panel = await mountKeys({ kind: 'ok', byKey: { k1: [] } });
     expect(panel.textContent).not.toMatch(/Give scope|Take scope back/);
+  });
+});
+
+// portal#1068 — the key inventory is its own classified read (hadron-server#2080
+// made App.keys manager-only). A non-manager is told who may see the keys, a
+// failed read is not "No keys yet.", and neither leaks a count or a zero.
+describe('App key inventory states (portal#1068)', () => {
+  const HIDDEN = 'Only the App’s managers can see its keys.';
+  const FAILED = 'Couldn’t load this App’s keys.';
+  const key = {
+    id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
+    createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
+  };
+  async function mountTab(tab: 'keys' | 'client', appKeys: unknown) {
+    setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, reactiveProps({ data: { ...data, initialTab: tab, appKeys, keyScopes: { kind: 'hidden' } }, form: null }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target.querySelector(`#panel-${tab}`)!;
+  }
+  it.each(['keys', 'client'] as const)('%s tab: a manager with keys sees them and no refusal copy', async (tab) => {
+    const panel = await mountTab(tab, { kind: 'ok', keys: [key] });
+    expect(panel.textContent).toContain('router');
+    expect(panel.textContent).not.toContain(HIDDEN);
+    expect(panel.textContent).not.toContain(FAILED);
+  });
+  it('keys tab: ok with no keys says "No keys yet."', async () => {
+    const panel = await mountTab('keys', { kind: 'ok', keys: [] });
+    expect(panel.textContent).toContain('No keys yet.');
+  });
+  it.each(['keys', 'client'] as const)('%s tab: hidden names who may see keys, never "No keys yet." or a count', async (tab) => {
+    const panel = await mountTab(tab, { kind: 'hidden' });
+    expect(panel.textContent).toContain(HIDDEN);
+    expect(panel.textContent).not.toContain('No keys yet.');
+    expect(panel.textContent).not.toContain('No active keys');
+    expect(panel.textContent).not.toMatch(/Client Keys\s*\(0\)/);
+  });
+  it.each(['keys', 'client'] as const)('%s tab: failed says so and is not "No keys yet."', async (tab) => {
+    const panel = await mountTab(tab, { kind: 'failed' });
+    expect(panel.textContent).toContain(FAILED);
+    expect(panel.textContent).not.toContain('No keys yet.');
+    expect(panel.textContent).not.toContain('No active keys');
   });
 });
 
