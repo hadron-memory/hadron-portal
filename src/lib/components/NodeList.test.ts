@@ -146,3 +146,24 @@ describe('comment search hits (portal#1015)', () => {
     expect(body).not.toContain('comment-hit');
   });
 });
+
+// #1058: render the reachable fallback shapes, not a malformed null target.
+describe('comment hit rendered links (#1058)', () => {
+  const commentNode = { ...node, id: 'fallback-comment', nodeType: 'comment', name: 'Fallback row', comment: hit };
+  it('without basePath uses node.memory.id for the target discussion', () => {
+    const { body } = render(NodeList, { props: { nodes: [commentNode] } });
+    expect(body).toContain('href="/app/memories/m1/nodes/t1?tab=discussion"');
+    expect(body).not.toContain('href="/app/memories/m1/nodes/fallback-comment"');
+  });
+  it('without basePath or node.memory renders the title as text, not an empty link', () => {
+    const { body } = render(NodeList, { props: { nodes: [{ ...commentNode, memory: null }] } });
+    expect(body).toContain('Fallback row</span>');
+    expect(body).toContain('comment-hit');
+    expect(body).not.toContain('<a href=');
+  });
+});
+
+it('null top-level state keeps the currently observed Open discussion label (#1058; wording decision held)', () => {
+  const { body } = render(NodeList, { props: { nodes: [{ ...node, comment: { ...hit, state: null } }] } });
+  expect(body).toContain('Comment · Open discussion');
+});

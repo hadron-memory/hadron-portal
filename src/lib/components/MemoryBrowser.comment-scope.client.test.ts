@@ -26,6 +26,7 @@ const COMMENT_HIT = {
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 let fetchMock: ReturnType<typeof vi.fn>;
 beforeEach(() => {
+  window.localStorage.clear();
   vi.useFakeTimers();
   fetchMock = vi.fn(async () => new Response(JSON.stringify({ nodes: [COMMENT_HIT], total: 1 }), { status: 200 }));
   vi.stubGlobal('fetch', fetchMock);
@@ -34,10 +35,11 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  window.localStorage.clear();
 });
 
-function mountBrowser() {
-  const props = reactiveProps<Record<string, unknown>>({ nodes: NODES, basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0 });
+function mountBrowser(overrides: Record<string, unknown> = {}) {
+  const props = reactiveProps<Record<string, unknown>>({ nodes: NODES, basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0, ...overrides });
   const m = mountComponent(MemoryBrowser as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   return m;
@@ -114,4 +116,87 @@ describe('MemoryBrowser content scope (portal#1015)', () => {
     expect(await searchBodies()).toEqual([]);
     expect(target.querySelector('[data-testid="comment-hit"]')).toBeNull();
   });
+});
+
+// #1058: coverage additions preserving the shipped behavior. Sensitivity is
+// checked with deliberate production mutations, not claimed as red-on-main.
+describe.each(['COMMENTS', 'ALL'])('comment search residuals: %s (#1058)', (scope) => {
+  async function successfulSearch() {
+    const m = mountBrowser();
+    pick(m.target, scope);
+    expect(await searchBodies()).toHaveLength(1);
+    expect(m.target.querySelector('[data-testid="comment-hit"]')).not.toBeNull();
+    expect(m.target.textContent).toContain('Needs a source');
+    return m;
+  }
+
+  function refresh(m: Mounted<Record<string, unknown>>) {
+    m.props.refreshKey = 1;
+    flushSync();
+  }
+
+  async function assertRequest() {
+    const bodies = await searchBodies();
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1].filter.contentScope).toBe(scope);
+    expect(bodies[1].memoryIds).toEqual(['mem-1']);
+  }
+
+  it('empty response removes the previous hit without falling back to loaded content', async () => {
+    const m = await successfulSearch();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ nodes: [], total: 0 }), { status: 200 }));
+    refresh(m);
+    await assertRequest();
+    expect(m.target.querySelector('[data-testid="comment-hit"]')).toBeNull();
+    expect(m.target.querySelector('tbody tr')).toBeNull();
+    expect(m.target.textContent).toContain('No nodes.');
+  });
+
+  it('HTTP error renders the error and removes stale results', async () => {
+    const m = await successfulSearch();
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ error: 'Search fixture refused' }), { status: 503 }));
+    refresh(m);
+    await assertRequest();
+    expect(m.target.textContent).toContain('Search fixture refused');
+    expect(m.target.querySelector('[data-testid="comment-hit"]')).toBeNull();
+    expect(m.target.querySelector('tbody tr')).toBeNull();
+  });
+
+  it('rejected fetch renders the failure and removes stale results', async () => {
+    const m = await successfulSearch();
+    fetchMock.mockRejectedValueOnce(new Error('Search fixture disconnected'));
+    refresh(m);
+    await assertRequest();
+    expect(m.target.textContent).toContain('Search fixture disconnected');
+    expect(m.target.querySelector('[data-testid="comment-hit"]')).toBeNull();
+    expect(m.target.querySelector('tbody tr')).toBeNull();
+  });
+
+  it('Clear all resets CONTENT, restores loaded rows, and sends no residual search', async () => {
+    const m = await successfulSearch();
+    fetchMock.mockClear();
+    const clear = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Clear all');
+    expect(clear).toBeDefined();
+    clear!.click();
+    flushSync();
+    expect(m.target.querySelector<HTMLSelectElement>('[data-testid="scope-filter"]')!.value).toBe('CONTENT');
+    expect(await searchBodies()).toEqual([]);
+    expect(m.target.querySelector('[data-testid="comment-hit"]')).toBeNull();
+    const contentLink = m.target.querySelector<HTMLAnchorElement>('a[href="/app/memories/mem-1/nodes/n1"]');
+    expect(contentLink?.textContent).toBe('Alpha');
+  });
+});
+
+it('forced Graph with ALL still renders returned comments in the table (#1058)', async () => {
+  window.localStorage.setItem('hadron:memoryBrowser:nodesPane', 'tree');
+  const { target } = mountBrowser({ forcedView: 'graph' });
+  pick(target, 'ALL');
+  const bodies = await searchBodies();
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0].filter.contentScope).toBe('ALL');
+  expect(bodies[0].memoryIds).toEqual(['mem-1']);
+  expect(target.querySelector('table [data-testid="comment-hit"]')).not.toBeNull();
+  expect(target.querySelector('a[href="/app/memories/mem-1/nodes/n1?tab=discussion"]')).not.toBeNull();
+  expect(target.querySelector('[aria-label="Browser view"]')).toBeNull();
+  expect(target.querySelector('[aria-label="Nodes layout"]')).toBeNull();
 });
