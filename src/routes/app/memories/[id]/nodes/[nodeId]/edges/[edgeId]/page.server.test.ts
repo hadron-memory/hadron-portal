@@ -219,3 +219,44 @@ describe('edge detail delete action Superforms validation', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'edge delete exploded' });
   });
 });
+
+// portal#1142 P0a — an INCLUDE edge is derived from its source node's content
+// (hadron-server#2040); editing or deleting it directly is refused with
+// INCLUDE_EDGE_DERIVED. The refusal is shown with the server's words and the
+// way forward. Every GraphQL failure now shows the server's first error
+// message, not graphql-request's raw ClientError text (query and variables).
+describe('edge detail: include-derived refusal', () => {
+  function gqlError(code: string, message: string) {
+    return Object.assign(new Error('raw ClientError text {"query":"mutation …"}'), {
+      response: { errors: [{ message, extensions: { code } }] },
+    });
+  }
+  const derived = () => gqlError('INCLUDE_EDGE_DERIVED', "This edge is derived from an include tag in the source node's content; edit that content instead.");
+
+  it('update answers 409 with the server message and the next step', async () => {
+    mockRequest.mockRejectedValueOnce(derived());
+    const actions = await importActions();
+    const result = await actions.update(actionEvent({ name: 'edge', priority: '0', condition: 'null', data: '' }));
+    expect(result).toMatchObject({ status: 409 });
+    const text = (superFormFrom(result)?.message as { text: string }).text;
+    expect(text).toContain('This edge is derived from an include tag');
+    expect(text).toContain("change that node's content instead");
+  });
+
+  it('delete answers 409 the same way, and does not redirect', async () => {
+    mockRequest.mockRejectedValueOnce(derived());
+    const actions = await importActions();
+    const result = await actions.delete(actionEvent({ _kind: 'deleteEdge' }));
+    expect(result).toMatchObject({ status: 409 });
+    expect((superFormFrom(result)?.message as { text: string }).text).toContain('This edge is derived from an include tag');
+  });
+
+  it.each(['update', 'delete'] as const)('%s shows another GraphQL refusal by its message, never the raw ClientError text', async (action) => {
+    mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'You cannot change this edge.'));
+    const actions = await importActions();
+    const result = action === 'update'
+      ? await actions.update(actionEvent({ name: 'edge', priority: '0', condition: 'null', data: '' }))
+      : await actions.delete(actionEvent({ _kind: 'deleteEdge' }));
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'You cannot change this edge.' });
+  });
+});

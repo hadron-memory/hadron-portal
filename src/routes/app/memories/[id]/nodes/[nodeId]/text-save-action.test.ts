@@ -237,6 +237,37 @@ describe.each([
   });
 });
 
+// portal#1142 P0a — a save the server refuses for an include tag
+// (hadron-server#2040) comes back as `include`: a 400 whose detail is the
+// server's message, the tag and the next step. Nothing is written, and the page
+// keeps the draft (it never reseeds on a failure). Before, it was a 500 `failed`.
+describe.each([
+  ['updateContent', 'content'],
+  ['updateAbstract', 'abstract'],
+] as const)('%s: include refusals', (action, field) => {
+  it.each([
+    ['INVALID_INCLUDE', 'Malformed include tag {{> }}.', '{{> }}'],
+    ['INCLUDE_CYCLE', 'Include {{> a}} would make this node include itself.', '{{> a}}'],
+    ['INCLUDE_TOO_DEEP', 'Includes nest too deep.', '{{> deep}}'],
+  ])('%s is a 400 `include` with the server message and the tag', async (code, message, tag) => {
+    mockRequest.mockImplementation(async (query: unknown) => {
+      if (query === NODE_BY_ID_QUERY) return { node: { ...stored, role: null, isRunnable: null } };
+      throw Object.assign(gqlError(code, message), {
+        response: { errors: [{ message, extensions: { code, tag } }] },
+      });
+    });
+    const out = (await save(action, { [field]: `see ${tag}`, expectedRevision: '1' })) as {
+      status: number;
+      data: Record<string, { code: string; detail: string }>;
+    };
+    expect(out.status).toBe(400);
+    expect(out.data[`${field}Failed`].code).toBe('include');
+    expect(out.data[`${field}Failed`].detail).toContain(message);
+    expect(out.data[`${field}Failed`].detail).toContain(`Tag: ${tag}`);
+    expect(stored[field]).not.toBe(`see ${tag}`);
+  });
+});
+
 describe('parseExpectedRevision', () => {
   it('accepts a positive 32-bit integer and nothing else', () => {
     expect(parseExpectedRevision('1')).toBe(1);
