@@ -172,6 +172,7 @@
         workers={data.candidates.workers}
         people={data.candidates.people}
         peopleWithheld={data.candidates.peopleWithheld ?? false}
+        peopleFailed={data.candidates.peopleFailed ?? false}
       />
       {#if fieldRefusal('owner')}<p class="text-xs text-red-700 dark:text-red-300" role="alert">{fieldRefusal('owner')}</p>{/if}
 
@@ -187,6 +188,7 @@
           workers={data.candidates.workers}
           people={data.candidates.people}
           peopleWithheld={data.candidates.peopleWithheld ?? false}
+        peopleFailed={data.candidates.peopleFailed ?? false}
         />
         {#if fieldRefusal('assignee')}<p class="text-xs text-red-700 dark:text-red-300" role="alert">{fieldRefusal('assignee')}</p>{/if}
 

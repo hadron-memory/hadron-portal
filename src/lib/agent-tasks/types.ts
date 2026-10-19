@@ -145,4 +145,6 @@ export type WriteCandidates = {
   people: { id: string; handle: string | null; name: string | null }[];
   /** portal#1148 (hadron-server#2089): the App's member roster is WITHHELD from this viewer; `people` is then unknown, not empty. */
   peopleWithheld?: boolean;
+  /** The members read FAILED (a reload can fix it): `people` is unknown, not empty, and not withheld. */
+  peopleFailed?: boolean;
 };

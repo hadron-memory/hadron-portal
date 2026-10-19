@@ -21,6 +21,7 @@
     workers,
     people,
     peopleWithheld = false,
+    peopleFailed = false,
     exclude = null,
     required = false,
     describedby,
@@ -35,6 +36,8 @@
     people: { id: string; handle: string | null; name: string | null }[];
     /** portal#1148: the member roster is withheld from this viewer; say so rather than offer no People silently. */
     peopleWithheld?: boolean;
+    /** The members read failed: unknown, not empty (a reload can fix it). */
+    peopleFailed?: boolean;
     /** A party to leave out, e.g. the current assignee when reassigning. */
     exclude?: string | null;
     required?: boolean;
@@ -76,7 +79,9 @@
     {/if}
     <option value="other" selected={value === 'other'}>{t('app.tasks.write.someone-else', 'Someone else…')}</option>
   </select>
-  {#if peopleWithheld}
+  {#if peopleFailed}
+    <p class="text-xs text-amber-700 dark:text-amber-300" role="status">{t('app.tasks.write.people-failed', 'Couldn’t load this App’s members just now, so they aren’t listed. Reload to try again, or use “Someone else…”.')}</p>
+  {:else if peopleWithheld}
     <p class="text-xs text-zinc-500" role="status">{t('app.tasks.write.people-withheld', 'This App’s members aren’t visible to you, so they aren’t listed. Use “Someone else…” to name one.')}</p>
   {/if}
   {#if value === 'other'}

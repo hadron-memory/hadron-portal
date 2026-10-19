@@ -275,12 +275,12 @@ export async function loadWriteCandidates(
         // portal#1148: `members: null` is WITHHELD, not an App with no people.
         const members = rosterOf(r.app?.members);
         return members.kind === 'withheld'
-          ? { people: [] as WriteCandidates['people'], withheld: true }
-          : { people: members.items.flatMap((m) => (m.user ? [m.user] : [])), withheld: false };
+          ? { people: [] as WriteCandidates['people'], withheld: true, failed: false }
+          : { people: members.items.flatMap((m) => (m.user ? [m.user] : [])), withheld: false, failed: false };
       })
       .catch((e) => {
         console.warn(`[agent-tasks] picker people read failed for ${appRef}:`, e);
-        return { people: [] as WriteCandidates['people'], withheld: false };
+        return { people: [] as WriteCandidates['people'], withheld: false, failed: true };
       }),
   ]);
   const workers = roster.map((e) => ({ id: e.worker.id, name: e.worker.name ?? e.worker.id, role: e.role, urn: e.worker.urn }));
@@ -288,5 +288,5 @@ export async function loadWriteCandidates(
   const families = [
     ...new Set(roster.flatMap((e) => [e.family, ...e.freeFamilies, ...e.launchableFamilies, ...e.unavailableFamilies]).filter((f): f is string => !!f)),
   ].sort();
-  return { workers, people: peopleRead.people, peopleWithheld: peopleRead.withheld, roles, families };
+  return { workers, people: peopleRead.people, peopleWithheld: peopleRead.withheld, peopleFailed: peopleRead.failed, roles, families };
 }

@@ -25,7 +25,14 @@ describe('PartyPicker: withheld people', () => {
     expect(t.querySelector('option[value="other"]')).not.toBeNull();
   });
   it('known-empty control: no People and not withheld says nothing', async () => {
-    const t = await mount({ peopleWithheld: false });
+    const t = await mount({ peopleWithheld: false, peopleFailed: false });
     expect(t.textContent).not.toContain('aren’t visible to you');
+    expect(t.textContent).not.toContain('Couldn’t load');
+  });
+  it('a failed members read says so (a reload can fix it), apart from withheld, and keeps Someone else', async () => {
+    const t = await mount({ peopleFailed: true });
+    expect(t.textContent).toContain('Couldn’t load this App’s members just now');
+    expect(t.textContent).not.toContain('aren’t visible to you');
+    expect(t.querySelector('option[value="other"]')).not.toBeNull();
   });
 });

@@ -200,11 +200,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     id: string; name: string; urn: string; description: string | null;
     personaRole: string | null; via: string;
   }>();
-  // portal#1148 (hadron-server#2089): an App whose `agents` is null WITHHOLDS its roster; its
-  // siblings are unknown, which is not "none" — counted so the tab can say so.
-  let bundledWithheldApps = 0;
+  // portal#1148 (hadron-server#2089): an App whose `agents` is null WITHHOLDS its roster, and the
+  // server withholds `agentId` with it — so such an App can be absent from `appsWithThisAgent`
+  // (the link-based filter above needs a visible link). Whether it installs this agent, and what
+  // its siblings are, is UNKNOWN, not "none": counted from ALL the Apps, before that filter, so
+  // the tab can say its list may be incomplete (George, LOCAL on #1150).
+  const bundledWithheldApps = [...appsById.values()].filter(
+    (a) => a.agents === null && (a.agentId === null || a.agentId === agentId),
+  ).length;
   for (const app of appsWithThisAgent) {
-    if (app.agents === null) bundledWithheldApps += 1;
     for (const sibling of app.agents ?? []) {
       if (sibling.id === agentId || bundledById.has(sibling.id)) continue;
       bundledById.set(sibling.id, {

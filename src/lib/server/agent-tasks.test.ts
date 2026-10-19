@@ -152,8 +152,17 @@ describe('loadWriteCandidates: withheld members', () => {
     route({ id: 'app-1', members: [{ user: { id: 'u1', handle: 'a', name: 'A' } }, { user: null }] });
     expect(await loadWriteCandidates(client, 'app-1')).toMatchObject({ people: [{ id: 'u1', handle: 'a', name: 'A' }], peopleWithheld: false });
   });
-  it('a failed read is not withheld (a reload can fix it)', async () => {
+  it('a failed read is its own state: not withheld, and NOT the same payload as a real empty roster', async () => {
     route(new Error('down'));
-    expect(await loadWriteCandidates(client, 'app-1')).toMatchObject({ people: [], peopleWithheld: false });
+    const failed = await loadWriteCandidates(client, 'app-1');
+    expect(failed).toMatchObject({ people: [], peopleWithheld: false, peopleFailed: true });
+    route({ id: 'app-1', members: [] });
+    const empty = await loadWriteCandidates(client, 'app-1');
+    expect(empty).toMatchObject({ people: [], peopleWithheld: false, peopleFailed: false });
+    expect(failed).not.toEqual(empty);
+  });
+  it('a GraphQL error (not just a transport error) is failed too', async () => {
+    route(Object.assign(new Error('x'), { response: { errors: [{ message: 'x', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } }));
+    expect(await loadWriteCandidates(client, 'app-1')).toMatchObject({ peopleFailed: true });
   });
 });
