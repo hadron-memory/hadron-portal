@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { beginEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import DeliverySettingsPanel from './DeliverySettingsPanel.svelte';
 
@@ -229,6 +229,33 @@ describe('DeliverySettingsPanel', () => {
       await tick(3);
       expect(root.querySelector('[role="status"]')?.textContent).toContain('Saved');
       expect(root.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
+    });
+
+    it('A’s success that finishes its reload AFTER the move to B still touches nothing (post-invalidateAll fence)', async () => {
+      const { props, root, deliver } = await onAppA();
+      const release = holdInvalidateAll();
+      const delivered = deliver({ type: 'success', status: 200, data: { action: 'delivery', ok: true } });
+      await tick(2);
+      await switchToB(props, root);
+      release();
+      await delivered;
+      await tick(3);
+      expect(input(root, 'busyDelaySeconds').value).toBe('701');
+      expect(root.querySelector('[role="status"]')).toBeNull();
+    });
+
+    it('A to B to A: A’s first late result does not land on the second visit to A', async () => {
+      const { props, root, deliver } = await onAppA();
+      await switchToB(props, root);
+      props.appId = 'app-A';
+      props.settings = ok({ busyDelaySeconds: 700 });
+      await tick(3);
+      type(input(root, 'busyDelaySeconds'), '702');
+      await tick(2);
+      await deliver({ type: 'success', status: 200, data: { action: 'delivery', ok: true } });
+      await tick(3);
+      expect(input(root, 'busyDelaySeconds').value).toBe('702');
+      expect(root.querySelector('[role="status"]')).toBeNull();
     });
 
     it('same App: the result still applies (the fence is not a blanket ignore)', async () => {
