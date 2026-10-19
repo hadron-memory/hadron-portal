@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 /**
- * portal#1091 (and cor:dmo:130:08) — the portal never runs a passkey ceremony.
+ * portal#1091 (and hrn:node:hadronmemory.com:specs:cor:dmo:130:08) — the portal never runs a passkey ceremony.
  * Registration, sign-in's second factor and node signing all happen on
  * server-hosted pages; the portal only links to them and resumes after. A
  * source-level pin, because the failure it guards is an addition nobody
