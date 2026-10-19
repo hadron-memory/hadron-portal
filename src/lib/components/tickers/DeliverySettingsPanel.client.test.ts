@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { beginEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import DeliverySettingsPanel from './DeliverySettingsPanel.svelte';
@@ -167,5 +167,76 @@ describe('DeliverySettingsPanel', () => {
     await submitEnhanced(form(root));
     await tick(2);
     expect(root.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+  });
+
+  // Cedar's P2 on #1152: a result that lands after the page moved to another App
+  // (or after a newer submit) must not touch what that page now shows.
+  describe('a late result', () => {
+    async function onAppA() {
+      const props = reactiveProps<Record<string, unknown>>({ appId: 'app-A', settings: ok({ busyDelaySeconds: 700 }), canManage: true, impersonating: null });
+      const m = mountComponent(DeliverySettingsPanel as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      type(input(m.target, 'busyDelaySeconds'), '701');
+      await tick(2);
+      const deliver = await beginEnhanced(form(m.target));
+      await tick(2);
+      return { props, root: m.target, deliver };
+    }
+    async function switchToB(props: Record<string, unknown>, root: HTMLElement) {
+      props.appId = 'app-B';
+      props.settings = ok({ busyDelaySeconds: 700 });
+      await tick(3);
+      type(input(root, 'busyDelaySeconds'), '701');
+      await tick(2);
+    }
+
+    it('A’s success does not reset what was typed for B, nor say Saved, nor reload', async () => {
+      const { props, root, deliver } = await onAppA();
+      await switchToB(props, root);
+      await deliver({ type: 'success', status: 200, data: { action: 'delivery', ok: true } });
+      await tick(3);
+      expect(input(root, 'busyDelaySeconds').value).toBe('701');
+      expect(root.querySelector('[role="status"]')).toBeNull();
+      expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+    });
+
+    it('A’s refusal does not appear on B', async () => {
+      const { props, root, deliver } = await onAppA();
+      await switchToB(props, root);
+      await deliver({
+        type: 'failure', status: 400,
+        data: { action: 'delivery', refusal: { kind: 'refused', code: 'DELIVERY_SETTINGS_CONFLICT', message: 'A’s sentence' } },
+      });
+      await tick(3);
+      expect(root.querySelector('[role="alert"]')).toBeNull();
+      expect(root.textContent).not.toContain('A’s sentence');
+      expect(input(root, 'busyDelaySeconds').value).toBe('701');
+    });
+
+    it('B’s button is not left disabled by A’s pending save, and B’s own pending save still completes', async () => {
+      const { props, root, deliver: deliverA } = await onAppA();
+      await switchToB(props, root);
+      expect(root.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
+      const deliverB = await beginEnhanced(form(root));
+      await tick(2);
+      await deliverA({ type: 'success', status: 200, data: { action: 'delivery', ok: true } });
+      await tick(3);
+      // A's late result changed nothing: B is still pending
+      expect(root.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+      expect(root.querySelector('[role="status"]')).toBeNull();
+      await deliverB({ type: 'success', status: 200, data: { action: 'delivery', ok: true } });
+      await tick(3);
+      expect(root.querySelector('[role="status"]')?.textContent).toContain('Saved');
+      expect(root.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
+    });
+
+    it('same App: the result still applies (the fence is not a blanket ignore)', async () => {
+      const { root, deliver } = await onAppA();
+      await deliver({ type: 'failure', status: 400, data: { action: 'delivery', refusal: { kind: 'refused', code: 'DELIVERY_SETTINGS_CONFLICT', message: 'same-App sentence' } } });
+      await tick(3);
+      expect(root.querySelector('form [role="alert"]')?.textContent).toContain('same-App sentence');
+      expect(input(root, 'busyDelaySeconds').value).toBe('701');
+    });
   });
 });

@@ -44,12 +44,19 @@
   let statusLine = $state<HTMLElement | null>(null);
 
   // Reused across routes: a different App starts from its own stored values.
+  // `generation` fences a result that lands late (Cedar's P2 on #1152): each
+  // submit takes a number, a route change takes the next one, and a result
+  // that finds the counter moved on touches nothing, not even after the
+  // reload it started. Plain, not $state: it is only ever compared.
+  let generation = 0;
   let seededFor = $state<string | null>(null);
   $effect.pre(() => {
     if (seededFor !== appId) {
+      generation++;
       typed = {};
       refusal = null;
       status = null;
+      submitting = false;
       seededFor = appId;
     }
   });
@@ -93,12 +100,15 @@
 
   function submitter() {
     return () => {
+      const mine = ++generation;
       submitting = true;
       status = null;
       return async ({ result }: { result: { type: string; data?: Record<string, unknown> } }) => {
+        if (mine !== generation) return;
         submitting = false;
         if (result.type === 'success') {
           await invalidateAll();
+          if (mine !== generation) return;
           typed = {};
           refusal = null;
           status = t('app.tickers.delivery.saved', 'Saved. These are the stored values.');

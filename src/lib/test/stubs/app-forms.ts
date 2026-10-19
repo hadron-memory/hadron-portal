@@ -60,6 +60,33 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
 }
 
 /**
+ * portal#1141 — start a submit now and deliver its result LATER: runs the
+ * submit callback as kit would and returns a function that hands the result
+ * handler the ActionResult a test chose, whenever the test decides. This is
+ * how a test proves what a LATE response does after the page moved on (a
+ * route change, a newer submit), which `submitEnhancedWithResult` cannot say
+ * because it delivers at once.
+ */
+export async function beginEnhanced(
+  form: HTMLFormElement,
+): Promise<(result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> }) => Promise<void>> {
+  const submit = enhanced.get(form);
+  if (!submit) throw new Error('beginEnhanced: this form was never enhanced');
+  const action = new URL(form.action || 'http://localhost/');
+  const formData = new FormData(form);
+  const handler = await submit({
+    action,
+    formData,
+    formElement: form,
+    controller: new AbortController(),
+    submitter: form.querySelector('[type="submit"]'),
+    cancel: () => {},
+  });
+  if (typeof handler !== 'function') throw new Error('beginEnhanced: the submit callback returned no result handler');
+  return (result) => (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+}
+
+/**
  * #957 — like `submitEnhanced`, then hand superforms the ActionResult the
  * server answered with, through the result handler its submit callback
  * returned. What runs is superforms' own code (reset, `onUpdate(d)`, rebind),
