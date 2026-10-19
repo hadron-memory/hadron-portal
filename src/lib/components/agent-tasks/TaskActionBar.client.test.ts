@@ -169,4 +169,79 @@ describe('TaskActionBar', () => {
     expect(status?.textContent?.trim()).toBe('Cancelled.');
     expect(document.activeElement).toBe(status);
   });
+
+  // portal#1143 — Park: state only (an unassigned PENDING task), the server answers who may.
+  describe('Park', () => {
+    const pending = { status: 'PENDING', assignee: null };
+
+    it('is offered for an unassigned PENDING task, and not for an assigned one or a backlog one', async () => {
+      expect(button(await mountBar(pending), 'Park…')).toBeTruthy();
+      expect(button(await mountBar({ status: 'PENDING' }), 'Park…')).toBeUndefined();
+      expect(button(await mountBar({ status: 'BACKLOG', assignee: null }), 'Park…')).toBeUndefined();
+    });
+
+    it('opens a confirmation focused on its safe choice; Escape closes it and returns focus to the toggle', async () => {
+      const root = await mountBar(pending);
+      button(root, 'Park…').click();
+      await tick(2);
+      const panel = root.querySelector('#task-panel-park')!;
+      expect(root.querySelector(`#${panel.getAttribute('aria-labelledby')}`)?.textContent).toContain('Park “Ship it”?');
+      expect(document.activeElement?.textContent?.trim()).toBe('Not yet');
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      await tick(2);
+      expect(root.querySelector('#task-panel-park')).toBeNull();
+      expect(document.activeElement).toBe(button(root, 'Park…'));
+    });
+
+    it('a refusal for someone outside the audience stays in the panel with the server’s sentence', async () => {
+      const root = await mountBar(pending);
+      button(root, 'Park…').click();
+      await tick(2);
+      const message = "Only the task's owner, a worker the owner reports to, or whoever manages the App, parks it.";
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-park')!, {
+        type: 'failure', status: 403, data: { action: 'park', refusal: { kind: 'refused', code: 'TASK_NOT_OWNER', message } },
+      });
+      await tick(2);
+      const alert = root.querySelector('#task-panel-park [role="alert"]');
+      expect(alert?.textContent).toContain(`“${message}”`);
+      expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+    });
+
+    it('a stale view (assigned meanwhile) reloads, closes the panel and keeps the refusal in view', async () => {
+      const root = await mountBar(pending);
+      button(root, 'Park…').click();
+      await tick(2);
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-park')!, {
+        type: 'failure', status: 409, data: { action: 'park', refusal: { kind: 'refused', code: 'TASK_INVALID_TRANSITION', message: 'Only a pending task with no assignee is parked.' } },
+      });
+      await tick(2);
+      expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+      expect(root.querySelector('#task-panel-park')).toBeNull();
+      expect(root.textContent).toContain('Only a pending task with no assignee is parked.');
+    });
+
+    it('a success reloads and says it is back in the backlog, focus on the status line', async () => {
+      const root = await mountBar(pending);
+      button(root, 'Park…').click();
+      await tick(2);
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-park')!, {
+        type: 'success', status: 200, data: { action: 'park', ok: true },
+      });
+      await tick(3);
+      flushSync();
+      expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+      const status = root.querySelector('[role="status"]');
+      expect(status?.textContent?.trim()).toBe('Parked: it’s back in the backlog.');
+      expect(document.activeElement).toBe(status);
+    });
+
+    it('Make ready no longer says Park is unavailable', async () => {
+      const root = await mountBar({ status: 'BACKLOG', assignee: null });
+      button(root, 'Make ready').click();
+      await tick(2);
+      expect(root.textContent).not.toContain('use the CLI or MCP for now');
+      expect(root.textContent).toContain('Park');
+    });
+  });
 });

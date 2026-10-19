@@ -2,7 +2,7 @@
  * portal#1090 — the task page's write actions and the create page's action.
  * Each calls the existing mutation and surfaces its typed refusal (design §5);
  * authority stays the server's (hrn:node:hadronmemory.com:specs:cor:agt:050:09). Impersonation writes nothing.
- * Park is held: there is no park action.
+ * portal#1143: Park (an unassigned PENDING task back to the backlog) is one more write on the same path.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -11,6 +11,7 @@ import {
   CANCEL_AGENT_TASK_MUTATION,
   CREATE_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
+  PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
 
@@ -40,8 +41,40 @@ async function taskActions() {
 }
 
 describe('task page actions', () => {
-  it('there is no park action', async () => {
-    expect(Object.keys(await taskActions()).sort()).toEqual(['assign', 'cancel', 'ready', 'reassign']);
+  it('the page has exactly these write actions', async () => {
+    expect(Object.keys(await taskActions()).sort()).toEqual(['assign', 'cancel', 'park', 'ready', 'reassign']);
+  });
+
+  // portal#1143
+  it('park calls parkAgentTask with the route’s task id', async () => {
+    request.mockResolvedValue({});
+    expect(await (await taskActions()).park(event({}))).toEqual({ action: 'park', ok: true });
+    expect(request).toHaveBeenLastCalledWith(PARK_AGENT_TASK_MUTATION, { taskId: 't1' });
+    expect(PARK_AGENT_TASK_MUTATION).toContain('parkAgentTask(taskId: $taskId) { id }');
+  });
+
+  it.each([
+    ['TASK_NOT_OWNER', 403],
+    ['TASK_ENDED', 409],
+    ['TASK_INVALID_TRANSITION', 409],
+  ])('park surfaces %s as a %i refusal with the server’s sentence', async (code, status) => {
+    request.mockRejectedValueOnce(gqlError(code, `server says ${code}`));
+    const r = (await (await taskActions()).park(event({}))) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(status);
+    expect(r.data).toMatchObject({ action: 'park', refusal: { kind: 'refused', code, message: `server says ${code}` } });
+  });
+
+  it('park with an unknown failure is uncertain, never the raw text', async () => {
+    request.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR', 'prisma stack'));
+    const r = (await (await taskActions()).park(event({}))) as { data: Record<string, unknown> };
+    expect(r.data).toMatchObject({ action: 'park', refusal: { kind: 'uncertain' } });
+    expect(JSON.stringify(r.data)).not.toContain('prisma');
+  });
+
+  it('park in an impersonation session writes nothing', async () => {
+    const r = (await (await taskActions()).park(event({}, { sessionId: 's', actorUserId: 'a', orgId: 'o', expiresAt: 0 }))) as { status: number };
+    expect(r.status).toBe(403);
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('make ready, assign, reassign and cancel each call their own mutation', async () => {
