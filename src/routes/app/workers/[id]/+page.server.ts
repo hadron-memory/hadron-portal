@@ -202,12 +202,17 @@ export const actions: Actions = {
    * form, so the draft stays on screen.
    */
   updateSignature: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), updateSignatureAdapter);
+    const posted = await request.formData();
+    const form = await superValidate(posted, updateSignatureAdapter);
     if (!form.valid) return fail(400, { form });
 
+    // Gene's blind P2 on #1157: clear intent comes from what was POSTED, never
+    // from the schema's '' default. A template counts only when it and its base
+    // were both posted; an omitted one (or one without a base) is left alone.
+    const sent = (field: 'signature' | 'trailer') => posted.has(field) && posted.has(`${field}Base`);
     const vars: { workerRef: string; signature?: string; trailer?: string } = { workerRef: params.id };
-    if (form.data.signature !== form.data.signatureBase) vars.signature = form.data.signature;
-    if (form.data.trailer !== form.data.trailerBase) vars.trailer = form.data.trailer;
+    if (sent('signature') && form.data.signature !== form.data.signatureBase) vars.signature = form.data.signature;
+    if (sent('trailer') && form.data.trailer !== form.data.trailerBase) vars.trailer = form.data.trailer;
     if (!('signature' in vars) && !('trailer' in vars)) return { form };
 
     try {

@@ -15,7 +15,7 @@
   import { untrack } from 'svelte';
   import { superForm, type SuperValidated } from 'sveltekit-superforms/client';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import { submittedForm } from '$lib/forms/submitted-form';
+  import { failedSubmission } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { updateSignatureSchema, type UpdateSignatureForm } from './schema';
 
@@ -39,10 +39,12 @@
     submitting,
     enhance,
   } = superForm(
-    // The SUBMITTED form when the action returned one, so a refusal keeps the
-    // reader's text (same shape as the override form on this page).
+    // Only a FAILED submission seeds the editor, so a refusal keeps the
+    // reader's text. A successful one must not: the action result outlives a
+    // remount (leave and reopen the tab), and seeding from it would put the
+    // old saved text over a fresher stored value (Gene's blind P2 on #1157).
     untrack(
-      () => (submittedForm<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null) ?? initialForm,
+      () => (failedSubmission<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null) ?? initialForm,
     ),
     {
       validators: zod4Client(updateSignatureSchema),
