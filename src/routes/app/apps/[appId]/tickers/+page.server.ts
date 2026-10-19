@@ -8,7 +8,6 @@ import {
   classifyDeliveryError,
   loadAppDeliverySettings,
 } from '$lib/server/delivery-settings';
-import { SELF_CAN_MANAGE_QUERY } from '$lib/server/queries';
 import { loadAppTickerSettings, loadTickers, SUBSCRIBER_COUNT_PAGE } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -32,40 +31,30 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
 
-  const [tickers, settings, delivery, canManage] = await Promise.all([
+  const [tickers, settings, delivery] = await Promise.all([
     loadTickers(client, app.id),
     loadAppTickerSettings(client, app.id),
     loadAppDeliverySettings(client, app.id),
-    selfCanManage(client, locals.user?.id ?? null, app.urn),
   ]);
   return {
     app,
     tickers,
     settings,
     delivery,
-    canManage,
     subscriberCountPage: SUBSCRIBER_COUNT_PAGE,
     loadedAt: new Date().toISOString(),
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
   };
 };
 
-/**
- * Whether the signed-in user manages the App, as a display hint only: the
- * server decides every write. A failed or impossible audit is `null`
- * (unknown), which still offers the form and shows the server's answer,
- * rather than hiding a control the caller may well be allowed.
+/*
+ * No manage audit here (Rodolfo's §10 P2 on #1152): `effectiveAccess.canManage`
+ * under-reports owner-role members whom the server's managesApp admits, so a
+ * negative answer is no basis for hiding the form. Every participant whose
+ * read succeeded is offered it, and the server's FORBIDDEN sentence answers
+ * anyone who may not. A viewer fact from the server (hadron-server#2109) can
+ * replace this when it exists.
  */
-async function selfCanManage(client: ReturnType<typeof gqlClient>, userId: string | null, appUrn: string): Promise<boolean | null> {
-  if (!userId) return null;
-  try {
-    const r = await client.request<{ effectiveAccess: { canManage: boolean } }>(SELF_CAN_MANAGE_QUERY, { user: userId, resource: appUrn });
-    return r.effectiveAccess.canManage;
-  } catch (e) {
-    console.warn('[tickers] manage-access check failed:', e);
-    return null;
-  }
-}
 
 export const actions: Actions = {
   delivery: async ({ request, params, locals }) => {

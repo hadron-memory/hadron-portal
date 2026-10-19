@@ -2,9 +2,10 @@
   portal#1141 slice A — the App's delivery settings (hadron-server S9). The one
   write on the Tickers page; the ticker settings beside it stay read-only.
 
-  - `canManage` is a display hint, never authority: true or unknown (null) offers
-    the form and the server's refusal answers anyone who may not; false and a
-    support session see the values only.
+  - No client-side rights check: every participant whose read succeeded is offered
+    the form and the server's refusal answers anyone who may not (a manage audit
+    under-reports owner-role members, Rodolfo's §10 P2 on #1152). A support
+    session sees the values only.
   - A save sends only the fields the reader changed (see buildDeliveryPatch). The
     standby switch is never offered or sent: it is slice B, after S7. Its stored
     and effective values are shown exactly as the server returns them, and
@@ -24,12 +25,10 @@
   let {
     appId,
     settings,
-    canManage,
     impersonating = null,
   }: {
     appId: string;
     settings: TickerRead<AppDeliverySettings>;
-    canManage: boolean | null;
     impersonating?: string | null;
   } = $props();
 
@@ -61,7 +60,7 @@
     }
   });
 
-  const editable = $derived(canManage !== false && !impersonating);
+  const editable = $derived(!impersonating);
 
   function labelFor(f: Field): string {
     switch (f) {
@@ -165,6 +164,7 @@
           </div>
         {/each}
         <p class="text-zinc-600 dark:text-zinc-400" data-testid="delivery-standby">{standbyText(s)}</p>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.settings.who', 'Only whoever manages the App can change these settings.')}</p>
         {#if refusal}<WriteRefusalAlert {refusal} />{/if}
         {#if status}
           <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
@@ -186,11 +186,7 @@
         </div>
       </dl>
       <p class="text-xs text-zinc-500 dark:text-zinc-400">
-        {#if impersonating}
-          {t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: impersonating })}
-        {:else}
-          {t('app.tickers.settings.who', 'Only whoever manages the App can change these settings.')}
-        {/if}
+        {t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: impersonating ?? '—' })}
       </p>
     {/if}
   {/if}

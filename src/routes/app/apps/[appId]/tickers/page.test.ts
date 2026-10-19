@@ -32,7 +32,7 @@ const ticker = (over: Record<string, unknown> = {}) => ({
 
 function list(over: Record<string, unknown> = {}) {
   return render(List as never, {
-    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, delivery, canManage: false, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
+    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
   } as never).body;
 }
 
@@ -40,7 +40,10 @@ function list(over: Record<string, unknown> = {}) {
  * No write control: no form, no named form field (the grid's own search box
  * is chrome, not a field), and no button or link naming an S7b write.
  */
-function expectReadOnly(html: string) {
+function expectReadOnly(rendered: string) {
+  // portal#1141 A: the list now carries the Delivery section, whose form is its own write
+  // (pinned in its tests below). This helper is about the TICKER views, so that section is cut out.
+  const html = rendered.replace(/<section[^>]*data-testid="delivery-settings"[\s\S]*?<\/section>/, '');
   expect(html).not.toMatch(/<form/);
   expect(html).not.toMatch(/<(input|select|textarea)[^>]*\bname=/);
   expect(html).not.toMatch(/<(button|a)\b[^>]*>\s*(Create ticker|Edit|Disable|Enable|Delete|Add subscriber|Remove|Subscribe|Pause|Resume|Give scope|Take scope back|Save)\b/i);
@@ -95,21 +98,22 @@ describe('Tickers list', () => {
     expect(html).not.toContain('No tickers yet.');
   });
 
-  // portal#1141 A: the Delivery section is the one write on this page, for a manager or an unknown caller.
-  it.each([[true], [null]])('canManage %s gets exactly one form, the Delivery one; the ticker settings stay read-only', (canManage) => {
-    const html = list({ canManage });
+  // portal#1141 A: the Delivery section is the one write on this page, offered to every participant
+  // (the server's refusal answers anyone who may not; no client rights check).
+  it('offers exactly one form, the Delivery one; the ticker settings stay read-only', () => {
+    const html = list();
     expect(html.match(/<form/g)).toHaveLength(1);
     expect(html).toContain('action="?/delivery"');
     expect(html).toContain('Save delivery settings');
+    expect(html).toContain('Only whoever manages the App can change these settings.');
     expect(html).toContain('data-testid="ticker-settings"');
     expect(html).not.toContain('name="standbyEnabled"');
   });
 
-  it('canManage false and a support session get the Delivery values without a form', () => {
-    for (const html of [list(), list({ canManage: true, impersonating: 'Rae' })]) {
-      expect(html).not.toMatch(/<form/);
-      expect(html).toContain('Busy delay (seconds)');
-    }
+  it('a support session gets the Delivery values without a form', () => {
+    const html = list({ impersonating: 'Rae' });
+    expect(html).not.toMatch(/<form/);
+    expect(html).toContain('Busy delay (seconds)');
   });
 
   it('shows the App’s settings read-only, saying who can change them', () => {

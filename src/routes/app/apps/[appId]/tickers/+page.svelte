@@ -237,6 +237,6 @@
     {/if}
 
     <TickerSettingsPanel settings={data.settings} />
-    <DeliverySettingsPanel appId={data.app.id} settings={data.delivery} canManage={data.canManage} impersonating={data.impersonating} />
+    <DeliverySettingsPanel appId={data.app.id} settings={data.delivery} impersonating={data.impersonating} />
   {/if}
 </div>

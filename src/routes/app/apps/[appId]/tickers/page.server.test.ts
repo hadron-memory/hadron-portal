@@ -6,7 +6,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
 import { APP_DELIVERY_SETTINGS_QUERY, SET_APP_DELIVERY_SETTINGS_MUTATION } from '$lib/server/delivery-settings';
-import { SELF_CAN_MANAGE_QUERY } from '$lib/server/queries';
 import { APP_TICKER_SETTINGS_QUERY, APP_TICKERS_QUERY, TICKER_QUERY, TICKER_SUBSCRIBERS_QUERY } from '$lib/server/tickers';
 
 const request = vi.fn();
@@ -49,17 +48,16 @@ describe('no write path (S7a, Holger via Vera #11540)', () => {
     expect('actions' in detail).toBe(false);
   });
 
-  it('the list issues only its reads: tickers, ticker settings, delivery settings and the manage hint', async () => {
+  it('the list issues only its reads: tickers, ticker settings and delivery settings (no manage audit)', async () => {
     request.mockImplementation(async (q: string) =>
       q === AGENT_TASKS_APP_QUERY ? { app }
       : q === APP_TICKERS_QUERY ? { tickers: [] }
       : q === APP_DELIVERY_SETTINGS_QUERY ? { appDeliverySettings: delivery }
-      : q === SELF_CAN_MANAGE_QUERY ? { effectiveAccess: { canManage: true } }
       : { appTickerSettings: settings },
     );
     await loadList();
     expect(request.mock.calls.map((c) => c[0]).sort()).toEqual(
-      [AGENT_TASKS_APP_QUERY, APP_TICKERS_QUERY, APP_TICKER_SETTINGS_QUERY, APP_DELIVERY_SETTINGS_QUERY, SELF_CAN_MANAGE_QUERY].sort(),
+      [AGENT_TASKS_APP_QUERY, APP_TICKERS_QUERY, APP_TICKER_SETTINGS_QUERY, APP_DELIVERY_SETTINGS_QUERY].sort(),
     );
     expect(request.mock.calls.some((c) => String(c[0]).includes('mutation'))).toBe(false);
   });
@@ -159,14 +157,10 @@ describe('ticker page loader', () => {
 });
 
 describe('portal#1141 A — delivery settings on the list loader', () => {
-  const reads = (canManage: unknown, deliveryResult: unknown = { appDeliverySettings: delivery }) => async (q: string) => {
+  const reads = (deliveryResult: unknown = { appDeliverySettings: delivery }) => async (q: string) => {
     if (q === AGENT_TASKS_APP_QUERY) return { app };
     if (q === APP_TICKERS_QUERY) return { tickers: [] };
     if (q === APP_TICKER_SETTINGS_QUERY) return { appTickerSettings: settings };
-    if (q === SELF_CAN_MANAGE_QUERY) {
-      if (canManage === 'throw') throw gqlError('FORBIDDEN');
-      return { effectiveAccess: { canManage } };
-    }
     if (q === APP_DELIVERY_SETTINGS_QUERY) {
       if (deliveryResult && typeof deliveryResult === 'object' && 'response' in deliveryResult) throw deliveryResult;
       return deliveryResult;
@@ -174,26 +168,21 @@ describe('portal#1141 A — delivery settings on the list loader', () => {
     throw new Error(`unexpected ${q}`);
   };
 
-  it.each([[true, true], [false, false], ['throw', null]])('canManage %s loads as %s (unknown stays null, never false)', async (read, expected) => {
-    request.mockImplementation(reads(read));
+  // Rodolfo's §10 P2 on #1152: effectiveAccess.canManage under-reports owner-role members, so the
+  // loader makes no manage audit at all and carries no capability for the page to hide the form by.
+  it('makes no manage audit and returns no capability: nobody the server admits is hidden', async () => {
+    request.mockImplementation(reads());
     const r = await loadList();
-    expect(r.canManage).toBe(expected);
     expect(r.delivery).toEqual({ kind: 'ok', value: delivery });
+    expect(r).not.toHaveProperty('canManage');
+    expect(request.mock.calls.some((c) => String(c[0]).includes('effectiveAccess'))).toBe(false);
   });
 
   it('a failed delivery read is a failure, the page still loads, and no defaults are invented', async () => {
-    request.mockImplementation(reads(true, gqlError('INTERNAL_SERVER_ERROR') as never));
+    request.mockImplementation(reads(gqlError('INTERNAL_SERVER_ERROR') as never));
     const r = await loadList();
     expect(r.delivery).toEqual({ kind: 'failed' });
     expect(r.settings).toEqual({ kind: 'ok', value: settings });
-  });
-
-  it('is unknown (null) when there is no signed-in user, without asking', async () => {
-    request.mockImplementation(reads(true));
-    const { load } = await import('./+page.server');
-    const r = (await load({ params: { appId: 'app-1' }, locals: { token: 'tok', user: null, impersonation: null }, url: new URL('http://localhost/x') } as never)) as Record<string, unknown>;
-    expect(r.canManage).toBeNull();
-    expect(request.mock.calls.some((c) => c[0] === SELF_CAN_MANAGE_QUERY)).toBe(false);
   });
 });
 

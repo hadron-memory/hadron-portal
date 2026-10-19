@@ -23,7 +23,7 @@ afterEach(() => {
 
 async function mountPanel(props: Record<string, unknown> = {}) {
   const m = mountComponent(DeliverySettingsPanel as never, {
-    appId: 'app-1', settings: ok(), canManage: true, impersonating: null, ...props,
+    appId: 'app-1', settings: ok(), impersonating: null, ...props,
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
@@ -60,15 +60,11 @@ describe('DeliverySettingsPanel', () => {
     expect(on.textContent).not.toMatch(/standby (works|is active)/i);
   });
 
-  it('a manager who is known not to manage sees the values read-only and no form', async () => {
-    const root = await mountPanel({ canManage: false });
-    expect(form(root)).toBeNull();
-    expect(root.textContent).toContain('120');
+  // Rodolfo's §10 P2 on #1152: no client rights check, so no one the server admits is hidden.
+  it('offers the form to every participant whose read succeeded, and says who the server lets change it', async () => {
+    const root = await mountPanel();
+    expect(form(root)).not.toBeNull();
     expect(root.textContent).toContain('Only whoever manages the App can change these settings.');
-  });
-
-  it('an unknown capability (null) still offers the form: the server’s refusal answers', async () => {
-    expect(form(await mountPanel({ canManage: null }))).not.toBeNull();
   });
 
   it('a support session sees the values and a switched-off note, no form', async () => {
@@ -112,7 +108,7 @@ describe('DeliverySettingsPanel', () => {
   });
 
   it('typed text survives an unrelated re-render of the stored values', async () => {
-    const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', settings: ok(), canManage: true, impersonating: null });
+    const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', settings: ok(), impersonating: null });
     const m = mountComponent(DeliverySettingsPanel as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
@@ -124,7 +120,7 @@ describe('DeliverySettingsPanel', () => {
   });
 
   it('a success reloads, then shows the STORED values from the re-read, not the typed ones, and says so', async () => {
-    const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', settings: ok(), canManage: true, impersonating: null });
+    const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', settings: ok(), impersonating: null });
     const m = mountComponent(DeliverySettingsPanel as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
@@ -143,7 +139,7 @@ describe('DeliverySettingsPanel', () => {
   });
 
   it('navigating to another App reseeds: nothing typed for the first survives', async () => {
-    const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', settings: ok(), canManage: true, impersonating: null });
+    const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', settings: ok(), impersonating: null });
     const m = mountComponent(DeliverySettingsPanel as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
@@ -173,7 +169,7 @@ describe('DeliverySettingsPanel', () => {
   // (or after a newer submit) must not touch what that page now shows.
   describe('a late result', () => {
     async function onAppA() {
-      const props = reactiveProps<Record<string, unknown>>({ appId: 'app-A', settings: ok({ busyDelaySeconds: 700 }), canManage: true, impersonating: null });
+      const props = reactiveProps<Record<string, unknown>>({ appId: 'app-A', settings: ok({ busyDelaySeconds: 700 }), impersonating: null });
       const m = mountComponent(DeliverySettingsPanel as never, props as never) as Mounted<Record<string, unknown>>;
       mounted.push(m);
       await tick(2);
