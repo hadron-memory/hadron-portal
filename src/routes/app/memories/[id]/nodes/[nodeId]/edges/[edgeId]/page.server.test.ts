@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClientError } from 'graphql-request';
 import { DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import type { Actions } from './$types';
 
@@ -258,5 +259,31 @@ describe('edge detail: include-derived refusal', () => {
       ? await actions.update(actionEvent({ name: 'edge', priority: '0', condition: 'null', data: '' }))
       : await actions.delete(actionEvent({ _kind: 'deleteEdge' }));
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'You cannot change this edge.' });
+  });
+});
+
+// Gene's blind P2 on #1155: graphql-request also throws ClientError for a
+// response with no GraphQL errors (a 503, say), and its message embeds the
+// request query and variables. Without a server message the page shows the
+// safe fallback, never that text. A plain Error keeps its message.
+describe('edge detail: a payloadless ClientError never shows its request', () => {
+  function payloadless() {
+    return new ClientError(
+      { status: 503, headers: new Headers() } as never,
+      { query: 'mutation SecretEdgeQuery { updateEdge }', variables: { sentinel: 'PRIVATE-DRAFT' } } as never,
+    );
+  }
+
+  it.each(['update', 'delete'] as const)('%s shows the fallback, not the query or variables', async (action) => {
+    mockRequest.mockRejectedValueOnce(payloadless());
+    const actions = await importActions();
+    const result = action === 'update'
+      ? await actions.update(actionEvent({ name: 'edge', priority: '0', condition: 'null', data: '' }))
+      : await actions.delete(actionEvent({ _kind: 'deleteEdge' }));
+    expect(result).toMatchObject({ status: 500 });
+    const text = (superFormFrom(result)?.message as { text: string }).text;
+    expect(text).not.toContain('SecretEdgeQuery');
+    expect(text).not.toContain('PRIVATE-DRAFT');
+    expect(text).toBe(action === 'update' ? 'Failed to update edge' : 'Failed to delete edge');
   });
 });
