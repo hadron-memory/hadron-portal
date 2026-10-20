@@ -1,8 +1,8 @@
 /**
  * portal#1090 — which write actions a task's STATE offers (design §3) and what
  * cancelling it will do (design §4). State is a fact on the row; authority is
- * never inferred (hrn:node:hadronmemory.com:specs:cor:agt:050:09), and Park is HELD (Xavier's gate): it is
- * never offered.
+ * never inferred (hrn:node:hadronmemory.com:specs:cor:agt:050:09). portal#1143 adds Park for an unassigned
+ * PENDING task only (hrn:node:hadronmemory.com:specs:cor:agt:050:02, R6 A).
  */
 import { describe, expect, it } from 'vitest';
 import { cancelConsequences, taskActions } from './actions';
@@ -19,7 +19,8 @@ const task = (over: Partial<AgentTaskRow & { closeSessionWhenDone: boolean }> = 
 describe('taskActions', () => {
   it.each([
     ['BACKLOG', false, null, ['ready', 'assign', 'cancel']],
-    ['PENDING', true, null, ['assign', 'cancel']],
+    ['PENDING', true, null, ['assign', 'park', 'cancel']],
+    ['PENDING', false, null, ['assign', 'park', 'cancel']],
     ['PENDING', false, dara, ['reassign', 'cancel']],
     ['STARTED', false, dara, ['reassign', 'cancel']],
     ['FINISHED', false, dara, []],
@@ -32,10 +33,11 @@ describe('taskActions', () => {
     expect(taskActions(task({ status: 'PAUSED' as never }))).toEqual([]);
   });
 
-  it('never offers Park: it is held pending a ruling', () => {
-    for (const status of ['BACKLOG', 'PENDING', 'STARTED', 'FINISHED', 'CANCELLED'] as const) {
-      for (const queued of [true, false]) {
-        expect(taskActions(task({ status, queued, assignee: queued ? null : dara })) as string[]).not.toContain('park');
+  it('offers Park only for a PENDING task with no assignee', () => {
+    for (const status of ['BACKLOG', 'PENDING', 'STARTED', 'FINISHED', 'CANCELLED', 'PAUSED'] as const) {
+      for (const assignee of [null, dara]) {
+        const offered = (taskActions(task({ status: status as never, assignee })) as string[]).includes('park');
+        expect(offered).toBe(status === 'PENDING' && assignee === null);
       }
     }
   });

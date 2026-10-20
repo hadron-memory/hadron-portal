@@ -4530,8 +4530,8 @@ export const AGENT_ALARMS_QUERY = /* GraphQL */ `
 `;
 
 // ---------------------------------------------------------------------------
-// portal#1090 — task writes (create, assign, reassign, cancel, make ready).
-// Park is held pending a ruling: no parkAgentTask document here. Each write
+// portal#1090 — task writes (create, assign, reassign, cancel, make ready,
+// park). Each write
 // selects only the id: the page reloads its data afterwards, never trusting
 // an optimistic view.
 // ---------------------------------------------------------------------------
@@ -4563,6 +4563,12 @@ export const CANCEL_AGENT_TASK_MUTATION = /* GraphQL */ `
 export const MAKE_AGENT_TASK_READY_MUTATION = /* GraphQL */ `
   mutation MakeAgentTaskReady($taskId: ID!) {
     makeAgentTaskReady(taskId: $taskId) { id }
+  }
+`;
+
+export const PARK_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation ParkAgentTask($taskId: ID!) {
+    parkAgentTask(taskId: $taskId) { id }
   }
 `;
 
