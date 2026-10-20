@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { ClientError } from 'graphql-request';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -176,7 +177,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 function edgeWriteFailure<F extends Parameters<typeof message>[0]>(form: F, e: unknown, fallback: string) {
   const include = includeRefusalOf(e);
   if (include) return message(form, { type: 'error', text: includeRefusalText(include) }, { status: 409 });
-  return message(form, { type: 'error', text: extractGqlError(e, fallback) }, { status: 500 });
+  // A ClientError with no GraphQL message (a 503, say) carries only
+  // graphql-request's own text, which embeds the query and variables: never
+  // show it, use the fallback (Gene's blind P2 on #1155). A plain Error keeps
+  // its message, as before.
+  const serverMessage = e instanceof ClientError ? e.response?.errors?.[0]?.message : undefined;
+  const text = e instanceof ClientError ? (serverMessage || fallback) : extractGqlError(e, fallback);
+  return message(form, { type: 'error', text }, { status: 500 });
 }
 
 export const actions: Actions = {
