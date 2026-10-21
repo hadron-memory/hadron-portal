@@ -67,7 +67,9 @@ try {
         const row = 'section > div:first-child';
         const mutant = await page.addStyleTag({ content: `${row} { flex-wrap: nowrap !important; }` });
         // #417: the row is justify-end, so a no-wrap mutant spills LEFT, which
-        // grows no scrollWidth — the observable is a control pushed off-screen.
+        // grows no scrollWidth (measured: scrollWidth stays 390) — the firing
+        // observable at 390/chart is a stranded control (reachable false). The
+        // overflow alternative stays for anyone who re-orders the row.
         const m = await measure();
         assert.ok(m.scrollWidth > width || !m.reachable, 'toolbar no-wrap mutant must overflow or strand a control');
         await mutant.evaluate((el) => el.remove());
