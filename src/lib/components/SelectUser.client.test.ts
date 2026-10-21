@@ -74,3 +74,26 @@ describe('SelectUser bounded preview (#1226)', () => {
     expect(footer()).not.toContain('more match');
   });
 });
+
+// portal#1169 — the popup can be dismissed with a visible control and dims the
+// page behind it.
+describe('SelectUser modal chrome (#1169)', () => {
+  it('has a Close button that dismisses the dialog', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ search: async () => ({ users: [], truncated: false }), onselect: () => {}, open: true });
+    const m = mountComponent(SelectUser as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    const close = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent?.trim() === 'Close');
+    expect(close).toBeTruthy();
+    close!.click();
+    flushSync();
+    await tick();
+    expect(props.open).toBe(false);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('dims the page behind the dialog', () => {
+    open(async () => ({ users: [], truncated: false }));
+    const overlay = document.querySelector('[role="dialog"]')!.parentElement!;
+    expect(overlay.className).toMatch(/bg-black\/\d+/);
+  });
+});
