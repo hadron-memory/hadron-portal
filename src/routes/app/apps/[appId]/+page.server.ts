@@ -10,6 +10,7 @@ import { lookupOwn } from '$lib/lookup';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
+import { mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
 import { t } from '$lib/i18n/t';
 import {
   APP_DETAIL_ORG_QUERY,
@@ -562,26 +563,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // cannot null the org (see APP_ORG_AGENTS_QUERY).
     const pool = await withTimeout(
       client
-        .request<{
-          organization: {
-            agents: InstallableAgent[];
-            agentOrgGrants?: Array<{ isActive: boolean; agent: InstallableAgent | null }>;
-          } | null;
-        }>(APP_ORG_AGENTS_QUERY, {
+        .request<{ organization: OrgAgentPool | null }>(APP_ORG_AGENTS_QUERY, {
           ref: app.organizationId,
         })
-        .then((r) => {
-          if (!r.organization) return null;
-          // #1172: owned agents, then the ones the org subscribes to (an active
-          // grant whose agent the caller may read), each once.
-          const seen = new Set<string>();
-          const subscribed = (r.organization.agentOrgGrants ?? [])
-            .filter((g) => g.isActive && g.agent)
-            .map((g) => g.agent as InstallableAgent);
-          return [...r.organization.agents, ...subscribed].filter((a) =>
-            seen.has(a.id) ? false : (seen.add(a.id), true),
-          );
-        }),
+        .then((r) => (r.organization ? mergeInstallableAgents(r.organization) : null)),
       OPTIONAL_LIST_TIMEOUT_MS,
       null,
     ).catch((e) => {
