@@ -1462,6 +1462,10 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
       editedBy
       editedByInfo
       editedByUser { handle urn }
+      # #1171 (server #1610): the Worker and Agent behind the edit; null on
+      # revisions captured before #1610 or with no agent behind them.
+      editedByWorker { id name urn }
+      editedByAgent { id name urn }
       revLabel
       # #620: which node fields the edit changed (empty on legacy rows).
       changes
@@ -1487,6 +1491,10 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
       editedBy
       editedByInfo
       editedByUser { handle urn }
+      # #1171 (server #1610): the Worker and Agent behind the edit; null on
+      # revisions captured before #1610 or with no agent behind them.
+      editedByWorker { id name urn }
+      editedByAgent { id name urn }
       revLabel
       changes
       createdAt
@@ -3065,6 +3073,18 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
       properties
+      # portal#1175: this node AS a comment — its target (for the breadcrumb
+      # link) and whether the viewer wrote it (for the edit controls). Null for
+      # content. Detail-only; the search read selects its own, wider asComment.
+      asComment {
+        id
+        deleted
+        viewerIsAuthor
+        # The comment's write counter: editComment's expectedRevision, which is
+        # NOT Node.revision.
+        revSeq
+        target { id name nodeType urn }
+      }
       # #927 (server #1323/#937): the live revision an inline editor opens on
       # and saves against as expectedRevision. Detail-only, like properties.
       revision
