@@ -64,6 +64,7 @@
   import { reportsToOf, reportsToSortKey } from '$lib/worker-reports-to';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
+  import { enhance } from '$app/forms';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { fill, t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
@@ -122,6 +123,8 @@
   // null = the fetch failed, which is NOT the same as "no staff" — the empty
   // state must not claim an App has no workers when we simply couldn't ask.
   const staff = $derived(data.staff);
+  // portal#1168: Task and Paused, one bulk read joined by worker id.
+  const teamRoster = $derived(data.teamRoster);
   // #855: worker id → URN for the team chat's author chip. Null when the roster
   // failed to load, so the chat renders no chip rather than an empty one;
   // workers whose URN is null (pre-v2 App URN) are simply absent.
@@ -317,6 +320,7 @@
     // three-valued read the profile's held-workers grid uses: masked is "Not
     // shown to you", never "idle".
     { accessorFn: (row) => workerStatusLabel(row), id: 'status', header: t('app.staff.column.status', 'Status'), size: 150 },
+    { accessorFn: (row) => rosterEntry(row.id)?.currentTask?.title ?? '', id: 'task', header: t('app.staff.column.task', 'Task'), size: 220 },
     { accessorFn: (row) => row.family ?? '', id: 'family', header: t('app.staff.column.family', 'Model family'), size: 130 },
     {
       accessorFn: (row) => {
@@ -353,6 +357,23 @@
   //   `none` is not "unheld" — the field is masked to null on a denied read.
   // - Retire (danger) only for an active worker; a retired one keeps its
   //   name forever and has nothing left to retire or release.
+  function rosterEntry(workerId: string) {
+    return teamRoster?.kind === 'ok' ? teamRoster.byWorker[workerId] ?? null : null;
+  }
+  const TASK_STATUS = {
+    STARTED: () => t('app.staff.task.started', 'Started'),
+    PENDING: () => t('app.staff.task.pending', 'Pending'),
+  } as Record<string, () => string>;
+  // The server decides paused: its check status at the roster's asOf, never
+  // pausedUntil compared with the clock here (an expired stamp is history).
+  function pauseBadge(workerId: string): string | null {
+    const c = rosterEntry(workerId)?.checkStatus;
+    if (c?.status !== 'PENDING') return null;
+    if (c.pendingReason === 'PAUSED') return t('app.staff.paused', 'Paused');
+    if (c.pendingReason === 'TEAM_PAUSED') return t('app.staff.team-paused', 'Team paused');
+    if (c.pendingReason === 'STOPPED') return t('app.staff.stopped', 'Stopped');
+    return null;
+  }
   function workerStatusLabel(worker: Worker): string {
     if (worker.hasLiveSession === true) return t('app.staff.status.active', 'Active now');
     if (worker.hasLiveSession === false) {
@@ -362,6 +383,60 @@
     }
     return t('app.staff.status.unknown', 'Not shown to you');
   }
+  // portal#1168 — Pause / Unpause. Intent only: the dialog sends the end time
+  // the person chose (no default), Unpause sends clearPause, and the server's
+  // gate decides who may. "Paused" is the server's check status, so Unpause is
+  // offered only when the server says this worker's OWN pause is in force.
+  function ownPaused(workerId: string): boolean {
+    const c = rosterEntry(workerId)?.checkStatus;
+    return c?.status === 'PENDING' && c.pendingReason === 'PAUSED';
+  }
+  let pauseFor = $state<Worker | null>(null);
+  let pauseLocal = $state('');
+  const pauseUntilIso = $derived(pauseLocal && !Number.isNaN(new Date(pauseLocal).getTime()) ? new Date(pauseLocal).toISOString() : '');
+  let pauseBusy = $state(false);
+  // Colin P2: every dialog open/close bumps the generation. A server answer is
+  // bound to the worker AND the generation it was submitted from, so a delayed
+  // answer for another worker, or for an earlier opening of this one, can
+  // neither close the current dialog, wipe its draft, nor show an error in it.
+  let pauseGen = $state(0);
+  let pauseOutcome = $state<{ ok: boolean; workerId: string; message: string; gen: number } | null>(null);
+  let unpauseWorkerId = $state('');
+  let unpauseForm = $state<HTMLFormElement>();
+  function closePause() {
+    pauseGen++;
+    pauseFor = null;
+    pauseLocal = '';
+  }
+  function openPause(worker: Worker) {
+    pauseGen++;
+    pauseLocal = '';
+    pauseFor = worker;
+  }
+  /** The enhance handler for both pause forms: the answer is bound to what the page held at SUBMIT time. */
+  function pauseEnhance(closeOnSuccess: boolean) {
+    return () => {
+      const gen = pauseGen;
+      pauseBusy = true;
+      return async ({ result, update }: { result: { type: string; data?: unknown }; update: () => Promise<void> }) => {
+        const r = (result.type === 'success' || result.type === 'failure')
+          ? (result.data as { pauseResult?: { ok: boolean; workerId: string; message: string } } | undefined)?.pauseResult
+          : undefined;
+        await update();
+        pauseBusy = false;
+        if (r) pauseOutcome = { ...r, gen };
+        if (closeOnSuccess && result.type === 'success' && gen === pauseGen) closePause();
+      };
+    };
+  }
+  async function unpauseWorker(workerId: string) {
+    if (pauseBusy) return;
+    pauseBusy = true;
+    unpauseWorkerId = workerId;
+    await tick();
+    unpauseForm?.requestSubmit();
+  }
+  const workerNameOf = (id: string) => (staff ?? []).find((w) => w.id === id)?.name ?? '';
   function workerActions(worker: Worker): NodeMenuAction[] {
     const hold = workerHold(worker, data.user?.id);
     const active = !worker.retiredAt;
@@ -378,6 +453,11 @@
       ...(worker.agent
         ? [{ id: 'open-agent', label: t('app.staff.action.open-agent', 'Open role agent'), href: `/app/agents/${worker.agent.id}` }]
         : []),
+      ...(active
+        ? [ownPaused(worker.id)
+            ? { id: 'unpause', label: t('app.staff.unpause', 'Unpause') }
+            : { id: 'pause', label: t('app.staff.pause', 'Pause…') }]
+        : []),
       ...(active && (hold.kind === 'self' || hold.kind === 'other')
         ? [{
             id: 'release',
@@ -388,7 +468,11 @@
     ];
   }
   function onWorkerAction(id: string, worker: Worker) {
-    if (id === 'release') {
+    if (id === 'pause') {
+      openPause(worker);
+    } else if (id === 'unpause') {
+      void unpauseWorker(worker.id);
+    } else if (id === 'release') {
       const hold = workerHold(worker, data.user?.id);
       if (hold.kind === 'self' || hold.kind === 'other') {
         releaseWorkerNamed(worker.id, worker.name, hold.kind === 'self', hold.holderId);
@@ -2127,6 +2211,46 @@
           </p>
         </div>
       {:else}
+        {#if pauseOutcome && !(pauseFor && !pauseOutcome.ok)}
+          <p role={pauseOutcome.ok ? 'status' : 'alert'} class="text-xs {pauseOutcome.ok ? 'text-green-700 dark:text-green-400' : 'text-red-500'}">{#if workerNameOf(pauseOutcome.workerId)}{workerNameOf(pauseOutcome.workerId)}: {/if}{pauseOutcome.message}</p>
+        {/if}
+        <!-- portal#1168: Unpause is a one-click clearPause for the chosen worker. -->
+        <form bind:this={unpauseForm} method="POST" action="?/setWorkerPause" class="hidden" novalidate
+          use:enhance={pauseEnhance(false)}>
+          <input type="hidden" name="workerId" value={unpauseWorkerId} />
+          <input type="hidden" name="mode" value="clear" />
+        </form>
+        {#if pauseFor}
+          <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-3 pt-[10vh] dark:bg-black/60" role="presentation" onclick={closePause}>
+            <div role="dialog" aria-modal="true" aria-label={`${t('app.staff.pause.title', 'Pause')} ${pauseFor.name}`} tabindex="-1" use:focusTrapWhen={true} onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') closePause(); }}
+              class="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+              <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.staff.pause.title', 'Pause')} {pauseFor.name}</h2>
+              <p class="mt-1 text-xs text-zinc-500">{t('app.staff.pause.explainer', 'The worker is not woken until the time you choose. You can unpause it earlier. Only the worker, its holder or an App manager can pause it.')}</p>
+              <form method="POST" action="?/setWorkerPause" class="mt-3 space-y-3" novalidate
+                use:enhance={pauseEnhance(true)}>
+                <input type="hidden" name="workerId" value={pauseFor.id} />
+                <input type="hidden" name="mode" value="pause" />
+                <input type="hidden" name="until" value={pauseUntilIso} />
+                <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+                  {t('app.staff.pause.until', 'Pause until')}
+                  <input type="datetime-local" bind:value={pauseLocal} class="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white" />
+                </label>
+                {#if pauseOutcome && !pauseOutcome.ok && pauseOutcome.gen === pauseGen && pauseOutcome.workerId === pauseFor.id}
+                  <p role="alert" class="text-xs text-red-500">{pauseOutcome.message}</p>
+                {/if}
+                <div class="flex justify-end gap-2">
+                  <button type="button" onclick={closePause} class="rounded-md px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-300">{t('app.staff.pause.cancel', 'Cancel')}</button>
+                  <button type="submit" disabled={!pauseUntilIso || pauseBusy} class="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">{pauseBusy ? t('app.staff.pause.pausing', 'Pausing…') : t('app.staff.pause.submit', 'Pause')}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        {/if}
+        {#if teamRoster?.kind === 'failed'}
+          <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.failed', 'Task and pause state could not be loaded; try again in a moment.')}</p>
+        {:else if teamRoster?.kind === 'hidden'}
+          <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
+        {/if}
         <!-- #756 — TanStack grid, replacing a bespoke <ul>. Same chrome as every
              other portal list (search, column toggle, sortable/resizable
              headers, pagination) via the shared DataTable.
@@ -2186,6 +2310,25 @@
               {/if}
             {:else if cell.column.id === 'status'}
               <span class="text-xs text-zinc-600 dark:text-zinc-300">{workerStatusLabel(worker)}</span>
+              {#if teamRoster?.kind === 'ok' && !rosterEntry(worker.id)}
+                <span class="ml-1 text-xs text-zinc-500">{t('app.staff.pause-unknown', 'Pause state unknown')}</span>
+              {/if}
+              {#if pauseBadge(worker.id)}
+                <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">{pauseBadge(worker.id)}</span>
+              {/if}
+            {:else if cell.column.id === 'task'}
+              {@const task = rosterEntry(worker.id)?.currentTask}
+              {#if !rosterEntry(worker.id)}
+                <!-- Failed, withheld, or a worker the read did not return: never the "no task" dash. -->
+                <span class="text-xs text-zinc-500">{t('app.staff.na', 'Not available')}</span>
+              {:else if task}
+                <div class="min-w-0 text-xs">
+                  <a href="/app/apps/{app.id}/tasks/{task.id}" class="block truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
+                  <span class="text-zinc-500">{TASK_STATUS[task.status]?.() ?? task.status}</span>
+                </div>
+              {:else}
+                <span class="text-xs text-zinc-400">—</span>
+              {/if}
             {:else if cell.column.id === 'family'}
               {#if worker.family}
                 <span class="text-xs text-zinc-600 dark:text-zinc-300">{worker.family}</span>
