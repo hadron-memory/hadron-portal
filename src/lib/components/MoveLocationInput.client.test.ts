@@ -42,4 +42,25 @@ describe('MoveLocationInput (#1164, #1192 review)', () => {
     );
     unmount();
   });
+
+  it('says why a refused move was refused, in the node the input points at (#1192 QA)', () => {
+    const { target, unmount } = mountComponent(MoveLocationInput, {
+      memoryUrn: MEM,
+      target: 'hrn:node:acme.com:flows:a',
+      inputClass: '',
+      invalid: true,
+      error: 'A node already occupies loc a.',
+      describedby: 'moveTargetError',
+    });
+    const err = target.querySelector('#moveTargetError');
+    expect(err?.textContent).toContain('already occupies');
+    expect(target.querySelector('input[type=text]')?.getAttribute('aria-describedby')).toBe('moveTargetError');
+    unmount();
+  });
+
+  it('renders no error element when there is no error', () => {
+    const { target, unmount } = mountField();
+    expect(target.querySelector('#moveTargetError')).toBeNull();
+    unmount();
+  });
 });

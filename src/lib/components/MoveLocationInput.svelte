@@ -14,15 +14,18 @@
     target = $bindable(),
     inputClass,
     invalid = false,
+    error,
     describedby,
   }: {
     memoryUrn: string;
     target: string;
     inputClass: string;
     invalid?: boolean;
+    error?: string;
     describedby?: string;
   } = $props();
 
+  const errorText = $derived(error || undefined);
   const location = $derived(locOfSameMemoryTarget(memoryUrn, target) ?? '');
 </script>
 
@@ -37,3 +40,7 @@
   aria-describedby={describedby}
   class="{inputClass} font-mono text-xs {invalid ? 'border-red-500 focus:border-red-500' : ''}"
 />
+{#if errorText}
+  <!-- aria-describedby points here: a refused move must say why in Location mode too (#1192 QA). -->
+  <p id="moveTargetError" class="mt-1 text-xs text-red-500">{errorText}</p>
+{/if}

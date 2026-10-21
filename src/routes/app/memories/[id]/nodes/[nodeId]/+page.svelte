@@ -2441,6 +2441,7 @@
                     bind:target={$moveFormData.target}
                     {inputClass}
                     invalid={!!$moveErrors.target?.[0]}
+                    error={$moveErrors.target?.[0]}
                     describedby={$moveErrors.target?.[0] ? 'moveTargetHint moveTargetError' : 'moveTargetHint'}
                   />
                   <p id="moveTargetHint" class="mt-1 text-xs text-zinc-400">
