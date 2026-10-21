@@ -100,4 +100,31 @@ describe('install target resolution — PUBLIC marketplace path (#486)', () => {
     route({});
     await expect(runLoad('ghost')).rejects.toMatchObject({ status: 404 });
   });
+  it('conceals a typed FORBIDDEN agent read as not found in both GET and existing new-App POST', async () => {
+    route({});
+    const prior = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (query: string, ...args: unknown[]) => {
+      if (query === AGENT_PUBLIC_QUERY) throw { response: { errors: [{ extensions: { code: 'FORBIDDEN' } }] } };
+      return prior(query, ...args);
+    });
+    await expect(runLoad('foreign-private')).rejects.toMatchObject({ status: 404 });
+    const { actions } = await import('./+page.server');
+    const fd = new FormData();
+    for (const [k, v] of Object.entries({ _kind: 'installAgent', name: 'Helper', urn: 'helper', appType: 'WORKSTATION' })) fd.set(k, v);
+    const result = await actions.install!({ params: { id: 'org-1', aid: 'foreign-private' }, locals: { token: 'tok' }, request: { formData: async () => fd } } as never);
+    expect(result).toMatchObject({ status: 404 });
+    expect(mockRequest.mock.calls.some(([doc]) => /mutation/.test(doc))).toBe(false);
+  });
+
+  it('propagates transport failure on an agent lookup instead of pretending it is absent', async () => {
+    route({});
+    const prior = mockRequest.getMockImplementation()!;
+    const outage = new TypeError('fetch failed');
+    mockRequest.mockImplementation(async (query: string, ...args: unknown[]) => {
+      if (query === AGENT_PUBLIC_QUERY) throw outage;
+      return prior(query, ...args);
+    });
+    await expect(runLoad('foreign-agent')).rejects.toBe(outage);
+  });
+
 });

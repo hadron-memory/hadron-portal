@@ -93,7 +93,14 @@ async function resolveInstallTarget(
     .request<{ agent: (InstallableAgent & { visibility: string }) | null }>(
       AGENT_PUBLIC_QUERY, { ref: agentIdParam },
     )
-    .then((r) => r.agent);
+    .then((r) => r.agent)
+    .catch((err: unknown) => {
+      // Preserve the existing concealed-not-found response for typed Agent
+      // refusals. An unavailable backend is not evidence of a missing Agent.
+      const code = extractGqlErrorCode(err);
+      if (code && ['FORBIDDEN', 'PERMISSION_DENIED', 'NOT_FOUND', 'AGENT_NOT_FOUND', 'BAD_USER_INPUT', 'URN_NOT_QUALIFIED'].includes(code)) return null;
+      throw err;
+    });
   if (publicAgent && publicAgent.visibility === 'PUBLIC') {
     return { ok: true, org: targetOrg, agent: publicAgent, otherApps: targetOrg.apps ?? [] };
   }

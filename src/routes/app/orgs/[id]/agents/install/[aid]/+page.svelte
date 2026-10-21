@@ -103,7 +103,7 @@
     </div>
   {/if}
 
-  <div class="flex gap-2" aria-label={t('install.destination', 'Install destination')}>
+  <div role="group" class="flex gap-2" aria-label={t('install.destination', 'Install destination')}>
     <button type="button" aria-pressed={!existing} onclick={() => existing = false} class="rounded-md border px-3 py-2 text-sm {!existing ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400'}">{t('install.new-app', 'New app')}</button>
     <button type="button" aria-pressed={existing} onclick={() => existing = true} class="rounded-md border px-3 py-2 text-sm {existing ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400'}">{t('install.existing-app', 'Existing app')}</button>
   </div>

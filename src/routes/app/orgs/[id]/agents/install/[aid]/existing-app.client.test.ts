@@ -25,6 +25,7 @@ async function open(failed = false) {
 describe('#1003 existing App selection', () => {
   it('selects an App with its URN and posts its id to the separate action', async () => {
     const root = await open();
+    expect(root.querySelector('[role="group"][aria-label="Install destination"]')).not.toBeNull();
     find(root, 'Existing app').click(); await tick();
     find(root, 'Choose an App').click(); await tick();
     expect(root.querySelector('[role="dialog"]')).not.toBeNull();
