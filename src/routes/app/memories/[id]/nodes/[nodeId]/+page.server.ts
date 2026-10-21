@@ -3,7 +3,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
@@ -805,8 +805,26 @@ export const actions: Actions = {
     const node = data.node;
     try {
       // #542: deleteNode takes a single nodeRef — pass the resolved node's PK.
-      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id, hard });
+      // `recursive` (#621) is only ever true after the dialog below offered
+      // the subtree choice, which itself only appears after a refusal.
+      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id, hard, recursive: form.data.recursive });
     } catch (e: unknown) {
+      // A parent node's delete is refused with NODE_HAS_DESCENDANTS (#621):
+      // the server names the count and points at recursive — CLI jargon the
+      // portal user cannot act on. Map it to a 409 whose message says which
+      // checkbox deletes the subtree, and carry the count on the action
+      // result so the dialog renders that checkbox even when the page's
+      // graph payload undercounted the subtree.
+      if (extractGqlErrorCode(e) === 'NODE_HAS_DESCENDANTS') {
+        const count = Number(extractGqlErrorExtensions(e)?.count ?? 0);
+        message(form, {
+          type: 'error',
+          text: t('node-actions.delete.has-descendants',
+            'This node has {count} descendant node(s). To delete the whole subtree, check "Also delete its descendants" and confirm.',
+            { count }),
+        });
+        return fail(409, { form, deleteRefusedDescendants: count });
+      }
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to delete') }, { status: 500 });
     }
     // Redirect to the *actual* memory's list — not the URL's gid, which
