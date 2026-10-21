@@ -1875,6 +1875,14 @@
   let restoreTarget = $state<NodeRevision | null>(null);
   // #534: the revision whose label the "Edit label" popup is changing.
   let labelTarget = $state<NodeRevision | null>(null);
+  // Which open of the popup a save belongs to: a save that outlives its popup
+  // (cancelled, or the page moved to another node) must not close or clear a
+  // later one, nor lose its draft.
+  let labelOpen = 0;
+  function closeLabel() {
+    labelOpen++;
+    labelTarget = null;
+  }
   let clearConfirm = $state(false);
   let historyBusy = $state(false);
   let historyError = $state<string | null>(null);
@@ -1920,6 +1928,7 @@
     if (id === 'display') window.open(revisionHref(r), '_blank', 'noopener');
     else if (id === 'label') {
       historyError = null;
+      labelOpen++;
       labelTarget = r; // opens the Edit label popup
     } else if (id === 'restore') restoreTarget = r; // opens the warning dialog
     else if (id === 'delete') void postRevisionAction({ action: 'delete', revisionId: r.id });
@@ -1930,7 +1939,8 @@
   }
   async function confirmLabel(text: string) {
     if (!labelTarget) return;
-    if (await postRevisionAction({ action: 'label', revisionId: labelTarget.id, revLabel: text })) labelTarget = null;
+    const open = labelOpen;
+    if (await postRevisionAction({ action: 'label', revisionId: labelTarget.id, revLabel: text }) && open === labelOpen) closeLabel();
   }
   async function confirmClear() {
     if (await postRevisionAction({ action: 'clear' })) clearConfirm = false;
@@ -2076,6 +2086,10 @@
       // this component across nodes, so leaving it open would carry it (and its
       // parentLoc, now stale) onto the next node.
       attachOpen = false;
+      // #534: the Edit label popup belongs to the node it was opened on; left
+      // open, Save would post A's revisionId through B's endpoint. A save still
+      // in flight for A no longer owns it either.
+      closeLabel();
       return;
     }
     // Same node: keep the active tab valid if its availability changes (e.g.
@@ -3687,7 +3701,7 @@
         busy={historyBusy}
         error={historyError}
         onsave={confirmLabel}
-        oncancel={() => (labelTarget = null)}
+        oncancel={closeLabel}
       />
     {/if}
 
