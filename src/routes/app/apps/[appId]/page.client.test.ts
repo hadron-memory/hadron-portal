@@ -216,6 +216,7 @@ describe('Worker agents tab (#1009)', () => {
       ['Open working memory', '/app/memories/mem-ada'],
       ['Open system memory', '/app/memories/mem-sys'],
       ['Open role agent', '/app/agents/ag-coord'],
+      ['Pause…', null],
       ['Release', null],
       ['Retire', null],
     ]);
@@ -227,7 +228,7 @@ describe('Worker agents tab (#1009)', () => {
       worker({ id: 'w3', name: 'Cy', heldByUserId: null, heldAt: null }),
     ]);
     expect(menuOf(target, 'Bo').map(([l]) => l)).toContain('Force-release');
-    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open system memory', 'Open role agent', 'Retire']);
+    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open system memory', 'Open role agent', 'Pause…', 'Retire']);
   });
 
   // portal#1168 — the AI Team grid: Status and Model family in, Working memory
@@ -311,6 +312,56 @@ describe('Worker agents tab (#1009)', () => {
     expect(columnTexts(failed, 'Task')[0]).toBe('—');
     const hidden = await mountStaff([worker({})], { kind: 'hidden' });
     expect(hidden.textContent).toContain('Task and pause state are not shown to you');
+  });
+
+  // portal#1168 — Pause / Unpause. The portal offers the action and the server's
+  // gate decides; "Unpause" only when the SERVER's check status says paused.
+  const paused = () => ({ kind: 'ok', byWorker: { w1: entry({ checkStatus: { status: 'PENDING', pendingReason: 'PAUSED' }, pausedUntil: '2099-01-01T00:00:00.000Z' }) } });
+
+  it('offers Unpause only for a worker the server says is paused, and never on a team pause', async () => {
+    const target = await mountStaff([worker({})], paused());
+    expect(menuOf(target, 'Ada').map(([l]) => l)).toContain('Unpause');
+    expect(menuOf(target, 'Ada').map(([l]) => l)).not.toContain('Pause…');
+    const teamPaused = await mountStaff([worker({})], { kind: 'ok', byWorker: { w1: entry({ checkStatus: { status: 'PENDING', pendingReason: 'TEAM_PAUSED' } }) } });
+    const labels = menuOf(teamPaused, 'Ada').map(([l]) => l);
+    expect(labels).not.toContain('Unpause');
+  });
+
+  it('offers no pause action on a retired worker', async () => {
+    const target = await mountStaff([worker({ retiredAt: '2026-09-01T00:00:00.000Z' })]);
+    expect(menuOf(target, 'Ada').map(([l]) => l)).not.toContain('Pause…');
+  });
+
+  it('Pause… opens a dialog with an empty end time (no default) and cannot submit until one is chosen', async () => {
+    const target = await mountStaff([worker({})]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const dlg = target.querySelector<HTMLElement>('[role="dialog"][aria-label*="Pause"]');
+    expect(dlg).not.toBeNull();
+    const input = dlg!.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+    expect(input.value).toBe('');
+    const submit = dlg!.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(submit.disabled).toBe(true);
+    input.value = '2099-01-01T10:00';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    expect(submit.disabled).toBe(false);
+    const hidden = dlg!.querySelector<HTMLInputElement>('input[name="until"]')!;
+    expect(hidden.value).toBe(new Date('2099-01-01T10:00').toISOString());
+    expect(dlg!.querySelector<HTMLInputElement>('input[name="mode"]')!.value).toBe('pause');
+    expect(dlg!.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w1');
+  });
+
+  it('Unpause submits clear for THAT worker', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountStaff([worker({})], paused());
+    pick(target, 'Ada', 'Unpause');
+    await tick(2);
+    const form = target.querySelector<HTMLFormElement>('form[action="?/setWorkerPause"]')!;
+    expect(requestSubmit).toHaveBeenCalled();
+    expect(form.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w1');
+    expect(form.querySelector<HTMLInputElement>('input[name="mode"]')!.value).toBe('clear');
+    requestSubmit.mockRestore();
   });
 
   // portal#1067 — who each worker reports to, next to last activity.

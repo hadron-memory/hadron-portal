@@ -64,6 +64,7 @@
   import { reportsToOf, reportsToSortKey } from '$lib/worker-reports-to';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
+  import { enhance } from '$app/forms';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { fill, t } from '$lib/i18n/t.js';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
@@ -381,6 +382,30 @@
     }
     return t('app.staff.status.unknown', 'Not shown to you');
   }
+  // portal#1168 — Pause / Unpause. Intent only: the dialog sends the end time
+  // the person chose (no default), Unpause sends clearPause, and the server's
+  // gate decides who may. "Paused" is the server's check status, so Unpause is
+  // offered only when the server says this worker's OWN pause is in force.
+  function ownPaused(workerId: string): boolean {
+    const c = rosterEntry(workerId)?.checkStatus;
+    return c?.status === 'PENDING' && c.pendingReason === 'PAUSED';
+  }
+  let pauseFor = $state<Worker | null>(null);
+  let pauseLocal = $state('');
+  const pauseUntilIso = $derived(pauseLocal && !Number.isNaN(new Date(pauseLocal).getTime()) ? new Date(pauseLocal).toISOString() : '');
+  let pauseBusy = $state(false);
+  let unpauseWorkerId = $state('');
+  let unpauseForm = $state<HTMLFormElement>();
+  const pauseResult = $derived((form as { pauseResult?: { ok: boolean; workerId: string; message: string } } | null)?.pauseResult ?? null);
+  function closePause() {
+    pauseFor = null;
+    pauseLocal = '';
+  }
+  async function unpauseWorker(workerId: string) {
+    unpauseWorkerId = workerId;
+    await tick();
+    unpauseForm?.requestSubmit();
+  }
   function workerActions(worker: Worker): NodeMenuAction[] {
     const hold = workerHold(worker, data.user?.id);
     const active = !worker.retiredAt;
@@ -397,6 +422,11 @@
       ...(worker.agent
         ? [{ id: 'open-agent', label: t('app.staff.action.open-agent', 'Open role agent'), href: `/app/agents/${worker.agent.id}` }]
         : []),
+      ...(active
+        ? [ownPaused(worker.id)
+            ? { id: 'unpause', label: t('app.staff.unpause', 'Unpause') }
+            : { id: 'pause', label: t('app.staff.pause', 'Pause…') }]
+        : []),
       ...(active && (hold.kind === 'self' || hold.kind === 'other')
         ? [{
             id: 'release',
@@ -407,7 +437,12 @@
     ];
   }
   function onWorkerAction(id: string, worker: Worker) {
-    if (id === 'release') {
+    if (id === 'pause') {
+      pauseLocal = '';
+      pauseFor = worker;
+    } else if (id === 'unpause') {
+      void unpauseWorker(worker.id);
+    } else if (id === 'release') {
       const hold = workerHold(worker, data.user?.id);
       if (hold.kind === 'self' || hold.kind === 'other') {
         releaseWorkerNamed(worker.id, worker.name, hold.kind === 'self', hold.holderId);
@@ -2143,6 +2178,41 @@
           </p>
         </div>
       {:else}
+        {#if pauseResult}
+          <p role={pauseResult.ok ? 'status' : 'alert'} class="text-xs {pauseResult.ok ? 'text-green-700 dark:text-green-400' : 'text-red-500'}">{pauseResult.message}</p>
+        {/if}
+        <!-- portal#1168: Unpause is a one-click clearPause for the chosen worker. -->
+        <form bind:this={unpauseForm} method="POST" action="?/setWorkerPause" class="hidden" novalidate
+          use:enhance={() => { pauseBusy = true; return async ({ update }) => { await update(); pauseBusy = false; }; }}>
+          <input type="hidden" name="workerId" value={unpauseWorkerId} />
+          <input type="hidden" name="mode" value="clear" />
+        </form>
+        {#if pauseFor}
+          <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-3 pt-[10vh] dark:bg-black/60" role="presentation" onclick={closePause}>
+            <div role="dialog" aria-modal="true" aria-label={`${t('app.staff.pause.title', 'Pause')} ${pauseFor.name}`} tabindex="-1" use:focusTrapWhen={true} onclick={(e) => e.stopPropagation()} onkeydown={(e) => { if (e.key === 'Escape') closePause(); }}
+              class="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+              <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.staff.pause.title', 'Pause')} {pauseFor.name}</h2>
+              <p class="mt-1 text-xs text-zinc-500">{t('app.staff.pause.explainer', 'The worker is not woken until the time you choose. You can unpause it earlier. Only the worker, its holder or an App manager can pause it.')}</p>
+              <form method="POST" action="?/setWorkerPause" class="mt-3 space-y-3" novalidate
+                use:enhance={() => { pauseBusy = true; return async ({ result, update }) => { await update(); pauseBusy = false; if (result.type === 'success') closePause(); }; }}>
+                <input type="hidden" name="workerId" value={pauseFor.id} />
+                <input type="hidden" name="mode" value="pause" />
+                <input type="hidden" name="until" value={pauseUntilIso} />
+                <label class="block text-xs text-zinc-600 dark:text-zinc-400">
+                  {t('app.staff.pause.until', 'Pause until')}
+                  <input type="datetime-local" bind:value={pauseLocal} class="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white" />
+                </label>
+                {#if pauseResult && !pauseResult.ok}
+                  <p role="alert" class="text-xs text-red-500">{pauseResult.message}</p>
+                {/if}
+                <div class="flex justify-end gap-2">
+                  <button type="button" onclick={closePause} class="rounded-md px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-300">{t('app.staff.pause.cancel', 'Cancel')}</button>
+                  <button type="submit" disabled={!pauseUntilIso || pauseBusy} class="rounded-md bg-amber-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">{pauseBusy ? t('app.staff.pause.pausing', 'Pausing…') : t('app.staff.pause.submit', 'Pause')}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        {/if}
         {#if teamRoster?.kind === 'failed'}
           <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.failed', 'Task and pause state could not be loaded; try again in a moment.')}</p>
         {:else if teamRoster?.kind === 'hidden'}

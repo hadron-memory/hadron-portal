@@ -34,6 +34,7 @@ import {
   WORKERS_QUERY,
   CAST_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
+  SET_WORKER_WAKE_SETTINGS_MUTATION,
   RELEASE_WORKER_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
@@ -1144,6 +1145,43 @@ export const actions: Actions = {
         },
         { status: 500 },
       );
+    }
+  },
+
+  // portal#1168 — Pause / Unpause a worker. PAUSE INTENT ONLY: an explicit
+  // user-selected end time, or clearPause. The portal invents no duration, never
+  // resends `mentions` or any other wake setting, and lets the server's gate
+  // (the worker, its holder or an App manager) decide. A refusal is a fixed
+  // message, never the provider payload, and never success; the page re-reads
+  // the authoritative roster after a success instead of flipping a badge.
+  setWorkerPause: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const workerId = String(fd.get('workerId') ?? '').trim();
+    const mode = String(fd.get('mode') ?? '');
+    const until = String(fd.get('until') ?? '').trim();
+    const bad = (text: string) => fail(400, { pauseResult: { ok: false as const, workerId, message: text } });
+    if (!workerId) return bad(t('app.staff.pause.error.worker', 'Choose a worker.'));
+    let input: { pausedUntil: string } | { clearPause: true };
+    if (mode === 'clear') {
+      input = { clearPause: true };
+    } else if (mode === 'pause') {
+      const ms = Date.parse(until);
+      if (!until || Number.isNaN(ms)) return bad(t('app.staff.pause.error.until', 'Choose when the pause ends.'));
+      if (ms <= Date.now()) return bad(t('app.staff.pause.error.past', 'The pause must end in the future.'));
+      input = { pausedUntil: new Date(ms).toISOString() };
+    } else {
+      return bad(t('app.staff.pause.error.mode', 'Choose Pause or Unpause.'));
+    }
+    try {
+      await gqlClient(locals.token).request(SET_WORKER_WAKE_SETTINGS_MUTATION, { workerRef: workerId, input });
+      return { pauseResult: { ok: true as const, workerId, message: mode === 'clear'
+        ? t('app.staff.unpause.success', 'Pause cleared.')
+        : t('app.staff.pause.success', 'Worker paused.') } };
+    } catch (e: unknown) {
+      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
+      return fail(forbidden ? 403 : 500, { pauseResult: { ok: false as const, workerId, message: forbidden
+        ? t('app.staff.pause.error.forbidden', 'You can’t pause or unpause this worker. Only the worker, its holder or an App manager can.')
+        : t('app.staff.pause.error.failed', 'Could not change the pause. Nothing was changed; try again.') } });
     }
   },
 

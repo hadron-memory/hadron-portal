@@ -4629,6 +4629,15 @@ export const TEAM_ROSTER_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1168: pause intent ONLY. The input is built by the action and carries
+// exactly one of pausedUntil / clearPause, never `mentions`; the server's gate
+// (the worker, its holder or an App manager) decides who may.
+export const SET_WORKER_WAKE_SETTINGS_MUTATION = /* GraphQL */ `
+  mutation SetWorkerPause($workerRef: String!, $input: WorkerWakeSettingsInput!) {
+    setWorkerWakeSettings(workerRef: $workerRef, input: $input) { pausedUntil }
+  }
+`;
+
 // portal#1168 (hadron-server#2178): the AI Team grid's Task and Paused state,
 // one bulk read joined to the staff by worker id. Selects only what the grid
 // renders.
