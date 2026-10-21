@@ -100,6 +100,17 @@ async function submitWith(target: HTMLElement, props: Record<string, unknown>, a
   flushSync();
 }
 
+it('#1167 Settings dates match the memory Info format', async () => {
+  const {target} = await mountPage();
+  const settings = [...target.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Settings');
+  expect(settings).toBeDefined();
+  settings!.click();
+  flushSync();
+  await tick();
+  expect(target.textContent).toContain('Oct 1, 2026');
+  expect(target.textContent).not.toContain('10/1/2026');
+});
+
 describe('node page form ids (#995)', () => {
   it("Convert to task's error renders, with Duplicate's form on the page", async () => {
     const { target, props } = await mountPage();

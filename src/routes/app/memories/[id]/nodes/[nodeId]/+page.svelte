@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatPortalDate } from '$lib/format-portal-date';
   import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
@@ -3843,12 +3844,12 @@
               </div>
               <div class="flex items-center justify-between px-5 py-3">
                 <span class="text-sm text-zinc-500">Created</span>
-                <span class="text-sm text-zinc-900 dark:text-white">{new Date(node.createdAt).toLocaleDateString()}</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{formatPortalDate(node.createdAt)}</span>
               </div>
               {#if node.updatedAt}
                 <div class="flex items-center justify-between px-5 py-3">
                   <span class="text-sm text-zinc-500">Updated</span>
-                  <span class="text-sm text-zinc-900 dark:text-white">{new Date(node.updatedAt).toLocaleDateString()}</span>
+                  <span class="text-sm text-zinc-900 dark:text-white">{formatPortalDate(node.updatedAt)}</span>
                 </div>
               {/if}
             </div>
