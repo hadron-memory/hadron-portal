@@ -3,7 +3,8 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
@@ -24,7 +25,7 @@ import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePr
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
-import { loadCommentSummary, loadDiscussion } from '$lib/server/comments';
+import { loadCommentSummary, loadDiscussion, sendCommentWrite } from '$lib/server/comments';
 import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
 import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
@@ -587,6 +588,21 @@ async function saveNodeText(
   }
   if (!node) return fail(404, { [failed]: { code: 'not-found', detail: null } });
 
+  // portal#1175: a comment's text is edited through `editComment`, with the
+  // comment's own write counter as the precondition. The generic node write is
+  // refused for a comment (hrn:node:hadronmemory.com:specs:cor:dmo:110:04), so
+  // never fall through to it. Without the comment's details there is no safe
+  // way to write: refuse rather than guess.
+  if (node.nodeType === COMMENT_NODE_TYPE) {
+    if (field !== 'content' || !node.asComment) return fail(403, { [failed]: { code: 'failed', detail: null } });
+    const sent = await sendCommentWrite(client, node.id, {
+      op: 'edit', commentId: node.asComment.id, body: value, expectedRevision,
+    });
+    if (sent.ok) return { [`${field}Saved`]: true };
+    if (sent.code === 'NODE_WRITE_CONFLICT') return fail(409, { [failed]: { code: 'changed', detail: null } });
+    return fail(sent.status, { [failed]: { code: 'failed', detail: sent.text } });
+  }
+
   // #868: this edit touches neither governance signal, so the resulting kind
   // is the node's CURRENT one — which is why the fetched node, not the input,
   // decides the door.
@@ -616,6 +632,10 @@ async function saveNodeText(
     if (extractGqlErrorCode(e) === 'NODE_WRITE_CONFLICT') {
       return fail(409, { [failed]: { code: 'changed', detail: extractGqlError(e, '') || null } });
     }
+    // portal#1142 P0a: an include refusal (hadron-server#2040) wrote nothing;
+    // say so with the server's words, the tag and the next step.
+    const include = includeRefusalOf(e);
+    if (include) return fail(400, { [failed]: { code: 'include', detail: includeRefusalText(include) } });
     const detail = extractGqlError(e, 'Save failed');
     if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
     return fail(500, { [failed]: { code: 'failed', detail } });
@@ -785,8 +805,26 @@ export const actions: Actions = {
     const node = data.node;
     try {
       // #542: deleteNode takes a single nodeRef — pass the resolved node's PK.
-      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id, hard });
+      // `recursive` (#621) is only ever true after the dialog below offered
+      // the subtree choice, which itself only appears after a refusal.
+      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id, hard, recursive: form.data.recursive });
     } catch (e: unknown) {
+      // A parent node's delete is refused with NODE_HAS_DESCENDANTS (#621):
+      // the server names the count and points at recursive — CLI jargon the
+      // portal user cannot act on. Map it to a 409 whose message says which
+      // checkbox deletes the subtree, and carry the count on the action
+      // result so the dialog renders that checkbox even when the page's
+      // graph payload undercounted the subtree.
+      if (extractGqlErrorCode(e) === 'NODE_HAS_DESCENDANTS') {
+        const count = Number(extractGqlErrorExtensions(e)?.count ?? 0);
+        message(form, {
+          type: 'error',
+          text: t('node-actions.delete.has-descendants',
+            'This node has {count} descendant node(s). To delete the whole subtree, check "Also delete its descendants" and confirm.',
+            { count }),
+        });
+        return fail(409, { form, deleteRefusedDescendants: count });
+      }
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to delete') }, { status: 500 });
     }
     // Redirect to the *actual* memory's list — not the URL's gid, which

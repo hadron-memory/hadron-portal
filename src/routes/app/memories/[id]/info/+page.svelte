@@ -3,6 +3,7 @@
   // description, tags, integration status, dates) + stats. Edge count, last use,
   // and "agents/apps that include this memory" need new server queries and are
   // deferred (flagged below).
+  import { formatPortalDate } from '$lib/format-portal-date';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
   import SyncErrorDetail from '$lib/components/SyncErrorDetail.svelte';
@@ -20,14 +21,6 @@
     GROUP: t('memory-info.visibility.group', 'Group'),
   };
 
-  // Pin the locale so SSR and client format identically (no hydration mismatch).
-  function fmtDate(s: string | null | undefined): string {
-    if (!s) return '—';
-    const d = new Date(s);
-    return isNaN(d.getTime())
-      ? '—'
-      : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  }
 
   const card = 'rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-200 overflow-hidden dark:border-zinc-800 dark:bg-zinc-900 dark:divide-zinc-800';
   const rowLabel = 'text-sm text-zinc-500';
@@ -88,11 +81,11 @@
       {/if}
       <div class="flex items-center justify-between px-5 py-3">
         <span class={rowLabel}>{t('memory-info.created', 'Created')}</span>
-        <span class={rowValue}>{fmtDate(g.createdAt)}</span>
+        <span class={rowValue}>{formatPortalDate(g.createdAt)}</span>
       </div>
       <div class="flex items-center justify-between px-5 py-3">
         <span class={rowLabel}>{t('memory-info.updated', 'Updated')}</span>
-        <span class={rowValue}>{fmtDate(g.updatedAt)}</span>
+        <span class={rowValue}>{formatPortalDate(g.updatedAt)}</span>
       </div>
     </div>
   </section>
@@ -112,7 +105,7 @@
         </div>
         <div class="flex items-center justify-between px-5 py-3">
           <span class={rowLabel}>{t('memory-info.sync-status', 'Sync status')}</span>
-          <span class={rowValue}>{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {fmtDate(g.lastSyncedAt)}{/if}</span>
+          <span class={rowValue}>{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {formatPortalDate(g.lastSyncedAt)}{/if}</span>
         </div>
         {#if g.syncStatus === 'ERROR'}
           <SyncErrorDetail syncError={g.syncError} />

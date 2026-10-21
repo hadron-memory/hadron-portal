@@ -1,3 +1,4 @@
+import { ClientError } from 'graphql-request';
 /**
  * Spec 014-single-active-org — tests for the `+layout.server.ts` load
  * function. Verifies the active-org resolution is wired into layout data
@@ -603,7 +604,7 @@ describe('#1117: the root layout clears locals.user mid-load', () => {
 
 /**
  * #1117, Atilla's and Colin's WAIT FIX at afba05df (Eden's ruling, #12446): one
- * response, one identity decision. With `me` failing, the root layout decides
+ * response, one identity decision. With `me` explicitly refusing authentication, the root layout decides
  * this response is signed out (`user: null`, and drops the session cookie), so
  * the root nav says "Sign in". The App layout must not render signed-in
  * content beneath it. It now defers to the root: it redirects to the same URL,
@@ -619,7 +620,7 @@ describe('#1117: the root and App layouts answer one identity decision', () => {
     locals.impersonation = opts.impersonating ? { adminId: 'admin-1' } : null;
     const deleted: string[] = [];
     (event.cookies as unknown as { delete: (n: string) => void }).delete = (n: string) => { deleted.push(n); };
-    if (opts.meFails) mockMeRequest.mockRejectedValue(new Error('HTTP 500'));
+    if (opts.meFails) mockMeRequest.mockRejectedValue(new ClientError({ status: 401, headers: new Headers(), body: '' }, { query: 'query Me' }));
     else mockMeRequest.mockResolvedValue({ me: { id: 'user-1', handle: 'ada', roles: ['user'] } });
     mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
 
@@ -683,7 +684,7 @@ describe('#1117: every signed-out path terminates (no redirect loop)', () => {
     locals.token = imp ?? tok ?? null;
     (event.cookies as unknown as { delete: (n: string) => void }).delete = (n: string) => { jar.delete(n); };
     mockMeRequest.mockReset();
-    if (me === 'throws') mockMeRequest.mockRejectedValue(new Error('HTTP 500'));
+    if (me === 'throws') mockMeRequest.mockRejectedValue(new ClientError({ status: 401, headers: new Headers(), body: '' }, { query: 'query Me' }));
     else if (me === 'null') mockMeRequest.mockResolvedValue({ me: null });
     else mockMeRequest.mockResolvedValue({ me: { id: 'user-1', handle: 'ada', roles: ['user'] } });
     mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
@@ -731,13 +732,13 @@ describe('#1117: every signed-out path terminates (no redirect loop)', () => {
     expect(r.trail).toEqual([toSignin]);
   });
 
-  it('me throws, ordinary: the cookie drops, then /signin, two hops', async () => {
+  it('me refuses auth, ordinary: the cookie drops, then /signin, two hops', async () => {
     const r = await follow({}, 'throws');
     expect(r.trail).toEqual(['/app/account?tab=x', toSignin]);
     expect(r.jar.has('hadron_token')).toBe(false);
   });
 
-  it('me throws while impersonating: the impersonation cookie drops, and the admin comes back', async () => {
+  it('me refuses auth while impersonating: the impersonation cookie drops, and the admin comes back', async () => {
     // Only the first hop fails; the admin's own session then answers.
     const jar = new Map<string, string>([['hadron_token', 'tok'], ['hadron_impersonation', 'imp']]);
     const first = await hop(jar, 'throws', '/app/account?tab=x');
@@ -745,5 +746,34 @@ describe('#1117: every signed-out path terminates (no redirect loop)', () => {
     expect(jar.has('hadron_impersonation')).toBe(false);
     const second = await hop(jar, 'ok', first.location!);
     expect(second.rendered).toBe(true);
+  });
+});
+
+// #1120: a root outage must propagate through parent(), with no auth redirect
+// or signed-in fallback. Both loaders are real; only the API boundary is mocked.
+describe('#1120: root transient failure stops the composed App response', () => {
+  it.each([false, true])('preserves cookies and shared identity (impersonating=%s)', async (impersonating) => {
+    const event = ev({ pathname: '/app/account?tab=x' });
+    const locals = event.locals as { impersonation?: unknown };
+    locals.impersonation = impersonating ? { adminId: 'admin-1' } : null;
+    const snapshot = structuredClone(event.locals);
+    const deleted: string[] = [];
+    (event.cookies as unknown as { delete: (name: string) => void }).delete = (name) => { deleted.push(name); };
+    mockMeRequest.mockRejectedValue(new TypeError('fetch failed'));
+    mockMyOrgsRequest.mockResolvedValue({ organizations: [] });
+    const root = await import('../+layout.server');
+    const app = await importLoad();
+    const rootData = Promise.resolve(root.load(event as never));
+    (event as unknown as { parent: () => Promise<unknown> }).parent = () => rootData;
+    const outcomes = await Promise.allSettled([rootData, app(event)]);
+    for (const outcome of outcomes) {
+      expect(outcome.status).toBe('rejected');
+      if (outcome.status === 'rejected') {
+        expect(outcome.reason).toMatchObject({ status: 503 });
+        expect(outcome.reason).not.toHaveProperty('location');
+      }
+    }
+    expect(deleted).toEqual([]);
+    expect(event.locals).toEqual(snapshot);
   });
 });

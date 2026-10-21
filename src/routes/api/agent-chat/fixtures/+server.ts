@@ -3,7 +3,7 @@ import {
   CREATE_NODE_MUTATION,
   UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
-  GRAPH_NODES_QUERY,
+  FIXTURE_NODES_QUERY,
   NODE_QUERY,
 } from '$lib/server/queries';
 import { resolveTesterSystemMemory } from '$lib/server/agent-tester/resolve-agent';
@@ -54,12 +54,11 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 
   const client = gqlClient(locals.token);
-  // Scope to the agent's system memory. findNodes hides class:'system' memories
-  // on a broad (no-memoryIds) call, so naming the system memory is what makes
-  // its fixture nodes visible (and it also overrides the exclusion).
+  // hrn:node:hadronmemory.com:specs:cor:api:090:02: memory scope and system-node type are independent
+  // filters. Fixtures are system nodes, so name both (#1202).
   const result = await client.request<{ findNodes: { hits: Array<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [resolved.systemMemoryId] });
+  } }> } }>(FIXTURE_NODES_QUERY, { limit: 500, memoryIds: [resolved.systemMemoryId] });
 
   const fixtures: FixtureSummary[] = [];
   for (const h of result.findNodes?.hits ?? []) {

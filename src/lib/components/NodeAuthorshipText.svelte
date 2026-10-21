@@ -35,4 +35,7 @@
   </span>
 {:else}
   <span data-testid="authorship-{view.kind}" class="text-sm italic text-zinc-500 dark:text-zinc-400">{authorshipText(view)}</span>
+  {#if view.kind === 'none' && !compact}
+    <span class="block text-xs text-zinc-500 dark:text-zinc-400">{t('node.authorship.edit-history-note', 'Revision edit history is recorded separately.')}</span>
+  {/if}
 {/if}

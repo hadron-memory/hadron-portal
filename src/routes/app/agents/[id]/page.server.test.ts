@@ -23,6 +23,8 @@ import {
   AGENT_REGISTER_DEFAULTS_QUERY,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
   AGENT_SYSTEM_MEMORY_QUERY,
+  APP_ORG_AGENT_GRANTS_QUERY,
+  PUBLISH_AGENT_IMPORT_MUTATION,
 } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
@@ -113,6 +115,7 @@ function routeMock(opts: {
   ownedApps?: { data?: unknown; error?: unknown };
   registerDefaults?: { data?: unknown; error?: unknown };
   sysMem?: { data?: unknown; error?: unknown };
+  orgAgents?: { data?: unknown; error?: unknown };
 }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === AGENT_QUERY) {
@@ -164,6 +167,12 @@ function routeMock(opts: {
     if (query === AGENT_SYSTEM_MEMORY_QUERY) {
       if (opts.sysMem?.error !== undefined) throw opts.sysMem.error;
       return opts.sysMem?.data ?? { memory: null };
+    }
+    // #1173: the Bundled tab's candidates, a request of its own (a refusal
+    // costs the add control, never the page).
+    if (query === APP_ORG_AGENT_GRANTS_QUERY) {
+      if (opts.orgAgents?.error !== undefined) throw opts.orgAgents.error;
+      return opts.orgAgents?.data ?? { organization: { id: 'org-a', agentOrgGrants: [] } };
     }
     throw new Error(`Unexpected query passed to mockRequest`);
   });
@@ -837,5 +846,110 @@ describe('/app/agents/[id] loader — system memory identity (#1170)', () => {
     const r = await run(undefined, agentInA);
     expect(r.systemMemoryIdentity).toBeNull();
     expect(mockRequest).not.toHaveBeenCalledWith(AGENT_SYSTEM_MEMORY_QUERY, expect.anything());
+  });
+});
+
+describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
+  const helper = { id: 'agent-helper', name: 'Helper', urn: 'hrn:agent:acme.com:helper' };
+  const subscribed = { id: 'agent-sub', name: 'Project Manager', urn: 'hrn:agent:hadronmemory.com:project-manager' };
+  const already = { id: 'agent-cal', name: 'Calendar', urn: 'hrn:agent:acme.com:calendar' };
+  const self = { id: 'agent-aaa', name: 'Agent in A', urn: 'urn:agent:a' };
+
+  async function loadCandidates(orgAgents: { data?: unknown; error?: unknown }, agentOver: Record<string, unknown> = {}) {
+    routeMock({
+      agent: { data: { agent: { ...agentInA, ...agentOver } } },
+      myOrgs: { data: { organizations: [orgA] } },
+      orgAgents,
+    });
+    const load = await importLoad();
+    return (await load(ev({ agentId: 'agent-aaa' }))) as {
+      bundleCandidates: Array<{ id: string }>;
+      bundleCandidatesError: boolean;
+      nextImportPosition: number;
+    };
+  }
+
+  it('offers only the agents the org is licensed for, minus itself and what it already bundles', async () => {
+    const r = await loadCandidates(
+      {
+        data: {
+          organization: {
+            id: 'org-a',
+            // Owned agents are NOT offered: the server refuses them (an org
+            // cannot grant itself an agent), so they would be dead choices.
+            agents: [self, helper, already],
+            agentOrgGrants: [
+              { isActive: true, agent: subscribed },
+              { isActive: true, agent: already },
+              { isActive: true, agent: self },
+              { isActive: true, agent: null },
+              { isActive: false, agent: { id: 'agent-x', name: 'X', urn: 'u' } },
+              { isActive: true, revokedAt: '2026-01-01T00:00:00Z', agent: { id: 'agent-y', name: 'Y', urn: 'u2' } },
+            ],
+          },
+        },
+      },
+      { imports: [{ parentAgentId: 'agent-aaa', importedAgentId: 'agent-cal', position: 4, required: true, importedAgent: already }] },
+    );
+    expect(r.bundleCandidates.map((a) => a.id)).toEqual(['agent-sub']);
+    expect(r.bundleCandidatesError).toBe(false);
+    expect(r.nextImportPosition).toBe(5);
+  });
+
+  it('an import the viewer cannot read still counts as bundled, so it is not offered again', async () => {
+    const r = await loadCandidates(
+      { data: { organization: { id: 'org-a', agents: [], agentOrgGrants: [{ isActive: true, agent: helper }] } } },
+      { imports: [{ parentAgentId: 'agent-aaa', importedAgentId: 'agent-helper', position: 1, required: false, importedAgent: null }] },
+    );
+    expect(r.bundleCandidates).toEqual([]);
+  });
+
+  it('a refusing candidates request costs the add control, not the page', async () => {
+    const r = await loadCandidates({ error: new Error('boom') });
+    expect(r.bundleCandidates).toEqual([]);
+    expect(r.bundleCandidatesError).toBe(true);
+  });
+
+  it('publishes the import with the chosen agent, position and required flag', async () => {
+    mockRequest.mockResolvedValue({ publishAgentImport: { importedAgentId: 'agent-helper' } });
+    const { actions } = await importMod();
+    const result = await actions.addBundledAgent(
+      actionEv({ agentId: 'agent-helper', position: '3', required: 'on' }) as never,
+    );
+    expect(mockRequest).toHaveBeenCalledWith(PUBLISH_AGENT_IMPORT_MUTATION, {
+      importedAgentRef: 'agent-helper',
+      parentAgentRef: 'agent-id-123',
+      position: 3,
+      required: true,
+    });
+    expect(result).toMatchObject({ bundleAdded: true });
+  });
+
+  it('an unticked required box publishes an optional import', async () => {
+    mockRequest.mockResolvedValue({ publishAgentImport: { importedAgentId: 'agent-helper' } });
+    const { actions } = await importMod();
+    await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never);
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ required: false });
+  });
+
+  it('refuses a missing agent or a bad position before calling the API', async () => {
+    const { actions } = await importMod();
+    const bad: Array<Record<string, string>> = [{ position: '1' }, { agentId: 'agent-helper', position: '0' }, { agentId: 'agent-helper', position: 'x' }];
+    for (const fields of bad) {
+      const r = (await actions.addBundledAgent(actionEv(fields) as never)) as { status?: number };
+      expect(r.status).toBe(400);
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns the server’s refusal sentence and does not report success', async () => {
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Imports are one level deep.', extensions: { code: 'IMPORT_DEPTH' } }] } });
+    const { actions } = await importMod();
+    const r = (await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never)) as {
+      status?: number; data?: { bundleError?: string; bundleAdded?: boolean };
+    };
+    expect(r.status).toBe(500);
+    expect(r.data?.bundleAdded).toBeUndefined();
+    expect(r.data?.bundleError).toContain('one level deep');
   });
 });
