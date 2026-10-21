@@ -162,6 +162,27 @@ describe('#534 — Edit label popup on the real node page', () => {
     expect(target.textContent).not.toContain('node A refusal');
   });
 
+  it('a stale save finishing while the newer popup\'s save is in flight leaves that save busy', async () => {
+    const pending: Array<(r: Response) => void> = [];
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((res) => { pending.push(res); })));
+    const { target } = await mountPage();
+    const save = () => target.querySelector<HTMLButtonElement>('[data-testid="revision-label-save"]')!;
+    await openLabelDialog(target);
+    await click(save()); // save A, left pending
+    await click(target.querySelector('[data-testid="revision-label-cancel"]'));
+    await click(target.querySelector('button[aria-label="Revision actions"]'));
+    await click(byText(target, '[role="menuitem"]', 'Edit label'));
+    typeInto(input(target)!, 'second');
+    await click(save()); // save B, also pending
+    expect(save().disabled).toBe(true);
+
+    pending[0](new Response(JSON.stringify({ error: 'late' }), { status: 403 })); // A settles first
+    await settle();
+
+    expect(save().disabled).toBe(true); // B is still saving: no second submit
+    expect(target.textContent).not.toContain('late');
+  });
+
   it('a refusal for the CURRENT popup still shows and keeps the draft', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'not allowed' }), { status: 403 })));
     const { target } = await mountPage();
