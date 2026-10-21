@@ -207,11 +207,12 @@
         height={canvasHeight}
         selectedEdgeId={selectedEdge?.id ?? null}
         onEdgeSelect={selectEdge}
-        onConnect={handleConnect}
+        onConnect={data.canWriteMemory === false ? undefined : handleConnect}
       />
     </div>
     {#if selectedEdge && selectedEdgeForm}
       {#key selectedEdge.id}
+        <fieldset disabled={data.canWriteMemory === false}>
         <FlowEdgePanel
           edge={selectedEdge}
           form={selectedEdgeForm}
@@ -222,6 +223,7 @@
           error={panelError}
           onClose={() => selectEdge(null)}
         />
+        </fieldset>
       {/key}
     {/if}
   </div>

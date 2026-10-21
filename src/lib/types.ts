@@ -386,6 +386,9 @@ export interface Worker {
      * caller can legitimately have one and not the other.
      */
     systemPrompt?: string | null;
+    /** portal#1168 — the role agent's system memory, selected by the roster
+     *  only. Null when the agent has none or the read is withheld. */
+    systemMemoryId?: string | null;
   } | null;
   /**
    * Retirement instant — a retired worker stops authoring and takes no new
@@ -425,6 +428,11 @@ export interface Worker {
   /** hadron-cli#487 — when this worker was last driven. Null when never bound,
    *  and masked to null on deny. Selected by the roster only. */
   lastActiveAt?: string | null;
+  /** portal#1168 — the model family of the worker's newest open session, and
+   *  whether one is live. Both are working-state fields masked to null on deny,
+   *  so null is "none" OR "not shown to you". Selected by the roster only. */
+  family?: string | null;
+  hasLiveSession?: boolean | null;
   createdAt: string;
 }
 
