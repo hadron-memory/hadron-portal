@@ -21,3 +21,26 @@ export function userLabel(u: SearchUser): string {
   if (u.githubUsername) return `@${u.githubUsername}`;
   return u.emailMasked ?? '—';
 }
+
+/** One page of picker results. `truncated` is true when the server holds more matches than it returned. */
+export interface SearchUserPage {
+  users: SearchUser[];
+  truncated: boolean;
+}
+
+/**
+ * POST /api/users/search, minus anyone the caller already lists. `truncated`
+ * compares the server's `total` with the rows it returned BEFORE the exclusion,
+ * so hiding existing members never reads as "no more matches".
+ */
+export async function searchUsersPage(query: string, exclude: ReadonlySet<string> = new Set()): Promise<SearchUserPage> {
+  const res = await fetch('/api/users/search', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) throw new Error('Search failed');
+  const data = (await res.json()) as { users?: SearchUser[]; total?: number };
+  const rows = data.users ?? [];
+  return { users: rows.filter((u) => !exclude.has(u.id)), truncated: (data.total ?? rows.length) > rows.length };
+}
