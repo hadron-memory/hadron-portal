@@ -39,7 +39,7 @@ export async function fetchAllItems<T>(
     }
     const pageItems = page.items ?? [];
     items.push(...pageItems);
-    // cor:api:120:04: end on an EMPTY page or at `total`, never on the first
+    // hrn:node:hadronmemory.com:specs:cor:api:120:04: end on an EMPTY page or at `total`, never on the first
     // short one — a server that clamps below PAGE_LIMIT returns short non-empty
     // pages, and stopping there silently drops the rest. Advance by what came
     // back, not by what was asked for, so a clamp skips nothing.
@@ -58,7 +58,7 @@ const FIND_NODES_MAX_PAGES = 200;
  * Drain a `findNodes` browse to the end. `document` takes `$limit` and `$offset`.
  *
  * `findNodes` reports no `total` on the browse path, so the only honest end is
- * an EMPTY page (cor:api:120:04) — never the first short one. Each memory is
+ * an EMPTY page (hrn:node:hadronmemory.com:specs:cor:api:120:04) — never the first short one. Each memory is
  * drained on its own: browse order is `loc` ascending, unique inside one memory
  * but not across several, and a tie would move rows across a page boundary.
  *
