@@ -88,6 +88,7 @@
   const nextImportPosition = $derived((data as { nextImportPosition?: number }).nextImportPosition ?? 1);
   const bundleResult = $derived(form as { bundleError?: string; bundleAdded?: boolean } | null);
   let bundling = $state(false);
+  const bundledWithheldApps = $derived((data as { bundledWithheldApps?: number }).bundledWithheldApps ?? 0);
   const bundledAgents = $derived(
     (data as { bundledAgents?: BundledAgentRow[] }).bundledAgents ?? [],
   );
@@ -192,7 +193,7 @@
     // #713: only for an agent that actually bundles others (a Team Agent and
     // its personas) — an always-empty tab on every ordinary agent is noise,
     // same reasoning as Chatbot Control below.
-    ...(bundledAgents.length > 0 || bundleCandidates.length > 0 ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
+    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 || bundleCandidates.length > 0 ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },
@@ -1050,6 +1051,11 @@
         <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{bundleResult.bundleError}</p>
       {:else if bundleResult?.bundleAdded}
         <p role="status" class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
+      {/if}
+      {#if bundledWithheldApps > 0}
+        <p role="status" class="mb-3 text-xs text-zinc-500">
+          {t('agent.bundled.withheld', 'The agents installed in {count} App(s) aren’t visible to you, so this list may be incomplete.', { count: String(bundledWithheldApps) })}
+        </p>
       {/if}
       <!-- 24rem offset tuned to this page's chrome (breadcrumb + header + tab
            bar above) — per-page convention, same as the Memories grid. -->
