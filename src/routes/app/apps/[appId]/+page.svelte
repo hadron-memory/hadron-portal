@@ -2354,6 +2354,11 @@
             {t('app.agents.add.unavailable', 'The list of agents you can add could not be loaded. Reload to try again.')}
           </p>
         {:else if addableAgents.length > 0}
+          {#if data.subscribedAgentsError}
+            <p role="status" class="mb-2 text-xs text-zinc-500">
+              {t('app.agents.add.subscribed-unavailable', 'The agents your organization subscribes to could not be loaded, so only its own agents are listed. Reload to try again.')}
+            </p>
+          {/if}
           <form method="POST" action="?/addAgent" use:addAgentEnhance class="flex flex-wrap items-start gap-3" novalidate>
             <input type="hidden" name="_kind" value={$addAgentForm._kind} />
             <div class="flex-1 min-w-[200px]">
