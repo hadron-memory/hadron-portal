@@ -90,6 +90,7 @@
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import skillGetStarted from '$lib/assets/skill-get-started.md?raw';
   import skillSearch from '$lib/assets/skill-search.md?raw';
+  import CappedNotice from '$lib/components/CappedNotice.svelte';
   import type { PageData, ActionData } from './$types';
   import {
     addAgentSchema,
@@ -1554,6 +1555,9 @@
       {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
         <Urn value={data.selectedChatKey} type="node" />
       {/if}
+      {#if data.chatsCapped}
+        <CappedNotice shown={data.chatRootsShown ?? 0} what={t('capped.chats', 'chats')} />
+      {/if}
     </div>
 
     {#if data.chatNotFound}
@@ -2454,6 +2458,9 @@
          rights across this App. Omit the partial writable set so the browser
          makes no read-only claim from omission; server writes stay authoritative.
          The full memory list awaits the server projection in #2190. -->
+    {#if data.appNodesCapped}
+      <div class="mb-3"><CappedNotice shown={data.appNodes?.length ?? 0} what={t('capped.nodes', 'nodes')} /></div>
+    {/if}
     <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={effectiveMemories.map((m) => m.id)} />
     </div>
   {/if}
