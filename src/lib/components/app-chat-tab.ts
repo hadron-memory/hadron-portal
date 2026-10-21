@@ -11,14 +11,20 @@
  *     show an empty state directing the user to link one.
  *   - 'no-llm-config' — agent linked but no usable AI config resolves for the
  *     chat context (036); show an empty state directing the user to add one.
+ *   - 'withheld' — portal#1148 (hadron-server#2089): the server WITHHOLDS the App's
+ *     agents from this viewer (`agents: null`), so a null `agentId` proves nothing.
+ *     Decided from the nullable COLLECTION: `[]` is known none ('empty-no-agent'),
+ *     `null` is withheld. Never 'empty-no-agent', which tells the reader to link one.
  *   - 'hidden' — the chat surface is off; the tab itself shouldn't be
  *     shown. Returned for completeness so callers can be exhaustive.
  */
-export type AppChatTabRender = 'agent-chat' | 'empty-no-agent' | 'no-llm-config' | 'hidden';
+export type AppChatTabRender = 'agent-chat' | 'empty-no-agent' | 'no-llm-config' | 'withheld' | 'hidden';
 
 export function chooseAppChatTabRender(app: {
   surfaces: readonly string[] | null | undefined;
   agentId: string | null | undefined;
+  /** `App.agents`: `[]` = known none, `null` = withheld (portal#1148). `undefined` = not selected. */
+  agents?: readonly unknown[] | null;
   /**
    * 036-ai-service-config: whether a usable config (with a key) resolves for
    * this chat context. `false` → no live LLM connection. `null`/`undefined` →
@@ -30,7 +36,7 @@ export function chooseAppChatTabRender(app: {
 }): AppChatTabRender {
   const hasChat = (app.surfaces ?? []).includes('chat');
   if (!hasChat) return 'hidden';
-  if (!app.agentId) return 'empty-no-agent';
+  if (!app.agentId) return app.agents === null ? 'withheld' : 'empty-no-agent';
   if (app.llmReady === false) return 'no-llm-config';
   return 'agent-chat';
 }
