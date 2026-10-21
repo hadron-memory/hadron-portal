@@ -2786,6 +2786,59 @@ export const LEGACY_THREAD_PROBE_QUERY = /* GraphQL */ `
 // updatedAfter/Before = "changed since"), and user-selectable sort. `query` is
 // optional — omitting it returns a deterministically-ordered filtered list
 // (hrn:node:hadronmemory.com:specs:cor:api:090). #429.
+// portal#1174: the Nodes tab's extra columns for a set of nodes, through the
+// server's batched `nodeBatch` (cap 200 refs) so each batch is one call. Only
+// the six facts the table shows, never content. Kept OUT of the shared layout
+// payload and the slim `memoryNodes` rows on purpose
+// (hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers):
+// the tab reads them lazily, per batch, after the list is on screen.
+export const NODE_COLUMNS_QUERY = /* GraphQL */ `
+  query NodeColumns($refs: [ID!]) {
+    nodeBatch(refs: $refs) {
+      nodes {
+        id
+        role
+        updatedAt
+        revision
+        approvalStatus { state }
+        signatureStatus { state }
+        # hadron-server #1610: the Agent and Worker behind the last authored
+        # edit. A user half ("Changed by (user)") waits on hadron-server#2176.
+        updatedByAgent { id name urn }
+        updatedByWorker { id name urn }
+      }
+      unavailable
+      omitted
+      truncated
+    }
+  }
+`;
+
+// The same read without signatureStatus. That field exists only while the
+// server has signing on (hadron-server#1918: while off it is removed from the
+// schema, so selecting it fails the WHOLE query), and the portal asks the
+// deployment first (`deploymentOffersSigning`, portal#1022). One hidden field
+// must not sink Role, Last changed, Revision and Approved with it (Celine on
+// #1181).
+export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
+  query NodeColumnsNoSigning($refs: [ID!]) {
+    nodeBatch(refs: $refs) {
+      nodes {
+        id
+        role
+        updatedAt
+        revision
+        approvalStatus { state }
+        updatedByAgent { id name urn }
+        updatedByWorker { id name urn }
+      }
+      unavailable
+      omitted
+      truncated
+    }
+  }
+`;
+
 export const NODE_FIND_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeFind(
@@ -3063,6 +3116,18 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
       properties
+      # portal#1175: this node AS a comment — its target (for the breadcrumb
+      # link) and whether the viewer wrote it (for the edit controls). Null for
+      # content. Detail-only; the search read selects its own, wider asComment.
+      asComment {
+        id
+        deleted
+        viewerIsAuthor
+        # The comment's write counter: editComment's expectedRevision, which is
+        # NOT Node.revision.
+        revSeq
+        target { id name nodeType urn }
+      }
       # #927 (server #1323/#937): the live revision an inline editor opens on
       # and saves against as expectedRevision. Detail-only, like properties.
       revision
