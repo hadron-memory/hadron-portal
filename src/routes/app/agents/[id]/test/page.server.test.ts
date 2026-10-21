@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { AI_CONFIG_READINESS_QUERY, GRAPH_NODES_QUERY, MY_AGENTS_QUERY, ORGANIZATIONS_QUERY, RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
+import { FIXTURE_NODES_QUERY, AI_CONFIG_READINESS_QUERY, MY_AGENTS_QUERY, ORGANIZATIONS_QUERY, RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -135,7 +135,7 @@ describe('/app/agents/[id]/test loader', () => {
     const base = mockRequest.getMockImplementation()!;
     const node = (i: number) => ({ node: { id: `n${i}`, loc: `fixtures:f${i}`, memoryId: 'sys-mem-a', data: null } });
     mockRequest.mockImplementation(async (query: string, vars: unknown) => {
-      if (query === GRAPH_NODES_QUERY) {
+      if (query === FIXTURE_NODES_QUERY) {
         if ((vars as { offset: number }).offset > 0) throw new Error('page 2 outage');
         return { findNodes: { hits: [node(1), node(2)] } };
       }
@@ -167,6 +167,7 @@ describe('/app/agents/[id]/test loader', () => {
     expect(result.org.id).toBe('org-a');
     expect(result.llmProviderConfigured).toBe(true);
     expect(result.fixtures).toEqual([]);
+    expect(mockRequest).toHaveBeenCalledWith(FIXTURE_NODES_QUERY, { limit: 500, offset: 0, memoryIds: ['sys-mem-a'] });
     expect(mockRequest.mock.calls.map(([query]) => query)).not.toContain(MY_AGENTS_QUERY);
   });
 

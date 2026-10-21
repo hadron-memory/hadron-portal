@@ -570,6 +570,34 @@ export const APP_ORG_AGENTS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * #1172: the Agents an org SUBSCRIBES to are AgentOrgGrant rows, not members of
+ * `agents`, and installAgentIntoApp accepts them. A request of its OWN, not a
+ * field on APP_ORG_AGENTS_QUERY: `agentOrgGrants` is a non-null list, so folded
+ * into that document a failure of this resolver would null `organization` and
+ * empty the legal owned-agent picker too (portal#1188 review). Asked
+ * separately, a failure costs only the subscribed agents. The resolver is
+ * org-admin gated and has answered [] to a non-platform-admin owner/admin
+ * (hadron-server#2186); that is not a refusal and not handled here.
+ */
+export const APP_ORG_AGENT_GRANTS_QUERY = /* GraphQL */ `
+  query AppOrgAgentGrants($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      agentOrgGrants {
+        isActive
+        revokedAt
+        expiresAt
+        agent {
+          id
+          name
+          urn
+        }
+      }
+    }
+  }
+`;
+
 export const ORG_CHROME_QUERY = /* GraphQL */ `
   query OrgChrome($ref: ID!) {
     organization(ref: $ref) {
@@ -2529,6 +2557,16 @@ export const NODE_FIELDS = /* GraphQL */ `
 // passes a single id so it only fetches that memory's nodes instead of pulling a
 // global window and filtering client-side — the latter silently dropped a memory's
 // nodes once total nodes exceeded the limit.
+// #1202: fixtures are system nodes, independently of the memory's class.
+// Keep this narrow read separate from GraphNodes' mixed-type default.
+export const FIXTURE_NODES_QUERY = /* GraphQL */ `
+  query FixtureNodes($limit: Int, $offset: Int, $memoryIds: [ID!]!) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit, offset: $offset) {
+      hits { node { id loc memoryId data } }
+    }
+  }
+`;
+
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query GraphNodes($limit: Int, $offset: Int, $memoryIds: [ID!]) {
@@ -3258,9 +3296,12 @@ export const UPDATE_SPEC_NODE_MUTATION = /* GraphQL */ `
 // nodeRef (a node PK or fully-qualified URN).
 // hard: true permanently removes the row (vs. the default soft-delete's
 // deletedAt). #503.
+// recursive: true deletes the node plus every descendant under its loc prefix
+// (#621) — the server refuses a non-recursive delete of a parent with
+// NODE_HAS_DESCENDANTS rather than silently orphaning the subtree.
 export const DELETE_NODE_MUTATION = /* GraphQL */ `
-  mutation DeleteNode($nodeRef: ID!, $hard: Boolean) {
-    deleteNode(nodeRef: $nodeRef, hard: $hard)
+  mutation DeleteNode($nodeRef: ID!, $hard: Boolean, $recursive: Boolean) {
+    deleteNode(nodeRef: $nodeRef, hard: $hard, recursive: $recursive)
   }
 `;
 

@@ -1,6 +1,6 @@
 import { gqlClient } from '$lib/server/api';
 import {
-  GRAPH_NODES_QUERY,
+  FIXTURE_NODES_QUERY,
   START_CHAT_MUTATION,
   UPDATE_NODE_MUTATION,
   NODE_BY_ID_QUERY,
@@ -200,12 +200,11 @@ async function loadFixtures(
   filterLoc: string | null,
 ): Promise<LoadedFixture[]> {
   const client = gqlClient(token);
-  // Scope to the agent's system memory — findNodes hides class:'system'
-  // memories on a broad (no-memoryIds) call, so naming it is what surfaces the
-  // fixture nodes (and overrides the exclusion).
+  // hrn:node:hadronmemory.com:specs:cor:api:090:02: explicit memory scope does not lift the independent
+  // system-node exclusion. Fixtures are system nodes (#1202).
   const result = await drainFindNodes<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  } }>(client, GRAPH_NODES_QUERY, { memoryIds: [systemMemoryId] });
+  } }>(client, FIXTURE_NODES_QUERY, { memoryIds: [systemMemoryId] });
   const out: LoadedFixture[] = [];
   for (const h of result.findNodes?.hits ?? []) {
     const n = h.node;
