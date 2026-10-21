@@ -610,6 +610,10 @@ export interface NodeRevision {
   // revLabel is the edit reason/label.
   editedByInfo?: string | null;
   editedByUser?: { handle: string | null; urn: string | null } | null;
+  // #1171 (server #1610): the Worker and Agent behind the edit. Null on
+  // revisions captured before #1610 or with no agent behind them.
+  editedByWorker?: { id: string; name: string; urn: string | null } | null;
+  editedByAgent?: { id: string; name: string; urn: string | null } | null;
   revLabel?: string | null;
   // #620: node fields the edit changed, e.g. ["abstract","tags"]; empty on
   // legacy rows captured before the column existed.
@@ -632,6 +636,19 @@ export interface MemoryNode {
    * All scope (`Node.asComment`). Absent for content.
    */
   comment?: import('$lib/comments').CommentHit;
+  /**
+   * portal#1175: this node AS a comment, on the node-detail read only
+   * (`Node.asComment`): its target and whether the viewer is its author. Null
+   * for content, and absent where the detail read was not used.
+   */
+  asComment?: {
+    id: string;
+    deleted: boolean;
+    viewerIsAuthor: boolean;
+    /** The comment's write counter, the precondition editComment takes. */
+    revSeq: number;
+    target: { id: string; name: string; nodeType: string; urn: string };
+  } | null;
   // #588 (server #725): collection discriminator (which domain object this
   // node is, e.g. "competitor"). Null for an ordinary node; orthogonal to
   // nodeType.

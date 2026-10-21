@@ -160,6 +160,37 @@ describe('Agents tab (#1006)', () => {
     expect(options.some((o) => o?.includes('Scribe'))).toBe(false);
   });
 
+  // portal#1188: a failed subscribed-agents read leaves the owned options and
+  // says the subscribed ones are missing; it must not look like a complete list.
+  it('says the subscribed agents are missing when only their read failed (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: true } });
+    const panel = target.querySelector('#panel-agents')!;
+    expect(panel.textContent).toContain('subscribes to could not be loaded');
+    expect(panel.querySelector('form[action="?/addAgent"]')).not.toBeNull();
+  });
+
+  // portal#1188 READ (George, P2 residual): the warning must not depend on there
+  // being something to pick, or "no other agent to add" reads as a complete list.
+  it('still says the subscribed agents are missing when there is no owned agent to offer (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: true, availableAgents: [] } });
+    expect(target.querySelector('#panel-agents')!.textContent).toContain('subscribes to could not be loaded');
+  });
+
+  it('still says it when every owned agent is already installed (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: true, availableAgents: [agentOne, agentTwo] } });
+    expect(target.querySelector('#panel-agents')!.textContent).toContain('subscribes to could not be loaded');
+  });
+
+  it('control: an empty list after a SUCCESSFUL grants read carries no such warning (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: false, availableAgents: [] } });
+    expect(target.querySelector('#panel-agents')!.textContent).not.toContain('subscribes to could not be loaded');
+  });
+
+  it('says nothing about subscribed agents when their read worked (#1172)', async () => {
+    const target = await mountTab('agents');
+    expect(target.querySelector('#panel-agents')!.textContent).not.toContain('subscribes to could not be loaded');
+  });
+
   it('keeps the canonical install URN, on the primary agent’s row only (P2 from step 5)', async () => {
     const urn = 'hrn:agent:acme.com:team:scribe';
     const target = await mountTab('agents', { app: { installedAgentUrn: urn } });
@@ -179,4 +210,20 @@ describe('Agents tab (#1006)', () => {
     const forms = [...target.querySelectorAll<HTMLFormElement>('#panel-agents form[action="?/removeAgent"]')];
     expect(forms.map((f) => f.querySelector<HTMLInputElement>('input[name="agentId"]')!.value).sort()).toEqual(['ag1', 'ag2']);
   });
+});
+
+// #1043 interim: the primary agent link does not establish the App/viewer's
+// rights on other agents' memories. Do not label them by omission.
+it('App memory filters do not infer read-only access from the primary agent', async () => {
+  const memory = (id: string, name: string) => ({ id, name, urn: `hrn:mem:acme.com:${id}` });
+  const target = await mountTab('memory', {
+    app: { agent: { ...agentOne, memoryItems: [{ id: 'item1', role: 'read-write', memory: memory('roles', 'Roles') }] } },
+    data: { appNodes: ['roles', 'notes'].map((id) => ({ id: `node-${id}`, memoryId: id, memory: memory(id, id === 'roles' ? 'Roles' : 'Eng Notes'), nodeType: 'info', loc: id, name: id, tags: [], outgoingEdges: [], incomingEdges: [] })) },
+  });
+  const memories = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim().startsWith('Memories'));
+  expect(memories).toBeDefined();
+  memories!.click();
+  await tick(2);
+  expect(target.textContent).toContain('Eng Notes');
+  expect(target.textContent).not.toContain('(read-only)');
 });

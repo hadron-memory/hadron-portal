@@ -1,3 +1,6 @@
+import { error } from '@sveltejs/kit';
+import { ClientError } from 'graphql-request';
+import { t } from '$lib/i18n/t';
 import { gqlClient } from '$lib/server/api';
 import { ME_QUERY } from '$lib/server/queries';
 import type { LayoutServerLoad } from './$types';
@@ -20,9 +23,20 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
       };
     }>(ME_QUERY);
     return { user: data.me };
-  } catch {
-    // Token is invalid or backend is unreachable — clear the stale cookie.
-    // (Whether a 5xx should end the session at all is portal#1120.)
+  } catch (err) {
+    // #1120 (Eden, team #26952): only an explicit authentication refusal
+    // proves the credential stale. An outage must not end a browser session.
+    const authRefused = err instanceof ClientError && (
+      err.response.status === 401 ||
+      err.response.errors?.some((entry) => entry.extensions?.code === 'UNAUTHENTICATED')
+    );
+    if (!authRefused) {
+      // Keep cookies and shared locals intact, but render no authenticated
+      // fallback from the unverified JWT. The App layout's parent() propagates
+      // this 503 rather than redirecting back through sign-in. Do not expose
+      // the upstream error: ClientError includes request headers/variables.
+      error(503, t('auth.verification-unavailable', 'Unable to verify your sign-in. Please try again.'));
+    }
     // Which cookie is stale depends on which one backed locals.token: under
     // impersonation that is `hadron_impersonation`, so deleting hadron_token
     // here would sign the ADMIN out over a revoked/demoted impersonation

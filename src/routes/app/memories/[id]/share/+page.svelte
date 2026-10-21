@@ -17,7 +17,7 @@
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { canEditShares, canSeeShares as maySeeShares } from '$lib/memory/can-manage-shares';
-  import { type SearchUser, userLabel } from '$lib/users/search-user';
+  import { type SearchUser, searchUsersPage, userLabel } from '$lib/users/search-user';
   import type { PageData, ActionData } from './$types';
   import { createShareSchema, revokeShareSchema, updateShareRoleSchema } from './schema';
 
@@ -202,16 +202,7 @@
   // never the handle — the same reason the table rows are.
   const sharedIds = $derived(new Set(rows.map((r) => r.granteeId)));
 
-  async function searchUsers(query: string): Promise<SearchUser[]> {
-    const res = await fetch('/api/users/search', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query }),
-    });
-    if (!res.ok) throw new Error('Search failed');
-    const data = (await res.json()) as { users?: SearchUser[] };
-    return (data.users ?? []).filter((u) => !sharedIds.has(u.id));
-  }
+  const searchUsers = (query: string) => searchUsersPage(query, sharedIds);
   function onPick(user: SearchUser) {
     picked = user;
     // The stable id, never the handle — the mutation must not depend on a

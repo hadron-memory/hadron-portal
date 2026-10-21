@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatPortalDate } from '$lib/format-portal-date';
+  import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
@@ -26,6 +28,8 @@
   import NodeRoleValue from '$lib/components/NodeRoleValue.svelte';
   import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
+  import RevisionEditedBy from '$lib/components/RevisionEditedBy.svelte';
+  import { revisionEditorView } from '$lib/revision-editor';
   import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
   import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
@@ -151,7 +155,11 @@
   // outlive a reload (another tab's save calls invalidateAll()), so an unsaved
   // edit is never silently replaced — see text-draft.svelte.ts.
   const contentDraft = new TextDraft();
-  syncTextDraftWith(contentDraft, () => ({ id: node.id, value: node.content, revision: node.revision }));
+  // portal#1175: a comment is saved through editComment, whose precondition is
+  // the comment's own write counter (`asComment.revSeq`), not Node.revision, so
+  // that is the revision its draft opens on and posts back.
+  const contentRevision = () => (node.nodeType === COMMENT_NODE_TYPE ? (node.asComment?.revSeq ?? null) : node.revision);
+  syncTextDraftWith(contentDraft, () => ({ id: node.id, value: node.content, revision: contentRevision() }));
   $effect(() => {
     if (showSource) untrack(() => contentDraft.ensureSeeded());
   });
@@ -252,7 +260,7 @@
           return;
         }
         if (!stillOurs()) return;
-        contentDraft.reseed({ id: node.id, value: node.content, revision: node.revision });
+        contentDraft.reseed({ id: node.id, value: node.content, revision: contentRevision() });
         showSource = false;
       } else if (result.code === 'changed') {
         // Load the newer version under the kept draft: Rendered now shows it,
@@ -293,7 +301,7 @@
 
   /** The one way a conflicted draft is thrown away: the user asks for it. */
   function discardContentDraft() {
-    contentDraft.reseed({ id: node.id, value: node.content, revision: node.revision });
+    contentDraft.reseed({ id: node.id, value: node.content, revision: contentRevision() });
     contentDraft.ensureSeeded();
     contentConflict = false;
     contentSaveError = null;
@@ -921,6 +929,13 @@
     $deleteMessage,
     $deleteErrors,
   ));
+  // #621: a NODE_HAS_DESCENDANTS refusal carries the server's descendant
+  // count on the action result. It gates the "also delete descendants"
+  // checkbox in both delete surfaces — server-authoritative, so a stale or
+  // undercounted graph payload can never hide the subtree choice.
+  const deleteRefusedDescendants = $derived(
+    typeof form?.deleteRefusedDescendants === 'number' ? form.deleteRefusedDescendants : 0,
+  );
   const createParentActionError = $derived(scopedActionError<NodeCreateParentForm>(
     form,
     'createParent',
@@ -982,6 +997,14 @@
     if (cleanLoc) $moveFormData.target = composeNodeUrn(memory.urn, cleanLoc);
   }
   let deleteOpen = $state(false);
+  // #621: closing the delete confirmation drops the subtree consent — a
+  // cancelled/reopened dialog (or a new target, or a jump to the Settings
+  // surface) must not inherit a prior "also delete descendants" check.
+  // Consent is per-dialog and explicit, never carried.
+  function closeDeleteConfirm() {
+    deleteOpen = false;
+    $deleteFormData.recursive = false;
+  }
 
   // ── portal#696: attach a file ────────────────────────────────────────────
   // Creates a `reference` child node pointing at an asset. Offered whenever the
@@ -1035,7 +1058,7 @@
   // menu has no "Export as skill" entry at all.
   const skillExportHosts = $derived(skillExportMenuHosts(node));
 
-  const menuActions = $derived<NodeMenuAction[]>([
+  const allMenuActions = $derived<NodeMenuAction[]>([
     // #726: first, because on a message it is the action a reader actually
     // came for — a single bubble is the one node whose surrounding thread is
     // the point. Offered only when `openChat` resolved, so it never appears
@@ -1054,16 +1077,28 @@
     { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
   ].filter((action) => !readOnly || ['open-chat', 'download', 'export-skill'].includes(action.id)));
 
+  // portal#1175: a comment is feedback, so the actions that treat it as a node to
+  // grow, relocate, copy or promote are not offered; Edit only to its author.
+  const COMMENT_HIDDEN_ACTIONS = new Set(['add-child', 'move', 'duplicate', 'convert-to-task']);
+  const menuActions = $derived<NodeMenuAction[]>(allMenuActions.filter((a) =>
+    !isComment || (!COMMENT_HIDDEN_ACTIONS.has(a.id) && (a.id !== 'edit' || canEditContent))));
+
   let duplicateForm = $state<HTMLFormElement | null>(null);
   let convertForm = $state<HTMLFormElement | null>(null);
 
   function onMenuSelect(id: string) {
     // Close any sibling panel so only one opens at a time.
-    testFlowOpen = false; downloadOpen = false; moveOpen = false; deleteOpen = false;
+    testFlowOpen = false; downloadOpen = false; moveOpen = false; closeDeleteConfirm();
     attachOpen = false; skillExportOpen = false;
     switch (id) {
       case 'attach-asset': attachOpen = true; break;
       case 'edit':
+        if (isComment) {
+          // portal#1175: a comment has no Settings tab; its text is what is edited.
+          activeTab = 'content';
+          showSource = true;
+          break;
+        }
         // Jump to the Settings tab and open its metadata form (#503).
         activeTab = 'settings';
         isEditing = true;
@@ -1086,7 +1121,7 @@
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
       case 'export-skill': skillExportOpen = true; break;
-      case 'delete': $deleteFormData.hard = false; deleteOpen = true; break;
+      case 'delete': $deleteFormData.hard = false; $deleteFormData.recursive = false; deleteOpen = true; break;
     }
   }
 
@@ -1732,6 +1767,13 @@
     });
   });
   const isComment = $derived(node.nodeType === COMMENT_NODE_TYPE);
+  // portal#1175: what the server says about this comment (`Node.asComment`).
+  // Null when it was not returned; then the viewer is not treated as the author
+  // and there is no target to link, never a guess. The server stays the
+  // authority on who may edit; this only stops offering what would be refused.
+  const commentInfo = $derived(isComment ? (node.asComment ?? null) : null);
+  const commentTargetHref = $derived(commentInfo?.target ? `${basePath}/nodes/${commentInfo.target.id}` : null);
+  const canEditContent = $derived(!isComment || (commentInfo?.viewerIsAuthor === true && commentInfo.deleted !== true));
   // A comment is never a target, and private/system memories take none (hrn:node:hadronmemory.com:specs:cor:dmo:110:00, :02).
   const commentable = $derived(!isComment && isCommentableClass(data.graph?.class));
   // The trust cue (hrn:node:hadronmemory.com:specs:cor:dmo:110:07): shown, never a gate.
@@ -1778,7 +1820,8 @@
 
   // Editor display (#620 contract): resolved handle, else identity string.
   function editorLabel(r: NodeRevision): string {
-    return r.editedByUser?.handle ? `@${r.editedByUser.handle}` : (r.editedByInfo ?? '—');
+    const text = revisionEditorView(r).searchText;
+    return text || '—';
   }
 
   // Epoch milliseconds (or null when absent/unparseable) so the When column sorts
@@ -1930,7 +1973,7 @@
   // full seq rewrite, so a race could land a stale order.
   let reordering = $state(false);
 
-  type NodeTab = 'chat' | 'content' | 'discussion' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'history' | 'settings';
+  type NodeTab = 'chat' | 'info' | 'content' | 'discussion' | 'abstract' | 'data' | 'properties' | 'flow' | 'children' | 'references' | 'history' | 'settings';
 
   // A `team-chat` node is readable two ways: as a chat (bubbles, composer) and
   // as an ordinary node. The Chat tab is the same thread the standalone
@@ -1947,17 +1990,23 @@
   // needs a surface. Properties (#518) is always-on for discoverability, same
   // as Data, and since #1031 it is where the object type, typed properties and
   // skill export are edited.)
-  const availableTabs = $derived<NodeTab[]>([
-    ...(isChat ? (['chat'] as NodeTab[]) : []),
-    'content',
-    // portal#1014: beside Content, where a reader decides whether to trust it.
-    ...(commentable ? (['discussion'] as NodeTab[]) : []),
-    'abstract', 'data', 'properties', 'flow',
-    ...(hasChildren ? (['children'] as NodeTab[]) : []),
-    'references',
-    ...(!isComment ? (['history'] as NodeTab[]) : []),
-    'settings',
-  ]);
+  const availableTabs = $derived<NodeTab[]>(
+    isComment
+      // portal#1175: a comment is feedback, not a node to author. It keeps its
+      // text (and any children), and its facts move to a read-only Info tab.
+      ? ['info', 'content', ...(hasChildren ? (['children'] as NodeTab[]) : [])]
+      : [
+          ...(isChat ? (['chat'] as NodeTab[]) : []),
+          'content',
+          // portal#1014: beside Content, where a reader decides whether to trust it.
+          ...(commentable ? (['discussion'] as NodeTab[]) : []),
+          'abstract', 'data', 'properties', 'flow',
+          ...(hasChildren ? (['children'] as NodeTab[]) : []),
+          'references',
+          'history',
+          'settings',
+        ],
+  );
 
   function defaultTab(): NodeTab {
     // An explicit `?tab=` wins (deep link), when that tab exists on this node.
@@ -2028,7 +2077,7 @@
       $testFlowFormData.payload = '';
       moveOpen = false;
       $moveFormData.target = '';
-      deleteOpen = false;
+      closeDeleteConfirm();
       $deleteFormData.hard = false;
       // portal#696: the attach-file dialog is transient too — SvelteKit reuses
       // this component across nodes, so leaving it open would carry it (and its
@@ -2049,7 +2098,7 @@
   // Escape closes whichever header popover is open (only one is at a time —
   // onMenuSelect closes siblings). PR-504 review (Copilot: Move/Delete a11y).
   if (e.key !== 'Escape') return;
-  downloadOpen = false; testFlowOpen = false; moveOpen = false; deleteOpen = false;
+  downloadOpen = false; testFlowOpen = false; moveOpen = false; closeDeleteConfirm();
   attachOpen = false; skillExportOpen = false;
   historyMenuFor = null; // #529: close the History row menu on Escape too
 }} />
@@ -2067,6 +2116,9 @@
         ? { label: seg.label, href: `${basePath}/nodes/${seg.nodeId}`, title: seg.title }
         : { label: seg.label, title: seg.title }
     ),
+    ...(commentTargetHref && commentInfo?.target
+      ? [{ label: t('comments.crumb.on', 'On {name}', { name: commentInfo.target.name }), href: commentTargetHref, title: commentInfo.target.urn }]
+      : []),
     { label: node.name },
   ]} />
   <!-- Create missing parent nodes -->
@@ -2127,10 +2179,7 @@
       <Urn value={fullUrn} type="node" />
       {#if isComment}
         <!-- portal#1014: a comment is feedback, never approved or minted (hrn:node:hadronmemory.com:specs:cor:dmo:110:06),
-             so its page offers no approval row at all. -->
-        <p data-testid="comment-node-note" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-          {t('comments.node-note', 'This node is a comment in a discussion. Comments are never approved or minted.')}
-        </p>
+             so its page offers no approval row at all. portal#1175: and needs no note saying so. -->
       {:else}
       <!-- #1129: content approval, bound to the revision on screen, with Approve / Verify. -->
       <div data-testid="node-approval" class="mt-1 flex flex-wrap items-center gap-2">
@@ -2513,7 +2562,7 @@
              uses. The hard-delete checkbox sends hard=true (permanent purge);
              unchecked = the default soft delete. -->
         {#if deleteOpen}
-          <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close delete confirmation" onclick={() => (deleteOpen = false)}></button>
+          <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close delete confirmation" onclick={() => closeDeleteConfirm()}></button>
           <div class="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-red-200 bg-white p-4 shadow-xl dark:border-red-900 dark:bg-zinc-900">
             <form method="POST" action="?/delete" use:deleteEnhance class="space-y-3" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
@@ -2530,6 +2579,20 @@
                   </span>
                 </span>
               </label>
+              {#if deleteRefusedDescendants > 0}
+                <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input type="checkbox" name="recursive" value="true" bind:checked={$deleteFormData.recursive}
+                    class="mt-0.5 rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                  <span>
+                    {t('node-actions.delete.also-descendants', 'Also delete its descendants')}
+                    <span class="block text-xs text-amber-600 dark:text-amber-400">
+                      {t('node-actions.delete.also-descendants.hint',
+                        'Deleting this node deletes all {count} descendant node(s) with it.',
+                        { count: deleteRefusedDescendants })}
+                    </span>
+                  </span>
+                </label>
+              {/if}
               {#if deleteActionError}
                 <p role="alert" class="text-xs text-red-500">{deleteActionError}</p>
               {/if}
@@ -2543,7 +2606,7 @@
                     ? t('node-actions.delete.deleting', 'Deleting...')
                     : $deleteFormData.hard ? 'Delete permanently' : 'Delete'}
                 </button>
-                <button type="button" onclick={() => (deleteOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+                <button type="button" onclick={() => closeDeleteConfirm()} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
               </div>
             </form>
           </div>
@@ -2582,6 +2645,14 @@
           {#if chatMessages.length}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{chatMessages.length}</span>{/if}
         </button>
       {/if}
+      <!-- portal#1175: a comment's facts, read-only (the Settings content). -->
+      {#if isComment}
+        <button
+          data-active={activeTab === 'info' || undefined}
+          class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'info' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
+          onclick={() => activeTab = 'info'}
+        >{t('node.info.tab', 'Info')}</button>
+      {/if}
       <!-- Always shown (#256) — an empty node still needs an authoring
            surface, or there's no portal path to add content. Mirrors the
            Abstract tab's always-on treatment below. -->
@@ -2606,6 +2677,7 @@
           {/if}
         </button>
       {/if}
+      {#if !isComment}
       <!-- Always shown — an empty abstract still needs an authoring surface
            (a vector-index source where the memory says so, #936), same rationale as Content (#256). -->
       <button
@@ -2643,6 +2715,7 @@
       >Flow
         {#if !hasFlowConfig}<span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-[10px] font-normal text-zinc-500 dark:bg-zinc-800">{createNodeStrings.emptyBadge()}</span>{/if}
       </button>
+      {/if}
       {#if hasChildren}
         <button
           data-active={activeTab === 'children' || undefined}
@@ -2650,6 +2723,7 @@
           onclick={() => activeTab = 'children'}
         >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}</span></button>
       {/if}
+      {#if !isComment}
       <button
         data-active={activeTab === 'references' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'references' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
@@ -2660,18 +2734,17 @@
         {/if}
       </button>
       <!-- Comments keep no revision history (server#1727). -->
-      {#if !isComment}
       <button
         data-active={activeTab === 'history' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'history' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'history'}
       >{t('node.history.tab', 'Revisions')}</button>
-      {/if}
       <button
         data-active={activeTab === 'settings' || undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'settings' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
         onclick={() => activeTab = 'settings'}
       >Settings</button>
+      {/if}
     </div>
 
     <!-- ═══ CHAT TAB ═══ -->
@@ -2720,10 +2793,12 @@
             class="px-2 py-1 text-xs {!showSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
             onclick={() => showSource = false}
           >Rendered</button>
+          {#if canEditContent}
           <button
             class="px-2 py-1 text-xs {showSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
             onclick={() => showSource = true}
           >Source</button>
+          {/if}
         </div>
         {#if hasContent}
           <button onclick={copyContent} class="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title="Copy content">
@@ -2735,7 +2810,7 @@
           </button>
         {/if}
       </div>
-      {#if showSource}
+      {#if showSource && canEditContent}
         <div class="mt-3">
           <!-- #247 / #878: fill the viewport height left below the editor,
                keeping the Save row visible. MEASURED by `fillViewport`, not a
@@ -2788,10 +2863,12 @@
       {:else}
         <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
           <p class="text-sm text-zinc-500 dark:text-zinc-400">{createNodeStrings.contentEmptyTitle()}</p>
+          {#if canEditContent}
           <button
             onclick={() => showSource = true}
             class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
           >{createNodeStrings.contentEmptyCta()}</button>
+          {/if}
         </div>
       {/if}
     {/if}
@@ -3592,14 +3669,7 @@
                 <span class="text-zinc-400">—</span>
               {/if}
             {:else if cell.column.id === 'editedBy'}
-              {#if r.editedByUser?.handle || r.editedByUser?.urn}
-                <div class="min-w-0">
-                  {#if r.editedByUser.handle}<div class="truncate text-zinc-700 dark:text-zinc-300">@{r.editedByUser.handle}</div>{/if}
-                  {#if r.editedByUser.urn}<Urn value={r.editedByUser.urn} type="user" size={9} />{/if}
-                </div>
-              {:else}
-                <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{r.editedByInfo ?? '—'}</span>
-              {/if}
+              <RevisionEditedBy view={revisionEditorView(r)} />
             {:else if cell.column.id === 'rev'}
               <span class="tabular-nums text-zinc-600 dark:text-zinc-400">{r.revNo ?? '—'}</span>
             {:else if cell.column.id === 'authorship'}
@@ -3669,12 +3739,13 @@
     {/if}
 
     <!-- ═══ SETTINGS TAB ═══ -->
-    {#if activeTab === 'settings'}
+    {#if activeTab === 'settings' || activeTab === 'info'}
+      {@const readOnly = activeTab === 'info'}
       <div class="max-w-3xl space-y-8">
         <section>
           <div class="mb-4 flex items-center justify-between">
             <h2 class="font-semibold text-zinc-900 dark:text-white">Node</h2>
-            {#if !isEditing}
+            {#if !isEditing && !readOnly}
               <div class="flex items-center gap-2">
                 <button disabled={readOnly} onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
                 <a href="{basePath}/graph?focus={node.id}" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
@@ -3685,7 +3756,7 @@
             <div role="status" class="mb-4 rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{updateMetaActionSuccess}</div>
           {/if}
 
-          {#if isEditing}
+          {#if isEditing && !readOnly}
             <form method="POST" action="?/updateMeta" use:updateMetaEnhance novalidate
               class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4">
               <input type="hidden" name="_kind" bind:value={$updateMetaFormData._kind} />
@@ -3809,12 +3880,12 @@
               </div>
               <div class="flex items-center justify-between px-5 py-3">
                 <span class="text-sm text-zinc-500">Created</span>
-                <span class="text-sm text-zinc-900 dark:text-white">{new Date(node.createdAt).toLocaleDateString()}</span>
+                <span class="text-sm text-zinc-900 dark:text-white">{formatPortalDate(node.createdAt)}</span>
               </div>
               {#if node.updatedAt}
                 <div class="flex items-center justify-between px-5 py-3">
                   <span class="text-sm text-zinc-500">Updated</span>
-                  <span class="text-sm text-zinc-900 dark:text-white">{new Date(node.updatedAt).toLocaleDateString()}</span>
+                  <span class="text-sm text-zinc-900 dark:text-white">{formatPortalDate(node.updatedAt)}</span>
                 </div>
               {/if}
             </div>
@@ -3825,16 +3896,29 @@
              the former read-only block here would just duplicate it. -->
 
         <!-- Danger zone -->
+        {#if !readOnly}
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
           <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
           {#if !confirmDelete}
-            <button disabled={readOnly} onclick={() => { $deleteFormData.hard = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+            <button disabled={readOnly} onclick={() => { $deleteFormData.hard = false; $deleteFormData.recursive = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
               Delete node
             </button>
           {:else}
             <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
-              <span class="text-sm text-red-500">Delete "{node.name}"? This cannot be undone.</span>
+              <span class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</span>
+              {#if deleteRefusedDescendants > 0}
+                <label class="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input type="checkbox" name="recursive" value="true" bind:checked={$deleteFormData.recursive}
+                    class="rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                  {t('node-actions.delete.also-descendants', 'Also delete its descendants')}
+                  <span class="text-xs text-amber-600 dark:text-amber-400">
+                    {t('node-actions.delete.also-descendants.hint',
+                      'Deleting this node deletes all {count} descendant node(s) with it.',
+                      { count: deleteRefusedDescendants })}
+                  </span>
+                </label>
+              {/if}
               <button
                 type="submit"
                 disabled={readOnly || $deleteSubmitting}
@@ -3847,6 +3931,7 @@
             {/if}
           {/if}
         </section>
+        {/if}
       </div>
     {/if}
   </div>

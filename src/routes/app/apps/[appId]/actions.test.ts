@@ -13,6 +13,7 @@ import {
   DELETE_APP_MUTATION,
   APP_DETAIL_ORG_QUERY,
   APP_ORG_AGENTS_QUERY,
+  APP_ORG_AGENT_GRANTS_QUERY,
   UNINSTALL_AGENT_FROM_APP_MUTATION,
   RELEASE_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
@@ -145,6 +146,9 @@ describe('load', () => {
         return Promise.resolve({
           organization: { id: 'org-1', agents: [{ id: 'agent-1', name: 'Agent One', urn: 'agent:one' }] },
         });
+      }
+      if (query === APP_ORG_AGENT_GRANTS_QUERY) {
+        return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
@@ -1758,6 +1762,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
     outcome: { resolve: unknown } | { reject: unknown },
     appOver: Record<string, unknown> = {},
     agentsOutcome?: { resolve: unknown } | { reject: unknown },
+    grantsOutcome?: { resolve: unknown } | { reject: unknown },
   ) {
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) {
@@ -1772,6 +1777,13 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
           return 'reject' in agentsOutcome ? Promise.reject(agentsOutcome.reject) : Promise.resolve(agentsOutcome.resolve);
         }
         return Promise.resolve({ organization: { id: 'org-1', agents: [] } });
+      }
+      // #1172: the subscribed agents, a request of their own.
+      if (query === APP_ORG_AGENT_GRANTS_QUERY) {
+        if (grantsOutcome) {
+          return 'reject' in grantsOutcome ? Promise.reject(grantsOutcome.reject) : Promise.resolve(grantsOutcome.resolve);
+        }
+        return Promise.resolve({ organization: { id: 'org-1', agentOrgGrants: [] } });
       }
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
@@ -1880,6 +1892,62 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       expect((result as { availableAgentsError: boolean }).availableAgentsError).toBe(false);
     });
 
+    // #1172: an Agent the org SUBSCRIBES to is an AgentOrgGrant, not one of
+    // organization.agents, yet installAgentIntoApp accepts it. The picker must
+    // offer it, once, and only while the grant is active and the agent readable.
+    it('offers the agents the org subscribes to, beside the ones it owns (#1172)', async () => {
+      const SUBSCRIBED = { id: 'a2', name: 'Project Manager', urn: 'hrn:agent:hadronmemory.com:project-manager' };
+      stubOrg(
+        { resolve: { organization: ORG } },
+        {},
+        { resolve: { organization: { id: 'org-1', agents: POOL } } },
+        {
+          resolve: {
+            organization: {
+              id: 'org-1',
+              agentOrgGrants: [
+                { isActive: true, agent: SUBSCRIBED },
+                { isActive: true, agent: POOL[0] },
+                { isActive: false, agent: { id: 'a3', name: 'Revoked', urn: 'hrn:agent:revoked' } },
+                { isActive: true, agent: null },
+                { isActive: true, revokedAt: '2026-01-01T00:00:00Z', agent: { id: 'a4', name: 'Swept late', urn: 'hrn:agent:late' } },
+                { isActive: true, expiresAt: '2020-01-01T00:00:00Z', agent: { id: 'a5', name: 'Expired', urn: 'hrn:agent:expired' } },
+              ],
+            },
+          },
+        },
+      );
+      const { result } = await loadAndCatch();
+      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([...POOL, SUBSCRIBED]);
+      expect((result as { subscribedAgentsError: boolean }).subscribedAgentsError).toBe(false);
+    });
+
+    // portal#1188 review (George): agentOrgGrants is a non-null list, so folded
+    // into the agents document its failure nulled `organization` and emptied
+    // the LEGAL owned picker. It is a request of its own: a failure costs only
+    // the subscribed agents.
+    it('a failing grants resolver still leaves the owned picker, and says the subscribed ones are missing', async () => {
+      stubOrg(
+        { resolve: { organization: ORG } },
+        {},
+        { resolve: { organization: { id: 'org-1', agents: POOL } } },
+        { reject: orgRefusal('INTERNAL_SERVER_ERROR') },
+      );
+      const { thrown, result } = await loadAndCatch();
+      expect(thrown).toBeUndefined();
+      const r = result as { availableAgents: unknown[]; availableAgentsError: boolean; subscribedAgentsError: boolean };
+      expect(r.availableAgents).toEqual(POOL);
+      expect(r.availableAgentsError).toBe(false);
+      expect(r.subscribedAgentsError).toBe(true);
+    });
+
+    it('a failing OWNED read is still the picker error, whatever the grants say', async () => {
+      stubOrg({ resolve: { organization: ORG } }, {}, { reject: orgRefusal('INTERNAL_SERVER_ERROR') }, { resolve: { organization: { id: 'org-1', agentOrgGrants: [] } } });
+      const { result } = await loadAndCatch();
+      expect((result as { availableAgentsError: boolean }).availableAgentsError).toBe(true);
+      expect((result as { subscribedAgentsError: boolean }).subscribedAgentsError).toBe(false);
+    });
+
     it('a refusing agents resolver costs the picker, not the page', async () => {
       // `agents` is a non-null list: folded into the org document its failure
       // would null the org and 404 the page over data one tab draws (#851).
@@ -1937,6 +2005,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       // restore the discarded-resolver invocation that nulls the org. The tests
       // above assert which document was REQUESTED, not what is in it.
       expect(APP_ORG_AGENTS_QUERY).toMatch(/\bagents\b/);
+      expect(APP_ORG_AGENTS_QUERY).not.toMatch(/agentOrgGrants/);
       expect(APP_DETAIL_ORG_QUERY).not.toMatch(/\bagents\b/);
     });
   });
