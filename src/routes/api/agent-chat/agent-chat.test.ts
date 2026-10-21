@@ -859,3 +859,65 @@ describe('POST /api/agent-chat/delete', () => {
 // 036-ai-service-config: the legacy POST /api/agent-chat/ai-config endpoint was
 // removed; named-config CRUD + Test now live at /api/ai-configs (see
 // src/routes/api/ai-configs/server.test.ts).
+
+// #1224: model the server's default 100-row window instead of returning an
+// unconditional complete list. Preserve private/shared rows and server order.
+describe('agent chat metadata past the first page (#1224)', () => {
+  function serveChats(count: number, failOffset?: number) {
+    const chats = Array.from({ length: count }, (_, i) => ({
+      id: `node-${i}`, loc: `chats:${i}`, title: `Chat ${i}`,
+      scope: i % 2 ? 'shared' : 'private',
+    }));
+    mockRequest.mockImplementation(async (document: string, vars: Record<string, any>) => {
+      if (document.includes('query MyChats')) {
+        expect(vars.agentRef).toBe('agent-pages');
+        if (failOffset != null && vars.offset >= failOffset) throw new Error('Later page unavailable');
+        return { myChats: chats.slice(vars.offset ?? 0, (vars.offset ?? 0) + (vars.limit ?? 100)) };
+      }
+      return { chatHistory: [{ role: 'user', content: 'Existing history', seq: 1 }] };
+    });
+    return chats;
+  }
+  it.each([0, 99, 100, 101, 205])('lists all %s chats in server order', async count => {
+    const chats = serveChats(count);
+    const { GET } = await import('./list/+server');
+    const res = await GET(ev({ searchParams: { agentId: 'agent-pages' } }));
+    expect(res.status).toBe(200);
+    expect((await jsonOf(res)).chats).toEqual(chats);
+    const pages = mockRequest.mock.calls.map(([, vars]) => vars);
+    expect(pages.every(vars => vars.limit === 100 && Number.isInteger(vars.offset))).toBe(true);
+  });
+  it.each([0, 99, 100, 204])('resumes chat at zero-based position %s', async index => {
+    const chats = serveChats(205);
+    const { POST } = await import('./resume/+server');
+    const res = await POST(ev({ body: { agentId: 'agent-pages', chatId: chats[index].loc } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.chat).toEqual(chats[index]);
+    expect(body.messages[0].content).toBe('Existing history');
+    const reads = mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats'));
+    expect(reads).toHaveLength(Math.floor(index / 100) + 1);
+  });
+  it('returns not found only after exhausting authorized metadata', async () => {
+    serveChats(205);
+    const { POST } = await import('./resume/+server');
+    const res = await POST(ev({ body: { agentId: 'agent-pages', chatId: 'chats:absent' } }));
+    expect(res.status).toBe(404);
+    expect(mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats'))).toHaveLength(3);
+  });
+  it.each(['list', 'resume'])('propagates a later page failure for %s instead of partial success/not found', async route => {
+    serveChats(205, 100);
+    const res = route === 'list'
+      ? await (await import('./list/+server')).GET(ev({ searchParams: { agentId: 'agent-pages' } }))
+      : await (await import('./resume/+server')).POST(ev({ body: { agentId: 'agent-pages', chatId: 'chats:204' } }));
+    expect(res.status).toBe(500);
+    expect((await jsonOf(res)).error).toBe('Later page unavailable');
+  });
+  it('continues after a full page containing the excluded team chat', async () => {
+    const chats = serveChats(101);
+    chats[0].loc = 'chats:team';
+    const { GET } = await import('./list/+server');
+    const res = await GET(ev({ searchParams: { agentId: 'agent-pages' } }));
+    expect((await jsonOf(res)).chats).toEqual(chats.slice(1));
+  });
+});
