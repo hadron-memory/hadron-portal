@@ -791,7 +791,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const postTeamChatMessageForm = await superValidate<PostTeamChatMessageForm>(
     {},
     postTeamChatMessageFormAdapter,
-    { errors: false },
+    { errors: false, id: `team:${params.appId}` },
   );
 
   // #744 — the App's chats as one browsable set.
@@ -1095,6 +1095,7 @@ export const actions: Actions = {
     const form = await superValidate<PostTeamChatMessageForm>(
       await request.formData(),
       postTeamChatMessageFormAdapter,
+      { id: `team:${params.appId}` },
     );
     if (!form.valid) return fail(400, { form });
 

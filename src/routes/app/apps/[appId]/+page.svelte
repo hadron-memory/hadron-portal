@@ -1756,7 +1756,12 @@
            but minting new links that depend on a back-compat shim is how a
            shim stops being removable (Copilot on #759). -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+        {#key `${app.id}:${data.postTeamChatMessageForm.id}`}
+          {@const teamStateKey = `${app.id}:team`}
         <TeamChatThread
+          draft={channelDrafts[teamStateKey]} onDraftChange={(draft) => { channelDrafts[teamStateKey] = draft; }}
+          viewState={channelViews[teamStateKey]} onViewStateChange={(view) => { channelViews[teamStateKey] = view; }}
+          onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
           messages={data.teamChatMessages ?? []}
           total={data.teamChatTotal ?? 0}
           loadError={data.teamChatError ?? false}
@@ -1767,19 +1772,21 @@
           onLoadOlder={loadOlderTeamChat}
           {workerUrns}
         />
+        {/key}
       </div>
     </div>
     {:else if data.selectedChannelId && data.postChannelMessageForm}
       {#key `${app.id}:${data.selectedChannelId}`}
         {@const channelId = data.selectedChannelId}
+        {@const channelStateKey = `${app.id}:${channelId}`}
         <div class="flex flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
           <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
             total={data.selectedChannelTotal} loadError={data.selectedChannelError}
             postForm={data.postChannelMessageForm} {form} {workerUrns}
             action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}&/postChannelMessage`}
             onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
-            viewState={channelViews[channelId]} onViewStateChange={(view) => { channelViews[channelId] = view; }}
-            draft={channelDrafts[channelId]} onDraftChange={(draft) => { channelDrafts[channelId] = draft; }} />
+            viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
+            draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />
         </div>
       {/key}
     {:else if data.selectedChatKey}

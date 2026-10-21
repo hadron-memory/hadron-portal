@@ -177,7 +177,9 @@
   // This holds the ACCUMULATED transcript: bounded forward polls and backward
   // pages merge into it, seeded from the prop on the first update.
   //
-  // FRESH PAGE DATA ALWAYS WINS. `dataGeneration` is bumped whenever the prop
+  // FRESH PAGE DATA STARTS A NEW GENERATION. The default standalone surface
+  // takes the fresh window; opt-in Channel views retain loaded history and
+  // forward-poll any gap instead of silently joining disjoint windows. `dataGeneration` is bumped whenever the prop
   // changes (navigation, or the `invalidateAll` a successful post does) and a
   // poll result is discarded if the generation moved while it was in flight.
   // Without that, a poll started before a post could resolve after it and

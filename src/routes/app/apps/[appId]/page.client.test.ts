@@ -857,3 +857,29 @@ describe('registered Channel chat switching (#1033)', () => {
     expect(m.target.querySelector<HTMLInputElement>('input[name=channelRef]')!.value).toBe('room-a');
   });
 });
+
+
+it('keeps the default team draft separate when visiting another registered Channel', async () => {
+  setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+  const team = await pageData();
+  const other = { ...team, selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+    selectedChannelTotal: 0, selectedChannelError: false,
+    postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+  };
+  const props = reactiveProps<Record<string, unknown>>({ data: team, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(2);
+  let textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  textarea.value = 'team draft';
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync(() => { props.data = other; });
+  await tick(2);
+  textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  expect(textarea.value).toBe('');
+  textarea.value = 'other draft';
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync(() => { props.data = team; });
+  await tick(2);
+  expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('team draft');
+});
