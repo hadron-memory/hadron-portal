@@ -1131,12 +1131,17 @@
 
   // POST to /api/nodes/export and return the served bytes as a Blob. The
   // Download dialog and Print (#1073) share this path, so the response guards
-  // live in one place.
-  async function fetchNodeExport(body: Record<string, unknown>): Promise<{ blob: Blob; filename?: string }> {
+  // live in one place. Only Print passes a signal — its request is
+  // cancellable, so an abandoned export doesn't hang (#1193).
+  async function fetchNodeExport(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<{ blob: Blob; filename?: string }> {
     const res = await fetch('/api/nodes/export', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
+      signal,
     });
     if (!res.ok) throw new Error('Export failed');
     const r = (await res.json()) as {
@@ -1195,6 +1200,14 @@
   let printBusy = $state(false);
   let printError = $state<string | null>(null);
   let printUrl: string | null = null;
+  // The in-flight print's request and blank window, owned until the PDF
+  // lands (the window is then the user's tab) or the print is invalidated,
+  // whichever comes first. Invalidation cancels the request and closes the
+  // window immediately rather than when the request settles: a hanging
+  // export must not hold its blank window open past a navigation or
+  // unmount (#1193 READ P2 residual).
+  let printAbort: AbortController | null = null;
+  let printWindow: Window | null = null;
   // A print's generation: bumped by anything that invalidates it — teardown,
   // and a node change (SvelteKit reuses this component between nodes, so an
   // export for A must not open over B, and A's catch/finally must not write
@@ -1204,8 +1217,19 @@
   let printGeneration = 0;
   function invalidatePrint() {
     printGeneration++;
+    // Release the abandoned print's resources NOW: abort its request and
+    // close its blank window. The stale run still lands in its catch /
+    // finally when the abort rejects, but the generation guards there skip
+    // every state write. Nothing waits for a hanging fetch to settle.
+    printAbort?.abort();
+    printAbort = null;
+    printWindow?.close();
+    printWindow = null;
     if (printUrl) URL.revokeObjectURL(printUrl);
     printUrl = null;
+    // The stale run's finally no longer clears the flag, so release the
+    // slot here — at most one live (uncancelled) export at a time.
+    printBusy = false;
   }
   $effect(() => () => invalidatePrint());
   async function printNode() {
@@ -1219,24 +1243,37 @@
       printBusy = false;
       return;
     }
+    printWindow = win;
+    const request = (printAbort = new AbortController());
     try {
-      const { blob } = await fetchNodeExport({ id: node.id, format: 'PDF', full: true });
+      const { blob } = await fetchNodeExport({ id: node.id, format: 'PDF', full: true }, request.signal);
       if (run !== printGeneration) {
+        // Already closed by the invalidation; a stale run mints no URL,
+        // opens nothing and writes nothing.
         win.close();
         return;
       }
       if (blob.type !== 'application/pdf') {
         // Loud refusal, never a navigation to something that isn't the PDF.
         win.close();
+        printWindow = null;
         printError = t('node-actions.print.not-pdf', 'The export did not return a PDF. Please try again.');
         return;
       }
       if (printUrl) URL.revokeObjectURL(printUrl);
       printUrl = URL.createObjectURL(blob);
+      // The window stops being ours here: a later navigation revokes this
+      // URL but never closes the tab the user is reading.
+      printWindow = null;
       win.location.href = printUrl;
     } catch {
+      // A cancelled run rejects into this arm: its window is already
+      // closed, and the generation guard skips the state write.
       win.close();
-      if (run === printGeneration) printError = t('node-actions.print.failed', 'Could not open the PDF. Please try again.');
+      if (run === printGeneration) {
+        printWindow = null;
+        printError = t('node-actions.print.failed', 'Could not open the PDF. Please try again.');
+      }
     } finally {
       if (run === printGeneration) printBusy = false;
     }
@@ -2092,12 +2129,11 @@
       downloadOpen = false;
       dlError = null;
       // An export in flight for the previous node no longer owns this page
-      // (#1193 READ P2s). Invalidate before the flag resets below so a
-      // print started for the new node cannot collide with the old one's
-      // completion.
+      // (#1193 READ P2s): invalidatePrint aborts its request, closes its
+      // blank window and releases the busy flag, so a print for the new
+      // node starts from clean ground.
       invalidatePrint();
       printError = null;
-      printBusy = false;
       skillExportOpen = false;
       testFlowOpen = false;
       $testFlowFormData.appId = '';

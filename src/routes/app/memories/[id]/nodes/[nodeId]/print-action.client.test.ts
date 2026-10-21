@@ -104,6 +104,24 @@ function stubExportFetch(data = 'JVBERi0xLjQ', ok = true, mimeType = 'applicatio
 }
 
 /**
+ * A fetch that never resolves on its own — only an abort rejects it. The
+ * pending-work probes need an export that is STILL hanging when cleanup
+ * must already have happened; a fetch the test resolves (like the
+ * late-response tests above) lets the stale continuation do the closing,
+ * which is exactly what those tests cannot establish.
+ */
+function hangingFetch() {
+  const signals: AbortSignal[] = [];
+  const fn = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      signals.push(init?.signal ?? new AbortController().signal);
+      init?.signal?.addEventListener('abort', () =>
+        reject(new DOMException('The operation was aborted.', 'AbortError')));
+    }));
+  return { fn, signals };
+}
+
+/**
  * window.open fakes, one per call — each printNode opens its OWN window
  * synchronously (see below). `location.href` records the navigation,
  * `close` records the window being given up.
@@ -255,25 +273,30 @@ describe('node menu Print (#1073)', () => {
   const NODE_B = {
     ...NODE, id: 'other-pk', memoryId: 'mem-A', loc: 'bar', name: 'Bar',
   };
+  const NODE_C = {
+    ...NODE, id: 'third-pk', memoryId: 'mem-A', loc: 'baz', name: 'Baz',
+  };
 
-  async function navigateToNodeB(props: Record<string, unknown>) {
+  async function navigateTo(props: Record<string, unknown>, node: typeof NODE) {
     mockRequest.mockImplementation(async (doc: string) => {
-      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE_B };
+      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node };
       if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
       return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
     });
     props.data = {
       ...(props.data as object),
-      node: NODE_B,
+      node,
       graphNodes: [
-        { id: 'other-pk', memoryId: 'mem-A', loc: 'bar', name: 'Bar', nodeType: 'info', tags: [] },
+        { id: node.id, memoryId: node.memoryId, loc: node.loc, name: node.name, nodeType: 'info', tags: [] },
       ],
     };
     for (let i = 0; i < 5; i++) await tick();
     flushSync();
-    // The rerender happened: the menu now labels itself for Bar.
-    document.querySelector('button[aria-label="Actions for Bar"]');
+    // The rerender happened: the menu now labels itself for the new node.
+    document.querySelector(`button[aria-label="Actions for ${node.name}"]`);
   }
+
+  const navigateToNodeB = (props: Record<string, unknown>) => navigateTo(props, NODE_B);
 
   it('navigates nowhere when the export resolves after a node change', async () => {
     const { target, props } = await mountPage();
@@ -347,5 +370,80 @@ describe('node menu Print (#1073)', () => {
     expect(create).toHaveBeenCalledTimes(1);
     expect(wins[1].location.href).toBe('blob:print-1');
     expect(wins[1].close).not.toHaveBeenCalled();
+  });
+
+  // ── Pending-work ownership (#1193 READ P2 residual, George 6308253956):
+  // invalidation must cancel the in-flight export and close its blank
+  // window immediately — not when the request settles — and repeated
+  // navigation must not accumulate outstanding exports. These probes hang
+  // the fetch on purpose (see hangingFetch).
+  // ────────────────────────────────────────────────────────────────────
+
+  it('closes the pending blank window on unmount without the export ever settling', async () => {
+    const { target, unmount } = await mountPage();
+    const { create } = stubObjectUrls();
+    const { wins } = stubWindowOpen();
+    const { fn } = hangingFetch();
+    vi.stubGlobal('fetch', fn);
+
+    const rejections = await captureUnhandledRejections(async () => {
+      clickMenuItem(target, 'Print');
+      unmount();
+      await settle();
+    });
+
+    // The hang must not gate cleanup: the blank window closes at unmount,
+    // no URL is minted, and the aborted request throws nothing into the void.
+    expect(wins[0].close).toHaveBeenCalled();
+    expect(wins[0].location.href).toBe('');
+    expect(create).not.toHaveBeenCalled();
+    expect(rejections).toEqual([]);
+  });
+
+  it('closes the previous node\'s pending window on node change, without settling its export', async () => {
+    const { target, props } = await mountPage();
+    const { create } = stubObjectUrls();
+    const { wins } = stubWindowOpen();
+    const { fn } = hangingFetch();
+    vi.stubGlobal('fetch', fn);
+
+    const rejections = await captureUnhandledRejections(async () => {
+      clickMenuItem(target, 'Print'); // A, hangs
+      await navigateToNodeB(props);
+      await settle();
+    });
+
+    expect(wins[0].close).toHaveBeenCalled();
+    expect(wins[0].location.href).toBe('');
+    expect(create).not.toHaveBeenCalled();
+    expect(rejections).toEqual([]);
+  });
+
+  it('aborts the abandoned export at each node change, bounding outstanding prints', async () => {
+    const { target, props } = await mountPage();
+    const { wins } = stubWindowOpen();
+    const { fn, signals } = hangingFetch();
+    vi.stubGlobal('fetch', fn);
+
+    const rejections = await captureUnhandledRejections(async () => {
+      clickMenuItem(target, 'Print'); // A, hangs
+      await navigateTo(props, NODE_B);
+      clickMenuItem(target, 'Print'); // B, hangs
+      await navigateTo(props, NODE_C);
+      clickMenuItem(target, 'Print'); // C, hangs
+      await settle();
+    });
+
+    // A's and B's exports were left behind by navigation: their requests
+    // are cancelled and their windows closed, so at most one live export —
+    // the current node's — is outstanding at any time.
+    expect(fn).toHaveBeenCalledTimes(3);
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(true);
+    expect(signals[2].aborted).toBe(false);
+    expect(wins[0].close).toHaveBeenCalled();
+    expect(wins[1].close).toHaveBeenCalled();
+    expect(wins[2].close).not.toHaveBeenCalled();
+    expect(rejections).toEqual([]);
   });
 });
