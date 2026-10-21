@@ -169,6 +169,23 @@ describe('Agents tab (#1006)', () => {
     expect(panel.querySelector('form[action="?/addAgent"]')).not.toBeNull();
   });
 
+  // portal#1188 READ (George, P2 residual): the warning must not depend on there
+  // being something to pick, or "no other agent to add" reads as a complete list.
+  it('still says the subscribed agents are missing when there is no owned agent to offer (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: true, availableAgents: [] } });
+    expect(target.querySelector('#panel-agents')!.textContent).toContain('subscribes to could not be loaded');
+  });
+
+  it('still says it when every owned agent is already installed (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: true, availableAgents: [agentOne, agentTwo] } });
+    expect(target.querySelector('#panel-agents')!.textContent).toContain('subscribes to could not be loaded');
+  });
+
+  it('control: an empty list after a SUCCESSFUL grants read carries no such warning (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: false, availableAgents: [] } });
+    expect(target.querySelector('#panel-agents')!.textContent).not.toContain('subscribes to could not be loaded');
+  });
+
   it('says nothing about subscribed agents when their read worked (#1172)', async () => {
     const target = await mountTab('agents');
     expect(target.querySelector('#panel-agents')!.textContent).not.toContain('subscribes to could not be loaded');
