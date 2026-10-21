@@ -22,6 +22,8 @@ import {
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
   AGENT_REGISTER_DEFAULTS_QUERY,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
+  APP_ORG_AGENTS_QUERY,
+  PUBLISH_AGENT_IMPORT_MUTATION,
 } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
@@ -111,6 +113,7 @@ function routeMock(opts: {
   apps?: { data?: unknown; error?: unknown };
   ownedApps?: { data?: unknown; error?: unknown };
   registerDefaults?: { data?: unknown; error?: unknown };
+  orgAgents?: { data?: unknown; error?: unknown };
 }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === AGENT_QUERY) {
@@ -157,6 +160,12 @@ function routeMock(opts: {
     if (query === AGENT_REGISTER_DEFAULTS_QUERY) {
       if (opts.registerDefaults?.error !== undefined) throw opts.registerDefaults.error;
       return opts.registerDefaults?.data ?? { agent: { id: 'agent-id-123', registerDefaults: { mentionOnly: false } } };
+    }
+    // #1173: the Bundled tab's candidates, a request of its own (a refusal
+    // costs the add control, never the page).
+    if (query === APP_ORG_AGENTS_QUERY) {
+      if (opts.orgAgents?.error !== undefined) throw opts.orgAgents.error;
+      return opts.orgAgents?.data ?? { organization: { id: 'org-a', agents: [], agentOrgGrants: [] } };
     }
     throw new Error(`Unexpected query passed to mockRequest`);
   });
@@ -769,4 +778,100 @@ it('self-audits the actual loaded Agent by full URN, never its ambiguous id', as
   const result = await load({ ...ev(), locals: { token: 'token', user: { id: 'me' }, impersonation: null } } as never) as unknown as { inheritanceManagement: { canManage: boolean; error: string | null }; baseForm: { data: { baseRef: string } } };
   expect(result.baseForm.data.baseRef).toBe('');
   expect(result.inheritanceManagement).toMatchObject({ canManage: true, error: null });
+});
+
+describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
+  const helper = { id: 'agent-helper', name: 'Helper', urn: 'hrn:agent:acme.com:helper' };
+  const subscribed = { id: 'agent-sub', name: 'Project Manager', urn: 'hrn:agent:hadronmemory.com:project-manager' };
+  const already = { id: 'agent-cal', name: 'Calendar', urn: 'hrn:agent:acme.com:calendar' };
+  const self = { id: 'agent-aaa', name: 'Agent in A', urn: 'urn:agent:a' };
+
+  async function loadCandidates(orgAgents: { data?: unknown; error?: unknown }, agentOver: Record<string, unknown> = {}) {
+    routeMock({
+      agent: { data: { agent: { ...agentInA, ...agentOver } } },
+      myOrgs: { data: { organizations: [orgA] } },
+      orgAgents,
+    });
+    const load = await importLoad();
+    return (await load(ev({ agentId: 'agent-aaa' }))) as {
+      bundleCandidates: Array<{ id: string }>;
+      bundleCandidatesError: boolean;
+      nextImportPosition: number;
+    };
+  }
+
+  it('offers the org’s owned and subscribed agents, minus itself and what it already bundles', async () => {
+    const r = await loadCandidates(
+      {
+        data: {
+          organization: {
+            id: 'org-a',
+            agents: [self, helper, already],
+            agentOrgGrants: [{ isActive: true, agent: subscribed }, { isActive: false, agent: { id: 'agent-x', name: 'X', urn: 'u' } }],
+          },
+        },
+      },
+      { imports: [{ parentAgentId: 'agent-aaa', importedAgentId: 'agent-cal', position: 4, required: true, importedAgent: already }] },
+    );
+    expect(r.bundleCandidates.map((a) => a.id)).toEqual(['agent-helper', 'agent-sub']);
+    expect(r.bundleCandidatesError).toBe(false);
+    expect(r.nextImportPosition).toBe(5);
+  });
+
+  it('an import the viewer cannot read still counts as bundled, so it is not offered again', async () => {
+    const r = await loadCandidates(
+      { data: { organization: { id: 'org-a', agents: [helper], agentOrgGrants: [] } } },
+      { imports: [{ parentAgentId: 'agent-aaa', importedAgentId: 'agent-helper', position: 1, required: false, importedAgent: null }] },
+    );
+    expect(r.bundleCandidates).toEqual([]);
+  });
+
+  it('a refusing candidates request costs the add control, not the page', async () => {
+    const r = await loadCandidates({ error: new Error('boom') });
+    expect(r.bundleCandidates).toEqual([]);
+    expect(r.bundleCandidatesError).toBe(true);
+  });
+
+  it('publishes the import with the chosen agent, position and required flag', async () => {
+    mockRequest.mockResolvedValue({ publishAgentImport: { importedAgentId: 'agent-helper' } });
+    const { actions } = await importMod();
+    const result = await actions.addBundledAgent(
+      actionEv({ agentId: 'agent-helper', position: '3', required: 'on' }) as never,
+    );
+    expect(mockRequest).toHaveBeenCalledWith(PUBLISH_AGENT_IMPORT_MUTATION, {
+      importedAgentRef: 'agent-helper',
+      parentAgentRef: 'agent-id-123',
+      position: 3,
+      required: true,
+    });
+    expect(result).toMatchObject({ bundleAdded: true });
+  });
+
+  it('an unticked required box publishes an optional import', async () => {
+    mockRequest.mockResolvedValue({ publishAgentImport: { importedAgentId: 'agent-helper' } });
+    const { actions } = await importMod();
+    await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never);
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ required: false });
+  });
+
+  it('refuses a missing agent or a bad position before calling the API', async () => {
+    const { actions } = await importMod();
+    const bad: Array<Record<string, string>> = [{ position: '1' }, { agentId: 'agent-helper', position: '0' }, { agentId: 'agent-helper', position: 'x' }];
+    for (const fields of bad) {
+      const r = (await actions.addBundledAgent(actionEv(fields) as never)) as { status?: number };
+      expect(r.status).toBe(400);
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns the server’s refusal sentence and does not report success', async () => {
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Imports are one level deep.', extensions: { code: 'IMPORT_DEPTH' } }] } });
+    const { actions } = await importMod();
+    const r = (await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never)) as {
+      status?: number; data?: { bundleError?: string; bundleAdded?: boolean };
+    };
+    expect(r.status).toBe(500);
+    expect(r.data?.bundleAdded).toBeUndefined();
+    expect(r.data?.bundleError).toContain('one level deep');
+  });
 });
