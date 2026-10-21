@@ -24,6 +24,8 @@ export const createNodeSchema = z.object({
   nodeType: z.enum(createNodeTypes).default('info'),
   description: z.string().trim().default(''),
   abstract: z.string().trim().default(''),
+  // #1166: comma-separated, split in the action (same shape as the edit form's Tags).
+  tags: z.string().trim().default(''),
   content: z.string().trim().default(''),
   // #588 (server #725): collection discriminator — a declared collection name
   // (picker) or free text on a schema-less memory. Empty = ordinary node.
