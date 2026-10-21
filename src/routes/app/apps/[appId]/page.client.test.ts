@@ -189,7 +189,7 @@ describe('Worker agents tab (#1009)', () => {
   }
   const worker = (over: Record<string, unknown>) => ({
     id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null,
-    memoryId: 'mem-ada', agent: { id: 'ag-coord', name: 'Coordinator' }, heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
+    memoryId: 'mem-ada', agent: { id: 'ag-coord', name: 'Coordinator', systemMemoryId: 'mem-sys' }, family: 'claude', hasLiveSession: true, heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
     ...over,
   });
   function menuOf(target: HTMLElement, name: string) {
@@ -209,11 +209,12 @@ describe('Worker agents tab (#1009)', () => {
     expect(nameCell.textContent?.replace(/\s+/g, '')).toContain('hrn:worker:acme.com:team:ada');
   });
 
-  it('an active worker you hold: Edit, Open working memory, Open role agent, Release, Retire', async () => {
+  it('an active worker you hold: Edit, Open working memory, Open system memory, Open role agent, Release, Retire', async () => {
     const target = await mountStaff([worker({})]);
     expect(menuOf(target, 'Ada')).toEqual([
       ['Edit', '/app/workers/w1?tab=briefing&view=source'],
       ['Open working memory', '/app/memories/mem-ada'],
+      ['Open system memory', '/app/memories/mem-sys'],
       ['Open role agent', '/app/agents/ag-coord'],
       ['Release', null],
       ['Retire', null],
@@ -226,7 +227,46 @@ describe('Worker agents tab (#1009)', () => {
       worker({ id: 'w3', name: 'Cy', heldByUserId: null, heldAt: null }),
     ]);
     expect(menuOf(target, 'Bo').map(([l]) => l)).toContain('Force-release');
-    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open role agent', 'Retire']);
+    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open system memory', 'Open role agent', 'Retire']);
+  });
+
+  // portal#1168 — the AI Team grid: Status and Model family in, Working memory
+  // and Agent columns out (both stay reachable from the ⋯ menu).
+  it('drops the Working memory and Agent columns, keeping both links in the menu', async () => {
+    const target = await mountStaff([worker({})]);
+    const heads = [...target.querySelectorAll('thead th')].map((th) => th.textContent?.trim() ?? '');
+    expect(heads.some((h) => h.startsWith('Working memory'))).toBe(false);
+    expect(heads.some((h) => h === 'Agent' || h.startsWith('Agent'))).toBe(false);
+    const items = menuOf(target, 'Ada');
+    expect(items).toContainEqual(['Open working memory', '/app/memories/mem-ada']);
+    expect(items).toContainEqual(['Open role agent', '/app/agents/ag-coord']);
+  });
+
+  it('the menu offers the role agent’s system memory only when the server shows it', async () => {
+    const target = await mountStaff([
+      worker({}),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', agent: { id: 'ag-x', name: 'X', systemMemoryId: null } }),
+    ]);
+    expect(menuOf(target, 'Ada')).toContainEqual(['Open system memory', '/app/memories/mem-sys']);
+    expect(menuOf(target, 'Bo').map(([l]) => l)).not.toContain('Open system memory');
+  });
+
+  it('shows a Model family column: the bound family, or a dash when none is shown', async () => {
+    const target = await mountStaff([
+      worker({}),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', family: null }),
+    ]);
+    expect(columnTexts(target, 'Model family')).toEqual(['claude', '—']);
+  });
+
+  it('shows a Status column that keeps masked apart from idle and never', async () => {
+    const target = await mountStaff([
+      worker({ id: 'w1', name: 'Ada', hasLiveSession: true }),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', hasLiveSession: false, lastActiveAt: '2026-10-14T10:00:00.000Z' }),
+      worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy', hasLiveSession: false, lastActiveAt: null }),
+      worker({ id: 'w4', name: 'Dee', urn: 'hrn:worker:acme.com:team:dee', hasLiveSession: null, lastActiveAt: null }),
+    ]);
+    expect(columnTexts(target, 'Status')).toEqual(['Active now', 'Idle', 'No recorded activity', 'Not shown to you']);
   });
 
   // portal#1067 — who each worker reports to, next to last activity.
@@ -302,7 +342,7 @@ describe('Worker agents tab (#1009)', () => {
 
   it('a retired worker keeps only the links: nothing to edit, release or retire', async () => {
     const target = await mountStaff([worker({ id: 'w4', name: 'Dee', retiredAt: '2026-09-01T00:00:00.000Z' })]);
-    expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open role agent']);
+    expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open system memory', 'Open role agent']);
   });
 
   // Cody's #1048 QA: the menu CONTENTS were pinned, the DISPATCH was not.
