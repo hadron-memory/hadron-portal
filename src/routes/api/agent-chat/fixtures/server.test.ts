@@ -8,7 +8,7 @@ import {
   CREATE_NODE_MUTATION,
   UPDATE_NODE_MUTATION,
   DELETE_NODE_MUTATION,
-  GRAPH_NODES_QUERY,
+  FIXTURE_NODES_QUERY,
   NODE_QUERY,
 } from '$lib/server/queries';
 
@@ -58,7 +58,7 @@ function mockResolveAgent(scope: 'org' | 'personal' = 'org') {
         : [];
       return { agents: { items: agents, total: agents.length } };
     }
-    if (query === GRAPH_NODES_QUERY) {
+    if (query === FIXTURE_NODES_QUERY) {
       return { findNodes: { hits: [
         // Fixture in our agent's memory
         { node: {
@@ -139,7 +139,7 @@ describe('GET /api/agent-chat/fixtures', () => {
     const body = await res.json();
     expect(body.fixtures).toHaveLength(1);
     expect(body.fixtures[0].label).toBe('one');
-    expect(mockRequest).toHaveBeenCalledWith(GRAPH_NODES_QUERY, { limit: 500, memoryIds: ['sys-mem-a'], nodeType: 'system' });
+    expect(mockRequest).toHaveBeenCalledWith(FIXTURE_NODES_QUERY, { limit: 500, memoryIds: ['sys-mem-a'] });
     expect(body.fixtures[0].assertionMode).toBeNull();
   });
 

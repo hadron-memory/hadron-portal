@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   ORGANIZATIONS_QUERY,
   MY_AGENTS_QUERY,
-  GRAPH_NODES_QUERY,
+  FIXTURE_NODES_QUERY,
   START_CHAT_MUTATION,
   UPDATE_NODE_MUTATION,
 } from '$lib/server/queries';
@@ -115,7 +115,7 @@ function setupChat(opts: {
         : [];
       return { agents: { items, total: items.length } };
     }
-    if (query === GRAPH_NODES_QUERY) return { findNodes: { hits: opts.nodes.map((node) => ({ node })) } };
+    if (query === FIXTURE_NODES_QUERY) return { findNodes: { hits: opts.nodes.map((node) => ({ node })) } };
     if (query === START_CHAT_MUTATION) {
       return { startChat: {
         chatId: 'c1', systemMessage: 'sys', tools: null,
@@ -166,7 +166,7 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     const res = await POST(ev({ body: { agentId: 'agent-personal', fixtureLoc: 'fixtures:abc' } }));
     expect(res.status).toBe(200);
     expect((await res.json()).summary.totalRuns).toBe(1);
-    expect(mockRequest).toHaveBeenCalledWith(GRAPH_NODES_QUERY, { limit: 500, memoryIds: ['sys-mem-a'], nodeType: 'system' });
+    expect(mockRequest).toHaveBeenCalledWith(FIXTURE_NODES_QUERY, { limit: 500, memoryIds: ['sys-mem-a'] });
     expect(mockRequest).toHaveBeenCalledWith(START_CHAT_MUTATION, expect.objectContaining({ agentId: 'agent-personal' }));
   });
 
