@@ -441,6 +441,11 @@
       </p>
     </div>
 
+    {#if data.agentsWithheld}
+      <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+        {t('app.channels.agents-withheld', 'The agents installed in this App aren’t visible to you, so they aren’t offered below. This is not an empty list.')}
+      </p>
+    {/if}
     <RegisterPanel
       rows={[...data.appRows, ...data.orgRows]}
       ownerType="APP"

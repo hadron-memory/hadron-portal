@@ -75,6 +75,7 @@
   // #713: agents bundled with this one — co-installed siblings plus AgentImport
   // edges, assembled server-side (see the loader for why siblings are the source
   // of truth for a Team Agent's personas).
+  const bundledWithheldApps = $derived((data as { bundledWithheldApps?: number }).bundledWithheldApps ?? 0);
   const bundledAgents = $derived(
     (data as { bundledAgents?: BundledAgentRow[] }).bundledAgents ?? [],
   );
@@ -196,7 +197,7 @@
     // #713: only for an agent that actually bundles others (a Team Agent and
     // its personas) — an always-empty tab on every ordinary agent is noise,
     // same reasoning as Chatbot Control below.
-    ...(bundledAgents.length > 0 ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
+    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },
@@ -1001,6 +1002,11 @@
       <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Bundled agents
         <span class="ml-1 text-sm font-normal text-zinc-500">({bundledAgents.length})</span>
       </h2>
+      {#if bundledWithheldApps > 0}
+        <p role="status" class="mb-3 text-xs text-zinc-500">
+          {t('agent.bundled.withheld', 'The agents installed in {count} App(s) aren’t visible to you, so this list may be incomplete.', { count: String(bundledWithheldApps) })}
+        </p>
+      {/if}
       <!-- 24rem offset tuned to this page's chrome (breadcrumb + header + tab
            bar above) — per-page convention, same as the Memories grid. -->
       <DataTable

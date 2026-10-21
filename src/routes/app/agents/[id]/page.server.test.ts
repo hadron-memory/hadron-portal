@@ -541,6 +541,42 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
     expect(bundled[0]).toMatchObject({ name: 'Backend Engineer', personaRole: 'backend-engineer', via: 'Team App' });
   });
 
+  // portal#1148 (hadron-server#2089): an App whose roster is withheld (agents: null) has UNKNOWN siblings.
+  it('counts an App that withholds its agents instead of reading it as having none', async () => {
+    const result = (await loadBundled({
+      apps: [
+        { id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a', agentId: 'agent-aaa', agents: [selfLite, backend] },
+        { id: 'app-2', name: 'Private', urn: 'urn:app:2', organizationId: 'org-a', agentId: 'agent-aaa', agents: null },
+      ],
+    })) as { bundledAgents: Array<{ id: string }>; bundledWithheldApps?: number };
+    expect(result.bundledAgents.map((a) => a.id)).toEqual(['agent-backend']);
+    expect(result.bundledWithheldApps).toBe(1);
+  });
+
+  // George, LOCAL on portal#1150: #2089 withholds agentId AND agents together, so the legal wire for
+  // the new audience is agentId: null + agents: null — an App the link-based filter would drop.
+  it('counts a fully withheld App (agentId null AND agents null): whether it installs this agent is unknown', async () => {
+    const result = (await loadBundled({
+      apps: [{ id: 'app-3', name: 'Private', urn: 'urn:app:3', organizationId: null, agentId: null, agents: null }],
+    })) as { bundledAgents: unknown[]; bundledWithheldApps?: number };
+    expect(result.bundledWithheldApps).toBe(1);
+    expect(result.bundledAgents).toEqual([]);
+  });
+
+  it('does not count an App whose agentId names a different agent while agents is a real list', async () => {
+    const result = (await loadBundled({
+      apps: [{ id: 'app-4', name: 'Other', urn: 'urn:app:4', organizationId: 'org-a', agentId: 'agent-zzz', agents: [] }],
+    })) as { bundledWithheldApps?: number };
+    expect(result.bundledWithheldApps).toBe(0);
+  });
+
+  it('known-empty control: an App with a real [] is not counted as withheld', async () => {
+    const result = (await loadBundled({
+      apps: [{ id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a', agentId: 'agent-aaa', agents: [selfLite] }],
+    })) as { bundledWithheldApps?: number };
+    expect(result.bundledWithheldApps).toBe(0);
+  });
+
   it('ignores apps this agent is not installed in', async () => {
     const { bundledAgents: bundled } = await loadBundled({
       apps: [{

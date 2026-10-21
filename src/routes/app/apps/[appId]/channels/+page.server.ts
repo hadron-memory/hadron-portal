@@ -174,15 +174,17 @@ async function loadRegister(
             })
         : Promise.resolve(null),
     ]);
+    // portal#1148: a WITHHELD install roster (null) is not "no installed agents".
+    const installedAgents = readableInstalledAgents(installed.app?.appAgents);
     const attendees: Attendee[] = [
       ...workers.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role, retired: !!w.retiredAt })),
-      ...readableInstalledAgents(installed.app?.appAgents).map((a) => ({ id: a.id, name: a.name, urn: a.urn, kind: 'agent' as const })),
+      ...(installedAgents.kind === 'ok' ? installedAgents.agents : []).map((a) => ({ id: a.id, name: a.name, urn: a.urn, kind: 'agent' as const })),
     ];
     // The org's rows span every App it owns. Only those naming one of THIS
     // App's Channels belong on this page; a row for another App's Channel
     // would otherwise show here, often as "a channel you can't read".
     const ownOrgRows = orgRows.filter((r) => channelIds.has(r.channelId));
-    return { appRows, orgRows: ownOrgRows, attendees, canManageRegister: manage as boolean | null, registerLoadFailed: false };
+    return { appRows, orgRows: ownOrgRows, attendees, canManageRegister: manage as boolean | null, registerLoadFailed: false, agentsWithheld: installedAgents.kind === 'withheld' };
   } catch (e) {
     console.warn(`[app-channels] register read failed for app ${app.id}:`, e);
     return {
@@ -191,6 +193,7 @@ async function loadRegister(
       attendees: [] as Attendee[],
       canManageRegister: null as boolean | null,
       registerLoadFailed: true,
+      agentsWithheld: false,
     };
   }
 }
