@@ -1042,6 +1042,10 @@
     ...(openChat ? [{ id: 'open-chat', label: t('node-actions.open-chat', 'Open chat') }] : []),
     { id: 'edit', label: t('node-actions.edit', 'Edit') },
     { id: 'download', label: t('node-actions.download', 'Download') },
+    // #1073: opens the node's PDF render in a new tab for printing — the
+    // browser's PDF viewer owns print, so this is the Download path with no
+    // save-to-disk step.
+    { id: 'print', label: t('node-actions.print', 'Print') },
     ...(skillExportHosts.length > 0 ? [{ id: 'export-skill', label: t('node-actions.export-skill', 'Export as skill') }] : []),
     { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
     ...(canAttachAsset ? [{ id: 'attach-asset', label: t('node-actions.attach-asset', 'Attach file') }] : []),
@@ -1084,6 +1088,7 @@
       case 'open-chat': if (openChat) goto(`${basePath}/nodes/${openChat.nodeId}`); break;
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
+      case 'print': void printNode(); break;
       case 'export-skill': skillExportOpen = true; break;
       case 'delete': $deleteFormData.hard = false; deleteOpen = true; break;
     }
@@ -1124,41 +1129,48 @@
     return bytes;
   }
 
+  // POST to /api/nodes/export and return the served bytes as a Blob. The
+  // Download dialog and Print (#1073) share this path, so the response guards
+  // live in one place.
+  async function fetchNodeExport(body: Record<string, unknown>): Promise<{ blob: Blob; filename?: string }> {
+    const res = await fetch('/api/nodes/export', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error('Export failed');
+    const r = (await res.json()) as {
+      filename?: string;
+      mimeType?: string;
+      data?: string;
+      encoding?: string;
+    };
+    // Guard against a null/!=string `data` (e.g. nodeExport resolving to
+    // null) so we never blob the literal string "undefined".
+    if (!r || typeof r.data !== 'string') throw new Error('Invalid export data');
+    // Honor `encoding`: the API is already forward-compatible with BASE64
+    // (binary) payloads, so decode those to bytes rather than blobbing the
+    // base64 text. TEXT (the current default) passes through unchanged.
+    const part: BlobPart = r.encoding === 'BASE64' ? base64ToBytes(r.data) : r.data;
+    return { blob: new Blob([part], { type: r.mimeType || 'application/octet-stream' }), filename: r.filename };
+  }
+
   async function runDownload() {
     if (!dlCanDownload || dlBusy) return;
     dlBusy = true;
     dlError = null;
     try {
-      const res = await fetch('/api/nodes/export', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: node.id,
-          format: dlFormat,
-          // PDF is a presentation render; scope/sections don't apply.
-          full: dlFormat === 'PDF' ? true : dlFull,
-          ...(dlFormat === 'PDF' || dlFull ? {} : { sections: dlSelectedSections }),
-        }),
+      const { blob, filename } = await fetchNodeExport({
+        id: node.id,
+        format: dlFormat,
+        // PDF is a presentation render; scope/sections don't apply.
+        full: dlFormat === 'PDF' ? true : dlFull,
+        ...(dlFormat === 'PDF' || dlFull ? {} : { sections: dlSelectedSections }),
       });
-      if (!res.ok) throw new Error('Export failed');
-      const r = (await res.json()) as {
-        filename?: string;
-        mimeType?: string;
-        data?: string;
-        encoding?: string;
-      };
-      // Guard against a null/!=string `data` (e.g. nodeExport resolving to
-      // null) so we never blob the literal string "undefined".
-      if (!r || typeof r.data !== 'string') throw new Error('Invalid export data');
-      // Honor `encoding`: the API is already forward-compatible with BASE64
-      // (binary) payloads, so decode those to bytes rather than blobbing the
-      // base64 text. TEXT (the current default) passes through unchanged.
-      const part: BlobPart = r.encoding === 'BASE64' ? base64ToBytes(r.data) : r.data;
-      const blob = new Blob([part], { type: r.mimeType || 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = r.filename || `export.${dlFormat.toLowerCase()}`;
+      a.download = filename || `export.${dlFormat.toLowerCase()}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1168,6 +1180,29 @@
       dlError = 'Export failed. Please try again.';
     } finally {
       dlBusy = false;
+    }
+  }
+
+  // Print (#1073): fetch the node's PDF render and open it in a new tab —
+  // the browser's PDF viewer owns the print dialog, so this is the export
+  // path with no save-to-disk step. Repeated prints hold at most one object
+  // URL: the previous one is revoked when a new PDF opens.
+  let printBusy = $state(false);
+  let printError = $state<string | null>(null);
+  let printUrl: string | null = null;
+  async function printNode() {
+    if (printBusy) return;
+    printBusy = true;
+    printError = null;
+    try {
+      const { blob } = await fetchNodeExport({ id: node.id, format: 'PDF', full: true });
+      if (printUrl) URL.revokeObjectURL(printUrl);
+      printUrl = URL.createObjectURL(blob);
+      window.open(printUrl, '_blank');
+    } catch {
+      printError = t('node-actions.print.failed', 'Could not open the PDF. Please try again.');
+    } finally {
+      printBusy = false;
     }
   }
 
@@ -2020,6 +2055,8 @@
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
+      printError = null;
+      printBusy = false;
       skillExportOpen = false;
       testFlowOpen = false;
       $testFlowFormData.appId = '';
@@ -2222,6 +2259,9 @@
       <!-- #503: the "⋯" menu is the single entry point for node actions;
            each item opens one of the panels/dialogs below. -->
       <NodeActionsMenu actions={menuActions} onselect={onMenuSelect} label={`Actions for ${node.name}`} />
+      {#if printError}
+        <p role="alert" class="text-xs text-red-500">{printError}</p>
+      {/if}
       <!-- Hidden form the menu's Duplicate item submits (requestSubmit fires
            the submit event use:enhance intercepts, unlike .submit()). -->
       <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:duplicateEnhance novalidate class="hidden">
