@@ -44,6 +44,18 @@ describe('Bundled agents tab — add (#1173)', () => {
     expect(tab).toBeUndefined();
   });
 
+  it('an org agent with nothing licensed to bundle says so instead of showing an empty control', async () => {
+    const { root, tab } = await open({
+      org: { id: 'org-1', name: 'Acme', urn: 'hrn:org:acme.com', members: [], memories: [], agents: [], apps: [] },
+      bundledAgents: [{ id: 'x', name: 'X', urn: 'hrn:agent:acme.com:x', description: null, personaRole: null, via: 'Import' }],
+      bundleCandidates: [],
+    });
+    tab!.click();
+    await tick();
+    expect(root.querySelector('form[action="?/addBundledAgent"]')).toBeNull();
+    expect(root.textContent).toContain('active license');
+  });
+
   it('nothing to add but something bundled: the tab shows, with no add form', async () => {
     const { root, tab } = await open({
       bundledAgents: [{ id: 'x', name: 'X', urn: 'hrn:agent:acme.com:x', description: null, personaRole: null, via: 'Import' }],

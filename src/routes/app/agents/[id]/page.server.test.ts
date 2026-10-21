@@ -836,27 +836,35 @@ describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
     };
   }
 
-  it('offers the org’s owned and subscribed agents, minus itself and what it already bundles', async () => {
+  it('offers only the agents the org is licensed for, minus itself and what it already bundles', async () => {
     const r = await loadCandidates(
       {
         data: {
           organization: {
             id: 'org-a',
+            // Owned agents are NOT offered: the server refuses them (an org
+            // cannot grant itself an agent), so they would be dead choices.
             agents: [self, helper, already],
-            agentOrgGrants: [{ isActive: true, agent: subscribed }, { isActive: false, agent: { id: 'agent-x', name: 'X', urn: 'u' } }],
+            agentOrgGrants: [
+              { isActive: true, agent: subscribed },
+              { isActive: true, agent: already },
+              { isActive: true, agent: self },
+              { isActive: false, agent: { id: 'agent-x', name: 'X', urn: 'u' } },
+              { isActive: true, revokedAt: '2026-01-01T00:00:00Z', agent: { id: 'agent-y', name: 'Y', urn: 'u2' } },
+            ],
           },
         },
       },
       { imports: [{ parentAgentId: 'agent-aaa', importedAgentId: 'agent-cal', position: 4, required: true, importedAgent: already }] },
     );
-    expect(r.bundleCandidates.map((a) => a.id)).toEqual(['agent-helper', 'agent-sub']);
+    expect(r.bundleCandidates.map((a) => a.id)).toEqual(['agent-sub']);
     expect(r.bundleCandidatesError).toBe(false);
     expect(r.nextImportPosition).toBe(5);
   });
 
   it('an import the viewer cannot read still counts as bundled, so it is not offered again', async () => {
     const r = await loadCandidates(
-      { data: { organization: { id: 'org-a', agents: [helper], agentOrgGrants: [] } } },
+      { data: { organization: { id: 'org-a', agents: [], agentOrgGrants: [{ isActive: true, agent: helper }] } } },
       { imports: [{ parentAgentId: 'agent-aaa', importedAgentId: 'agent-helper', position: 1, required: false, importedAgent: null }] },
     );
     expect(r.bundleCandidates).toEqual([]);

@@ -1046,6 +1046,10 @@
             {bundling ? t('agent.bundled.add.adding', 'Adding…') : t('agent.bundled.add.submit', 'Add')}
           </button>
         </form>
+      {:else if org}
+        <p class="mb-3 text-sm text-zinc-500">
+          {t('agent.bundled.add.none', 'No agent is available to bundle. Only agents your organization has an active license for can be bundled.')}
+        </p>
       {/if}
       {#if bundleResult?.bundleError}
         <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{bundleResult.bundleError}</p>

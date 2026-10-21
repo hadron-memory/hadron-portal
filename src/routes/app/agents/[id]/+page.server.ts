@@ -11,7 +11,7 @@ import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
-import { mergeInstallableAgents, type InstallableAgent, type OrgAgentPool } from '$lib/server/installable-agents';
+import { grantedAgents, type InstallableAgent, type OrgAgentPool } from '$lib/server/installable-agents';
 import { withTimeout, OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import {
   AGENT_QUERY,
@@ -239,9 +239,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   }
   const bundledAgents = [...bundledById.values()].sort((a, b) => a.name.localeCompare(b.name));
 
-  // #1173: what the Bundled tab can add. The org's owned and subscribed agents
-  // (the same pool the App page offers, #1172), minus this agent and anything
-  // it already imports. An import the viewer cannot read (importedAgent null)
+  // #1173: what the Bundled tab can add. ONLY the agents the org subscribes to
+  // (active grants, the App page's #1172 read), minus this agent and anything
+  // it already imports. Not the org's OWNED agents: publishAgentImport needs an
+  // active AgentOrgGrant from the parent's org for the imported agent, and an org
+  // cannot grant itself an agent (SELF_AGENT_ORG_GRANT), so every owned agent is
+  // refused (browser QA, portal#1189). An import the viewer cannot read (importedAgent null)
   // still counts, by its id, so it is never offered a second time. Asked as a
   // request of its own: a refusal costs the add control, not the page. An
   // org-less agent has no org pool, so it gets none.
@@ -252,7 +255,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     const pool = await withTimeout(
       client
         .request<{ organization: OrgAgentPool | null }>(APP_ORG_AGENTS_QUERY, { ref: org.id })
-        .then((r) => (r.organization ? mergeInstallableAgents(r.organization) : null)),
+        .then((r) => (r.organization ? grantedAgents(r.organization) : null)),
       OPTIONAL_LIST_TIMEOUT_MS,
       null,
     ).catch(() => null);
