@@ -193,7 +193,7 @@
     // #713: only for an agent that actually bundles others (a Team Agent and
     // its personas) — an always-empty tab on every ordinary agent is noise,
     // same reasoning as Chatbot Control below.
-    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 || bundleCandidates.length > 0 ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
+    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },

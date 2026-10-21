@@ -849,6 +849,7 @@ describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
               { isActive: true, agent: subscribed },
               { isActive: true, agent: already },
               { isActive: true, agent: self },
+              { isActive: true, agent: null },
               { isActive: false, agent: { id: 'agent-x', name: 'X', urn: 'u' } },
               { isActive: true, revokedAt: '2026-01-01T00:00:00Z', agent: { id: 'agent-y', name: 'Y', urn: 'u2' } },
             ],

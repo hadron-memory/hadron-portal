@@ -78,6 +78,17 @@ describe('Bundled agents tab — add (#1173)', () => {
     expect(added.root.querySelector('[role="status"]')?.textContent).toContain('Agent bundled');
   });
 
+  // portal#1189 SECOND READ (Gizelle, P2): with nothing bundled yet, a failed
+  // candidates read hid the whole tab, so the failure was invisible.
+  it('a candidates load failure on an agent that bundles nothing still shows the tab and says so', async () => {
+    const { root, tab } = await open({ bundledAgents: [], bundleCandidates: [], bundleCandidatesError: true });
+    expect(tab).toBeDefined();
+    tab!.click();
+    await tick();
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('could not be loaded');
+    expect(root.querySelector('form[action="?/addBundledAgent"]')).toBeNull();
+  });
+
   it('a candidates load failure says so instead of silently hiding the control', async () => {
     const { root, tab } = await open({
       bundledAgents: [{ id: 'x', name: 'X', urn: 'hrn:agent:acme.com:x', description: null, personaRole: null, via: 'Import' }],
