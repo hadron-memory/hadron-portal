@@ -28,6 +28,8 @@
   import type { AgentTaskDetail, WriteCandidates } from '$lib/agent-tasks/types';
   import PartyPicker from './PartyPicker.svelte';
   import WriteRefusalAlert from './WriteRefusal.svelte';
+  import TaskWarnings from './TaskWarnings.svelte';
+  import type { TaskWarning } from '$lib/agent-tasks/warnings';
 
   let {
     task,
@@ -50,6 +52,8 @@
   let submitting = $state(false);
   let refusal = $state<{ action: TaskAction; refusal: WriteRefusal; inPanel: boolean } | null>(null);
   let status = $state<string | null>(null);
+  // portal#1214: what the last successful write's response warned about.
+  let warned = $state<{ warnings: TaskWarning[]; more: number }>({ warnings: [], more: 0 });
   let values = $state<Record<string, string>>({});
   let assignee = $state('');
 
@@ -67,6 +71,7 @@
     open = a;
     refusal = null;
     status = null;
+    warned = { warnings: [], more: 0 };
     assignee = '';
     values = {};
     await tick();
@@ -123,11 +128,16 @@
       return async ({ result }: { result: { type: string; data?: Record<string, unknown> } }) => {
         submitting = false;
         if (result.type === 'success') {
-          const text = successText(a, formData);
+          const d = result.data ?? {};
+          // A committed write whose response also errored: saved, said with a fixed line, never the error itself.
+          const text = d.committedWithError === true
+            ? t('app.tasks.write.done.committed-error', 'Saved, but the server’s response also reported an error. Reload to check the task.')
+            : successText(a, formData);
           await invalidateAll();
           open = null;
           refusal = null;
           status = text;
+          warned = { warnings: Array.isArray(d.warnings) ? (d.warnings as TaskWarning[]) : [], more: typeof d.more === 'number' ? d.more : 0 };
           await tick();
           statusLine?.focus();
           return;
@@ -169,6 +179,7 @@
   {/if}
   {#if status}
     <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
+    <TaskWarnings warnings={warned.warnings} more={warned.more} />
   {/if}
 
   <!-- Uma's P3-1 on #1135: a stale-view refusal (e.g. TASK_ENDED) renders here, outside the

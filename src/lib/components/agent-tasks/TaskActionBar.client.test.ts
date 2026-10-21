@@ -244,4 +244,52 @@ describe('TaskActionBar', () => {
       expect(root.textContent).toContain('Park');
     });
   });
+
+  // portal#1214 — the warnings a reassign's response carried.
+  describe('warnings', () => {
+    const URN = 'hrn:node:hadronmemory.com:hadron-dev-team-roles:tasks:find-a-source';
+    async function reassign(data: Record<string, unknown>) {
+      const root = await mountBar();
+      button(root, 'Reassign…').click();
+      await tick(2);
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-reassign')!, { type: 'success', status: 200, data });
+      await tick(3);
+      flushSync();
+      return root;
+    }
+
+    it('shows them under the status line after the reload, verbatim with their code', async () => {
+      const root = await reassign({
+        action: 'reassign', ok: true, committedWithError: false, more: 0,
+        warnings: [{ code: 'task.assign.assignee-busy', text: 'The assignee already has a task started.', register: { state: 'mapped', taskLoc: 'tasks:x', taskUrn: URN } }],
+      });
+      expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+      const list = root.querySelector('[data-testid="task-warnings"]');
+      expect(list?.textContent).toContain('The assignee already has a task started.');
+      expect(list?.textContent).toContain('task.assign.assignee-busy');
+      expect(list?.querySelector(`code [title="${URN}"]`)).not.toBeNull();
+      expect(list?.querySelector('a')).toBeNull();
+      expect(root.querySelector('[role="status"]')?.textContent?.trim()).toBe('Assigned.');
+    });
+
+    it('a committed write whose response errored says saved, with the fixed line, never “not changed”', async () => {
+      const root = await reassign({ action: 'reassign', ok: true, committedWithError: true, more: 0, warnings: [{ code: 'c', text: 't' }] });
+      expect(root.querySelector('[role="status"]')?.textContent?.trim()).toBe('Saved, but the server’s response also reported an error. Reload to check the task.');
+      expect(root.textContent).not.toContain('Not changed');
+      expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
+    });
+
+    it('opening another panel clears them', async () => {
+      const root = await reassign({ action: 'reassign', ok: true, committedWithError: false, more: 0, warnings: [{ code: 'c', text: 't' }] });
+      expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
+      button(root, 'Cancel…').click();
+      await tick(2);
+      expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
+    });
+
+    it('a success with no warnings shows none', async () => {
+      const root = await reassign({ action: 'reassign', ok: true, committedWithError: false, warnings: [], more: 0 });
+      expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
+    });
+  });
 });
