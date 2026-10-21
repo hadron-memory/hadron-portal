@@ -21,7 +21,7 @@ export async function fetchAllItems<T>(
   variables: Record<string, unknown> = {},
 ): Promise<T[]> {
   const items: T[] = [];
-  for (let offset = 0; ; offset += PAGE_LIMIT) {
+  for (let offset = 0; ; ) {
     const data = await client.request<Record<string, Page<T>>>(document, {
       ...variables,
       limit: PAGE_LIMIT,
@@ -39,9 +39,12 @@ export async function fetchAllItems<T>(
     }
     const pageItems = page.items ?? [];
     items.push(...pageItems);
-    // Stop on a short/empty page too, so a shrinking (or missing) total can
-    // never loop forever.
-    if (pageItems.length < PAGE_LIMIT || items.length >= (page.total ?? 0)) return items;
+    // cor:api:120:04: end on an EMPTY page or at `total`, never on the first
+    // short one — a server that clamps below PAGE_LIMIT returns short non-empty
+    // pages, and stopping there silently drops the rest. Advance by what came
+    // back, not by what was asked for, so a clamp skips nothing.
+    if (pageItems.length === 0 || items.length >= (page.total ?? 0)) return items;
+    offset += pageItems.length;
   }
 }
 

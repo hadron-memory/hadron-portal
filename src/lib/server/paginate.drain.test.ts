@@ -86,3 +86,24 @@ describe('drainFindNodes (#1226)', () => {
     await expect(drainFindNodes({ request } as unknown as GraphQLClient, 'doc', { memoryIds: ['m'] })).rejects.toThrow('boom');
   });
 });
+
+describe('fetchAllItems (#1226)', () => {
+  it('continues past a short NON-empty page and loses nothing when the server clamps below 200', async () => {
+    const { fetchAllItems } = await import('./paginate');
+    const all = Array.from({ length: 55 }, (_, i) => ({ id: `o${i}` }));
+    const request = vi.fn(async (_d: string, v: { limit: number; offset: number }) => ({
+      organizations: { items: all.slice(v.offset, v.offset + Math.min(v.limit, 20)), total: all.length },
+    }));
+    const out = await fetchAllItems<{ id: string }>({ request } as unknown as GraphQLClient, 'doc', 'organizations');
+    expect(out).toEqual(all);
+    expect(request.mock.calls.map((c) => c[1].offset)).toEqual([0, 20, 40]);
+  });
+
+  it('a later-page failure rejects instead of returning the first page', async () => {
+    const { fetchAllItems } = await import('./paginate');
+    const request = vi.fn()
+      .mockResolvedValueOnce({ organizations: { items: [{ id: 'a' }], total: 400 } })
+      .mockRejectedValueOnce(new Error('page 2 failed'));
+    await expect(fetchAllItems({ request } as unknown as GraphQLClient, 'doc', 'organizations')).rejects.toThrow('page 2 failed');
+  });
+});

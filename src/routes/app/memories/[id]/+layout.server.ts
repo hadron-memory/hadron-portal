@@ -49,12 +49,14 @@ async function pageAll<T>(
 ): Promise<{ items: T[]; total: number }> {
   const items: T[] = [];
   let total = 0;
-  for (let offset = 0; ; offset += GRAPH_PAGE) {
+  for (let offset = 0; ; ) {
     const page = await run(GRAPH_PAGE, offset);
     total = page.total;
     items.push(...page.items);
-    // Stop on a short/empty page too, so a shrinking/missing total can't loop.
-    if (page.items.length < GRAPH_PAGE || items.length >= total) break;
+    // End on an EMPTY page or at `total`, never the first short one (a server
+    // clamp returns short non-empty pages); advance by rows returned.
+    if (page.items.length === 0 || items.length >= total) break;
+    offset += page.items.length;
   }
   return { items, total };
 }
