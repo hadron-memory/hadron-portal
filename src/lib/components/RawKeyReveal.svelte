@@ -19,13 +19,18 @@
   let copied = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // One timer for the countdown; cleared on teardown so a destroyed
-  // component never fires `ondismiss` against a page the user has left.
+  // One timer per displayed key: it restarts when `rawKey` or `ttlMs` changes
+  // (a second mint replaces the first without remounting, and must get its own
+  // full countdown, not the first key's remainder). Cleared on teardown so a
+  // destroyed component never fires `ondismiss` against a page the user has left.
   $effect(() => {
+    void rawKey;
+    const ttl = ttlMs;
     const start = Date.now();
+    elapsedMs = 0;
     const timer = setInterval(() => {
       elapsedMs = Date.now() - start;
-      if (elapsedMs >= ttlMs) {
+      if (elapsedMs >= ttl) {
         clearInterval(timer);
         ondismiss();
       }

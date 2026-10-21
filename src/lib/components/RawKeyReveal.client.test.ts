@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import RawKeyReveal from './RawKeyReveal.svelte';
+import Harness from '$lib/test/RawKeyRevealHarness.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 beforeEach(() => { vi.useFakeTimers(); });
@@ -54,5 +55,29 @@ describe('RawKeyReveal (#498)', () => {
     const m = mountReveal({ rawKey: 'hk_secret', ttlMs: 300_000, ondismiss });
     m.target.querySelector<HTMLButtonElement>('[data-testid="raw-key-dismiss"]')!.click();
     expect(ondismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives a replacement key its own full countdown, not the first key\'s remainder', () => {
+    const ondismiss = vi.fn();
+    const m = mountComponent(Harness as never, { initial: 'hk_A', ttlMs: 300_000, ondismiss } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    vi.advanceTimersByTime(299_000);
+    flushSync();
+    expect(countdown(m)).toContain('0:01');
+    (m.instance as unknown as { setKey: (k: string) => void }).setKey('hk_B');
+    flushSync();
+    expect(m.target.textContent).toContain('hk_B');
+    expect(countdown(m)).toContain('5:00');
+    vi.advanceTimersByTime(2_000);
+    flushSync();
+    expect(ondismiss).not.toHaveBeenCalled();
+    expect(countdown(m)).toContain('4:58');
+    vi.advanceTimersByTime(300_000);
+    expect(ondismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns that hiding the key does not revoke it', () => {
+    const m = mountReveal({ rawKey: 'hk_secret', ttlMs: 300_000, ondismiss: () => {} });
+    expect(m.target.textContent).toContain('does not revoke');
   });
 });

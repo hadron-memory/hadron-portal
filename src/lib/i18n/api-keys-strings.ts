@@ -72,7 +72,7 @@ export const apiKeysStrings = {
   rawKeyRevealWarning: (): string =>
     t(
       'api-keys.reveal.warning',
-      'This is the only time we will show you the full key. We store only a hash — we cannot recover it for you if you lose it. Save it in a password manager before navigating away.',
+      'This is the only time we will show you the full key. We store only a hash — we cannot recover it for you if you lose it. Save it in a password manager before navigating away. Hiding it here does not revoke the key; revoke it from the list below if it may have been exposed.',
     ),
 
   /** Reveal-dismiss button (acknowledges the user has copied the key). */
