@@ -1,4 +1,5 @@
 # Exported from hadron-server 87e0bb7dfbb1284e51f6b8aa7b7b2f10e940f837 (origin/main, 2026-10-19T02:58:16-07:00) by pnpm gql:schema — do not edit.
+# portal#1148: App.members, memberCount, appAgents, agents and hasAiApiKey hand-applied as outer-nullable from the ACCEPTED hadron-server#2089 SDL delta (issue comment 6258905377, Andi), on top of the snapshot above. Not on server main yet; the next pnpm gql:schema after the server merge replaces this line with the landed wire.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -1054,7 +1055,7 @@ type App {
   a soft-deprecated single-element synthesis; now returns the FULL
   multi-Agent set per spec 023 US1.
   """
-  agents: [Agent!]!
+  agents: [Agent!]
   aiModel: String
   aiProvider: String
   anonymousTtlDays: Int!
@@ -1064,7 +1065,7 @@ type App {
   N:M join. Multiple Agents can be installed; one App credential
   routes to all of them via the URN supplied in the request.
   """
-  appAgents: [AppAgent!]!
+  appAgents: [AppAgent!]
   appType: AppType!
   createUserPermission: CreateUserPermission!
   createdAt: DateTime!
@@ -1075,7 +1076,7 @@ type App {
   defaultChannel: Channel
   description: String
   expiresAt: DateTime
-  hasAiApiKey: Boolean!
+  hasAiApiKey: Boolean
   id: ID!
   identifyUserMethod: IdentifyUserMethod!
 
@@ -1100,8 +1101,8 @@ type App {
   Key inventory, only for whoever manages the App as themselves, never through a bound worker session (hrn:node:hadronmemory.com:specs:cor:dmo:050:05).
   """
   keys: [AppKey!]!
-  memberCount: Int!
-  members: [AppMember!]!
+  memberCount: Int
+  members: [AppMember!]
   name: String!
   organization: Organization
   organizationId: String

@@ -36,7 +36,7 @@ function board(over: Record<string, unknown> = {}) {
 /**
  * portal#1090 narrows #1127's read-only pin: the board may now link to New
  * task, and nothing else. No form renders on it, and Park never appears
- * (held pending a ruling).
+ * (it is a task-page control, portal#1143).
  */
 function expectBoardWrites(html: string) {
   // Uma's P3-3: New task is on the board, so the note says so.
@@ -47,7 +47,7 @@ function expectBoardWrites(html: string) {
   expect(html).not.toMatch(/<button[^>]*>\s*(Assign|Reassign|Cancel|Ready|Make ready|Acknowledge)/i);
 }
 
-/** The task page's bar holds exactly these buttons, in order, and never Park or a form until a panel opens. */
+/** The task page's bar holds exactly these buttons, in order, and no form until a panel opens. */
 function barButtons(html: string): string[] {
   const bar = html.match(/data-testid="task-actions"[\s\S]*?<\/div>/)?.[0] ?? '';
   return [...bar.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map((m) => m[1].trim());
@@ -223,13 +223,14 @@ describe('task page', () => {
 describe('task page action bar (#1090)', () => {
   it.each([
     [{ status: 'BACKLOG', assignee: null }, ['Make ready', 'Assign…', 'Cancel…']],
-    [{ status: 'PENDING', queued: true, assignee: null }, ['Assign…', 'Cancel…']],
+    [{ status: 'PENDING', queued: true, assignee: null }, ['Assign…', 'Park…', 'Cancel…']],
     [{ status: 'PENDING', queued: false }, ['Reassign…', 'Cancel…']],
     [{ status: 'STARTED' }, ['Reassign…', 'Cancel…']],
-  ])('%j offers %j, and never Park', (over, buttons) => {
+  ])('%j offers %j', (over, buttons) => {
     const html = taskPage({ task: detail(over) });
     expect(barButtons(html)).toEqual(buttons);
-    expect(html).not.toMatch(/\bPark\b/);
+    // portal#1143: Park is offered for an unassigned PENDING task and nowhere else.
+    expect(html.includes('Park…')).toBe(buttons.includes('Park…'));
   });
 
   it.each(['FINISHED', 'CANCELLED'])('an ended task (%s) offers nothing and says so', (status) => {
