@@ -65,7 +65,7 @@ const ROSTER_CONCURRENCY = 4;
 async function loadOrgAttendees(
   client: ReturnType<typeof gqlClient>,
   orgId: string,
-): Promise<{ attendees: Attendee[]; unreadApps: number }> {
+): Promise<{ attendees: Attendee[]; unreadApps: number; withheldApps: number }> {
   const apps = await fetchAllItems<OrgApp>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgId });
   const perApp = await mapWithConcurrency(apps, ROSTER_CONCURRENCY, async (app) => {
     // allSettled, not all: an App's slot must stay taken until BOTH of its
@@ -81,9 +81,11 @@ async function loadOrgAttendees(
     ]);
     if (workers.status === 'rejected' || installed.status === 'rejected') {
       console.warn(`[org-channels] roster read failed for app ${app.id}:`, workers.status === 'rejected' ? workers.reason : (installed as PromiseRejectedResult).reason);
-      return { app, workers: [] as OrgWorker[], agents: [] as Array<{ id: string; name: string; urn: string }>, failed: true };
+      return { app, workers: [] as OrgWorker[], agents: [] as Array<{ id: string; name: string; urn: string }>, failed: true, withheld: false };
     }
-    return { app, workers: workers.value, agents: readableInstalledAgents(installed.value.app?.appAgents), failed: false };
+    // portal#1148: a WITHHELD install roster (null) is not an App with no agents.
+    const roster = readableInstalledAgents(installed.value.app?.appAgents);
+    return { app, workers: workers.value, agents: roster.kind === 'ok' ? roster.agents : [], failed: false, withheld: roster.kind === 'withheld' };
   });
   // An App's display name alone can repeat within an org; when it does, its URN
   // joins the label so the options stay distinct. The App URN is also kept on
@@ -106,7 +108,7 @@ async function loadOrgAttendees(
   for (const { agents: installed } of perApp) {
     for (const a of installed) if (!agents.has(a.id)) agents.set(a.id, { id: a.id, name: a.name, urn: a.urn, kind: 'agent' });
   }
-  return { attendees: [...workers, ...agents.values()], unreadApps: perApp.filter((r) => r.failed).length };
+  return { attendees: [...workers, ...agents.values()], unreadApps: perApp.filter((r) => r.failed).length, withheldApps: perApp.filter((r) => r.withheld).length };
 }
 
 export const load: PageServerLoad = async ({ parent, locals }) => {
@@ -136,7 +138,7 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
         .then((roster) => ({ ...roster, rosterFailed: false }))
         .catch((e) => {
           console.warn(`[org-channels] App list read failed for org ${org.id}:`, e);
-          return { attendees: [] as Attendee[], unreadApps: 0, rosterFailed: true };
+          return { attendees: [] as Attendee[], unreadApps: 0, withheldApps: 0, rosterFailed: true };
         }),
     ]).then(([rows, roster]) => ({ ...rows, ...roster })),
     locals.user
@@ -156,6 +158,8 @@ export const load: PageServerLoad = async ({ parent, locals }) => {
     attendees: register.attendees,
     /** Apps whose Workers and Agents couldn't be read, so aren't offered. */
     rosterUnreadApps: register.unreadApps,
+    /** portal#1148: Apps whose installed Agents the server withholds from this viewer (not "no agents"). */
+    rosterWithheldApps: register.withheldApps,
     /** The org's App list itself couldn't be read: nobody is offered by name. */
     rosterFailed: register.rosterFailed,
     registerLoadFailed: register.failed,
