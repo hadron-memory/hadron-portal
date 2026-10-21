@@ -150,7 +150,11 @@
   // outlive a reload (another tab's save calls invalidateAll()), so an unsaved
   // edit is never silently replaced — see text-draft.svelte.ts.
   const contentDraft = new TextDraft();
-  syncTextDraftWith(contentDraft, () => ({ id: node.id, value: node.content, revision: node.revision }));
+  // portal#1175: a comment is saved through editComment, whose precondition is
+  // the comment's own write counter (`asComment.revSeq`), not Node.revision, so
+  // that is the revision its draft opens on and posts back.
+  const contentRevision = () => (node.nodeType === COMMENT_NODE_TYPE ? (node.asComment?.revSeq ?? null) : node.revision);
+  syncTextDraftWith(contentDraft, () => ({ id: node.id, value: node.content, revision: contentRevision() }));
   $effect(() => {
     if (showSource) untrack(() => contentDraft.ensureSeeded());
   });
@@ -251,7 +255,7 @@
           return;
         }
         if (!stillOurs()) return;
-        contentDraft.reseed({ id: node.id, value: node.content, revision: node.revision });
+        contentDraft.reseed({ id: node.id, value: node.content, revision: contentRevision() });
         showSource = false;
       } else if (result.code === 'changed') {
         // Load the newer version under the kept draft: Rendered now shows it,
@@ -292,7 +296,7 @@
 
   /** The one way a conflicted draft is thrown away: the user asks for it. */
   function discardContentDraft() {
-    contentDraft.reseed({ id: node.id, value: node.content, revision: node.revision });
+    contentDraft.reseed({ id: node.id, value: node.content, revision: contentRevision() });
     contentDraft.ensureSeeded();
     contentConflict = false;
     contentSaveError = null;
@@ -1749,7 +1753,7 @@
   // authority on who may edit; this only stops offering what would be refused.
   const commentInfo = $derived(isComment ? (node.asComment ?? null) : null);
   const commentTargetHref = $derived(commentInfo?.target ? `${basePath}/nodes/${commentInfo.target.id}` : null);
-  const canEditContent = $derived(!isComment || commentInfo?.viewerIsAuthor === true);
+  const canEditContent = $derived(!isComment || (commentInfo?.viewerIsAuthor === true && commentInfo.deleted !== true));
   // A comment is never a target, and private/system memories take none (hrn:node:hadronmemory.com:specs:cor:dmo:110:00, :02).
   const commentable = $derived(!isComment && isCommentableClass(data.graph?.class));
   // The trust cue (hrn:node:hadronmemory.com:specs:cor:dmo:110:07): shown, never a gate.
@@ -2823,10 +2827,12 @@
       {:else}
         <div class="mt-3 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-6 text-center dark:border-zinc-700 dark:bg-zinc-900/50">
           <p class="text-sm text-zinc-500 dark:text-zinc-400">{createNodeStrings.contentEmptyTitle()}</p>
+          {#if canEditContent}
           <button
             onclick={() => showSource = true}
             class="mt-3 rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500"
           >{createNodeStrings.contentEmptyCta()}</button>
+          {/if}
         </div>
       {/if}
     {/if}

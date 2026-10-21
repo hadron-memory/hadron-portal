@@ -641,6 +641,8 @@ export interface MemoryNode {
     id: string;
     deleted: boolean;
     viewerIsAuthor: boolean;
+    /** The comment's write counter, the precondition editComment takes. */
+    revSeq: number;
     target: { id: string; name: string; nodeType: string; urn: string };
   } | null;
   // #588 (server #725): collection discriminator (which domain object this

@@ -26,7 +26,7 @@ const COMMENT = {
   isRunnable: false, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
   outgoingEdges: [], incomingEdges: [],
   memory: { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a', name: 'Mem A', appId: null },
-  asComment: { id: 'c1', deleted: false, viewerIsAuthor: true, target: TARGET },
+  asComment: { id: 'c1', deleted: false, viewerIsAuthor: true, revSeq: 3, target: TARGET },
 };
 const PLAIN = { ...COMMENT, nodeType: 'info', name: 'A plain node', asComment: null };
 const PARENT = {
@@ -161,5 +161,47 @@ describe('portal#1175 — an ordinary node is unchanged', () => {
     expect(labels).not.toContain('Info');
     const items = await menuLabels(target);
     for (const kept of ['Edit', 'Add child', 'Move', 'Duplicate', 'Convert to task']) expect(items).toContain(kept);
+  });
+});
+
+describe('portal#1175 — saving a comment (Glen on #1180)', () => {
+  it("the author's save posts the comment's own write counter, not the node revision", async () => {
+    const posted: FormData[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: RequestInit) => {
+      posted.push(init!.body as FormData);
+      return new Response(JSON.stringify({ type: 'success', status: 200, data: '[{"contentSaved":1},true]' }), { status: 200 });
+    }));
+    const { target } = await mountPage(COMMENT);
+    await menuLabels(target);
+    [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((i) => i.textContent?.trim() === 'Edit')!.click();
+    await settle();
+    const box = target.querySelector<HTMLTextAreaElement>('textarea')!;
+    box.value = 'edited';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    [...target.querySelectorAll<HTMLButtonElement>('button')].find((b) => /^save/i.test(b.textContent?.trim() ?? ''))!.click();
+    await settle();
+    expect(posted).toHaveLength(1);
+    expect(posted[0].get('content')).toBe('edited');
+    // revSeq 3, while the node's own revision is 4
+    expect(posted[0].get('expectedRevision')).toBe('3');
+    vi.unstubAllGlobals();
+  });
+
+  const STUB = { ...COMMENT, content: null };
+  it("a non-author never sees a 'Write content' call to action on a textless comment", async () => {
+    for (const asComment of [{ ...COMMENT.asComment, viewerIsAuthor: false }, null, { ...COMMENT.asComment, deleted: true }]) {
+      const { target, unmount } = await mountPage({ ...STUB, asComment });
+      expect(target.textContent).not.toContain('Write content');
+      unmount();
+      mounted.pop();
+    }
+  });
+
+  it('the author of a textless comment still can, and an ordinary empty node keeps its call to action', async () => {
+    const own = await mountPage(STUB);
+    expect(own.target.textContent).toContain('Write content');
+    const plain = await mountPage({ ...PLAIN, content: null });
+    expect(plain.target.textContent).toContain('Write content');
   });
 });

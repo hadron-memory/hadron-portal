@@ -24,7 +24,7 @@ import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePr
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
-import { loadCommentSummary, loadDiscussion } from '$lib/server/comments';
+import { loadCommentSummary, loadDiscussion, sendCommentWrite } from '$lib/server/comments';
 import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
 import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
@@ -586,6 +586,21 @@ async function saveNodeText(
     return fail(500, { [failed]: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node') } });
   }
   if (!node) return fail(404, { [failed]: { code: 'not-found', detail: null } });
+
+  // portal#1175: a comment's text is edited through `editComment`, with the
+  // comment's own write counter as the precondition. The generic node write is
+  // refused for a comment (hrn:node:hadronmemory.com:specs:cor:dmo:110:04), so
+  // never fall through to it. Without the comment's details there is no safe
+  // way to write: refuse rather than guess.
+  if (node.nodeType === COMMENT_NODE_TYPE) {
+    if (field !== 'content' || !node.asComment) return fail(403, { [failed]: { code: 'failed', detail: null } });
+    const sent = await sendCommentWrite(client, node.id, {
+      op: 'edit', commentId: node.asComment.id, body: value, expectedRevision,
+    });
+    if (sent.ok) return { [`${field}Saved`]: true };
+    if (sent.code === 'NODE_WRITE_CONFLICT') return fail(409, { [failed]: { code: 'changed', detail: null } });
+    return fail(sent.status, { [failed]: { code: 'failed', detail: sent.text } });
+  }
 
   // #868: this edit touches neither governance signal, so the resulting kind
   // is the node's CURRENT one — which is why the fetched node, not the input,

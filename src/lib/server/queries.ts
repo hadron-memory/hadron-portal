@@ -3054,6 +3054,9 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
         id
         deleted
         viewerIsAuthor
+        # The comment's write counter: editComment's expectedRevision, which is
+        # NOT Node.revision.
+        revSeq
         target { id name nodeType urn }
       }
       # #927 (server #1323/#937): the live revision an inline editor opens on
