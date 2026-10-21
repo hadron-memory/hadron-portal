@@ -59,7 +59,7 @@ async function settle() {
   flushSync();
 }
 
-async function mountPage(node: Record<string, unknown>, search = '') {
+async function mountPage(node: Record<string, unknown>, search = '', canWriteMemory = true) {
   served = node;
   const loaded = (await load({
     params: { id: 'mem-A', nodeId: 'leaf-pk' },
@@ -67,7 +67,7 @@ async function mountPage(node: Record<string, unknown>, search = '') {
     url: new URL(`http://localhost/app/memories/mem-A/nodes/leaf-pk${search}`),
     parent: vi.fn().mockResolvedValue(PARENT),
   } as never)) as Record<string, unknown>;
-  const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
+  const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded, canWriteMemory }, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await settle();
@@ -113,8 +113,8 @@ describe('portal#1175 — the page of a comment node', () => {
     expect(target.querySelector('.prose')?.textContent).toContain('the comment body');
   });
 
-  it('Info shows the settings facts read-only: no edit, no danger zone', async () => {
-    const { target } = await mountPage(COMMENT);
+  it.each([false, true])('Info stays read-only with memory canWrite=%s: no edit, no danger zone', async (canWrite) => {
+    const { target } = await mountPage(COMMENT, '', canWrite);
     [...target.querySelectorAll<HTMLButtonElement>('div.scroll-hint > button')].find((b) => b.textContent?.trim() === 'Info')?.click();
     await settle();
     expect(target.textContent).toContain('Type');
