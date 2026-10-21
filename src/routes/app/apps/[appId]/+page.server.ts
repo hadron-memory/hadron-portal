@@ -7,6 +7,7 @@ import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
 import { lookupOwn } from '$lib/lookup';
+import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
@@ -627,7 +628,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -725,6 +726,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // manager-only and non-null (hadron-server#2080), so on the App fragment it
     // nulled the whole App (a false 404 here) for every non-manager.
     loadAppKeys(client, app.id),
+    // portal#1168 (hadron-server#2178): the grid's Task and Paused state, one
+    // bulk read in its own classified request so its failure cannot take the page.
+    loadAppTeamRoster(client, app.id),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -851,6 +855,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     configsError: configsData === null,
     // #974: the App's staff. null = the fetch failed (distinct from []).
     staff,
+    teamRoster,
     staffError: staff === null,
     // #732: the team chat transcript. null = the fetch failed (distinct from
     // an empty chat), and `teamChatTotal` is the SERVER's count, so a

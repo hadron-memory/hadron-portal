@@ -175,12 +175,12 @@ describe('App team chat full view (#980)', () => {
 });
 
 describe('Worker agents tab (#1009)', () => {
-  async function mountStaff(staff: unknown[]) {
+  async function mountStaff(staff: unknown[], roster: unknown = { kind: 'unavailable' }) {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
     window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
     const data = await pageData();
     const m = mountComponent(Page as never, {
-      data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff },
+      data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff, teamRoster: roster },
       form: null,
     } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
@@ -267,6 +267,50 @@ describe('Worker agents tab (#1009)', () => {
       worker({ id: 'w4', name: 'Dee', urn: 'hrn:worker:acme.com:team:dee', hasLiveSession: null, lastActiveAt: null }),
     ]);
     expect(columnTexts(target, 'Status')).toEqual(['Active now', 'Idle', 'No recorded activity', 'Not shown to you']);
+  });
+
+  // portal#1168 (hadron-server#2178) — Task and Paused, from one bulk roster read.
+  const entry = (over: Record<string, unknown> = {}) => ({
+    checkStatus: { status: 'OK', pendingReason: null }, pausedUntil: null, currentTask: null, ...over,
+  });
+
+  it('shows each worker’s current task, linked, with its status; none is a dash', async () => {
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })],
+      { kind: 'ok', byWorker: {
+        w1: entry({ currentTask: { id: 't9', title: 'Ship the grid', status: 'STARTED' } }),
+        w2: entry(),
+      } },
+    );
+    expect(columnTexts(target, 'Task')[0]).toContain('Ship the grid');
+    expect(columnTexts(target, 'Task')[0]).toContain('Started');
+    expect(target.querySelector('a[href="/app/apps/a1/tasks/t9"]')).not.toBeNull();
+    expect(columnTexts(target, 'Task')[1]).toBe('—');
+  });
+
+  it('marks a paused worker from the server’s check status, not from pausedUntil alone', async () => {
+    const future = '2099-01-01T00:00:00.000Z';
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' }), worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy' })],
+      { kind: 'ok', byWorker: {
+        w1: entry({ checkStatus: { status: 'PENDING', pendingReason: 'PAUSED' }, pausedUntil: future }),
+        // An expired stored timestamp is history: the server says OK, so no badge.
+        w2: entry({ pausedUntil: '2020-01-01T00:00:00.000Z' }),
+        w3: entry({ checkStatus: { status: 'PENDING', pendingReason: 'TEAM_PAUSED' } }),
+      } },
+    );
+    const status = columnTexts(target, 'Status');
+    expect(status[0]).toContain('Paused');
+    expect(status[1]).not.toContain('Paused');
+    expect(status[2]).toContain('Team paused');
+  });
+
+  it('says plainly when the roster could not be read or is withheld, and never shows it as no tasks', async () => {
+    const failed = await mountStaff([worker({})], { kind: 'failed' });
+    expect(failed.textContent).toContain('Task and pause state could not be loaded');
+    expect(columnTexts(failed, 'Task')[0]).toBe('—');
+    const hidden = await mountStaff([worker({})], { kind: 'hidden' });
+    expect(hidden.textContent).toContain('Task and pause state are not shown to you');
   });
 
   // portal#1067 — who each worker reports to, next to last activity.

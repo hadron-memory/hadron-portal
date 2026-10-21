@@ -4629,6 +4629,22 @@ export const TEAM_ROSTER_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1168 (hadron-server#2178): the AI Team grid's Task and Paused state,
+// one bulk read joined to the staff by worker id. Selects only what the grid
+// renders.
+export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
+  query AppTeamRoster($appRef: ID!) {
+    teamRoster(appRef: $appRef) {
+      workers {
+        worker { id }
+        checkStatus { status pendingReason }
+        pausedUntil
+        currentTask { id title status }
+      }
+    }
+  }
+`;
+
 /** The App's open tasks (any depth), read once to put titles on bare task ids. */
 export const AGENT_TASKS_OPEN_TITLES_QUERY = /* GraphQL */ `
   query AgentTasksOpenTitles($appRef: ID!, $limit: Int) {

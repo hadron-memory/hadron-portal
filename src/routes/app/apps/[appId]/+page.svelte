@@ -121,6 +121,8 @@
   // null = the fetch failed, which is NOT the same as "no staff" — the empty
   // state must not claim an App has no workers when we simply couldn't ask.
   const staff = $derived(data.staff);
+  // portal#1168: Task and Paused, one bulk read joined by worker id.
+  const teamRoster = $derived(data.teamRoster);
   // #855: worker id → URN for the team chat's author chip. Null when the roster
   // failed to load, so the chat renders no chip rather than an empty one;
   // workers whose URN is null (pre-v2 App URN) are simply absent.
@@ -316,6 +318,7 @@
     // three-valued read the profile's held-workers grid uses: masked is "Not
     // shown to you", never "idle".
     { accessorFn: (row) => workerStatusLabel(row), id: 'status', header: t('app.staff.column.status', 'Status'), size: 150 },
+    { accessorFn: (row) => rosterEntry(row.id)?.currentTask?.title ?? '', id: 'task', header: t('app.staff.column.task', 'Task'), size: 220 },
     { accessorFn: (row) => row.family ?? '', id: 'family', header: t('app.staff.column.family', 'Model family'), size: 130 },
     {
       accessorFn: (row) => {
@@ -352,6 +355,23 @@
   //   `none` is not "unheld" — the field is masked to null on a denied read.
   // - Retire (danger) only for an active worker; a retired one keeps its
   //   name forever and has nothing left to retire or release.
+  function rosterEntry(workerId: string) {
+    return teamRoster?.kind === 'ok' ? teamRoster.byWorker[workerId] ?? null : null;
+  }
+  const TASK_STATUS = {
+    STARTED: () => t('app.staff.task.started', 'Started'),
+    PENDING: () => t('app.staff.task.pending', 'Pending'),
+  } as Record<string, () => string>;
+  // The server decides paused: its check status at the roster's asOf, never
+  // pausedUntil compared with the clock here (an expired stamp is history).
+  function pauseBadge(workerId: string): string | null {
+    const c = rosterEntry(workerId)?.checkStatus;
+    if (c?.status !== 'PENDING') return null;
+    if (c.pendingReason === 'PAUSED') return t('app.staff.paused', 'Paused');
+    if (c.pendingReason === 'TEAM_PAUSED') return t('app.staff.team-paused', 'Team paused');
+    if (c.pendingReason === 'STOPPED') return t('app.staff.stopped', 'Stopped');
+    return null;
+  }
   function workerStatusLabel(worker: Worker): string {
     if (worker.hasLiveSession === true) return t('app.staff.status.active', 'Active now');
     if (worker.hasLiveSession === false) {
@@ -2123,6 +2143,11 @@
           </p>
         </div>
       {:else}
+        {#if teamRoster?.kind === 'failed'}
+          <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.failed', 'Task and pause state could not be loaded; try again in a moment.')}</p>
+        {:else if teamRoster?.kind === 'hidden'}
+          <p role="status" class="text-xs text-zinc-500">{t('app.staff.roster.hidden', 'Task and pause state are not shown to you.')}</p>
+        {/if}
         <!-- #756 — TanStack grid, replacing a bespoke <ul>. Same chrome as every
              other portal list (search, column toggle, sortable/resizable
              headers, pagination) via the shared DataTable.
@@ -2182,6 +2207,19 @@
               {/if}
             {:else if cell.column.id === 'status'}
               <span class="text-xs text-zinc-600 dark:text-zinc-300">{workerStatusLabel(worker)}</span>
+              {#if pauseBadge(worker.id)}
+                <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">{pauseBadge(worker.id)}</span>
+              {/if}
+            {:else if cell.column.id === 'task'}
+              {@const task = rosterEntry(worker.id)?.currentTask}
+              {#if task}
+                <div class="min-w-0 text-xs">
+                  <a href="/app/apps/{app.id}/tasks/{task.id}" class="block truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
+                  <span class="text-zinc-500">{TASK_STATUS[task.status]?.() ?? task.status}</span>
+                </div>
+              {:else}
+                <span class="text-xs text-zinc-400">—</span>
+              {/if}
             {:else if cell.column.id === 'family'}
               {#if worker.family}
                 <span class="text-xs text-zinc-600 dark:text-zinc-300">{worker.family}</span>
