@@ -32,6 +32,11 @@ import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
 import type { MemoryNode, NodeRevision } from '$lib/types';
+import { isCapped } from '$lib/server/capped';
+
+// nodeRevisions has no offset or cursor (hadron-server#2212): the history is one
+// window of the newest revisions, and the History tab says when it came back full.
+const REVISIONS_LIMIT = 100;
 import type { Actions, PageServerLoad } from './$types';
 import { loadSkillCheck } from '$lib/server/skill-check';
 import { nodeStorageSeed, noWriteDoor, runnableBlockedBy, updateStorage } from './storage-action';
@@ -294,14 +299,15 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // tab can tell "no revisions" from "couldn't load" — a silent [] on failure
   // masks real errors (schema drift, a down server) as an empty history.
   const isComment = node.nodeType === COMMENT_NODE_TYPE;
-  const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[] }> => {
+  const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[]; capped?: boolean }> => {
     if (isComment) return { ok: true, items: [] };
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeRevision[] }>(
         NODE_REVISIONS_QUERY,
-        { nodeRef: node.id, limit: 100 },
+        { nodeRef: node.id, limit: REVISIONS_LIMIT },
       );
-      return { ok: true, items: r?.nodeRevisions ?? [] };
+      const items = r?.nodeRevisions ?? [];
+      return { ok: true, items, capped: isCapped(items.length, REVISIONS_LIMIT) };
     } catch (e) {
       console.warn('[node-detail] revision history failed:', e);
       return { ok: false, items: [] };
@@ -380,7 +386,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeProvenance[] }>(
         NODE_REVISIONS_PROVENANCE_QUERY,
-        { nodeRef: node.id, limit: 100 },
+        { nodeRef: node.id, limit: REVISIONS_LIMIT },
       );
       return { ok: true, value: r?.nodeRevisions ?? [] };
     } catch (e) {

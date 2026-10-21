@@ -82,7 +82,13 @@ import {
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
+import { isCapped } from '$lib/server/capped';
 import type { ReleaseWorkerMessage } from './schema';
+
+// appNodes and the chat-root read take a limit but have no continuation
+// (hadron-server#2212), so each fetches one window and says when it came back full.
+const APP_NODES_LIMIT = 500;
+const APP_CHAT_ROOTS_LIMIT = 200;
 import { readHoldStale, type HoldStale } from './hold-stale';
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
@@ -609,7 +615,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const userId = locals.user?.id ?? null;
   const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys] = await Promise.all([
     client
-      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
+      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
     app.agentId
       ? client
@@ -674,7 +680,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     client
       .request<{ appNodes: MemoryNode[] }>(APP_CHAT_ROOTS_QUERY, {
         appRef: params.appId,
-        limit: 200,
+        limit: APP_CHAT_ROOTS_LIMIT,
       })
       .then((r) => r.appNodes)
       .catch((e) => {
@@ -825,6 +831,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     availableAgents,
     availableAgentsError,
     appNodes: nodesData.appNodes,
+    appNodesCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT),
     chatConfigs,
     appConfigs: configsData ?? [],
     configsError: configsData === null,
@@ -848,6 +855,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
     chatsError: chatRoots === null,
+    chatsCapped: chatRoots !== null && isCapped(chatRoots?.length ?? 0, APP_CHAT_ROOTS_LIMIT),
     selectedChatKey: selectedChat?.key ?? null,
     selectedChatMessages: selectedChatMessages?.messages ?? [],
     // #793 (@copilot on PR #797): gate on the KIND. `selectedChatMessages` is

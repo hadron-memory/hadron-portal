@@ -1,6 +1,7 @@
 import { gqlClient } from '$lib/server/api';
 import { USAGE_EVENTS_QUERY } from '$lib/server/queries';
 import type { UsageEvent } from '$lib/components/table/usageEvent';
+import { isCapped } from '$lib/server/capped';
 import type { PageServerLoad } from './$types';
 
 const PAGE_SIZE = 200;
@@ -14,5 +15,5 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     { memoryId: params.id, limit: PAGE_SIZE },
   );
 
-  return { events: data.usageEvents };
+  return { events: data.usageEvents, eventsCapped: isCapped(data.usageEvents.length, PAGE_SIZE) };
 };

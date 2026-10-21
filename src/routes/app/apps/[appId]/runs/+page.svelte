@@ -16,6 +16,7 @@
     runDuration,
     statusChipClass,
   } from '$lib/flow/runs';
+  import CappedNotice from '$lib/components/CappedNotice.svelte';
   import type { PageData, ActionData } from './$types';
   import { runAppFlowSchema } from './schema';
 
@@ -87,6 +88,9 @@
   {#if data.flows.length > 0}
     <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
+      {#if data.flowsCapped}
+        <div class="mt-2"><CappedNotice shown={data.flowsScanned} what={t('capped.app-nodes', 'app nodes (flows are derived from them, so some may be missing)')} /></div>
+      {/if}
       <p class="mt-1 text-xs text-zinc-400">
         {t('flows.explainer', 'Runnable entry nodes with routing edges in this app’s memories. Run one here, or open the node to run it with a test payload.')}
       </p>
