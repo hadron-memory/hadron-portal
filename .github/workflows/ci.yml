@@ -83,6 +83,9 @@ jobs:
       - name: Check Tickers phone layout
         run: pnpm test:tickers-layout
 
+      - name: Check App picker phone layout
+        run: node scripts/test-select-app-layout.mjs
+
       - name: Check
         run: pnpm check
 

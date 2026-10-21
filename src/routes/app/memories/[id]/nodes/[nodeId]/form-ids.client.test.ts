@@ -62,8 +62,8 @@ function serveNode(node: typeof NODE | null) {
   });
 }
 
-async function mountPage() {
-  serveNode(NODE);
+async function mountPage(node = NODE) {
+  serveNode(node);
   const loaded = (await load({
     params: { id: 'mem-A', nodeId: 'leaf-pk' },
     locals: { token: 'tok' },
@@ -99,6 +99,19 @@ async function submitWith(target: HTMLElement, props: Record<string, unknown>, a
   for (let i = 0; i < 5; i++) await tick();
   flushSync();
 }
+
+it('#1167 Settings dates match the memory Info format', async () => {
+  // The UI deliberately formats local dates; create a local-calendar fixture.
+  const localDate = new Date(2026, 9, 1, 12).toISOString();
+  const {target} = await mountPage({...NODE, createdAt: localDate, updatedAt: localDate});
+  const settings = [...target.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Settings');
+  expect(settings).toBeDefined();
+  settings!.click();
+  flushSync();
+  await tick();
+  expect(target.textContent).toContain('Oct 1, 2026');
+  expect(target.textContent).not.toContain('10/1/2026');
+});
 
 describe('node page form ids (#995)', () => {
   it("Convert to task's error renders, with Duplicate's form on the page", async () => {

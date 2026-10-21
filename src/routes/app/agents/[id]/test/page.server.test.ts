@@ -9,7 +9,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { AI_CONFIG_READINESS_QUERY, MY_AGENTS_QUERY, ORGANIZATIONS_QUERY, RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
+import { FIXTURE_NODES_QUERY, AI_CONFIG_READINESS_QUERY, MY_AGENTS_QUERY, ORGANIZATIONS_QUERY, RESOLVE_AI_CONFIG_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -143,6 +143,7 @@ describe('/app/agents/[id]/test loader', () => {
     expect(result.org.id).toBe('org-a');
     expect(result.llmProviderConfigured).toBe(true);
     expect(result.fixtures).toEqual([]);
+    expect(mockRequest).toHaveBeenCalledWith(FIXTURE_NODES_QUERY, { limit: 500, memoryIds: ['sys-mem-a'] });
     expect(mockRequest.mock.calls.map(([query]) => query)).not.toContain(MY_AGENTS_QUERY);
   });
 

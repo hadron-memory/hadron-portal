@@ -562,6 +562,15 @@ describe('hrn:ticker: URNs (portal#1099)', () => {
     await expect(load(ev(urn) as never)).rejects.toMatchObject({ status: 404 });
   });
 
+  // #1209: Ticker.app becomes nullable (null when the reader can't read the
+  // App directly). For the resolver that is the ordinary not-found — the same
+  // 404 as a missing ticker, never a redirect to /app/apps/null/....
+  it('a ticker whose App the reader cannot read (app null) is the same no-oracle 404 (#1209)', async () => {
+    mockRequest.mockResolvedValueOnce({ ticker: { id: 'tk-1', app: null } });
+    const load = await importLoad();
+    await expect(load(ev(urn) as never)).rejects.toMatchObject({ status: 404 });
+  });
+
   it('never asks resolveUrn for a ticker', async () => {
     const { RESOLVE_URN_QUERY } = await import('$lib/server/queries');
     mockRequest.mockResolvedValueOnce({ ticker: null });
