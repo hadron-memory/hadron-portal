@@ -26,7 +26,7 @@
   <div role="dialog" aria-modal="true" aria-labelledby="revision-label-heading" class="relative w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
   <form onsubmit={(e) => { e.preventDefault(); onsave(text); }}>
     <h3 id="revision-label-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.label.heading', 'Edit revision label')}</h3>
-    <label class="mt-3 block text-xs font-medium text-zinc-600 dark:text-zinc-400" for="revision-label-input">{t('node.history.label.field', 'Label')}</label>
+    <label class="sr-only" for="revision-label-input">{t('node.history.label.field', 'Label')}</label>
     <input
       id="revision-label-input"
       data-testid="revision-label-input"
