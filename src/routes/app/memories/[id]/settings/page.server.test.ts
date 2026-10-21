@@ -407,10 +407,10 @@ function updateEv(form: Record<string, string>) {
 
 function superFormFrom(result: unknown) {
   return (result as {
-    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean } };
-    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+    data?: { form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean; data?: Record<string, unknown> } };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean; data?: Record<string, unknown> };
   } | undefined)?.data?.form ?? (result as {
-    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean };
+    form?: { errors?: Record<string, string[]>; message?: unknown; valid?: boolean; data?: Record<string, unknown> };
   } | undefined)?.form;
 }
 
