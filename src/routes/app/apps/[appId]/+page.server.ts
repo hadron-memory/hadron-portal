@@ -562,10 +562,26 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // cannot null the org (see APP_ORG_AGENTS_QUERY).
     const pool = await withTimeout(
       client
-        .request<{ organization: { agents: InstallableAgent[] } | null }>(APP_ORG_AGENTS_QUERY, {
+        .request<{
+          organization: {
+            agents: InstallableAgent[];
+            agentOrgGrants?: Array<{ isActive: boolean; agent: InstallableAgent | null }>;
+          } | null;
+        }>(APP_ORG_AGENTS_QUERY, {
           ref: app.organizationId,
         })
-        .then((r) => r.organization?.agents ?? null),
+        .then((r) => {
+          if (!r.organization) return null;
+          // #1172: owned agents, then the ones the org subscribes to (an active
+          // grant whose agent the caller may read), each once.
+          const seen = new Set<string>();
+          const subscribed = (r.organization.agentOrgGrants ?? [])
+            .filter((g) => g.isActive && g.agent)
+            .map((g) => g.agent as InstallableAgent);
+          return [...r.organization.agents, ...subscribed].filter((a) =>
+            seen.has(a.id) ? false : (seen.add(a.id), true),
+          );
+        }),
       OPTIONAL_LIST_TIMEOUT_MS,
       null,
     ).catch((e) => {

@@ -566,6 +566,18 @@ export const APP_ORG_AGENTS_QUERY = /* GraphQL */ `
         name
         urn
       }
+      # #1172: the Agents the org SUBSCRIBES to are AgentOrgGrant rows, not
+      # members of agents, and installAgentIntoApp accepts them. The resolver is
+      # org-admin gated and answers [] (not a refusal) to anyone else, so this
+      # cannot cost the picker its owned agents; a non-admin simply sees none.
+      agentOrgGrants {
+        isActive
+        agent {
+          id
+          name
+          urn
+        }
+      }
     }
   }
 `;

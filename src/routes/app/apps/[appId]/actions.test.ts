@@ -1880,6 +1880,33 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
       expect((result as { availableAgentsError: boolean }).availableAgentsError).toBe(false);
     });
 
+    // #1172: an Agent the org SUBSCRIBES to is an AgentOrgGrant, not one of
+    // organization.agents, yet installAgentIntoApp accepts it. The picker must
+    // offer it, once, and only while the grant is active and the agent readable.
+    it('offers the agents the org subscribes to, beside the ones it owns (#1172)', async () => {
+      const SUBSCRIBED = { id: 'a2', name: 'Project Manager', urn: 'hrn:agent:hadronmemory.com:project-manager' };
+      stubOrg(
+        { resolve: { organization: ORG } },
+        {},
+        {
+          resolve: {
+            organization: {
+              id: 'org-1',
+              agents: POOL,
+              agentOrgGrants: [
+                { isActive: true, agent: SUBSCRIBED },
+                { isActive: true, agent: POOL[0] },
+                { isActive: false, agent: { id: 'a3', name: 'Revoked', urn: 'hrn:agent:revoked' } },
+                { isActive: true, agent: null },
+              ],
+            },
+          },
+        },
+      );
+      const { result } = await loadAndCatch();
+      expect((result as { availableAgents: unknown[] }).availableAgents).toEqual([...POOL, SUBSCRIBED]);
+    });
+
     it('a refusing agents resolver costs the picker, not the page', async () => {
       // `agents` is a non-null list: folded into the org document its failure
       // would null the org and 404 the page over data one tab draws (#851).
