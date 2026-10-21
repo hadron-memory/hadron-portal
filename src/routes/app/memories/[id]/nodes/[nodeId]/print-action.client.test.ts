@@ -70,7 +70,9 @@ async function mountPage() {
 }
 
 function clickMenuItem(target: HTMLElement, label: string) {
-  target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Foo"]')!.click();
+  // Prefix match: the label carries the node name, which changes mid-test
+  // in the navigation cases below.
+  target.querySelector<HTMLButtonElement>('button[aria-label^="Actions for"]')!.click();
   flushSync();
   const item = [...target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
     .find((b) => b.textContent?.trim() === label);
@@ -94,72 +96,91 @@ function stubObjectUrls() {
   return { create, revoke };
 }
 
-function stubExportFetch(data = 'JVBERi0xLjQ', ok = true) {
+function stubExportFetch(data = 'JVBERi0xLjQ', ok = true, mimeType = 'application/pdf') {
   return vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
     new Response(JSON.stringify({
-      filename: 'foo.pdf', mimeType: 'application/pdf', data, encoding: 'BASE64',
+      filename: 'foo.pdf', mimeType, data, encoding: 'BASE64',
     }), { status: ok ? 200 : 500 }));
 }
 
-/** A truthy stand-in for the Window window.open returns on success. */
-const FAKE_WINDOW = {} as unknown as Window;
+/**
+ * window.open fakes, one per call — each printNode opens its OWN window
+ * synchronously (see below). `location.href` records the navigation,
+ * `close` records the window being given up.
+ */
+function stubWindowOpen() {
+  const wins: Array<{ location: { href: string }; close: ReturnType<typeof vi.fn> }> = [];
+  const open = vi.spyOn(window, 'open').mockImplementation(() => {
+    const w = { location: { href: '' }, close: vi.fn() };
+    wins.push(w);
+    return w as unknown as Window;
+  });
+  return { open, wins };
+}
 
 describe('node menu Print (#1073)', () => {
   it('opens the node\'s PDF render in a new tab, revoking only the previous URL', async () => {
     const { target } = await mountPage();
     const { create, revoke } = stubObjectUrls();
-    const open = vi.spyOn(window, 'open').mockReturnValue(FAKE_WINDOW);
+    const { open, wins } = stubWindowOpen();
     const fetchMock = stubExportFetch();
     vi.stubGlobal('fetch', fetchMock);
 
     clickMenuItem(target, 'Print');
     await settle();
 
+    // The window opens synchronously, inside the click's user gesture —
+    // after the export await, Safari/Firefox treat window.open as a popup.
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(open).toHaveBeenCalledWith('', '_blank');
     // The server-rendered PDF (#421 export path), asked for by PK.
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [input, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(input).toBe('/api/nodes/export');
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body as string)).toEqual({ id: 'leaf-pk', format: 'PDF', full: true });
-    expect(open).toHaveBeenCalledWith('blob:print-1', '_blank');
+    // Its location is assigned only once the PDF arrives.
+    expect(wins[0].location.href).toBe('blob:print-1');
 
     // A second print holds at most one object URL.
     clickMenuItem(target, 'Print');
     await settle();
-    expect(open).toHaveBeenLastCalledWith('blob:print-2', '_blank');
+    expect(wins[1].location.href).toBe('blob:print-2');
     expect(revoke).toHaveBeenCalledWith('blob:print-1');
     expect(create).toHaveBeenCalledTimes(2);
   });
 
-  it('renders an alert and opens nothing when the export fails', async () => {
+  it('closes the blank window and says so when the export fails', async () => {
     const { target } = await mountPage();
-    stubObjectUrls();
-    const open = vi.spyOn(window, 'open').mockReturnValue(FAKE_WINDOW);
+    const { create } = stubObjectUrls();
+    const { wins } = stubWindowOpen();
     vi.stubGlobal('fetch', stubExportFetch('', false));
 
     clickMenuItem(target, 'Print');
     await settle();
 
-    expect(open).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(wins[0].location.href).toBe('');
+    expect(wins[0].close).toHaveBeenCalled();
     const alert = target.querySelector('[role="alert"]');
     expect(alert?.textContent).toContain('Could not open the PDF');
   });
 
-  it('says the popup was blocked and does not strand its object URL', async () => {
+  it('says the popup was blocked, without fetching or minting a URL', async () => {
     const { target } = await mountPage();
-    const { create, revoke } = stubObjectUrls();
-    // null is what window.open returns when the browser blocks the popup.
+    const { create } = stubObjectUrls();
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    vi.stubGlobal('fetch', stubExportFetch());
+    const fetchMock = stubExportFetch();
+    vi.stubGlobal('fetch', fetchMock);
 
     clickMenuItem(target, 'Print');
     await settle();
 
+    // The blank window opens synchronously, so a blocked popup is known
+    // before the export is even asked for.
     expect(open).toHaveBeenCalledTimes(1);
-    // The URL minted for a window that never opened is revoked, not left to
-    // live for the tab's lifetime.
-    expect(create).toHaveBeenCalledTimes(1);
-    expect(revoke).toHaveBeenCalledWith('blob:print-1');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
     const alert = target.querySelector('[role="alert"]');
     expect(alert?.textContent).toMatch(/blocked/i);
   });
@@ -167,7 +188,7 @@ describe('node menu Print (#1073)', () => {
   it('revokes the live object URL on unmount', async () => {
     const { target, unmount } = await mountPage();
     const { revoke } = stubObjectUrls();
-    vi.spyOn(window, 'open').mockReturnValue(FAKE_WINDOW);
+    stubWindowOpen();
     vi.stubGlobal('fetch', stubExportFetch());
 
     clickMenuItem(target, 'Print');
@@ -179,10 +200,10 @@ describe('node menu Print (#1073)', () => {
     expect(revoke).toHaveBeenCalledWith('blob:print-1');
   });
 
-  it('opens nothing when the export resolves after unmount', async () => {
+  it('navigates the blank window nowhere when the export resolves after unmount', async () => {
     const { target, unmount } = await mountPage();
     const { create } = stubObjectUrls();
-    const open = vi.spyOn(window, 'open').mockReturnValue(FAKE_WINDOW);
+    const { wins } = stubWindowOpen();
     // Hold the export open so the unmount lands inside the await window —
     // resolving it early would let the continuation finish first and the test
     // would pass without ever entering the gap.
@@ -201,10 +222,130 @@ describe('node menu Print (#1073)', () => {
       await settle();
     });
 
-    // A tab opening after the user left the page is the #782-class hazard;
-    // a crash there surfaces only as an unhandled rejection.
+    // The window was already opened synchronously; the stale run must close
+    // it, mint no URL and navigate it nowhere. A crash there surfaces only
+    // as an unhandled rejection.
     expect(create).not.toHaveBeenCalled();
-    expect(open).not.toHaveBeenCalled();
+    expect(wins[0].location.href).toBe('');
+    expect(wins[0].close).toHaveBeenCalled();
     expect(rejections).toEqual([]);
+  });
+
+  it('a non-PDF export closes the window and says so instead of navigating to it', async () => {
+    const { target } = await mountPage();
+    const { create } = stubObjectUrls();
+    const { wins } = stubWindowOpen();
+    vi.stubGlobal('fetch', stubExportFetch('PGh0bWw+', true, 'text/html'));
+
+    clickMenuItem(target, 'Print');
+    await settle();
+
+    expect(create).not.toHaveBeenCalled();
+    expect(wins[0].location.href).toBe('');
+    expect(wins[0].close).toHaveBeenCalled();
+    const alert = target.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain('did not return a PDF');
+  });
+
+  // ── Reused-page navigation (#1193 READ P2s: Gustav 6308078003, George
+  // 6308087332). SvelteKit reuses this component between nodes, so an
+  // export for A must not open over B, and A's catch/finally must not
+  // write B's state. ────────────────────────────────────────────────────
+
+  const NODE_B = {
+    ...NODE, id: 'other-pk', memoryId: 'mem-A', loc: 'bar', name: 'Bar',
+  };
+
+  async function navigateToNodeB(props: Record<string, unknown>) {
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: NODE_B };
+      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
+    });
+    props.data = {
+      ...(props.data as object),
+      node: NODE_B,
+      graphNodes: [
+        { id: 'other-pk', memoryId: 'mem-A', loc: 'bar', name: 'Bar', nodeType: 'info', tags: [] },
+      ],
+    };
+    for (let i = 0; i < 5; i++) await tick();
+    flushSync();
+    // The rerender happened: the menu now labels itself for Bar.
+    document.querySelector('button[aria-label="Actions for Bar"]');
+  }
+
+  it('navigates nowhere when the export resolves after a node change', async () => {
+    const { target, props } = await mountPage();
+    const { create } = stubObjectUrls();
+    const { wins } = stubWindowOpen();
+    let resolveFetch!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(
+      () => new Promise<Response>((r) => { resolveFetch = r; }),
+    ));
+
+    const rejections = await captureUnhandledRejections(async () => {
+      clickMenuItem(target, 'Print');
+      await navigateToNodeB(props);
+      resolveFetch(new Response(JSON.stringify({
+        filename: 'foo.pdf', mimeType: 'application/pdf',
+        data: 'JVBERi0xLjQ', encoding: 'BASE64',
+      }), { status: 200 }));
+      await settle();
+    });
+
+    // A's PDF must not open over B; the blank window A opened is closed.
+    expect(create).not.toHaveBeenCalled();
+    expect(wins[0].location.href).toBe('');
+    expect(wins[0].close).toHaveBeenCalled();
+    expect(rejections).toEqual([]);
+  });
+
+  it('revokes the previous node\'s live object URL on node change', async () => {
+    const { target, props } = await mountPage();
+    const { revoke } = stubObjectUrls();
+    stubWindowOpen();
+    vi.stubGlobal('fetch', stubExportFetch());
+
+    clickMenuItem(target, 'Print');
+    await settle();
+    expect(revoke).not.toHaveBeenCalled();
+
+    await navigateToNodeB(props);
+    expect(revoke).toHaveBeenCalledWith('blob:print-1');
+  });
+
+  it('an old export\'s error does not touch the new node\'s print in flight', async () => {
+    const { target, props } = await mountPage();
+    const { create } = stubObjectUrls();
+    const { wins } = stubWindowOpen();
+    // A's export is held; after the navigation B's export is held too.
+    const resolvers: Array<(r: Response) => void> = [];
+    vi.stubGlobal('fetch', vi.fn(
+      () => new Promise<Response>((r) => { resolvers.push(r); }),
+    ));
+
+    clickMenuItem(target, 'Print'); // A, held
+    await navigateToNodeB(props);
+    clickMenuItem(target, 'Print'); // B, held (busy was reset by the change)
+    expect(wins.length).toBe(2);
+
+    // A's export now fails: its catch must not write B's error state or
+    // close B's window.
+    resolvers[0](new Response('Internal Server Error', { status: 500 }));
+    await settle();
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    expect(wins[1].close).not.toHaveBeenCalled();
+    expect(wins[0].close).toHaveBeenCalled();
+
+    // B's export succeeds and navigates its own window.
+    resolvers[1](new Response(JSON.stringify({
+      filename: 'bar.pdf', mimeType: 'application/pdf',
+      data: 'JVBERi0xLjQ', encoding: 'BASE64',
+    }), { status: 200 }));
+    await settle();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(wins[1].location.href).toBe('blob:print-1');
+    expect(wins[1].close).not.toHaveBeenCalled();
   });
 });

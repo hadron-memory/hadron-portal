@@ -1186,43 +1186,59 @@
   // Print (#1073): fetch the node's PDF render and open it in a new tab —
   // the browser's PDF viewer owns the print dialog, so this is the export
   // path with no save-to-disk step. Repeated prints hold at most one object
-  // URL: the previous one is revoked when a new PDF opens, and unmount
-  // revokes the live one. A popup the browser blocks says so instead of
-  // failing silently, and an export that lands after the page is gone opens
-  // nothing. The liveness check sits at the side effect, per
-  // hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
+  // URL: the previous one is revoked when a new PDF opens, and unmount and
+  // node changes revoke the live one. The blank print window opens
+  // synchronously, inside the click's user gesture — after the export await,
+  // Safari/Firefox treat window.open as a popup — and its location is
+  // assigned only once the PDF arrives. A popup the browser blocks says so
+  // instead of failing silently.
   let printBusy = $state(false);
   let printError = $state<string | null>(null);
   let printUrl: string | null = null;
-  let printAlive = true;
-  $effect(() => {
-    return () => {
-      printAlive = false;
-      if (printUrl) URL.revokeObjectURL(printUrl);
-      printUrl = null;
-    };
-  });
+  // A print's generation: bumped by anything that invalidates it — teardown,
+  // and a node change (SvelteKit reuses this component between nodes, so an
+  // export for A must not open over B, and A's catch/finally must not write
+  // B's state; #1193 READ P2s). A stale run closes its window, opens
+  // nothing and writes nothing. The liveness check sits at the side effect,
+  // per hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
+  let printGeneration = 0;
+  function invalidatePrint() {
+    printGeneration++;
+    if (printUrl) URL.revokeObjectURL(printUrl);
+    printUrl = null;
+  }
+  $effect(() => () => invalidatePrint());
   async function printNode() {
     if (printBusy) return;
     printBusy = true;
     printError = null;
+    const run = printGeneration;
+    const win = window.open('', '_blank');
+    if (!win) {
+      printError = t('node-actions.print.blocked', 'The print window was blocked. Allow popups for this site, then try again.');
+      printBusy = false;
+      return;
+    }
     try {
       const { blob } = await fetchNodeExport({ id: node.id, format: 'PDF', full: true });
-      if (!printAlive) return;
+      if (run !== printGeneration) {
+        win.close();
+        return;
+      }
+      if (blob.type !== 'application/pdf') {
+        // Loud refusal, never a navigation to something that isn't the PDF.
+        win.close();
+        printError = t('node-actions.print.not-pdf', 'The export did not return a PDF. Please try again.');
+        return;
+      }
       if (printUrl) URL.revokeObjectURL(printUrl);
       printUrl = URL.createObjectURL(blob);
-      const win = window.open(printUrl, '_blank');
-      if (!win) {
-        // Blocked: this URL was minted for a window that never opened —
-        // revoke it now rather than stranding it for the tab's lifetime.
-        URL.revokeObjectURL(printUrl);
-        printUrl = null;
-        printError = t('node-actions.print.blocked', 'The print window was blocked. Allow popups for this site, then try again.');
-      }
+      win.location.href = printUrl;
     } catch {
-      if (printAlive) printError = t('node-actions.print.failed', 'Could not open the PDF. Please try again.');
+      win.close();
+      if (run === printGeneration) printError = t('node-actions.print.failed', 'Could not open the PDF. Please try again.');
     } finally {
-      if (printAlive) printBusy = false;
+      if (run === printGeneration) printBusy = false;
     }
   }
 
@@ -2075,6 +2091,11 @@
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
+      // An export in flight for the previous node no longer owns this page
+      // (#1193 READ P2s). Invalidate before the flag resets below so a
+      // print started for the new node cannot collide with the old one's
+      // completion.
+      invalidatePrint();
       printError = null;
       printBusy = false;
       skillExportOpen = false;
