@@ -5,7 +5,7 @@
  * agent stays rejected as cross-org; unknown agents stay not-found.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ORGANIZATIONS_QUERY, AGENT_PUBLIC_QUERY } from '$lib/server/queries';
+import { ORGANIZATIONS_QUERY, AGENT_PUBLIC_QUERY, ORG_APPS_FOR_REGISTER_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -33,6 +33,7 @@ function route(opts: { publicAgent?: unknown }) {
     if (query === ORGANIZATIONS_QUERY) {
       return { organizations: { items: [memberOrg], total: 1 } };
     }
+    if (query === ORG_APPS_FOR_REGISTER_QUERY) return { apps: { items: [], total: 0 } };
     if (query === AGENT_PUBLIC_QUERY) return { agent: opts.publicAgent ?? null };
     throw new Error(`unexpected query: ${query.slice(0, 60)}`);
   });
