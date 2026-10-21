@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { resolve } from 'path';
+import { testMaxWorkers } from './scripts/test-max-workers.mjs';
 
 const $lib = resolve(__dirname, 'src/lib');
 
@@ -35,6 +36,9 @@ const $lib = resolve(__dirname, 'src/lib');
 // impossible rather than merely unconfigured.
 export default defineConfig({
   test: {
+    // Hugo's #28704: a host can cap the worker pool with HADRON_TEST_MAX_WORKERS
+    // (a positive integer); unset, vitest's default is unchanged.
+    maxWorkers: testMaxWorkers(process.env.HADRON_TEST_MAX_WORKERS),
     projects: [
       {
         plugins: [svelte()],

@@ -1102,6 +1102,12 @@ export const WORKERS_QUERY = /* GraphQL */ `
         reportsToWorkerId
         reportsToRetired
         lastActiveAt
+        # portal#1168 — the AI Team grid's Status and Model family columns, and
+        # the role agent's system memory for the ⋯ menu. All masked to null on
+        # deny, like lastActiveAt.
+        family
+        hasLiveSession
+        agent { systemMemoryId }
       }
       total
     }

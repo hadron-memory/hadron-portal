@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
   ORGANIZATION_QUERY,
+  SELF_CAN_WRITE_QUERY,
   MEMORY_BY_ID_QUERY,
   MEMORY_NODES_QUERY,
   MEMORY_EDGES_QUERY,
@@ -171,6 +172,20 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   const memory = memoryData.memory;
   if (!memory) throw error(404, 'Memory not found');
 
+  // #646: ask the same server gate writes use; a share role alone cannot
+  // account for another grant. Failure keeps reading available, never editing.
+  let canWriteMemory = false;
+  if (locals.user?.id) {
+    try {
+      const access = await client.request<{ effectiveAccess: { canWrite: boolean } }>(SELF_CAN_WRITE_QUERY, {
+        user: locals.user.id, resource: memory.urn,
+      });
+      canWriteMemory = access.effectiveAccess.canWrite === true;
+    } catch {
+      console.warn('[memory-layout] write access unavailable');
+    }
+  }
+
   // Load the owning org for breadcrumb + settings (members/urn). Keyed on the
   // memory's own organizationId, not a URL segment. ORGANIZATION_QUERY is
   // authz-gated, so a non-member viewer gets `org: null` — the settings page
@@ -217,6 +232,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   return {
     org: orgData.organization,
     graph: memory,
+    canWriteMemory,
     graphNodes: memoryNodes,
     nodesTotal,
     nodesFailed,
