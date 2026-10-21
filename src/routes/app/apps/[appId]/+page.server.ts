@@ -516,8 +516,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // Bounded: a request that HANGS would otherwise hold every tab of the page.
     withTimeout(
       client
-        .request<{ app: { members: AppMember[] } | null }>(APP_MEMBERS_QUERY, { ref: params.appId })
-        .then((r) => r.app?.members ?? null),
+        .request<{ app: { members: AppMember[] | null } | null }>(APP_MEMBERS_QUERY, { ref: params.appId })
+        // portal#1148: `members: null` is WITHHELD (hadron-server#2089), distinct from a
+        // failed fetch (null here) and from a real [] (a known-empty roster).
+        .then((r) => (r.app === null ? null : r.app.members === null ? ('withheld' as const) : r.app.members)),
       OPTIONAL_LIST_TIMEOUT_MS,
       null,
     ).catch((e) => {
@@ -901,8 +903,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     releaseWorkerForm,
     postTeamChatMessageForm,
     // #1005: the Human Team tab. null members = the fetch failed.
-    members: membersData ?? [],
+    members: Array.isArray(membersData) ? membersData : [],
     membersError: membersData === null,
+    membersWithheld: membersData === 'withheld',
     addMemberForm,
     ensureMemberForm,
     removeMemberForm,

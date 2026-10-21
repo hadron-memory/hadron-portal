@@ -16,6 +16,7 @@ import {
   addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
   revokeAppKeySchema, updateAppAgentToolsSchema,
+  addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -589,6 +590,87 @@ describe('App key inventory states (portal#1068)', () => {
     expect(panel.textContent).toContain(FAILED);
     expect(panel.textContent).not.toContain('No keys yet.');
     expect(panel.textContent).not.toContain('No active keys');
+  });
+});
+
+// portal#1148 (hadron-server#2089): a roster the server WITHHOLDS (null) is not an empty roster,
+// not a failed fetch, and not "no agent". Each known-empty control keeps its existing copy.
+describe('withheld App rosters (portal#1148)', () => {
+  const agent = { id: 'ag1', urn: 'hrn:agent:acme.com:coordinator', name: 'Coordinator', personaRole: 'coordinator' };
+  async function mountTab(tab: string, appOver: Record<string, unknown>, dataOver: Record<string, unknown> = {}) {
+    setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
+    const data = await pageData();
+    const memberForms = {
+      addMemberForm: await superValidate(zod4(addAppMemberSchema), { errors: false }),
+      ensureMemberForm: await superValidate(zod4(ensureAppMemberSchema), { errors: false }),
+      removeMemberForm: await superValidate(zod4(removeAppMemberSchema), { errors: false }),
+    };
+    const m = mountComponent(Page as never, reactiveProps({
+      data: { ...data, ...memberForms, initialTab: tab, app: { ...data.app, ...appOver }, ...dataOver }, form: null,
+    }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target.querySelector(`#panel-${tab}`)!;
+  }
+  const WITHHELD_AGENTS = 'The agents installed in this App aren’t visible to you.';
+
+  it('Agents tab: null agents says withheld, never "No agents are installed", and offers no add', async () => {
+    const panel = await mountTab('agents', { agents: null });
+    expect(panel.textContent).toContain(WITHHELD_AGENTS);
+    expect(panel.textContent).not.toContain('No agents are installed in this App yet.');
+    expect(panel.querySelector('form[action="?/addAgent"]')).toBeNull();
+  });
+  it('Agents tab: known-empty control — [] keeps "No agents are installed"', async () => {
+    const panel = await mountTab('agents', { agents: [] });
+    expect(panel.textContent).toContain('No agents are installed in this App yet.');
+    expect(panel.textContent).not.toContain(WITHHELD_AGENTS);
+  });
+  it('AI Team tab: null agents never claims there is nothing to cast', async () => {
+    const panel = await mountTab('staff', { agents: null });
+    expect(panel.textContent).toContain('who can be cast here isn’t known');
+    expect(panel.textContent).not.toContain('No agents are installed in this App yet, so there is nothing to cast');
+  });
+  it('AI Team tab: known-empty control — [] keeps the nothing-to-cast copy', async () => {
+    const panel = await mountTab('staff', { agents: [] });
+    expect(panel.textContent).toContain('nothing to cast');
+  });
+
+  it('Human Team: withheld members say so — not "No members yet.", not a failed fetch, no count, no add form', async () => {
+    const panel = await mountTab('members', { agent: { id: 'ag1', name: 'Coordinator', installationPolicy: { maxMembers: 'unlimited', memberRoles: ['member'] } }, agents: [agent] }, { members: [], membersError: false, membersWithheld: true });
+    expect(panel.textContent).toContain('The members of this App aren’t visible to you.');
+    expect(panel.textContent).not.toContain('No members yet.');
+    expect(panel.textContent).not.toContain('could not be loaded');
+    expect(panel.textContent).not.toMatch(/Human Team\s*\(0/);
+    expect(panel.textContent).not.toContain('Add member');
+  });
+  it('Human Team: known-empty control — an authorized owner with [] still sees "No members yet."', async () => {
+    const panel = await mountTab('members', { agents: [agent] }, { members: [], membersError: false, membersWithheld: false });
+    expect(panel.textContent).toContain('No members yet.');
+    expect(panel.textContent).not.toContain('aren’t visible to you');
+  });
+  it('Human Team: a failed fetch stays its own state', async () => {
+    const panel = await mountTab('members', { agents: [agent] }, { members: [], membersError: true, membersWithheld: false });
+    expect(panel.textContent).toContain('could not be loaded');
+    expect(panel.textContent).not.toContain('aren’t visible to you');
+  });
+  it('Human Team: a null agent with a withheld roster does not claim "no Agent linked"', async () => {
+    const panel = await mountTab('members', { agent: null, agentId: null, agents: null }, { members: [], membersError: false, membersWithheld: true });
+    expect(panel.textContent).not.toContain('This App has no Agent linked yet');
+    expect(panel.textContent).toContain('Which Agent is linked to this App isn’t visible to you.');
+  });
+  it('Human Team: known-empty control — a null agent with a real [] roster still says no Agent is linked', async () => {
+    const panel = await mountTab('members', { agent: null, agentId: null, agents: [] }, { members: [], membersError: false, membersWithheld: false });
+    expect(panel.textContent).toContain('This App has no Agent linked yet');
+  });
+
+  it('Chats tab: null agentId + null agents is withheld, not "Link a chatbot agent"', async () => {
+    const panel = await mountTab('chats', { surfaces: ['chat'], agentId: null, agent: null, agents: null }, { chatConfigs: [], selectedChatKey: AGENT_CHAT_KEY });
+    expect(panel.textContent).toContain('isn’t visible to you, so agent chat isn’t available here');
+    expect(panel.textContent).not.toContain('Link a chatbot agent to enable agent chat');
+  });
+  it('Chats tab: known-empty control — null agentId + [] still says link a chatbot agent', async () => {
+    const panel = await mountTab('chats', { surfaces: ['chat'], agentId: null, agent: null, agents: [] }, { chatConfigs: [], selectedChatKey: AGENT_CHAT_KEY });
+    expect(panel.textContent).toContain('Link a chatbot agent to enable agent chat');
   });
 });
 
