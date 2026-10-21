@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CappedNotice from '$lib/components/CappedNotice.svelte';
   import { formatPortalDate } from '$lib/format-portal-date';
   import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
@@ -1788,11 +1789,20 @@
   let revisionRows = $state<NodeRevision[]>([]);
   let revisionsLoaded = $state(false);
   let revisionsFailed = $state(false);
+  // The cap flag is pinned to the node whose read set it: `revisionsCappedFor`
+  // holds that node's id, and the cue shows only while it is the node on screen.
+  let revisionsCappedFor = $state<string | null>(null);
+  const revisionsCapped = $derived(revisionsCappedFor !== null && revisionsCappedFor === node.id);
   $effect(() => {
     const p = data.revisions; // track the current navigation's promise
     revisionsLoaded = false;
+    revisionsCappedFor = null;
     p.then((res) => {
+      // A late answer for the node the reader navigated away from must not land
+      // on this one (rows, cap flag or loaded state).
+      if (data.revisions !== p) return;
       revisionRows = res.items;
+      revisionsCappedFor = res.capped === true ? (res.nodeId ?? null) : null;
       revisionsFailed = !res.ok; // distinguish "no revisions" from "couldn't load"
       revisionsLoaded = true;
     });
@@ -3749,6 +3759,7 @@
       {:else}
         <div class="mb-3 flex items-center justify-between gap-3">
           <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Revisions saved on each edit, most recent first.')}</p>
+          {#if revisionsCapped}<CappedNotice shown={revisionRows.length} what={t('capped.revisions', 'revisions (the newest)')} />{/if}
           <button type="button" onclick={() => (clearConfirm = true)} disabled={readOnly || historyBusy}
             class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
             {t('node.history.clear', 'Clear')}
