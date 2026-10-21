@@ -8,28 +8,36 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_DIFF_CHARS, diffRevisionContent, replacementOf } from './revision-diff';
 
-const rev = (id: string, createdAt: string) => ({ id, createdAt });
+const rev = (id: string, revNo: number | null) => ({ id, revNo });
 
 describe('replacementOf', () => {
-  // The History list is most-recent-first.
-  const list = [rev('c', '2026-03-01'), rev('b', '2026-02-01'), rev('a', '2026-01-01')];
+  // revNo N is the snapshot of revision N, replaced by the state at N+1.
+  const list = [rev('c', 3), rev('b', 2), rev('a', 1)];
 
-  it('is the next-NEWER snapshot for a middle revision', () => {
+  it('is the snapshot whose revNo is exactly one higher', () => {
     expect(replacementOf(list, 'a')).toEqual({ kind: 'revision', id: 'b' });
     expect(replacementOf(list, 'b')).toEqual({ kind: 'revision', id: 'c' });
   });
 
-  it('is the live node for the newest snapshot', () => {
-    expect(replacementOf(list, 'c')).toEqual({ kind: 'current' });
+  it('is the live node, expected at revNo+1, for the newest snapshot', () => {
+    expect(replacementOf(list, 'c')).toEqual({ kind: 'current', liveRevision: 4 });
+  });
+
+  it('does not depend on list order', () => {
+    expect(replacementOf([list[2], list[0], list[1]], 'a')).toEqual({ kind: 'revision', id: 'b' });
   });
 
   it('is unknown when the revision is not in the list (pruned or beyond the page)', () => {
     expect(replacementOf(list, 'zzz')).toEqual({ kind: 'unknown' });
   });
 
-  it('does not trust list order: it sorts by createdAt', () => {
-    const shuffled = [list[2], list[0], list[1]];
-    expect(replacementOf(shuffled, 'a')).toEqual({ kind: 'revision', id: 'b' });
+  // A pruned or filtered-out middle snapshot must not make r1 -> r3 look like one edit.
+  it('is unknown across a gap in the revision numbers', () => {
+    expect(replacementOf([rev('c', 3), rev('a', 1)], 'a')).toEqual({ kind: 'unknown' });
+  });
+
+  it('is unknown for a legacy row with no revNo', () => {
+    expect(replacementOf([rev('c', 3), rev('a', null)], 'a')).toEqual({ kind: 'unknown' });
   });
 });
 
@@ -52,8 +60,10 @@ describe('diffRevisionContent', () => {
     expect(diffRevisionContent('', '')).toEqual({ state: 'diff', changed: false, lines: [] });
   });
 
-  it('reports no change for two absent bodies', () => {
-    expect(diffRevisionContent(null, undefined)).toEqual({ state: 'diff', changed: false, lines: [] });
+  // Two withheld bodies may differ; null cannot prove equality.
+  it('refuses to compare two absent bodies rather than call them unchanged', () => {
+    expect(diffRevisionContent(null, undefined)).toEqual({ state: 'unavailable' });
+    expect(diffRevisionContent(null, null)).toEqual({ state: 'unavailable' });
   });
 
   // Withheld (encrypted / no read access) and empty both arrive as null; a
@@ -76,7 +86,35 @@ describe('diffRevisionContent', () => {
     expect(diffRevisionContent('x'.repeat(MAX_DIFF_CHARS), 'y')).toMatchObject({ state: 'diff' });
   });
 
-  it('keeps a final line without a trailing newline distinct from one with it', () => {
-    expect(diffRevisionContent('a', 'a\n')).toMatchObject({ changed: true });
+  it('ignores a difference only in the final newline', () => {
+    expect(diffRevisionContent('a', 'a\n')).toEqual({ state: 'diff', changed: false, lines: [] });
+  });
+
+  // QA #1187: appending after a last line with no trailing newline showed that
+  // line as removed and re-added.
+  it('does not show the old last line as changed when text is appended after it', () => {
+    const d = diffRevisionContent('one\ntwo', 'one\ntwo\nthree');
+    if (d.state !== 'diff') throw new Error('unreachable');
+    expect(d.lines.map((l) => [l.kind, l.text])).toEqual([
+      ['same', 'one'],
+      ['same', 'two'],
+      ['added', 'three'],
+    ]);
+  });
+
+  // Gene on #1187: a 28,889-char pair stalled a synchronous diff for >2s.
+  it('gives up on a pair with nothing in common instead of stalling', () => {
+    const lines = (p: string) => Array.from({ length: 5000 }, (_, i) => `${p}${i}`).join('\n');
+    const t0 = Date.now();
+    expect(diffRevisionContent(lines('a'), lines('b'))).toEqual({ state: 'too-large' });
+    expect(Date.now() - t0).toBeLessThan(1500);
+  });
+
+  it('still diffs a large body with a small edit', () => {
+    const base = Array.from({ length: 5000 }, (_, i) => `line ${i}`);
+    const edited = [...base];
+    edited[2500] = 'changed';
+    const d = diffRevisionContent(base.join('\n'), edited.join('\n'));
+    expect(d).toMatchObject({ state: 'diff', changed: true });
   });
 });

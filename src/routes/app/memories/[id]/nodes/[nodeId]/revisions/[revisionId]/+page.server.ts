@@ -57,11 +57,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       const next = replacementOf(nodeRevisions ?? [], params.revisionId);
       if (next.kind === 'unknown') return { ok: true, against: 'unknown' };
       if (next.kind === 'current') {
-        const live = await client.request<{ node: { content: string | null } | null }>(
+        const live = await client.request<{ node: { content: string | null; revision: number | null } | null }>(
           NODE_LIVE_CONTENT_QUERY,
           { ref: params.nodeId },
         );
         if (!live?.node) return { ok: false };
+        // The newest readable snapshot only precedes the live node if no
+        // snapshot sits between them (filtered, pruned, or a truncating restore).
+        if (live.node.revision !== next.liveRevision) return { ok: true, against: 'unknown' };
         return { ok: true, against: 'current', ...diffRevisionContent(nodeRevision.content, live.node.content) };
       }
       const newer = await client.request<{ nodeRevision: NodeRevision | null }>(NODE_REVISION_QUERY, {

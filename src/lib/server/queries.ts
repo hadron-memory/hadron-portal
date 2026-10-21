@@ -1552,7 +1552,7 @@ export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
 // newest snapshot. raw: true — the text as authored, never template-compiled.
 export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
   query NodeLiveContent($ref: ID!) {
-    node(ref: $ref, raw: true) { id content }
+    node(ref: $ref, raw: true) { id content revision }
   }
 `;
 

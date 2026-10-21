@@ -91,7 +91,7 @@
     {:else if !changes.ok}
       <p class="text-sm text-zinc-500" role="status">{t('node-revision.changes.failed', 'Couldn’t load the changes.')}</p>
     {:else if changes.against === 'unknown'}
-      <p class="text-sm text-zinc-500">{t('node-revision.changes.unknown', 'The edit that replaced this revision can’t be shown: the next revision is no longer in the history.')}</p>
+      <p class="text-sm text-zinc-500">{t('node-revision.changes.unknown', 'The edit that replaced this revision can’t be shown: the revisions between it and the next one aren’t all available.')}</p>
     {:else}
       <p class="mb-1 text-xs text-zinc-500">
         {changes.against === 'current'

@@ -22,9 +22,9 @@ beforeEach(() => {
 });
 
 const HISTORY = [
-  { id: 'r3', createdAt: '2026-03-01T00:00:00Z' },
-  { id: 'r2', createdAt: '2026-02-01T00:00:00Z' },
-  { id: 'r1', createdAt: '2026-01-01T00:00:00Z' },
+  { id: 'r3', revNo: 3, createdAt: '2026-03-01T00:00:00Z' },
+  { id: 'r2', revNo: 2, createdAt: '2026-02-01T00:00:00Z' },
+  { id: 'r1', revNo: 1, createdAt: '2026-01-01T00:00:00Z' },
 ];
 const CONTENT: Record<string, string> = { r1: 'a\nb\n', r2: 'a\nB\n', r3: 'a\nB\nc\n' };
 
@@ -37,7 +37,7 @@ function serve(opts: { history?: unknown; live?: unknown; failHistory?: boolean 
       if (opts.failHistory) throw new Error('boom');
       return { nodeRevisions: opts.history ?? HISTORY };
     }
-    if (doc === NODE_LIVE_CONTENT_QUERY) return { node: opts.live ?? { id: 'n', content: 'a\nB\nc\nd\n' } };
+    if (doc === NODE_LIVE_CONTENT_QUERY) return { node: opts.live === undefined ? { id: 'n', content: 'a\nB\nc\nd\n', revision: 4 } : opts.live };
     if (doc === NODE_REVISION_PROVENANCE_QUERY) return { nodeRevision: null };
     throw new Error(`unexpected document: ${doc.slice(0, 40)}`);
   });
@@ -88,7 +88,7 @@ describe('revision page: changes', () => {
   });
 
   it('does not diff against a withheld (null) live body', async () => {
-    serve({ live: { id: 'n', content: null } });
+    serve({ live: { id: 'n', content: null, revision: 4 } });
     expect(await changesFor('r3')).toEqual({ ok: true, against: 'current', state: 'unavailable' });
   });
 
@@ -100,6 +100,17 @@ describe('revision page: changes', () => {
       return { nodeRevision: null };
     });
     expect(await changesFor('r3')).toEqual({ ok: false });
+  });
+
+  it('says unknown, not a one-edit diff, across a pruned or filtered middle snapshot', async () => {
+    serve({ history: [HISTORY[0], HISTORY[2]] });
+    expect(await changesFor('r1')).toEqual({ ok: true, against: 'unknown' });
+  });
+
+  it('says unknown when the newest readable snapshot is not directly before the live node', async () => {
+    // r3 is revNo 3, so the live node should be revision 4; 5 means a snapshot is missing.
+    serve({ live: { id: 'n', content: 'x', revision: 5 } });
+    expect(await changesFor('r3')).toEqual({ ok: true, against: 'unknown' });
   });
 
   it('resolves to ok:false on a failed read, never rejecting the page', async () => {
