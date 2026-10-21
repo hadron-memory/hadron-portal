@@ -67,3 +67,14 @@ describe('create page', () => {
     expect(html).toContain('Viewing as Mike: changes are switched off in a support session.');
   });
 });
+
+// portal#1214: without JS too, a warned create renders the panel and no form.
+describe('create page: a warned create (no JS)', () => {
+  it('renders the created panel with the warnings, and no form', () => {
+    const html = page({ created: { id: 't9' }, committedWithError: false, more: 0, warnings: [{ code: 'task.create.no-source', text: 'No source <b>here</b>' }] });
+    expect(html).not.toMatch(/<form/);
+    expect(html).toContain('data-testid="task-created"');
+    expect(html).toContain('No source &lt;b>here&lt;/b>');
+    expect(html).toContain('href="/app/apps/app-1/tasks/t9"');
+  });
+});
