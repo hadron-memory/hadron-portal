@@ -54,7 +54,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   if (!resolved) return json({ error: 'Agent not found or no longer available' }, 404);
 
   const client = gqlClient(locals.token);
-  // cor:api:090:02: memory scope and system-node type are independent
+  // hrn:node:hadronmemory.com:specs:cor:api:090:02: memory scope and system-node type are independent
   // filters. Fixtures are system nodes, so name both (#1202).
   const result = await client.request<{ findNodes: { hits: Array<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;

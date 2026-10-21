@@ -199,7 +199,7 @@ async function loadFixtures(
   filterLoc: string | null,
 ): Promise<LoadedFixture[]> {
   const client = gqlClient(token);
-  // cor:api:090:02: explicit memory scope does not lift the independent
+  // hrn:node:hadronmemory.com:specs:cor:api:090:02: explicit memory scope does not lift the independent
   // system-node exclusion. Fixtures are system nodes (#1202).
   const result = await client.request<{ findNodes: { hits: Array<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;

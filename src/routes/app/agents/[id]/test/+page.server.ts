@@ -34,7 +34,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const systemMemoryId = agent.systemMemoryId ?? null;
   let fixtures: FixtureSummary[] = [];
   if (systemMemoryId) {
-    // cor:api:090:02: memory scope lifts only the memory-class exclusion.
+    // hrn:node:hadronmemory.com:specs:cor:api:090:02: memory scope lifts only the memory-class exclusion.
     // Fixtures are system-type nodes, so request that independent type too.
     const nodesResult = await client.request<{ findNodes: { hits: Array<{ node: {
       id: string; loc: string; memoryId: string; data: unknown;
