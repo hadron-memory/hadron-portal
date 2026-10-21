@@ -63,15 +63,16 @@ const conversationGoalsFormAdapter = zod4(conversationGoalsSchema);
 const conversationPromptFormAdapter = zod4(conversationPromptSchema);
 const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionSchema);
 
-// hrn:node:hadronmemory.com:specs:cor:api:090 — scope to the agent's system memory. findNodes hides
-// class:'system' memories on a broad (no-memoryIds) call, so the system-memory
-// nodes only come back when we name the memory in the filter (which also
-// overrides the exclusion). Results are under `hits[].node`.
+// hrn:node:hadronmemory.com:specs:cor:api:090:02: naming the system memory
+// bypasses the memory-class exclusion, but not the independent node-type
+// default. The editor creates conversations, stages and prompts as system
+// nodes, so request that type explicitly (#874). Other node types in the same
+// memory are not editor inputs. Results are under hits[].node.
 // Edge condition/priority/data feed the canvas rule annotations and the
 // routing-rule side panel.
 const GRAPH_NODES_QUERY = /* GraphQL */ `
   query Nodes($limit: Int, $memoryIds: [ID!]) {
-    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit) {
       hits {
         node {
           id memoryId nodeType loc name description content tags seq data
