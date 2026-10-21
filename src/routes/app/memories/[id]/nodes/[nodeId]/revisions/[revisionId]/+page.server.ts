@@ -1,9 +1,25 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { NODE_REVISION_QUERY, NODE_REVISION_PROVENANCE_QUERY } from '$lib/server/queries';
+import {
+  NODE_LIVE_CONTENT_QUERY,
+  NODE_REVISION_PROVENANCE_QUERY,
+  NODE_REVISION_QUERY,
+  NODE_REVISIONS_QUERY,
+} from '$lib/server/queries';
+import { diffRevisionContent, replacementOf, type DiffLine } from '$lib/revision-diff';
 import type { NodeProvenance, ProvenanceResult } from '$lib/node-provenance';
 import type { NodeRevision } from '$lib/types';
 import type { PageServerLoad } from './$types';
+
+/**
+ * #1001: what the edit that replaced this snapshot changed. `ok: false` means
+ * "couldn't load"; `against: 'unknown'` means we looked and this snapshot is not
+ * in the History list, so no honest single-edit diff exists.
+ */
+export type RevisionChanges =
+  | { ok: false }
+  | { ok: true; against: 'unknown' }
+  | { ok: true; against: 'current' | 'revision'; changed: boolean; lines: DiffLine[] };
 
 // #529: read-only view of a single NodeRevision snapshot, opened in a new tab
 // from the History tab's row menu ("Display"). Access is gated server-side —
@@ -28,5 +44,39 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       return { ok: false };
     }
   })();
-  return { revision: nodeRevision, provenance, memoryId: params.id, nodeId: params.nodeId };
+  // #1001: a NodeRevision is the PRE-edit snapshot, so the change is the diff
+  // to the next-newer snapshot (or the live node for the newest). Streamed and
+  // isolated like provenance: a failure here costs only the Changes section.
+  const changes = (async (): Promise<RevisionChanges> => {
+    try {
+      const client = gqlClient(locals.token);
+      const { nodeRevisions } = await client.request<{ nodeRevisions: NodeRevision[] }>(
+        NODE_REVISIONS_QUERY,
+        { nodeRef: params.nodeId, limit: 100 },
+      );
+      const next = replacementOf(nodeRevisions ?? [], params.revisionId);
+      if (next.kind === 'unknown') return { ok: true, against: 'unknown' };
+      if (next.kind === 'current') {
+        const live = await client.request<{ node: { content: string | null } | null }>(
+          NODE_LIVE_CONTENT_QUERY,
+          { ref: params.nodeId },
+        );
+        if (!live?.node) return { ok: false };
+        return { ok: true, against: 'current', ...diffRevisionContent(nodeRevision.content, live.node.content) };
+      }
+      const newer = await client.request<{ nodeRevision: NodeRevision | null }>(NODE_REVISION_QUERY, {
+        revisionId: next.id,
+      });
+      if (!newer?.nodeRevision) return { ok: false };
+      return {
+        ok: true,
+        against: 'revision',
+        ...diffRevisionContent(nodeRevision.content, newer.nodeRevision.content),
+      };
+    } catch (e) {
+      console.warn('[node-revision] changes failed:', e);
+      return { ok: false };
+    }
+  })();
+  return { revision: nodeRevision, provenance, changes, memoryId: params.id, nodeId: params.nodeId };
 };

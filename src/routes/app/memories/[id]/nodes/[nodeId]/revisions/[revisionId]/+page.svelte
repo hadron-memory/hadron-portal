@@ -20,6 +20,23 @@
       if (data.provenance === p) provenance = res;
     });
   });
+
+  // #1001: the edit that replaced this snapshot, streamed; checked against the
+  // current promise like provenance above.
+  let changes = $state<Awaited<PageData['changes']> | null>(null);
+  $effect(() => {
+    const p = data.changes;
+    changes = null;
+    p.then((res) => {
+      if (data.changes === p) changes = res;
+    });
+  });
+  const marks = { same: ' ', added: '+', removed: '−' } as const;
+  const rowClass = {
+    same: 'text-zinc-700 dark:text-zinc-300',
+    added: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200',
+    removed: 'bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200',
+  } as const;
 </script>
 
 <svelte:head><title>{t('node-revision.title', 'Revision')}: {r.name}</title></svelte:head>
@@ -65,6 +82,29 @@
   {#if r.editedByUser?.urn}
     <div class="text-xs"><Urn value={r.editedByUser.urn} type="user" size={10} /></div>
   {/if}
+
+  <!-- #1001: a revision is the state BEFORE an edit, so this is what that edit changed. -->
+  <div>
+    <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('node-revision.changes', 'Changes')}</h2>
+    {#if changes === null}
+      <p class="text-sm text-zinc-400" role="status">{t('node-revision.changes.loading', 'Loading changes…')}</p>
+    {:else if !changes.ok}
+      <p class="text-sm text-zinc-500" role="status">{t('node-revision.changes.failed', 'Couldn’t load the changes.')}</p>
+    {:else if changes.against === 'unknown'}
+      <p class="text-sm text-zinc-500">{t('node-revision.changes.unknown', 'The edit that replaced this revision can’t be shown: the next revision is no longer in the history.')}</p>
+    {:else}
+      <p class="mb-1 text-xs text-zinc-500">
+        {changes.against === 'current'
+          ? t('node-revision.changes.against-current', 'This revision compared with the current version.')
+          : t('node-revision.changes.against-next', 'This revision compared with the next revision.')}
+      </p>
+      {#if changes.changed}
+        <pre class="overflow-x-auto whitespace-pre-wrap rounded-lg border border-zinc-200 bg-zinc-50 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950" aria-label={t('node-revision.changes.label', 'Content changes')}>{#each changes.lines as line}<span class="block px-4 {rowClass[line.kind]}"><span aria-hidden="true" class="select-none">{marks[line.kind]} </span><span class="sr-only">{line.kind === 'added' ? t('node-revision.changes.added', 'Added:') : line.kind === 'removed' ? t('node-revision.changes.removed', 'Removed:') : ''}</span>{line.text}</span>{/each}</pre>
+      {:else}
+        <p class="text-sm text-zinc-500">{t('node-revision.changes.none', 'The content didn’t change in this edit.')}</p>
+      {/if}
+    {/if}
+  </div>
 
   <div>
     <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('node-revision.content', 'Content')}</h2>
