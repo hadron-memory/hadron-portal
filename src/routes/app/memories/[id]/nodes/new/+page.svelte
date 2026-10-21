@@ -291,6 +291,13 @@
     </div>
 
     <div>
+      <label for="tags" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
+        {createNodeStrings.fieldTags()}
+      </label>
+      <input id="tags" name="tags" type="text" bind:value={$formData.tags} class={inputClass} />
+    </div>
+
+    <div>
       <label for="abstract" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
         {createNodeStrings.fieldAbstract()}
       </label>

@@ -1,8 +1,11 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { ClientError } from 'graphql-request';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlError } from '$lib/server/gqlError';
+import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   EDGE_HOST_NODE_QUERY,
@@ -164,6 +167,25 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   return { host, edge, flowFields, form, deleteForm };
 };
 
+/**
+ * portal#1142 P0a: an edge derived from an include tag (hadron-server#2040) is
+ * refused with INCLUDE_EDGE_DERIVED, shown with the server's words and the way
+ * forward. Any other GraphQL failure shows the server's first error message
+ * rather than graphql-request's raw ClientError text, which carries the query
+ * and variables (the #468 rule `extractGqlError` exists for).
+ */
+function edgeWriteFailure<F extends Parameters<typeof message>[0]>(form: F, e: unknown, fallback: string) {
+  const include = includeRefusalOf(e);
+  if (include) return message(form, { type: 'error', text: includeRefusalText(include) }, { status: 409 });
+  // A ClientError with no GraphQL message (a 503, say) carries only
+  // graphql-request's own text, which embeds the query and variables: never
+  // show it, use the fallback (Gene's blind P2 on #1155). A plain Error keeps
+  // its message, as before.
+  const serverMessage = e instanceof ClientError ? e.response?.errors?.[0]?.message : undefined;
+  const text = e instanceof ClientError ? (serverMessage || fallback) : extractGqlError(e, fallback);
+  return message(form, { type: 'error', text }, { status: 500 });
+}
+
 export const actions: Actions = {
   // Edits every property except loc (the edge's identity — renaming it would
   // re-address the edge; out of scope per #350). `updateEdge` treats a null
@@ -197,7 +219,7 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: t('edge-editor.saved', 'Edge saved.') });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update edge' }, { status: 500 });
+      return edgeWriteFailure(form, e, 'Failed to update edge');
     }
   },
 
@@ -211,11 +233,7 @@ export const actions: Actions = {
     try {
       await gqlClient(locals.token).request(DELETE_EDGE_MUTATION, { edgeRef: params.edgeId });
     } catch (e: unknown) {
-      return message(
-        form,
-        { type: 'error', text: e instanceof Error ? e.message : 'Failed to delete edge' },
-        { status: 500 },
-      );
+      return edgeWriteFailure(form, e, 'Failed to delete edge');
     }
     // Back to the source node — its Edges tab is where the edge lived.
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);

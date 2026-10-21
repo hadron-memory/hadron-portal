@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
@@ -26,6 +27,8 @@
   import NodeRoleValue from '$lib/components/NodeRoleValue.svelte';
   import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
   import NodeAuthorshipText from '$lib/components/NodeAuthorshipText.svelte';
+  import RevisionEditedBy from '$lib/components/RevisionEditedBy.svelte';
+  import { revisionEditorView } from '$lib/revision-editor';
   import NodeValidationBadge from '$lib/components/NodeValidationBadge.svelte';
   import NodeApprovalBadge from '$lib/components/NodeApprovalBadge.svelte';
   import ApproveRevisionButton from '$lib/components/ApproveRevisionButton.svelte';
@@ -1777,7 +1780,8 @@
 
   // Editor display (#620 contract): resolved handle, else identity string.
   function editorLabel(r: NodeRevision): string {
-    return r.editedByUser?.handle ? `@${r.editedByUser.handle}` : (r.editedByInfo ?? '—');
+    const text = revisionEditorView(r).searchText;
+    return text || '—';
   }
 
   // Epoch milliseconds (or null when absent/unparseable) so the When column sorts
@@ -3585,14 +3589,7 @@
                 <span class="text-zinc-400">—</span>
               {/if}
             {:else if cell.column.id === 'editedBy'}
-              {#if r.editedByUser?.handle || r.editedByUser?.urn}
-                <div class="min-w-0">
-                  {#if r.editedByUser.handle}<div class="truncate text-zinc-700 dark:text-zinc-300">@{r.editedByUser.handle}</div>{/if}
-                  {#if r.editedByUser.urn}<Urn value={r.editedByUser.urn} type="user" size={9} />{/if}
-                </div>
-              {:else}
-                <span class="whitespace-nowrap text-zinc-500 dark:text-zinc-400">{r.editedByInfo ?? '—'}</span>
-              {/if}
+              <RevisionEditedBy view={revisionEditorView(r)} />
             {:else if cell.column.id === 'rev'}
               <span class="tabular-nums text-zinc-600 dark:text-zinc-400">{r.revNo ?? '—'}</span>
             {:else if cell.column.id === 'authorship'}
@@ -3827,7 +3824,7 @@
           {:else}
             <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
-              <span class="text-sm text-red-500">Delete "{node.name}"? This cannot be undone.</span>
+              <span class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</span>
               <button
                 type="submit"
                 disabled={$deleteSubmitting}
