@@ -65,14 +65,14 @@ const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionS
 
 // hrn:node:hadronmemory.com:specs:cor:api:090:02: naming the system memory
 // bypasses the memory-class exclusion, but not the independent node-type
-// default. The editor creates conversations, stages and prompts as system
-// nodes, so request that type explicitly (#874). Other node types in the same
-// memory are not editor inputs. Results are under hits[].node.
+// default. Read both the default non-system nodes and explicit system nodes
+// (#874): the editor writes system nodes, while directly authored conversations
+// can use other types accepted by the runtime. Results are under hits[].node.
 // Edge condition/priority/data feed the canvas rule annotations and the
 // routing-rule side panel.
-const GRAPH_NODES_QUERY = /* GraphQL */ `
-  query Nodes($limit: Int, $memoryIds: [ID!]) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit) {
+const CONVERSATION_NODES_QUERY = /* GraphQL */ `
+  query ConversationNodes($limit: Int, $memoryIds: [ID!], $nodeType: String) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit) {
       hits {
         node {
           id memoryId nodeType loc name description content tags seq data
@@ -133,13 +133,22 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const systemMemoryId = (agent as any).systemMemoryId as string | null;
   if (!systemMemoryId) throw error(400, 'Agent has no system memory');
 
-  // Load system memory nodes (scoped to the agent's system memory).
-  const nodesData = await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
-    GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] },
-  );
-  const systemNodes = (nodesData.findNodes?.hits ?? [])
-    .map((h) => h.node)
-    .filter((n) => n.memoryId === systemMemoryId);
+  // Preserve directly authored nodes while including the editor's system type.
+  // Either read failing must fail the loader rather than show a partial canvas.
+  const [defaultNodes, typedNodes] = await Promise.all([
+    client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
+      CONVERSATION_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] },
+    ),
+    client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
+      CONVERSATION_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId], nodeType: 'system' },
+    ),
+  ]);
+  const systemNodes = Array.from(new Map(
+    [...(defaultNodes.findNodes?.hits ?? []), ...(typedNodes.findNodes?.hits ?? [])]
+      .map((h) => h.node)
+      .filter((n) => n.memoryId === systemMemoryId)
+      .map((n) => [n.id, n]),
+  ).values());
 
   // Prompts feed the stage panel's editor and the shared-partials section;
   // the canvas view-model derives everything else from systemNodes client-side.
