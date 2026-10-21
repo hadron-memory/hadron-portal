@@ -65,22 +65,26 @@
 
 <div
   class="max-w-3xl rounded-lg border-2 border-amber-500 bg-amber-50 p-5 dark:border-amber-600 dark:bg-amber-950"
-  role="alert"
   data-testid="raw-key-reveal"
 >
-  <h2 class="mb-2 text-base font-semibold text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealHeading()}</h2>
-  <p class="mb-3 text-sm text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealWarning()}</p>
-  <div class="flex items-start gap-2">
-    <code class="flex-1 break-all rounded bg-amber-100 px-3 py-2 font-mono text-sm text-amber-950 dark:bg-amber-900 dark:text-amber-100">{rawKey}</code>
-    <button
-      type="button"
-      onclick={copyKey}
-      aria-live="polite"
-      class="shrink-0 rounded-md border border-amber-600 bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-500 dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800"
-      data-testid="raw-key-copy"
-    >
-      {copied ? i18n.rawKeyRevealCopied() : i18n.rawKeyRevealCopy()}
-    </button>
+  <!-- #1215: announce the reveal once. The alert region carries only static
+       content; the per-second countdown below sits outside every live region,
+       so assistive tech is not re-read the whole alert on each tick. -->
+  <div role="alert">
+    <h2 class="mb-2 text-base font-semibold text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealHeading()}</h2>
+    <p class="mb-3 text-sm text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealWarning()}</p>
+    <div class="flex items-start gap-2">
+      <code class="flex-1 break-all rounded bg-amber-100 px-3 py-2 font-mono text-sm text-amber-950 dark:bg-amber-900 dark:text-amber-100">{rawKey}</code>
+      <button
+        type="button"
+        onclick={copyKey}
+        aria-live="polite"
+        class="shrink-0 rounded-md border border-amber-600 bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-500 dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800"
+        data-testid="raw-key-copy"
+      >
+        {copied ? i18n.rawKeyRevealCopied() : i18n.rawKeyRevealCopy()}
+      </button>
+    </div>
   </div>
   <div class="mt-3 flex items-center justify-between gap-3">
     <span class="text-sm text-amber-900 dark:text-amber-200" data-testid="raw-key-countdown">
