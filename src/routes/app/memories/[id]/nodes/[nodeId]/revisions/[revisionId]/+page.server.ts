@@ -6,7 +6,7 @@ import {
   NODE_REVISION_QUERY,
   NODE_REVISIONS_QUERY,
 } from '$lib/server/queries';
-import { diffRevisionContent, replacementOf, type DiffLine } from '$lib/revision-diff';
+import { diffRevisionContent, replacementOf, type ContentDiff } from '$lib/revision-diff';
 import type { NodeProvenance, ProvenanceResult } from '$lib/node-provenance';
 import type { NodeRevision } from '$lib/types';
 import type { PageServerLoad } from './$types';
@@ -19,7 +19,7 @@ import type { PageServerLoad } from './$types';
 export type RevisionChanges =
   | { ok: false }
   | { ok: true; against: 'unknown' }
-  | { ok: true; against: 'current' | 'revision'; changed: boolean; lines: DiffLine[] };
+  | ({ ok: true; against: 'current' | 'revision' } & ContentDiff);
 
 // #529: read-only view of a single NodeRevision snapshot, opened in a new tab
 // from the History tab's row menu ("Display"). Access is gated server-side —

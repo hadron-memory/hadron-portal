@@ -57,6 +57,7 @@ describe('revision page: changes', () => {
     expect(await changesFor('r1')).toMatchObject({
       ok: true,
       against: 'revision',
+      state: 'diff',
       changed: true,
       lines: [
         { kind: 'same', text: 'a' },
@@ -71,6 +72,7 @@ describe('revision page: changes', () => {
     expect(await changesFor('r3')).toMatchObject({
       ok: true,
       against: 'current',
+      state: 'diff',
       lines: [
         { kind: 'same', text: 'a' },
         { kind: 'same', text: 'B' },
@@ -83,6 +85,21 @@ describe('revision page: changes', () => {
   it('says unknown, not a multi-edit diff, when the snapshot is not in the history list', async () => {
     serve({ history: [HISTORY[0]] });
     expect(await changesFor('r1')).toEqual({ ok: true, against: 'unknown' });
+  });
+
+  it('does not diff against a withheld (null) live body', async () => {
+    serve({ live: { id: 'n', content: null } });
+    expect(await changesFor('r3')).toEqual({ ok: true, against: 'current', state: 'unavailable' });
+  });
+
+  it('keeps a node that cannot be read apart from an unreadable body', async () => {
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === NODE_REVISION_QUERY) return { nodeRevision: { id: 'r3', content: 'a', loc: 'x', name: 'x', tags: [], createdAt: '' } };
+      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: HISTORY };
+      if (doc === NODE_LIVE_CONTENT_QUERY) return { node: null };
+      return { nodeRevision: null };
+    });
+    expect(await changesFor('r3')).toEqual({ ok: false });
   });
 
   it('resolves to ok:false on a failed read, never rejecting the page', async () => {

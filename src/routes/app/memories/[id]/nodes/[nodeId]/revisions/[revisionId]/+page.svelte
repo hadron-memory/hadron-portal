@@ -98,7 +98,11 @@
           ? t('node-revision.changes.against-current', 'This revision compared with the current version.')
           : t('node-revision.changes.against-next', 'This revision compared with the next revision.')}
       </p>
-      {#if changes.changed}
+      {#if changes.state === 'unavailable'}
+        <p class="text-sm text-zinc-500">{t('node-revision.changes.unavailable', 'These revisions can’t be compared: one of them has no readable content (it is empty, encrypted or withheld).')}</p>
+      {:else if changes.state === 'too-large'}
+        <p class="text-sm text-zinc-500">{t('node-revision.changes.too-large', 'The content is too large to compare here.')}</p>
+      {:else if changes.changed}
         <pre class="overflow-x-auto whitespace-pre-wrap rounded-lg border border-zinc-200 bg-zinc-50 py-2 text-sm dark:border-zinc-800 dark:bg-zinc-950" aria-label={t('node-revision.changes.label', 'Content changes')}>{#each changes.lines as line}<span class="block px-4 {rowClass[line.kind]}"><span aria-hidden="true" class="select-none">{marks[line.kind]} </span><span class="sr-only">{line.kind === 'added' ? t('node-revision.changes.added', 'Added:') : line.kind === 'removed' ? t('node-revision.changes.removed', 'Removed:') : ''}</span>{line.text}</span>{/each}</pre>
       {:else}
         <p class="text-sm text-zinc-500">{t('node-revision.changes.none', 'The content didn’t change in this edit.')}</p>
