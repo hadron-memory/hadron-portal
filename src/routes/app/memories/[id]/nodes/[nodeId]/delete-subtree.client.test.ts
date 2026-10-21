@@ -241,4 +241,123 @@ describe('delete confirm dialog (#621)', () => {
     expect(bBox).not.toBeNull();
     expect(bBox!.checked).toBe(false);
   });
+
+  // ── Consent-control pins (#1204 READ P2s: Gil 6309370211, Gaby's second
+  // READ). Each surface keeps ONE consent reset — the Settings danger zone's
+  // is its 'Delete node' open handler — and each is pinned by a test that
+  // dies with its guard: removing the open-handler reset makes the Settings
+  // Cancel test come back pre-checked. (A second, Cancel-side reset would
+  // only mask the open-handler reset from the suite — the mutant-survival
+  // both READs flagged.) ────────────────────────────────────────────────
+
+  /** The Settings danger-zone form's own Cancel (its only type=button). */
+  function settingsCancel(form: HTMLFormElement) {
+    form.querySelector<HTMLButtonElement>('button[type="button"]')!.click();
+    flushSync();
+  }
+
+  it('the Settings Cancel hands the consent back un-checked on reopen', async () => {
+    const { target, props } = await mountPage();
+    const menuForm = openDeleteConfirm(target);
+    await submitWith(target, props, '?/delete', await refusalResult(3));
+    // Close the menu popover too, so the only ?/delete form left is the
+    // danger zone's own.
+    menuForm.querySelector<HTMLButtonElement>('button[type="button"]')!.click();
+    flushSync();
+    openSettingsDangerZone(target);
+    const box = () => settingsDeleteForm(target).querySelector<HTMLInputElement>('input[name="recursive"]');
+    box()!.click(); // the explicit consent
+    flushSync();
+    expect(box()!.checked).toBe(true);
+
+    // The Settings Cancel closes the form…
+    settingsCancel(settingsDeleteForm(target));
+    expect(target.querySelector('form[action="?/delete"]')).toBeNull();
+
+    // …and the danger zone offers the choice un-checked again. The Settings
+    // Cancel deliberately does not clear the store: with the open-handler
+    // reset removed, this reopens pre-checked and the test fails.
+    openSettingsDangerZone(target);
+    expect(box()!.checked).toBe(false);
+  });
+
+  it('a checked subtree checkbox is what the form submits; unchecked submits nothing', async () => {
+    const { target, props } = await mountPage();
+    const menuForm = openDeleteConfirm(target);
+    await submitWith(target, props, '?/delete', await refusalResult(3));
+
+    const menuBox = menuForm.querySelector<HTMLInputElement>('input[name="recursive"]')!;
+    expect(menuBox.checked).toBe(false);
+    expect(new FormData(menuForm).get('recursive')).toBeNull(); // unchecked → not submitted
+    menuBox.click();
+    flushSync();
+    expect(new FormData(menuForm).get('recursive')).toBe('true'); // UI tick → recursive:true
+
+    // The Settings surface shares the consent store but opens clean: its
+    // open handler is its one consent reset, so the menu's tick must not
+    // leak into the danger zone either.
+    openSettingsDangerZone(target);
+    const settingsForm = settingsDeleteForm(target);
+    const settingsBox = settingsForm.querySelector<HTMLInputElement>('input[name="recursive"]')!;
+    expect(settingsBox.checked).toBe(false);
+    expect(new FormData(settingsForm).get('recursive')).toBeNull();
+    settingsBox.click();
+    flushSync();
+    expect(new FormData(settingsForm).get('recursive')).toBe('true');
+    // Cancelling there hands both surfaces back un-checked.
+    settingsCancel(settingsForm);
+    openDeleteConfirm(target);
+    const reopened = target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]')!;
+    expect(reopened.checked).toBe(false);
+    expect(new FormData(reopened.closest('form')!).get('recursive')).toBeNull();
+  });
+
+  it('a retry after a fresh refusal starts un-checked and shows the new count', async () => {
+    const { target, props } = await mountPage();
+    openDeleteConfirm(target);
+    await submitWith(target, props, '?/delete', await refusalResult(3));
+    const box = () => target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]');
+    expect(box()!.checked).toBe(false);
+
+    // The user submits again without ticking: the server refuses with a
+    // different count. The retry must neither invent consent nor keep the
+    // stale count.
+    await submitWith(target, props, '?/delete', await refusalResult(5));
+    expect(box()!.checked).toBe(false);
+    const label = box()!.closest('label')!;
+    expect(label.textContent).toContain('5 descendant');
+    expect(label.textContent).not.toContain('3 descendant');
+  });
+
+  it('the Settings danger zone starts clean after a target change', async () => {
+    const { target, props } = await mountPage();
+    openDeleteConfirm(target);
+    await submitWith(target, props, '?/delete', await refusalResult(3));
+    const box = target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]')!;
+    box.click();
+    flushSync();
+
+    // Reuse the page onto node B (the earlier target-change test reopens
+    // through the ⋯ menu; this one goes straight to the danger zone).
+    const nodeB = { ...NODE, id: 'other-pk', loc: 'other', name: 'Other' };
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: nodeB };
+      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
+    });
+    props.data = {
+      ...(props.data as object),
+      node: nodeB,
+      graphNodes: [{ id: 'other-pk', memoryId: 'mem-A', loc: 'other', name: 'Other', nodeType: 'info', tags: [] }],
+    };
+    const refused = await refusalResult(5);
+    props.form = refused.data;
+    for (let i = 0; i < 5; i++) await tick();
+    flushSync();
+
+    openSettingsDangerZone(target);
+    const bBox = settingsDeleteForm(target).querySelector<HTMLInputElement>('input[name="recursive"]');
+    expect(bBox).not.toBeNull();
+    expect(bBox!.checked).toBe(false);
+  });
 });
