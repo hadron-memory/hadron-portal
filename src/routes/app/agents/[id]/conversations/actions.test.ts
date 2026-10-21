@@ -5,6 +5,7 @@
  * merges data.position without clobbering the node's other data keys.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse, visit, Kind } from 'graphql';
 import {
   UPDATE_NODE_MUTATION,
   UPDATE_REVIEW_NODE_MUTATION,
@@ -1168,5 +1169,43 @@ describe('the kind door, across every routed write', () => {
     const callSites = src.match(/client\.request\(nodeUpdateDocument\(/g) ?? [];
     expect(callSites).toHaveLength(6);
     expect(routed).toHaveLength(5);
+  });
+});
+
+// #874: memory scope and node type are independent server filters. Model the
+// documented default with mixed system/info nodes, not an unconditional mock.
+describe('system conversation retrieval (#874)', () => {
+  const nodes = [
+    { id: 'conv', memoryId: 'mem-1', nodeType: 'system', loc: 'conversations:setup', name: 'Setup', data: { stageOrder: ['start'] }, outgoingEdges: [] },
+    { id: 'stage', memoryId: 'mem-1', nodeType: 'system', loc: 'conversations:setup:start', name: 'Start', data: { promptRef: 'prompts:setup:start' }, outgoingEdges: [] },
+    { id: 'prompt', memoryId: 'mem-1', nodeType: 'system', loc: 'prompts:setup:start', name: 'Prompt', content: 'Hello', outgoingEdges: [] },
+    { id: 'info', memoryId: 'mem-1', nodeType: 'info', loc: 'notes', name: 'Notes', outgoingEdges: [] },
+  ];
+  function serve(rows = nodes) {
+    mockFetchAllItems.mockResolvedValue([{ id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] }]);
+    mockRequest.mockImplementation(async (document: string, vars: Record<string, unknown>) => {
+      expect(vars.memoryIds).toEqual(['mem-1']);
+      let requested: string | undefined;
+      visit(parse(document), { ObjectField(arg) {
+        if (arg.name.value === 'nodeType' && arg.value.kind === Kind.STRING) requested = arg.value.value;
+      } });
+      const visible = rows.filter(n => requested ? n.nodeType === requested : n.nodeType !== 'system');
+      return { findNodes: { hits: visible.map(node => ({ node })) } };
+    });
+  }
+  it('retrieves existing conversations, stages and prompts from a mixed-type system memory', async () => {
+    serve();
+    const result = await runLoad() as any;
+    expect(result.systemNodes.map((n: {id: string}) => n.id)).toEqual(['conv', 'stage', 'prompt']);
+    expect(result.prompts.map((n: {id: string}) => n.id)).toEqual(['prompt']);
+    expect(result.addStageForms.conv).toBeDefined();
+    expect(result.promptForms['prompts:setup:start'].data.content).toBe('Hello');
+  });
+  it('keeps a genuinely empty system memory empty without inventing a read failure', async () => {
+    serve([]);
+    const result = await runLoad() as any;
+    expect(result.systemNodes).toEqual([]);
+    expect(result.prompts).toEqual([]);
+    expect(result.addStageForms).toEqual({});
   });
 });
