@@ -303,12 +303,12 @@
   {#if nodes.length === 0}
     <p class="text-sm text-zinc-500">No nodes.</p>
   {:else}
-    {#if showColumns && (columnsLoading > 0 || columnsFailed > 0)}
-      <!-- portal#1174: the extra columns arrive after the list; say so, and say when a batch failed, rather than leaving blanks unexplained. -->
-      <p role="status" data-testid="node-columns-status" class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
-        {#if columnsLoading > 0}{t('node-list.columns-loading', 'Loading columns…')}{/if}
+    {#if showColumns}
+      <!-- portal#1174: the extra columns arrive after the list; say so, and say when a batch failed, rather than leaving blanks unexplained. Always mounted so a screen reader announces a change. -->
+      <p role="status" data-testid="node-columns-status" class="mb-2 min-h-4 text-xs text-zinc-500 dark:text-zinc-400">
+        {#if columnsLoading > 0}{t('node-list.columns-loading', 'Loading details…')}{/if}
         {#if columnsFailed > 0}
-          {t('node-list.columns-failed', 'Some columns could not be loaded.')}
+          {t('node-list.columns-failed', "Details for {n} nodes couldn't be loaded.", { n: columnsFailed })}
           {#if onretrycolumns}<button type="button" class="ml-1 font-medium text-indigo-600 hover:underline dark:text-indigo-300" onclick={onretrycolumns}>{t('node-list.columns-retry', 'Retry')}</button>{/if}
         {/if}
       </p>
@@ -477,11 +477,11 @@
                   </td>
                 {:else if cell.column.id === 'role'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
-                    {#if n.__cols?.role}<span class="break-words font-mono text-xs text-zinc-700 dark:text-zinc-300">{n.__cols.role}</span>{/if}
+                    {#if n.__cols?.role}<span class="break-words font-mono text-xs text-zinc-700 dark:text-zinc-300">{n.__cols.role}</span>{:else if n.__cols}<span class="text-zinc-400">—</span>{/if}
                   </td>
                 {:else if cell.column.id === 'updatedAt'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
-                    {#if instantMs(n.__cols?.updatedAt) !== null}{new Date(n.__cols!.updatedAt!).toLocaleString()}{/if}
+                    {#if instantMs(n.__cols?.updatedAt) !== null}{new Date(n.__cols!.updatedAt!).toLocaleString()}{:else if n.__cols}<span class="text-zinc-400">—</span>{/if}
                   </td>
                 {:else if cell.column.id === 'changedBy'}
                   {@const by = changedByView(n.__cols)}
@@ -498,15 +498,16 @@
                         {#if by.agent.urn}<Urn value={by.agent.urn} type="agent" linked size={8} />{/if}
                       </div>
                     {/if}
+                    {#if n.__cols && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
                   </td>
                 {:else if cell.column.id === 'revision'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
-                    {n.__cols?.revision ?? ''}
+                    {n.__cols ? (n.__cols.revision ?? '—') : ''}
                   </td>
                 {:else if cell.column.id === 'approved'}
-                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{approvedCellText(n.__cols)}</td>
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{approvedCellText(n.__cols) || (n.__cols ? '—' : '')}</td>
                 {:else if cell.column.id === 'signed'}
-                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{signedCellText(n.__cols)}</td>
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{signedCellText(n.__cols) || (n.__cols ? '—' : '')}</td>
                 {:else if cell.column.id === 'nodeType'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
                     <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.nodeType}</span>

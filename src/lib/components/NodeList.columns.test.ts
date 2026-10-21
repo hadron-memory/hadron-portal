@@ -41,10 +41,27 @@ describe('NodeList extra columns (#1174)', () => {
     expect(body).not.toContain('Not signed');
   });
 
+  it('a loaded row with nothing to show says so with a dash, while an unloaded row stays blank', () => {
+    const empty: Record<string, NodeColumnRow> = { n1: { id: 'n1', role: null, updatedAt: null, revision: 2, approval: null, signature: null, agent: null, worker: null } };
+    const { body } = render(NodeList, { props: { nodes: [node('n1', 'Alpha'), node('n2', 'Beta')], showColumns: true, columnData: empty } });
+    const dashes = (html: string) => (html.match(/—/g) ?? []).length;
+    const rows = body.split('<tr');
+    // The description cell already shows a dash for a node with none, so that is the baseline of 1.
+    const alpha = rows.find((r) => r.includes('Alpha'))!;
+    const beta = rows.find((r) => r.includes('Beta'))!;
+    expect(dashes(alpha)).toBe(1 + 5); // role, last changed, changed by, approved, signed
+    expect(dashes(beta)).toBe(1); // not loaded: blank, never a made-up empty
+  });
+
+  it('keeps the status line mounted so a screen reader announces it', () => {
+    const { body } = render(NodeList, { props: { nodes: [node('n1', 'Alpha')], showColumns: true, columnData: cols } });
+    expect(body).toContain('data-testid="node-columns-status"');
+  });
+
   it('says so while columns are loading and when some failed', () => {
     const loading = render(NodeList, { props: { nodes: [node('n1', 'Alpha')], showColumns: true, columnData: {}, columnsLoading: 3 } }).body;
-    expect(loading).toContain('Loading columns');
+    expect(loading).toContain('Loading details');
     const failed = render(NodeList, { props: { nodes: [node('n1', 'Alpha')], showColumns: true, columnData: cols, columnsFailed: 2 } }).body;
-    expect(failed).toContain('could not be loaded');
+    expect(failed).toContain("couldn't be loaded");
   });
 });

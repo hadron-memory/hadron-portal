@@ -103,12 +103,24 @@ describe('Nodes tab extra columns (#1174)', () => {
     expect(columnBodies.map((b) => b.refs)).toEqual([['n0', 'n1', 'n2'], ['n3']]);
   });
 
+  it('reads the visible page again when the memory refreshes (approval or mint changed), not from the old cache', async () => {
+    const { props } = mountBrowser();
+    await settle();
+    expect(columnBodies).toHaveLength(1);
+    props.refreshKey = 1;
+    await settle();
+    expect(columnBodies).toHaveLength(2);
+    expect(columnBodies[1].refs).toEqual(['n0', 'n1', 'n2']);
+  });
+
   it('says which scope the Content / Comments control is, beside the Node Types dropdown', async () => {
     const { target } = mountBrowser();
     await settle();
     const select = target.querySelector<HTMLSelectElement>('[data-testid="scope-filter"]')!;
-    const label = target.querySelector<HTMLLabelElement>('label[for="' + select.id + '"]');
-    expect(select.id).not.toBe('');
-    expect(label?.textContent?.trim()).toBe('Show');
+    const label = select.closest('label');
+    expect(label).not.toBeNull();
+    // an aria-label would override the visible 'Show' label for assistive tech (WCAG 2.5.3)
+    expect(select.hasAttribute('aria-label')).toBe(false);
+    expect(label?.querySelector('span')?.textContent?.trim()).toBe('Show');
   });
 });
