@@ -1178,10 +1178,13 @@ export const actions: Actions = {
         ? t('app.staff.unpause.success', 'Pause cleared.')
         : t('app.staff.pause.success', 'Worker paused.') } };
     } catch (e: unknown) {
-      const forbidden = gqlErrorCode(e) === 'FORBIDDEN';
+      // The server's real refusal for this write is WAKE_SETTINGS_FORBIDDEN
+      // (Riana, Charles on #1237); FORBIDDEN is the generic gate code.
+      const code = gqlErrorCode(e);
+      const forbidden = code === 'FORBIDDEN' || code === 'WAKE_SETTINGS_FORBIDDEN';
       return fail(forbidden ? 403 : 500, { pauseResult: { ok: false as const, workerId, message: forbidden
         ? t('app.staff.pause.error.forbidden', 'You can’t pause or unpause this worker. Only the worker, its holder or an App manager can.')
-        : t('app.staff.pause.error.failed', 'Could not change the pause. Nothing was changed; try again.') } });
+        : t('app.staff.pause.error.failed', 'Could not confirm the change. Check the worker’s status and try again.') } });
     }
   },
 

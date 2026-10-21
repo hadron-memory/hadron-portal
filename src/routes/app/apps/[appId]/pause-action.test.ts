@@ -84,4 +84,23 @@ describe('setWorkerPause (#1168)', () => {
     const r = (await run({ workerId: 'w1', mode: 'clear' })) as { pauseResult: { ok: boolean; workerId: string } };
     expect(r.pauseResult).toMatchObject({ ok: true, workerId: 'w1' });
   });
+
+  // Riana P2 / Charles P2: the real refusal code is WAKE_SETTINGS_FORBIDDEN.
+  it('the server’s real refusal code WAKE_SETTINGS_FORBIDDEN is the fixed 403 too', async () => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'SECRET provider text', extensions: { code: 'WAKE_SETTINGS_FORBIDDEN' } }] } });
+    const r = (await run({ workerId: 'w1', mode: 'clear' })) as { status: number; data: { pauseResult: { message: string } } };
+    expect(r.status).toBe(403);
+    expect(r.data.pauseResult.message).toContain('can’t pause or unpause');
+    expect(JSON.stringify(r)).not.toContain('SECRET');
+  });
+
+  it('the generic failure path leaks no provider payload, headers or token, and does not claim nothing changed', async () => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'SECRET provider text', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] }, request: { headers: { authorization: 'Bearer tok' } } });
+    const r = (await run({ workerId: 'w1', mode: 'clear' })) as { status: number; data: { pauseResult: { message: string } } };
+    expect(r.status).toBe(500);
+    const out = JSON.stringify(r);
+    expect(out).not.toContain('SECRET');
+    expect(out).not.toContain('Bearer');
+    expect(out).not.toContain('Nothing was changed');
+  });
 });

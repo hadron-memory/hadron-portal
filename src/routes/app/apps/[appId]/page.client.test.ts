@@ -6,7 +6,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { submitEnhanced } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatMessage } from '$lib/types';
@@ -309,9 +309,11 @@ describe('Worker agents tab (#1009)', () => {
   it('says plainly when the roster could not be read or is withheld, and never shows it as no tasks', async () => {
     const failed = await mountStaff([worker({})], { kind: 'failed' });
     expect(failed.textContent).toContain('Task and pause state could not be loaded');
-    expect(columnTexts(failed, 'Task')[0]).toBe('—');
+    // Riana/Glen: a failed or withheld roster must not read as "no task".
+    expect(columnTexts(failed, 'Task')[0]).toBe('Not available');
     const hidden = await mountStaff([worker({})], { kind: 'hidden' });
     expect(hidden.textContent).toContain('Task and pause state are not shown to you');
+    expect(columnTexts(hidden, 'Task')[0]).toBe('Not available');
   });
 
   // portal#1168 — Pause / Unpause. The portal offers the action and the server's
@@ -362,6 +364,82 @@ describe('Worker agents tab (#1009)', () => {
     expect(form.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w1');
     expect(form.querySelector<HTMLInputElement>('input[name="mode"]')!.value).toBe('clear');
     requestSubmit.mockRestore();
+  });
+
+  it('a worker the successful roster read did not return is “Not available”, not a quiet dash', async () => {
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })],
+      { kind: 'ok', byWorker: { w1: entry() } },
+    );
+    expect(columnTexts(target, 'Task')).toEqual(['—', 'Not available']);
+    expect(columnTexts(target, 'Status')[1]).toContain('Pause state unknown');
+  });
+
+  it('Unpause cannot be submitted twice while the first is pending', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountStaff([worker({})], paused());
+    pick(target, 'Ada', 'Unpause');
+    await tick(2);
+    pick(target, 'Ada', 'Unpause');
+    await tick(2);
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    requestSubmit.mockRestore();
+  });
+
+  // Colin P2: a delayed answer for one worker/dialog must not act on another.
+  it('a delayed success for Ada does not close Bo’s fresh dialog or its draft', async () => {
+    const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const adaForm = target.querySelector<HTMLFormElement>('[role="dialog"] form')!;
+    const input = () => target.querySelector<HTMLInputElement>('[role="dialog"] input[type="datetime-local"]')!;
+    input().value = '2099-01-01T10:00';
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const delayed = await submitEnhancedDeferred(adaForm);
+    // Ada's dialog is dismissed and Bo's opened with a draft before the answer lands.
+    target.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')!.click();
+    flushSync();
+    pick(target, 'Bo', 'Pause…');
+    await tick(2);
+    input().value = '2099-02-02T10:00';
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    await delayed.finish({ type: 'success', status: 200, data: { pauseResult: { ok: true, workerId: 'w1', message: 'Worker paused.' } } });
+    await tick(2);
+    expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(input().value).toBe('2099-02-02T10:00');
+  });
+
+  it('a delayed refusal for Ada does not appear inside Bo’s fresh dialog', async () => {
+    const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const adaForm = target.querySelector<HTMLFormElement>('[role="dialog"] form')!;
+    const delayed = await submitEnhancedDeferred(adaForm);
+    target.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')!.click();
+    flushSync();
+    pick(target, 'Bo', 'Pause…');
+    await tick(2);
+    await delayed.finish({ type: 'failure', status: 403, data: { pauseResult: { ok: false, workerId: 'w1', message: 'You can’t pause or unpause this worker.' } } });
+    await tick(2);
+    expect(target.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+  });
+
+  it('a delayed answer after the SAME worker’s dialog was reopened is also ignored by the new dialog', async () => {
+    const target = await mountStaff([worker({})]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const first = target.querySelector<HTMLFormElement>('[role="dialog"] form')!;
+    const delayed = await submitEnhancedDeferred(first);
+    target.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')!.click();
+    flushSync();
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    await delayed.finish({ type: 'failure', status: 500, data: { pauseResult: { ok: false, workerId: 'w1', message: 'Could not change the pause.' } } });
+    await tick(2);
+    expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(target.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
   });
 
   // portal#1067 — who each worker reports to, next to last activity.

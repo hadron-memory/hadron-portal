@@ -394,18 +394,48 @@
   let pauseLocal = $state('');
   const pauseUntilIso = $derived(pauseLocal && !Number.isNaN(new Date(pauseLocal).getTime()) ? new Date(pauseLocal).toISOString() : '');
   let pauseBusy = $state(false);
+  // Colin P2: every dialog open/close bumps the generation. A server answer is
+  // bound to the worker AND the generation it was submitted from, so a delayed
+  // answer for another worker, or for an earlier opening of this one, can
+  // neither close the current dialog, wipe its draft, nor show an error in it.
+  let pauseGen = $state(0);
+  let pauseOutcome = $state<{ ok: boolean; workerId: string; message: string; gen: number } | null>(null);
   let unpauseWorkerId = $state('');
   let unpauseForm = $state<HTMLFormElement>();
-  const pauseResult = $derived((form as { pauseResult?: { ok: boolean; workerId: string; message: string } } | null)?.pauseResult ?? null);
   function closePause() {
+    pauseGen++;
     pauseFor = null;
     pauseLocal = '';
   }
+  function openPause(worker: Worker) {
+    pauseGen++;
+    pauseLocal = '';
+    pauseFor = worker;
+  }
+  /** The enhance handler for both pause forms: the answer is bound to what the page held at SUBMIT time. */
+  function pauseEnhance(closeOnSuccess: boolean) {
+    return () => {
+      const gen = pauseGen;
+      pauseBusy = true;
+      return async ({ result, update }: { result: { type: string; data?: unknown }; update: () => Promise<void> }) => {
+        const r = (result.type === 'success' || result.type === 'failure')
+          ? (result.data as { pauseResult?: { ok: boolean; workerId: string; message: string } } | undefined)?.pauseResult
+          : undefined;
+        await update();
+        pauseBusy = false;
+        if (r) pauseOutcome = { ...r, gen };
+        if (closeOnSuccess && result.type === 'success' && gen === pauseGen) closePause();
+      };
+    };
+  }
   async function unpauseWorker(workerId: string) {
+    if (pauseBusy) return;
+    pauseBusy = true;
     unpauseWorkerId = workerId;
     await tick();
     unpauseForm?.requestSubmit();
   }
+  const workerNameOf = (id: string) => (staff ?? []).find((w) => w.id === id)?.name ?? '';
   function workerActions(worker: Worker): NodeMenuAction[] {
     const hold = workerHold(worker, data.user?.id);
     const active = !worker.retiredAt;
@@ -438,8 +468,7 @@
   }
   function onWorkerAction(id: string, worker: Worker) {
     if (id === 'pause') {
-      pauseLocal = '';
-      pauseFor = worker;
+      openPause(worker);
     } else if (id === 'unpause') {
       void unpauseWorker(worker.id);
     } else if (id === 'release') {
@@ -2178,12 +2207,12 @@
           </p>
         </div>
       {:else}
-        {#if pauseResult}
-          <p role={pauseResult.ok ? 'status' : 'alert'} class="text-xs {pauseResult.ok ? 'text-green-700 dark:text-green-400' : 'text-red-500'}">{pauseResult.message}</p>
+        {#if pauseOutcome && !(pauseFor && !pauseOutcome.ok)}
+          <p role={pauseOutcome.ok ? 'status' : 'alert'} class="text-xs {pauseOutcome.ok ? 'text-green-700 dark:text-green-400' : 'text-red-500'}">{#if workerNameOf(pauseOutcome.workerId)}{workerNameOf(pauseOutcome.workerId)}: {/if}{pauseOutcome.message}</p>
         {/if}
         <!-- portal#1168: Unpause is a one-click clearPause for the chosen worker. -->
         <form bind:this={unpauseForm} method="POST" action="?/setWorkerPause" class="hidden" novalidate
-          use:enhance={() => { pauseBusy = true; return async ({ update }) => { await update(); pauseBusy = false; }; }}>
+          use:enhance={pauseEnhance(false)}>
           <input type="hidden" name="workerId" value={unpauseWorkerId} />
           <input type="hidden" name="mode" value="clear" />
         </form>
@@ -2194,7 +2223,7 @@
               <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.staff.pause.title', 'Pause')} {pauseFor.name}</h2>
               <p class="mt-1 text-xs text-zinc-500">{t('app.staff.pause.explainer', 'The worker is not woken until the time you choose. You can unpause it earlier. Only the worker, its holder or an App manager can pause it.')}</p>
               <form method="POST" action="?/setWorkerPause" class="mt-3 space-y-3" novalidate
-                use:enhance={() => { pauseBusy = true; return async ({ result, update }) => { await update(); pauseBusy = false; if (result.type === 'success') closePause(); }; }}>
+                use:enhance={pauseEnhance(true)}>
                 <input type="hidden" name="workerId" value={pauseFor.id} />
                 <input type="hidden" name="mode" value="pause" />
                 <input type="hidden" name="until" value={pauseUntilIso} />
@@ -2202,8 +2231,8 @@
                   {t('app.staff.pause.until', 'Pause until')}
                   <input type="datetime-local" bind:value={pauseLocal} class="mt-1 block w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white" />
                 </label>
-                {#if pauseResult && !pauseResult.ok}
-                  <p role="alert" class="text-xs text-red-500">{pauseResult.message}</p>
+                {#if pauseOutcome && !pauseOutcome.ok && pauseOutcome.gen === pauseGen && pauseOutcome.workerId === pauseFor.id}
+                  <p role="alert" class="text-xs text-red-500">{pauseOutcome.message}</p>
                 {/if}
                 <div class="flex justify-end gap-2">
                   <button type="button" onclick={closePause} class="rounded-md px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-300">{t('app.staff.pause.cancel', 'Cancel')}</button>
@@ -2277,12 +2306,18 @@
               {/if}
             {:else if cell.column.id === 'status'}
               <span class="text-xs text-zinc-600 dark:text-zinc-300">{workerStatusLabel(worker)}</span>
+              {#if teamRoster?.kind === 'ok' && !rosterEntry(worker.id)}
+                <span class="ml-1 text-xs text-zinc-500">{t('app.staff.pause-unknown', 'Pause state unknown')}</span>
+              {/if}
               {#if pauseBadge(worker.id)}
                 <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">{pauseBadge(worker.id)}</span>
               {/if}
             {:else if cell.column.id === 'task'}
               {@const task = rosterEntry(worker.id)?.currentTask}
-              {#if task}
+              {#if !rosterEntry(worker.id)}
+                <!-- Failed, withheld, or a worker the read did not return: never the "no task" dash. -->
+                <span class="text-xs text-zinc-500">{t('app.staff.na', 'Not available')}</span>
+              {:else if task}
                 <div class="min-w-0 text-xs">
                   <a href="/app/apps/{app.id}/tasks/{task.id}" class="block truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
                   <span class="text-zinc-500">{TASK_STATUS[task.status]?.() ?? task.status}</span>
