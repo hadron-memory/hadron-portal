@@ -3857,7 +3857,7 @@
 
     <!-- ═══ SETTINGS TAB ═══ -->
     {#if activeTab === 'settings' || activeTab === 'info'}
-      {@const readOnly = activeTab === 'info'}
+      {@const readOnly = activeTab === 'info' || data.canWriteMemory === false}
       <div class="max-w-3xl space-y-8">
         <section>
           <div class="mb-4 flex items-center justify-between">

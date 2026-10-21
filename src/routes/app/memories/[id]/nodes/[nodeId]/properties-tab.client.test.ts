@@ -232,3 +232,21 @@ it('disables missing-parent creation for a reader and preserves it for a writer 
   await tick();
   expect(create.disabled).toBe(false);
 });
+
+
+it('keeps reader Settings read-only and restores writer metadata and delete controls', async () => {
+  const { target, props } = await mountPage();
+  props.data = { ...props.data as Record<string, unknown>, canWriteMemory: false };
+  flushSync();
+  tabNamed(target, 'Settings')!.click();
+  flushSync();
+  expect(buttonNamed(target, 'Edit')).toBeUndefined();
+  expect(buttonNamed(target, 'Delete node')).toBeUndefined();
+  expect(target.querySelector('#editName')).toBeNull();
+  props.data = { ...props.data as Record<string, unknown>, canWriteMemory: true };
+  flushSync();
+  expect(buttonNamed(target, 'Delete node')?.disabled).toBe(false);
+  buttonNamed(target, 'Edit')!.click();
+  flushSync();
+  expect(target.querySelector('#editName')).not.toBeNull();
+});
