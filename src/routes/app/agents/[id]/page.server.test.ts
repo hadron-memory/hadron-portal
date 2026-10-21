@@ -183,6 +183,18 @@ const publicPersonalAgent = { ...personalAgent, id: 'agent-public', visibility: 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('/app/agents/[id] loader', () => {
+  it('#1226: a failed Nodes-tab read (any page) is agentNodesError, not an empty memory', async () => {
+    routeMock({
+      agent: { data: { agent: { ...agentInA, memoryItems: [{ memory: { id: 'mem-1' }, role: 'read' }] } } },
+      myOrgs: { data: { organizations: [orgA] } },
+      nodes: { error: new Error('page 2 outage') },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-aaa' }))) as { agentNodes: unknown[]; agentNodesError: boolean };
+    expect(result.agentNodesError).toBe(true);
+    expect(result.agentNodes).toEqual([]);
+  });
+
   // ── Org agents: resolved via agent(ref:), org chrome loaded ──────────────
 
   it('org agent: returns the agent + its org (agent(ref:) then organizations())', async () => {

@@ -72,10 +72,9 @@ describe('drainFindNodes (#1226)', () => {
     }
   });
 
-  it('stops when a page adds nothing new (a server that ignores offset)', async () => {
+  it('rejects when the server repeats a page (it ignored offset): completion was never observed', async () => {
     const request = vi.fn(async () => ({ findNodes: { hits: rows('n', 4) } }));
-    const out = await drainFindNodes({ request } as unknown as GraphQLClient, 'doc', { memoryIds: ['m'] });
-    expect(out.findNodes.hits).toHaveLength(4);
+    await expect(drainFindNodes({ request } as unknown as GraphQLClient, 'doc', { memoryIds: ['m'] })).rejects.toThrow('not advancing');
     expect(request).toHaveBeenCalledTimes(2);
   });
 

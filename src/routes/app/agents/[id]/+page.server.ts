@@ -235,6 +235,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   }
   const bundledAgents = [...bundledById.values()].sort((a, b) => a.name.localeCompare(b.name));
 
+  // A failed read (any page) is not an empty memory; the Nodes tab says so.
+  const agentNodesError = allMemoryIds.length > 0 && nodesResult === null;
   if (nodesResult) {
     const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
     agentNodes = (nodesResult.findNodes?.hits ?? [])
@@ -290,6 +292,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     agent,
     org,
     agentNodes,
+    agentNodesError,
     installedApps,
     bundledAgents,
     bundledWithheldApps,

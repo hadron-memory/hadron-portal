@@ -1033,6 +1033,11 @@
   <!-- NODES TAB — browse the agent's memory nodes (was "Memory") (#352)   -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'nodes'}
+    {#if data.agentNodesError}
+      <p role="alert" class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        {t('agent.nodes.load-failed', 'Could not load this agent’s nodes, so the list below may be incomplete. Reload to try again.')}
+      </p>
+    {/if}
     <MemoryBrowser nodes={data.agentNodes ?? []} multiMemory={(agent.memoryItems ?? []).length > 1} {writableMemoryIds} scopeMemoryIds={(agent.memoryItems ?? []).map((item) => item.memory.id)} />
   {/if}
 

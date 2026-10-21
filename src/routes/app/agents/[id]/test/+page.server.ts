@@ -34,6 +34,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // T032's FixtureList can show an inline error tile if needed.
   const systemMemoryId = agent.systemMemoryId ?? null;
   let fixtures: FixtureSummary[] = [];
+  // Distinct from "no fixtures": a failed read (any page) must not look like an empty list.
+  let fixturesError = false;
   if (systemMemoryId) {
     // Scope to the agent's system memory. findNodes hides class:'system'
     // memories on a broad (no-memoryIds) call, so we MUST name the system
@@ -42,6 +44,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     const nodesResult = await drainFindNodes<{ node: {
       id: string; loc: string; memoryId: string; data: unknown;
     } }>(client, GRAPH_NODES_QUERY, { memoryIds: [systemMemoryId] }).catch(() => null);
+    if (!nodesResult) fixturesError = true;
     if (nodesResult) {
       for (const h of nodesResult.findNodes?.hits ?? []) {
         const n = h.node;
@@ -55,7 +58,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }
   }
 
-  return { agent, org, llmProviderConfigured, llm, fixtures };
+  return { agent, org, llmProviderConfigured, llm, fixtures, fixturesError };
 };
 
 /**

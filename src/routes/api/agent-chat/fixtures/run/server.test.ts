@@ -100,7 +100,7 @@ function setupChat(opts: {
   replyText?: string;
   agentScope?: 'org' | 'personal';
 }) {
-  mockRequest.mockImplementation(async (query: string) => {
+  mockRequest.mockImplementation(async (query: string, vars?: unknown) => {
     if (query === ORGANIZATIONS_QUERY) {
       const items = opts.agentScope === 'personal' ? [] : [
         { id: 'org-a', name: 'A', urn: 'u', agents: [
@@ -115,7 +115,7 @@ function setupChat(opts: {
         : [];
       return { agents: { items, total: items.length } };
     }
-    if (query === GRAPH_NODES_QUERY) return { findNodes: { hits: opts.nodes.map((node) => ({ node })) } };
+    if (query === GRAPH_NODES_QUERY) return { findNodes: { hits: (vars as { offset?: number } | undefined)?.offset ? [] : opts.nodes.map((node) => ({ node })) } };
     if (query === START_CHAT_MUTATION) {
       return { startChat: {
         chatId: 'c1', systemMessage: 'sys', tools: null,
@@ -388,7 +388,7 @@ describe('POST /api/agent-chat/fixtures/run', () => {
   });
 
   it('404 when the agent is outside both caller scopes', async () => {
-    mockRequest.mockImplementation(async (query: string) => {
+    mockRequest.mockImplementation(async (query: string, vars?: unknown) => {
       if (query === ORGANIZATIONS_QUERY) return { organizations: { items: [], total: 0 } };
       if (query === MY_AGENTS_QUERY) return { agents: { items: [], total: 0 } };
       throw new Error('unexpected');

@@ -97,8 +97,11 @@ export async function drainFindNodes<Hit extends { node: { id: string } }>(
         added++;
       }
       // A page of nothing new means the server is not advancing (it ignored
-      // `offset`); stop rather than spin to the page backstop.
-      if (added === 0) break;
+      // `offset`). Completion was never observed, so this is a failure, not a
+      // short list: returning what we have would be a partial success.
+      if (added === 0) {
+        throw new Error(`drainFindNodes: memory ${memoryId} repeated a page at offset ${offset - pageHits.length}; the server is not advancing`);
+      }
     }
   }
   return { findNodes: { hits } };

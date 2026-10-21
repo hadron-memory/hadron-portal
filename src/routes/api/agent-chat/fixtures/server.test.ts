@@ -59,6 +59,7 @@ function mockResolveAgent(scope: 'org' | 'personal' = 'org') {
       return { agents: { items: agents, total: agents.length } };
     }
     if (query === GRAPH_NODES_QUERY) {
+      if ((vars as { offset?: number } | undefined)?.offset) return { findNodes: { hits: [] } };
       return { findNodes: { hits: [
         // Fixture in our agent's memory
         { node: {
