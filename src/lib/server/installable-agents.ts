@@ -10,12 +10,22 @@ export type InstallableAgent = { id: string; name: string; urn: string };
 
 export type OrgAgentPool = {
   agents: InstallableAgent[];
-  agentOrgGrants?: Array<{ isActive: boolean; agent: InstallableAgent | null }>;
+  agentOrgGrants?: Array<{
+    isActive: boolean;
+    revokedAt?: string | null;
+    expiresAt?: string | null;
+    agent: InstallableAgent | null;
+  }>;
 };
 
-export function mergeInstallableAgents(org: OrgAgentPool): InstallableAgent[] {
+export function mergeInstallableAgents(org: OrgAgentPool, now: number = Date.now()): InstallableAgent[] {
+  // Active, unrevoked and unexpired: isActive is the server's word, and the two
+  // dates are checked as well so a grant the server has not yet swept is not
+  // offered.
+  const live = (g: NonNullable<OrgAgentPool['agentOrgGrants']>[number]) =>
+    g.isActive && !g.revokedAt && !(g.expiresAt && Date.parse(g.expiresAt) <= now);
   const subscribed = (org.agentOrgGrants ?? [])
-    .filter((g) => g.isActive && g.agent)
+    .filter((g) => live(g) && g.agent)
     .map((g) => g.agent as InstallableAgent);
   const seen = new Set<string>();
   return [...org.agents, ...subscribed].filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));

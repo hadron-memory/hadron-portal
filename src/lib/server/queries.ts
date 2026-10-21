@@ -572,6 +572,8 @@ export const APP_ORG_AGENTS_QUERY = /* GraphQL */ `
       # cannot cost the picker its owned agents; a non-admin simply sees none.
       agentOrgGrants {
         isActive
+        revokedAt
+        expiresAt
         agent {
           id
           name

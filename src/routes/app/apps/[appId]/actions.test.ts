@@ -1898,6 +1898,8 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
                 { isActive: true, agent: POOL[0] },
                 { isActive: false, agent: { id: 'a3', name: 'Revoked', urn: 'hrn:agent:revoked' } },
                 { isActive: true, agent: null },
+                { isActive: true, revokedAt: '2026-01-01T00:00:00Z', agent: { id: 'a4', name: 'Swept late', urn: 'hrn:agent:late' } },
+                { isActive: true, expiresAt: '2020-01-01T00:00:00Z', agent: { id: 'a5', name: 'Expired', urn: 'hrn:agent:expired' } },
               ],
             },
           },
