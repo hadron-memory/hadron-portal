@@ -312,7 +312,11 @@
     // Search still matches it: the column below keeps `urn` in the filter text.
     { accessorFn: (row) => `${row.name} ${row.urn ?? ''}`, id: 'name', header: t('app.staff.column.name', 'Name'), enableHiding: false, size: 300 },
     { accessorFn: (row) => row.role ?? '', id: 'role', header: t('app.staff.column.role', 'Role'), size: 150 },
-    { accessorFn: (row) => row.agent?.name ?? '', id: 'agent', header: t('app.staff.column.agent', 'Agent'), size: 150 },
+    // portal#1168 — whether the worker is driven right now, from the same
+    // three-valued read the profile's held-workers grid uses: masked is "Not
+    // shown to you", never "idle".
+    { accessorFn: (row) => workerStatusLabel(row), id: 'status', header: t('app.staff.column.status', 'Status'), size: 150 },
+    { accessorFn: (row) => row.family ?? '', id: 'family', header: t('app.staff.column.family', 'Model family'), size: 130 },
     {
       accessorFn: (row) => {
         const h = workerHold(row, data.user?.id);
@@ -339,7 +343,6 @@
       header: t('app.staff.column.last-active', 'Last active'),
       size: 170,
     },
-    { accessorFn: (row) => (row.memoryId ? 1 : 0), id: 'memory', header: t('app.staff.column.memory', 'Working memory'), size: 140 },
     { id: 'actions', header: t('app.staff.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
   // #1009: a worker row's actions, as ⋯ menu items.
@@ -349,6 +352,15 @@
   //   `none` is not "unheld" — the field is masked to null on a denied read.
   // - Retire (danger) only for an active worker; a retired one keeps its
   //   name forever and has nothing left to retire or release.
+  function workerStatusLabel(worker: Worker): string {
+    if (worker.hasLiveSession === true) return t('app.staff.status.active', 'Active now');
+    if (worker.hasLiveSession === false) {
+      return worker.lastActiveAt
+        ? t('app.staff.status.idle', 'Idle')
+        : t('app.staff.status.never', 'No recorded activity');
+    }
+    return t('app.staff.status.unknown', 'Not shown to you');
+  }
   function workerActions(worker: Worker): NodeMenuAction[] {
     const hold = workerHold(worker, data.user?.id);
     const active = !worker.retiredAt;
@@ -358,6 +370,9 @@
         : []),
       ...(worker.memoryId
         ? [{ id: 'open-memory', label: t('app.staff.action.open-memory', 'Open working memory'), href: `/app/memories/${worker.memoryId}` }]
+        : []),
+      ...(worker.agent?.systemMemoryId
+        ? [{ id: 'open-system-memory', label: t('app.staff.action.open-system-memory', 'Open system memory'), href: `/app/memories/${worker.agent.systemMemoryId}` }]
         : []),
       ...(worker.agent
         ? [{ id: 'open-agent', label: t('app.staff.action.open-agent', 'Open role agent'), href: `/app/agents/${worker.agent.id}` }]
@@ -2165,11 +2180,13 @@
               {:else}
                 <span class="text-zinc-500">{t('app.staff.no-role', 'No role')}</span>
               {/if}
-            {:else if cell.column.id === 'agent'}
-              {#if worker.agent}
-                <a href="/app/agents/{worker.agent.id}" class="truncate text-indigo-600 hover:underline dark:text-indigo-400">{worker.agent.name}</a>
+            {:else if cell.column.id === 'status'}
+              <span class="text-xs text-zinc-600 dark:text-zinc-300">{workerStatusLabel(worker)}</span>
+            {:else if cell.column.id === 'family'}
+              {#if worker.family}
+                <span class="text-xs text-zinc-600 dark:text-zinc-300">{worker.family}</span>
               {:else}
-                <span class="italic text-zinc-500">{t('app.staff.agent-unavailable', 'backing agent unavailable')}</span>
+                <span class="text-xs text-zinc-400">—</span>
               {/if}
             {:else if cell.column.id === 'hold'}
               <!-- #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this is. A hold is
@@ -2220,14 +2237,6 @@
               {/if}
             {:else if cell.column.id === 'lastActive'}
               <span class="text-xs text-zinc-500">{formatDate(worker.lastActiveAt)}</span>
-            {:else if cell.column.id === 'memory'}
-              {#if worker.memoryId}
-                <a href="/app/memories/{worker.memoryId}" class="text-xs text-indigo-600 hover:underline dark:text-indigo-400">
-                  {t('app.staff.working-memory', 'Working memory →')}
-                </a>
-              {:else}
-                <span class="text-xs text-zinc-400">—</span>
-              {/if}
             {:else if cell.column.id === 'actions'}
               <!-- #1009: one ⋯ menu. Release vs Force-release vs Retire keep
                    their #756/#1050 rules — see workerActions(). -->
