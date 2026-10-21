@@ -214,6 +214,13 @@ function vectorEv(form: Record<string, string>) {
   } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['updateVectorIndex']>[0];
 }
 
+it('#1163 returns canonical persisted settings rather than the submitted defaults', async () => {
+  mockRequest.mockResolvedValueOnce({updateMemory: {id: 'mem-id-abc', vectorIndexEnabled: true, embeddingSource: 'contentChunks', chunkTokens: 512, chunkOverlap: 64, forceFixedSize: true}});
+  const actions = await importActions();
+  const response = await actions.updateVectorIndex(vectorEv({vectorIndexEnabled: 'true', embeddingSource: 'abstract', chunkTokens: '', chunkOverlap: '', forceFixedSize: 'false'}));
+  expect(superFormFrom(response)?.data).toMatchObject({vectorIndexEnabled: true, embeddingSource: 'contentChunks', chunkTokens: '512', chunkOverlap: '64', forceFixedSize: true, acknowledgeVectorInversionRisk: false});
+});
+
 describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
   it('sends parsed config through updateMemory and returns success', async () => {
     mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
