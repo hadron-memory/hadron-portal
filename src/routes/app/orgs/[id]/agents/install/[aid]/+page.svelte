@@ -2,6 +2,9 @@
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import SelectApp from '$lib/components/SelectApp.svelte';
+  import { submittedForm } from '$lib/forms/submitted-form';
+  import { installExistingAppSchema } from './schema';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
@@ -47,6 +50,29 @@
   const appTypeError = $derived($installErrors.appType?.[0] ?? null);
   const installActionError = $derived($installMessage?.type === 'error' ? $installMessage.text : null);
 
+  const initialExisting = untrack(() => submittedForm(form, 'installExistingApp') as typeof data.existingAppForm | null ?? data.existingAppForm);
+  const { form: existingForm, errors: existingErrors, message: existingMessage, submitting: existingSubmitting, enhance: existingEnhance } = superForm(initialExisting, {
+    validators: zod4Client(installExistingAppSchema), resetForm: false, clearOnSubmit: 'none',
+  });
+  let existing = $state(untrack(() => !!submittedForm(form, 'installExistingApp')));
+  let pickerOpen = $state(false);
+  const apps = $derived(data.existingApps ?? []);
+  const selectedApp = $derived(apps.find((app) => app.id === $existingForm.appId) ?? null);
+
+  let lastTarget = $state(untrack(() => `${org.id}:${agent.id}`));
+  $effect(() => {
+    const target = `${org.id}:${agent.id}`;
+    if (target === lastTarget) return;
+    lastTarget = target;
+    untrack(() => {
+      existingForm.set({ ...data.existingAppForm.data });
+      existingMessage.set(undefined);
+      existingErrors.set({});
+      existing = false;
+      pickerOpen = false;
+    });
+  });
+
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 </script>
@@ -77,6 +103,30 @@
     </div>
   {/if}
 
+  <div role="group" class="flex gap-2" aria-label={t('install.destination', 'Install destination')}>
+    <button type="button" aria-pressed={!existing} onclick={() => existing = false} class="rounded-md border px-3 py-2 text-sm {!existing ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400'}">{t('install.new-app', 'New app')}</button>
+    <button type="button" aria-pressed={existing} onclick={() => existing = true} class="rounded-md border px-3 py-2 text-sm {existing ? 'border-indigo-500 text-indigo-600 dark:text-indigo-300' : 'border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400'}">{t('install.existing-app', 'Existing app')}</button>
+  </div>
+  <div hidden={!existing} class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+    <form method="POST" action="?/installExisting" use:existingEnhance novalidate class="space-y-4">
+      <input type="hidden" name="_kind" value={$existingForm._kind} />
+      <input type="hidden" name="appId" bind:value={$existingForm.appId} />
+      <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('install.existing.help', 'Add this agent to an App in this organization.')}</p>
+      {#if data.existingAppsFailed}
+        <p role="alert" class="text-sm text-red-600 dark:text-red-400">{t('install.existing.load-failed', 'Apps could not be loaded. Reload the page to try again.')}</p>
+      {:else}
+        {#if selectedApp}
+          <div class="min-w-0"><p class="font-medium text-zinc-900 dark:text-white">{selectedApp.name}</p><div class="mt-1"><Urn value={selectedApp.urn} type="app" /></div></div>
+        {/if}
+        <button type="button" onclick={() => pickerOpen = true} class="rounded-md border border-zinc-300 px-3 py-2 text-sm text-zinc-700 dark:border-zinc-700 dark:text-zinc-300">{selectedApp ? t('install.existing.change', 'Change App') : t('install.existing.choose', 'Choose an App')}</button>
+      {/if}
+      {#if $existingErrors.appId?.length}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{$existingErrors.appId[0]}</p>{/if}
+      {#if $existingMessage}<p role={$existingMessage.type === 'error' ? 'alert' : 'status'} class="text-sm {$existingMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$existingMessage.text}</p>{/if}
+      <button type="submit" disabled={!selectedApp || data.existingAppsFailed || $existingSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{$existingSubmitting ? t('install.submitting', 'Installing...') : t('install.submit', 'Install')}</button>
+    </form>
+    <SelectApp {apps} scopeKey={org.id} bind:open={pickerOpen} onselect={(app) => { $existingForm.appId = app.id; }} />
+  </div>
+  <div hidden={existing}>
   <div class="rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
     <p class="mb-4 text-sm text-zinc-500">
       {t(
@@ -183,5 +233,6 @@
         </a>
       </div>
     </form>
+  </div>
   </div>
 </div>
