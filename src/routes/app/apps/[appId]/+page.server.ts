@@ -855,6 +855,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
     chatsError: chatRoots === null,
+    chatRootsShown: chatRoots?.length ?? 0,
     chatsCapped: chatRoots !== null && isCapped(chatRoots?.length ?? 0, APP_CHAT_ROOTS_LIMIT),
     selectedChatKey: selectedChat?.key ?? null,
     selectedChatMessages: selectedChatMessages?.messages ?? [],

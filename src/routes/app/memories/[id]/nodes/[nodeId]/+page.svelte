@@ -1664,13 +1664,20 @@
   let revisionRows = $state<NodeRevision[]>([]);
   let revisionsLoaded = $state(false);
   let revisionsFailed = $state(false);
-  let revisionsCapped = $state(false);
+  // The cap flag is pinned to the node whose read set it: `revisionsCappedFor`
+  // holds that node's id, and the cue shows only while it is the node on screen.
+  let revisionsCappedFor = $state<string | null>(null);
+  const revisionsCapped = $derived(revisionsCappedFor !== null && revisionsCappedFor === node.id);
   $effect(() => {
     const p = data.revisions; // track the current navigation's promise
     revisionsLoaded = false;
+    revisionsCappedFor = null;
     p.then((res) => {
+      // A late answer for the node the reader navigated away from must not land
+      // on this one (rows, cap flag or loaded state).
+      if (data.revisions !== p) return;
       revisionRows = res.items;
-      revisionsCapped = res.capped === true;
+      revisionsCappedFor = res.capped === true ? (res.nodeId ?? null) : null;
       revisionsFailed = !res.ok; // distinguish "no revisions" from "couldn't load"
       revisionsLoaded = true;
     });

@@ -299,7 +299,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // tab can tell "no revisions" from "couldn't load" — a silent [] on failure
   // masks real errors (schema drift, a down server) as an empty history.
   const isComment = node.nodeType === COMMENT_NODE_TYPE;
-  const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[]; capped?: boolean }> => {
+  const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[]; capped?: boolean; nodeId?: string }> => {
     if (isComment) return { ok: true, items: [] };
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeRevision[] }>(
@@ -307,7 +307,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
         { nodeRef: node.id, limit: REVISIONS_LIMIT },
       );
       const items = r?.nodeRevisions ?? [];
-      return { ok: true, items, capped: isCapped(items.length, REVISIONS_LIMIT) };
+      return { ok: true, items, capped: isCapped(items.length, REVISIONS_LIMIT), nodeId: node.id };
     } catch (e) {
       console.warn('[node-detail] revision history failed:', e);
       return { ok: false, items: [] };

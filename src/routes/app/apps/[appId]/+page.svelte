@@ -1520,7 +1520,7 @@
         </a>
       {/each}
       {#if data.chatsCapped}
-        <CappedNotice shown={data.appChats?.length ?? 0} what={t('capped.chats', 'chats')} />
+        <CappedNotice shown={data.chatRootsShown ?? 0} what={t('capped.chats', 'chats')} />
       {/if}
     </div>
 
