@@ -130,6 +130,10 @@
     initialPostForm,
     {
       id: untrack(() => postForm.id),
+      // Opt-in cached composers own their draft. A page-store subscription
+      // must still deliver action results, but must not reseed an unsent
+      // draft from the loader's empty form when this thread remounts.
+      applyAction: untrack(() => onDraftChange ? 'never' : true),
       validators: zod4Client(postTeamChatMessageSchema),
       validationMethod: 'oninput',
       scrollToError: 'smooth',

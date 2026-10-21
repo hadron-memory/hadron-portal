@@ -698,6 +698,7 @@
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
   async function focusTab(id: TabId) {
+    if (channelPostBusy) return;
     activeTab = id;
     await tick();
     document.getElementById(`tab-${id}`)?.focus();
@@ -1453,7 +1454,7 @@
           aria-selected={activeTab === tab.id}
           aria-controls="panel-{tab.id}"
           tabindex={activeTab === tab.id ? 0 : -1}
-          onclick={() => activeTab = tab.id}
+          onclick={() => { if (!channelPostBusy) activeTab = tab.id; }}
           onkeydown={onTabKeydown}
           class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
             {activeTab === tab.id

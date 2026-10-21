@@ -4,9 +4,9 @@ import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { setStubPage } from '$lib/test/stubs/app-stores';
+import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { submitEnhanced } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatMessage } from '$lib/types';
@@ -882,4 +882,76 @@ it('keeps the default team draft separate when visiting another registered Chann
   flushSync(() => { props.data = team; });
   await tick(2);
   expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('team draft');
+});
+
+
+it('preserves a cached draft when the real page store seeds the remounted form', async () => {
+  setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+  const team = await pageData();
+  const other = { ...team, selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+    selectedChannelTotal: 0, selectedChannelError: false,
+    postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+  };
+  page.update((p) => ({ ...p, data: team }));
+  const props = reactiveProps<Record<string, unknown>>({ data: team, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(2);
+  for (const [current, next, body] of [[team, other, 'team draft'], [other, team, 'channel draft']] as const) {
+    const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    textarea.value = body;
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    page.update((p) => ({ ...p, data: next }));
+    flushSync(() => { props.data = next; });
+    await tick(2);
+    page.update((p) => ({ ...p, data: current }));
+    flushSync(() => { props.data = current; });
+    await tick(2);
+    expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe(body);
+    page.update((p) => ({ ...p, data: next }));
+    flushSync(() => { props.data = next; });
+    await tick(2);
+  }
+});
+
+it.each([true, false])('keeps a pending Channel post mounted through tab changes and settles success=%s', async (success) => {
+  setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+  const base = await pageData();
+  const data = { ...base, selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+    selectedChannelTotal: 0, selectedChannelError: false,
+    postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+  };
+  const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(2);
+  const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  textarea.value = 'pending post';
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync();
+  const form = textarea.closest('form')!;
+  const result = await superValidate({ body: 'pending post', channelRef: 'other' }, zod4(postTeamChatMessageSchema), { id: 'channel:other', errors: false });
+  result.valid = success;
+  result.message = success ? { type: 'success', text: 'Posted.' } : { type: 'error', text: 'Refused; try again.' };
+  await submitEnhancedWithResult(form, { type: success ? 'success' : 'failure', status: success ? 200 : 400, data: { form: result } }, async () => {
+    await tick(2);
+    m.target.querySelector<HTMLButtonElement>('#tab-worklog')!.click();
+    flushSync();
+    expect(m.target.querySelector('textarea[name=body]')).toBe(textarea);
+    m.target.querySelector<HTMLButtonElement>('#tab-chats')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    await tick(2);
+    expect(m.target.querySelector('textarea[name=body]')).toBe(textarea);
+    expect((await submitEnhanced(form)).cancelled).toBe(true);
+  });
+  await tick(3);
+  expect(textarea.value).toBe(success ? '' : 'pending post');
+  m.target.querySelector<HTMLButtonElement>('#tab-worklog')!.click();
+  flushSync();
+  expect(m.target.querySelector('textarea[name=body]')).toBeNull();
+  m.target.querySelector<HTMLButtonElement>('#tab-chats')!.click();
+  await tick(2);
+  const restored = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  expect(restored.value).toBe(success ? '' : 'pending post');
+  if (!success) expect((await submitEnhanced(restored.closest('form')!)).cancelled).toBe(false);
+
 });
