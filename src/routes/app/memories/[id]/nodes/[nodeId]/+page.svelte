@@ -920,6 +920,13 @@
     $deleteMessage,
     $deleteErrors,
   ));
+  // #621: a NODE_HAS_DESCENDANTS refusal carries the server's descendant
+  // count on the action result. It gates the "also delete descendants"
+  // checkbox in both delete surfaces — server-authoritative, so a stale or
+  // undercounted graph payload can never hide the subtree choice.
+  const deleteRefusedDescendants = $derived(
+    typeof form?.deleteRefusedDescendants === 'number' ? form.deleteRefusedDescendants : 0,
+  );
   const createParentActionError = $derived(scopedActionError<NodeCreateParentForm>(
     form,
     'createParent',
@@ -2529,6 +2536,20 @@
                   </span>
                 </span>
               </label>
+              {#if deleteRefusedDescendants > 0}
+                <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input type="checkbox" name="recursive" value="true" bind:checked={$deleteFormData.recursive}
+                    class="mt-0.5 rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                  <span>
+                    {t('node-actions.delete.also-descendants', 'Also delete its descendants')}
+                    <span class="block text-xs text-amber-600 dark:text-amber-400">
+                      {t('node-actions.delete.also-descendants.hint',
+                        'Deleting this node deletes all {count} descendant node(s) with it.',
+                        { count: deleteRefusedDescendants })}
+                    </span>
+                  </span>
+                </label>
+              {/if}
               {#if deleteActionError}
                 <p role="alert" class="text-xs text-red-500">{deleteActionError}</p>
               {/if}
@@ -3828,6 +3849,18 @@
             <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
               <span class="text-sm text-red-500">Delete "{node.name}"? This cannot be undone.</span>
+              {#if deleteRefusedDescendants > 0}
+                <label class="flex items-center gap-1.5 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input type="checkbox" name="recursive" value="true" bind:checked={$deleteFormData.recursive}
+                    class="rounded border-zinc-300 text-red-600 focus:ring-red-500 dark:border-zinc-600 dark:bg-zinc-800" />
+                  {t('node-actions.delete.also-descendants', 'Also delete its descendants')}
+                  <span class="text-xs text-amber-600 dark:text-amber-400">
+                    {t('node-actions.delete.also-descendants.hint',
+                      'Deleting this node deletes all {count} descendant node(s) with it.',
+                      { count: deleteRefusedDescendants })}
+                  </span>
+                </label>
+              {/if}
               <button
                 type="submit"
                 disabled={$deleteSubmitting}

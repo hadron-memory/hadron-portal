@@ -3177,9 +3177,12 @@ export const UPDATE_SPEC_NODE_MUTATION = /* GraphQL */ `
 // nodeRef (a node PK or fully-qualified URN).
 // hard: true permanently removes the row (vs. the default soft-delete's
 // deletedAt). #503.
+// recursive: true deletes the node plus every descendant under its loc prefix
+// (#621) — the server refuses a non-recursive delete of a parent with
+// NODE_HAS_DESCENDANTS rather than silently orphaning the subtree.
 export const DELETE_NODE_MUTATION = /* GraphQL */ `
-  mutation DeleteNode($nodeRef: ID!, $hard: Boolean) {
-    deleteNode(nodeRef: $nodeRef, hard: $hard)
+  mutation DeleteNode($nodeRef: ID!, $hard: Boolean, $recursive: Boolean) {
+    deleteNode(nodeRef: $nodeRef, hard: $hard, recursive: $recursive)
   }
 `;
 
