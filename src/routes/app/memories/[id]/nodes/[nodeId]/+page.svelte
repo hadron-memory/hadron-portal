@@ -988,6 +988,14 @@
     if (cleanLoc) $moveFormData.target = composeNodeUrn(memory.urn, cleanLoc);
   }
   let deleteOpen = $state(false);
+  // #621: closing the delete confirmation drops the subtree consent — a
+  // cancelled/reopened dialog (or a new target, or a jump to the Settings
+  // surface) must not inherit a prior "also delete descendants" check.
+  // Consent is per-dialog and explicit, never carried.
+  function closeDeleteConfirm() {
+    deleteOpen = false;
+    $deleteFormData.recursive = false;
+  }
 
   // ── portal#696: attach a file ────────────────────────────────────────────
   // Creates a `reference` child node pointing at an asset. Offered whenever the
@@ -1065,7 +1073,7 @@
 
   function onMenuSelect(id: string) {
     // Close any sibling panel so only one opens at a time.
-    testFlowOpen = false; downloadOpen = false; moveOpen = false; deleteOpen = false;
+    testFlowOpen = false; downloadOpen = false; moveOpen = false; closeDeleteConfirm();
     attachOpen = false; skillExportOpen = false;
     switch (id) {
       case 'attach-asset': attachOpen = true; break;
@@ -1092,7 +1100,7 @@
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
       case 'export-skill': skillExportOpen = true; break;
-      case 'delete': $deleteFormData.hard = false; deleteOpen = true; break;
+      case 'delete': $deleteFormData.hard = false; $deleteFormData.recursive = false; deleteOpen = true; break;
     }
   }
 
@@ -2034,7 +2042,7 @@
       $testFlowFormData.payload = '';
       moveOpen = false;
       $moveFormData.target = '';
-      deleteOpen = false;
+      closeDeleteConfirm();
       $deleteFormData.hard = false;
       // portal#696: the attach-file dialog is transient too — SvelteKit reuses
       // this component across nodes, so leaving it open would carry it (and its
@@ -2055,7 +2063,7 @@
   // Escape closes whichever header popover is open (only one is at a time —
   // onMenuSelect closes siblings). PR-504 review (Copilot: Move/Delete a11y).
   if (e.key !== 'Escape') return;
-  downloadOpen = false; testFlowOpen = false; moveOpen = false; deleteOpen = false;
+  downloadOpen = false; testFlowOpen = false; moveOpen = false; closeDeleteConfirm();
   attachOpen = false; skillExportOpen = false;
   historyMenuFor = null; // #529: close the History row menu on Escape too
 }} />
@@ -2519,7 +2527,7 @@
              uses. The hard-delete checkbox sends hard=true (permanent purge);
              unchecked = the default soft delete. -->
         {#if deleteOpen}
-          <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close delete confirmation" onclick={() => (deleteOpen = false)}></button>
+          <button type="button" class="fixed inset-0 z-30 cursor-default" aria-label="Close delete confirmation" onclick={() => closeDeleteConfirm()}></button>
           <div class="absolute right-0 z-40 mt-2 w-80 rounded-xl border border-red-200 bg-white p-4 shadow-xl dark:border-red-900 dark:bg-zinc-900">
             <form method="POST" action="?/delete" use:deleteEnhance class="space-y-3" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
@@ -2563,7 +2571,7 @@
                     ? t('node-actions.delete.deleting', 'Deleting...')
                     : $deleteFormData.hard ? 'Delete permanently' : 'Delete'}
                 </button>
-                <button type="button" onclick={() => (deleteOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
+                <button type="button" onclick={() => closeDeleteConfirm()} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
               </div>
             </form>
           </div>
@@ -3842,7 +3850,7 @@
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
           <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
           {#if !confirmDelete}
-            <button onclick={() => { $deleteFormData.hard = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+            <button onclick={() => { $deleteFormData.hard = false; $deleteFormData.recursive = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
               Delete node
             </button>
           {:else}

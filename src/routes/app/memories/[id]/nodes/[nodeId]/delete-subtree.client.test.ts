@@ -88,7 +88,7 @@ async function mountPage() {
 
 /** Open the ⋯ menu, pick Delete, and return the now-open confirm popover. */
 function openDeleteConfirm(target: HTMLElement) {
-  target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Findings"]')!.click();
+  target.querySelector<HTMLButtonElement>('button[aria-label^="Actions for"]')!.click();
   flushSync();
   const item = [...target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')]
     .find((b) => b.textContent?.trim() === 'Delete')!;
@@ -142,5 +142,100 @@ describe('delete confirm dialog (#621)', () => {
     const box = target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]');
     expect(box).not.toBeNull();
     expect(box?.closest('label')?.textContent).toContain('3 descendant');
+  });
+
+  // The Settings danger zone is the second delete surface (#621 renders the
+  // checkbox in both); it binds the same consent store as the menu popover.
+  const settingsDeleteForm = (target: HTMLElement) =>
+    [...target.querySelectorAll<HTMLFormElement>('form[action="?/delete"]')]
+      .find((f) => f.textContent?.includes('This cannot be undone.'))!;
+
+  /** The Settings danger zone arms behind its own "Delete node" button. */
+  function openSettingsDangerZone(target: HTMLElement) {
+    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Settings')!.click();
+    flushSync();
+    [...target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Delete node')!.click();
+    flushSync();
+  }
+
+  it('after a refusal, the Settings danger zone offers the subtree checkbox too', async () => {
+    const { target, props } = await mountPage();
+    openDeleteConfirm(target);
+    await submitWith(target, props, '?/delete', await refusalResult(3));
+    openSettingsDangerZone(target);
+    const box = settingsDeleteForm(target).querySelector<HTMLInputElement>('input[name="recursive"]');
+    expect(box).not.toBeNull();
+    expect(box?.closest('label')?.textContent).toContain('3 descendant');
+  });
+
+  it('a cancelled and reopened dialog does not inherit prior recursive consent', async () => {
+    const { target, props } = await mountPage();
+    openDeleteConfirm(target);
+    await submitWith(target, props, '?/delete', await refusalResult(3));
+    const box = () => target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]');
+    box()!.click(); // the explicit consent
+    flushSync();
+    expect(box()!.checked).toBe(true);
+
+    // Cancel (the backdrop) closes the dialog…
+    target.querySelector<HTMLButtonElement>('button[aria-label="Close delete confirmation"]')!.click();
+    flushSync();
+    expect(target.querySelector('form[action="?/delete"]')).toBeNull();
+
+    // …and reopening offers the choice again, un-checked — in the menu
+    // popover and in Settings, which shares the consent store.
+    openDeleteConfirm(target);
+    expect(box()).not.toBeNull();
+    expect(box()!.checked).toBe(false);
+    openSettingsDangerZone(target);
+    expect(settingsDeleteForm(target).querySelector<HTMLInputElement>('input[name="recursive"]')!.checked).toBe(false);
+  });
+
+  it('an Escape-closed dialog does not inherit prior recursive consent', async () => {
+    const { target, props } = await mountPage();
+    openDeleteConfirm(target);
+    await submitWith(target, props, '?/delete', await refusalResult(2));
+    const box = target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]')!;
+    box.click();
+    flushSync();
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    flushSync();
+
+    openDeleteConfirm(target);
+    const reopened = target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]')!;
+    expect(reopened.checked).toBe(false);
+  });
+
+  it('a changed target does not inherit prior recursive consent', async () => {
+    const { target, props } = await mountPage();
+    openDeleteConfirm(target);
+    await submitWith(target, props, '?/delete', await refusalResult(3));
+    const box = target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]')!;
+    box.click();
+    flushSync();
+
+    // SvelteKit reuses this component across nodes: navigate to node B and
+    // get a fresh refusal there. The checkbox must start un-checked.
+    const nodeB = { ...NODE, id: 'other-pk', loc: 'other', name: 'Other' };
+    mockRequest.mockImplementation(async (doc: string) => {
+      if (doc === NODE_BY_ID_QUERY || doc === NODE_QUERY) return { node: nodeB };
+      if (doc === NODE_REVISIONS_QUERY) return { nodeRevisions: [] };
+      return { memories: { items: [], total: 0 }, node: null, nodeRevisions: [] };
+    });
+    props.data = {
+      ...(props.data as object),
+      node: nodeB,
+      graphNodes: [{ id: 'other-pk', memoryId: 'mem-A', loc: 'other', name: 'Other', nodeType: 'info', tags: [] }],
+    };
+    const refused = await refusalResult(5);
+    props.form = refused.data;
+    for (let i = 0; i < 5; i++) await tick();
+    flushSync();
+
+    openDeleteConfirm(target);
+    const bBox = target.querySelector<HTMLInputElement>('form[action="?/delete"] input[name="recursive"]');
+    expect(bBox).not.toBeNull();
+    expect(bBox!.checked).toBe(false);
   });
 });
