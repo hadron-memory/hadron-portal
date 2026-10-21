@@ -1462,6 +1462,10 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
       editedBy
       editedByInfo
       editedByUser { handle urn }
+      # #1171 (server #1610): the Worker and Agent behind the edit; null on
+      # revisions captured before #1610 or with no agent behind them.
+      editedByWorker { id name urn }
+      editedByAgent { id name urn }
       revLabel
       # #620: which node fields the edit changed (empty on legacy rows).
       changes
@@ -1487,6 +1491,10 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
       editedBy
       editedByInfo
       editedByUser { handle urn }
+      # #1171 (server #1610): the Worker and Agent behind the edit; null on
+      # revisions captured before #1610 or with no agent behind them.
+      editedByWorker { id name urn }
+      editedByAgent { id name urn }
       revLabel
       changes
       createdAt
@@ -1545,6 +1553,14 @@ export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
       authorship { ...NodeAuthorshipFields }
       contentValidation { ...NodeContentValidationFields }
     }
+  }
+`;
+
+// #1001: the live content a revision's diff ends at, when that revision is the
+// newest snapshot. raw: true — the text as authored, never template-compiled.
+export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
+  query NodeLiveContent($ref: ID!) {
+    node(ref: $ref, raw: true) { id content revision }
   }
 `;
 

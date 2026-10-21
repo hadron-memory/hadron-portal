@@ -146,9 +146,12 @@ describe('delete confirm dialog (#621)', () => {
 
   // The Settings danger zone is the second delete surface (#621 renders the
   // checkbox in both); it binds the same consent store as the menu popover.
+  // Found by its confirm copy — #1160 moved the danger zone to
+  // deleteNodeStrings.confirmPrompt ("…Include deleted…"), which the menu
+  // popover's plain "Delete <name>?" does not carry.
   const settingsDeleteForm = (target: HTMLElement) =>
     [...target.querySelectorAll<HTMLFormElement>('form[action="?/delete"]')]
-      .find((f) => f.textContent?.includes('This cannot be undone.'))!;
+      .find((f) => f.textContent?.includes('Include deleted'))!;
 
   /** The Settings danger zone arms behind its own "Delete node" button. */
   function openSettingsDangerZone(target: HTMLElement) {
