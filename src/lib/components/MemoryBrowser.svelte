@@ -558,6 +558,7 @@
   let searching = $state(false);
   let searchError = $state<string | null>(null);
   let searchNote = $state<string | null>(null);
+  let searchNeedsIndex = $state(false);
   let searchCapped = $state(false); // server hit the result cap — showing a slice
   let searchSnippets = $state<Record<string, string>>({}); // #430 nodeId → matching passage
   let searchMeta = $state<Record<string, SearchHitMeta>>({}); // #432 nodeId → relevance/stale meta
@@ -596,6 +597,7 @@
     searching = true;
     searchError = null;
     searchNote = null;
+    searchNeedsIndex = false;
     searchCapped = false;
     searchSnippets = {};
     searchMeta = {};
@@ -611,6 +613,7 @@
       if (!res.ok) { searchError = data.error ?? 'Search failed'; setServerResults([]); return; }
       setServerResults(data.nodes ?? []);
       searchNote = data.note ?? null;
+      searchNeedsIndex = data.reason === 'no_vector_index' || data.degraded?.includes('no_vector_index') === true;
       searchCapped = !!data.capped;
       searchSnippets = data.snippets ?? {};
       searchMeta = data.meta ?? {};
@@ -642,6 +645,7 @@
       searching = false;
       searchError = null;
       searchNote = null;
+      searchNeedsIndex = false;
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
@@ -657,6 +661,7 @@
       searching = false;
       searchError = whereError;
       searchNote = null;
+      searchNeedsIndex = false;
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
@@ -673,6 +678,7 @@
         searching = false;
         searchError = 'Invalid regex pattern.';
         searchNote = null;
+        searchNeedsIndex = false;
         searchCapped = false;
         searchSnippets = {};
         searchMeta = {};
@@ -1361,6 +1367,9 @@
   {#if serverResults !== null && (searchError || searchNote)}
     <div class="text-xs {searchError ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}">
       {searchError ?? searchNote}
+      {#if !searchError && searchNeedsIndex && !multiMemory && basePath}
+        <a class="underline" href={`${basePath}/settings#vector-index`}>{t('search.vector-settings', 'Open vector index settings')}</a>
+      {/if}
     </div>
   {/if}
 
@@ -1509,7 +1518,9 @@
             ? 'rounded-lg'
             : 'rounded-lg sm:rounded-l-none sm:rounded-r-lg'}"
       >
-        <div style="display: flex; height: 100%;">
+        <!-- Percentage height cannot resolve against the outer min-height.
+             Give vis-network a definite canvas frame before its initial fit. -->
+        <div data-testid="graph-canvas-frame" style="display: flex; height: var(--memory-browser-h); height: calc(100dvh - 320px); min-height: 400px;">
           <!-- resultsVersion (#616): re-mount when the server working set
                changes, even at the same size — see setServerResults.
                showHidden (#706): TopicGraph builds its vis datasets ONCE, in

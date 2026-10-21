@@ -87,17 +87,17 @@ describe('/api/nodes/search (#429)', () => {
     expect(nodes).toEqual([{ id: 'a', openThreads: 2 }, { id: 'b', openThreads: 0 }, { id: 'c' }]);
   });
 
-  it('maps a fuzzy query to vector mode + chunk granularity (#430)', async () => {
+  it('maps fuzzy to node vectors so abstract-only indexes remain searchable (#1158)', async () => {
     mockRequest.mockResolvedValue(findNodesResult(1));
     await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));
     expect(mockRequest.mock.calls[0][1]).toMatchObject({
       query: 'foo',
       mode: 'vector',
-      granularity: 'chunk',
+      granularity: 'node',
     });
   });
 
-  it('#430: falls back to hybrid when the memory has no vector index', async () => {
+  it('#1162: falls back explicitly to keyword when the memory has no vector index', async () => {
     mockRequest
       .mockResolvedValueOnce({
         findNodes: { hits: [], passages: [], total: 0, reason: 'no_vector_index', degraded: null },
@@ -105,8 +105,8 @@ describe('/api/nodes/search (#429)', () => {
       .mockResolvedValueOnce(findNodesResult(2));
     const res = await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));
     expect(mockRequest).toHaveBeenCalledTimes(2);
-    expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'vector', granularity: 'chunk' });
-    expect(mockRequest.mock.calls[1][1]).toMatchObject({ mode: 'hybrid', granularity: null });
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'vector', granularity: 'node' });
+    expect(mockRequest.mock.calls[1][1]).toMatchObject({ mode: 'keyword', granularity: null });
     expect((await res.json()).nodes).toHaveLength(2);
   });
 
@@ -406,4 +406,66 @@ describe('/api/nodes/search content scope (portal#1015)', () => {
     expect(body.nodes[1].openThreads).toBe(2);
     expect(body.total).toBe(2);
   });
+});
+
+
+describe('semantic search regressions (#1158/#1162)', () => {
+  it('returns abstract-only vector hits in server rank order', async () => {
+    mockRequest.mockImplementation(async (_query, vars) => ({ findNodes: {
+      hits: vars.granularity === 'chunk' ? [] : [
+        { node: { id: 'abstract-best' }, score: 0.9 },
+        { node: { id: 'abstract-next' }, score: 0.6 },
+      ], passages: [], total: null, reason: null, degraded: null,
+    } }));
+    const res = await POST(ev({ query: 'invented information', mode: 'fuzzy', memoryIds: ['m1'] }));
+    expect((await res.json()).nodes.map((n: {id: string}) => n.id)).toEqual(['abstract-best', 'abstract-next']);
+  });
+
+  it('explains an actual lexical fallback without raw comma-separated codes', async () => {
+    mockRequest.mockResolvedValueOnce({ findNodes: { hits: [], passages: [], total: 0, reason: 'no_vector_index', degraded: 'no_vector_index,scope_narrowed' } })
+      .mockResolvedValueOnce({ findNodes: { hits: [{node: {id: 'lexical'}}], passages: [], total: 1, reason: null, degraded: 'and_relaxed_to_or' } });
+    const body = await (await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }))).json();
+    expect(body.note).toContain('Showing keyword matches instead');
+    expect(body.note).not.toContain('no_vector_index');
+    expect(body.note).toContain('any search term');
+    expect(body.reason).toBe('no_vector_index');
+    expect(body.degraded).toEqual(['no_vector_index', 'scope_narrowed', 'and_relaxed_to_or']);
+  });
+
+  it('does not claim keyword matches when the fallback is empty', async () => {
+    mockRequest.mockResolvedValueOnce({ findNodes: { hits: [], passages: [], total: 0, reason: 'embedding_unavailable', degraded: null } })
+      .mockResolvedValueOnce(findNodesResult(0));
+    const body = await (await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }))).json();
+    expect(body.note).toContain('No keyword matches found');
+    expect(body.note).not.toContain('Showing keyword matches');
+  });
+});
+
+it('#1158: optional passages cannot replace node ranking or introduce another node', async () => {
+  mockRequest.mockResolvedValueOnce({ findNodes: { hits: [{node: {id: 'abstract'}, score: 0.9}, {node: {id: 'content'}, score: 0.8}], passages: [], total: null, reason: null, degraded: null } })
+    .mockResolvedValueOnce({findNodes: {hits: [], passages: [{parentNodeId: 'content', text: 'matching passage', score: 0.8}, {parentNodeId: 'outside', text: 'outside result window', score: 1}], total: null, reason: null, degraded: null}});
+  const body = await (await POST(ev({query: 'facts', mode: 'fuzzy', memoryIds: ['m1']}))).json();
+  expect(body.nodes.map((n: {id: string}) => n.id)).toEqual(['abstract', 'content']);
+  expect(body.snippets).toEqual({content: 'matching passage'});
+  expect(mockRequest.mock.calls[1][1]).toMatchObject({granularity: 'chunk', memoryIds: ['m1'], limit: 500});
+});
+
+it('#1158: a failed optional passage request preserves successful nodes', async () => {
+  mockRequest.mockResolvedValueOnce(findNodesResult(1)).mockRejectedValueOnce(new Error('unavailable'));
+  const res = await POST(ev({query: 'facts', mode: 'fuzzy', memoryIds: ['m1']}));
+  const body = await res.json();
+  expect(res.status).toBe(200);
+  expect(body.nodes).toHaveLength(1);
+  expect(body.note).toContain('Matching passages are unavailable');
+});
+
+it('#1207 LOCAL P3: transient embedding recovery must not make a keyword-labelled fallback semantic', async () => {
+  mockRequest.mockImplementation(async (_doc, vars) => ({findNodes: vars.mode === 'vector'
+    ? {hits: [], passages: [], total: 0, reason: 'embedding_unavailable', degraded: null}
+    : {hits: [{node: {id: vars.mode === 'hybrid' ? 'recovered-semantic-hit' : 'keyword-hit'}}], passages: [], total: 1, reason: null, degraded: null}
+  }));
+  const body = await (await POST(ev({query: 'facts', mode: 'fuzzy', memoryIds: ['m1']}))).json();
+  expect(body.nodes.map((n: {id: string}) => n.id)).toEqual(['keyword-hit']);
+  expect(mockRequest.mock.calls[1][1]).toMatchObject({mode: 'keyword', granularity: null});
+  expect(body.note).toContain('Showing keyword matches instead');
 });

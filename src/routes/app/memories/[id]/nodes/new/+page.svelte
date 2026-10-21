@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n/t';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
@@ -44,19 +45,12 @@
     },
   });
 
-  // #260: org-less memory route. The owning-org crumbs are only included when
-  // the user is a member of that org (org present); a non-member contributor
-  // gets a leaner trail that starts at the memory.
+  // Match the node detail trail, including memories without an org link.
   const breadcrumbItems = $derived([
-    { href: '/app/dashboard', label: 'Dashboard' },
-    ...(data.org
-      ? [
-          { href: `/app/orgs/${data.org.id}`, label: data.org.name },
-          { href: `/app/orgs/${data.org.id}/memories`, label: 'Memories' },
-        ]
-      : []),
+    { href: data.org ? `/app/orgs/${data.org.id}/memories` : undefined, label: t('node.new.memories', 'Memories') },
     { href: `/app/memories/${memory.id}`, label: memory.name },
-    { label: 'New node' },
+    { href: `/app/memories/${memory.id}/nodes`, label: t('node.new.nodes', 'Nodes') },
+    { label: t('node.new.title', 'New node') },
   ]);
 
   // #320: a command-bar deep-link prefills the full loc; treat it as
@@ -148,6 +142,8 @@
     }
   });
 </script>
+
+<svelte:head><title>{t('node.new.title', 'New node')} &middot; {memory.name} &middot; Hadron</title></svelte:head>
 
 <div class="mx-auto max-w-2xl space-y-4 p-4">
   <Breadcrumb items={breadcrumbItems} />

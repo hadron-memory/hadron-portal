@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { t } from "$lib/i18n/t";
   import type { GraphViewData, Topic } from "$lib/types";
   import Urn from "./Urn.svelte";
   import { graphNodeHref } from "$lib/graph-utils";
@@ -204,8 +205,8 @@
     hierEdges = data.hierEdges.map((e) => ({
       id: "hier_" + e.to, from: e.from, to: e.to,
       dashes: [6, 6],
-      color: { color: "#21262d", highlight: "#30363d", hover: "#30363d" },
-      width: 1, arrows: { to: { enabled: false } }, smooth: false,
+      color: { color: "#64748b", highlight: "#94a3b8", hover: "#94a3b8" },
+      width: 1.5, arrows: { to: { enabled: false } }, smooth: false,
     }));
 
     nodesDataset = new vis.DataSet([...visNodes, ...folderVisNodes]);
@@ -341,8 +342,9 @@
 
 <div class="graph-wrapper">
   <div class="toolbar">
+    <span class="text-xs">{t("graph.hierarchy-legend", "Dashed lines show hierarchy; arrows show stored links.")}</span>
     <div class="controls">
-      <button onclick={() => network?.fit()}>Fit</button>
+      <button onclick={() => network?.fit()}>{t("graph.fit", "Fit")}</button>
     </div>
   </div>
 

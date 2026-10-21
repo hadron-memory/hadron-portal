@@ -9,6 +9,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
+  import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
@@ -76,6 +77,17 @@
   // #713: agents bundled with this one — co-installed siblings plus AgentImport
   // edges, assembled server-side (see the loader for why siblings are the source
   // of truth for a Team Agent's personas).
+  // #1173: what the Bundled tab can add (see the loader). An agent with nothing
+  // bundled yet still gets the tab when there is something to add to it.
+  const bundleCandidates = $derived(
+    (data as { bundleCandidates?: Array<{ id: string; name: string; urn: string }> }).bundleCandidates ?? [],
+  );
+  const bundleCandidatesError = $derived(
+    (data as { bundleCandidatesError?: boolean }).bundleCandidatesError ?? false,
+  );
+  const nextImportPosition = $derived((data as { nextImportPosition?: number }).nextImportPosition ?? 1);
+  const bundleResult = $derived(form as { bundleError?: string; bundleAdded?: boolean } | null);
+  let bundling = $state(false);
   const bundledWithheldApps = $derived((data as { bundledWithheldApps?: number }).bundledWithheldApps ?? 0);
   const bundledAgents = $derived(
     (data as { bundledAgents?: BundledAgentRow[] }).bundledAgents ?? [],
@@ -181,7 +193,7 @@
     // #713: only for an agent that actually bundles others (a Team Agent and
     // its personas) — an always-empty tab on every ordinary agent is noise,
     // same reasoning as Chatbot Control below.
-    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
+    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },
@@ -997,6 +1009,53 @@
       <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Bundled agents
         <span class="ml-1 text-sm font-normal text-zinc-500">({bundledAgents.length})</span>
       </h2>
+      <!-- #1173: bundle another agent (an AgentImport edge). The server decides
+           who may and what is legal; its sentence is shown as is. -->
+      {#if bundleCandidatesError}
+        <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">
+          {t('agent.bundled.add.unavailable', 'The list of agents you can bundle could not be loaded. Reload to try again.')}
+        </p>
+      {:else if bundleCandidates.length > 0}
+        <form
+          method="POST"
+          action="?/addBundledAgent"
+          class="mb-4 flex flex-wrap items-end gap-3"
+          use:enhance={() => {
+            bundling = true;
+            return async ({ update }) => {
+              await update();
+              bundling = false;
+            };
+          }}
+        >
+          <input type="hidden" name="position" value={nextImportPosition} />
+          <div class="min-w-[220px] flex-1">
+            <label for="bundleAgentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('agent.bundled.add.label', 'Add a bundled agent')}</label>
+            <select id="bundleAgentId" name="agentId" required class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
+              <option value="">{t('agent.bundled.add.placeholder', 'Select an agent…')}</option>
+              {#each bundleCandidates as c (c.id)}
+                <option value={c.id}>{c.name} — {c.urn}</option>
+              {/each}
+            </select>
+          </div>
+          <label class="flex items-center gap-2 pb-2 text-sm text-zinc-700 dark:text-zinc-300">
+            <input type="checkbox" name="required" checked />
+            {t('agent.bundled.add.required', 'Required')}
+          </label>
+          <button type="submit" disabled={bundling} class="rounded-lg bg-zinc-200 px-4 py-2 text-sm font-medium text-zinc-900 hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-700 dark:text-white dark:hover:bg-zinc-600">
+            {bundling ? t('agent.bundled.add.adding', 'Adding…') : t('agent.bundled.add.submit', 'Add')}
+          </button>
+        </form>
+      {:else if org}
+        <p class="mb-3 text-sm text-zinc-500">
+          {t('agent.bundled.add.none', 'No agent is available to bundle. Only agents your organization has an active license for can be bundled.')}
+        </p>
+      {/if}
+      {#if bundleResult?.bundleError}
+        <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{bundleResult.bundleError}</p>
+      {:else if bundleResult?.bundleAdded}
+        <p role="status" class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
+      {/if}
       {#if bundledWithheldApps > 0}
         <p role="status" class="mb-3 text-xs text-zinc-500">
           {t('agent.bundled.withheld', 'The agents installed in {count} App(s) aren’t visible to you, so this list may be incomplete.', { count: String(bundledWithheldApps) })}
