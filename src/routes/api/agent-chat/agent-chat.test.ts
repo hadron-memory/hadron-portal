@@ -912,6 +912,30 @@ describe('agent chat metadata past the first page (#1224)', () => {
     const offsets = mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats')).map(([, vars]) => vars.offset);
     expect(offsets).toEqual(route === 'list' ? [0, 37, 74, 111, 148, 185, 205] : [0, 37, 74, 111, 148, 185]);
   });
+  it('keeps the first occurrence of a loc when chats shift across offset pages', async () => {
+    const chats = serveChats(101);
+    let metadataReads = 0;
+    const normalRead = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (document: string, vars: Record<string, any>) => {
+      if (document.includes('query MyChats')) {
+        metadataReads++;
+        if (metadataReads === 2) {
+          // The oldest chat was updated between reads and moved to the front.
+          // Row99 shifts to offset100; changing its payload pins first-wins.
+          return { myChats: [{ ...chats[99], title: 'Later duplicate' }] };
+        }
+        if (metadataReads > 2) return { myChats: [] };
+      }
+      return normalRead(document, vars);
+    });
+    const { GET } = await import('./list/+server');
+    const res = await GET(ev({ searchParams: { agentId: 'agent-pages' } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.chats).toEqual(chats.slice(0, 100));
+    expect(new Set(body.chats.map((chat: { loc: string }) => chat.loc)).size).toBe(body.chats.length);
+    expect(mockRequest.mock.calls.map(([, vars]) => vars.offset)).toEqual([0, 100, 101]);
+  });
   it('returns not found only after exhausting authorized metadata', async () => {
     serveChats(205);
     const { POST } = await import('./resume/+server');

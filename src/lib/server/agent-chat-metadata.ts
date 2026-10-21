@@ -21,7 +21,17 @@ async function* chatPages(client: GraphQLClient, agentRef: string): AsyncGenerat
 
 export async function loadAgentChats(client: GraphQLClient, agentRef: string): Promise<Chat[]> {
   const chats: Chat[] = [];
-  for await (const page of chatPages(client, agentRef)) chats.push(...page);
+  const seen = new Set<string>();
+  for await (const page of chatPages(client, agentRef)) {
+    // Updates/new chats can shift a boundary row into the next offset page.
+    // The UI keys by loc; keep its first occurrence without changing the raw
+    // page length used by chatPages to advance the offset.
+    for (const chat of page) {
+      if (seen.has(chat.loc)) continue;
+      seen.add(chat.loc);
+      chats.push(chat);
+    }
+  }
   return chats;
 }
 
