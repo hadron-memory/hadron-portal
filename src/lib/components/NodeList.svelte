@@ -12,6 +12,7 @@
   import TableFrame from './table/TableFrame.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+  import { approvedCellText, changedByView, signedCellText, type NodeColumnRow } from '$lib/node-columns';
   import { t } from '$lib/i18n/t';
   import type { MemoryNode, SearchHitMeta } from '$lib/types';
 
@@ -25,6 +26,11 @@
     hideSearch = false,
     snippets = {},
     meta = {},
+    showColumns = false,
+    columnData = {},
+    columnsLoading = 0,
+    columnsFailed = 0,
+    onretrycolumns,
   }: {
     nodes: MemoryNode[];
     basePath?: string;
@@ -45,7 +51,33 @@
      * a relevance % and a stale-abstract badge on the row. Empty in browse.
      */
     meta?: Record<string, SearchHitMeta>;
+    /**
+     * portal#1174: add Role, Last changed, Changed by, Revision, Approved and
+     * Signed. Off by default so the children list and every other consumer keep
+     * their three columns. Fixed at mount, like the rest of the column set.
+     */
+    showColumns?: boolean;
+    /** nodeId → that node's extra columns, as they load. A node absent here has not loaded. */
+    columnData?: Record<string, NodeColumnRow>;
+    /** How many nodes' columns are still being read. */
+    columnsLoading?: number;
+    /** How many nodes' columns could not be read. */
+    columnsFailed?: number;
+    onretrycolumns?: () => void;
   } = $props();
+
+  // A row as the table sees it: the node plus its lazily-read columns. The
+  // table's data is rebuilt when `columnData` changes, so a cell that loads
+  // late recomputes its sort and filter value.
+  type Row = MemoryNode & { __cols?: NodeColumnRow };
+  const tableRows = $derived<Row[]>(
+    showColumns ? nodes.map((n) => ({ ...n, __cols: columnData[n.id] })) : nodes,
+  );
+  const instantMs = (v: string | null | undefined): number | null => {
+    if (!v) return null;
+    const ms = new Date(v).getTime();
+    return Number.isNaN(ms) ? null : ms;
+  };
 
   // #432: relevance tooltip — explain the relative % and add the vector "why did
   // this match" lineage when the hit came from the vector index.
@@ -102,7 +134,7 @@
     ].join(' ');
   }
 
-  const columns: PortalColumnDef<MemoryNode>[] = [
+  const columns: PortalColumnDef<Row>[] = [
     {
       // portal#1015: a comment hit's row also renders its author and target, so
       // the table filter searches them too (per hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable).
@@ -115,11 +147,22 @@
     }, // identity column — always shown
     { accessorKey: 'nodeType', header: 'Type', size: 120 },
     { accessorFn: (n) => n.description ?? '', id: 'description', header: 'Description', size: 400 },
+    ...(untrack(() => showColumns)
+      ? ([
+          { accessorFn: (n) => n.__cols?.role ?? '', id: 'role', header: t('node-list.col.role', 'Role'), size: 140 },
+          // Sorts by instant, not by the wire string (review:date-column-sorts-by-instant).
+          { accessorFn: (n) => instantMs(n.__cols?.updatedAt), id: 'updatedAt', header: t('node-list.col.last-changed', 'Last changed'), size: 180 },
+          { accessorFn: (n) => changedByView(n.__cols).searchText, id: 'changedBy', header: t('node-list.col.changed-by', 'Changed by'), size: 220 },
+          { accessorFn: (n) => n.__cols?.revision ?? null, id: 'revision', header: t('node-list.col.revision', 'Revision'), size: 100 },
+          { accessorFn: (n) => approvedCellText(n.__cols), id: 'approved', header: t('node-list.col.approved', 'Approved'), size: 200 },
+          { accessorFn: (n) => signedCellText(n.__cols), id: 'signed', header: t('node-list.col.signed', 'Signed'), size: 180 },
+        ] as PortalColumnDef<Row>[])
+      : []),
   ];
 
-  const table = createSvelteTable<MemoryNode>({
+  const table = createSvelteTable<Row>({
     get data() {
-      return nodes;
+      return tableRows;
     },
     columns,
     enableMultiSort: false,
@@ -237,6 +280,16 @@
   {#if nodes.length === 0}
     <p class="text-sm text-zinc-500">No nodes.</p>
   {:else}
+    {#if showColumns && (columnsLoading > 0 || columnsFailed > 0)}
+      <!-- portal#1174: the extra columns arrive after the list; say so, and say when a batch failed, rather than leaving blanks unexplained. -->
+      <p role="status" data-testid="node-columns-status" class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+        {#if columnsLoading > 0}{t('node-list.columns-loading', 'Loading columns…')}{/if}
+        {#if columnsFailed > 0}
+          {t('node-list.columns-failed', 'Some columns could not be loaded.')}
+          {#if onretrycolumns}<button type="button" class="ml-1 font-medium text-indigo-600 hover:underline dark:text-indigo-300" onclick={onretrycolumns}>{t('node-list.columns-retry', 'Retry')}</button>{/if}
+        {/if}
+      </p>
+    {/if}
     <!-- Browse list scrolls inside a bounded container; the orderable children
          list keeps its natural height. Height = the area available to NodeList
          minus this list's own controls/footer chrome (the `10rem`).
@@ -399,6 +452,38 @@
                       >…{snippets[n.id]}…</div>
                     {/if}
                   </td>
+                {:else if cell.column.id === 'role'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
+                    {#if n.__cols?.role}<span class="break-words font-mono text-xs text-zinc-700 dark:text-zinc-300">{n.__cols.role}</span>{/if}
+                  </td>
+                {:else if cell.column.id === 'updatedAt'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+                    {#if instantMs(n.__cols?.updatedAt) !== null}{new Date(n.__cols!.updatedAt!).toLocaleString()}{/if}
+                  </td>
+                {:else if cell.column.id === 'changedBy'}
+                  {@const by = changedByView(n.__cols)}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs dark:border-zinc-800">
+                    {#if by.worker}
+                      <div data-testid="changed-by-worker" class="min-w-0">
+                        <div class="truncate text-zinc-700 dark:text-zinc-300">{by.worker.name}</div>
+                        {#if by.worker.urn}<Urn value={by.worker.urn} type="worker" linked size={8} />{/if}
+                      </div>
+                    {/if}
+                    {#if by.agent}
+                      <div data-testid="changed-by-agent" class="mt-1 min-w-0">
+                        <div class="truncate text-zinc-600 dark:text-zinc-400">{by.agent.name}</div>
+                        {#if by.agent.urn}<Urn value={by.agent.urn} type="agent" linked size={8} />{/if}
+                      </div>
+                    {/if}
+                  </td>
+                {:else if cell.column.id === 'revision'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+                    {n.__cols?.revision ?? ''}
+                  </td>
+                {:else if cell.column.id === 'approved'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{approvedCellText(n.__cols)}</td>
+                {:else if cell.column.id === 'signed'}
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{signedCellText(n.__cols)}</td>
                 {:else if cell.column.id === 'nodeType'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
                     <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.nodeType}</span>

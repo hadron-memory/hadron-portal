@@ -10,9 +10,11 @@
   import type { ContentScope } from '$lib/comments';
   import { onDestroy, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
+  import { createNodeColumns } from '$lib/node-columns.svelte';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { Memory, MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
+  import type { NodeColumnRow } from '$lib/node-columns';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
@@ -334,6 +336,21 @@
   let searchMode = $state<'exact' | 'regex' | 'fuzzy'>('exact');
   $effect(() => { graphState.searchFilter = keyword; });
   onDestroy(() => { graphState.searchFilter = ''; graphState.searchResultNodeIds = null; });
+
+  // portal#1174: the Nodes tab's Role / Last changed / Changed by / Revision /
+  // Approved / Signed columns. They are not on the slim rows the layout loads,
+  // so they are read here, lazily and in batches, for the nodes the list shows
+  // (hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers).
+  const nodeColumns = createNodeColumns(async (refs) => {
+    const res = await fetch('/api/nodes/columns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refs }),
+    });
+    if (!res.ok) throw new Error(`columns ${res.status}`);
+    return (await res.json()) as { rows: NodeColumnRow[]; unavailable: string[]; omitted: string[] };
+  });
+  onDestroy(() => nodeColumns.destroy());
 
   // #429: structured server-side dimensions the slim loaded set can't answer
   // client-side. `myNodesOnly` → findNodes filter.createdBy (needs the caller's
@@ -794,6 +811,15 @@
   // Retained name: NodeList and the search-rescue count below read this.
   const searchedNodes = $derived(visibleNodes);
 
+  // portal#1174: read the extra columns for whatever the list shows, only while
+  // the Nodes list is on screen. `ensure` skips ids it has already asked about,
+  // so a search or filter that changes the list asks for the new rows only.
+  $effect(() => {
+    if (activeView !== 'nodes') return;
+    const ids = searchedNodes.map((n) => n.id);
+    untrack(() => { void nodeColumns.ensure(ids); });
+  });
+
   // #372: a server search matches across ALL node types, but the hidden-types
   // filter then drops record/system matches — so a query that only hit record
   // nodes shows an empty/short list with no clue the matches exist. The dropped
@@ -1200,7 +1226,9 @@
     </select>
 
     <!-- portal#1015: Content / Comments / All, applied by the server before ranking and the result cap -->
-    <select bind:value={contentScope} data-testid="scope-filter" aria-label={t('memory-browser.scope-filter', 'Search scope')} title={t('memory-browser.scope-filter', 'Search scope')}
+    <!-- portal#1174: a bare "Content" beside "Node Types" read as a second type filter; name what it is. -->
+    <label for="scope-filter" class="text-xs text-zinc-500 dark:text-zinc-400">{t('memory-browser.scope-label', 'Show')}</label>
+    <select bind:value={contentScope} id="scope-filter" data-testid="scope-filter" aria-label={t('memory-browser.scope-filter', 'Search scope')} title={t('memory-browser.scope-filter', 'Search scope')}
       class="rounded-lg border px-2 py-1.5 text-xs
         {contentScope !== 'CONTENT' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="CONTENT">{t('memory-browser.scope.content', 'Content')}</option>
@@ -1507,7 +1535,10 @@
           <!-- hideSearch: the single search box lives in MemoryBrowser now
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
-          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} />
+          <NodeList
+            nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta}
+            showColumns columnData={nodeColumns.rows} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
+          />
         </div>
       {/if}
     </div>

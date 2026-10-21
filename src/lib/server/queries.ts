@@ -2770,6 +2770,34 @@ export const LEGACY_THREAD_PROBE_QUERY = /* GraphQL */ `
 // updatedAfter/Before = "changed since"), and user-selectable sort. `query` is
 // optional — omitting it returns a deterministically-ordered filtered list
 // (hrn:node:hadronmemory.com:specs:cor:api:090). #429.
+// portal#1174: the Nodes tab's extra columns for a set of nodes, through the
+// server's batched `nodeBatch` (cap 200 refs) so each batch is one call. Only
+// the six facts the table shows, never content. Kept OUT of the shared layout
+// payload and the slim `memoryNodes` rows on purpose
+// (hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers):
+// the tab reads them lazily, per batch, after the list is on screen.
+export const NODE_COLUMNS_QUERY = /* GraphQL */ `
+  query NodeColumns($refs: [ID!]) {
+    nodeBatch(refs: $refs) {
+      nodes {
+        id
+        role
+        updatedAt
+        revision
+        approvalStatus { state }
+        signatureStatus { state }
+        # hadron-server #1610: the Agent and Worker behind the last authored
+        # edit. A user half ("Changed by (user)") waits on hadron-server#2176.
+        updatedByAgent { id name urn }
+        updatedByWorker { id name urn }
+      }
+      unavailable
+      omitted
+      truncated
+    }
+  }
+`;
+
 export const NODE_FIND_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeFind(
