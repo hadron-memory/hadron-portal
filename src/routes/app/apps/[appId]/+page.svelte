@@ -2394,7 +2394,11 @@
 
   {#if activeTab === 'memory'}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
-    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} {writableMemoryIds} scopeMemoryIds={effectiveMemories.map((m) => m.id)} />
+    <!-- #1043 interim: primary-agent links cannot establish the viewer's
+         rights across this App. Omit the partial writable set so the browser
+         makes no read-only claim from omission; server writes stay authoritative.
+         The full memory list awaits the server projection in #2190. -->
+    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={effectiveMemories.map((m) => m.id)} />
     </div>
   {/if}
 
