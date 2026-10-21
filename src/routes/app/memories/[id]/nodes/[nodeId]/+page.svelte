@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { locOfSameMemoryTarget, sameMemoryTarget } from '$lib/urn/move-destination';
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
@@ -979,7 +980,15 @@
   let memoryPickerOpen = $state(false);
   function onPickTargetMemory(memory: { urn: string }) {
     if (cleanLoc) $moveFormData.target = composeNodeUrn(memory.urn, cleanLoc);
+    // A pick can land in another memory, where the Location field no longer
+    // describes the destination — show the full URN so nothing stale submits.
+    moveFullUrn = locOfSameMemoryTarget(data.graph.urn ?? '', $moveFormData.target) === null;
   }
+  // #1164: Location (loc in this node's own memory) is the default way to move;
+  // the full-URN field is the cross-memory path. `target` stays the one value
+  // that is submitted in both modes.
+  let moveFullUrn = $state(false);
+  const moveLocation = $derived(locOfSameMemoryTarget(data.graph.urn ?? '', $moveFormData.target));
   let deleteOpen = $state(false);
 
   // ── portal#696: attach a file ────────────────────────────────────────────
@@ -1075,6 +1084,7 @@
       case 'convert-to-task': convertForm?.requestSubmit(); break;
       case 'move':
         $moveFormData.target = fullUrn;
+        moveFullUrn = false;
         moveOpen = true;
         break;
       // #726: the chat root's node page, which opens on its Chat tab — the
@@ -2026,6 +2036,7 @@
       $testFlowFormData.orgId = data.org?.id ?? '';
       $testFlowFormData.payload = '';
       moveOpen = false;
+      moveFullUrn = false;
       $moveFormData.target = '';
       deleteOpen = false;
       $deleteFormData.hard = false;
@@ -2420,6 +2431,27 @@
             >
               <input type="hidden" name="_kind" value={$moveFormData._kind} />
               <div>
+                {#if !moveFullUrn && moveLocation !== null}
+                  <!-- #1164: Location — the loc in THIS memory. The hidden input
+                       carries the one submitted `target`, so Location and the
+                       full-URN field can never disagree. -->
+                  <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('node-actions.move-location', 'Location')}</label>
+                  <input type="hidden" name="target" value={$moveFormData.target} />
+                  <input
+                    id="moveTarget"
+                    type="text"
+                    value={moveLocation}
+                    oninput={(e) => ($moveFormData.target = sameMemoryTarget(data.graph.urn ?? '', e.currentTarget.value))}
+                    spellcheck="false"
+                    aria-invalid={$moveErrors.target?.[0] ? 'true' : undefined}
+                    aria-describedby={$moveErrors.target?.[0] ? 'moveTargetHint moveTargetError' : 'moveTargetHint'}
+                    class="{inputClass} font-mono text-xs {$moveErrors.target?.[0] ? 'border-red-500 focus:border-red-500' : ''}"
+                  />
+                  <p id="moveTargetHint" class="mt-1 text-xs text-zinc-400">
+                    {t('node-actions.move-location-hint', 'The node’s path in this memory — change it to rename or reparent. Fails if a node already lives there.')}
+                    <button type="button" onclick={() => (moveFullUrn = true)} class="ml-1 underline hover:text-zinc-600 dark:hover:text-zinc-200">{t('node-actions.move-use-full-urn', 'Use full URN')}</button>
+                  </p>
+                {:else}
                 <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Destination node URN</label>
                 <input
                   id="moveTarget"
@@ -2481,6 +2513,7 @@
                     >{t('node-actions.move-select-memory', 'Select target memory…')}</button>
                   {/if}
                 {/await}
+                {/if}
               </div>
               {#if moveActionError}
                 <p role="alert" class="text-xs text-red-500">{moveActionError}</p>
