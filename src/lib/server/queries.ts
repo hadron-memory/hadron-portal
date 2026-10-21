@@ -2557,6 +2557,16 @@ export const NODE_FIELDS = /* GraphQL */ `
 // passes a single id so it only fetches that memory's nodes instead of pulling a
 // global window and filtering client-side — the latter silently dropped a memory's
 // nodes once total nodes exceeded the limit.
+// #1202: fixtures are system nodes, independently of the memory's class.
+// Keep this narrow read separate from GraphNodes' mixed-type default.
+export const FIXTURE_NODES_QUERY = /* GraphQL */ `
+  query FixtureNodes($limit: Int, $memoryIds: [ID!]!) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit) {
+      hits { node { id loc memoryId data } }
+    }
+  }
+`;
+
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query GraphNodes($limit: Int, $memoryIds: [ID!]) {
