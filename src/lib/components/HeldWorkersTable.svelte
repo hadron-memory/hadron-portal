@@ -2,7 +2,7 @@
   #919 — the workers a user HOLDS, on their profile page, as a TanStack grid.
 
   Holger's ruling: every held worker, with a live session marked "Active now"
-  and the rest "Last driven …". Holding is whose name a worker is; a live
+  and the rest "Last recorded activity …". Holding is whose name a worker is; a live
   session is someone driving it right now. Both come from the server under its
   worker read gate, and the working-state fields are MASKED to null on deny,
   so a null here is "not shown to you", never "no".
@@ -51,9 +51,9 @@
       case 'active':
         return tt('user.workers.state.active', 'Active now');
       case 'idle':
-        return tt('user.workers.state.idle', 'Last driven {when}', { when: fmtDate(w.lastActiveAt) });
+        return tt('user.workers.state.idle', 'Last recorded activity {when}', { when: fmtDate(w.lastActiveAt) });
       case 'never':
-        return tt('user.workers.state.never', 'Never driven');
+        return tt('user.workers.state.never', 'No recorded activity');
       default:
         // Said in words, not a dash with a hover-only title: keyboard and
         // touch users must be able to tell MASKED from missing (@codex on #930).
