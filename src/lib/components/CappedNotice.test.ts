@@ -7,6 +7,6 @@ describe('CappedNotice (#1226)', () => {
     const { body } = render(CappedNotice, { props: { shown: 500, what: 'nodes' } });
     expect(body).toContain('role="status"');
     expect(body).toContain('Showing the first 500 nodes');
-    expect(body).toContain('more exist');
+    expect(body).toContain('more may exist');
   });
 });

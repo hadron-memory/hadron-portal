@@ -124,4 +124,29 @@ describe('History tab full-window cue (portal#1226)', () => {
     await settle();
     expect(m.target.textContent).not.toContain(NOTICE);
   });
+
+  // Each guard alone, so deleting either one is caught (Glen/Gizelle, P3).
+  it('the node pin alone: moving to another node on the SAME promise never shows the old cap', async () => {
+    revisionCount = 100;
+    const m = await mountPage('?tab=history');
+    expect(m.target.textContent).toContain(NOTICE);
+    const data = m.props.data as Record<string, unknown>;
+    m.props.data = { ...data, node: { ...(data.node as Record<string, unknown>), id: 'other-pk', loc: 'bar' } };
+    await settle();
+    expect(m.target.textContent).not.toContain(NOTICE);
+  });
+
+  it('the promise guard alone: a superseded promise that names the CURRENT node cannot set the cue', async () => {
+    revisionCount = 0;
+    const m = await mountPage('?tab=history');
+    const data = m.props.data as Record<string, unknown>;
+    let stale!: (v: unknown) => void;
+    m.props.data = { ...data, revisions: new Promise((r) => { stale = r; }) };
+    await settle();
+    m.props.data = { ...data, revisions: Promise.resolve({ ok: true, items: revisionRows(2), capped: false, nodeId: 'leaf-pk' }) };
+    await settle();
+    stale({ ok: true, items: revisionRows(100), capped: true, nodeId: 'leaf-pk' });
+    await settle();
+    expect(m.target.textContent).not.toContain(NOTICE);
+  });
 });
