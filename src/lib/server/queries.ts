@@ -3047,6 +3047,15 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
       properties
+      # portal#1175: this node AS a comment — its target (for the breadcrumb
+      # link) and whether the viewer wrote it (for the edit controls). Null for
+      # content. Detail-only; the search read selects its own, wider asComment.
+      asComment {
+        id
+        deleted
+        viewerIsAuthor
+        target { id name nodeType urn }
+      }
       # #927 (server #1323/#937): the live revision an inline editor opens on
       # and saves against as expectedRevision. Detail-only, like properties.
       revision
