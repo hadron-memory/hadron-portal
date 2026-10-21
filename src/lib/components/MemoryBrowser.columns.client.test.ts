@@ -82,6 +82,10 @@ describe('Nodes tab extra columns (#1174)', () => {
     expect(columnBodies).toHaveLength(2);
     expect(columnBodies[1].refs[0]).toBe('n25');
     expect(columnBodies[1].refs).toHaveLength(25);
+    // The page's columns landing must not bounce the reader back to page 1 (Gemma on #1181).
+    await vi.waitFor(() => expect(target.textContent).toContain('spec'));
+    expect(target.textContent).toContain('Node 25');
+    expect(target.textContent).not.toContain('Node 0');
   });
 
   it('never claims a whole-memory sort over columns that only the page has: they are not sortable', async () => {

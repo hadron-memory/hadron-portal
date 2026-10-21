@@ -73,13 +73,13 @@
     onvisiblenodes?: (ids: string[]) => void;
   } = $props();
 
-  // A row as the table sees it: the node plus its lazily-read columns. The
-  // table's data is rebuilt when `columnData` changes, so a cell that loads
-  // late recomputes its sort and filter value.
-  type Row = MemoryNode & { __cols?: NodeColumnRow };
-  const tableRows = $derived<Row[]>(
-    showColumns ? nodes.map((n) => ({ ...n, __cols: columnData[n.id] })) : nodes,
-  );
+  // portal#1174: the extra columns are read from `columnData` at render time,
+  // NOT merged into the table's data. Rebuilding the data array whenever a page's
+  // columns land would change its identity, and TanStack resets the page index
+  // when the data reference changes, bouncing the reader back to page 1
+  // (Gemma on #1181). The columns are not sortable or filterable, so nothing in
+  // the row model needs them.
+  const colsOf = (n: MemoryNode): NodeColumnRow | undefined => (showColumns ? columnData[n.id] : undefined);
   const instantMs = (v: string | null | undefined): number | null => {
     if (!v) return null;
     const ms = new Date(v).getTime();
@@ -148,7 +148,7 @@
   // to ask those questions.
   const PAGE_ONLY = { enableSorting: false, enableGlobalFilter: false } as const;
 
-  const columns: PortalColumnDef<Row>[] = [
+  const columns: PortalColumnDef<MemoryNode>[] = [
     {
       // portal#1015: a comment hit's row also renders its author and target, so
       // the table filter searches them too (per hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable).
@@ -163,20 +163,20 @@
     { accessorFn: (n) => n.description ?? '', id: 'description', header: 'Description', size: 400 },
     ...(untrack(() => showColumns)
       ? ([
-          { ...PAGE_ONLY, accessorFn: (n) => n.__cols?.role ?? '', id: 'role', header: t('node-list.col.role', 'Role'), size: 140 },
+          { ...PAGE_ONLY, accessorFn: (n) => colsOf(n)?.role ?? '', id: 'role', header: t('node-list.col.role', 'Role'), size: 140 },
           // Sorts by instant, not by the wire string (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant).
-          { ...PAGE_ONLY, accessorFn: (n) => instantMs(n.__cols?.updatedAt), id: 'updatedAt', header: t('node-list.col.last-changed', 'Last changed'), size: 180 },
-          { ...PAGE_ONLY, accessorFn: (n) => changedByView(n.__cols).searchText, id: 'changedBy', header: t('node-list.col.changed-by', 'Changed by'), size: 220 },
-          { ...PAGE_ONLY, accessorFn: (n) => n.__cols?.revision ?? null, id: 'revision', header: t('node-list.col.revision', 'Revision'), size: 100 },
-          { ...PAGE_ONLY, accessorFn: (n) => approvedCellText(n.__cols), id: 'approved', header: t('node-list.col.approved', 'Approved'), size: 200 },
-          { ...PAGE_ONLY, accessorFn: (n) => signedCellText(n.__cols), id: 'signed', header: t('node-list.col.signed', 'Signed'), size: 180 },
-        ] as PortalColumnDef<Row>[])
+          { ...PAGE_ONLY, accessorFn: (n) => instantMs(colsOf(n)?.updatedAt), id: 'updatedAt', header: t('node-list.col.last-changed', 'Last changed'), size: 180 },
+          { ...PAGE_ONLY, accessorFn: (n) => changedByView(colsOf(n)).searchText, id: 'changedBy', header: t('node-list.col.changed-by', 'Changed by'), size: 220 },
+          { ...PAGE_ONLY, accessorFn: (n) => colsOf(n)?.revision ?? null, id: 'revision', header: t('node-list.col.revision', 'Revision'), size: 100 },
+          { ...PAGE_ONLY, accessorFn: (n) => approvedCellText(colsOf(n)), id: 'approved', header: t('node-list.col.approved', 'Approved'), size: 200 },
+          { ...PAGE_ONLY, accessorFn: (n) => signedCellText(colsOf(n)), id: 'signed', header: t('node-list.col.signed', 'Signed'), size: 180 },
+        ] as PortalColumnDef<MemoryNode>[])
       : []),
   ];
 
-  const table = createSvelteTable<Row>({
+  const table = createSvelteTable<MemoryNode>({
     get data() {
-      return tableRows;
+      return nodes;
     },
     columns,
     enableMultiSort: false,
@@ -365,6 +365,7 @@
         <tbody class="divide-y divide-zinc-200 dark:divide-zinc-800">
           {#each displayRows as row (row.id)}
             {@const n = row.original}
+            {@const c = colsOf(n)}
             {@const hit = n.comment ? commentHitView(n.comment) : null}
             {@const href = hit ? discussionHref(n) || nodeHref(n) : nodeHref(n)}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -477,14 +478,14 @@
                   </td>
                 {:else if cell.column.id === 'role'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
-                    {#if n.__cols?.role}<span class="break-words font-mono text-xs text-zinc-700 dark:text-zinc-300">{n.__cols.role}</span>{:else if n.__cols}<span class="text-zinc-400">—</span>{/if}
+                    {#if c?.role}<span class="break-words font-mono text-xs text-zinc-700 dark:text-zinc-300">{c.role}</span>{:else if c}<span class="text-zinc-400">—</span>{/if}
                   </td>
                 {:else if cell.column.id === 'updatedAt'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
-                    {#if instantMs(n.__cols?.updatedAt) !== null}{new Date(n.__cols!.updatedAt!).toLocaleString()}{:else if n.__cols}<span class="text-zinc-400">—</span>{/if}
+                    {#if instantMs(c?.updatedAt) !== null}{new Date(c!.updatedAt!).toLocaleString()}{:else if c}<span class="text-zinc-400">—</span>{/if}
                   </td>
                 {:else if cell.column.id === 'changedBy'}
-                  {@const by = changedByView(n.__cols)}
+                  {@const by = changedByView(c)}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs dark:border-zinc-800">
                     {#if by.worker}
                       <div data-testid="changed-by-worker" class="min-w-0">
@@ -498,16 +499,16 @@
                         {#if by.agent.urn}<Urn value={by.agent.urn} type="agent" linked size={8} />{/if}
                       </div>
                     {/if}
-                    {#if n.__cols && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
+                    {#if c && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
                   </td>
                 {:else if cell.column.id === 'revision'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
-                    {n.__cols ? (n.__cols.revision ?? '—') : ''}
+                    {c ? (c.revision ?? '—') : ''}
                   </td>
                 {:else if cell.column.id === 'approved'}
-                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{approvedCellText(n.__cols) || (n.__cols ? '—' : '')}</td>
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{approvedCellText(c) || (c ? '—' : '')}</td>
                 {:else if cell.column.id === 'signed'}
-                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{signedCellText(n.__cols) || (n.__cols ? '—' : '')}</td>
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{signedCellText(c) || (c ? '—' : '')}</td>
                 {:else if cell.column.id === 'nodeType'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
                     <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.nodeType}</span>
