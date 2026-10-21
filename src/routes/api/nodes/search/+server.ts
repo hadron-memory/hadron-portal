@@ -1,3 +1,4 @@
+import { t } from '$lib/i18n/t';
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
@@ -150,14 +151,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return json({ nodes: [], total: null });
   }
 
-  // findMode (computed above) maps the toggle to a server retrieval mode.
-  // #430: fuzzy uses `vector` (not hybrid) so we can request `granularity:chunk`
-  // and get matching-passage snippets — `hybrid + chunk` is out of scope
-  // server-side. Without a vector index the server degrades
-  // (reason:no_vector_index) and returns no passages. #431: `regex` is a
-  // literal/pattern (substring) search — restores the substring matching lost
-  // when the migration mapped Exact→keyword.
-  const granularity = findMode === 'vector' ? 'chunk' : null;
+  // #1158: chunk retrieval returns passages ONLY and excludes abstract vectors.
+  // Retrieve ranked nodes across all indexed sources. Passage snippets remain
+  // optional; never make a node's presence depend on a content chunk existing.
+  const granularity = findMode === 'vector' ? 'node' : null;
 
   const client = gqlClient(locals.token);
   type Hit = {
@@ -207,15 +204,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     let { findNodes: r } = await runFind(findMode, granularity);
     // Preserve the ORIGINAL degrade reason so the "semantic search unavailable"
     // note still shows after a fallback (the hybrid re-run may report no reason).
-    let noteReason = r?.reason ?? null;
-    let noteDegraded = r?.degraded ?? null;
-    // #430: vector mode powers the passage snippets, but a memory with no
+    const noteReason = r?.reason ?? null;
+    const degraded = new Set((r?.degraded ?? '').split(',').map((s) => s.trim()).filter(Boolean));
+    let lexicalFallback = false;
+    // A memory with no
     // vector index (or no embedding backend) returns nothing. Fall back to
     // hybrid (keyword+vector fusion, no passages) so a fuzzy search still
     // returns results everywhere — preserving pre-#430 behavior there.
     if (findMode === 'vector' && (noteReason === 'no_vector_index' || noteReason === 'embedding_unavailable')) {
       ({ findNodes: r } = await runFind('hybrid', null));
-      noteDegraded = noteDegraded ?? r?.degraded ?? null;
+      lexicalFallback = true;
+      for (const code of (r?.degraded ?? '').split(',').map((s) => s.trim()).filter(Boolean)) degraded.add(code);
     }
     const hits = r?.hits ?? [];
     // portal#1014: the result row carries its open-thread count as the list
@@ -258,11 +257,25 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         source: v?.source ?? null,
       };
     }
+    // Snippets are an optional, separately bounded request. Chunk retrieval
+    // must never choose which ranked nodes appear (abstract-only indexes have
+    // none). Keep a successful node result even if enrichment fails.
+    let passages = r?.passages ?? [];
+    let snippetsUnavailable = false;
+    if (findMode === 'vector' && !lexicalFallback && nodes.length > 0) {
+      try {
+        const chunkResult = await runFind('vector', 'chunk');
+        passages = chunkResult.findNodes?.passages ?? [];
+        snippetsUnavailable = !!chunkResult.findNodes?.reason;
+      } catch {
+        snippetsUnavailable = true;
+      }
+    }
     // #430: best-scoring passage per node → { nodeId: snippet }, only for nodes
     // actually present in the results.
     const snippets: Record<string, string> = {};
     const bestScore: Record<string, number> = {};
-    for (const p of r?.passages ?? []) {
+    for (const p of passages) {
       if (!p?.parentNodeId || typeof p.text !== 'string' || !hitIds.has(p.parentNodeId)) continue;
       const score = typeof p.score === 'number' ? p.score : 0;
       if (!(p.parentNodeId in bestScore) || score > bestScore[p.parentNodeId]) {
@@ -276,7 +289,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       meta,
       total: r?.total ?? null,
       capped: nodes.length >= SEARCH_LIMIT,
-      note: degradeNote(noteReason, noteDegraded),
+      reason: noteReason,
+      degraded: [...degraded],
+      note: [degradeNote(noteReason, degraded, lexicalFallback, nodes.length), snippetsUnavailable ? t('search.snippets-unavailable', 'Matching passages are unavailable; ranked node results are shown.') : null].filter(Boolean).join(' ') || null,
     });
   } catch (e: unknown) {
     // #431: a regex the server rejects (valid in JS, invalid POSIX) comes back
@@ -302,21 +317,20 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 };
 
-// Turn the server's structured fuzzy-search flags into one human line the UI
-// can show — chiefly to steer the user back to Exact when no vector index or
-// embedding backend is available.
-function degradeNote(
-  reason: string | null | undefined,
-  degraded: string | null | undefined,
-): string | null {
+// Preserve codes separately for diagnostics; render only translated explanations.
+function degradeNote(reason: string | null, degraded: Set<string>, fallback: boolean, count: number): string | null {
+  const flags = new Set([...degraded, ...(reason ? [reason] : [])]);
   const parts: string[] = [];
-  if (degraded) parts.push(degraded);
-  if (reason === 'no_vector_index') {
-    parts.push('No vector index on these memories — semantic search is unavailable. Try Exact.');
-  } else if (reason === 'embedding_unavailable') {
-    parts.push('Semantic search backend is unavailable right now. Try Exact.');
-  } else if (reason) {
-    parts.push(reason);
+  if (flags.has('no_vector_index')) parts.push(t('search.no-index', 'Semantic search is unavailable because these memories have no vector index.'));
+  if (flags.has('embedding_unavailable')) parts.push(t('search.backend-unavailable', 'Semantic search is temporarily unavailable.'));
+  if (fallback) parts.push(count > 0
+    ? t('search.keyword-fallback', 'Showing keyword matches instead of semantic matches.')
+    : t('search.keyword-empty', 'No keyword matches found either.'));
+  if (flags.has('and_relaxed_to_or')) parts.push(t('search.any-term', 'Results may match any search term.'));
+  if (flags.has('literal_fallback')) parts.push(t('search.literal-fallback', 'Showing literal text matches.'));
+  if (flags.has('scope_narrowed')) parts.push(t('search.scope-narrowed', 'Only memories you can read were searched.'));
+  if ([...flags].some((f) => !['no_vector_index', 'embedding_unavailable', 'and_relaxed_to_or', 'literal_fallback', 'scope_narrowed'].includes(f))) {
+    parts.push(t('search.reduced-fidelity', 'Search ran with reduced capabilities.'));
   }
   return parts.length ? parts.join(' ') : null;
 }

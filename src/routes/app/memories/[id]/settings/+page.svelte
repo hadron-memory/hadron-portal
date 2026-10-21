@@ -723,7 +723,7 @@
   </section>
 
   <!-- Spec 033 §2/§3: Vector index settings -->
-  <section class="max-w-lg">
+  <section id="vector-index" class="max-w-lg">
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Vector index</h2>
     <form bind:this={viFormEl} method="POST" action="?/updateVectorIndex" use:vectorEnhance
       class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
