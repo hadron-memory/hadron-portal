@@ -10,6 +10,7 @@
  *    Agents tab holds it in a TanStack table with an add-agent path.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -176,7 +177,18 @@ describe('Agents tab (#1006)', () => {
 
   it('unlinks the agent of THAT row', async () => {
     const target = await mountTab('agents');
-    const forms = [...target.querySelectorAll<HTMLFormElement>('#panel-agents form[action="?/removeAgent"]')];
-    expect(forms.map((f) => f.querySelector<HTMLInputElement>('input[name="agentId"]')!.value).sort()).toEqual(['ag1', 'ag2']);
+    // #1020: Unlink sits in each row's ⋯ menu; ONE hidden form below the
+    // table is the submit target, filled for whichever row was picked.
+    const hidden = [...target.querySelectorAll<HTMLFormElement>('#panel-agents form[action="?/removeAgent"]')];
+    expect(hidden).toHaveLength(1);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    // Critic's row (ag2), not Scribe's (ag1).
+    target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Critic"]')!.click();
+    flushSync();
+    [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find((i) => i.textContent?.trim() === 'Unlink')!.click();
+    await tick(2);
+    expect(requestSubmit.mock.contexts[0]).toBe(hidden[0]);
+    expect(hidden[0].querySelector<HTMLInputElement>('input[name="agentId"]')!.value).toBe('ag2');
   });
 });

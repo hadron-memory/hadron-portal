@@ -119,5 +119,7 @@ export const aiConfigStrings = {
 
   confirmDelete: (name: string): string =>
     t('ai-config.confirm-delete', `Delete the “${name}” configuration? This cannot be undone.`),
-  confirmYes: (): string => t('ai-config.confirm-yes', 'Yes, delete'),
+
+  /** #1020: the row's ⋯ trigger names the config it acts on. */
+  actionsLabel: (name: string): string => t('ai-config.actions.label', 'Actions for {name}', { name }),
 };

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import AiServiceConfigManager from './AiServiceConfigManager.svelte';
+import { aiConfigStrings } from '$lib/i18n/ai-config-strings';
 import type { AiServiceConfig } from '$lib/types';
 
 const GLM_ENDPOINTS = [
@@ -58,6 +59,20 @@ function button(root: HTMLElement, text: string): HTMLButtonElement {
   const b = [...root.querySelectorAll('button')].find((x) => x.textContent?.trim() === text);
   if (!b) throw new Error(`no button "${text}"`);
   return b as HTMLButtonElement;
+}
+// #1020: a row's Edit lives behind its ⋯ menu, so opening the editor means
+// opening the trigger, then the item — one config per test, named "default".
+function editRow(root: HTMLElement, name = 'default'): void {
+  const label = aiConfigStrings.actionsLabel(name);
+  const trigger = root.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  if (!trigger) throw new Error(`no ⋯ trigger for "${name}"`);
+  trigger.click();
+  flushSync();
+  const item = [...root.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find((x) => x.textContent?.trim() === 'Edit');
+  if (!item) throw new Error('no Edit menu item');
+  item.click();
+  flushSync();
 }
 function set(el: HTMLInputElement | HTMLSelectElement, value: string) {
   el.value = value;
@@ -111,7 +126,7 @@ describe('openai-compatible', () => {
     // changes, so the update must replace params WITHOUT it, keeping other knobs.
     const saved = config({ provider: 'openai-compatible', model: 'qwen3', endpoint: 'https://llm.example.com/v1', params: { toolCalling: true } });
     let root = await open({ configs: [saved] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     set($<HTMLSelectElement>(root, '#ac-provider')!, 'glm');
     set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
@@ -126,7 +141,7 @@ describe('openai-compatible', () => {
     const withKnob = config({ ...saved, id: 'c2', params: { toolCalling: true, temperature: 0.3 } });
     mounted.pop()!.unmount();
     root = await open({ configs: [withKnob] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     set($<HTMLSelectElement>(root, '#ac-provider')!, 'glm');
     set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
@@ -154,7 +169,7 @@ describe('openai-compatible', () => {
 describe('a saved glm config', () => {
   it('suggests the server’s endpoints with their billing note, and names the default', async () => {
     const root = await open({ configs: [config()] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     expect(posts).toContainEqual({ action: 'endpoints', provider: 'glm' });
     expect([...root.querySelectorAll('#ac-endpoint-options option')].map((o) => o.getAttribute('value'))).toEqual(
@@ -167,13 +182,13 @@ describe('a saved glm config', () => {
 
   it('an unchanged endpoint is omitted from the update; a cleared one is sent as null', async () => {
     const root = await open({ configs: [config({ endpoint: 'https://api.z.ai/api/coding/paas/v4' })] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     button(root, 'Save').click();
     await settle();
     expect('endpoint' in posts.find((p) => p.action === 'update')!).toBe(false);
 
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
     button(root, 'Save').click();
@@ -183,7 +198,7 @@ describe('a saved glm config', () => {
 
   it('Test sends an edited endpoint as an override, and null when cleared', async () => {
     const root = await open({ configs: [config({ endpoint: 'https://api.z.ai/api/coding/paas/v4' })] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     set($<HTMLInputElement>(root, '#ac-endpoint')!, '');
     button(root, 'Test').click();
@@ -193,14 +208,14 @@ describe('a saved glm config', () => {
 
   it('a tenant config offers no "remove the key": the server refuses a keyless one (#1390)', async () => {
     const root = await open({ configs: [config()] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     expect(root.textContent).not.toContain('Remove the stored key');
   });
 
   it('the platform’s own openai config may still drop its key', async () => {
     const root = await open({ ownerType: 'HADRON_SERVER', configs: [config({ ownerType: 'HADRON_SERVER', provider: 'openai' })] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     expect(root.textContent).toContain('Remove the stored key');
   });
@@ -231,7 +246,7 @@ describe('switching to Bedrock', () => {
 describe('Test with "Remove the stored key" ticked', () => {
   it('tests the keyless state Save would produce (override apiKey: null)', async () => {
     const root = await open({ ownerType: 'HADRON_SERVER', configs: [config({ ownerType: 'HADRON_SERVER', provider: 'openai' })] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     const remove = [...root.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].find((c) =>
       c.parentElement?.textContent?.includes('Remove the stored key'),
@@ -245,7 +260,7 @@ describe('Test with "Remove the stored key" ticked', () => {
 
   it('without the box, the saved key is used (no apiKey in the override)', async () => {
     const root = await open({ ownerType: 'HADRON_SERVER', configs: [config({ ownerType: 'HADRON_SERVER', provider: 'openai' })] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     button(root, 'Test').click();
     await settle();
@@ -264,7 +279,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
 
   it('tests the edited params, exactly as Save would write them', async () => {
     const root = await open({ configs: [config({ params: { maxTokens: 100 } })] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     typeParams(root, '{"maxTokens": 500}');
     button(root, 'Test').click();
@@ -277,7 +292,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
     const root = await open({
       configs: [config({ provider: 'openai-compatible', endpoint: 'https://llm.example.com/v1', params: { toolCalling: true, maxTokens: 100 } })],
     });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     root.querySelector<HTMLInputElement>('input[aria-describedby="ac-tool-calling-hint"]')!.click();
     flushSync();
@@ -288,7 +303,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
 
   it('cleared params are sent as null (the provider defaults), not omitted', async () => {
     const root = await open({ configs: [config({ params: { maxTokens: 100 } })] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     typeParams(root, '');
     button(root, 'Test').click();
@@ -302,7 +317,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
     const root = await open({
       configs: [config({ provider: 'openai-compatible', endpoint: 'https://llm.example.com/v1', params: { toolCalling: true, maxTokens: 100 } })],
     });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     button(root, 'Test').click();
     await settle();
@@ -311,7 +326,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
 
   it('unparseable params are refused like Save refuses them, before any request', async () => {
     const root = await open({ configs: [config({ params: { maxTokens: 100 } })] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     typeParams(root, '{nope');
     button(root, 'Test').click();
@@ -324,7 +339,7 @@ describe('Test with edited Parameters (#951 Codex P2, hadron-server#1413)', () =
 describe('Test with the Model field cleared', () => {
   it('is refused like Save, before any request', async () => {
     const root = await open({ configs: [config()] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     set($<HTMLInputElement>(root, '#ac-model')!, '');
     button(root, 'Test').click();
@@ -356,7 +371,7 @@ describe('endpoint suggestions follow the provider (#951 Codex P2)', () => {
   it('switching provider drops the previous provider’s URLs at once, not when the new reply lands', async () => {
     holdEndpoints(['openai']);
     const root = await open({ configs: [config()] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
     expect(offered(root)).toEqual(GLM_ENDPOINTS.map((e) => e.url));
 
@@ -369,7 +384,7 @@ describe('endpoint suggestions follow the provider (#951 Codex P2)', () => {
   it('a reply that lands after a switch to Bedrock never reappears', async () => {
     const release = holdEndpoints(['openai', 'openai-compatible']);
     const root = await open({ configs: [config()] });
-    button(root, 'Edit').click();
+    editRow(root);
     await settle();
 
     set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai'); // in flight
