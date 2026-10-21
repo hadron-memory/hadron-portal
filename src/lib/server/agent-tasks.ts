@@ -11,6 +11,7 @@ import {
   APP_PEOPLE_QUERY,
   TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
+import { rosterOf } from '$lib/withheld';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
 import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
 
@@ -257,7 +258,7 @@ export async function loadWriteCandidates(
   client: GraphQLClient,
   appRef: string,
 ): Promise<WriteCandidates & { roles: string[]; families: string[] }> {
-  const [roster, people] = await Promise.all([
+  const [roster, peopleRead] = await Promise.all([
     client
       .request<{ teamRoster: TeamRoster }>(TEAM_ROSTER_QUERY, { appRef })
       .then((r) => r.teamRoster.workers)
@@ -266,14 +267,20 @@ export async function loadWriteCandidates(
         return [] as TeamRoster['workers'];
       }),
     client
-      .request<{ app: { members: { user: { id: string; handle: string | null; name: string | null } | null }[] } | null }>(
+      .request<{ app: { members: { user: { id: string; handle: string | null; name: string | null } | null }[] | null } | null }>(
         APP_PEOPLE_QUERY,
         { ref: appRef },
       )
-      .then((r) => (r.app?.members ?? []).flatMap((m) => (m.user ? [m.user] : [])))
+      .then((r) => {
+        // portal#1148: `members: null` is WITHHELD, not an App with no people.
+        const members = rosterOf(r.app?.members);
+        return members.kind === 'withheld'
+          ? { people: [] as WriteCandidates['people'], withheld: true, failed: false }
+          : { people: members.items.flatMap((m) => (m.user ? [m.user] : [])), withheld: false, failed: false };
+      })
       .catch((e) => {
         console.warn(`[agent-tasks] picker people read failed for ${appRef}:`, e);
-        return [] as WriteCandidates['people'];
+        return { people: [] as WriteCandidates['people'], withheld: false, failed: true };
       }),
   ]);
   const workers = roster.map((e) => ({ id: e.worker.id, name: e.worker.name ?? e.worker.id, role: e.role, urn: e.worker.urn }));
@@ -281,5 +288,5 @@ export async function loadWriteCandidates(
   const families = [
     ...new Set(roster.flatMap((e) => [e.family, ...e.freeFamilies, ...e.launchableFamilies, ...e.unavailableFamilies]).filter((f): f is string => !!f)),
   ].sort();
-  return { workers, people, roles, families };
+  return { workers, people: peopleRead.people, peopleWithheld: peopleRead.withheld, peopleFailed: peopleRead.failed, roles, families };
 }

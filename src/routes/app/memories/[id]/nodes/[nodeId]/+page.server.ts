@@ -4,6 +4,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
@@ -616,6 +617,10 @@ async function saveNodeText(
     if (extractGqlErrorCode(e) === 'NODE_WRITE_CONFLICT') {
       return fail(409, { [failed]: { code: 'changed', detail: extractGqlError(e, '') || null } });
     }
+    // portal#1142 P0a: an include refusal (hadron-server#2040) wrote nothing;
+    // say so with the server's words, the tag and the next step.
+    const include = includeRefusalOf(e);
+    if (include) return fail(400, { [failed]: { code: 'include', detail: includeRefusalText(include) } });
     const detail = extractGqlError(e, 'Save failed');
     if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
     return fail(500, { [failed]: { code: 'failed', detail } });
