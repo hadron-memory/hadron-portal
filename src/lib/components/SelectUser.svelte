@@ -9,6 +9,7 @@
   // substring) are being tightened separately — see hadron-server#384.
 
   import Urn from '$lib/components/Urn.svelte';
+  import { t } from '$lib/i18n/t';
   import { type SearchUser, type SearchUserPage, userLabel } from '$lib/users/search-user';
 
   export type { SearchUser };
@@ -182,6 +183,26 @@
                     <Urn value={user.urn} type="user" size={10} />
                   {:else}
                     <span class="truncate text-sm font-medium text-zinc-900 dark:text-white">{userLabel(user)}</span>
+                  {/if}
+                  {#if user.sharedOrganizations === null}
+                    <p class="mt-1 text-xs text-zinc-500">{t('select-user.orgs.withheld', 'Not shown to you')}</p>
+                  {:else if user.sharedOrganizations}
+                    {#if user.sharedOrganizations.items.length === 0}
+                      <p class="mt-1 text-xs text-zinc-500">{t('select-user.orgs.none', 'No organizations in common')}</p>
+                    {:else}
+                      <div class="mt-1 space-y-1">
+                        <p class="text-xs text-zinc-500">{t('select-user.orgs.title', 'Organizations in common')}</p>
+                        {#each user.sharedOrganizations.items as org (org.id)}
+                          <div class="flex min-w-0 items-center gap-2">
+                            <span class="truncate text-xs text-zinc-700 dark:text-zinc-300">{org.name}</span>
+                            <Urn value={org.urn} type="org" size={9} />
+                          </div>
+                        {/each}
+                        {#if user.sharedOrganizations.total > user.sharedOrganizations.items.length}
+                          <p class="text-xs text-zinc-500">{t('select-user.orgs.more', 'and {count} more', { count: user.sharedOrganizations.total - user.sharedOrganizations.items.length })}</p>
+                        {/if}
+                      </div>
+                    {/if}
                   {/if}
                 </div>
                 <button

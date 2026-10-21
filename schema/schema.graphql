@@ -1,5 +1,6 @@
 # Exported from hadron-server 87e0bb7dfbb1284e51f6b8aa7b7b2f10e940f837 (origin/main, 2026-10-19T02:58:16-07:00) by pnpm gql:schema — do not edit.
 # portal#1148: App.members, memberCount, appAgents, agents and hasAiApiKey hand-applied as outer-nullable from the ACCEPTED hadron-server#2089 SDL delta (issue comment 6258905377, Andi), on top of the snapshot above. Not on server main yet; the next pnpm gql:schema after the server merge replaces this line with the landed wire.
+# portal#1169: User.sharedOrganizations, SharedOrganization and SharedOrganizationsPage hand-applied from MERGED hadron-server 10bcc57e (#2222, closes #2179), not a full refresh: a refresh would also revert the #1148 nullable delta (hadron-server#2089 is not on server main) and pull ~530 unrelated lines.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -12624,6 +12625,20 @@ input SetWorkerAvailabilityInput {
 }
 
 """
+Only safe identity scalars for a live organization shared with the effective human viewer.
+"""
+type SharedOrganization {
+  id: ID!
+  name: String!
+  urn: String!
+}
+
+type SharedOrganizationsPage {
+  items: [SharedOrganization!]!
+  total: Int!
+}
+
+"""
 #1632 (hrn:node:hadronmemory.com:specs:cor:dmo:130:04) — a signature's state, derived on every read. An invalid record is never a signature: it is counted in NodeSignatureStatus.integrityProblems instead.
 """
 enum SignatureState {
@@ -14284,6 +14299,11 @@ type User {
   Platform roles; an empty list is returned to viewers without personal-field access.
   """
   roles: [Role!]!
+
+  """
+  Live shared memberships only; null for unsupported viewers or deleted users, empty for no intersection. Default 20, cap 200, nonnegative offset, organization id order. Impersonation stays in its one organization. Pages are live across requests.
+  """
+  sharedOrganizations(limit: Int, offset: Int): SharedOrganizationsPage
 
   """
   Canonical `hrn:user:<handle>` URN (spec cor:urn:010:01). Computed from the
