@@ -80,6 +80,7 @@ export const actions: Actions = {
     const description = form.data.description || null;
     const abstract = form.data.abstract || null;
     const content = form.data.content || null;
+    const tags = [...new Set(form.data.tags.split(',').map((tag) => tag.trim()).filter(Boolean))];
     // #588: empty → omit (ordinary node / no properties). The zod schema
     // already proved propertiesJson parses to an object; re-parse only to
     // produce the typed payload. The server validates both against the
@@ -110,7 +111,7 @@ export const actions: Actions = {
           abstract,
           content,
           properties,
-          tags: [],
+          tags,
         },
       });
       newId = result.createNode.id;

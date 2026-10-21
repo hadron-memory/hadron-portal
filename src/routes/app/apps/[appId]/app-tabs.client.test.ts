@@ -194,3 +194,19 @@ describe('Agents tab (#1006)', () => {
     expect(forms.map((f) => f.querySelector<HTMLInputElement>('input[name="agentId"]')!.value).sort()).toEqual(['ag1', 'ag2']);
   });
 });
+
+// #1043 interim: the primary agent link does not establish the App/viewer's
+// rights on other agents' memories. Do not label them by omission.
+it('App memory filters do not infer read-only access from the primary agent', async () => {
+  const memory = (id: string, name: string) => ({ id, name, urn: `hrn:mem:acme.com:${id}` });
+  const target = await mountTab('memory', {
+    app: { agent: { ...agentOne, memoryItems: [{ id: 'item1', role: 'read-write', memory: memory('roles', 'Roles') }] } },
+    data: { appNodes: ['roles', 'notes'].map((id) => ({ id: `node-${id}`, memoryId: id, memory: memory(id, id === 'roles' ? 'Roles' : 'Eng Notes'), nodeType: 'info', loc: id, name: id, tags: [], outgoingEdges: [], incomingEdges: [] })) },
+  });
+  const memories = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim().startsWith('Memories'));
+  expect(memories).toBeDefined();
+  memories!.click();
+  await tick(2);
+  expect(target.textContent).toContain('Eng Notes');
+  expect(target.textContent).not.toContain('(read-only)');
+});
