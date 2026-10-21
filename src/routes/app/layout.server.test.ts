@@ -159,6 +159,14 @@ describe('+layout.server.ts — the signin bounce preserves deep-link state (#76
     );
   });
 
+  it('redirects a signed-out ticker deep link without issuing layout API reads (#1213)', async () => {
+    const path = '/app/u/hrn:ticker:acme.com:team:engineering?after=s1';
+    const r = await expectSigninRedirect(path);
+    expect(r).toMatchObject({ status: 303, location: `/signin?redirect=${encodeURIComponent(path)}` });
+    expect(mockMyOrgsRequest).not.toHaveBeenCalled();
+    expect(mockMeRequest).not.toHaveBeenCalled();
+  });
+
   it('round-trips through the #439 open-redirect guard', async () => {
     // A query string must not make the destination look non-local, or the
     // guard would silently swap it for the dashboard fallback.
