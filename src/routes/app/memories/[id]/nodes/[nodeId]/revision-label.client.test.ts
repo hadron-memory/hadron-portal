@@ -127,6 +127,51 @@ describe('#534 — Edit label popup on the real node page', () => {
     expect(input(target)?.value).toBe('second draft');
   });
 
+  it('a cancelled save\'s late refusal does not render in the popup opened after it', async () => {
+    let fail!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((res) => { fail = res; })));
+    const { target } = await mountPage();
+    await openLabelDialog(target);
+    await click(target.querySelector('[data-testid="revision-label-save"]'));
+    await click(target.querySelector('[data-testid="revision-label-cancel"]'));
+    await click(target.querySelector('button[aria-label="Revision actions"]'));
+    await click(byText(target, '[role="menuitem"]', 'Edit label'));
+    typeInto(input(target)!, 'new draft');
+
+    fail(new Response(JSON.stringify({ error: 'old refusal' }), { status: 403 }));
+    await settle();
+
+    expect(target.textContent).not.toContain('old refusal');
+    expect(input(target)?.value).toBe('new draft');
+    expect(target.querySelector<HTMLButtonElement>('[data-testid="revision-label-save"]')!.disabled).toBe(false);
+  });
+
+  it('a late refusal from node A does not render on node B\'s popup', async () => {
+    let fail!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>((res) => { fail = res; })));
+    const { target, props } = await mountPage();
+    await openLabelDialog(target);
+    await click(target.querySelector('[data-testid="revision-label-save"]'));
+    props.data = await loaded('B');
+    await settle();
+    await openLabelDialog(target);
+
+    fail(new Response(JSON.stringify({ error: 'node A refusal' }), { status: 403 }));
+    await settle();
+
+    expect(target.textContent).not.toContain('node A refusal');
+  });
+
+  it('a refusal for the CURRENT popup still shows and keeps the draft', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'not allowed' }), { status: 403 })));
+    const { target } = await mountPage();
+    await openLabelDialog(target);
+    typeInto(input(target)!, 'keep me');
+    await click(target.querySelector('[data-testid="revision-label-save"]'));
+    expect(target.textContent).toContain('not allowed');
+    expect(input(target)?.value).toBe('keep me');
+  });
+
   it('control: a normal save closes the popup', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true }), { status: 200 })));
     const { target } = await mountPage();

@@ -1882,6 +1882,10 @@
   function closeLabel() {
     labelOpen++;
     labelTarget = null;
+    // The request this popup started (if any) no longer reports into the page:
+    // its busy flag and refusal must not leak into the next popup or node.
+    historyBusy = false;
+    historyError = null;
   }
   let clearConfirm = $state(false);
   let historyBusy = $state(false);
@@ -1897,7 +1901,10 @@
     historyMenuFor = r;
   }
 
-  async function postRevisionAction(payload: Record<string, unknown>): Promise<boolean> {
+  // `current` lets a caller whose result can be outlived (the label popup)
+  // fence its own busy/error reporting: a stale request still returns false/true
+  // but touches no page state.
+  async function postRevisionAction(payload: Record<string, unknown>, current: () => boolean = () => true): Promise<boolean> {
     historyBusy = true;
     historyError = null;
     try {
@@ -1908,16 +1915,16 @@
       });
       const d = await res.json().catch(() => ({}));
       if (!res.ok) {
-        historyError = d.error ?? 'Revision action failed';
+        if (current()) historyError = d.error ?? 'Revision action failed';
         return false;
       }
       await invalidateAll(); // refresh the node + the streamed revision list
       return true;
     } catch (e) {
-      historyError = e instanceof Error ? e.message : 'Revision action failed';
+      if (current()) historyError = e instanceof Error ? e.message : 'Revision action failed';
       return false;
     } finally {
-      historyBusy = false;
+      if (current()) historyBusy = false;
     }
   }
 
@@ -1940,7 +1947,8 @@
   async function confirmLabel(text: string) {
     if (!labelTarget) return;
     const open = labelOpen;
-    if (await postRevisionAction({ action: 'label', revisionId: labelTarget.id, revLabel: text }) && open === labelOpen) closeLabel();
+    const ok = await postRevisionAction({ action: 'label', revisionId: labelTarget.id, revLabel: text }, () => open === labelOpen);
+    if (ok && open === labelOpen) closeLabel();
   }
   async function confirmClear() {
     if (await postRevisionAction({ action: 'clear' })) clearConfirm = false;
