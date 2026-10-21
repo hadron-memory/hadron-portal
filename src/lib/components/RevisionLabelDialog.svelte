@@ -23,13 +23,8 @@
 
 <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
   <button type="button" class="absolute inset-0 cursor-default bg-black/30" aria-label={t('node.history.label.cancel', 'Cancel')} onclick={oncancel}></button>
-  <form
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="revision-label-heading"
-    class="relative w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-    onsubmit={(e) => { e.preventDefault(); onsave(text); }}
-  >
+  <div role="dialog" aria-modal="true" aria-labelledby="revision-label-heading" class="relative w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+  <form onsubmit={(e) => { e.preventDefault(); onsave(text); }}>
     <h3 id="revision-label-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.label.heading', 'Edit revision label')}</h3>
     <label class="mt-3 block text-xs font-medium text-zinc-600 dark:text-zinc-400" for="revision-label-input">{t('node.history.label.field', 'Label')}</label>
     <input
@@ -47,4 +42,5 @@
       <button type="submit" data-testid="revision-label-save" disabled={busy} class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{busy ? t('node.history.label.saving', 'Saving…') : t('node.history.label.save', 'Save')}</button>
     </div>
   </form>
+  </div>
 </div>
