@@ -1707,6 +1707,8 @@
     /** Memory id that owns the edge (= source node's memory) — for the detail href. */
     sourceMemoryId: string;
     sourceId: string | null;
+    /** #1161: the far endpoint is DELETED per the server (recoveryEdges), not merely unreadable. */
+    endpointDeleted?: boolean;
   }
 
   // #656: label for an endpoint the caller isn't allowed to resolve.
@@ -1727,9 +1729,10 @@
       direction: 'Outgoing' as const,
       name: e.name || '—',
       // #656: target may be null (cross-memory edge into an unreadable memory).
-      endpointId: e.target?.id ?? null,
-      endpointName: e.target ? (e.target.name || e.target.loc) : PRIVATE_ENDPOINT,
-      endpointUrn: e.target ? endpointUrnOf(e.target) : '',
+      endpointId: e.target?.id ?? data.deletedEdges?.[e.id]?.target?.id ?? null,
+      endpointName: e.target ? (e.target.name || e.target.loc) : (data.deletedEdges?.[e.id]?.target?.name ?? PRIVATE_ENDPOINT),
+      endpointUrn: e.target ? endpointUrnOf(e.target) : (data.deletedEdges?.[e.id]?.target?.urn ?? ''),
+      endpointDeleted: !e.target && !!data.deletedEdges?.[e.id]?.target,
       // Outgoing: this node is the source.
       sourceMemoryId: node.memoryId,
       sourceId: node.id,
@@ -1740,9 +1743,10 @@
       name: e.name || '—',
       // #656: source may be null — the common case, since incomingEdges is how
       // a foreign memory's edge reaches this node.
-      endpointId: e.source?.id ?? null,
-      endpointName: e.source ? (e.source.name || e.source.loc) : PRIVATE_ENDPOINT,
-      endpointUrn: e.source ? endpointUrnOf(e.source) : '',
+      endpointId: e.source?.id ?? data.deletedEdges?.[e.id]?.source?.id ?? null,
+      endpointName: e.source ? (e.source.name || e.source.loc) : (data.deletedEdges?.[e.id]?.source?.name ?? PRIVATE_ENDPOINT),
+      endpointUrn: e.source ? endpointUrnOf(e.source) : (data.deletedEdges?.[e.id]?.source?.urn ?? ''),
+      endpointDeleted: !e.source && !!data.deletedEdges?.[e.id]?.source,
       // Incoming: the OTHER node is the source that owns the edge.
       sourceMemoryId: e.source?.memory?.id ?? node.memoryId,
       sourceId: e.source?.id ?? null,
@@ -3654,6 +3658,10 @@
                 <div class="truncate">
                   {#if r.endpointId}
                     <a href="{basePath}/nodes/{r.endpointId}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{r.endpointName}</a>
+                    {#if r.endpointDeleted}
+                      <!-- #1161: the SERVER reported this endpoint deleted. -->
+                      <span data-testid="edge-endpoint-deleted" class="ml-1 shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{t('node.deleted.badge', 'Deleted')}</span>
+                    {/if}
                   {:else}
                     <!-- #656: unreadable cross-memory endpoint — opaque, not a link. -->
                     <span class="min-w-0 truncate italic text-zinc-400 dark:text-zinc-500" title={PRIVATE_ENDPOINT}>{r.endpointName}</span>

@@ -6,6 +6,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { fetchAllItems } from '$lib/server/paginate';
+import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
 import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
@@ -520,6 +521,12 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   ]);
 
   const wikilinks = await wikilinksPromise;
+  // #1161: marks edges whose far endpoint the server reports deleted. Reads only
+  // when an endpoint is missing at all, and a missing endpoint the server does
+  // not report stays masked (it may be an unreadable memory, not a deletion).
+  const deletedEdges = await deletedEdgeEndpoints(
+    gqlClient(locals.token), node.memoryId, [...(node.outgoingEdges ?? []), ...(node.incomingEdges ?? [])],
+  );
   const chatMessages = await chatMessagesPromise;
 
   return {
@@ -539,6 +546,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     initialTab: url.searchParams.get('tab'),
     breadcrumb,
     wikilinks,
+    deletedEdges,
     testFlowApps,
     memories,
     revisions,

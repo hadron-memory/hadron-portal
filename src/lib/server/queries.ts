@@ -3329,6 +3329,32 @@ export const RECOVERY_NODE_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1161: which rows of a list are deleted, as the SERVER reports it (writer-only;
+// an unauthorized read throws and the caller marks nothing). Default 20, max 200.
+export const RECOVERY_NODES_QUERY = /* GraphQL */ `
+  query RecoveryNodes($memoryRef: ID!, $limit: Int, $offset: Int) {
+    recoveryNodes(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
+      items { id }
+      total
+    }
+  }
+`;
+
+// #1161: edges with a deleted endpoint, as the server reports them (writer-only).
+export const RECOVERY_EDGES_QUERY = /* GraphQL */ `
+  query RecoveryEdges($memoryRef: ID!, $limit: Int, $offset: Int) {
+    recoveryEdges(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        name
+        source { id urn loc name deletedAt }
+        target { id urn loc name deletedAt }
+      }
+      total
+    }
+  }
+`;
+
 export const RESTORE_NODE_MUTATION = /* GraphQL */ `
   mutation RestoreNode($nodeRef: ID!) {
     restoreNode(nodeRef: $nodeRef) { id }

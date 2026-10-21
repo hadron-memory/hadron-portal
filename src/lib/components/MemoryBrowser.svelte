@@ -565,6 +565,7 @@
   let searchCapped = $state(false); // server hit the result cap — showing a slice
   let searchSnippets = $state<Record<string, string>>({}); // #430 nodeId → matching passage
   let searchMeta = $state<Record<string, SearchHitMeta>>({}); // #432 nodeId → relevance/stale meta
+  let searchDeletedIds = $state<string[]>([]); // #1161 ids the server reports deleted (Include deleted)
   let searchSeq = 0; // monotonic — drops out-of-order responses
 
   // #589: the sortProperty payload in the server's shape (array path). Derived
@@ -604,6 +605,7 @@
     searchCapped = false;
     searchSnippets = {};
     searchMeta = {};
+    searchDeletedIds = [];
     try {
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
@@ -620,6 +622,7 @@
       searchCapped = !!data.capped;
       searchSnippets = data.snippets ?? {};
       searchMeta = data.meta ?? {};
+      searchDeletedIds = Array.isArray(data.deletedIds) ? data.deletedIds : [];
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
@@ -652,6 +655,7 @@
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
+    searchDeletedIds = [];
       return;
     }
     const ids = idsStr ? idsStr.split(',') : [];
@@ -668,6 +672,7 @@
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
+    searchDeletedIds = [];
       return;
     }
     // #431: validate a regex pattern client-side — the server 400s on invalid
@@ -685,6 +690,7 @@
         searchCapped = false;
         searchSnippets = {};
         searchMeta = {};
+    searchDeletedIds = [];
         return;
       }
     }
@@ -892,7 +898,12 @@
   // `visibleNodes` would filter the same nodes twice and, worse, hide the
   // folders whose only children are hidden — which is what makes "Show hidden"
   // reveal something rather than nothing.
-  const treeEntries = $derived(buildTreeEntries(filteredNodes, singleMemoryUrn));
+  const treeEntries = $derived.by(() => {
+    const entries = buildTreeEntries(filteredNodes, singleMemoryUrn);
+    if (searchDeletedIds.length === 0) return entries;
+    const deleted = new Set(searchDeletedIds);
+    return entries.map((e) => (e.nodeId && deleted.has(e.nodeId) ? { ...e, deleted: true } : e));
+  });
 
   // Color rules: multiple memories → color by memory; multiple selected types → color by type; otherwise same color
   const graphViewData = $derived.by(() => {
@@ -1563,7 +1574,7 @@
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
           <NodeList
-            nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta}
+            nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} deletedIds={searchDeletedIds}
             showColumns onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
           />
         </div>
