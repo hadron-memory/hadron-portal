@@ -65,14 +65,20 @@ describe('search fallback settings link (#1162)', () => {
     const { target } = mountBrowser();
     pick(target, 'ALL');
     await searchBodies();
-    expect(target.querySelector('a[href="/app/memories/mem-1/settings#vector-index"]')?.textContent).toBe('Open vector index settings');
+    await vi.waitFor(() => {
+      flushSync();
+      expect(target.querySelector('a[href="/app/memories/mem-1/settings#vector-index"]')?.textContent).toBe('Open vector index settings');
+    });
   });
   it('does not confuse a failed search with no index', async () => {
     fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: 'Search failed', reason: 'no_vector_index' }), {status: 500}));
     const { target } = mountBrowser();
     pick(target, 'ALL');
     await searchBodies();
-    expect(target.textContent).toContain('Search failed');
-    expect(target.querySelector('a[href$="#vector-index"]')).toBeNull();
+    await vi.waitFor(() => {
+      flushSync();
+      expect(target.textContent).toContain('Search failed');
+      expect(target.querySelector('a[href$="#vector-index"]')).toBeNull();
+    });
   });
 });
