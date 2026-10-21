@@ -142,7 +142,7 @@ The transition is automatic — when a user creates a real organization or is in
 ```bash
 pnpm run dev        # start dev server on :5173
 pnpm run check      # svelte-check type checking
-pnpm run test       # vitest
+pnpm run test       # vitest; HADRON_TEST_MAX_WORKERS=<n> caps its worker pool on a shared host
 pnpm run build      # production build
 pnpm run preview    # preview production build
 ```
