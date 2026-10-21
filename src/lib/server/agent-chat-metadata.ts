@@ -6,15 +6,16 @@ const CHAT_LIST_PAGE_SIZE = 100;
 
 /** Keep the server's agent/caller visibility and newest-first order on every page. */
 async function* chatPages(client: GraphQLClient, agentRef: string): AsyncGenerator<Chat[]> {
-  for (let offset = 0; ; offset += CHAT_LIST_PAGE_SIZE) {
+  for (let offset = 0; ;) {
     const { myChats } = await client.request<{ myChats: Chat[] }>(MY_CHATS_QUERY, {
       agentRef, limit: CHAT_LIST_PAGE_SIZE, offset,
     });
+    // hrn:node:hadronmemory.com:specs:cor:api:120:04: complete consumers
+    // drain until empty. A server cap may make a nonempty page shorter than
+    // requested; advancing by the requested size would skip visible chats.
+    if (myChats.length === 0) return;
     yield myChats;
-    // resolvers.query.chat.ts maps every Prisma row after take/skip, with no
-    // post-filter or smaller hard cap. Infer exhaustion BEFORE the list route
-    // filters team chat; a filtered page's length would not establish the end.
-    if (myChats.length < CHAT_LIST_PAGE_SIZE) return;
+    offset += myChats.length;
   }
 }
 

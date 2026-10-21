@@ -535,6 +535,7 @@ describe('POST /api/agent-chat/resume', () => {
 
   it('returns 404 when the chat is not in myChats (ownership/nonexistent)', async () => {
     mockRequest
+      .mockResolvedValue({ myChats: [] })
       .mockResolvedValueOnce({ myChats: [{ loc: 'chat-other' }] })
       .mockResolvedValueOnce({ chatHistory: [] });
     const { POST } = await import('./resume/+server');
@@ -711,6 +712,7 @@ describe('POST /api/agent-chat/older (#793 scrollback)', () => {
 // ── /api/agent-chat/list ───────────────────────────────────────────────────
 
 describe('GET /api/agent-chat/list', () => {
+  beforeEach(() => { mockRequest.mockResolvedValue({ myChats: [] }); });
   it('rejects unauthenticated requests', async () => {
     const { GET } = await import('./list/+server');
     const res = await GET(ev({ token: null, searchParams: { agentId: 'a' } }));
@@ -863,7 +865,7 @@ describe('POST /api/agent-chat/delete', () => {
 // #1224: model the server's default 100-row window instead of returning an
 // unconditional complete list. Preserve private/shared rows and server order.
 describe('agent chat metadata past the first page (#1224)', () => {
-  function serveChats(count: number, failOffset?: number) {
+  function serveChats(count: number, failOffset?: number, cap = 100) {
     const chats = Array.from({ length: count }, (_, i) => ({
       id: `node-${i}`, loc: `chats:${i}`, title: `Chat ${i}`,
       scope: i % 2 ? 'shared' : 'private',
@@ -872,7 +874,7 @@ describe('agent chat metadata past the first page (#1224)', () => {
       if (document.includes('query MyChats')) {
         expect(vars.agentRef).toBe('agent-pages');
         if (failOffset != null && vars.offset >= failOffset) throw new Error('Later page unavailable');
-        return { myChats: chats.slice(vars.offset ?? 0, (vars.offset ?? 0) + (vars.limit ?? 100)) };
+        return { myChats: chats.slice(vars.offset ?? 0, (vars.offset ?? 0) + Math.min(vars.limit ?? 100, cap)) };
       }
       return { chatHistory: [{ role: 'user', content: 'Existing history', seq: 1 }] };
     });
@@ -898,12 +900,24 @@ describe('agent chat metadata past the first page (#1224)', () => {
     const reads = mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats'));
     expect(reads).toHaveLength(Math.floor(index / 100) + 1);
   });
+  it.each(['list', 'resume'])('continues through short nonempty capped pages for %s', async route => {
+    const chats = serveChats(205, undefined, 37);
+    const res = route === 'list'
+      ? await (await import('./list/+server')).GET(ev({ searchParams: { agentId: 'agent-pages' } }))
+      : await (await import('./resume/+server')).POST(ev({ body: { agentId: 'agent-pages', chatId: 'chats:204' } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    if (route === 'list') expect(body.chats).toEqual(chats);
+    else expect(body.chat).toEqual(chats[204]);
+    const offsets = mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats')).map(([, vars]) => vars.offset);
+    expect(offsets).toEqual(route === 'list' ? [0, 37, 74, 111, 148, 185, 205] : [0, 37, 74, 111, 148, 185]);
+  });
   it('returns not found only after exhausting authorized metadata', async () => {
     serveChats(205);
     const { POST } = await import('./resume/+server');
     const res = await POST(ev({ body: { agentId: 'agent-pages', chatId: 'chats:absent' } }));
     expect(res.status).toBe(404);
-    expect(mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats'))).toHaveLength(3);
+    expect(mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats'))).toHaveLength(4);
   });
   it.each(['list', 'resume'])('propagates a later page failure for %s instead of partial success/not found', async route => {
     serveChats(205, 100);
