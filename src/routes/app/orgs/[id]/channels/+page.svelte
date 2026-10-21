@@ -129,6 +129,11 @@
         {t('org.channels.roster-partial', 'Couldn’t load the workers and agents of {count} App(s) just now, so they aren’t offered below. The rows themselves are all shown.', { count: String(data.rosterUnreadApps) })}
       </p>
     {/if}
+    {#if data.rosterWithheldApps > 0}
+      <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+        {t('org.channels.roster-withheld', 'The agents installed in {count} App(s) aren’t visible to you, so they aren’t offered below.', { count: String(data.rosterWithheldApps) })}
+      </p>
+    {/if}
     <RegisterPanel
       rows={data.orgRows}
       ownerType="ORGANIZATION"

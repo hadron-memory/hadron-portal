@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
   import { afterNavigate, invalidateAll, replaceState } from '$app/navigation';
@@ -171,6 +172,9 @@
   // installed (WORKER_AGENT_NOT_INSTALLED), so offering anything else would be
   // offering a guaranteed failure. #1032 narrows it further to the role agents,
   // sorted by name — see cast-agents.ts for why the team agent is left out.
+  // portal#1148 (hadron-server#2089): a null roster is WITHHELD (an owner-role member of a
+  // user-owned App), not "no agents installed" — it gets its own copy and offers no cast/add.
+  const agentsWithheld = $derived(rosterOf(app.agents).kind === 'withheld');
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
   // #756 — the Role dropdown's options. Distinct, sorted persona roles of the
@@ -477,7 +481,7 @@
   // unknown → don't block the chat.
   const llmReady = $derived(data.chatConfigs === null ? null : usableChatConfigs.length > 0);
   const appChatRender = $derived(
-    chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId, llmReady }),
+    chooseAppChatTabRender({ surfaces: app.surfaces, agentId: app.agentId, agents: app.agents, llmReady }),
   );
   // Picker selection overlaid on the default (`default`, else first usable).
   let selectedConfigName = $state<string | null>(null);
@@ -1601,6 +1605,12 @@
             </button>
           </div>
         </div>
+      {:else if appChatRender === 'withheld'}
+        <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
+          <p role="status" class="max-w-md text-center text-sm text-zinc-500">
+            {t('app-chat.withheld', 'The agent linked to this App isn’t visible to you, so agent chat isn’t available here. This is not an App with no agent.')}
+          </p>
+        </div>
       {:else if appChatRender === 'empty-no-agent'}
         <div class="flex flex-1 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950" style="min-height: 300px;">
           <div class="max-w-md text-center">
@@ -1905,7 +1915,11 @@
         {/key}
       {/if}
 
-      {#if installedAgents.length === 0}
+      {#if agentsWithheld}
+        <p role="status" class="text-sm text-zinc-500">
+          {t('app.staff.roster-withheld', 'The agents installed in this App aren’t visible to you, so who can be cast here isn’t known.')}
+        </p>
+      {:else if installedAgents.length === 0}
         <p class="text-sm text-zinc-500">
           {t(
             'app.staff.no-roster',
@@ -2248,6 +2262,7 @@
         {app}
         members={data.members}
         membersError={data.membersError}
+        membersWithheld={data.membersWithheld}
         addMemberForm={data.addMemberForm}
         ensureMemberForm={data.ensureMemberForm}
         removeMemberForm={data.removeMemberForm}
@@ -2270,7 +2285,9 @@
         </p>
       </div>
 
-      {#if installedAgentsSorted.length === 0}
+      {#if agentsWithheld}
+        <p role="status" class="text-sm text-zinc-500">{t('app.agents.withheld', 'The agents installed in this App aren’t visible to you.')}</p>
+      {:else if installedAgentsSorted.length === 0}
         <p class="text-sm text-zinc-500">{t('app.agents.empty', 'No agents are installed in this App yet.')}</p>
       {:else}
         <DataTable
@@ -2329,7 +2346,10 @@
            App had no agent. -->
       <section class="max-w-2xl">
         <h3 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.agents.add.title', 'Add an agent')}</h3>
-        {#if data.availableAgentsError}
+        {#if agentsWithheld}
+          <!-- The installed set is unknown, so what is still addable is unknown too. -->
+          <p role="status" class="text-sm text-zinc-500">{t('app.agents.add.withheld', 'Which agents can be added isn’t known, because the installed agents aren’t visible to you.')}</p>
+        {:else if data.availableAgentsError}
           <p role="alert" class="text-sm text-red-600 dark:text-red-400">
             {t('app.agents.add.unavailable', 'The list of agents you can add could not be loaded. Reload to try again.')}
           </p>

@@ -53,7 +53,7 @@ function route(opts: {
   app?: Record<string, unknown> | null;
   appReadError?: Error;
   /** AppAgent rows; `agent: null` is an installed Agent the caller may not read (hadron-server#1526). */
-  installed?: Array<{ agent: { id: string; name: string; urn: string } | null }>;
+  installed?: Array<{ agent: { id: string; name: string; urn: string } | null }> | null;
   channels?: unknown[];
   canWrite?: Record<string, boolean | Error>;
   create?: unknown;
@@ -100,7 +100,7 @@ function route(opts: {
       return { workers: page(opts.workers ?? [{ id: 'w-ada', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator' }], vars) };
     }
     if (doc === APP_INSTALLED_AGENTS_QUERY) {
-      return { app: { id: 'app-1', appAgents: opts.installed ?? [{ agent: { id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' } }] } };
+      return { app: { id: 'app-1', appAgents: opts.installed !== undefined ? opts.installed : [{ agent: { id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' } }] } };
     }
     if (doc === SELF_CAN_MANAGE_QUERY) {
       // An App is audited by its hrn:app: URN; a bare id is an AiServiceConfig id.
@@ -126,6 +126,7 @@ async function load() {
     appRows: Array<{ id: string }>;
     orgRows: Array<{ id: string }>;
     attendees: Array<{ id: string; kind: string }>;
+    agentsWithheld: boolean;
     canManageRegister: boolean | null;
     registerLoadFailed: boolean;
   };
@@ -179,6 +180,20 @@ describe('load', () => {
     route({ installed: [{ agent: null }, { agent: { id: 'ag-1', name: 'Coordinator', urn: 'hrn:agent:acme.com:coordinator' } }] });
     const data = await load();
     expect(data.attendees.filter((a) => a.kind === 'agent').map((a) => a.id)).toEqual(['ag-1']);
+  });
+
+  // portal#1148 (hadron-server#2089): a null install roster is WITHHELD, not "no installed agents".
+  it('a withheld install roster (null) says so, and offers no agents, without hiding the Workers', async () => {
+    route({ installed: null });
+    const data = await load();
+    expect(data.agentsWithheld).toBe(true);
+    expect(data.attendees.filter((a) => a.kind === 'agent')).toEqual([]);
+    expect(data.attendees.some((a) => a.kind === 'worker')).toBe(true);
+  });
+
+  it('known-empty control: a real [] roster is not withheld', async () => {
+    route({ installed: [] });
+    expect((await load()).agentsWithheld).toBe(false);
   });
 
   it('an App the caller cannot see is a 404', async () => {
