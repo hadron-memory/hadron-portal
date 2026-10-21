@@ -26,10 +26,10 @@ vi.mock('$lib/server/tickers', () => ({
   loadAppTickerSettings: vi.fn(),
 }));
 
-const ev = (appId = 'app-1', tickerId = 'tk-1') => ({
+const ev = (appId = 'app-1', tickerId = 'tk-1', search = '') => ({
   params: { appId, tickerId },
   locals: { token: 't', impersonation: null, user: null },
-  url: new URL(`https://x.test/app/apps/${appId}/tickers/${tickerId}`),
+  url: new URL(`https://x.test/app/apps/${appId}/tickers/${tickerId}${search}`),
 });
 
 async function importLoad() {
@@ -63,5 +63,21 @@ describe('ticker detail loader — null Ticker.app (#1209)', () => {
     } as never);
     const load = await importLoad();
     await expect(load(ev() as never)).rejects.toMatchObject({ status: 307, location: '/app/apps/app-2/tickers/tk-9' });
+  });
+
+  // #1211 review P3 — the cross-app redirect must carry the caller's query
+  // (the ?after= pager state), as every load-time redirect does. The empty-
+  // search control above pins the no-stray-'?' direction; this pins the other.
+  it('the cross-app redirect carries the caller\'s query (review P3)', async () => {
+    const { loadTicker } = await import('$lib/server/tickers');
+    vi.mocked(loadTicker).mockResolvedValueOnce({
+      id: 'tk-9', urn: 'hrn:ticker:acme.com:other:ops', name: 'Ops', slug: 'ops',
+      enabled: true, cadenceSeconds: 300, quietHours: null, channels: [], app: { id: 'app-2' },
+    } as never);
+    const load = await importLoad();
+    await expect(load(ev('app-1', 'tk-9', '?after=abc') as never)).rejects.toMatchObject({
+      status: 307,
+      location: '/app/apps/app-2/tickers/tk-9?after=abc',
+    });
   });
 });
