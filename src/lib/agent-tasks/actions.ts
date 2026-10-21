@@ -11,18 +11,19 @@ import type { AgentTaskRow } from './types';
  * is the server's rule (hrn:node:hadronmemory.com:specs:cor:agt:050:09), and
  * its typed refusal answers anyone who may not.
  *
- * Park is HELD pending a Holger ruling (Xavier's gate on #1090): it is not a
- * TaskAction and is never offered. Exhaustive: an unknown status offers
- * nothing.
+ * Park (portal#1143) is the one move back: a PENDING task with no assignee
+ * returns to the backlog (hrn:node:hadronmemory.com:specs:cor:agt:050:02, R6 A).
+ * It is offered on that state alone; the server refuses anyone outside the
+ * audience. Exhaustive: an unknown status offers nothing.
  */
-export type TaskAction = 'ready' | 'assign' | 'reassign' | 'cancel';
+export type TaskAction = 'ready' | 'assign' | 'reassign' | 'park' | 'cancel';
 
 export function taskActions(task: Pick<AgentTaskRow, 'status' | 'queued' | 'assignee'>): TaskAction[] {
   switch (task.status as string) {
     case 'BACKLOG':
       return ['ready', 'assign', 'cancel'];
     case 'PENDING':
-      return task.assignee ? ['reassign', 'cancel'] : ['assign', 'cancel'];
+      return task.assignee ? ['reassign', 'cancel'] : ['assign', 'park', 'cancel'];
     case 'STARTED':
       return ['reassign', 'cancel'];
     default:
@@ -39,6 +40,8 @@ export function taskActionLabel(a: TaskAction): string {
       return t('app.tasks.write.assign', 'Assign…');
     case 'reassign':
       return t('app.tasks.write.reassign', 'Reassign…');
+    case 'park':
+      return t('app.tasks.write.park', 'Park…');
     case 'cancel':
       return t('app.tasks.write.cancel', 'Cancel…');
   }

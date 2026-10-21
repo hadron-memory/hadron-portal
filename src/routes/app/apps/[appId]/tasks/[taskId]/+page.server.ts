@@ -5,6 +5,7 @@ import {
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
+  PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
 import { loadAncestors, loadHistory, loadTasksApp, loadTree, loadWriteCandidates } from '$lib/server/agent-tasks';
@@ -73,10 +74,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * portal#1090 — the task page's writes (design §3, §4). Each calls its own
  * existing mutation; who may is the server's rule
  * (hrn:node:hadronmemory.com:specs:cor:agt:050:09), answered by its typed
- * refusal, which goes back verbatim with the reader's values. Park is held
- * pending a ruling: there is no park action.
+ * refusal, which goes back verbatim with the reader's values. Park (portal#1143)
+ * is offered on state alone; the same refusal answers anyone outside its audience.
  */
-type TaskWrite = 'ready' | 'assign' | 'reassign' | 'cancel';
+type TaskWrite = 'ready' | 'assign' | 'reassign' | 'park' | 'cancel';
 
 async function write(
   action: TaskWrite,
@@ -117,5 +118,6 @@ export const actions: Actions = {
   ready: (event) => write('ready', event, () => ({ doc: MAKE_AGENT_TASK_READY_MUTATION, vars: {} })),
   assign: (event) => write('assign', event, assignment(ASSIGN_AGENT_TASK_MUTATION)),
   reassign: (event) => write('reassign', event, assignment(REASSIGN_AGENT_TASK_MUTATION)),
+  park: (event) => write('park', event, () => ({ doc: PARK_AGENT_TASK_MUTATION, vars: {} })),
   cancel: (event) => write('cancel', event, () => ({ doc: CANCEL_AGENT_TASK_MUTATION, vars: {} })),
 };
