@@ -1066,6 +1066,10 @@
     ...(openChat ? [{ id: 'open-chat', label: t('node-actions.open-chat', 'Open chat') }] : []),
     { id: 'edit', label: t('node-actions.edit', 'Edit') },
     { id: 'download', label: t('node-actions.download', 'Download') },
+    // #1073: opens the node's PDF render in a new tab for printing — the
+    // browser's PDF viewer owns print, so this is the Download path with no
+    // save-to-disk step.
+    { id: 'print', label: t('node-actions.print', 'Print') },
     ...(skillExportHosts.length > 0 ? [{ id: 'export-skill', label: t('node-actions.export-skill', 'Export as skill') }] : []),
     { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
     ...(canAttachAsset ? [{ id: 'attach-asset', label: t('node-actions.attach-asset', 'Attach file') }] : []),
@@ -1120,6 +1124,7 @@
       case 'open-chat': if (openChat) goto(`${basePath}/nodes/${openChat.nodeId}`); break;
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
+      case 'print': void printNode(); break;
       case 'export-skill': skillExportOpen = true; break;
       case 'delete': $deleteFormData.hard = false; $deleteFormData.recursive = false; deleteOpen = true; break;
     }
@@ -1160,41 +1165,53 @@
     return bytes;
   }
 
+  // POST to /api/nodes/export and return the served bytes as a Blob. The
+  // Download dialog and Print (#1073) share this path, so the response guards
+  // live in one place. Only Print passes a signal — its request is
+  // cancellable, so an abandoned export doesn't hang (#1193).
+  async function fetchNodeExport(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<{ blob: Blob; filename?: string }> {
+    const res = await fetch('/api/nodes/export', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!res.ok) throw new Error('Export failed');
+    const r = (await res.json()) as {
+      filename?: string;
+      mimeType?: string;
+      data?: string;
+      encoding?: string;
+    };
+    // Guard against a null/!=string `data` (e.g. nodeExport resolving to
+    // null) so we never blob the literal string "undefined".
+    if (!r || typeof r.data !== 'string') throw new Error('Invalid export data');
+    // Honor `encoding`: the API is already forward-compatible with BASE64
+    // (binary) payloads, so decode those to bytes rather than blobbing the
+    // base64 text. TEXT (the current default) passes through unchanged.
+    const part: BlobPart = r.encoding === 'BASE64' ? base64ToBytes(r.data) : r.data;
+    return { blob: new Blob([part], { type: r.mimeType || 'application/octet-stream' }), filename: r.filename };
+  }
+
   async function runDownload() {
     if (!dlCanDownload || dlBusy) return;
     dlBusy = true;
     dlError = null;
     try {
-      const res = await fetch('/api/nodes/export', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: node.id,
-          format: dlFormat,
-          // PDF is a presentation render; scope/sections don't apply.
-          full: dlFormat === 'PDF' ? true : dlFull,
-          ...(dlFormat === 'PDF' || dlFull ? {} : { sections: dlSelectedSections }),
-        }),
+      const { blob, filename } = await fetchNodeExport({
+        id: node.id,
+        format: dlFormat,
+        // PDF is a presentation render; scope/sections don't apply.
+        full: dlFormat === 'PDF' ? true : dlFull,
+        ...(dlFormat === 'PDF' || dlFull ? {} : { sections: dlSelectedSections }),
       });
-      if (!res.ok) throw new Error('Export failed');
-      const r = (await res.json()) as {
-        filename?: string;
-        mimeType?: string;
-        data?: string;
-        encoding?: string;
-      };
-      // Guard against a null/!=string `data` (e.g. nodeExport resolving to
-      // null) so we never blob the literal string "undefined".
-      if (!r || typeof r.data !== 'string') throw new Error('Invalid export data');
-      // Honor `encoding`: the API is already forward-compatible with BASE64
-      // (binary) payloads, so decode those to bytes rather than blobbing the
-      // base64 text. TEXT (the current default) passes through unchanged.
-      const part: BlobPart = r.encoding === 'BASE64' ? base64ToBytes(r.data) : r.data;
-      const blob = new Blob([part], { type: r.mimeType || 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = r.filename || `export.${dlFormat.toLowerCase()}`;
+      a.download = filename || `export.${dlFormat.toLowerCase()}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1204,6 +1221,97 @@
       dlError = 'Export failed. Please try again.';
     } finally {
       dlBusy = false;
+    }
+  }
+
+  // Print (#1073): fetch the node's PDF render and open it in a new tab —
+  // the browser's PDF viewer owns the print dialog, so this is the export
+  // path with no save-to-disk step. Repeated prints hold at most one object
+  // URL: the previous one is revoked when a new PDF opens, and unmount and
+  // node changes revoke the live one. The blank print window opens
+  // synchronously, inside the click's user gesture — after the export await,
+  // Safari/Firefox treat window.open as a popup — and its location is
+  // assigned only once the PDF arrives. A popup the browser blocks says so
+  // instead of failing silently.
+  let printBusy = $state(false);
+  let printError = $state<string | null>(null);
+  let printUrl: string | null = null;
+  // The in-flight print's request and blank window, owned until the PDF
+  // lands (the window is then the user's tab) or the print is invalidated,
+  // whichever comes first. Invalidation cancels the request and closes the
+  // window immediately rather than when the request settles: a hanging
+  // export must not hold its blank window open past a navigation or
+  // unmount (#1193 READ P2 residual).
+  let printAbort: AbortController | null = null;
+  let printWindow: Window | null = null;
+  // A print's generation: bumped by anything that invalidates it — teardown,
+  // and a node change (SvelteKit reuses this component between nodes, so an
+  // export for A must not open over B, and A's catch/finally must not write
+  // B's state; #1193 READ P2s). A stale run closes its window, opens
+  // nothing and writes nothing. The liveness check sits at the side effect,
+  // per hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
+  let printGeneration = 0;
+  function invalidatePrint() {
+    printGeneration++;
+    // Release the abandoned print's resources NOW: abort its request and
+    // close its blank window. The stale run still lands in its catch /
+    // finally when the abort rejects, but the generation guards there skip
+    // every state write. Nothing waits for a hanging fetch to settle.
+    printAbort?.abort();
+    printAbort = null;
+    printWindow?.close();
+    printWindow = null;
+    if (printUrl) URL.revokeObjectURL(printUrl);
+    printUrl = null;
+    // The stale run's finally no longer clears the flag, so release the
+    // slot here — at most one live (uncancelled) export at a time.
+    printBusy = false;
+  }
+  $effect(() => () => invalidatePrint());
+  async function printNode() {
+    if (printBusy) return;
+    printBusy = true;
+    printError = null;
+    const run = printGeneration;
+    const win = window.open('', '_blank');
+    if (!win) {
+      printError = t('node-actions.print.blocked', 'The print window was blocked. Allow popups for this site, then try again.');
+      printBusy = false;
+      return;
+    }
+    printWindow = win;
+    const request = (printAbort = new AbortController());
+    try {
+      const { blob } = await fetchNodeExport({ id: node.id, format: 'PDF', full: true }, request.signal);
+      if (run !== printGeneration) {
+        // Already closed by the invalidation; a stale run mints no URL,
+        // opens nothing and writes nothing.
+        win.close();
+        return;
+      }
+      if (blob.type !== 'application/pdf') {
+        // Loud refusal, never a navigation to something that isn't the PDF.
+        win.close();
+        printWindow = null;
+        printError = t('node-actions.print.not-pdf', 'The export did not return a PDF. Please try again.');
+        return;
+      }
+      if (printUrl) URL.revokeObjectURL(printUrl);
+      printUrl = URL.createObjectURL(blob);
+      // The window stops being ours here: a later navigation revokes this
+      // URL but never closes the tab the user is reading.
+      printWindow = null;
+      win.location.href = printUrl;
+    } catch {
+      // A cancelled run rejects into this arm: its window is already
+      // closed, and the generation guard skips the state write.
+      win.close();
+      if (run === printGeneration) {
+        printWindow = null;
+        printError = t('node-actions.print.failed', 'Could not open the PDF. Please try again.');
+      }
+    } finally {
+      if (run === printGeneration) printBusy = false;
     }
   }
 
@@ -2070,6 +2178,12 @@
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
+      // An export in flight for the previous node no longer owns this page
+      // (#1193 READ P2s): invalidatePrint aborts its request, closes its
+      // blank window and releases the busy flag, so a print for the new
+      // node starts from clean ground.
+      invalidatePrint();
+      printError = null;
       skillExportOpen = false;
       testFlowOpen = false;
       $testFlowFormData.appId = '';
@@ -2272,6 +2386,9 @@
       <!-- #503: the "⋯" menu is the single entry point for node actions;
            each item opens one of the panels/dialogs below. -->
       <NodeActionsMenu actions={menuActions} onselect={onMenuSelect} label={`Actions for ${node.name}`} />
+      {#if printError}
+        <p role="alert" class="text-xs text-red-500">{printError}</p>
+      {/if}
       <!-- Hidden form the menu's Duplicate item submits (requestSubmit fires
            the submit event use:enhance intercepts, unlike .submit()). -->
       <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:duplicateEnhance novalidate class="hidden">
