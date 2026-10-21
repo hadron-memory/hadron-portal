@@ -62,11 +62,14 @@ try {
       if (width === 390 && pane === 'chart') {
         // Prove the browser sees the defect: take the toolbar's own wrap away
         // and the page must overflow, or this check cannot tell fixed from
-        // broken. (The heading row's wrap is layout, not containment: without
-        // it the toolbar still fits, squeezed into a column beside the heading.)
-        const row = 'section > div:first-child > div';
+        // broken. (#417 removed the caption and collapsed its wrapper, so the
+        // toolbar row IS section's first div — no inner level to reach through.)
+        const row = 'section > div:first-child';
         const mutant = await page.addStyleTag({ content: `${row} { flex-wrap: nowrap !important; }` });
-        assert.ok((await measure()).scrollWidth > width, 'toolbar no-wrap mutant must overflow');
+        // #417: the row is justify-end, so a no-wrap mutant spills LEFT, which
+        // grows no scrollWidth — the observable is a control pushed off-screen.
+        const m = await measure();
+        assert.ok(m.scrollWidth > width || !m.reachable, 'toolbar no-wrap mutant must overflow or strand a control');
         await mutant.evaluate((el) => el.remove());
         assert.equal((await measure()).scrollWidth, width);
       }
