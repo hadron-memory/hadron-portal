@@ -20,20 +20,24 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATIONS_QUERY,
   AGENT_PUBLIC_QUERY,
   CREATE_APP_MUTATION,
+  INSTALL_AGENT_INTO_APP_MUTATION,
+  ORG_APPS_FOR_REGISTER_QUERY,
 } from '$lib/server/queries';
 import { deriveDefaultUrn } from '$lib/install/derive-default-urn';
 import { deriveDefaultName } from '$lib/install/derive-default-name';
 import { installStrings } from '$lib/i18n/install-strings';
 import type { Organization, Agent, App } from '$lib/types';
+import { t } from '$lib/i18n/t';
 import type { Actions, PageServerLoad } from './$types';
-import { installAgentSchema } from './schema';
+import { installAgentSchema, installExistingAppSchema } from './schema';
 
+type AppChoice = Pick<App, 'id' | 'name' | 'urn'>;
 type InstallAgentForm = Infer<typeof installAgentSchema, 'zod4'>;
 
 const installAgentFormAdapter = zod4(installAgentSchema);
@@ -69,8 +73,7 @@ async function resolveInstallTarget(
   | { ok: true; org: Organization; agent: InstallableAgent; otherApps: App[] }
   | { ok: false; reason: 'org-not-found' | 'agent-not-found' | 'cross-org' }
 > {
-  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations')
-    .catch(() => [] as Organization[]);
+  const orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
 
   const targetOrg = orgs.find((o) => o.id === orgIdParam);
   if (!targetOrg) return { ok: false, reason: 'org-not-found' };
@@ -84,14 +87,20 @@ async function resolveInstallTarget(
   // The marketplace path: a PUBLIC agent installs cross-org. agent(ref:)
   // admits PUBLIC agents for any caller (server #552) — but it also admits
   // a member's own non-public agents, so the visibility check here is the
-  // load-bearing gate, not the query succeeding. Best-effort: a transport
-  // failure falls through to the member-org scan below.
+  // admission gate, not the query succeeding. A transport failure propagates
+  // rather than masquerading as an absent Agent.
   const publicAgent = await client
     .request<{ agent: (InstallableAgent & { visibility: string }) | null }>(
       AGENT_PUBLIC_QUERY, { ref: agentIdParam },
     )
     .then((r) => r.agent)
-    .catch(() => null);
+    .catch((err: unknown) => {
+      // Preserve the existing concealed-not-found response for typed Agent
+      // refusals. An unavailable backend is not evidence of a missing Agent.
+      const code = extractGqlErrorCode(err);
+      if (code && ['FORBIDDEN', 'PERMISSION_DENIED', 'NOT_FOUND', 'AGENT_NOT_FOUND', 'BAD_USER_INPUT', 'URN_NOT_QUALIFIED'].includes(code)) return null;
+      throw err;
+    });
   if (publicAgent && publicAgent.visibility === 'PUBLIC') {
     return { ok: true, org: targetOrg, agent: publicAgent, otherApps: targetOrg.apps ?? [] };
   }
@@ -127,7 +136,16 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     ? defaultUrn.slice(org.urn.length + 1)
     : defaultUrn;
 
+  let existingApps: AppChoice[] = [];
+  let existingAppsFailed = false;
+  try {
+    existingApps = await fetchAllItems<AppChoice>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgId: org.id });
+  } catch {
+    existingAppsFailed = true;
+  }
   return {
+    existingApps, existingAppsFailed,
+    existingAppForm: await superValidate({ appId: '' }, zod4(installExistingAppSchema), { id: 'installExistingApp', errors: false }),
     org,
     agent,
     defaultName,
@@ -141,6 +159,30 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 };
 
 export const actions: Actions = {
+  installExisting: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(installExistingAppSchema), { id: 'installExistingApp', strict: true });
+    if (!form.valid) return fail(400, { form });
+    const client = gqlClient(locals.token);
+    try {
+      // The POST must independently recheck both the agent admission and the
+      // selected App's org. Page data is only a picker, never authorization.
+      const target = await resolveInstallTarget(client, params.id, params.aid);
+      if (!target.ok) return message(form, { type: 'error', text: installStrings.errorAgentNotFound() }, { status: 404 });
+      const apps = await fetchAllItems<AppChoice>(client, ORG_APPS_FOR_REGISTER_QUERY, 'apps', { orgId: target.org.id });
+      const app = apps.find((a) => a.id === form.data.appId);
+      if (!app) return setError(form, 'appId', t('install.existing.invalid', 'Choose an App in this organization.'), { status: 400 });
+      await client.request(INSTALL_AGENT_INTO_APP_MUTATION, { appRef: app.id, agentRef: target.agent.id });
+    } catch (err) {
+      const code = extractGqlErrorCode(err);
+      if (code === 'DUPLICATE_APP_AGENT') return setError(form, 'appId', t('install.existing.duplicate', 'This agent is already installed in that App.'), { status: 409 });
+      if (code === 'FORBIDDEN' || code === 'PERMISSION_DENIED' || code === 'UNAUTHENTICATED') {
+        return message(form, { type: 'error', text: t('install.existing.forbidden', 'You do not have permission to install this agent into that App.') }, { status: 403 });
+      }
+      // No raw ClientError: it includes the request and may carry credentials.
+      return message(form, { type: 'error', text: t('install.existing.failed', 'Could not install the agent. Your selection is kept; try again.') }, { status: 503 });
+    }
+    redirect(303, `/app/apps/${form.data.appId}`);
+  },
   install: async ({ request, params, locals }) => {
     const form = await superValidate<InstallAgentForm>(
       await request.formData(),

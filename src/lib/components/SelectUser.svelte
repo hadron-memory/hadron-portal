@@ -9,7 +9,7 @@
   // substring) are being tightened separately — see hadron-server#384.
 
   import Urn from '$lib/components/Urn.svelte';
-  import { type SearchUser, userLabel } from '$lib/users/search-user';
+  import { type SearchUser, type SearchUserPage, userLabel } from '$lib/users/search-user';
 
   export type { SearchUser };
 
@@ -19,7 +19,7 @@
     onselect,
     open = $bindable(false),
   }: {
-    search: (query: string) => Promise<SearchUser[]>;
+    search: (query: string) => Promise<SearchUserPage>;
     placeholder?: string;
     onselect: (user: SearchUser) => void;
     open?: boolean;
@@ -27,6 +27,7 @@
 
   let query = $state('');
   let results = $state<SearchUser[]>([]);
+  let truncated = $state(false);
   let loading = $state(false);
   let searched = $state(false);
   let error = $state<string | null>(null);
@@ -63,12 +64,14 @@
     try {
       const r = await search(q);
       if (seq !== searchSeq) return; // superseded by a newer search or a reset
-      results = r;
+      results = r.users;
+      truncated = r.truncated;
       searched = true;
     } catch {
       if (seq !== searchSeq) return;
       error = 'Search failed. Please try again.';
       results = [];
+      truncated = false;
       searched = true;
     } finally {
       if (seq === searchSeq) loading = false;
@@ -99,6 +102,7 @@
     searchSeq++;
     query = '';
     results = [];
+    truncated = false;
     searched = false;
     error = null;
     loading = false;
@@ -183,7 +187,7 @@
 
       <!-- Footer -->
       <div class="flex items-center justify-between border-t border-zinc-200 px-4 py-3 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-400">
-        <div>{searched && !loading ? `${results.length} result${results.length !== 1 ? 's' : ''}` : ''}</div>
+        <div>{searched && !loading ? `${results.length} result${results.length !== 1 ? 's' : ''}${truncated ? ' shown; more match. Narrow your search.' : ''}` : ''}</div>
         <div>Esc to close</div>
       </div>
     </div>

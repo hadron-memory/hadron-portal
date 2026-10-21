@@ -549,6 +549,23 @@ export const APP_DETAIL_ORG_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1173: bundle an Agent with another (an AgentImport edge). The Org-to-Agent
+// license that lets an org install a subscribed Agent also authorizes bundling
+// it. The server owns the rules (one level of imports, no cycle, who may);
+// the portal shows its sentence.
+export const PUBLISH_AGENT_IMPORT_MUTATION = /* GraphQL */ `
+  mutation PublishAgentImport($importedAgentRef: ID!, $parentAgentRef: ID!, $position: Int!, $required: Boolean) {
+    publishAgentImport(
+      importedAgentRef: $importedAgentRef
+      parentAgentRef: $parentAgentRef
+      position: $position
+      required: $required
+    ) {
+      importedAgentId
+    }
+  }
+`;
+
 /**
  * The agents an org-owned App can install (#1006: the Agents tab's picker).
  *
@@ -565,6 +582,34 @@ export const APP_ORG_AGENTS_QUERY = /* GraphQL */ `
         id
         name
         urn
+      }
+    }
+  }
+`;
+
+/**
+ * #1172: the Agents an org SUBSCRIBES to are AgentOrgGrant rows, not members of
+ * `agents`, and installAgentIntoApp accepts them. A request of its OWN, not a
+ * field on APP_ORG_AGENTS_QUERY: `agentOrgGrants` is a non-null list, so folded
+ * into that document a failure of this resolver would null `organization` and
+ * empty the legal owned-agent picker too (portal#1188 review). Asked
+ * separately, a failure costs only the subscribed agents. The resolver is
+ * org-admin gated and has answered [] to a non-platform-admin owner/admin
+ * (hadron-server#2186); that is not a refusal and not handled here.
+ */
+export const APP_ORG_AGENT_GRANTS_QUERY = /* GraphQL */ `
+  query AppOrgAgentGrants($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      agentOrgGrants {
+        isActive
+        revokedAt
+        expiresAt
+        agent {
+          id
+          name
+          urn
+        }
       }
     }
   }
@@ -1463,6 +1508,10 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
       editedBy
       editedByInfo
       editedByUser { handle urn }
+      # #1171 (server #1610): the Worker and Agent behind the edit; null on
+      # revisions captured before #1610 or with no agent behind them.
+      editedByWorker { id name urn }
+      editedByAgent { id name urn }
       revLabel
       # #620: which node fields the edit changed (empty on legacy rows).
       changes
@@ -1488,6 +1537,10 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
       editedBy
       editedByInfo
       editedByUser { handle urn }
+      # #1171 (server #1610): the Worker and Agent behind the edit; null on
+      # revisions captured before #1610 or with no agent behind them.
+      editedByWorker { id name urn }
+      editedByAgent { id name urn }
       revLabel
       changes
       createdAt
@@ -1546,6 +1599,14 @@ export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
       authorship { ...NodeAuthorshipFields }
       contentValidation { ...NodeContentValidationFields }
     }
+  }
+`;
+
+// #1001: the live content a revision's diff ends at, when that revision is the
+// newest snapshot. raw: true — the text as authored, never template-compiled.
+export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
+  query NodeLiveContent($ref: ID!) {
+    node(ref: $ref, raw: true) { id content revision }
   }
 `;
 
@@ -2514,6 +2575,16 @@ export const NODE_FIELDS = /* GraphQL */ `
 // passes a single id so it only fetches that memory's nodes instead of pulling a
 // global window and filtering client-side — the latter silently dropped a memory's
 // nodes once total nodes exceeded the limit.
+// #1202: fixtures are system nodes, independently of the memory's class.
+// Keep this narrow read separate from GraphNodes' mixed-type default.
+export const FIXTURE_NODES_QUERY = /* GraphQL */ `
+  query FixtureNodes($limit: Int, $memoryIds: [ID!]!) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit) {
+      hits { node { id loc memoryId data } }
+    }
+  }
+`;
+
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query GraphNodes($limit: Int, $memoryIds: [ID!]) {
@@ -2771,6 +2842,59 @@ export const LEGACY_THREAD_PROBE_QUERY = /* GraphQL */ `
 // updatedAfter/Before = "changed since"), and user-selectable sort. `query` is
 // optional — omitting it returns a deterministically-ordered filtered list
 // (hrn:node:hadronmemory.com:specs:cor:api:090). #429.
+// portal#1174: the Nodes tab's extra columns for a set of nodes, through the
+// server's batched `nodeBatch` (cap 200 refs) so each batch is one call. Only
+// the six facts the table shows, never content. Kept OUT of the shared layout
+// payload and the slim `memoryNodes` rows on purpose
+// (hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers):
+// the tab reads them lazily, per batch, after the list is on screen.
+export const NODE_COLUMNS_QUERY = /* GraphQL */ `
+  query NodeColumns($refs: [ID!]) {
+    nodeBatch(refs: $refs) {
+      nodes {
+        id
+        role
+        updatedAt
+        revision
+        approvalStatus { state }
+        signatureStatus { state }
+        # hadron-server #1610: the Agent and Worker behind the last authored
+        # edit. A user half ("Changed by (user)") waits on hadron-server#2176.
+        updatedByAgent { id name urn }
+        updatedByWorker { id name urn }
+      }
+      unavailable
+      omitted
+      truncated
+    }
+  }
+`;
+
+// The same read without signatureStatus. That field exists only while the
+// server has signing on (hadron-server#1918: while off it is removed from the
+// schema, so selecting it fails the WHOLE query), and the portal asks the
+// deployment first (`deploymentOffersSigning`, portal#1022). One hidden field
+// must not sink Role, Last changed, Revision and Approved with it (Celine on
+// #1181).
+export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
+  query NodeColumnsNoSigning($refs: [ID!]) {
+    nodeBatch(refs: $refs) {
+      nodes {
+        id
+        role
+        updatedAt
+        revision
+        approvalStatus { state }
+        updatedByAgent { id name urn }
+        updatedByWorker { id name urn }
+      }
+      unavailable
+      omitted
+      truncated
+    }
+  }
+`;
+
 export const NODE_FIND_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeFind(
@@ -3048,6 +3172,18 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
       properties
+      # portal#1175: this node AS a comment — its target (for the breadcrumb
+      # link) and whether the viewer wrote it (for the edit controls). Null for
+      # content. Detail-only; the search read selects its own, wider asComment.
+      asComment {
+        id
+        deleted
+        viewerIsAuthor
+        # The comment's write counter: editComment's expectedRevision, which is
+        # NOT Node.revision.
+        revSeq
+        target { id name nodeType urn }
+      }
       # #927 (server #1323/#937): the live revision an inline editor opens on
       # and saves against as expectedRevision. Detail-only, like properties.
       revision
@@ -3178,9 +3314,12 @@ export const UPDATE_SPEC_NODE_MUTATION = /* GraphQL */ `
 // nodeRef (a node PK or fully-qualified URN).
 // hard: true permanently removes the row (vs. the default soft-delete's
 // deletedAt). #503.
+// recursive: true deletes the node plus every descendant under its loc prefix
+// (#621) — the server refuses a non-recursive delete of a parent with
+// NODE_HAS_DESCENDANTS rather than silently orphaning the subtree.
 export const DELETE_NODE_MUTATION = /* GraphQL */ `
-  mutation DeleteNode($nodeRef: ID!, $hard: Boolean) {
-    deleteNode(nodeRef: $nodeRef, hard: $hard)
+  mutation DeleteNode($nodeRef: ID!, $hard: Boolean, $recursive: Boolean) {
+    deleteNode(nodeRef: $nodeRef, hard: $hard, recursive: $recursive)
   }
 `;
 

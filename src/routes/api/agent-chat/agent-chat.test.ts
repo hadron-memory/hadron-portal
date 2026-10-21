@@ -535,6 +535,7 @@ describe('POST /api/agent-chat/resume', () => {
 
   it('returns 404 when the chat is not in myChats (ownership/nonexistent)', async () => {
     mockRequest
+      .mockResolvedValue({ myChats: [] })
       .mockResolvedValueOnce({ myChats: [{ loc: 'chat-other' }] })
       .mockResolvedValueOnce({ chatHistory: [] });
     const { POST } = await import('./resume/+server');
@@ -711,6 +712,7 @@ describe('POST /api/agent-chat/older (#793 scrollback)', () => {
 // ── /api/agent-chat/list ───────────────────────────────────────────────────
 
 describe('GET /api/agent-chat/list', () => {
+  beforeEach(() => { mockRequest.mockResolvedValue({ myChats: [] }); });
   it('rejects unauthenticated requests', async () => {
     const { GET } = await import('./list/+server');
     const res = await GET(ev({ token: null, searchParams: { agentId: 'a' } }));
@@ -732,7 +734,7 @@ describe('GET /api/agent-chat/list', () => {
     expect(await jsonOf(res)).toEqual({ chats });
     // The endpoint's query param stays `agentId`, but it forwards the server's
     // renamed `agentRef` arg (8032d99: read-surface <entity>Id → <entity>Ref).
-    expect(mockRequest.mock.calls[0][1]).toEqual({ agentRef: 'a1' });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ agentRef: 'a1', limit: 100, offset: 0 });
   });
 
   // Spec 016 — pins the list contract the UI sidebar relies on.
@@ -859,3 +861,101 @@ describe('POST /api/agent-chat/delete', () => {
 // 036-ai-service-config: the legacy POST /api/agent-chat/ai-config endpoint was
 // removed; named-config CRUD + Test now live at /api/ai-configs (see
 // src/routes/api/ai-configs/server.test.ts).
+
+// #1224: model the server's default 100-row window instead of returning an
+// unconditional complete list. Preserve private/shared rows and server order.
+describe('agent chat metadata past the first page (#1224)', () => {
+  function serveChats(count: number, failOffset?: number, cap = 100) {
+    const chats = Array.from({ length: count }, (_, i) => ({
+      id: `node-${i}`, loc: `chats:${i}`, title: `Chat ${i}`,
+      scope: i % 2 ? 'shared' : 'private',
+    }));
+    mockRequest.mockImplementation(async (document: string, vars: Record<string, any>) => {
+      if (document.includes('query MyChats')) {
+        expect(vars.agentRef).toBe('agent-pages');
+        if (failOffset != null && vars.offset >= failOffset) throw new Error('Later page unavailable');
+        return { myChats: chats.slice(vars.offset ?? 0, (vars.offset ?? 0) + Math.min(vars.limit ?? 100, cap)) };
+      }
+      return { chatHistory: [{ role: 'user', content: 'Existing history', seq: 1 }] };
+    });
+    return chats;
+  }
+  it.each([0, 99, 100, 101, 205])('lists all %s chats in server order', async count => {
+    const chats = serveChats(count);
+    const { GET } = await import('./list/+server');
+    const res = await GET(ev({ searchParams: { agentId: 'agent-pages' } }));
+    expect(res.status).toBe(200);
+    expect((await jsonOf(res)).chats).toEqual(chats);
+    const pages = mockRequest.mock.calls.map(([, vars]) => vars);
+    expect(pages.every(vars => vars.limit === 100 && Number.isInteger(vars.offset))).toBe(true);
+  });
+  it.each([0, 99, 100, 204])('resumes chat at zero-based position %s', async index => {
+    const chats = serveChats(205);
+    const { POST } = await import('./resume/+server');
+    const res = await POST(ev({ body: { agentId: 'agent-pages', chatId: chats[index].loc } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.chat).toEqual(chats[index]);
+    expect(body.messages[0].content).toBe('Existing history');
+    const reads = mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats'));
+    expect(reads).toHaveLength(Math.floor(index / 100) + 1);
+  });
+  it.each(['list', 'resume'])('continues through short nonempty capped pages for %s', async route => {
+    const chats = serveChats(205, undefined, 37);
+    const res = route === 'list'
+      ? await (await import('./list/+server')).GET(ev({ searchParams: { agentId: 'agent-pages' } }))
+      : await (await import('./resume/+server')).POST(ev({ body: { agentId: 'agent-pages', chatId: 'chats:204' } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    if (route === 'list') expect(body.chats).toEqual(chats);
+    else expect(body.chat).toEqual(chats[204]);
+    const offsets = mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats')).map(([, vars]) => vars.offset);
+    expect(offsets).toEqual(route === 'list' ? [0, 37, 74, 111, 148, 185, 205] : [0, 37, 74, 111, 148, 185]);
+  });
+  it('keeps the first occurrence of a loc when chats shift across offset pages', async () => {
+    const chats = serveChats(101);
+    let metadataReads = 0;
+    const normalRead = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation(async (document: string, vars: Record<string, any>) => {
+      if (document.includes('query MyChats')) {
+        metadataReads++;
+        if (metadataReads === 2) {
+          // The oldest chat was updated between reads and moved to the front.
+          // Row99 shifts to offset100; changing its payload pins first-wins.
+          return { myChats: [{ ...chats[99], title: 'Later duplicate' }] };
+        }
+        if (metadataReads > 2) return { myChats: [] };
+      }
+      return normalRead(document, vars);
+    });
+    const { GET } = await import('./list/+server');
+    const res = await GET(ev({ searchParams: { agentId: 'agent-pages' } }));
+    expect(res.status).toBe(200);
+    const body = await jsonOf(res);
+    expect(body.chats).toEqual(chats.slice(0, 100));
+    expect(new Set(body.chats.map((chat: { loc: string }) => chat.loc)).size).toBe(body.chats.length);
+    expect(mockRequest.mock.calls.map(([, vars]) => vars.offset)).toEqual([0, 100, 101]);
+  });
+  it('returns not found only after exhausting authorized metadata', async () => {
+    serveChats(205);
+    const { POST } = await import('./resume/+server');
+    const res = await POST(ev({ body: { agentId: 'agent-pages', chatId: 'chats:absent' } }));
+    expect(res.status).toBe(404);
+    expect(mockRequest.mock.calls.filter(([doc]) => String(doc).includes('query MyChats'))).toHaveLength(4);
+  });
+  it.each(['list', 'resume'])('propagates a later page failure for %s instead of partial success/not found', async route => {
+    serveChats(205, 100);
+    const res = route === 'list'
+      ? await (await import('./list/+server')).GET(ev({ searchParams: { agentId: 'agent-pages' } }))
+      : await (await import('./resume/+server')).POST(ev({ body: { agentId: 'agent-pages', chatId: 'chats:204' } }));
+    expect(res.status).toBe(500);
+    expect((await jsonOf(res)).error).toBe('Later page unavailable');
+  });
+  it('continues after a full page containing the excluded team chat', async () => {
+    const chats = serveChats(101);
+    chats[0].loc = 'chats:team';
+    const { GET } = await import('./list/+server');
+    const res = await GET(ev({ searchParams: { agentId: 'agent-pages' } }));
+    expect((await jsonOf(res)).chats).toEqual(chats.slice(1));
+  });
+});

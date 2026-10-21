@@ -35,6 +35,9 @@ function maskEmail(email: string | null): string | null {
   return `${email[0]}•••${email.slice(at)}`;
 }
 
+/** hadron-server#2211: lists default to 20 or less; the picker asks for its page explicitly. */
+const SEARCH_USERS_LIMIT = 20;
+
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
     return json({ error: 'Unauthorized' }, { status: 401 });
@@ -47,9 +50,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (q.length < 3) return json({ users: [] });
 
   try {
-    const data = await gqlClient(locals.token).request<{ users: { items: SearchUserRow[] } }>(
+    const data = await gqlClient(locals.token).request<{ users: { items: SearchUserRow[]; total: number } }>(
       SEARCH_USERS_QUERY,
-      { query: q },
+      { query: q, limit: SEARCH_USERS_LIMIT },
     );
     // Drop name + raw email before the data leaves the server.
     const users = (data.users.items ?? []).map((u) => ({
@@ -60,7 +63,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       avatarUrl: u.avatarUrl,
       emailMasked: maskEmail(u.email),
     }));
-    return json({ users });
+    // `total` lets the picker say when the page is not the whole answer.
+    return json({ users, total: data.users.total ?? users.length });
   } catch (e: unknown) {
     // Log detail server-side; return a generic message so GraphQL/DB internals
     // aren't leaked to the client (mirrors /api/nodes/search).

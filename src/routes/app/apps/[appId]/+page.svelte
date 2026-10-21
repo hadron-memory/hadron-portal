@@ -2383,6 +2383,15 @@
            App had no agent. -->
       <section class="max-w-2xl">
         <h3 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.agents.add.title', 'Add an agent')}</h3>
+        <!-- #1172: uncertainty about the SUBSCRIBED agents is shown whatever the
+             option count, or "no other agent to add" would read as complete
+             after a failed grants read (portal#1188 review). Not shown when the
+             whole list is already an error or unknown. -->
+        {#if data.subscribedAgentsError && !agentsWithheld && !data.availableAgentsError}
+          <p role="status" class="mb-2 text-xs text-zinc-500">
+            {t('app.agents.add.subscribed-unavailable', 'The agents your organization subscribes to could not be loaded, so only its own agents are listed. Reload to try again.')}
+          </p>
+        {/if}
         {#if agentsWithheld}
           <!-- The installed set is unknown, so what is still addable is unknown too. -->
           <p role="status" class="text-sm text-zinc-500">{t('app.agents.add.withheld', 'Which agents can be added isn’t known, because the installed agents aren’t visible to you.')}</p>
@@ -2431,7 +2440,11 @@
 
   {#if activeTab === 'memory'}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
-    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} {writableMemoryIds} scopeMemoryIds={effectiveMemories.map((m) => m.id)} />
+    <!-- #1043 interim: primary-agent links cannot establish the viewer's
+         rights across this App. Omit the partial writable set so the browser
+         makes no read-only claim from omission; server writes stay authoritative.
+         The full memory list awaits the server projection in #2190. -->
+    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={effectiveMemories.map((m) => m.id)} />
     </div>
   {/if}
 

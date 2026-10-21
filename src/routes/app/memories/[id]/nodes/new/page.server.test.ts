@@ -100,6 +100,7 @@ describe('new node load()', () => {
       nodeType: 'info',
       description: '',
       abstract: '',
+      tags: '',
       content: '',
       objectType: '',
       propertiesJson: '',
@@ -218,6 +219,15 @@ describe('new node create action', () => {
         properties: { name: 'Acme', fundingUsd: 5 },
       }),
     }));
+  });
+
+  it('#1166: forwards comma-separated tags, trimmed, dropping blanks and duplicates', async () => {
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'node-5' } });
+
+    await runCreate({ name: 'Node', loc: 'node', nodeType: 'info', tags: ' alpha, beta ,,alpha ' });
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, { input: { tags: string[] } }];
+    expect(vars.input.tags).toEqual(['alpha', 'beta']);
   });
 
   it('omits objectType and properties when empty', async () => {

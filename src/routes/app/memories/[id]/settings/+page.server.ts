@@ -357,7 +357,7 @@ export const actions: Actions = {
     const acknowledgeVectorInversionRisk = form.data.acknowledgeVectorInversionRisk ? true : undefined;
 
     try {
-      await gqlClient(locals.token).request(UPDATE_MEMORY_MUTATION, {
+      const { updateMemory: saved } = await gqlClient(locals.token).request<{ updateMemory?: Memory }>(UPDATE_MEMORY_MUTATION, {
         id: params.id,
         vectorIndexEnabled: form.data.vectorIndexEnabled,
         embeddingSource: hasEmbeddingSource ? form.data.embeddingSource : undefined,
@@ -366,6 +366,17 @@ export const actions: Actions = {
         chunkOverlap: intDial(form.data.chunkOverlap),
         forceFixedSize: form.data.forceFixedSize,
       });
+      if (saved) {
+        form.data = {
+          ...form.data,
+          vectorIndexEnabled: saved.vectorIndexEnabled ?? form.data.vectorIndexEnabled,
+          embeddingSource: saved.embeddingSource ?? form.data.embeddingSource,
+          chunkTokens: saved.chunkTokens != null ? String(saved.chunkTokens) : '',
+          chunkOverlap: saved.chunkOverlap != null ? String(saved.chunkOverlap) : '',
+          forceFixedSize: saved.forceFixedSize ?? false,
+          acknowledgeVectorInversionRisk: false,
+        };
+      }
       return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
       // Surface the FR-026 disclosure requirement as a structured failure so
