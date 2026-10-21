@@ -8,10 +8,10 @@
  * so whichever loader read them next saw a different request: the App layout
  * threw on `locals.user.id`, and the App detail loader asked for its org with
  * no token and answered 404 "Organization not found". A loader that awaits
- * `parent()` first saw the cleared token every time. The cookie disposal
- * stays (whether a 5xx should end the session is #1120's question); only the
- * mid-request mutation goes.
+ * `parent()` first saw the cleared token every time. Cookie disposal applies only to explicit auth refusals (#1120); the
+ * mid-request mutation remains forbidden.
  */
+import { ClientError } from 'graphql-request';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -39,8 +39,8 @@ async function rootLoad(ev: ReturnType<typeof event>) {
 }
 
 describe('root layout: a failed `me` leaves the shared locals alone (#1117)', () => {
-  it('returns no user and drops the session cookie, as before', async () => {
-    mockRequest.mockRejectedValueOnce(new Error('HTTP 500'));
+  it('an explicit HTTP 401 drops the session cookie', async () => {
+    mockRequest.mockRejectedValueOnce(new ClientError({ status: 401, headers: new Headers() }, { query: 'query Me' }));
     const ev = event();
     expect(await rootLoad(ev)).toEqual({ user: null, sessionCleared: true });
     expect(ev.deleted).toEqual(['hadron_token']);
@@ -54,15 +54,15 @@ describe('root layout: a failed `me` leaves the shared locals alone (#1117)', ()
   });
 
   it('does not clear locals.token or locals.user for the loads still running', async () => {
-    mockRequest.mockRejectedValueOnce(new Error('HTTP 500'));
+    mockRequest.mockRejectedValueOnce(new ClientError({ status: 401, headers: new Headers() }, { query: 'query Me' }));
     const ev = event();
     await rootLoad(ev);
     expect(ev.locals.token).toBe('tok');
     expect(ev.locals.user).toEqual({ id: 'u1', roles: ['user'] });
   });
 
-  it('under impersonation, drops the impersonation cookie but not locals.impersonation', async () => {
-    mockRequest.mockRejectedValueOnce(new Error('HTTP 500'));
+  it('under impersonation, 401 drops the impersonation cookie but not locals.impersonation', async () => {
+    mockRequest.mockRejectedValueOnce(new ClientError({ status: 401, headers: new Headers() }, { query: 'query Me' }));
     const ev = event(true);
     await rootLoad(ev);
     expect(ev.deleted).toEqual(['hadron_impersonation']);
@@ -91,4 +91,47 @@ describe('no route loader or action writes the auth locals (#1117)', () => {
     }
     expect(writes).toEqual([]);
   });
+});
+
+
+describe('#1120: transient Me failures preserve credentials and answer 503', () => {
+  const upstream = (status: number, code?: string) => new ClientError(
+    { status, headers: new Headers(), ...(code ? { errors: [{ message: 'upstream detail', extensions: { code } }] } : {}) },
+    { query: 'query Me', variables: { privateValue: 'must-not-be-returned' } },
+  );
+
+  for (const impersonating of [false, true]) {
+    it.each([
+      ['HTTP 500', () => upstream(500)],
+      ['HTTP 502', () => upstream(502)],
+      ['network failure', () => new TypeError('fetch failed')],
+      ['internal GraphQL error', () => upstream(200, 'INTERNAL_SERVER_ERROR')],
+      ['unknown GraphQL error', () => upstream(200, 'UNKNOWN')],
+      ['permission refusal', () => upstream(403, 'FORBIDDEN')],
+      ['untyped auth-like message', () => new Error('UNAUTHENTICATED')],
+    ])('%s (impersonating=' + impersonating + ') retains cookies, then recovers', async (_label, failure) => {
+      const ev = event(impersonating);
+      const before = structuredClone(ev.locals);
+      mockRequest.mockRejectedValueOnce(failure());
+      await expect(rootLoad(ev)).rejects.toMatchObject({
+        status: 503,
+        body: { message: 'Unable to verify your sign-in. Please try again.' },
+      });
+      expect(ev.deleted).toEqual([]);
+      expect(ev.locals).toEqual(before);
+      const user = { id: 'u1' };
+      mockRequest.mockResolvedValueOnce({ me: user });
+      expect(await rootLoad(ev)).toEqual({ user });
+      expect(ev.deleted).toEqual([]);
+    });
+
+    it('typed UNAUTHENTICATED clears only the active cookie (impersonating=' + impersonating + ')', async () => {
+      const ev = event(impersonating);
+      const before = structuredClone(ev.locals);
+      mockRequest.mockRejectedValueOnce(upstream(200, 'UNAUTHENTICATED'));
+      expect(await rootLoad(ev)).toEqual({ user: null, sessionCleared: true });
+      expect(ev.deleted).toEqual([impersonating ? 'hadron_impersonation' : 'hadron_token']);
+      expect(ev.locals).toEqual(before);
+    });
+  }
 });
