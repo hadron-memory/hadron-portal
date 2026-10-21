@@ -58,11 +58,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // portal#1099 — `resolveUrn` doesn't resolve ticker URNs yet (hrn:node:hadronmemory.com:specs:cor:agt:080:01
   // lists that as partly built), but `ticker(ref:)` takes one and runs the
   // ticker's own read gate, answering null for a missing ticker and an
-  // unreachable one alike. So a ticker link resolves here, with the same
-  // no-oracle 404 and the same temporary redirect as every other kind.
+  // unreachable one alike — and null `app` when the reader can't read the
+  // App (#1209), which is the same ordinary not-found here. So a ticker link
+  // resolves here, with the same no-oracle 404 and the same temporary
+  // redirect as every other kind.
   if (urn.startsWith('hrn:ticker:')) {
     const ticker = await loadTicker(gqlClient(locals.token), urn);
-    if (!ticker) throw error(404, notFoundMessage(urn));
+    if (!ticker?.app) throw error(404, notFoundMessage(urn));
     redirect(307, withQuery(`/app/apps/${ticker.app.id}/tickers/${ticker.id}`, url.search));
   }
 
