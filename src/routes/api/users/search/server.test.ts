@@ -34,4 +34,19 @@ describe('/api/users/search (#1226)', () => {
     mockRequest.mockResolvedValueOnce({ users: { items: [row(1)] } });
     expect((await (await POST(ev({ query: 'smith' }))).json()).total).toBe(1);
   });
+
+  // portal#1169 / hadron-server#2179: the organizations the viewer shares with
+  // each found person ride along; null is "not shown", never "none".
+  it('asks for a bounded page of shared organizations per user and passes them through', async () => {
+    mockRequest.mockResolvedValueOnce({ users: { items: [
+      { ...row(1), sharedOrganizations: { items: [{ id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' }], total: 3 } },
+      { ...row(2), sharedOrganizations: { items: [], total: 0 } },
+      { ...row(3), sharedOrganizations: null },
+    ], total: 3 } });
+    const body = await (await POST(ev({ query: 'smith' }))).json();
+    expect(mockRequest.mock.calls[0][0]).toMatch(/sharedOrganizations\(limit: 5\)/);
+    expect(body.users[0].sharedOrganizations).toEqual({ items: [{ id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' }], total: 3 });
+    expect(body.users[1].sharedOrganizations).toEqual({ items: [], total: 0 });
+    expect(body.users[2].sharedOrganizations).toBeNull();
+  });
 });

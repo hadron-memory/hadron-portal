@@ -24,6 +24,7 @@ interface SearchUserRow {
   name: string | null;
   avatarUrl: string | null;
   email: string | null;
+  sharedOrganizations?: { items: { id: string; name: string; urn: string }[]; total: number } | null;
 }
 
 // "john.doe@example.com" → "j•••@example.com". Returns null when there's no
@@ -62,6 +63,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       githubUsername: u.githubUsername,
       avatarUrl: u.avatarUrl,
       emailMasked: maskEmail(u.email),
+      // null stays null ("not shown"); an absent field stays absent.
+      ...(u.sharedOrganizations === undefined ? {} : { sharedOrganizations: u.sharedOrganizations }),
     }));
     // `total` lets the picker say when the page is not the whole answer.
     return json({ users, total: data.users.total ?? users.length });

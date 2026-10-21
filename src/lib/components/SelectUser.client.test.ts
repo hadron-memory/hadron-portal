@@ -97,3 +97,38 @@ describe('SelectUser modal chrome (#1169)', () => {
     expect(overlay.className).toMatch(/bg-black\/\d+/);
   });
 });
+
+// portal#1169 / hadron-server#2179 — organizations in common with the found person.
+describe('SelectUser shared organizations (#1169)', () => {
+  const withOrgs = (id: string, sharedOrganizations: unknown) => ({ ...u(id), sharedOrganizations });
+  async function show(users: unknown[]) {
+    const m = open(async () => ({ users: users as never, truncated: false }));
+    await find(m, 'abc');
+  }
+
+  it('lists the shared organizations with their URNs', async () => {
+    await show([withOrgs('a', { items: [{ id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' }], total: 1 })]);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Acme');
+    expect(text.replace(/\s+/g, '')).toContain('hrn:org:acme.com');
+  });
+
+  it('says so when there are none in common, and distinguishes a withheld answer', async () => {
+    await show([withOrgs('a', { items: [], total: 0 }), withOrgs('b', null)]);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('No organizations in common');
+    expect(text).toContain('Not shown to you');
+  });
+
+  it('says how many more there are when the page is not the whole list', async () => {
+    await show([withOrgs('a', { items: [{ id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' }], total: 4 })]);
+    expect(document.body.textContent).toContain('and 3 more');
+  });
+
+  it('shows nothing about organizations when the server did not answer the field at all', async () => {
+    await show([u('a')]);
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('Not shown to you');
+    expect(text).not.toContain('in common');
+  });
+});

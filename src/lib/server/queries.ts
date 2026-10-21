@@ -1225,7 +1225,9 @@ export const USERS_QUERY = /* GraphQL */ `
 export const SEARCH_USERS_QUERY = /* GraphQL */ `
   query SearchUsers($query: String!, $limit: Int) {
     users(filter: { query: $query }, limit: $limit) {
-      items { id handle urn githubUsername name avatarUrl email }
+      # portal#1169 (hadron-server#2179): the orgs the viewer shares with each
+      # found person, a bounded page; null is 'not shown to you'.
+      items { id handle urn githubUsername name avatarUrl email sharedOrganizations(limit: 5) { items { id name urn } total } }
       total
     }
   }
