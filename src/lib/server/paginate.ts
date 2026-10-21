@@ -44,3 +44,55 @@ export async function fetchAllItems<T>(
     if (pageItems.length < PAGE_LIMIT || items.length >= (page.total ?? 0)) return items;
   }
 }
+
+/** Rows per `findNodes` request when draining; a chunk size, not a cap. */
+export const FIND_NODES_PAGE = 500;
+
+/** Backstop against a server that ignores `offset` and keeps returning the same page. */
+const FIND_NODES_MAX_PAGES = 200;
+
+/**
+ * Drain a `findNodes` browse to the end. `document` takes `$limit` and `$offset`.
+ *
+ * `findNodes` reports no `total` on the browse path, so the only honest end is
+ * an EMPTY page (cor:api:120:04) — never the first short one. Each memory is
+ * drained on its own: browse order is `loc` ascending, unique inside one memory
+ * but not across several, and a tie would move rows across a page boundary.
+ *
+ * Returns the `findNodes` envelope so a caller swaps only the request.
+ */
+export async function drainFindNodes<Hit extends { node: { id: string } }>(
+  client: GraphQLClient,
+  document: string,
+  variables: { memoryIds: string[] } & Record<string, unknown>,
+): Promise<{ findNodes: { hits: Hit[] } }> {
+  const { memoryIds, ...rest } = variables;
+  const hits: Hit[] = [];
+  const seen = new Set<string>();
+  for (const memoryId of memoryIds) {
+    for (let page = 0; ; page++) {
+      if (page >= FIND_NODES_MAX_PAGES) {
+        throw new Error(`drainFindNodes: memory ${memoryId} did not end after ${FIND_NODES_MAX_PAGES} pages`);
+      }
+      const data = await client.request<{ findNodes?: { hits?: Hit[] } }>(document, {
+        ...rest,
+        memoryIds: [memoryId],
+        limit: FIND_NODES_PAGE,
+        offset: page * FIND_NODES_PAGE,
+      });
+      const pageHits = data.findNodes?.hits ?? [];
+      if (pageHits.length === 0) break;
+      let added = 0;
+      for (const h of pageHits) {
+        if (seen.has(h.node.id)) continue;
+        seen.add(h.node.id);
+        hits.push(h);
+        added++;
+      }
+      // A page of nothing new means the server is not advancing (it ignored
+      // `offset`); stop rather than spin to the page backstop.
+      if (added === 0) break;
+    }
+  }
+  return { findNodes: { hits } };
+}

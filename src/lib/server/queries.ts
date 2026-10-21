@@ -2531,8 +2531,8 @@ export const NODE_FIELDS = /* GraphQL */ `
 // nodes once total nodes exceeded the limit.
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query GraphNodes($limit: Int, $memoryIds: [ID!]) {
-    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
+  query GraphNodes($limit: Int, $offset: Int, $memoryIds: [ID!]) {
+    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit, offset: $offset) {
       hits {
         node {
           ...NodeFields

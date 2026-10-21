@@ -19,6 +19,7 @@ import {
 } from '$lib/server/agent-tester/fixture-codec';
 import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
 import type { RequestHandler } from './$types';
+import { drainFindNodes } from '$lib/server/paginate';
 
 /**
  * /api/agent-chat/fixtures
@@ -57,9 +58,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   // Scope to the agent's system memory. findNodes hides class:'system' memories
   // on a broad (no-memoryIds) call, so naming the system memory is what makes
   // its fixture nodes visible (and it also overrides the exclusion).
-  const result = await client.request<{ findNodes: { hits: Array<{ node: {
+  const result = await drainFindNodes<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [resolved.systemMemoryId] });
+  } }>(client, GRAPH_NODES_QUERY, { memoryIds: [resolved.systemMemoryId] });
 
   const fixtures: FixtureSummary[] = [];
   for (const h of result.findNodes?.hits ?? []) {

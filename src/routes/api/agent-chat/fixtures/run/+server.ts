@@ -22,6 +22,7 @@ import { describeRegexFailure, type Verdict } from '$lib/server/agent-tester/ver
 import { testRegexSafely } from '$lib/server/safe-regex';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
+import { drainFindNodes } from '$lib/server/paginate';
 
 /**
  * POST /api/agent-chat/fixtures/run
@@ -202,9 +203,9 @@ async function loadFixtures(
   // Scope to the agent's system memory — findNodes hides class:'system'
   // memories on a broad (no-memoryIds) call, so naming it is what surfaces the
   // fixture nodes (and overrides the exclusion).
-  const result = await client.request<{ findNodes: { hits: Array<{ node: {
+  const result = await drainFindNodes<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] });
+  } }>(client, GRAPH_NODES_QUERY, { memoryIds: [systemMemoryId] });
   const out: LoadedFixture[] = [];
   for (const h of result.findNodes?.hits ?? []) {
     const n = h.node;

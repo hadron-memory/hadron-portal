@@ -10,6 +10,7 @@ import {
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
 import { resolveTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import type { PageServerLoad } from './$types';
+import { drainFindNodes } from '$lib/server/paginate';
 
 // Spec 019 — Agent Chat Tester. Organization agents come from the caller's
 // organizations; user-owned agents come from the server's ownedByMe scope.
@@ -38,9 +39,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     // memories on a broad (no-memoryIds) call, so we MUST name the system
     // memory to see its fixture nodes — naming it also overrides the
     // exclusion (hrn:node:hadronmemory.com:specs:cor:api:090:02).
-    const nodesResult = await client.request<{ findNodes: { hits: Array<{ node: {
+    const nodesResult = await drainFindNodes<{ node: {
       id: string; loc: string; memoryId: string; data: unknown;
-    } }> } }>(GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] }).catch(() => null);
+    } }>(client, GRAPH_NODES_QUERY, { memoryIds: [systemMemoryId] }).catch(() => null);
     if (nodesResult) {
       for (const h of nodesResult.findNodes?.hits ?? []) {
         const n = h.node;

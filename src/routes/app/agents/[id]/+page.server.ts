@@ -6,7 +6,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
+import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
@@ -124,8 +124,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement] = await Promise.all([
     allMemoryIds.length > 0
-      ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
-          GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
+      ? drainFindNodes<{ node: MemoryNode }>(
+          client, GRAPH_NODES_QUERY, { memoryIds: allMemoryIds },
         ).catch(() => null)
       : Promise.resolve(null),
     // Org system memories feed the system-memory picker — org-only; a user-owned

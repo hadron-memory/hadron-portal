@@ -18,7 +18,8 @@ const mockFetchAllItems = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
 }));
-vi.mock('$lib/server/paginate', () => ({
+vi.mock('$lib/server/paginate', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/server/paginate')>()),
   fetchAllItems: mockFetchAllItems,
 }));
 vi.mock('$lib/server/guards', () => ({
