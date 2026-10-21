@@ -139,6 +139,7 @@ describe('GET /api/agent-chat/fixtures', () => {
     const body = await res.json();
     expect(body.fixtures).toHaveLength(1);
     expect(body.fixtures[0].label).toBe('one');
+    expect(mockRequest).toHaveBeenCalledWith(GRAPH_NODES_QUERY, { limit: 500, memoryIds: ['sys-mem-a'], nodeType: 'system' });
     expect(body.fixtures[0].assertionMode).toBeNull();
   });
 

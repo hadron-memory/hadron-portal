@@ -166,6 +166,7 @@ describe('POST /api/agent-chat/fixtures/run', () => {
     const res = await POST(ev({ body: { agentId: 'agent-personal', fixtureLoc: 'fixtures:abc' } }));
     expect(res.status).toBe(200);
     expect((await res.json()).summary.totalRuns).toBe(1);
+    expect(mockRequest).toHaveBeenCalledWith(GRAPH_NODES_QUERY, { limit: 500, memoryIds: ['sys-mem-a'], nodeType: 'system' });
     expect(mockRequest).toHaveBeenCalledWith(START_CHAT_MUTATION, expect.objectContaining({ agentId: 'agent-personal' }));
   });
 
