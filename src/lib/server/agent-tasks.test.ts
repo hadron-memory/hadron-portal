@@ -5,8 +5,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQLClient } from 'graphql-request';
-import { AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
-import { ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadOpenTaskTitles, loadRoster, loadTree } from './agent-tasks';
+import { APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadOpenTaskTitles, loadRoster, loadTree } from './agent-tasks';
 
 const request = vi.fn();
 const client = { request } as unknown as GraphQLClient;
@@ -130,5 +130,39 @@ describe('slice 2: roster, titles and alarms', () => {
     const capped = await loadAlarms(client, 'app-1');
     expect(capped).toMatchObject({ kind: 'ok', value: { capped: true } });
     expect(capped.kind === 'ok' && capped.value.alarms).toHaveLength(ALARMS_LIMIT);
+  });
+});
+
+// portal#1148 (hadron-server#2089): the picker's People are options, not a claim, but a null
+// roster (WITHHELD from this viewer) must read as unknown, not as "no members".
+describe('loadWriteCandidates: withheld members', () => {
+  const route = (people: unknown) => request.mockImplementation(async (doc: string) => {
+    if (doc === APP_PEOPLE_QUERY) return people instanceof Error ? Promise.reject(people) : { app: people };
+    return { teamRoster: { asOf: 'x', workers: [] } };
+  });
+  it('members: null is peopleWithheld, not an empty roster', async () => {
+    route({ id: 'app-1', members: null });
+    expect(await loadWriteCandidates(client, 'app-1')).toMatchObject({ people: [], peopleWithheld: true });
+  });
+  it('known-empty control: members: [] is not withheld', async () => {
+    route({ id: 'app-1', members: [] });
+    expect(await loadWriteCandidates(client, 'app-1')).toMatchObject({ people: [], peopleWithheld: false });
+  });
+  it('members are listed, users without a record dropped', async () => {
+    route({ id: 'app-1', members: [{ user: { id: 'u1', handle: 'a', name: 'A' } }, { user: null }] });
+    expect(await loadWriteCandidates(client, 'app-1')).toMatchObject({ people: [{ id: 'u1', handle: 'a', name: 'A' }], peopleWithheld: false });
+  });
+  it('a failed read is its own state: not withheld, and NOT the same payload as a real empty roster', async () => {
+    route(new Error('down'));
+    const failed = await loadWriteCandidates(client, 'app-1');
+    expect(failed).toMatchObject({ people: [], peopleWithheld: false, peopleFailed: true });
+    route({ id: 'app-1', members: [] });
+    const empty = await loadWriteCandidates(client, 'app-1');
+    expect(empty).toMatchObject({ people: [], peopleWithheld: false, peopleFailed: false });
+    expect(failed).not.toEqual(empty);
+  });
+  it('a GraphQL error (not just a transport error) is failed too', async () => {
+    route(Object.assign(new Error('x'), { response: { errors: [{ message: 'x', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } }));
+    expect(await loadWriteCandidates(client, 'app-1')).toMatchObject({ peopleFailed: true });
   });
 });
