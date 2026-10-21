@@ -40,7 +40,7 @@ async function rootLoad(ev: ReturnType<typeof event>) {
 
 describe('root layout: a failed `me` leaves the shared locals alone (#1117)', () => {
   it('an explicit HTTP 401 drops the session cookie', async () => {
-    mockRequest.mockRejectedValueOnce(new ClientError({ status: 401, headers: new Headers() }, { query: 'query Me' }));
+    mockRequest.mockRejectedValueOnce(new ClientError({ status: 401, headers: new Headers(), body: undefined }, { query: 'query Me' }));
     const ev = event();
     expect(await rootLoad(ev)).toEqual({ user: null, sessionCleared: true });
     expect(ev.deleted).toEqual(['hadron_token']);
@@ -54,7 +54,7 @@ describe('root layout: a failed `me` leaves the shared locals alone (#1117)', ()
   });
 
   it('does not clear locals.token or locals.user for the loads still running', async () => {
-    mockRequest.mockRejectedValueOnce(new ClientError({ status: 401, headers: new Headers() }, { query: 'query Me' }));
+    mockRequest.mockRejectedValueOnce(new ClientError({ status: 401, headers: new Headers(), body: undefined }, { query: 'query Me' }));
     const ev = event();
     await rootLoad(ev);
     expect(ev.locals.token).toBe('tok');
@@ -62,7 +62,7 @@ describe('root layout: a failed `me` leaves the shared locals alone (#1117)', ()
   });
 
   it('under impersonation, 401 drops the impersonation cookie but not locals.impersonation', async () => {
-    mockRequest.mockRejectedValueOnce(new ClientError({ status: 401, headers: new Headers() }, { query: 'query Me' }));
+    mockRequest.mockRejectedValueOnce(new ClientError({ status: 401, headers: new Headers(), body: undefined }, { query: 'query Me' }));
     const ev = event(true);
     await rootLoad(ev);
     expect(ev.deleted).toEqual(['hadron_impersonation']);
@@ -96,7 +96,7 @@ describe('no route loader or action writes the auth locals (#1117)', () => {
 
 describe('#1120: transient Me failures preserve credentials and answer 503', () => {
   const upstream = (status: number, code?: string) => new ClientError(
-    { status, headers: new Headers(), ...(code ? { errors: [{ message: 'upstream detail', extensions: { code } }] } : {}) },
+    { status, headers: new Headers(), body: undefined, ...(code ? { errors: [{ message: 'upstream detail', extensions: { code } }] } : {}) },
     { query: 'query Me', variables: { privateValue: 'must-not-be-returned' } },
   );
 
