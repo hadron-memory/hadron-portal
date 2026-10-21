@@ -579,3 +579,57 @@ describe('hrn:ticker: URNs (portal#1099)', () => {
     expect(mockRequest).not.toHaveBeenCalledWith(RESOLVE_URN_QUERY, expect.anything());
   });
 });
+
+// #1213: provider refusals must use the same mapping for ticker deep links.
+describe('ticker URN provider-error mapping (#1213)', () => {
+  const urn = 'hrn:ticker:acme.com:team:engineering';
+  function rejection(code?: string) {
+    return new ClientError({
+      status: 200,
+      errors: [{ message: 'provider detail must not become the page message', extensions: code ? { code } : {} }],
+    } as unknown as ClientError['response'], { query: 'query', variables: {} });
+  }
+
+  it.each(['BAD_USER_INPUT', 'GRAPHQL_VALIDATION_FAILED'])('maps %s to input 400', async (code) => {
+    mockRequest.mockRejectedValueOnce(rejection(code));
+    const load = await importLoad();
+    await expect(load(ev(urn))).rejects.toMatchObject({ status: 400, body: { message: expect.stringContaining('is not a valid Hadron URN') } });
+  });
+
+  it.each(['UNAUTHENTICATED', 'SESSION_EXPIRED'])('maps %s to signin with the whole deep link', async (code) => {
+    mockRequest.mockRejectedValueOnce(rejection(code));
+    const load = await importLoad();
+    await expect(load(ev(urn, '?after=s1&tab=subscribers'))).rejects.toMatchObject({
+      status: 303,
+      location: `/signin?redirect=${encodeURIComponent(`/app/u/${urn}?after=s1&tab=subscribers`)}`,
+    });
+  });
+
+  it.each(['NOT_FOUND', 'NODE_NOT_FOUND', 'FORBIDDEN', 'PERMISSION_DENIED'])('maps %s identically to a null ticker or withheld App', async (code) => {
+    const load = await importLoad();
+    mockRequest.mockResolvedValueOnce({ ticker: null });
+    const absent = await expectError(urn) as { status: number; body: { message: string } };
+    mockRequest.mockResolvedValueOnce({ ticker: { id: 'tk-1', app: null } });
+    await expect(load(ev(urn))).rejects.toMatchObject({ status: absent.status, body: absent.body });
+    mockRequest.mockRejectedValueOnce(rejection(code));
+    await expect(load(ev(urn))).rejects.toMatchObject({ status: absent.status, body: absent.body });
+  });
+
+  it.each(['INTERNAL_SERVER_ERROR', 'UNRECOGNIZED', undefined])('preserves unknown/internal code %s', async (code) => {
+    const failure = rejection(code);
+    mockRequest.mockRejectedValueOnce(failure);
+    const load = await importLoad();
+    await expect(load(ev(urn))).rejects.toBe(failure);
+  });
+
+  it('preserves payload-less transport and non-GraphQL failures', async () => {
+    const load = await importLoad();
+    for (const failure of [
+      new ClientError({ status: 502 } as ClientError['response'], { query: 'query', variables: {} }),
+      new Error('synthetic transport failure'),
+    ]) {
+      mockRequest.mockRejectedValueOnce(failure);
+      await expect(load(ev(urn))).rejects.toBe(failure);
+    }
+  });
+});
