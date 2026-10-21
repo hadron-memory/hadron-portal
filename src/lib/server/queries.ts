@@ -583,10 +583,24 @@ export const APP_ORG_AGENTS_QUERY = /* GraphQL */ `
         name
         urn
       }
-      # #1172: the Agents the org SUBSCRIBES to are AgentOrgGrant rows, not
-      # members of agents, and installAgentIntoApp accepts them. The resolver is
-      # org-admin gated and answers [] (not a refusal) to anyone else, so this
-      # cannot cost the picker its owned agents; a non-admin simply sees none.
+    }
+  }
+`;
+
+/**
+ * #1172: the Agents an org SUBSCRIBES to are AgentOrgGrant rows, not members of
+ * `agents`, and installAgentIntoApp accepts them. A request of its OWN, not a
+ * field on APP_ORG_AGENTS_QUERY: `agentOrgGrants` is a non-null list, so folded
+ * into that document a failure of this resolver would null `organization` and
+ * empty the legal owned-agent picker too (portal#1188 review). Asked
+ * separately, a failure costs only the subscribed agents. The resolver is
+ * org-admin gated and has answered [] to a non-platform-admin owner/admin
+ * (hadron-server#2186); that is not a refusal and not handled here.
+ */
+export const APP_ORG_AGENT_GRANTS_QUERY = /* GraphQL */ `
+  query AppOrgAgentGrants($ref: ID!) {
+    organization(ref: $ref) {
+      id
       agentOrgGrants {
         isActive
         revokedAt

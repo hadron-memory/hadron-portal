@@ -15,6 +15,7 @@ import { t } from '$lib/i18n/t';
 import {
   APP_DETAIL_ORG_QUERY,
   APP_ORG_AGENTS_QUERY,
+  APP_ORG_AGENT_GRANTS_QUERY,
   APP_QUERY,
   APP_MEMBERS_QUERY,
   SELF_CAN_MANAGE_QUERY,
@@ -539,6 +540,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   let org: AppOrg | null = null;
   let availableAgents: InstallableAgent[] = [];
   let availableAgentsError = false;
+  let subscribedAgentsError = false;
   if (app.organizationId) {
     // #851: `loadOrgDetail` rather than a bare `.catch(() => ({ organization:
     // null }))`. That catch took no argument, so nothing was classified: a
@@ -563,20 +565,37 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     );
     // #1006: the Agents tab's install picker, asked for on its own so a refusal
     // cannot null the org (see APP_ORG_AGENTS_QUERY).
-    const pool = await withTimeout(
-      client
-        .request<{ organization: OrgAgentPool | null }>(APP_ORG_AGENTS_QUERY, {
-          ref: app.organizationId,
-        })
-        .then((r) => (r.organization ? mergeInstallableAgents(r.organization) : null)),
-      OPTIONAL_LIST_TIMEOUT_MS,
-      null,
-    ).catch((e) => {
-      console.warn(`[app-agents] installable agents fetch failed for ${params.appId}:`, e);
-      return null;
-    });
-    availableAgents = pool ?? [];
-    availableAgentsError = pool === null;
+    // #1172: the subscribed agents are a request of their own, so a failure of
+    // that resolver costs only them and never the owned picker (portal#1188).
+    const [owned, grants] = await Promise.all([
+      withTimeout(
+        client
+          .request<{ organization: { agents: InstallableAgent[] } | null }>(APP_ORG_AGENTS_QUERY, {
+            ref: app.organizationId,
+          })
+          .then((r) => r.organization?.agents ?? null),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch((e) => {
+        console.warn(`[app-agents] installable agents fetch failed for ${params.appId}:`, e);
+        return null;
+      }),
+      withTimeout(
+        client
+          .request<{ organization: Pick<OrgAgentPool, 'agentOrgGrants'> | null }>(APP_ORG_AGENT_GRANTS_QUERY, {
+            ref: app.organizationId,
+          })
+          .then((r) => r.organization?.agentOrgGrants ?? null),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch((e) => {
+        console.warn(`[app-agents] subscribed agents fetch failed for ${params.appId}:`, e);
+        return null;
+      }),
+    ]);
+    availableAgents = owned ? mergeInstallableAgents({ agents: owned, agentOrgGrants: grants ?? [] }) : [];
+    availableAgentsError = owned === null;
+    subscribedAgentsError = owned !== null && grants === null;
   } else {
     const [mine, publicAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
@@ -825,6 +844,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     org,
     availableAgents,
     availableAgentsError,
+    subscribedAgentsError,
     appNodes: nodesData.appNodes,
     chatConfigs,
     appConfigs: configsData ?? [],
