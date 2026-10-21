@@ -114,7 +114,7 @@
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onclick={() => close()}>
+  <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-3 pt-[10vh]" onclick={() => close()}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
@@ -126,6 +126,16 @@
       onclick={(e) => e.stopPropagation()}
       style="max-height: 70vh;"
     >
+      <!-- #1169: a visible way out, not only Esc and the backdrop. -->
+      <div class="flex items-center justify-between px-4 pt-3">
+        <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">Find a user</h2>
+        <button
+          type="button"
+          onclick={() => close()}
+          class="rounded-md px-2 py-1 text-sm text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >Close</button>
+      </div>
+
       <!-- Header: search + Find. Submitting (Enter or the button) runs the search. -->
       <form
         class="flex gap-2 border-b border-zinc-200 p-4 dark:border-zinc-700"
