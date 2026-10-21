@@ -31,6 +31,7 @@
     columnsLoading = 0,
     columnsFailed = 0,
     onretrycolumns,
+    onvisiblenodes,
   }: {
     nodes: MemoryNode[];
     basePath?: string;
@@ -64,6 +65,12 @@
     /** How many nodes' columns could not be read. */
     columnsFailed?: number;
     onretrycolumns?: () => void;
+    /**
+     * portal#1174: the ids of the rows on screen now (the current page after
+     * sort, filter and paging), so the owner reads the extra columns for those
+     * rows only and never for the whole memory.
+     */
+    onvisiblenodes?: (ids: string[]) => void;
   } = $props();
 
   // A row as the table sees it: the node plus its lazily-read columns. The
@@ -134,6 +141,13 @@
     ].join(' ');
   }
 
+  // portal#1174: these columns are read for the displayed page only, so a sort
+  // or a text filter over them would be over the pages that happen to have
+  // loaded, not over the memory, and must not pretend otherwise. The server
+  // filters (approval, minted) and sorts (updatedAt) stay the whole-memory way
+  // to ask those questions.
+  const PAGE_ONLY = { enableSorting: false, enableGlobalFilter: false } as const;
+
   const columns: PortalColumnDef<Row>[] = [
     {
       // portal#1015: a comment hit's row also renders its author and target, so
@@ -149,13 +163,13 @@
     { accessorFn: (n) => n.description ?? '', id: 'description', header: 'Description', size: 400 },
     ...(untrack(() => showColumns)
       ? ([
-          { accessorFn: (n) => n.__cols?.role ?? '', id: 'role', header: t('node-list.col.role', 'Role'), size: 140 },
+          { ...PAGE_ONLY, accessorFn: (n) => n.__cols?.role ?? '', id: 'role', header: t('node-list.col.role', 'Role'), size: 140 },
           // Sorts by instant, not by the wire string (review:date-column-sorts-by-instant).
-          { accessorFn: (n) => instantMs(n.__cols?.updatedAt), id: 'updatedAt', header: t('node-list.col.last-changed', 'Last changed'), size: 180 },
-          { accessorFn: (n) => changedByView(n.__cols).searchText, id: 'changedBy', header: t('node-list.col.changed-by', 'Changed by'), size: 220 },
-          { accessorFn: (n) => n.__cols?.revision ?? null, id: 'revision', header: t('node-list.col.revision', 'Revision'), size: 100 },
-          { accessorFn: (n) => approvedCellText(n.__cols), id: 'approved', header: t('node-list.col.approved', 'Approved'), size: 200 },
-          { accessorFn: (n) => signedCellText(n.__cols), id: 'signed', header: t('node-list.col.signed', 'Signed'), size: 180 },
+          { ...PAGE_ONLY, accessorFn: (n) => instantMs(n.__cols?.updatedAt), id: 'updatedAt', header: t('node-list.col.last-changed', 'Last changed'), size: 180 },
+          { ...PAGE_ONLY, accessorFn: (n) => changedByView(n.__cols).searchText, id: 'changedBy', header: t('node-list.col.changed-by', 'Changed by'), size: 220 },
+          { ...PAGE_ONLY, accessorFn: (n) => n.__cols?.revision ?? null, id: 'revision', header: t('node-list.col.revision', 'Revision'), size: 100 },
+          { ...PAGE_ONLY, accessorFn: (n) => approvedCellText(n.__cols), id: 'approved', header: t('node-list.col.approved', 'Approved'), size: 200 },
+          { ...PAGE_ONLY, accessorFn: (n) => signedCellText(n.__cols), id: 'signed', header: t('node-list.col.signed', 'Signed'), size: 180 },
         ] as PortalColumnDef<Row>[])
       : []),
   ];
@@ -214,6 +228,15 @@
   const displayRows = $derived(
     orderable ? table.getPrePaginatedRowModel().rows : table.getRowModel().rows,
   );
+  // portal#1174: tell the owner which rows are on screen so it reads their
+  // extra columns, and only theirs. Reads displayRows alone; the owner's
+  // `ensure` skips ids it already asked about, so a late-arriving column that
+  // rebuilds the rows does not ask again.
+  $effect(() => {
+    if (!showColumns || !onvisiblenodes) return;
+    const ids = displayRows.map((r) => r.original.id);
+    untrack(() => onvisiblenodes(ids));
+  });
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
   const pageIndex = $derived(table.atoms.pagination.get().pageIndex);
   const pageCount = $derived(table.getPageCount());

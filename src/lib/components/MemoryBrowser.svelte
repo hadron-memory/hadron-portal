@@ -339,7 +339,7 @@
 
   // portal#1174: the Nodes tab's Role / Last changed / Changed by / Revision /
   // Approved / Signed columns. They are not on the slim rows the layout loads,
-  // so they are read here, lazily and in batches, for the nodes the list shows
+  // so they are read here, lazily, for the rows on the DISPLAYED page only
   // (hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers).
   const nodeColumns = createNodeColumns(async (refs) => {
     const res = await fetch('/api/nodes/columns', {
@@ -810,15 +810,6 @@
   );
   // Retained name: NodeList and the search-rescue count below read this.
   const searchedNodes = $derived(visibleNodes);
-
-  // portal#1174: read the extra columns for whatever the list shows, only while
-  // the Nodes list is on screen. `ensure` skips ids it has already asked about,
-  // so a search or filter that changes the list asks for the new rows only.
-  $effect(() => {
-    if (activeView !== 'nodes') return;
-    const ids = searchedNodes.map((n) => n.id);
-    untrack(() => { void nodeColumns.ensure(ids); });
-  });
 
   // #372: a server search matches across ALL node types, but the hidden-types
   // filter then drops record/system matches — so a query that only hit record
@@ -1537,7 +1528,7 @@
                redundant second field. -->
           <NodeList
             nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta}
-            showColumns columnData={nodeColumns.rows} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
+            showColumns onvisiblenodes={(ids) => void nodeColumns.ensure(ids)} columnData={nodeColumns.rows} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
           />
         </div>
       {/if}

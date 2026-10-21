@@ -61,14 +61,41 @@ describe('Nodes tab extra columns (#1174)', () => {
     expect(target.textContent).toContain('Gil');
   });
 
-  it('splits a large list at the server cap of 200', async () => {
+  it('reads only the displayed page of a large list, never the whole memory', async () => {
     const many = Array.from({ length: 450 }, (_, i) => mk(i));
     mountBrowser(many);
-    await vi.waitFor(() => expect(columnBodies).toHaveLength(3));
-    expect(columnBodies.map((b) => b.refs.length)).toEqual([200, 200, 50]);
+    await settle();
+    expect(columnBodies).toHaveLength(1);
+    expect(columnBodies[0].refs).toHaveLength(25);
+    expect(columnBodies[0].refs[0]).toBe('n0');
+    expect(columnBodies.flatMap((b) => b.refs)).not.toContain('n300');
   });
 
-  it('asks again only for nodes it has not asked about', async () => {
+  it('asks for the next page only when the reader pages to it', async () => {
+    const many = Array.from({ length: 60 }, (_, i) => mk(i));
+    const { target } = mountBrowser(many);
+    await settle();
+    expect(columnBodies).toHaveLength(1);
+    const next = [...target.querySelectorAll<HTMLButtonElement>('button')].find((b) => /next/i.test(b.textContent ?? ''))!;
+    next.click();
+    await settle();
+    expect(columnBodies).toHaveLength(2);
+    expect(columnBodies[1].refs[0]).toBe('n25');
+    expect(columnBodies[1].refs).toHaveLength(25);
+  });
+
+  it('never claims a whole-memory sort over columns that only the page has: they are not sortable', async () => {
+    const { target } = mountBrowser();
+    await settle();
+    const headers = [...target.querySelectorAll<HTMLElement>('thead th')];
+    for (const name of ['Role', 'Last changed', 'Changed by', 'Revision', 'Approved', 'Signed']) {
+      const th = headers.find((h) => h.textContent?.includes(name));
+      expect(th, name).toBeDefined();
+      expect(th!.className).not.toContain('cursor-pointer');
+    }
+  });
+
+  it('asks again only for rows it has not asked about', async () => {
     const { props } = mountBrowser();
     await settle();
     props.nodes = [...NODES, mk(3)];
