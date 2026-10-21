@@ -164,7 +164,7 @@
     ...(untrack(() => showColumns)
       ? ([
           { ...PAGE_ONLY, accessorFn: (n) => n.__cols?.role ?? '', id: 'role', header: t('node-list.col.role', 'Role'), size: 140 },
-          // Sorts by instant, not by the wire string (review:date-column-sorts-by-instant).
+          // Sorts by instant, not by the wire string (hrn:node:hadronmemory.com:hadron-portal:review:date-column-sorts-by-instant).
           { ...PAGE_ONLY, accessorFn: (n) => instantMs(n.__cols?.updatedAt), id: 'updatedAt', header: t('node-list.col.last-changed', 'Last changed'), size: 180 },
           { ...PAGE_ONLY, accessorFn: (n) => changedByView(n.__cols).searchText, id: 'changedBy', header: t('node-list.col.changed-by', 'Changed by'), size: 220 },
           { ...PAGE_ONLY, accessorFn: (n) => n.__cols?.revision ?? null, id: 'revision', header: t('node-list.col.revision', 'Revision'), size: 100 },
