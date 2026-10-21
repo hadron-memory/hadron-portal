@@ -28,6 +28,7 @@
     nodesTotal = null,
     basePath = '',
     multiMemory = false,
+    readOnly = false,
     writableMemoryIds = [],
     scopeMemoryIds = [],
     forcedView,
@@ -44,6 +45,8 @@
     nodesTotal?: number | null;
     basePath?: string;
     multiMemory?: boolean;
+    /** Single-memory pages carry the server write decision (#646). */
+    readOnly?: boolean;
     writableMemoryIds?: string[];
     /**
      * #433: the page's full memory scope, independent of which nodes loaded.
@@ -881,8 +884,8 @@
       idToMemory[n.id] = n.memory?.name ?? n.memory?.urn ?? '';
       locToType[n.loc] = n.nodeType ?? 'info';
       locToMemory[n.loc] = n.memory?.name ?? n.memory?.urn ?? '';
-      if (writableSet.size > 0) {
-        idToReadOnly[n.id] = !writableSet.has(n.memoryId);
+      if (readOnly || writableSet.size > 0) {
+        idToReadOnly[n.id] = readOnly || !writableSet.has(n.memoryId);
       }
     }
 

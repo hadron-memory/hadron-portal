@@ -22,6 +22,7 @@
 
   // ── #520: memory actions menu (⋯), mirroring the node-detail page ─────────
   const g = $derived(data.graph);
+  const readOnly = $derived(data.canWriteMemory !== true);
   // canDelete mirrors the Settings danger-zone gate (spec 013/034): owner-only
   // classes → the owner; other classes → an org ADMIN/OWNER; agent-system
   // memories are excluded (delete goes through the owning agent). The server
@@ -46,7 +47,7 @@
     // #992 slice C: the server refuses encrypted memories outright.
     ...(g.class !== 'system' && !g.isEncrypted ? [{ id: 'mint', label: t('memory-actions.mint', 'Mint nodes') }] : []),
     ...(canDelete ? [{ id: 'delete', label: t('memory-actions.delete', 'Delete memory'), danger: true }] : []),
-  ]);
+  ].filter((action) => !readOnly || action.id === 'clone'));
 
   // Clone dialog — mirrors the node Move dialog: a full target memory URN the
   // user can edit, with a "Select org" button that rewrites the org segment.
@@ -315,6 +316,10 @@
   <ApproveAllDialog memory={{ id: g.id, urn: g.urn }} bind:open={approveAllOpen} onapproved={() => approvalsVersion++} />
   <MintDialog memory={{ id: g.id, urn: g.urn }} bind:open={mintOpen} onminted={() => approvalsVersion++} />
 
+  {#if readOnly}
+    <p role="status" class="mb-4 text-sm text-zinc-500">{t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.')}</p>
+  {/if}
+
   <!-- Nodes/Graph share one MemoryBrowser rendered HERE (in the persistent
        layout) so its tree width, open/closed, search, and filters survive
        switching between the two tabs (the page components would remount). The
@@ -327,7 +332,7 @@
     {/if}
     <!-- #589: memory drives the structured-query UI (schema pickers +
          encrypted-data annotation). -->
-    <MemoryBrowser nodes={data.graphNodes ?? []} nodesTotal={data.nodesTotal} {basePath} forcedView={activeTab} memory={data.graph} refreshKey={approvalsVersion} />
+    <MemoryBrowser {readOnly} nodes={data.graphNodes ?? []} nodesTotal={data.nodesTotal} {basePath} forcedView={activeTab} memory={data.graph} refreshKey={approvalsVersion} />
   {/if}
   {@render children()}
 </div>

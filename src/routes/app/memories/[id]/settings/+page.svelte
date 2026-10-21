@@ -480,7 +480,7 @@
 
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
-<div class="space-y-8">
+<fieldset disabled={data.canWriteMemory === false} class="space-y-8">
   {#if settingsActionSuccess && !isEditing}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{settingsActionSuccess}</div>
   {/if}
@@ -1139,4 +1139,4 @@
       {/if}
     </section>
   {/if}
-</div>
+</fieldset>

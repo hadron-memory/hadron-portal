@@ -32,6 +32,7 @@ const NODE = {
   outgoingEdges: [], incomingEdges: [],
 };
 const PARENT = {
+  canWriteMemory: true,
   graph: { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a', name: 'Mem A', class: 'org', isEncrypted: false, schema: null },
   graphNodes: [{ id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'Foo', nodeType: 'info', tags: [] }],
   isConsumerMode: false,
@@ -188,5 +189,31 @@ describe('Properties tab (#1031)', () => {
     flushSync();
 
     expect(submittedBag(target)).toEqual({ color: 'green' });
+  });
+});
+
+
+describe('reader memory editors (#646)', () => {
+  it('disables storage and source saves while retaining source and tab navigation', async () => {
+    const { target, props } = await mountPage();
+    flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: false }; });
+    await tick();
+    expect(storageForm(target)!.closest('fieldset')!.disabled).toBe(true);
+    expect(target.textContent).toContain('Read only');
+    buttonNamed(target, 'Source')!.click();
+    flushSync();
+    const source = target.querySelector<HTMLTextAreaElement>('textarea#node-properties-source');
+    const textareas = [...target.querySelectorAll<HTMLTextAreaElement>('textarea')];
+    expect(source ?? textareas.find(t => t.readOnly)).toBeTruthy();
+    expect(buttonNamed(target, 'Save')?.disabled).toBe(true);
+    tabNamed(target, 'Content')!.click();
+    flushSync();
+    buttonNamed(target, 'Source')!.click();
+    flushSync();
+    expect([...target.querySelectorAll<HTMLTextAreaElement>('textarea')].some(t => t.readOnly && t.value === 'body')).toBe(true);
+    // Restore the server write decision without replacing the page.
+    flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: true }; });
+    await tick();
+    expect(storageForm(target)!.closest('fieldset')!.disabled).toBe(false);
   });
 });

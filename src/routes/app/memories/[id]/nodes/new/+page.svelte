@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n/t';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
@@ -96,6 +97,7 @@
   // button is held disabled (and we're not mid-submit, where the spinner speaks
   // for itself), surface the first unmet requirement next to it.
   const submitDisabledReason = $derived.by(() => {
+    if (data.canWriteMemory === false) return t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.');
     if (!$formData.name.trim()) return createNodeStrings.disabledReasonName();
     if (!$formData.loc.trim()) return createNodeStrings.disabledReasonLoc();
     if (propertiesBlockSubmit) return createNodeStrings.disabledReasonProperties();
@@ -169,6 +171,7 @@
     </div>
   {/if}
 
+  <fieldset disabled={data.canWriteMemory === false}>
   <form method="POST" use:enhance class="space-y-4" novalidate>
     <div>
       <label for="name" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">
@@ -352,4 +355,5 @@
       </button>
     </div>
   </form>
+  </fieldset>
 </div>

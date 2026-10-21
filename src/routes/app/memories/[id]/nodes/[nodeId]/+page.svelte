@@ -143,6 +143,7 @@
   let showSource = $state(false);
   let confirmDelete = $state(false);
   let copied = $state(false);
+  const readOnly = $derived(data.canWriteMemory === false);
   let isEditing = $state(false);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
@@ -1051,7 +1052,7 @@
     ...(!node.isRunnable ? [{ id: 'convert-to-task', label: t('node-actions.convert-to-task', 'Convert to task') }] : []),
     ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
     { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
-  ]);
+  ].filter((action) => !readOnly || ['open-chat', 'download', 'export-skill'].includes(action.id)));
 
   let duplicateForm = $state<HTMLFormElement | null>(null);
   let convertForm = $state<HTMLFormElement | null>(null);
@@ -2136,7 +2137,7 @@
         {#if approvalState}
           {#if mintState}<NodeMintLabel view={mintState} />{/if}
           <NodeApprovalBadge view={approvalState} currentRevision={node.revision} />
-          {#if approvalState.canApprove}
+          {#if !readOnly && approvalState.canApprove}
             <form method="POST" action="?/approveNode" use:approveEnhance novalidate class="flex items-center">
               <input type="hidden" name="_kind" value="approveNode" />
               <input type="hidden" name="revision" value={node.revision} />
@@ -2488,7 +2489,7 @@
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={!$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
+                  disabled={readOnly || !$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
                   class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >{$moveSubmitting ? t('node-actions.move.moving', 'Moving...') : 'Move node'}</button>
                 <button type="button" onclick={() => (moveOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
@@ -2535,7 +2536,7 @@
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={$deleteSubmitting}
+                  disabled={readOnly || $deleteSubmitting}
                   class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {$deleteSubmitting
@@ -2746,6 +2747,7 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
+            readonly={readOnly}
             bind:value={contentDraft.text}
           ></textarea>
           <div bind:this={contentSaveRow} class="mt-2 flex flex-wrap items-center justify-end gap-2">
@@ -2764,7 +2766,7 @@
             {/if}
             <button
               onclick={saveContent}
-              disabled={saving || !contentDraft.dirty}
+              disabled={readOnly || saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{saving ? 'Saving...' : 'Save'}</button>
           </div>
@@ -2827,6 +2829,7 @@
             maxlength={ABSTRACT_MAX}
             placeholder={abstractPlaceholder()}
             aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
+            readonly={readOnly}
             bind:value={abstractDraft.text}
           ></textarea>
           <div bind:this={abstractSaveRow} class="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -2846,7 +2849,7 @@
               {/if}
               <button
                 onclick={saveAbstract}
-                disabled={savingAbstract || !abstractDraft.dirty}
+                disabled={readOnly || savingAbstract || !abstractDraft.dirty}
                 class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
               >{savingAbstract ? 'Saving...' : 'Save'}</button>
             </div>
@@ -2935,7 +2938,7 @@
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {dataParse.ok || dataEmpty ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             placeholder={'{\n  "key": "value"\n}'}
             spellcheck="false"
-            readonly={savingData}
+            readonly={readOnly || savingData}
             aria-busy={savingData}
             bind:value={dataDraft.text}
           ></textarea>
@@ -2953,7 +2956,7 @@
             <button
               type="button"
               onclick={saveData}
-              disabled={savingData || !dataParse.ok || !dataDirty}
+              disabled={readOnly || savingData || !dataParse.ok || !dataDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{savingData ? t('node.data.source.saving', 'Saving…') : t('node.data.source.save', 'Save')}</button>
           </div>
@@ -3043,7 +3046,7 @@
             aria-describedby="properties-source-status"
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {propertiesParse.ok ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             spellcheck="false"
-            readonly={savingProperties}
+            readonly={readOnly || savingProperties}
             aria-busy={savingProperties}
             bind:value={propertiesDraft.text}
           ></textarea>
@@ -3061,7 +3064,7 @@
             <button
               type="button"
               onclick={saveProperties}
-              disabled={savingProperties || !propertiesParse.ok || !propertiesDirty}
+              disabled={readOnly || savingProperties || !propertiesParse.ok || !propertiesDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{savingProperties ? t('node.properties.source.saving', 'Saving…') : t('node.properties.source.save', 'Save')}</button>
           </div>
@@ -3138,6 +3141,7 @@
          The action carries `tab=properties` so a submit that navigates fully
          (no JS yet) reopens this tab rather than the node's default one. -->
     <div class="mt-6" hidden={activeTab !== 'properties' || showPropertiesSource}>
+      <fieldset disabled={readOnly}>
       <NodeStorageForm
         {node}
         memorySchema={data.graph.schema}
@@ -3146,8 +3150,9 @@
         action="?tab=properties&/updateStorage"
         skillCheck={data.skillCheck}
         runnableBlockedBy={data.runnableBlockedBy}
-        noWriteDoor={data.noWriteDoor}
+        noWriteDoor={readOnly ? t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.') : data.noWriteDoor}
       />
+      </fieldset>
     </div>
 
     <!-- ═══ FLOW TAB (#478) ═══ -->
@@ -3176,6 +3181,7 @@
           </div>
         {/if}
 
+        <fieldset disabled={readOnly}>
         <form method="POST" action="?/updateFlow" use:flowEnhance novalidate class="space-y-6">
           <!-- Extraction -->
           <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -3324,6 +3330,7 @@
             {/if}
           </div>
         </form>
+        </fieldset>
       </div>
     {/if}
 
@@ -3340,7 +3347,7 @@
           {#if reorderMode}<span class="text-xs text-zinc-500">Drag rows to reorder</span>{/if}
           <button
             type="button"
-            onclick={() => reorderMode = !reorderMode}
+            disabled={readOnly} onclick={() => reorderMode = !reorderMode}
             class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >{reorderMode ? 'Done' : 'Reorder'}</button>
         </div>
@@ -3405,7 +3412,7 @@
       <div class="mb-4 flex items-center justify-between">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Edges</h3>
         {#if !editingEdges}
-          <button type="button" onclick={startEditEdges} disabled={hasUnreadableOutgoing}
+          <button type="button" onclick={startEditEdges} disabled={readOnly || hasUnreadableOutgoing}
             title={hasUnreadableOutgoing ? t('node-edges.edit-blocked', 'This node has an edge into a memory you can’t access. Editing would remove it, so edge editing is disabled here.') : undefined}
             class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
             Edit edges
@@ -3518,7 +3525,7 @@
           </div>
 
           <div class="mt-4 flex items-center gap-2">
-            <button type="submit" disabled={$edgesSubmitting} class="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style="background: #fb8500;">
+            <button type="submit" disabled={readOnly || $edgesSubmitting} class="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style="background: #fb8500;">
               {$edgesSubmitting ? t('node.edges.saving', 'Saving...') : t('node.edges.save', 'Save edges')}
             </button>
             <button type="button" onclick={cancelEditEdges}
@@ -3548,7 +3555,7 @@
       {:else}
         <div class="mb-3 flex items-center justify-between gap-3">
           <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Revisions saved on each edit, most recent first.')}</p>
-          <button type="button" onclick={() => (clearConfirm = true)} disabled={historyBusy}
+          <button type="button" onclick={() => (clearConfirm = true)} disabled={readOnly || historyBusy}
             class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
             {t('node.history.clear', 'Clear')}
           </button>
@@ -3624,9 +3631,9 @@
       <button type="button" class="fixed inset-0 z-40 cursor-default" aria-label={t('node.history.close-menu', 'Close menu')} onclick={() => (historyMenuFor = null)}></button>
       <div role="menu" class="fixed z-50 w-44 -translate-x-full rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" style="left: {historyMenuX}px; top: {historyMenuY}px;">
         <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('display')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.display', 'Display')}</button>
-        <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
+        <button type="button" role="menuitem" disabled={readOnly} onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
         <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
-        <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('delete')} class="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800">{t('node.history.action.delete', 'Delete')}</button>
+        <button type="button" role="menuitem" disabled={readOnly} onclick={() => onHistoryMenuSelect('delete')} class="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800">{t('node.history.action.delete', 'Delete')}</button>
       </div>
     {/if}
 
@@ -3640,7 +3647,7 @@
           {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (restoreTarget = null)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.restore.cancel', 'Cancel')}</button>
-            <button type="button" onclick={confirmRestore} disabled={historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>
+            <button type="button" onclick={confirmRestore} disabled={readOnly || historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>
           </div>
         </div>
       </div>
@@ -3655,7 +3662,7 @@
           {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (clearConfirm = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.clear-dialog.cancel', 'Cancel')}</button>
-            <button type="button" onclick={confirmClear} disabled={historyBusy} class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50">{historyBusy ? t('node.history.clear-dialog.working', 'Clearing…') : t('node.history.clear-dialog.confirm', 'Clear all')}</button>
+            <button type="button" onclick={confirmClear} disabled={readOnly || historyBusy} class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50">{historyBusy ? t('node.history.clear-dialog.working', 'Clearing…') : t('node.history.clear-dialog.confirm', 'Clear all')}</button>
           </div>
         </div>
       </div>
@@ -3669,7 +3676,7 @@
             <h2 class="font-semibold text-zinc-900 dark:text-white">Node</h2>
             {#if !isEditing}
               <div class="flex items-center gap-2">
-                <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+                <button disabled={readOnly} onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
                 <a href="{basePath}/graph?focus={node.id}" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
               </div>
             {/if}
@@ -3734,7 +3741,7 @@
                 </label>
               </div>
               <div class="flex gap-3">
-                <button type="submit" disabled={$updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
+                <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
                   {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : t('node.meta.save', 'Save')}
                 </button>
                 <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
@@ -3821,7 +3828,7 @@
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
           <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
           {#if !confirmDelete}
-            <button onclick={() => { $deleteFormData.hard = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+            <button disabled={readOnly} onclick={() => { $deleteFormData.hard = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
               Delete node
             </button>
           {:else}
@@ -3830,7 +3837,7 @@
               <span class="text-sm text-red-500">Delete "{node.name}"? This cannot be undone.</span>
               <button
                 type="submit"
-                disabled={$deleteSubmitting}
+                disabled={readOnly || $deleteSubmitting}
                 class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
               >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
               <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
@@ -3850,7 +3857,7 @@
      `invalidateAll()` on success rather than a local list update: the new
      reference node has to appear in the memory layout's node tree and in this
      node's Children tab, both of which come from loaders. -->
-{#if canAttachAsset}
+{#if !readOnly && canAttachAsset}
   <AttachAssetDialog
     bind:open={attachOpen}
     memoryId={node.memory?.id ?? data.graph.id}
