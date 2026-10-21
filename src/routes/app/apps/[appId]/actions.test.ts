@@ -1995,3 +1995,53 @@ describe('load: key inventory (portal#1068)', () => {
     expect(r.appKeys).toEqual({ kind: 'failed' });
   });
 });
+
+// portal#1148 (hadron-server#2089): the Human Team roster has three outcomes, and a withheld
+// roster (members: null) is neither a failed fetch nor an empty one.
+describe('load: Human Team roster states (portal#1148)', () => {
+  async function loadMembers(membersRead: () => Promise<unknown>) {
+    mockFetchAllItems.mockResolvedValue([]);
+    mockRequest.mockImplementation((query) => {
+      if (query === APP_QUERY) {
+        return Promise.resolve({
+          app: {
+            id: 'app-1', name: 'Demo App', urn: 'hadronmemory.com:demo-org:demo-app', organizationId: null,
+            appType: 'CHATBOT', role: 'ADMIN', description: null, systemPrompt: null,
+            createUserPermission: 'DENY', identifyUserMethod: 'USER_ID',
+            sessionTimeoutSeconds: 3600, anonymousTtlDays: 14, agentId: null, agent: null,
+          },
+        });
+      }
+      if (query === APP_MEMBERS_QUERY) return membersRead();
+      if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+      if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
+      if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+      return Promise.resolve({ resolveAiServiceConfigs: [] });
+    });
+    const { load } = await import('./+page.server');
+    return (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok', user: { id: 'user-1' } },
+      parent: async () => ({}),
+      depends: () => {},
+      url: new URL('http://localhost/app/apps/app-1'),
+    } as unknown as Parameters<typeof load>[0])) as { members: unknown[]; membersError: boolean; membersWithheld: boolean };
+  }
+  it('members: null is withheld — not an error, not an empty roster', async () => {
+    const r = await loadMembers(() => Promise.resolve({ app: { members: null } }));
+    expect(r).toMatchObject({ members: [], membersError: false, membersWithheld: true });
+  });
+  it('known-empty control: members: [] is neither withheld nor an error', async () => {
+    const r = await loadMembers(() => Promise.resolve({ app: { members: [] } }));
+    expect(r).toMatchObject({ members: [], membersError: false, membersWithheld: false });
+  });
+  it('a failed fetch is an error, not withheld', async () => {
+    const r = await loadMembers(() => Promise.reject(new Error('boom')));
+    expect(r).toMatchObject({ members: [], membersError: true, membersWithheld: false });
+  });
+  it('real members come through', async () => {
+    const r = await loadMembers(() => Promise.resolve({ app: { members: [{ userId: 'u1', appId: 'app-1', role: 'owner' }] } }));
+    expect(r).toMatchObject({ membersError: false, membersWithheld: false });
+    expect(r.members).toHaveLength(1);
+  });
+});
