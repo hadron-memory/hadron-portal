@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
@@ -3872,7 +3873,7 @@
           {:else}
             <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
               <input type="hidden" name="_kind" value={$deleteFormData._kind} />
-              <span class="text-sm text-red-500">Delete "{node.name}"? This cannot be undone.</span>
+              <span class="text-sm text-red-500">{deleteNodeStrings.confirmPrompt(node.name)}</span>
               <button
                 type="submit"
                 disabled={$deleteSubmitting}
