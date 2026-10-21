@@ -18,15 +18,25 @@ export type OrgAgentPool = {
   }>;
 };
 
-export function mergeInstallableAgents(org: OrgAgentPool, now: number = Date.now()): InstallableAgent[] {
-  // Active, unrevoked and unexpired: isActive is the server's word, and the two
-  // dates are checked as well so a grant the server has not yet swept is not
-  // offered.
-  const live = (g: NonNullable<OrgAgentPool['agentOrgGrants']>[number]) =>
-    g.isActive && !g.revokedAt && !(g.expiresAt && Date.parse(g.expiresAt) <= now);
-  const subscribed = (org.agentOrgGrants ?? [])
-    .filter((g) => live(g) && g.agent)
-    .map((g) => g.agent as InstallableAgent);
+const liveGrant = (g: NonNullable<OrgAgentPool['agentOrgGrants']>[number], now: number) =>
+  g.isActive && !g.revokedAt && !(g.expiresAt && Date.parse(g.expiresAt) <= now);
+
+/**
+ * The agents the org SUBSCRIBES to: an active, unrevoked, unexpired grant whose
+ * agent the caller may read. isActive is the server's word; the two dates are
+ * checked as well so a grant the server has not yet swept is not offered. Each
+ * agent once.
+ */
+export function grantedAgents(org: OrgAgentPool, now: number = Date.now()): InstallableAgent[] {
   const seen = new Set<string>();
-  return [...org.agents, ...subscribed].filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));
+  return (org.agentOrgGrants ?? [])
+    .filter((g) => liveGrant(g, now) && g.agent)
+    .map((g) => g.agent as InstallableAgent)
+    .filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));
+}
+
+/** Owned agents first, then the granted ones, each agent once (the App picker). */
+export function mergeInstallableAgents(org: OrgAgentPool, now: number = Date.now()): InstallableAgent[] {
+  const seen = new Set<string>();
+  return [...org.agents, ...grantedAgents(org, now)].filter((a) => (seen.has(a.id) ? false : (seen.add(a.id), true)));
 }

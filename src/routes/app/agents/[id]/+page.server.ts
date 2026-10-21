@@ -11,6 +11,8 @@ import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
+import { grantedAgents, type InstallableAgent, type OrgAgentPool } from '$lib/server/installable-agents';
+import { withTimeout, OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import {
   AGENT_QUERY,
   ORGANIZATIONS_QUERY,
@@ -26,6 +28,8 @@ import {
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
+  APP_ORG_AGENT_GRANTS_QUERY,
+  PUBLISH_AGENT_IMPORT_MUTATION,
 } from '$lib/server/queries';
 import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -237,6 +241,33 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   // A failed read (any page) is not an empty memory; the Nodes tab says so.
   const agentNodesError = allMemoryIds.length > 0 && nodesResult === null;
+
+  // #1173: what the Bundled tab can add. ONLY the agents the org subscribes to
+  // (active grants, the App page's #1172 read), minus this agent and anything
+  // it already imports. Not the org's OWNED agents: publishAgentImport needs an
+  // active AgentOrgGrant from the parent's org for the imported agent, and an org
+  // cannot grant itself an agent (SELF_AGENT_ORG_GRANT), so every owned agent is
+  // refused (browser QA, portal#1189). An import the viewer cannot read (importedAgent null)
+  // still counts, by its id, so it is never offered a second time. Asked as a
+  // request of its own: a refusal costs the add control, not the page. An
+  // org-less agent has no org pool, so it gets none.
+  const importedIds = new Set((agent.imports ?? []).map((i) => i.importedAgentId));
+  let bundleCandidates: InstallableAgent[] = [];
+  let bundleCandidatesError = false;
+  if (org) {
+    const pool = await withTimeout(
+      client
+        .request<{ organization: Pick<OrgAgentPool, 'agentOrgGrants'> | null }>(APP_ORG_AGENT_GRANTS_QUERY, { ref: org.id })
+        .then((r) => (r.organization ? grantedAgents({ agents: [], agentOrgGrants: r.organization.agentOrgGrants }) : null)),
+      OPTIONAL_LIST_TIMEOUT_MS,
+      null,
+    ).catch(() => null);
+    bundleCandidatesError = pool === null;
+    bundleCandidates = (pool ?? []).filter((a) => a.id !== agentId && !importedIds.has(a.id));
+  }
+  // The next free slot; the server owns ordering, this only avoids a clash.
+  const nextImportPosition = Math.max(0, ...(agent.imports ?? []).map((i) => i.position)) + 1;
+
   if (nodesResult) {
     const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
     agentNodes = (nodesResult.findNodes?.hits ?? [])
@@ -295,6 +326,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     agentNodesError,
     installedApps,
     bundledAgents,
+    bundleCandidates,
+    bundleCandidatesError,
+    nextImportPosition,
     bundledWithheldApps,
     allOrgs: orgs,
     orgSystemMemories,
@@ -519,6 +553,29 @@ export const actions: Actions = {
         { type: 'error', text: extractGqlError(e, 'Failed to add memory') },
         { status: 500 },
       );
+    }
+  },
+
+  // #1173: bundle another Agent (an AgentImport edge). The server decides who
+  // may and what is legal (one level, no cycle); its sentence is shown as is.
+  addBundledAgent: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const agentId = String(fd.get('agentId') ?? '').trim();
+    const position = Number(fd.get('position'));
+    if (!agentId) return fail(400, { bundleError: 'Select an agent to bundle.' });
+    if (!Number.isInteger(position) || position < 1) {
+      return fail(400, { bundleError: 'Could not work out where to add it. Reload and try again.' });
+    }
+    try {
+      await gqlClient(locals.token).request(PUBLISH_AGENT_IMPORT_MUTATION, {
+        importedAgentRef: agentId,
+        parentAgentRef: params.id,
+        position,
+        required: fd.get('required') === 'on',
+      });
+      return { bundleAdded: true };
+    } catch (e: unknown) {
+      return fail(500, { bundleError: extractGqlError(e, 'Failed to bundle the agent') });
     }
   },
 

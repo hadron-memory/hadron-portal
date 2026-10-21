@@ -549,6 +549,23 @@ export const APP_DETAIL_ORG_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1173: bundle an Agent with another (an AgentImport edge). The Org-to-Agent
+// license that lets an org install a subscribed Agent also authorizes bundling
+// it. The server owns the rules (one level of imports, no cycle, who may);
+// the portal shows its sentence.
+export const PUBLISH_AGENT_IMPORT_MUTATION = /* GraphQL */ `
+  mutation PublishAgentImport($importedAgentRef: ID!, $parentAgentRef: ID!, $position: Int!, $required: Boolean) {
+    publishAgentImport(
+      importedAgentRef: $importedAgentRef
+      parentAgentRef: $parentAgentRef
+      position: $position
+      required: $required
+    ) {
+      importedAgentId
+    }
+  }
+`;
+
 /**
  * The agents an org-owned App can install (#1006: the Agents tab's picker).
  *
