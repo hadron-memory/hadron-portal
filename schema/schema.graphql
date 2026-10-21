@@ -1,4 +1,4 @@
-# Exported from hadron-server 252b6cd79b505e766ccf1a9b8c9da587a6fad27f (origin/main, 2026-10-20T18:54:48-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server d98eba305faef85e0e3743a32514bc1f107fb111 (origin/main, 2026-10-20T20:14:52-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -3510,6 +3510,15 @@ type Edge {
   display label). Put the label you want seen in name (#1057).
   """
   description: String
+
+  """
+  The edge's OWN stored governed kind (#2124): null for an ordinary edge,
+  otherwise INCLUDE, COMMENT_ANCHOR or COMMENT_REPLY. Read-only; it rides
+  the same gate as the edge, is never inferred from name or loc, and no
+  edge write accepts it. A stored value this server does not support is an
+  UNSUPPORTED_EDGE_GOVERNED_KIND error, never null.
+  """
+  governedKind: EdgeGovernedKind
   id: ID!
 
   """
@@ -3571,6 +3580,23 @@ input EdgeFilter {
 
   """Edges arriving at this node."""
   targetNodeId: ID
+}
+
+"""
+Which server-owned mechanism governs an edge (#2124). A governed edge is
+written by its own path and refused by every ordinary edge write. A client
+must tolerate a value it does not know as read-only/unsupported, never as an
+ordinary edge: this list grows when the server adds a governed kind.
+"""
+enum EdgeGovernedKind {
+  """A comment's anchor edge to the node it comments on."""
+  COMMENT_ANCHOR
+
+  """A reply comment's edge to its thread root."""
+  COMMENT_REPLY
+
+  """Derived from an include tag in the source node's content (#2040)."""
+  INCLUDE
 }
 
 input EdgeInput {
@@ -3827,6 +3853,8 @@ input GrantCreditsInput {
 Slim edge projection for the graph view (issue #466) — endpoint IDs only.
 """
 type GraphEdge {
+  """The edge's governed kind (#2124); see Edge.governedKind."""
+  governedKind: EdgeGovernedKind
   id: ID!
   loc: String!
   name: String

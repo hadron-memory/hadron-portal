@@ -297,16 +297,20 @@ export interface App {
   // the App has no agent attached.
   installedAgentUrn?: string | null;
   surfaces: string[];
-  memberCount: number;
+  /**
+   * portal#1148: `null` = WITHHELD (an owner-role member of a user-owned App, hadron-server#2089),
+   * never 0. Same for `members` and `agents` below. See lib/withheld.ts.
+   */
+  memberCount: number | null;
   trainingMode: boolean;
-  members?: AppMember[];
+  members?: AppMember[] | null;
   /**
    * The App's install ROSTER — every Agent installed via the AppAgent join.
    * These are reusable ROLE-ACTORS, i.e. which agents are available to cast;
    * the App's STAFF are its {@link Worker}s (the named castings). Do not read
    * this list as "who works here".
    */
-  agents: Array<{ id: string; urn: string; name: string; personaRole?: string | null }>;
+  agents: Array<{ id: string; urn: string; name: string; personaRole?: string | null }> | null;
   createdAt: string;
   updatedAt: string | null;
 }
