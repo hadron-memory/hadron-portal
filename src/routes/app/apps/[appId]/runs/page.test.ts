@@ -141,6 +141,18 @@ describe('runs list (#478)', () => {
     expect(body).toContain('some may be missing');
   });
 
+  it('#1226: zero derived flows from a FULL window still shows the notice (Chip, browser QA)', async () => {
+    const body = await renderPage([], null, [], { flowsCapped: true, flowsScanned: 500 });
+    expect(body).toContain('Showing the first 500 app nodes');
+    expect(body).not.toContain('action="?/run"');
+  });
+
+  it('#1226: zero flows from a short window shows nothing', async () => {
+    const body = await renderPage([], null, [], { flowsCapped: false, flowsScanned: 3 });
+    expect(body).not.toContain('Showing the first');
+    expect(body).not.toContain('Flows');
+  });
+
   it('#1226: no cue when the window was not full', async () => {
     const body = await renderPage([], null, [flow], { flowsCapped: false, flowsScanned: 12 });
     expect(body).not.toContain('Showing the first');

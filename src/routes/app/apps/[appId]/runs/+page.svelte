@@ -125,6 +125,12 @@
         {/each}
       </ul>
     </section>
+  {:else if data.flowsCapped}
+    <!-- Zero derived flows from a FULL window is not "this app has no flows". -->
+    <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('flows.title', 'Flows')}</h2>
+      <div class="mt-2"><CappedNotice shown={data.flowsScanned} what={t('capped.app-nodes', 'app nodes (flows are derived from them, so some may be missing)')} /></div>
+    </section>
   {/if}
 
   <!-- Status filter -->
