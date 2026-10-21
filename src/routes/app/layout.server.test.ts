@@ -620,7 +620,7 @@ describe('#1117: the root and App layouts answer one identity decision', () => {
     locals.impersonation = opts.impersonating ? { adminId: 'admin-1' } : null;
     const deleted: string[] = [];
     (event.cookies as unknown as { delete: (n: string) => void }).delete = (n: string) => { deleted.push(n); };
-    if (opts.meFails) mockMeRequest.mockRejectedValue(new ClientError({ status: 401, headers: new Headers(), body: undefined }, { query: 'query Me' }));
+    if (opts.meFails) mockMeRequest.mockRejectedValue(new ClientError({ status: 401, headers: new Headers(), body: '' }, { query: 'query Me' }));
     else mockMeRequest.mockResolvedValue({ me: { id: 'user-1', handle: 'ada', roles: ['user'] } });
     mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
 
@@ -684,7 +684,7 @@ describe('#1117: every signed-out path terminates (no redirect loop)', () => {
     locals.token = imp ?? tok ?? null;
     (event.cookies as unknown as { delete: (n: string) => void }).delete = (n: string) => { jar.delete(n); };
     mockMeRequest.mockReset();
-    if (me === 'throws') mockMeRequest.mockRejectedValue(new ClientError({ status: 401, headers: new Headers(), body: undefined }, { query: 'query Me' }));
+    if (me === 'throws') mockMeRequest.mockRejectedValue(new ClientError({ status: 401, headers: new Headers(), body: '' }, { query: 'query Me' }));
     else if (me === 'null') mockMeRequest.mockResolvedValue({ me: null });
     else mockMeRequest.mockResolvedValue({ me: { id: 'user-1', handle: 'ada', roles: ['user'] } });
     mockMyOrgsRequest.mockResolvedValue({ organizations: [makeOrg({ id: 'org-a' })] });
