@@ -7,6 +7,7 @@ import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
 import { lookupOwn } from '$lib/lookup';
+import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
@@ -33,6 +34,7 @@ import {
   WORKERS_QUERY,
   CAST_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
+  SET_WORKER_WAKE_SETTINGS_MUTATION,
   RELEASE_WORKER_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
@@ -84,7 +86,13 @@ import {
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
+import { isCapped } from '$lib/server/capped';
 import type { ReleaseWorkerMessage } from './schema';
+
+// appNodes and the chat-root read take a limit but have no continuation
+// (hadron-server#2212), so each fetches one window and says when it came back full.
+const APP_NODES_LIMIT = 500;
+const APP_CHAT_ROOTS_LIMIT = 200;
 import { readHoldStale, type HoldStale } from './hold-stale';
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
@@ -627,9 +635,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster] = await Promise.all([
     client
-      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
+      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
     app.agentId
       ? client
@@ -694,7 +702,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     client
       .request<{ appNodes: MemoryNode[] }>(APP_CHAT_ROOTS_QUERY, {
         appRef: params.appId,
-        limit: 200,
+        limit: APP_CHAT_ROOTS_LIMIT,
       })
       .then((r) => r.appNodes)
       .catch((e) => {
@@ -725,6 +733,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // manager-only and non-null (hadron-server#2080), so on the App fragment it
     // nulled the whole App (a false 404 here) for every non-manager.
     loadAppKeys(client, app.id),
+    // portal#1168 (hadron-server#2178): the grid's Task and Paused state, one
+    // bulk read in its own classified request so its failure cannot take the page.
+    loadAppTeamRoster(client, app.id),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -846,11 +857,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     availableAgentsError,
     subscribedAgentsError,
     appNodes: nodesData.appNodes,
+    appNodesCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT),
     chatConfigs,
     appConfigs: configsData ?? [],
     configsError: configsData === null,
     // #974: the App's staff. null = the fetch failed (distinct from []).
     staff,
+    teamRoster,
     staffError: staff === null,
     // #732: the team chat transcript. null = the fetch failed (distinct from
     // an empty chat), and `teamChatTotal` is the SERVER's count, so a
@@ -869,6 +882,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
     chatsError: chatRoots === null,
+    chatRootsShown: chatRoots?.length ?? 0,
+    chatsCapped: chatRoots !== null && isCapped(chatRoots?.length ?? 0, APP_CHAT_ROOTS_LIMIT),
     selectedChatKey: selectedChat?.key ?? null,
     selectedChatMessages: selectedChatMessages?.messages ?? [],
     // #793 (@copilot on PR #797): gate on the KIND. `selectedChatMessages` is
@@ -1139,6 +1154,46 @@ export const actions: Actions = {
         },
         { status: 500 },
       );
+    }
+  },
+
+  // portal#1168 — Pause / Unpause a worker. PAUSE INTENT ONLY: an explicit
+  // user-selected end time, or clearPause. The portal invents no duration, never
+  // resends `mentions` or any other wake setting, and lets the server's gate
+  // (the worker, its holder or an App manager) decide. A refusal is a fixed
+  // message, never the provider payload, and never success; the page re-reads
+  // the authoritative roster after a success instead of flipping a badge.
+  setWorkerPause: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const workerId = String(fd.get('workerId') ?? '').trim();
+    const mode = String(fd.get('mode') ?? '');
+    const until = String(fd.get('until') ?? '').trim();
+    const bad = (text: string) => fail(400, { pauseResult: { ok: false as const, workerId, message: text } });
+    if (!workerId) return bad(t('app.staff.pause.error.worker', 'Choose a worker.'));
+    let input: { pausedUntil: string } | { clearPause: true };
+    if (mode === 'clear') {
+      input = { clearPause: true };
+    } else if (mode === 'pause') {
+      const ms = Date.parse(until);
+      if (!until || Number.isNaN(ms)) return bad(t('app.staff.pause.error.until', 'Choose when the pause ends.'));
+      if (ms <= Date.now()) return bad(t('app.staff.pause.error.past', 'The pause must end in the future.'));
+      input = { pausedUntil: new Date(ms).toISOString() };
+    } else {
+      return bad(t('app.staff.pause.error.mode', 'Choose Pause or Unpause.'));
+    }
+    try {
+      await gqlClient(locals.token).request(SET_WORKER_WAKE_SETTINGS_MUTATION, { workerRef: workerId, input });
+      return { pauseResult: { ok: true as const, workerId, message: mode === 'clear'
+        ? t('app.staff.unpause.success', 'Pause cleared.')
+        : t('app.staff.pause.success', 'Worker paused.') } };
+    } catch (e: unknown) {
+      // The server's real refusal for this write is WAKE_SETTINGS_FORBIDDEN
+      // (Riana, Charles on #1237); FORBIDDEN is the generic gate code.
+      const code = gqlErrorCode(e);
+      const forbidden = code === 'FORBIDDEN' || code === 'WAKE_SETTINGS_FORBIDDEN';
+      return fail(forbidden ? 403 : 500, { pauseResult: { ok: false as const, workerId, message: forbidden
+        ? t('app.staff.pause.error.forbidden', 'You can’t pause or unpause this worker. Only the worker, its holder or an App manager can.')
+        : t('app.staff.pause.error.failed', 'Could not confirm the change. Check the worker’s status and try again.') } });
     }
   },
 
