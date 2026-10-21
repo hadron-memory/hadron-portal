@@ -8,7 +8,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
+  import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
@@ -16,7 +16,6 @@
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
-  import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
   import type { PageData, ActionData } from './$types';
@@ -84,6 +83,23 @@
   // sub-tab system opens per-conversation or per-partial sub-tabs when the
   // user clicks a row, so they can drill down without leaving the page.
   const hasSystemMemory = $derived(!!agent.systemMemoryId);
+
+  // #1170: the header's single "⋯" menu replaces the Install button and holds the
+  // system-memory shortcuts. All three are navigations, so they render as real
+  // links. Install stays org-only (a user-owned agent has no org install
+  // surface, #636) and the memory entries need a system memory.
+  const systemMemoryIdentity = $derived(
+    (data as { systemMemoryIdentity?: { id: string; name: string; urn: string } | null }).systemMemoryIdentity ?? null,
+  );
+  const headerActions = $derived<NodeMenuAction[]>([
+    ...(org ? [{ id: 'install', label: t('agent.actions.install', 'Install into app'), href: `/app/orgs/${org.id}/agents/install/${agent.id}` }] : []),
+    ...(hasSystemMemory
+      ? [
+          { id: 'conversations', label: t('agent.actions.conversations', 'Conversation editor'), href: `/app/agents/${agent.id}/conversations` },
+          { id: 'system-memory', label: t('agent.actions.system-memory', 'Open system memory'), href: `/app/memories/${agent.systemMemoryId}` },
+        ]
+      : []),
+  ]);
 
   // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
   // AI Providers were split out of the old Settings tab; the old "Memory"
@@ -625,14 +641,8 @@
          Agents don't reach this page (the load redirect would 404 first),
          so no client-side gate needed. Install is an org-only flow — a
          user-owned (org-less) agent has no org install surface (#636). -->
-    {#if org}
-      <a
-        href="/app/orgs/{org.id}/agents/install/{agent.id}"
-        class="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
-        style="background: #fb8500;"
-      >
-        {installStrings.buttonLabel()}
-      </a>
+    {#if headerActions.length > 0}
+      <NodeActionsMenu actions={headerActions} label={t('agent.actions.label', 'Agent actions')} />
     {/if}
   </div>
 
@@ -714,12 +724,6 @@
               <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
             </div>
           {/if}
-          {#if agent.systemPrompt}
-            <div class="px-5 py-3">
-              <span class="text-sm text-zinc-500">System Prompt</span>
-              <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
-            </div>
-          {/if}
           <!-- #974: persona DRESSING on a reusable role-actor. Not an identity —
                the named individual is a Worker cast into an App. -->
           {#if agent.personaRole}
@@ -729,13 +733,14 @@
             </div>
           {/if}
           {#if agent.systemMemoryId}
-            <div class="flex items-center justify-between px-5 py-3">
+            <div class="flex items-center justify-between gap-3 px-5 py-3">
               <span class="text-sm text-zinc-500">Agent system memory</span>
-              <a href="/app/memories/{agent.systemMemoryId}" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">{systemMemory?.name ?? 'System memory'} →</a>
-            </div>
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Conversations</span>
-              <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
+              <span class="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                <a href="/app/memories/{agent.systemMemoryId}" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">{systemMemoryIdentity?.name ?? systemMemory?.name ?? 'System memory'} →</a>
+                {#if systemMemoryIdentity?.urn ?? systemMemory?.urn}
+                  <Urn value={(systemMemoryIdentity?.urn ?? systemMemory?.urn) as string} type="memory" size={10} linked />
+                {/if}
+              </span>
             </div>
           {/if}
           {#if org}

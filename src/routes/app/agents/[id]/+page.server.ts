@@ -26,6 +26,7 @@ import {
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
+  AGENT_SYSTEM_MEMORY_QUERY,
 } from '$lib/server/queries';
 import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -96,6 +97,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // 006-asset-upload-redesign FR-013: per-agent asset-upload toggle is
   // gone. The v1 callerApp/assetUploadEnabled lookup is removed; the
   // memory-level acceptsUploads gate lives on the memory settings page.
+
+  // #1170: the system memory's identity for the profile card's URN. A request of
+  // its own and non-fatal: a failure leaves the card with its name link and no
+  // URN, never a made-up one.
+  const systemMemoryIdentity = (agent as { systemMemoryId?: string | null }).systemMemoryId
+    ? await client
+        .request<{ memory: { id: string; name: string; urn: string } | null }>(AGENT_SYSTEM_MEMORY_QUERY, {
+          ref: (agent as { systemMemoryId: string }).systemMemoryId,
+        })
+        .then((r) => r.memory)
+        .catch(() => null)
+    : null;
 
   // Load nodes from all memories (including system memory) + org system memories
   const memoryIds = (agent.memoryItems ?? []).map((m) => m.memory.id);
@@ -284,6 +297,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     agentNodes,
     installedApps,
     bundledAgents,
+    systemMemoryIdentity,
     allOrgs: orgs,
     orgSystemMemories,
     // Empty for an org agent; the caller's own memories for a user-owned agent (#642).

@@ -4556,3 +4556,17 @@ export const APP_PEOPLE_QUERY = /* GraphQL */ `
     app(ref: $ref) { id members { user { id handle name } } }
   }
 `;
+
+// #1170: the identity of an Agent's system memory, for the profile card's
+// clickable URN. Agent only carries systemMemoryId; the URN is not derivable
+// from it, and the memories the page already loads do not always include it.
+export const AGENT_SYSTEM_MEMORY_QUERY = /* GraphQL */ `
+  query AgentSystemMemory($ref: ID!) {
+    memory(ref: $ref) {
+      id
+      name
+      urn
+    }
+  }
+`;
+

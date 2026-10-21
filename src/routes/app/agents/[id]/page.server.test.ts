@@ -22,6 +22,7 @@ import {
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
   AGENT_REGISTER_DEFAULTS_QUERY,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
+  AGENT_SYSTEM_MEMORY_QUERY,
 } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
@@ -111,6 +112,7 @@ function routeMock(opts: {
   apps?: { data?: unknown; error?: unknown };
   ownedApps?: { data?: unknown; error?: unknown };
   registerDefaults?: { data?: unknown; error?: unknown };
+  sysMem?: { data?: unknown; error?: unknown };
 }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === AGENT_QUERY) {
@@ -157,6 +159,11 @@ function routeMock(opts: {
     if (query === AGENT_REGISTER_DEFAULTS_QUERY) {
       if (opts.registerDefaults?.error !== undefined) throw opts.registerDefaults.error;
       return opts.registerDefaults?.data ?? { agent: { id: 'agent-id-123', registerDefaults: { mentionOnly: false } } };
+    }
+    // #1170: the system memory's identity, non-fatal in the loader.
+    if (query === AGENT_SYSTEM_MEMORY_QUERY) {
+      if (opts.sysMem?.error !== undefined) throw opts.sysMem.error;
+      return opts.sysMem?.data ?? { memory: null };
     }
     throw new Error(`Unexpected query passed to mockRequest`);
   });
@@ -769,4 +776,30 @@ it('self-audits the actual loaded Agent by full URN, never its ambiguous id', as
   const result = await load({ ...ev(), locals: { token: 'token', user: { id: 'me' }, impersonation: null } } as never) as unknown as { inheritanceManagement: { canManage: boolean; error: string | null }; baseForm: { data: { baseRef: string } } };
   expect(result.baseForm.data.baseRef).toBe('');
   expect(result.inheritanceManagement).toMatchObject({ canManage: true, error: null });
+});
+
+describe('/app/agents/[id] loader — system memory identity (#1170)', () => {
+  const withSys = { ...agentInA, systemMemoryId: 'mem-sys' };
+  async function run(sysMem?: { data?: unknown; error?: unknown }, agent: unknown = withSys) {
+    routeMock({ agent: { data: { agent } }, myOrgs: { data: { organizations: [orgA] } }, sysMem });
+    const load = await importLoad();
+    return (await load(ev({ agentId: 'agent-aaa' }))) as { systemMemoryIdentity: { urn: string } | null };
+  }
+
+  it('returns the system memory’s URN so the card can show it', async () => {
+    const r = await run({ data: { memory: { id: 'mem-sys', name: 'Sys', urn: 'hrn:mem:acme.com:sys' } } });
+    expect(r.systemMemoryIdentity?.urn).toBe('hrn:mem:acme.com:sys');
+    expect(mockRequest).toHaveBeenCalledWith(AGENT_SYSTEM_MEMORY_QUERY, { ref: 'mem-sys' });
+  });
+
+  it('a failing lookup costs the URN, not the page', async () => {
+    const r = await run({ error: new Error('boom') });
+    expect(r.systemMemoryIdentity).toBeNull();
+  });
+
+  it('asks nothing when the agent has no system memory', async () => {
+    const r = await run(undefined, agentInA);
+    expect(r.systemMemoryIdentity).toBeNull();
+    expect(mockRequest).not.toHaveBeenCalledWith(AGENT_SYSTEM_MEMORY_QUERY, expect.anything());
+  });
 });
