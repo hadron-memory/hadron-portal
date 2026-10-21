@@ -1,3 +1,4 @@
+import { t } from '$lib/i18n/t';
 import { isFlatV2, parseUrnV2 } from '$lib/urn/parse-urn';
 
 /**
@@ -84,4 +85,14 @@ export function readTaskWarnings(extensions: unknown, path: string): TaskWarning
     more: Math.max(0, valid.length - MAX_SHOWN_WARNINGS),
     committed: ours.length > 0,
   };
+}
+
+/**
+ * The sentence a result line adds so a screen reader hears that warnings
+ * follow (Uma's P2 on #1216): the list itself mounts with its content, which a
+ * live region doesn't announce. Null when there are none.
+ */
+export function warningsBelow(n: number): string | null {
+  if (n <= 0) return null;
+  return n === 1 ? t('app.tasks.warnings.below-one', '1 warning below.') : t('app.tasks.warnings.below', '{n} warnings below.', { n });
 }

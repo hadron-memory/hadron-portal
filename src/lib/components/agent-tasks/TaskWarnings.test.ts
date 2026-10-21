@@ -27,22 +27,22 @@ describe('TaskWarnings', () => {
 
   it('shows a mapped register’s task as a URN chip, not a link', () => {
     const out = html([{ code: 'c', text: 't', register: { state: 'mapped', taskLoc: 'tasks:find-a-source', taskUrn: URN } }]);
-    expect(out).toContain('Role task for this:');
+    expect(out).toContain('Role task:');
     expect(out).toContain(URN);
     expect(out).not.toMatch(/<a[^>]*href="[^"]*find-a-source/);
   });
 
-  it('says when nothing is mapped, or the register couldn’t be checked, and nothing when there is no register', () => {
+  it('says when nothing is mapped, or the mapped task isn’t available, and nothing when there is no register', () => {
     expect(html([{ code: 'c', text: 't', register: { state: 'unmapped' } }])).toContain('No role task is mapped to this in the App’s register.');
-    expect(html([{ code: 'c', text: 't', register: { state: 'unresolved' } }])).toContain('The App’s register couldn’t be checked for this.');
+    expect(html([{ code: 'c', text: 't', register: { state: 'unresolved' } }])).toContain('A role task is mapped to this, but it isn’t available.');
     const bare = html([{ code: 'c', text: 't' }]);
-    expect(bare).not.toContain('Role task for this:');
+    expect(bare).not.toContain('Role task:');
     expect(bare).not.toContain('register');
   });
 
   it('counts what the cap left out', () => {
-    expect(html([{ code: 'c', text: 't' }], 3)).toContain('+3 more');
-    expect(html([{ code: 'c', text: 't' }], 1)).toContain('+1 more');
+    expect(html([{ code: 'c', text: 't' }], 3)).toContain('+3 more warnings not shown');
+    expect(html([{ code: 'c', text: 't' }], 1)).toContain('+1 more warning not shown');
     expect(html([{ code: 'c', text: 't' }])).not.toContain('more');
   });
 });

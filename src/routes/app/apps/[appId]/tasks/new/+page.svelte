@@ -5,7 +5,7 @@
   import PartyPicker from '$lib/components/agent-tasks/PartyPicker.svelte';
   import WriteRefusalAlert from '$lib/components/agent-tasks/WriteRefusal.svelte';
   import TaskWarnings from '$lib/components/agent-tasks/TaskWarnings.svelte';
-  import type { TaskWarning } from '$lib/agent-tasks/warnings';
+  import { warningsBelow, type TaskWarning } from '$lib/agent-tasks/warnings';
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import { localDateTimeToIso } from '$lib/agent-tasks/start-by';
@@ -152,10 +152,14 @@
     </p>
   {:else if created}
     <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" data-testid="task-created">
-      <h2 bind:this={createdHeading} tabindex="-1" role="status" class="text-sm font-semibold text-green-700 dark:text-green-300">
-        {created.committedWithError
-          ? t('app.tasks.new.created-error', 'Task created, but the server’s response also reported an error.')
-          : t('app.tasks.write.done.created', 'Task created.')}
+      <!-- Uma's P2/P3 on #1216: focus lands here, so the heading says warnings follow; no role, so it stays a heading. -->
+      <h2 bind:this={createdHeading} tabindex="-1" class="text-sm font-semibold {created.committedWithError ? 'text-amber-800 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}">
+        {[
+          created.committedWithError
+            ? t('app.tasks.new.created-error', 'Task created, but the server’s response also reported an error.')
+            : t('app.tasks.write.done.created', 'Task created.'),
+          warningsBelow(created.warnings.length + created.more),
+        ].filter(Boolean).join(' ')}
       </h2>
       <TaskWarnings warnings={created.warnings} more={created.more} />
       {#if created.created.id}

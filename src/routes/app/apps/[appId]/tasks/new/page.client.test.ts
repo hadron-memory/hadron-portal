@@ -133,7 +133,8 @@ describe('create page: a warned create replaces the form', () => {
     expect(root.querySelector('form')).toBeNull();
     expect(root.querySelector('button[type="submit"]')).toBeNull();
     const panel = root.querySelector('[data-testid="task-created"]')!;
-    expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Task created.');
+    expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Task created. 1 warning below.');
+    expect(panel.querySelector('h2')?.getAttribute('role')).toBeNull();
     expect(panel.querySelector('[data-testid="task-warnings"]')?.textContent).toContain('This task has no source.');
     expect(panel.querySelector('a')?.getAttribute('href')).toBe('/app/apps/app-1/tasks/t9');
   });
@@ -142,7 +143,7 @@ describe('create page: a warned create replaces the form', () => {
     const root = await warned({ created: { id: null }, committedWithError: true, more: 0, warnings: [{ code: 'c', text: 't' }] });
     expect(root.querySelector('form')).toBeNull();
     const panel = root.querySelector('[data-testid="task-created"]')!;
-    expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Task created, but the server’s response also reported an error.');
+    expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Task created, but the server’s response also reported an error. 1 warning below.');
     expect(panel.textContent).not.toContain('Not changed');
     expect(panel.querySelector('a')?.getAttribute('href')).toBe('/app/apps/app-1/tasks');
   });
