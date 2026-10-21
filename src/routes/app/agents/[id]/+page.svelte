@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BootPrompt from './BootPrompt.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
   import AgentDefinitions from '$lib/components/AgentDefinitions.svelte';
   import { tick, untrack } from 'svelte';
@@ -89,7 +90,7 @@
   // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
   // AI Providers were split out of the old Settings tab; the old "Memory"
   // node browser is now "Nodes"; Settings keeps the danger zone.
-  type TabId = 'tasks' | 'processes' | 'profile' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
+  type TabId = 'tasks' | 'processes' | 'profile' | 'boot' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
   let activeTab = $state<TabId>('profile');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
@@ -174,6 +175,7 @@
   // the /test tester.
   const tabs = $derived<{ id: TabId; label: string }[]>([
     { id: 'profile', label: 'Profile' },
+    { id: 'boot', label: t('agent.boot.tab', 'Boot prompt') },
     { id: 'tasks', label: t('agent.tasks.tab', 'Tasks') },
     { id: 'processes', label: t('agent.processes.tab', 'Processes') },
     { id: 'memories', label: 'Memories' },
@@ -427,6 +429,10 @@
   // are visible, as the delete form above does (#971 Codex P2).
   $effect(() => {
     if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults') || submittedForm<{ _kind: 'setAgentBase' }>(form, 'setAgentBase') || submittedForm<{ _kind: 'setAgentIndexRefs' }>(form, 'setAgentIndexRefs')) activeTab = 'settings';
+  });
+
+  $effect(() => {
+    if (submittedForm(form, 'bootPrompt')) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -684,6 +690,13 @@
   {#if activeTab === 'processes' && data.inheritance}
     <AgentDefinitions agentId={agent.id} read={data.inheritance.processes} processes />
   {/if}
+  {#if data.bootPromptForm}
+    <div hidden={activeTab !== 'boot'}>
+      {#key agent.id}
+        <BootPrompt stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null} />
+      {/key}
+    </div>
+  {/if}
   {#if activeTab === 'profile'}
     {#if data.inheritance}
       <section class="mb-6 min-w-0 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-label={t('agent.base.label', 'base Agent')}>
@@ -713,12 +726,6 @@
             <div class="px-5 py-3">
               <span class="text-sm text-zinc-500">Description</span>
               <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
-            </div>
-          {/if}
-          {#if agent.systemPrompt}
-            <div class="px-5 py-3">
-              <span class="text-sm text-zinc-500">System Prompt</span>
-              <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
             </div>
           {/if}
           <!-- #974: persona DRESSING on a reusable role-actor. Not an identity —
@@ -1274,11 +1281,6 @@
               <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" bind:value={$agentSettingsForm.description} class={inputClass}></textarea>
             </div>
             <div>
-              <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder={t('agent.system-prompt.placeholder', 'Instructions shared by chats and workers')} bind:value={$agentSettingsForm.systemPrompt} class={inputClass}></textarea>
-              <p class="mt-1 text-xs text-zinc-400">{t('agent.system-prompt.help', 'Shared by agent chats and workers cast from this agent. In a worker briefing, {{name}} and {{role}} are filled in; each worker can add a prompt override.')}</p>
-            </div>
-            <div>
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
               <select id="editVisibility" name="visibility" bind:value={$agentSettingsForm.visibility} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 <option value="PERSONAL">Personal</option>
@@ -1343,12 +1345,6 @@
               <div class="px-5 py-3">
                 <span class="text-sm text-zinc-500">Description</span>
                 <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
-              </div>
-            {/if}
-            {#if agent.systemPrompt}
-              <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">System Prompt</span>
-                <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
               </div>
             {/if}
             {#if agent.personaRole}

@@ -30,6 +30,7 @@ import {
 import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
+  bootPromptSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
   agentSettingsSchema,
@@ -301,6 +302,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
     form,
+    bootPromptForm: await superValidate({ systemPrompt: agent.systemPrompt ?? '' }, zod4(bootPromptSchema), { id: 'bootPrompt', errors: false }),
     registerDefaults: registerDefaultsResult,
     registerDefaultsForm,
     addMemoryForm,
@@ -331,6 +333,20 @@ export const actions: Actions = {
       return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.indexes-save-failed', 'Could not update index references.')) }, { status: 500 });
     }
   },
+  updateBootPrompt: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootPromptSchema), { id: 'bootPrompt', strict: true });
+    if (!form.valid) return fail(400, { form });
+    try {
+      await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
+        ref: params.id, systemPrompt: form.data.systemPrompt === '' ? null : form.data.systemPrompt,
+      });
+      return message(form, { type: 'success', text: t('agent.boot.saved', 'Boot prompt saved.') });
+    } catch {
+      // Raw ClientError may include private request variables (the prompt).
+      return message(form, { type: 'error', text: t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.') }, { status: 500 });
+    }
+  },
+
   update: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), agentSettingsFormAdapter);
     if (!form.valid) return fail(400, { form });
@@ -338,7 +354,7 @@ export const actions: Actions = {
     const name = form.data.name || undefined;
     const urnSlug = form.data.urnSlug || undefined;
     const description = form.data.description || null;
-    const systemPrompt = form.data.systemPrompt || null;
+
     // '' → OMIT, never null (#488): updateAgent forbids unsetting/changing a
     // system memory, so an explicit null THROWS when one is attached — and
     // the form's select can degrade to "— None —" whenever the current
@@ -352,7 +368,7 @@ export const actions: Actions = {
     const { personaRole } = form.data;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
-        ref: params.id, name, urn: urnSlug, description, systemPrompt, systemMemoryId, visibility,
+        ref: params.id, name, urn: urnSlug, description, systemMemoryId, visibility,
         personaRole,
       });
 
@@ -370,6 +386,10 @@ export const actions: Actions = {
         const NODE_Q = /* GraphQL */ `query NodeExists($ref: ID!, $memoryRef: ID!) { node(ref: $ref, memoryRef: $memoryRef) { id } }`;
         const client = gqlClient(locals.token);
         const agentDisplayName = name ?? 'Agent';
+        // Read the current prompt for the first-attach scaffold; metadata does
+        // not carry or rewrite the separately edited prompt (#999).
+        const currentAgent = await client.request<{ agent: Pick<Agent, 'systemPrompt'> | null }>(AGENT_QUERY, { ref: params.id });
+        const systemPrompt = currentAgent.agent?.systemPrompt ?? null;
 
         // Check if conversations parent exists; create scaffold if missing
         const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { ref: 'conversations', memoryRef: systemMemoryId }).catch(() => ({ node: null }));
