@@ -1548,6 +1548,14 @@ export const NODE_REVISIONS_PROVENANCE_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1001: the live content a revision's diff ends at, when that revision is the
+// newest snapshot. raw: true — the text as authored, never template-compiled.
+export const NODE_LIVE_CONTENT_QUERY = /* GraphQL */ `
+  query NodeLiveContent($ref: ID!) {
+    node(ref: $ref, raw: true) { id content revision }
+  }
+`;
+
 export const NODE_REVISION_PROVENANCE_QUERY = /* GraphQL */ `
   ${PROVENANCE_FIELDS}
   query NodeRevisionProvenance($revisionId: ID!) {
