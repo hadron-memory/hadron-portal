@@ -1079,7 +1079,7 @@
     ...(!node.isRunnable ? [{ id: 'convert-to-task', label: t('node-actions.convert-to-task', 'Convert to task') }] : []),
     ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
     { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
-  ].filter((action) => !readOnly || ['open-chat', 'download', 'export-skill'].includes(action.id)));
+  ].filter((action) => !readOnly || ['open-chat', 'download', 'print', 'export-skill'].includes(action.id)));
 
   // portal#1175: a comment is feedback, so the actions that treat it as a node to
   // grow, relocate, copy or promote are not offered; Edit only to its author.

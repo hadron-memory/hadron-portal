@@ -137,6 +137,29 @@ function stubWindowOpen() {
 }
 
 describe('node menu Print (#1073)', () => {
+  it('keeps Print usable for a reader while hiding mutation actions', async () => {
+    const { target, props } = await mountPage();
+    props.data = { ...props.data as Record<string, unknown>, canWriteMemory: false };
+    flushSync();
+    stubObjectUrls();
+    const { open } = stubWindowOpen();
+    const fetchMock = stubExportFetch();
+    vi.stubGlobal('fetch', fetchMock);
+    target.querySelector<HTMLButtonElement>('button[aria-label^="Actions for"]')!.click();
+    flushSync();
+    const items = [...target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+    const print = items.find((item) => item.textContent?.trim() === 'Print');
+    expect(print).toBeDefined();
+    expect(items.some((item) => ['Delete', 'Add child', 'Move', 'Duplicate'].includes(item.textContent?.trim() ?? ''))).toBe(false);
+    print!.click();
+    flushSync();
+    await settle();
+    expect(open).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ id: 'leaf-pk', format: 'PDF', full: true });
+  });
+
   it('opens the node\'s PDF render in a new tab, revoking only the previous URL', async () => {
     const { target } = await mountPage();
     const { create, revoke } = stubObjectUrls();
