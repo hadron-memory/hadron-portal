@@ -1,4 +1,4 @@
-# Exported from hadron-server f693a50e6c371d33970b7b35f009114f61aab44e (origin/main, 2026-10-15T22:01:08-07:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 252b6cd79b505e766ccf1a9b8c9da587a6fad27f (origin/main, 2026-10-20T18:54:48-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -196,6 +196,11 @@ type Agent {
   tasksIndexRef: ID
   type: AgentType!
   urn: String!
+
+  """
+  #2138: false means every Worker cast from this Agent counts as having a task and is expected to check its team channel every period (coordinators, the lifecycle agent). Default true.
+  """
+  usesTasks: Boolean!
   visibility: AgentVisibility!
 }
 
@@ -1095,6 +1100,10 @@ type App {
   cannot be emitted in grammar v2.
   """
   installedAgentUrn: String
+
+  """
+  Key inventory, only for whoever manages the App as themselves, never through a bound worker session (hrn:node:hadronmemory.com:specs:cor:dmo:050:05).
+  """
   keys: [AppKey!]!
   memberCount: Int!
   members: [AppMember!]!
@@ -1134,6 +1143,11 @@ type App {
   sharedMemory: Memory
   surfaces: [String!]!
   systemPrompt: String
+
+  """
+  #2138: when the whole team was paused (setTeamPause), or null. Separate from every worker's own pause.
+  """
+  teamPausedAt: DateTime
   trainingMode: Boolean!
   updatedAt: DateTime
   urn: String!
@@ -1174,6 +1188,65 @@ Returned once at App creation / regenerateAppKey — the raw key is never stored
 type AppCreated {
   app: App!
   rawKey: String!
+}
+
+"""
+Delivery timing per App. Busy/stuck bounds and relation are Proposed (hrn:node:hadronmemory.com:specs:cor:agt:080:05).
+"""
+type AppDeliverySettings {
+  """
+  The existing ticker cadence floor and wake-rate ceiling, also the batching window. Changing it affects ticker cadence. DEPRECATED (#2138): push batching is superseded by channel checks; kept readable, no new consumer.
+  """
+  batchWindowSeconds: Int!
+
+  """
+  Whole seconds, 1..86400; default 600. DEPRECATED (#2138): superseded by channel checks.
+  """
+  busyDelaySeconds: Int!
+
+  """
+  #2138: a worker with a task is expected to check its team channel every period. Whole seconds, 60..86400; default 600. Set together with the team ticker's cadence.
+  """
+  checkPeriodSeconds: Int!
+
+  """
+  #2138: a worker with a task is OVERDUE after this many missed periods plus 5 minutes. Whole number, 1..100; default 2.
+  """
+  failedChecksToOverdue: Int!
+
+  """
+  False until S7 supplies standby behavior; configuration alone has no effect.
+  """
+  standbyEffective: Boolean!
+
+  """
+  Stored configuration; default false. Enabling is refused until standby behavior ships.
+  """
+  standbyEnabled: Boolean!
+
+  """
+  Whole seconds, 1..604800; default 900. Must exceed busy delay plus batch window. DEPRECATED (#2138): superseded by channel checks.
+  """
+  stuckWindowSeconds: Int!
+}
+
+"""
+Atomic patch: omit to preserve, explicit null refuses. Empty patch returns the current authorized settings.
+"""
+input AppDeliverySettingsInput {
+  """
+  Shared ticker floor/window; existing floor, self-cadence and live-ticker limits apply.
+  """
+  batchWindowSeconds: Int
+  busyDelaySeconds: Int
+
+  """#2138: whole seconds, 60..86400."""
+  checkPeriodSeconds: Int
+
+  """#2138: whole number, 1..100."""
+  failedChecksToOverdue: Int
+  standbyEnabled: Boolean
+  stuckWindowSeconds: Int
 }
 
 """Filter for the uniform apps() list (#473). Clauses AND-combine."""
@@ -1764,6 +1837,13 @@ enum AvailabilitySetter {
 enum AvailabilityState {
   AVAILABLE
   UNAVAILABLE
+}
+
+input BatchThrough {
+  channelId: ID!
+
+  """A seq this batch rendered in that channel."""
+  seq: Int!
 }
 
 input BeginAssetUploadInput {
@@ -3185,6 +3265,49 @@ type DeleteTeamRolePayload {
   role: String!
 }
 
+"""
+One ready-to-type delivery for one worker. The id is a signed proof bound to the key, the host and the rendered ranges: hand it back to acknowledgeDeliveryBatches after typing.
+"""
+type DeliveryBatch {
+  """The latest moment a busy worker may be made to wait for this delivery."""
+  busyDeadline: DateTime!
+
+  """
+  Not before this moment (the batching window / busy deadline of the oldest waiting message).
+  """
+  deliverAfter: DateTime!
+  id: String!
+
+  """Always false until stop signals ship (S6)."""
+  interrupt: Boolean!
+
+  """Eligible messages left for the next batch."""
+  overflow: Int!
+  ranges: [DeliveryBatchRange!]!
+
+  """
+  The whole delivery, one line, written by the server (hrn:node:hadronmemory.com:specs:cor:agt:080:26). Type it unchanged.
+  """
+  text: String!
+  worker: Worker!
+}
+
+"""#2017 (S1) — one page of delivery batches."""
+type DeliveryBatchPage {
+  batches: [DeliveryBatch!]!
+  pageInfo: DueWakePageInfo!
+}
+
+type DeliveryBatchRange {
+  channel: Channel!
+  fromSeq: Int!
+  incarnation: Int!
+
+  """Exactly the message seqs this batch rendered."""
+  seqs: [Int!]!
+  throughSeq: Int!
+}
+
 type DormantWithheld {
   mentions: Int!
   worker: Worker!
@@ -3252,6 +3375,22 @@ type DueChannel {
 }
 
 """
+#2022 — the stop-signal notice a STOP reason delivers. Acknowledging the wake records its delivery; it moves no chat mark.
+"""
+type DueStopReason {
+  """The notice; acknowledging the wake records delivery on it."""
+  eventId: ID!
+
+  """
+  True only for a halt's stop notice: the one notice that interrupts the worker.
+  """
+  interrupt: Boolean!
+  level: StopSignalLevel!
+  notice: StopNoticeKind!
+  signalId: ID!
+}
+
+"""
 #1708 — the task a TASK reason is for: shown only to a caller who may read the App's tasks (hrn:node:hadronmemory.com:specs:cor:agt:050:21).
 """
 type DueTaskReason {
@@ -3268,6 +3407,11 @@ type DueTaskReason {
   """A stable label for the reason, e.g. TASK:<id>:assigned."""
   ref: String!
 
+  """
+  S7 (#2023, R90) — on an assignment to a worker that was on standby: how many messages were held from it and passed by the delivered mark. Returned with this one event, so once.
+  """
+  standbyHeld: Int
+
   """The task's title, for the nudge text."""
   title: String!
 }
@@ -3277,10 +3421,26 @@ One merged wake: every reason, one seq range per channel. A wake never moves a r
 """
 type DueWake {
   """
+  #2017 R63 — when the earliest waiting reason became due: a mention's first still-due post, a tick's OLDEST unacknowledged
+  tick time, a task event's time. Never restarted by a re-offer or a join (hrn:node:hadronmemory.com:specs:cor:agt:080:27).
+  """
+  anchorAt: DateTime!
+
+  """
   Carried, never an exclusion (hrn:node:hadronmemory.com:specs:cor:agt:060:02).
   """
   availability: DueWakeAvailability
+
+  """
+  The latest a busy worker may be made to wait: the anchor plus the App's busy delay.
+  """
+  busyDeadline: DateTime!
   channels: [DueChannel!]!
+
+  """
+  Not before this moment: the anchor plus the App's batching window (the shared cadence floor).
+  """
+  deliverAfter: DateTime!
 
   """
   Hand this back to acknowledgeWakes after delivering. Bound to the requester; good for 15 minutes.
@@ -3790,7 +3950,7 @@ type HomeAssistantOp {
 """
 type HostKeyUse {
   """
-  register, collect, report, availability, read or (#1969) session: a refused session write (updateSession, endSession).
+  register, collect, report, availability, read, (#1969) session: a refused session write (updateSession, endSession), or (#1981) issue: a refused issueHostOperation.
   """
   action: String!
 
@@ -4117,6 +4277,14 @@ if the user later re-joins the same App.
 type LeaveAppPayload {
   appId: ID!
   userId: ID!
+}
+
+type LiftStopSignalResult {
+  """
+  False when it had already ended: nothing changed and nobody was told again.
+  """
+  changed: Boolean!
+  signal: StopSignal!
 }
 
 """
@@ -5002,6 +5170,13 @@ type Mutation {
   acknowledgeAlarm(eventId: ID!): AgentTeamEvent!
 
   """
+  #2017 (S1) — record that delivery batches were typed (hrn:node:hadronmemory.com:specs:cor:agt:080:16, :17). Only the receiving host key or the worker's own receiving live session, within 15 minutes.
+  The delivered mark rises to the end of each rendered range; with through (one batch only), only the listed channels move, each to a
+  rendered seq of its own. Writes no read position, tick or budget. A repeat changes nothing.
+  """
+  acknowledgeDeliveryBatches(batchIds: [String!]!, through: [BatchThrough!]): AcknowledgeWakesResult!
+
+  """
   #1748 — record that wakes were delivered (hrn:node:hadronmemory.com:specs:cor:agt:080:16). Never moves a read position.
   """
   acknowledgeWakes(proofs: [String!]!): AcknowledgeWakesResult!
@@ -5300,10 +5475,12 @@ type Mutation {
   ): Worker!
 
   """
-  Clear an Agent's AI provider config.
+  Clear an Agent's AI provider config without returning or decrypting keys.
   
-  036-ai-service-config: deletes the Agent's registry config named
-  'default'.
+  Clearing a user-owned Agent, by its owner or a platform ADMIN/OWNER,
+  removes every named configuration, including disabled configurations.
+  hrn:node:hadronmemory.com:specs:cor:dmo:050:13
+  An org-owned Agent clear deletes only the configuration named 'default'.
   
   Accepts the entity's ID or URN.
   """
@@ -5316,6 +5493,11 @@ type Mutation {
   soft-deleted node (purging residual history is a cleanup op).
   """
   clearNodeHistory(nodeRef: ID!): Int!
+
+  """
+  S7 — lift an isolation (same audience). Clearing when none is set changes nothing.
+  """
+  clearWorkerIsolation(workerRef: String!): WorkerWakeSettings!
 
   """
   Clone a Memory into a new Memory at `targetUrn`.
@@ -5384,7 +5566,7 @@ type Mutation {
   
   orgId accepts the org's ID or URN.
   """
-  createAgent(description: String, name: String!, orgId: ID, personaRole: String, surfaces: [String!], systemMemoryId: String, systemPrompt: String, type: AgentType, visibility: AgentVisibility): Agent!
+  createAgent(description: String, name: String!, orgId: ID, personaRole: String, surfaces: [String!], systemMemoryId: String, systemPrompt: String, type: AgentType, usesTasks: Boolean, visibility: AgentVisibility): Agent!
 
   """
   Subscribe an organization to a PUBLIC Agent without creating an App.
@@ -5531,7 +5713,10 @@ type Mutation {
   ): App!
 
   """
-  Mint a new AppKey for an App.
+  Mint a new AppKey for an App. Only whoever manages the App, as themselves
+  (hrn:node:hadronmemory.com:specs:cor:dmo:050:05; hrn:node:hadronmemory.com:specs:cor:acl:010:01).
+  Never an App key, a bound worker session or an impersonated request; new keys hold no scopes.
+  Granting or revoking scopes uses the same manager audience.
   
   Accepts the entity's ID or URN.
   """
@@ -5802,6 +5987,13 @@ type Mutation {
   already exists at (memoryId, loc) — creating is create-only (spec 039
   Phase 0 D1); a soft-deleted node at the target loc is resurrected.
   'name' is required here and only here (D4).
+  Include tags (#2040): content may carry {{> target settings}} tags. Writes
+  that make a tag malformed refuse INVALID_INCLUDE, and one that would make
+  the node include itself INCLUDE_CYCLE; nothing is written. A chain deeper
+  than 10 is not refused: it saves, and reads show the broken-include notice
+  past level 10 (#2134). Each tag's target gets a derived edge
+  (governed kind INCLUDE) that only the content owns: editing or deleting it
+  directly refuses INCLUDE_EDGE_DERIVED.
   """
   createNode(input: CreateNodeInput!): Node!
 
@@ -6088,7 +6280,10 @@ type Mutation {
   """
   deleteChannel(ref: ID!): Boolean!
 
-  """Soft-delete a saved chat and all its messages"""
+  """
+  Soft-delete a saved chat and all its messages. Requires current write access
+  to its host memory.
+  """
   deleteChat(chatId: String!): Boolean!
 
   """
@@ -6317,16 +6512,22 @@ type Mutation {
   (identity fields nulled, handle replaced with a random deleted-...
   value) and soft-deleted; a deleted account can no longer authenticate.
   """
-  deleteUser(userRef: ID): Boolean!
+  deleteUser(reason: String, userRef: ID): Boolean!
 
   """
-  #974 — hard-delete a NEVER-USED miscast (cor:dmo:050:11's only removal
-  escape): refused with WORKER_IN_USE unless no session was ever bound and
-  the worker's working memory holds no content. Anything with history
-  retires instead — its name is bound to that history forever. Also removes
-  the empty working memory. Same authorization as castWorker.
+  #1162 — hard-delete a never-referenced miscast only.
+  hrn:node:hadronmemory.com:specs:cor:dmo:050:11
+  Empty normally ended and released stints are repairable; persisted
+  attribution, including tombstones/history, refuses WORKER_IN_USE.
+  The requester must explicitly verify no signed commit, trailer, PR,
+  comment, review or published artifact attributes work to this Worker.
+  Database counts cannot prove external absence: known or uncertain
+  external history means retire instead. Omitted or false confirmation
+  refuses WORKER_EXTERNAL_ATTRIBUTION_UNCONFIRMED. No external crawl.
+  Also removes empty ended stints and the empty working memory.
+  Same staffing authorization as castWorker.
   """
-  deleteWorker(workerRef: ID!): Boolean!
+  deleteWorker(confirmNoExternalAttribution: Boolean, workerRef: ID!): Boolean!
 
   """
   #1606 — the author edits a comment's body and/or quote. COMMENT_NOT_AUTHOR otherwise.
@@ -6581,6 +6782,13 @@ type Mutation {
   inviteUser(email: String, expiresInDays: Int, githubUsername: String, maxActivations: Int, name: String): UserInvitation!
 
   """
+  S7 (#2023, R85) — isolate a worker until a time (default 2 hours, at most 7 days; a later time extends, an earlier one shortens).
+  Only a person managing the App or holding the worker, acting as themselves; a worker session (even a manager's), an App key or an
+  impersonation is refused with WORKER_ISOLATION_FORBIDDEN. Never touches the worker's own pause.
+  """
+  isolateWorker(until: DateTime, workerRef: String!): WorkerWakeSettings!
+
+  """
   #1709 — issue an operation to one of the App's registered hosts (hrn:node:hadronmemory.com:specs:cor:agt:070:05).
   A type outside the closed set is HOST_OPERATION_TYPE_UNKNOWN (hrn:node:hadronmemory.com:specs:cor:agt:070:03), a
   missing, extra or malformed argument BAD_HOST_OPERATION_ARGS. worktree.create and worktree.remove: the worker's
@@ -6636,6 +6844,12 @@ type Mutation {
   Accepts the entity's ID or URN.
   """
   leaveApp(appId: ID!): LeaveAppPayload!
+
+  """
+  #2022 (hrn:node:hadronmemory.com:specs:cor:agt:090:05, :06) — lift a stop signal. Whoever manages the App, any; a host key, a HALT on its own host.
+  Lifting one never ends another. changed is false when it had already ended. Refusals as setTeamStopSignal.
+  """
+  liftTeamStopSignal(appRef: String!, id: ID!): LiftStopSignalResult!
 
   """
   Link a GitHub App installation to an organization (org ADMIN or platform ADMIN).
@@ -6913,7 +7127,9 @@ type Mutation {
 
   """
   App key management — revoke all active keys for an App and mint a
-  fresh one. (See createAppKey / revokeAppKey / deleteApp below.)
+  fresh one. Only whoever manages the App, as themselves
+  (hrn:node:hadronmemory.com:specs:cor:dmo:050:05; hrn:node:hadronmemory.com:specs:cor:acl:010:01).
+  Never an App key, a bound worker session or an impersonated request. The replacement key holds no scopes.
   
   Accepts the entity's ID or URN.
   """
@@ -7257,7 +7473,11 @@ type Mutation {
   """
   revokeAppGrant(appRef: String!, name: AppGrantName!, workerRef: String!): AppGrant!
 
-  """AppKey is keyed by raw ID — no urn column. Stays ID-only."""
+  """
+  Revoke an AppKey. Only whoever manages the App, as themselves
+  (hrn:node:hadronmemory.com:specs:cor:dmo:050:05; hrn:node:hadronmemory.com:specs:cor:acl:010:01).
+  Never an App key, a bound worker session or an impersonated request. AppKey has no URN; the id is raw ID-only.
+  """
   revokeAppKey(id: ID!): Boolean!
 
   """
@@ -7273,12 +7493,11 @@ type Mutation {
 
   """
   025-oauth-for-mcp FR-004: revoke a user-scoped API key owned by
-  the calling User. Returns the updated UserApiKey so the portal
-  can render the new revokedAt without a refetch (PR-137 review
-  delta D3 — was Boolean). Idempotent for already-revoked keys;
-  rejected with FORBIDDEN if the key belongs to another user;
-  NOT_FOUND if id does not exist; UNAUTHENTICATED for AppKey-
-  resolved callers.
+  the calling User, together with every recorded descendant. Unrelated
+  roots and siblings stay live; unknown legacy parents are not inferred.
+  Returns the named UserApiKey with its revokedAt. Idempotent for
+  already-revoked keys. NOT_FOUND for both unknown and foreign keys;
+  UNAUTHENTICATED for AppKey-resolved callers.
   """
   revokeUserApiKey(id: ID!): UserApiKey!
 
@@ -7377,8 +7596,14 @@ type Mutation {
   setAiModelPrice(input: SetAiModelPriceInput!): AiModelPrice!
 
   """
+  App managers only; omitted preserves, null refuses. Standby activation is unavailable until S7 (hrn:node:hadronmemory.com:specs:cor:agt:080:19).
+  """
+  setAppDeliverySettings(appRef: String!, input: AppDeliverySettingsInput!): AppDeliverySettings!
+
+  """
   #1747 — change an App ticker settings (hrn:node:hadronmemory.com:specs:cor:agt:080:05, :19). Whoever manages the App only.
-  Refusals: TICKER_SETTINGS_OUT_OF_RANGE, TICKER_SETTINGS_CONFLICT (a floor above a live ticker cadence).
+  Refusals: TICKER_SETTINGS_OUT_OF_RANGE, TICKER_SETTINGS_CONFLICT (a floor above a live ticker cadence),
+  DELIVERY_SETTINGS_CONFLICT (the shared cadence floor must keep stuckWindowSeconds greater than busyDelaySeconds + minCadenceSeconds).
   """
   setAppTickerSettings(appRef: String!, input: AppTickerSettingsInput!): AppTickerSettings!
 
@@ -7421,6 +7646,20 @@ type Mutation {
   Set the stored (enforced) quota limit for a scope x action (#510) - the operator dial that previously required psql. Org-ADMIN.
   """
   setQuotaLimit(input: SetQuotaLimitInput!): QuotaCounter!
+
+  """
+  #2138: pause or resume the whole team, as whoever manages the App. Separate from each worker's own pause: a worker cannot lift it, and ending it clears no self-pause. While paused, no worker is nudged and every worker's check status is PENDING (TEAM_PAUSED).
+  """
+  setTeamPause(appRef: String!, paused: Boolean!): TeamPause!
+
+  """
+  #2022 (hrn:node:hadronmemory.com:specs:cor:agt:090:01, :06) — set a stop signal. Whoever manages the App: any level and
+  scope. A host key: a HALT on its own host only. Never replaces another signal. Refusals: APP_MANAGER_REQUIRED,
+  HOST_SCOPE_REQUIRED, STOP_SIGNAL_SCOPE_FORBIDDEN, STOP_SIGNAL_NOT_FOUND (the target), BAD_USER_INPUT, APP_NOT_FOUND.
+  #2173 (R95): until the stop-notice lane is in effect, setting ANY signal is refused with STOP_SIGNAL_UNAVAILABLE (a worker
+  would be stopped without being told); lifting and listing are unaffected, and the refusal lifts when the lane is turned on.
+  """
+  setTeamStopSignal(input: SetTeamStopSignalInput!): StopSignal!
 
   """
   #1706 — set a worker's availability for work (hrn:node:hadronmemory.com:specs:cor:agt:060:08): the worker
@@ -7616,7 +7855,7 @@ type Mutation {
   
   Accepts the entity's ID or URN.
   """
-  updateAgent(description: String, listedOnMarketplace: Boolean, name: String, personaRole: String, ref: ID!, registerDefaults: RegisterDefaultsInput, surfaces: [String!], systemMemoryId: String, systemPrompt: String, type: AgentType, urn: String, visibility: AgentVisibility): Agent!
+  updateAgent(description: String, listedOnMarketplace: Boolean, name: String, personaRole: String, ref: ID!, registerDefaults: RegisterDefaultsInput, surfaces: [String!], systemMemoryId: String, systemPrompt: String, type: AgentType, urn: String, usesTasks: Boolean, visibility: AgentVisibility): Agent!
 
   """
   Update an Agent's AI provider config. Key is encrypted at rest.
@@ -7707,7 +7946,7 @@ type Mutation {
   """
   updateChannel(input: UpdateChannelInput!, ref: ID!): Channel!
 
-  """Rename a saved chat (user must own it)"""
+  """Rename a saved chat with current write access to its host memory."""
   updateChatTitle(chatId: String!, title: String!): Boolean!
 
   """
@@ -7848,6 +8087,13 @@ type Mutation {
   moveNode's job, D3). Every content field is optional — omitted fields are
   preserved ('name' included, D4; 'abstract' keeps its omit/null/string
   contract; omitted 'tags' are preserved, issue #235).
+  Include tags (#2040): content may carry {{> target settings}} tags. Writes
+  that make a tag malformed refuse INVALID_INCLUDE, and one that would make
+  the node include itself INCLUDE_CYCLE; nothing is written. A chain deeper
+  than 10 is not refused: it saves, and reads show the broken-include notice
+  past level 10 (#2134). Each tag's target gets a derived edge
+  (governed kind INCLUDE) that only the content owns: editing or deleting it
+  directly refuses INCLUDE_EDGE_DERIVED.
   """
   updateNode(input: UpdateNodeInput!): Node!
 
@@ -8109,7 +8355,11 @@ type Mutation {
   role), and re-casting is barred by `WORKER_IN_USE` for any worker that has
   done work — precisely the ones with an identity to record.
   
-  Scope is one field on purpose: `name` is permanent by law (cor:agt:020:02)
+  Signature/trailer edits require an App manager; a bound worker is provisionally refused (H26).
+  Omitted preserves, null refuses, whitespace-only becomes empty text; other text is raw, max 2000 characters, no NUL.
+  A mixed update is atomic. These values reach the next compose/bind via S4.
+  
+  The other casting identity fields stay immutable: `name` is permanent by law (hrn:node:hadronmemory.com:specs:cor:agt:020:02)
   and `role`/`agent` define the casting itself. OMITTING promptOverride
   preserves it; explicit `null` or a blank string CLEARS it, matching the
   nullable column and castWorker's blank-is-absent normalization.
@@ -8118,9 +8368,9 @@ type Mutation {
   delivered at bind time, and a retired worker takes no new bindings, so the
   edit could never reach anyone.
   
-  Same authorization as castWorker. workerRef is the worker's id or URN (#991).
+  promptOverride alone keeps castWorker staffing authorization. workerRef is the worker's id or URN (#991).
   """
-  updateWorker(promptOverride: String, workerRef: ID!): Worker!
+  updateWorker(promptOverride: String, signature: String, trailer: String, workerRef: ID!): Worker!
 
   """
   #1641 — withdraw a decision (terminal; the code stays consumed): the asker or a decider, a decider once answered. DECIDED ones are superseded instead (DECISION_ANSWERED_DECIDED).
@@ -8178,7 +8428,14 @@ type Node {
   #1606 — open and resolved discussion on this node (hrn:node:hadronmemory.com:specs:cor:dmo:110:07). Batched per request.
   """
   commentSummary: CommentSummary!
-  content: String
+
+  """
+  The node's text. Include tags and data variables resolve for the reader
+  (hrn:node:hadronmemory.com:specs:cor:dmo:150:03); pass raw: true for the stored text with its tags as
+  written. Through nodeBatch, an omitted raw returns the stored text
+  permanently (R21 A) and raw: false resolves.
+  """
+  content(raw: Boolean): String
 
   """
   #1326 — advisory validation for this exact revision. A report for an older revision is STALE.
@@ -8956,6 +9213,11 @@ type NodeRevision {
   revNo: Int
 
   """
+  #1838 — was THIS revision approved (for pinning)? Not whether the node is approved now (that is Node.approvalStatus). A revision counts as approved when some recorded approval covers exactly its hashed content, whichever revision the approval was recorded on (Holger's R7, hrn:node:hadronmemory.com:specs:cor:dmo:060:04).
+  """
+  revisionApproval: RevisionApproval!
+
+  """
   #1201 — Node.role at capture time. In the curated subset because CLEARING a governed role is the escalation #1202 exists for: a history that cannot show the role cannot show the un-governing.
   """
   role: String
@@ -9068,9 +9330,22 @@ type NodeRoleRuleSourceTemplate {
   name: String!
 }
 
+"""
+#1331 — who may write a node whose role this rule governs, ON TOP OF memory write access (never instead of it).
+A write is judged against the role the node has BEFORE it and the role it has AFTER, so creating, editing, changing or clearing a role all need the level.
+"""
 enum NodeRoleWriters {
+  """
+  The owning organization's ADMINs and OWNERs, and the owning user (ROLE_WRITER_LEVEL_REQUIRED otherwise).
+  """
   ADMIN
+
+  """Anyone who may write the memory. Grants no new access."""
   ALL
+
+  """
+  NOT BUILT yet (#1333): any write touching this role is refused (ROLE_WRITERS_UNSUPPORTED). Never read as ALL.
+  """
   OWNER
 }
 
@@ -9600,7 +9875,14 @@ type Query {
   appAIConfig(appRef: ID!): AppAIConfig
 
   """
-  List keys for an App (org ADMIN of the App's org).
+  App delivery settings for participants; cadence/window is the ticker floor (hrn:node:hadronmemory.com:specs:cor:agt:080:05).
+  """
+  appDeliverySettings(appRef: String!): AppDeliverySettings!
+
+  """
+  List keys for an App, only for whoever manages the App
+  (hrn:node:hadronmemory.com:specs:cor:dmo:050:12; hrn:node:hadronmemory.com:specs:cor:acl:010:01).
+  Never an App key, a bound worker session or an impersonated request.
   
   Accepts the entity's ID or URN.
   """
@@ -9886,6 +10168,13 @@ type Query {
   filters, sort and paging; a list above 5000 candidates refuses (DECISION_LOG_TOO_LARGE_FOR_FILTER).
   """
   decisions(authorizes: Boolean, awaitingMe: Boolean, limit: Int = 50, logRef: ID, offset: Int = 0, sort: DecisionSort = PORTAL_DEFAULT, state: [DecisionState!], tier: DecisionTier, urgency: [DecisionUrgency!]): DecisionPage!
+
+  """
+  #2017 (S1) — the ready-to-deliver batches of the workers registered on the calling host (hrn:node:hadronmemory.com:specs:cor:agt:080:22, :26).
+  An own live session reads only its bound worker. A host App key needs attention:deliver AND host:operate;
+  the host is the key's, the request names none, and a worker not on that host is absent. The text is written by the server and typed unchanged. Reading moves nothing; acknowledge the batch ids.
+  """
+  deliveryBatches(after: String, appRef: String!, first: Int, workerRefs: [String!]): DeliveryBatchPage!
 
   """File metadata by id. Grant scope: drive.read."""
   driveFile(connectionRef: ID!, fileId: ID!): DriveFile!
@@ -10913,7 +11202,11 @@ type Query {
   mentionsRef filters to messages whose stored envelope mentions the
   referenced worker (a Worker id or name of THIS App, retired included) or
   user (handle/id) — matching runs against the mention tokens extracted at
-  write time, never by re-parsing bodies. The ref must name this App's own
+  write time, never by re-parsing bodies. For a worker it returns what
+  reaches that worker (#2020): its name, replies to it, and an @all/@team
+  broadcast the server stamped at post time because its author could wake
+  everyone (hrn:node:hadronmemory.com:specs:cor:agt:080:14); never the
+  worker's own posts. A user ref matches the handle alone. The ref must name this App's own
   staff or members (a Worker of the App, an AppMember, or the caller); an
   unresolvable or foreign mentionsRef yields the empty page identically (no
   existence oracle). limit defaults to 50 (cap 200); limit: 0 returns only
@@ -10971,6 +11264,13 @@ type Query {
   Declarative team JSON Schema (2020-12). apiVersion is the full identifier hadron.dev/team/v1alpha1; HTTP discovery uses /schemas/team/v1alpha1.json. CLIENT_INPUT additionally permits file parts for clients to inline; the server accepts SERVER only.
   """
   teamSpecSchema(apiVersion: String!, form: TeamSpecForm = SERVER): String!
+
+  """
+  #2022 (hrn:node:hadronmemory.com:specs:cor:agt:090:07) — an App's stop signals, oldest set first. A person in the App sees
+  every signal (worker narrows to those covering that worker now); a worker's session sees the live ones covering it; a
+  host key sees its own host's. includeEnded adds ended ones (not for a worker's session). first: default 50, max 200.
+  """
+  teamStopSignals(after: String, appRef: String!, first: Int, includeEnded: Boolean, worker: String): StopSignalPage!
 
   """
   Read a team App's worklog (#947) — the provenance query: which sessions
@@ -11649,6 +11949,26 @@ enum ResumeSource {
   LIVE_SESSION
 }
 
+"""
+#1838 — whether one revision was approved, and by which recorded approval.
+"""
+type RevisionApproval {
+  approved: Boolean!
+  approvedAt: DateTime
+  approvedBy: String
+  approvedByInfo: String
+
+  """
+  The revision the covering approval was recorded at; it can differ from this revision when only metadata changed, or the text recurs.
+  """
+  recordedAtRevision: Int
+
+  """
+  NOT_APPLICABLE inside an encrypted memory; APPROVED or NOT_APPROVED otherwise (never SUPERSEDED: that is about the live text).
+  """
+  state: NodeApprovalState!
+}
+
 type RevisionResult {
   createdAt: DateTime!
   label: String!
@@ -12066,6 +12386,11 @@ type Session {
   autoExpiredAt: DateTime
   branch: String
   customerId: String
+
+  """
+  #1156 — hrn:node:hadronmemory.com:specs:cor:dmo:070:05: null while open; stamped cause after end, unknown for legacy ends. Readable wherever this Session is; no ending actor.
+  """
+  endReason: SessionEndReason
   endedAt: DateTime
   errorCount: Int
   events: [UsageEvent!]!
@@ -12085,12 +12410,14 @@ type Session {
   inputTokens: Int
 
   """
-  hadron-cli#791 / cor:agt:020:11: whether THIS session is live: not ended,
+  hadron-cli#791 / hrn:node:hadronmemory.com:specs:cor:agt:020:11:
+  whether THIS session is live: not ended
+  or hard-expired (hrn:node:hadronmemory.com:specs:cor:agt:020:03),
   AND driven inside its type's idle window (activity is the latest of
   startedAt, the heartbeat updatedAt, and the latest attributed usage
   event, capped at endedAt). The same derived predicate as startSession's
   WORKER_TAKEN gate and Worker.hasLiveSession, so the three always agree.
-  An open session that is not live has LAPSED: nobody drove it inside the
+  An unexpired open session that is not live has LAPSED: nobody drove it inside the
   window, so another driver may bind its worker; it is not ended, and can
   still be ended with a handoff. False for an ended or deleted session.
   """
@@ -12098,13 +12425,12 @@ type Session {
   language: String
 
   """
-  #1617: the LAST instant this session still reads live unless something
-  drives it first: its last activity plus its type's idle window. The
-  predicate is inclusive, so the session is live AT this instant and lapsed
-  after it; an instant in the past means it has already LAPSED. Any
-  attributed read, post or mark-read through a live session renews it.
-  Derived from the same computation as isLive, so the two always agree.
-  Null for an ended or deleted session.
+  #1617 / #1036: the earlier of last activity plus the type's idle window
+  and a promised expiresAt (hrn:node:hadronmemory.com:specs:cor:agt:020:03).
+  The idle deadline is inclusive; a hard expiry is exclusive: the session
+  is expired at now >= expiresAt, even before the reaper runs. Driving it
+  can renew its idle deadline, never its promised expiry. Null for an
+  ended or deleted session.
   """
   lapsesAt: DateTime
 
@@ -12163,6 +12489,16 @@ type Session {
   #974 / cor:agt:020:03: the Worker (named casting) this session works as.
   """
   workerId: String
+}
+
+"""
+#1156 — hrn:node:hadronmemory.com:specs:cor:dmo:070:05: closed end causes; unknown is reserved for legacy rows.
+"""
+enum SessionEndReason {
+  ended
+  expired
+  superseded
+  unknown
 }
 
 input SessionInput {
@@ -12368,6 +12704,23 @@ input SetQuotaLimitInput {
 
   """Org - ref: PK or URN."""
   orgRef: String!
+}
+
+input SetTeamStopSignalInput {
+  appRef: String!
+
+  """
+  HOST: the host's id. A host key may omit it: its own host is taken from its binding.
+  """
+  host: String
+  level: StopSignalLevel!
+  scope: StopSignalScope!
+
+  """When it ends on its own; later than now. Omitted: until lifted."""
+  until: DateTime
+
+  """WORKER and TEAM: the target worker (a team by its head)."""
+  worker: String
 }
 
 input SetWorkerAvailabilityInput {
@@ -13053,6 +13406,87 @@ type StartImpersonationResult {
   token: String!
 }
 
+"""
+#2022 — whether a stop notice tells the worker to stop or that it may resume.
+"""
+enum StopNoticeKind {
+  RESUME
+  STOP
+}
+
+"""
+#2022 (hrn:node:hadronmemory.com:specs:cor:agt:090:01) — a stop signal. Ids and times only; it never changes once set, except that its end is recorded.
+"""
+type StopSignal {
+  endKind: StopSignalEndKind
+
+  """
+  When it was lifted, or its until (an expiry is in effect at its until).
+  """
+  endedAt: DateTime
+  endedByHostKey: Boolean!
+  endedByUserId: ID
+  id: ID!
+  level: StopSignalLevel!
+
+  """Not ended and its until, when given, still ahead."""
+  live: Boolean!
+  scope: StopSignalScope!
+  setAt: DateTime!
+  setByHostKey: Boolean!
+
+  """The person who set it; null when a host key did."""
+  setByUserId: ID
+
+  """HOST: the target host's id."""
+  targetHostId: String
+
+  """WORKER and TEAM: the target worker (a team by its head)."""
+  targetWorkerId: ID
+
+  """When it ends on its own, if set to."""
+  until: DateTime
+}
+
+enum StopSignalEndKind {
+  EXPIRED
+  LIFTED
+}
+
+"""
+#2022 (hrn:node:hadronmemory.com:specs:cor:agt:090:01) — a stop signal's level. Each stops everything the one before it does.
+"""
+enum StopSignalLevel {
+  """
+  Also interrupts each covered worker, to save its work and write a hand-off (the notice is recorded but not yet delivered: no interrupt happens yet).
+  """
+  HALT
+
+  """
+  Also stops ticks and stall time. Each covered worker is told to finish or stop at its next sub-task (the notice is recorded but not yet delivered).
+  """
+  PAUSE
+
+  """
+  Stops assignment only: matching skips the covered workers and a manual assignment to one is refused (TASK_STOPPED). Its coordinators are told (the notice is recorded but not yet delivered).
+  """
+  PAUSE_DISPATCH
+}
+
+type StopSignalPage {
+  pageInfo: DueWakePageInfo!
+  signals: [StopSignal!]!
+}
+
+"""
+#2022 — a stop signal's scope: one worker, a team (its head and the whole reporting tree under it), or the workers a host registration lists.
+"""
+enum StopSignalScope {
+  HOST
+  TEAM
+  WORKER
+}
+
 type SubscribeResult {
   """
   Set only when the call used the grant: whether the team-chat post went out.
@@ -13311,6 +13745,13 @@ type TeamCollectionsPayload {
 }
 
 """
+#2138: the App's team pause. teamPausedAt is null when the team is not paused.
+"""
+type TeamPause {
+  teamPausedAt: DateTime
+}
+
+"""
 A role definition (#960): the roles:<role> node in the Team Agent's system
 memory. #1050: it carries no name register — a role is a definition, not an
 allocation pool.
@@ -13387,6 +13828,11 @@ type TeamRosterEntry {
   Bound: has an open session, live or quiet. Going quiet never unbinds; ending the session does.
   """
   bound: Boolean!
+
+  """
+  #2138 §3.4 (experimental) — whether it is checking its team channel as expected.
+  """
+  checkStatus: WorkerCheckStatus
 
   """
   The binding's model family: its newest open session's (hrn:node:hadronmemory.com:specs:cor:agt:060:04), kept while the session is quiet. Null when unbound or none was reported.
@@ -13586,6 +14032,11 @@ type Ticker {
 
   """A timezone and weekly windows; null when none."""
   quietHours: JSON
+
+  """
+  #2068 — why the ticker fires. Never empty; existing tickers are READ_TEAM_CHANNEL.
+  """
+  reasons: [TickerReason!]!
   relevance: TickerRelevance!
 
   """Permanent: a re-created name gets a new slug (engineering-2)."""
@@ -13607,6 +14058,11 @@ input TickerInput {
   enabled: Boolean
   name: String!
   quietHours: JSON
+
+  """
+  Absent on create = [READ_TEAM_CHANNEL]; an empty list is refused. On update, absent = unchanged.
+  """
+  reasons: [TickerReason!]
   relevance: TickerRelevance
 }
 
@@ -13622,7 +14078,32 @@ input TickerPatch {
   enabled: Boolean
   name: String
   quietHours: JSON
+
+  """
+  Absent on create = [READ_TEAM_CHANNEL]; an empty list is refused. On update, absent = unchanged.
+  """
+  reasons: [TickerReason!]
   relevance: TickerRelevance
+}
+
+"""
+#2068 (hrn:node:hadronmemory.com:specs:cor:agt:080:01, :10) — why a ticker fires. A closed set; several fire it when any one holds.
+"""
+enum TickerReason {
+  """
+  Fires on every tick, with or without unread. The floor, budget, pause and dormancy still apply.
+  """
+  EVERY_TICK
+
+  """
+  #2138: fires when the subscriber has not checked its team channel within the ticker's cadence, whatever is unread, and never for a worker not expected to check (no task, isolated, paused, or a team pause).
+  """
+  LIVE_CHECK
+
+  """
+  Fires only when the subscriber has relevant unread in the ticker's channels (what relevance counts is the ticker's relevance).
+  """
+  READ_TEAM_CHANNEL
 }
 
 """
@@ -14036,13 +14517,20 @@ type UserApiKey {
   id: ID!
 
   """
-  Issuance path: portal (createUserApiKey) or oauth:<client_id>
-  (POST /oauth/token). Powers source labels in the revocation UI.
+  Issuance identity: portal for direct sign-in issuance, or oauth:<client_id>
+  for OAuth issuance. A key minted by a key inherits that credential's
+  issuance identity. Powers source labels in the revocation UI.
   """
   issuedVia: String
   keyPreview: String!
   label: String
   lastUsedAt: DateTime
+
+  """
+  Authenticated key that minted this key. Null for direct issuance or
+  unknown legacy ancestry; historical parents are never inferred.
+  """
+  mintedByKeyId: ID
 
   """
   Immutable OAuth scopes bound to this credential. Empty means an
@@ -14107,6 +14595,11 @@ enum WakeKind {
   MENTION
 
   """
+  #2022 — a stop-signal notice (hrn:node:hadronmemory.com:specs:cor:agt:090:04): ahead of everything else, past the floor, the busy delay and the budget's refusal. Not yet offered (DARK until the host consumer ships).
+  """
+  STOP
+
+  """
   #1708 — a task event the worker must act on (an assignment, a child's finish, an alarm's woken position, #1709 a request to end its session). Wakes at once, like a mention.
   """
   TASK
@@ -14115,6 +14608,9 @@ enum WakeKind {
 
 type WakeReason {
   kind: WakeKind!
+
+  """#2022 — set for kind STOP."""
+  stop: DueStopReason
 
   """Set for kind TASK."""
   task: DueTaskReason
@@ -14147,6 +14643,13 @@ type Worker {
   members have a narrower read audience.
   """
   appUrn: String
+
+  """
+  #2138 §3.4 (experimental) — whether this worker is checking its team
+  channel as expected, derived at read time. Masked to null on the same read
+  gate as hasLiveSession.
+  """
+  checkStatus: WorkerCheckStatus
 
   """
   #1029 — what a fresh binding of this worker inherits from the last one.
@@ -14323,6 +14826,11 @@ type Worker {
   role: String
 
   """
+  Per-worker signature template, masked for nonreaders (hrn:node:hadronmemory.com:specs:cor:agt:040:04).
+  """
+  signature: String
+
+  """
   The URN atom, derived from the name at cast time and permanent thereafter
   (#991). Lowercased, sanitized to the URN slug charset, and iterated
   ('iris', 'iris-2', …) until free within the App — so deriving it NEVER
@@ -14330,6 +14838,11 @@ type Worker {
   caller sees (cor:agt:020:02).
   """
   slug: String!
+
+  """
+  Per-worker commit trailer template, masked for nonreaders (hrn:node:hadronmemory.com:specs:cor:agt:040:04).
+  """
+  trailer: String
 
   """
   hrn:worker:<root>:<app-slug>:<slug> (#991) — computed from the App's URN
@@ -14372,6 +14885,44 @@ type WorkerAvailability {
   """
   until: DateTime
   worker: AgentTaskParty!
+}
+
+"""
+#2138 §3.4 (experimental) — a worker's check status. Draft spec: hrn:node:hadronmemory.com:hadron-dev-team-vera:work:2138-experiment-spec.
+"""
+enum WorkerCheckState {
+  """No live session."""
+  NO_SESSION
+
+  """
+  Has a task and checked within failedChecksToOverdue × checkPeriodSeconds + 5 minutes.
+  """
+  OK
+
+  """
+  Has a task and hasn't checked for longer than that. Long turns show here on purpose.
+  """
+  OVERDUE
+
+  """Not expected to check now; pendingReason says why."""
+  PENDING
+}
+
+"""
+#2138 §3.4 — a worker's check status. A worker HAS A TASK when an open task is
+assigned to it or its Agent has usesTasks: false. The OVERDUE clock runs from
+the latest of lastCheckedAt, its newest open assignment, its live session's
+start and the end of its own pause.
+"""
+type WorkerCheckStatus {
+  """
+  When it last checked the App's team channel through its own session; null if never.
+  """
+  lastCheckedAt: DateTime
+
+  """Set only when status is PENDING."""
+  pendingReason: WorkerPendingReason
+  status: WorkerCheckState!
 }
 
 """
@@ -14436,6 +14987,31 @@ enum WorkerContinuityStatus {
 }
 
 """
+#2138 §3.4 — why a worker is PENDING. Precedence: TEAM_PAUSED, STOPPED, PAUSED, ISOLATED, STANDBY, NO_TASK.
+"""
+enum WorkerPendingReason {
+  """In isolation (unreachable until isolation is built)."""
+  ISOLATED
+
+  """No open task assigned, and its Agent uses tasks."""
+  NO_TASK
+
+  """Its own pause (pausedUntil) is in force."""
+  PAUSED
+
+  """On standby (unreachable until standby is built)."""
+  STANDBY
+
+  """
+  #2022: a PAUSE or HALT stop signal covers the worker, so it is not ticked (hrn:node:hadronmemory.com:specs:cor:agt:090:03).
+  """
+  STOPPED
+
+  """A team pause is in force (App.teamPausedAt); the worker can't lift it."""
+  TEAM_PAUSED
+}
+
+"""
 #1747 — a worker wake settings (hrn:node:hadronmemory.com:specs:cor:agt:080:03).
 """
 type WorkerWakeSettings {
@@ -14446,6 +15022,20 @@ type WorkerWakeSettings {
 
   """The fastest live subscription on an enabled ticker; null when none."""
   effectiveCadenceSeconds: Int
+
+  """Live: isolatedUntil is in the future."""
+  isolated: Boolean!
+  isolatedAt: DateTime
+
+  """
+  The handle of the person who set it: only a person managing the App or holding the worker, acting as themselves, can.
+  """
+  isolatedByHandle: String
+
+  """
+  S7 (#2023, R85) — isolation is its own state, never pausedUntil. While live the worker gets no chat batches or ordinary wakes and is not matched.
+  """
+  isolatedUntil: DateTime
   mentions: MentionWake!
 
   """A pause belongs to the worker, not to a session."""
