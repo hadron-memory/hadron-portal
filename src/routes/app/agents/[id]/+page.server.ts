@@ -28,7 +28,7 @@ import {
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
-  APP_ORG_AGENTS_QUERY,
+  APP_ORG_AGENT_GRANTS_QUERY,
   PUBLISH_AGENT_IMPORT_MUTATION,
 } from '$lib/server/queries';
 import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
@@ -254,8 +254,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   if (org) {
     const pool = await withTimeout(
       client
-        .request<{ organization: OrgAgentPool | null }>(APP_ORG_AGENTS_QUERY, { ref: org.id })
-        .then((r) => (r.organization ? grantedAgents(r.organization) : null)),
+        .request<{ organization: Pick<OrgAgentPool, 'agentOrgGrants'> | null }>(APP_ORG_AGENT_GRANTS_QUERY, { ref: org.id })
+        .then((r) => (r.organization ? grantedAgents({ agents: [], agentOrgGrants: r.organization.agentOrgGrants }) : null)),
       OPTIONAL_LIST_TIMEOUT_MS,
       null,
     ).catch(() => null);

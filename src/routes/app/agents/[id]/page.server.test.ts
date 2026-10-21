@@ -22,7 +22,7 @@ import {
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
   AGENT_REGISTER_DEFAULTS_QUERY,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
-  APP_ORG_AGENTS_QUERY,
+  APP_ORG_AGENT_GRANTS_QUERY,
   PUBLISH_AGENT_IMPORT_MUTATION,
 } from '$lib/server/queries';
 
@@ -163,9 +163,9 @@ function routeMock(opts: {
     }
     // #1173: the Bundled tab's candidates, a request of its own (a refusal
     // costs the add control, never the page).
-    if (query === APP_ORG_AGENTS_QUERY) {
+    if (query === APP_ORG_AGENT_GRANTS_QUERY) {
       if (opts.orgAgents?.error !== undefined) throw opts.orgAgents.error;
-      return opts.orgAgents?.data ?? { organization: { id: 'org-a', agents: [], agentOrgGrants: [] } };
+      return opts.orgAgents?.data ?? { organization: { id: 'org-a', agentOrgGrants: [] } };
     }
     throw new Error(`Unexpected query passed to mockRequest`);
   });
