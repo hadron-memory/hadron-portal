@@ -10,9 +10,11 @@
   import type { ContentScope } from '$lib/comments';
   import { onDestroy, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
+  import { createNodeColumns } from '$lib/node-columns.svelte';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { Memory, MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
+  import type { NodeColumnRow } from '$lib/node-columns';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
@@ -334,6 +336,41 @@
   let searchMode = $state<'exact' | 'regex' | 'fuzzy'>('exact');
   $effect(() => { graphState.searchFilter = keyword; });
   onDestroy(() => { graphState.searchFilter = ''; graphState.searchResultNodeIds = null; });
+
+  // portal#1174: the Nodes tab's Role / Last changed / Changed by / Revision /
+  // Approved / Signed columns. They are not on the slim rows the layout loads,
+  // so they are read here, lazily, for the rows on the DISPLAYED page only
+  // (hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers).
+  const nodeColumns = createNodeColumns(async (refs) => {
+    const res = await fetch('/api/nodes/columns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refs }),
+    });
+    if (!res.ok) throw new Error(`columns ${res.status}`);
+    return (await res.json()) as { rows: NodeColumnRow[]; unavailable: string[]; omitted: string[]; signing?: boolean };
+  });
+  onDestroy(() => nodeColumns.destroy());
+  // The rows on screen, as NodeList last reported them, so a refresh can re-read
+  // exactly those.
+  let columnIds: string[] = [];
+  function showColumnsFor(ids: string[]) {
+    columnIds = ids;
+    void nodeColumns.ensure(ids);
+  }
+  // An approval or mint changes what Approved/Signed/Revision say, and the
+  // layout bumps `refreshKey` after those actions; the cached columns are then
+  // stale, so forget them and read the page again (Gizelle on #1181).
+  let columnsRefreshKey = untrack(() => refreshKey);
+  $effect(() => {
+    const key = refreshKey;
+    if (key === columnsRefreshKey) return;
+    columnsRefreshKey = key;
+    untrack(() => {
+      nodeColumns.reset();
+      void nodeColumns.ensure(columnIds);
+    });
+  });
 
   // #429: structured server-side dimensions the slim loaded set can't answer
   // client-side. `myNodesOnly` → findNodes filter.createdBy (needs the caller's
@@ -1200,13 +1237,17 @@
     </select>
 
     <!-- portal#1015: Content / Comments / All, applied by the server before ranking and the result cap -->
-    <select bind:value={contentScope} data-testid="scope-filter" aria-label={t('memory-browser.scope-filter', 'Search scope')} title={t('memory-browser.scope-filter', 'Search scope')}
+    <!-- portal#1174: a bare "Content" beside "Node Types" read as a second type filter; name what it is. One label wraps both so they never split across lines, and the select takes its accessible name from the visible word (an aria-label would override it, WCAG 2.5.3). -->
+    <label class="inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+      <span>{t('memory-browser.scope-label', 'Show')}</span>
+    <select bind:value={contentScope} id="scope-filter" data-testid="scope-filter"
       class="rounded-lg border px-2 py-1.5 text-xs
         {contentScope !== 'CONTENT' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="CONTENT">{t('memory-browser.scope.content', 'Content')}</option>
       <option value="COMMENTS">{t('memory-browser.scope.comments', 'Comments')}</option>
       <option value="ALL">{t('memory-browser.scope.all', 'Content and comments')}</option>
     </select>
+    </label>
 
     <!-- #992: approval and minting state (server-side findNodes filter) -->
     <select bind:value={approvalFilter} data-testid="approval-filter" aria-label={t('memory-browser.approval-filter', 'Filter by approval')} title={t('memory-browser.approval-filter', 'Filter by approval')}
@@ -1507,7 +1548,10 @@
           <!-- hideSearch: the single search box lives in MemoryBrowser now
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
-          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} />
+          <NodeList
+            nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta}
+            showColumns onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
+          />
         </div>
       {/if}
     </div>
