@@ -84,6 +84,10 @@ export const apiKeysStrings = {
   /** Copy-success confirmation, shown briefly after the click (#230). */
   rawKeyRevealCopied: (): string => t('api-keys.reveal.copied', 'Copied!'),
 
+  /** Countdown beside the dismiss button; the key vanishes at 0:00 (#498). */
+  rawKeyRevealCountdown: (remaining: string): string =>
+    t('api-keys.reveal.countdown', 'This key disappears in {remaining}.', { remaining }),
+
   /** Empty-state message when the user has no keys. */
   emptyState: (): string =>
     t('api-keys.empty', "You haven't minted any API keys yet."),
