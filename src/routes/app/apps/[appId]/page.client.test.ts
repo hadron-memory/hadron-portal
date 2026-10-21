@@ -723,3 +723,55 @@ describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
     expect(requestSubmit).toHaveBeenCalledTimes(1);
   });
 });
+
+
+describe('registered Channel chat switching (#1033)', () => {
+  it('isolates messages, late polls, form targets and drafts, using a dropdown', async () => {
+    setStubPage('http://localhost/app/apps/a1?tab=chats&chat=room-a', { appId: 'a1' });
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    let release!: (response: Response) => void;
+    const fetcher = vi.fn((url: string) => new Promise<Response>(resolve => { release = resolve; }));
+    vi.stubGlobal('fetch', fetcher);
+    vi.useFakeTimers();
+    const base = await pageData();
+    const room = async (id: string) => ({ ...base,
+      appChats: [{ key: 'room-a', label: 'A' }, { key: 'room-b', label: 'B' }],
+      selectedChatKey: id, selectedChannelId: id,
+      selectedChannelMessages: [{ ...message(1, 'w1'), body: `message ${id}` }], selectedChannelTotal: 1, selectedChannelError: false,
+      postChannelMessageForm: await superValidate({ channelRef: id }, zod4(postTeamChatMessageSchema), { id: `channel:${id}`, errors: false }),
+    });
+    const a = await room('room-a');
+    const b = await room('room-b');
+    const props = reactiveProps<Record<string, unknown>>({ data: a, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    expect(m.target.querySelectorAll('#app-chat-select option')).toHaveLength(2);
+    const body = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    body.value = 'draft for A';
+    body.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const scroll = m.target.querySelector<HTMLElement>('.overscroll-y-contain')!;
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 100 });
+    scroll.scrollTop = 340;
+    scroll.dispatchEvent(new Event('scroll'));
+    flushSync();
+    flushSync(() => { props.data = b; });
+    await tick(2);
+    expect(m.target.querySelector<HTMLInputElement>('input[name=channelRef]')!.value).toBe('room-b');
+    expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('');
+    expect(m.target.textContent).toContain('message room-b');
+    expect(m.target.textContent).not.toContain('message room-a');
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining('channelRef=room-b&sinceSeq=1'));
+    flushSync(() => { props.data = a; });
+    await tick(2);
+    release(new Response(JSON.stringify({ items: [{ ...message(2, 'w1'), body: 'late room B' }], total: 1, loadFailed: false })));
+    await tick(3);
+    expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('draft for A');
+    expect(m.target.textContent).not.toContain('late room B');
+    expect(m.target.querySelector<HTMLElement>('.overscroll-y-contain')!.scrollTop).toBe(340);
+    expect(m.target.querySelector<HTMLInputElement>('input[name=channelRef]')!.value).toBe('room-a');
+  });
+});

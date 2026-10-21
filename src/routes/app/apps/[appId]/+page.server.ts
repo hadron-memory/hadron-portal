@@ -1,3 +1,5 @@
+import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
+import { withRegisteredChannels } from '$lib/app-chats';
 import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -26,6 +28,7 @@ import {
   REVOKE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
+  APP_CHANNELS_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   RESOLVE_AI_SERVICE_CONFIGS_QUERY,
   WORKERS_QUERY,
@@ -794,20 +797,25 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // The agent chat is offered only when the App actually has one, matching the
   // condition the retired `chat` tab used, so an App with no linked agent does
   // not gain an entry that cannot render.
-  const appChats = buildAppChatList(chatRoots ?? [], { hasAgentChat: !!app.agentId });
+  const registeredChannels = await fetchAllItems<import('$lib/types').Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId })
+    .catch(() => null);
+  const appChats = withRegisteredChannels(
+    buildAppChatList(chatRoots ?? [], { hasAgentChat: !!app.agentId }), registeredChannels ?? [],
+    (app as typeof app & { defaultChannel?: { id: string } | null }).defaultChannel?.id,
+  );
   const { selected: selectedChat, requestedMissing: chatNotFound } = resolveSelectedChat(
     appChats,
     requestedChat,
   );
 
-  // Only an `other` chat needs loading here: the team chat came through its own
-  // typed operation above (which returns the author envelope a node read
-  // cannot), and the agent chat is fetched by its own component.
-  //
-  // Read-only by necessity, not by choice: the write surfaces are
-  // `createTeamChatMessage` (team chat) and `sendChatMessage` (agent chat).
-  // There is no operation to post into an arbitrary App chat, so the tab says
-  // so rather than rendering a composer that cannot work.
+  // Registered Channels use the addressed operation and the same envelope as
+  // the default team chat. Unregistered old roots retain their node transcript;
+  // this read never creates a Channel or routes a post to the default thread.
+  const selectedChannelMessages = selectedChat?.channelId
+    ? await readChannelPage(client, params.appId, selectedChat.channelId, {}).catch(() => null) : null;
+  const postChannelMessageForm = selectedChat?.channelId
+    ? await superValidate({ channelRef: selectedChat.channelId }, postTeamChatMessageFormAdapter,
+      { errors: false, id: `channel:${selectedChat.channelId}` }) : null;
   const selectedChatMessages =
     selectedChat?.kind === 'other' && selectedChat.memoryId
       ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key)
@@ -845,7 +853,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // chat is neither the team chat nor the agent chat. `chatsError` is the
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
-    chatsError: chatRoots === null,
+    chatsError: chatRoots === null || registeredChannels === null,
+    selectedChannelId: selectedChat?.channelId ?? null,
+    selectedChannelMessages: selectedChannelMessages?.items ?? [],
+    selectedChannelTotal: selectedChannelMessages?.total ?? 0,
+    selectedChannelError: !!selectedChat?.channelId && selectedChannelMessages === null,
+    postChannelMessageForm,
     selectedChatKey: selectedChat?.key ?? null,
     selectedChatMessages: selectedChatMessages?.messages ?? [],
     // #793 (@copilot on PR #797): gate on the KIND. `selectedChatMessages` is
@@ -1115,6 +1128,22 @@ export const actions: Actions = {
         },
         { status: 500 },
       );
+    }
+  },
+
+  postChannelMessage: async ({ request, params, locals }) => {
+    const input = await request.formData();
+    const channelRef = String(input.get('channelRef') ?? '');
+    const form = await superValidate(input, postTeamChatMessageFormAdapter, { id: `channel:${channelRef}` });
+    if (!form.valid) return fail(400, { form });
+    if (!form.data.channelRef) return message(form, { type: 'error', text: t('app.channel.choose', 'Choose a chat before posting.') }, { status: 400 });
+    const reply = Number(form.data.replyToSeq);
+    try {
+      await postToChannel(gqlClient(locals.token), params.appId, form.data.channelRef, form.data.body,
+        Number.isSafeInteger(reply) && reply > 0 ? reply : undefined);
+      return message(form, { type: 'success', text: t('app.channel.post.success', 'Posted to the chat.') });
+    } catch {
+      return message(form, { type: 'error', text: t('app.channel.post.failed', 'Could not post to this chat. Your message has been kept; check your access and try again.') }, { status: 500 });
     }
   },
 

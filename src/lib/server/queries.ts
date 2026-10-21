@@ -832,6 +832,7 @@ export const APP_QUERY = /* GraphQL */ `
       # a server that hasn't picked up spec-021-US1 yet without
       # breaking unrelated app queries.
       installedAgentUrn
+      defaultChannel { id }
     }
   }
 `;
@@ -4554,5 +4555,50 @@ export const PARK_AGENT_TASK_MUTATION = /* GraphQL */ `
 export const APP_PEOPLE_QUERY = /* GraphQL */ `
   query AppPeople($ref: ID!) {
     app(ref: $ref) { id members { user { id handle name } } }
+  }
+`;
+
+
+// #1033: arbitrary registered Channels use the same envelope and stable seq cursors.
+export const CHANNEL_MESSAGES_QUERY = /* GraphQL */ `
+  # #793: beforeSeq (server #1116) is the BACKWARD mirror of sinceSeq — only
+  # messages with seq strictly less than it are considered, and the NEWEST of
+  # those are returned. The server IGNORES offset when beforeSeq is given, which
+  # is the point: an offset is an index into a list whose length changes under a
+  # reader while workers post, so it skips or duplicates mid-scroll. seq is
+  # atomic and unique per chat, so the cursor is stable.
+  query ChannelMessages($channelRef: ID!, $sinceSeq: Int, $beforeSeq: Int, $limit: Int, $offset: Int) {
+    channelMessages(channelRef: $channelRef, sinceSeq: $sinceSeq, beforeSeq: $beforeSeq, limit: $limit, offset: $offset) {
+      items {
+        nodeId
+        seq
+        body
+        at
+        authorUserId
+        authorWorkerId
+        authorName
+        sessionId
+        replyToSeq
+        mentions
+        # #855 / server#1209: the message node's canonical URN, composed
+        # server-side since a message loc carries a random component. Null
+        # when it cannot be emitted in grammar v2; the thread then shows no
+        # message chip.
+        urn
+      }
+      total
+    }
+  }
+`;
+
+export const APP_CHAT_TARGET_QUERY = /* GraphQL */ `
+  query AppChatTarget($ref: ID!) { app(ref: $ref) { id } }
+`;
+export const CHANNEL_CHAT_TARGET_QUERY = /* GraphQL */ `
+  query ChannelChatTarget($ref: ID!) { channel(ref: $ref) { id memory { appId } } }
+`;
+export const CREATE_CHANNEL_MESSAGE_MUTATION = /* GraphQL */ `
+  mutation CreateChannelMessage($channelRef: ID!, $body: String!, $replyToSeq: Int) {
+    createChannelMessage(channelRef: $channelRef, body: $body, replyToSeq: $replyToSeq) { nodeId seq body at authorName }
   }
 `;

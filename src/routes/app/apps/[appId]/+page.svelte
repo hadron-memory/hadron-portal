@@ -1,7 +1,7 @@
 <script lang="ts">
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
-  import { afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+  import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -10,7 +10,28 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
+  import type { TranscriptView } from '$lib/team-chat-refresh';
+  import ChannelChatThread from '$lib/components/ChannelChatThread.svelte';
   import { createRosterRefreshers, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
+
+  let channelPostBusy = $state(false);
+  // Keep the submitting thread mounted until its result clears/keeps its own
+  // draft. A navigation mid-post would make that outcome ambiguous.
+  beforeNavigate((navigation) => { if (channelPostBusy) navigation.cancel(); });
+  let channelViews = $state<Record<string, TranscriptView>>({});
+  let channelDrafts = $state<Record<string, { body: string; replyToSeq?: string }>>({});
+  let chatSwitchBusy = $state(false);
+  let chatSwitchFailed = $state(false);
+  async function selectChat(key: string) {
+    const next = new URL(window.location.href);
+    next.searchParams.set('tab', 'chats');
+    next.searchParams.set('chat', key);
+    chatSwitchBusy = true;
+    chatSwitchFailed = false;
+    try { await goto(next, { noScroll: true }); }
+    catch { chatSwitchFailed = true; }
+    finally { chatSwitchBusy = false; }
+  }
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating
   // this page's load. The load is a six-query parallel fetch whose failure
@@ -1486,7 +1507,9 @@
        an answer you cannot link to is half an answer. It also means switching
        chats re-runs the loader, which is what fetches a 1:1 transcript. -->
   {#if activeTab === 'chats'}
-    <div id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    {#if chatSwitchBusy}<p role="status">{t('app.chats.opening', 'Opening chat…')}</p>{/if}
+    {#if chatSwitchFailed}<p role="status">{t('app.chats.open-failed', 'Could not open that chat. Your current conversation is still here.')}</p>{/if}
+    <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
       {#if data.chatsError}
         <!-- Discovery failed. NOT the same as "this App has one chat", so the
@@ -1501,19 +1524,16 @@
           )}
         </span>
       {/if}
-      {#each data.appChats ?? [] as entry (entry.key)}
-        <a
-          href="?tab=chats&chat={encodeURIComponent(entry.key)}"
-          data-sveltekit-noscroll
-          aria-current={entry.key === data.selectedChatKey ? 'page' : undefined}
-          class="rounded-lg border px-3 py-1.5 text-xs font-medium transition {entry.key ===
-          data.selectedChatKey
-            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-            : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
-        >
-          {entry.labelKey ? t(entry.labelKey, entry.label) : entry.label}
-        </a>
-      {/each}
+      <label for="app-chat-select" class="text-sm text-zinc-500">{t('app.chats.select', 'Chat')}</label>
+      <select id="app-chat-select" class="min-w-0 max-w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        disabled={channelPostBusy} value={data.selectedChatKey ?? ''} onchange={(e) => { const key = e.currentTarget.value; e.currentTarget.value = data.selectedChatKey ?? ''; void selectChat(key); }}>
+        {#each data.appChats ?? [] as entry (entry.key)}
+          <option value={entry.key}>{entry.labelKey ? t(entry.labelKey, entry.label) : entry.label}</option>
+        {/each}
+      </select>
+      {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
+        <Urn value={data.selectedChatKey} type="node" />
+      {/if}
     </div>
 
     {#if data.chatNotFound}
@@ -1739,12 +1759,22 @@
         />
       </div>
     </div>
+    {:else if data.selectedChannelId && data.postChannelMessageForm}
+      {#key `${app.id}:${data.selectedChannelId}`}
+        {@const channelId = data.selectedChannelId}
+        <div class="flex flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+          <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
+            total={data.selectedChannelTotal} loadError={data.selectedChannelError}
+            postForm={data.postChannelMessageForm} {form} {workerUrns}
+            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}&/postChannelMessage`}
+            onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
+            viewState={channelViews[channelId]} onViewStateChange={(view) => { channelViews[channelId] = view; }}
+            draft={channelDrafts[channelId]} onDraftChange={(draft) => { channelDrafts[channelId] = draft; }} />
+        </div>
+      {/key}
     {:else if data.selectedChatKey}
-      <!-- Any other chat root in the App's shared memory — a 1:1 between two
-           participants. READ-ONLY, and not by choice: the write surfaces are
-           `createTeamChatMessage` (team chat) and `sendChatMessage` (agent
-           chat), and there is no operation to post into an arbitrary App chat.
-           Rendering a composer that cannot work would be worse than saying so. -->
+      <!-- An old, unregistered chat root has no Channel identity. Keep its
+           existing readable transcript without inventing a post target. -->
       <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
         {#if data.selectedChatError}
           <p role="status" class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">

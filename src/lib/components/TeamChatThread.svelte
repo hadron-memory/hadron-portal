@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { marked } from 'marked';
@@ -27,6 +27,8 @@
     forwardPageCount,
     isAtBottom,
     mergeTranscript,
+    resumeTranscript,
+    type TranscriptView,
     scrollTopAfterPrepend,
   } from '$lib/team-chat-refresh';
   import type { TeamChatMessage } from '$lib/types';
@@ -39,16 +41,16 @@
   >;
 
   /**
-   * The App's TEAM CHAT (hadron-portal#732) — the shared thread its workers and
+   * The shared Channel thread (#732/#1033), including the App's default team chat.
+   * The App's shared thread is where its workers and
    * members post to. Not to be confused with a CHAT SESSION, which is the
    * conversation a human is having with an agent; that is the Chat tab, a
    * different surface with a different backing operation.
    *
    * Deliberately absent, and it is not an oversight (see #732):
    *   - No LLM composer. Nothing appends a model turn to the team's record.
-   *   - No delete and no rename. The chat is a canonical well-known loc with a
-   *     bootstrap contract; a portal user must not be able to destroy or
-   *     re-title the team's record.
+   *   - No delete and no rename here. Channel management has its own controls;
+   *     the default team chat also has a protected bootstrap contract.
    */
   let {
     messages = [],
@@ -62,7 +64,17 @@
     pollMs = TEAM_CHAT_POLL_MS,
     workerUrns = null,
     onLoadOlder,
+    draft,
+    onDraftChange,
+    onSubmittingChange,
+    viewState,
+    onViewStateChange,
   }: {
+    viewState?: TranscriptView;
+    onViewStateChange?: (view: TranscriptView) => void;
+    onSubmittingChange?: (submitting: boolean) => void;
+    draft?: { body: string; replyToSeq?: string };
+    onDraftChange?: (draft: { body: string; replyToSeq?: string }) => void;
     messages?: TeamChatMessage[];
     /** The SERVER's count, which may exceed what was fetched. */
     total?: number;
@@ -96,7 +108,7 @@
 
   let messagesEl: HTMLDivElement | null = $state(null);
   let isBrowser = $state(false);
-  let replyTo = $state<number | null>(null);
+  const matchingSubmission = $derived((form as { form?: { id?: string } } | null)?.form?.id === postForm.id ? form : null);
 
   const initialPostForm = untrack(
     () =>
@@ -104,8 +116,8 @@
       // action data holds the body just sent, and seeding from it re-filled the
       // composer with that message on every remount (tab switch) — and made it
       // the value `resetForm` restored after the next post.
-      (failedSubmission<PostTeamChatMessageForm>(form, 'postTeamChatMessage') as PostTeamChatMessageSuperform | null) ??
-      postForm,
+      (failedSubmission<PostTeamChatMessageForm>(matchingSubmission, 'postTeamChatMessage') as PostTeamChatMessageSuperform | null) ??
+      (draft ? { ...postForm, data: { ...postForm.data, body: draft.body, replyToSeq: draft.replyToSeq } } : postForm),
   );
   const {
     form: postFormData,
@@ -117,6 +129,7 @@
   } = superForm<PostTeamChatMessageForm, App.Superforms.Message, PostTeamChatMessageForm>(
     initialPostForm,
     {
+      id: untrack(() => postForm.id),
       validators: zod4Client(postTeamChatMessageSchema),
       validationMethod: 'oninput',
       scrollToError: 'smooth',
@@ -129,7 +142,8 @@
         // failure would silently downgrade a retried reply into a top-level
         // message, which the user has no way to notice.
         if (f.valid && f.message?.type !== 'error') {
-          replyTo = null;
+          $postFormData.replyToSeq = undefined;
+          onDraftChange?.({ body: '' });
           // #957: `resetForm` has just reset to the form's INITIAL data, which is
           // a failed post's draft when the composer was seeded from one. Re-base
           // the initial state on the empty form, so a sent message never comes
@@ -144,8 +158,13 @@
       },
     },
   );
+  $effect(() => {
+    const submitting = $postSubmitting;
+    untrack(() => onSubmittingChange?.(submitting));
+  });
+  const replyTo = $derived($postFormData.replyToSeq ? Number($postFormData.replyToSeq) : null);
   const postError = $derived(
-    scopedActionError<PostTeamChatMessageForm>(form, 'postTeamChatMessage', $postMessage, $postErrors, [
+    scopedActionError<PostTeamChatMessageForm>(matchingSubmission, 'postTeamChatMessage', $postMessage, $postErrors, [
       'body',
       '_kind',
     ]),
@@ -166,6 +185,8 @@
   // until the next tick — and the same race across client-side navigation could
   // briefly render the previous App's thread (Codex on #786). The invalidation
   // #754 used had no such window; isolating the read created one.
+  const restoredView = untrack(() => viewState);
+  let firstWindow = true;
   let polled = $state<{ items: readonly TeamChatMessage[]; total: number } | null>(null);
   // The server's `sinceSeq` total is cursor-scoped. Keep the unreceived part
   // of the previous page so each subsequent poll adds only genuinely new posts
@@ -178,10 +199,20 @@
     // (hrn:node:hadronmemory.com:hadron-portal:review:no-read-modify-write-state-in-effect).
     messages;
     total;
+    loadError;
     untrack(() => {
       dataGeneration += 1;
-      polled = null;
-      pendingNewerCount = 0;
+      if (onViewStateChange && !loadError) {
+        const previous = polled ?? (firstWindow && restoredView ? { items: restoredView.items, total: restoredView.total } : null);
+        const resumed = resumeTranscript(previous, messages, total);
+        pendingNewerCount = resumed === previous ? (firstWindow ? restoredView?.pendingNewer ?? 0 : pendingNewerCount) : 0;
+        polled = resumed;
+        if (firstWindow && restoredView) {
+          olderRemainingCount = restoredView.olderRemaining;
+          olderExhausted = restoredView.olderExhausted;
+        } else if (firstWindow) olderRemainingCount = Math.max(0, total - messages.length);
+      } else { polled = null; pendingNewerCount = 0; }
+      firstWindow = false;
     });
   });
   // #793: a plain read, because the accumulation happens at the POLL SITE. The
@@ -217,8 +248,10 @@
     messages;
     total;
     untrack(() => {
-      olderExhausted = false;
-      olderRemainingCount = Math.max(0, total - messages.length);
+      if (!onViewStateChange) {
+        olderExhausted = false;
+        olderRemainingCount = Math.max(0, total - messages.length);
+      }
     });
   });
   // The cursor is the LOWEST seq on screen. No arithmetic and no stored offset:
@@ -304,7 +337,15 @@
   onMount(async () => {
     isBrowser = true;
     await tick();
-    scrollToBottom();
+    if (restoredView && !restoredView.atBottom && messagesEl) messagesEl.scrollTop = restoredView.scrollTop;
+    else scrollToBottom();
+  });
+  onDestroy(() => {
+    if (isBrowser && onViewStateChange && !shownLoadError) onViewStateChange({
+      items: $state.snapshot(shownMessages), total: shownTotal,
+      scrollTop: messagesEl?.scrollTop ?? lastScrollTop, atBottom: stickToBottom,
+      olderExhausted, olderRemaining: shownOlderRemaining, pendingNewer: pendingNewerCount,
+    });
   });
 
   // #754: stick to the newest message only for a reader who is ALREADY at the
@@ -316,8 +357,8 @@
   // Read via `untrack`: this effect must fire on `messages`, not on the reader
   // scrolling. Without it, scrolling would re-run the effect and scroll them
   // back down — a scroll position that fights the person holding the mouse.
-  let stickToBottom = $state(true);
-  let lastScrollTop = 0;
+  let stickToBottom = $state(untrack(() => restoredView?.atBottom ?? true));
+  let lastScrollTop = restoredView?.scrollTop ?? 0;
   function onTranscriptScroll() {
     const movedUp = !!messagesEl && messagesEl.scrollTop < lastScrollTop;
     lastScrollTop = messagesEl?.scrollTop ?? 0;
@@ -439,7 +480,8 @@
   });
 
   function startReply(seq: number) {
-    replyTo = seq;
+    $postFormData.replyToSeq = String(seq);
+    onDraftChange?.({ body: $postFormData.body, replyToSeq: String(seq) });
     document.getElementById('team-chat-body')?.focus();
   }
 
@@ -628,7 +670,7 @@
           {#if pendingNewerCount > 0}
             {t('app.team-chat.catching-up', 'Loading newer messages…')}
           {:else}
-            {t('app.team-chat.truncated', 'Showing the most recent messages of')}
+            {t('app.team-chat.partial', 'Showing part of this conversation; total messages:')}
             {shownTotal}.
           {/if}
         </p>
@@ -872,14 +914,15 @@
   <div class="border-t border-zinc-200 bg-zinc-50 px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
     <form method="POST" {action} use:postEnhance novalidate>
       <input type="hidden" name="_kind" value={$postFormData._kind} />
-      <input type="hidden" name="replyToSeq" value={replyTo ?? ''} />
+      <input type="hidden" name="channelRef" value={$postFormData.channelRef ?? ''} />
+      <input type="hidden" name="replyToSeq" value={$postFormData.replyToSeq ?? ''} />
 
       {#if replyTo !== null}
         <div class="mb-2 flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
           <span>{t('app.team-chat.replying-to', 'Replying to')} <span class="font-mono">#{replyTo}</span></span>
           <button
             type="button"
-            onclick={() => (replyTo = null)}
+            onclick={() => { $postFormData.replyToSeq = undefined; onDraftChange?.({ body: $postFormData.body }); }}
             class="rounded px-1.5 py-0.5 text-zinc-500 hover:bg-zinc-200 dark:text-zinc-400 dark:hover:bg-zinc-700"
           >
             {t('app.team-chat.cancel-reply', 'Cancel reply')}
@@ -892,7 +935,8 @@
           id="team-chat-body"
           name="body"
           bind:value={$postFormData.body}
-          placeholder={t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl/Cmd+Enter to send). Mention a teammate with @name.')}
+          oninput={(event) => onDraftChange?.({ body: event.currentTarget.value, replyToSeq: replyTo === null ? undefined : String(replyTo) })}
+          placeholder={postForm.data.channelRef ? t('app.channel.composer.placeholder', 'Post to this chat… (Ctrl/Cmd+Enter to send).') : t('app.team-chat.composer.placeholder', 'Post to the team chat… (Ctrl/Cmd+Enter to send). Mention a teammate with @name.')}
           rows="3"
           disabled={$postSubmitting}
           onkeydown={handleKeydown}

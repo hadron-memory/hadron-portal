@@ -34,7 +34,10 @@ export interface AppChatEntry {
   /** The English default for `labelKey`, or the chat's own name. */
   label: string;
   /** Which renderer the tab should use. */
-  kind: 'agent' | 'team' | 'other';
+  kind: 'agent' | 'team' | 'other' | 'channel';
+  channelId?: string;
+  /** Legacy loc deep links resolve only when unambiguous. */
+  alias?: string;
   /** The memory holding this chat's nodes — only set for `other`. */
   memoryId?: string;
 }
@@ -95,7 +98,9 @@ export function resolveSelectedChat(
 ): { selected: AppChatEntry | null; requestedMissing: boolean } {
   if (chats.length === 0) return { selected: null, requestedMissing: !!requested };
   if (!requested) return { selected: chats[0], requestedMissing: false };
-  const hit = chats.find((c) => c.key === requested);
+  const exact = chats.find((c) => c.key === requested);
+  const aliases = chats.filter((c) => c.alias === requested);
+  const hit = exact ?? (aliases.length === 1 ? aliases[0] : undefined);
   return hit ? { selected: hit, requestedMissing: false } : { selected: chats[0], requestedMissing: true };
 }
 
@@ -148,4 +153,16 @@ export function sortChatMessages<T extends { loc: string }>(nodes: T[]): T[] {
   // so a plain lexical sort on the loc IS transcript order — and stays correct
   // when two messages share a timestamp, which a createdAt sort would not.
   return [...nodes].sort((a, b) => a.loc.localeCompare(b.loc));
+}
+
+
+/** Registered Channels are addressed by server-issued identity, never just a loc. */
+export function withRegisteredChannels(chats: AppChatEntry[], channels: Array<{
+  id: string; name: string; loc: string; chatRootUrn: string | null; memory: { id: string };
+}>, defaultChannelId?: string | null): AppChatEntry[] {
+  const remaining = chats.filter(c => c.kind !== 'other' || !channels.some(ch => ch.memory.id === c.memoryId && ch.loc === c.key));
+  return [...remaining, ...channels.filter(c => c.id !== defaultChannelId).map(c => ({
+    key: c.chatRootUrn ?? c.id, label: c.name, labelKey: null, kind: 'channel' as const,
+    channelId: c.id, alias: c.loc, memoryId: c.memory.id,
+  }))];
 }

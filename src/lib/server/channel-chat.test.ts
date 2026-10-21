@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { readChannelPage, postToChannel } from './channel-chat';
-import { CHANNEL_MESSAGES_QUERY, CREATE_CHANNEL_MESSAGE_MUTATION, APP_CHANNEL_TARGET_QUERY } from './queries';
+import { CHANNEL_MESSAGES_QUERY, CREATE_CHANNEL_MESSAGE_MUTATION, APP_CHAT_TARGET_QUERY, CHANNEL_CHAT_TARGET_QUERY } from './queries';
 const client = () => ({ request: vi.fn(async (q: string) => {
-  if (q === APP_CHANNEL_TARGET_QUERY) return { app: { id: 'app-a' }, channel: { id: 'chan-b', memory: { appId: 'app-a' } } };
+  if (q === APP_CHAT_TARGET_QUERY) return { app: { id: 'app-a' } };
+  if (q === CHANNEL_CHAT_TARGET_QUERY) return { channel: { id: 'chan-b', memory: { appId: 'app-a' } } };
   if (q === CHANNEL_MESSAGES_QUERY) return { channelMessages: { items: [{ seq: 8, body: 'hello' }], total: 9 } };
   return { createChannelMessage: { seq: 9 } };
 }) });
@@ -22,9 +23,9 @@ describe('addressed channel chat (#1033)', () => {
     expect(c.request).toHaveBeenLastCalledWith(CREATE_CHANNEL_MESSAGE_MUTATION, { channelRef: 'chan-b', body: 'hello', replyToSeq: 8 });
   });
   it('rejects a channel outside the route App before reading or writing its messages', async () => {
-    const c = { request: vi.fn(async () => ({ app: { id: 'app-a' }, channel: { id: 'chan-b', memory: { appId: 'other-app' } } })) };
+    const c = { request: vi.fn(async q => q === APP_CHAT_TARGET_QUERY ? { app: { id: 'app-a' } } : { channel: { id: 'chan-b', memory: { appId: 'other-app' } } }) };
     await expect(readChannelPage(c as any, 'app-a', 'chan-b', {})).rejects.toThrow();
     await expect(postToChannel(c as any, 'app-a', 'chan-b', 'hello')).rejects.toThrow();
-    expect(c.request.mock.calls).toHaveLength(2);
+    expect(c.request.mock.calls).toHaveLength(4);
   });
 });
