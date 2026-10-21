@@ -96,4 +96,10 @@ describe('SelectUser modal chrome (#1169)', () => {
     const overlay = document.querySelector('[role="dialog"]')!.parentElement!;
     expect(overlay.className).toMatch(/bg-black\/\d+/);
   });
+
+  it('dims more strongly in dark mode, where bg-black/30 barely shows (Cooper, #1233)', () => {
+    open(async () => ({ users: [], truncated: false }));
+    const overlay = document.querySelector('[role="dialog"]')!.parentElement!;
+    expect(overlay.className).toMatch(/dark:bg-black\/\d+/);
+  });
 });
