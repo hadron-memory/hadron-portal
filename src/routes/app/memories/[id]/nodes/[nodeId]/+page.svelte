@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { locOfSameMemoryTarget, sameMemoryTarget } from '$lib/urn/move-destination';
+  import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
+  import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
   import { displayJson, JsonDraft, SIGNED_OUT, submitJsonDraft, syncDraftWith } from '$lib/json-draft.svelte';
@@ -988,7 +989,6 @@
   // the full-URN field is the cross-memory path. `target` stays the one value
   // that is submitted in both modes.
   let moveFullUrn = $state(false);
-  const moveLocation = $derived(locOfSameMemoryTarget(data.graph.urn ?? '', $moveFormData.target));
   let deleteOpen = $state(false);
 
   // ── portal#696: attach a file ────────────────────────────────────────────
@@ -2431,21 +2431,17 @@
             >
               <input type="hidden" name="_kind" value={$moveFormData._kind} />
               <div>
-                {#if !moveFullUrn && moveLocation !== null}
+                {#if !moveFullUrn}
                   <!-- #1164: Location — the loc in THIS memory. The hidden input
                        carries the one submitted `target`, so Location and the
                        full-URN field can never disagree. -->
                   <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('node-actions.move-location', 'Location')}</label>
-                  <input type="hidden" name="target" value={$moveFormData.target} />
-                  <input
-                    id="moveTarget"
-                    type="text"
-                    value={moveLocation}
-                    oninput={(e) => ($moveFormData.target = sameMemoryTarget(data.graph.urn ?? '', e.currentTarget.value))}
-                    spellcheck="false"
-                    aria-invalid={$moveErrors.target?.[0] ? 'true' : undefined}
-                    aria-describedby={$moveErrors.target?.[0] ? 'moveTargetHint moveTargetError' : 'moveTargetHint'}
-                    class="{inputClass} font-mono text-xs {$moveErrors.target?.[0] ? 'border-red-500 focus:border-red-500' : ''}"
+                  <MoveLocationInput
+                    memoryUrn={data.graph.urn ?? ''}
+                    bind:target={$moveFormData.target}
+                    {inputClass}
+                    invalid={!!$moveErrors.target?.[0]}
+                    describedby={$moveErrors.target?.[0] ? 'moveTargetHint moveTargetError' : 'moveTargetHint'}
                   />
                   <p id="moveTargetHint" class="mt-1 text-xs text-zinc-400">
                     {t('node-actions.move-location-hint', 'The node’s path in this memory — change it to rename or reparent. Fails if a node already lives there.')}

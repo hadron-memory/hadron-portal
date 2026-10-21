@@ -38,8 +38,10 @@ describe('Move dialog wiring (#1164)', () => {
   it('submits one target through a hidden input in Location mode and resets mode on open/node change/pick', async () => {
     const { readFileSync } = await import('node:fs');
     const page = readFileSync('src/routes/app/memories/[id]/nodes/[nodeId]/+page.svelte', 'utf8');
-    expect(page).toContain('<input type="hidden" name="target" value={$moveFormData.target} />');
+    expect(page).toContain('bind:target={$moveFormData.target}');
     expect(page).toContain("t('node-actions.move-location', 'Location')");
+    // the mode comes from moveFullUrn alone: a blank/odd target must not swap the field (#1192 review)
+    expect(page).toContain('{#if !moveFullUrn}');
     // open from menu and node change both fall back to Location mode
     expect(page.match(/moveFullUrn = false;/g)?.length).toBeGreaterThanOrEqual(2);
     // a memory pick re-derives the mode from the new target, never keeps a stale Location
