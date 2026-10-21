@@ -1468,7 +1468,9 @@
             ? 'rounded-lg'
             : 'rounded-lg sm:rounded-l-none sm:rounded-r-lg'}"
       >
-        <div style="display: flex; height: 100%;">
+        <!-- Percentage height cannot resolve against the outer min-height.
+             Give vis-network a definite canvas frame before its initial fit. -->
+        <div data-testid="graph-canvas-frame" style="display: flex; height: var(--memory-browser-h); height: calc(100dvh - 320px); min-height: 400px;">
           <!-- resultsVersion (#616): re-mount when the server working set
                changes, even at the same size — see setServerResults.
                showHidden (#706): TopicGraph builds its vis datasets ONCE, in
