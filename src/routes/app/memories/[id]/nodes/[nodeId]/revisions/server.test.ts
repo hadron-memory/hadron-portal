@@ -13,6 +13,7 @@ import {
   RESTORE_NODE_REVISION_MUTATION,
   DELETE_NODE_REVISION_MUTATION,
   CLEAR_NODE_HISTORY_MUTATION,
+  UPDATE_NODE_REVISION_MUTATION,
 } from '$lib/server/queries';
 
 beforeEach(() => {
@@ -79,5 +80,33 @@ describe('/app/memories/[id]/nodes/[nodeId]/revisions (#529)', () => {
     const res = await POST(ev({ action: 'clear' }));
     expect(res.status).toBe(500);
     expect((await res.json()).error).toMatch(/write forbidden/);
+  });
+
+  describe('label (#534)', () => {
+    it('forwards updateNodeRevision with the trimmed label', async () => {
+      mockRequest.mockResolvedValue({ updateNodeRevision: { id: 'r9' } });
+      const res = await POST(ev({ action: 'label', revisionId: 'r9', revLabel: '  before the rewrite ' }));
+      expect(res.status).toBe(200);
+      expect(mockRequest.mock.calls[0][0]).toBe(UPDATE_NODE_REVISION_MUTATION);
+      expect(mockRequest.mock.calls[0][1]).toEqual({ revisionId: 'r9', revLabel: 'before the rewrite' });
+    });
+
+    it('clears the label (null, not an empty string) when the text is blank', async () => {
+      mockRequest.mockResolvedValue({ updateNodeRevision: { id: 'r9' } });
+      await POST(ev({ action: 'label', revisionId: 'r9', revLabel: '   ' }));
+      expect(mockRequest.mock.calls[0][1]).toEqual({ revisionId: 'r9', revLabel: null });
+    });
+
+    it('400s without a revisionId, without a string label, or past the 500-char cap', async () => {
+      for (const body of [
+        { action: 'label', revLabel: 'x' },
+        { action: 'label', revisionId: 'r9' },
+        { action: 'label', revisionId: 'r9', revLabel: 7 },
+        { action: 'label', revisionId: 'r9', revLabel: 'x'.repeat(501) },
+      ]) {
+        expect((await POST(ev(body))).status).toBe(400);
+      }
+      expect(mockRequest).not.toHaveBeenCalled();
+    });
   });
 });

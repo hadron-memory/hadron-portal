@@ -21,6 +21,8 @@
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
+  import RevisionEditor from '$lib/components/RevisionEditor.svelte';
+  import RevisionLabelDialog from '$lib/components/RevisionLabelDialog.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import NodeSkillExport from '$lib/components/NodeSkillExport.svelte';
   import NodeRoleValue from '$lib/components/NodeRoleValue.svelte';
@@ -1845,6 +1847,8 @@
   let historyMenuX = $state(0);
   let historyMenuY = $state(0);
   let restoreTarget = $state<NodeRevision | null>(null);
+  // #534: the revision whose label the "Edit label" popup is changing.
+  let labelTarget = $state<NodeRevision | null>(null);
   let clearConfirm = $state(false);
   let historyBusy = $state(false);
   let historyError = $state<string | null>(null);
@@ -1888,12 +1892,19 @@
     historyMenuFor = null;
     if (!r) return;
     if (id === 'display') window.open(revisionHref(r), '_blank', 'noopener');
-    else if (id === 'restore') restoreTarget = r; // opens the warning dialog
+    else if (id === 'label') {
+      historyError = null;
+      labelTarget = r; // opens the Edit label popup
+    } else if (id === 'restore') restoreTarget = r; // opens the warning dialog
     else if (id === 'delete') void postRevisionAction({ action: 'delete', revisionId: r.id });
   }
   async function confirmRestore() {
     if (!restoreTarget) return;
     if (await postRevisionAction({ action: 'restore', revisionId: restoreTarget.id })) restoreTarget = null;
+  }
+  async function confirmLabel(text: string) {
+    if (!labelTarget) return;
+    if (await postRevisionAction({ action: 'label', revisionId: labelTarget.id, revLabel: text })) labelTarget = null;
   }
   async function confirmClear() {
     if (await postRevisionAction({ action: 'clear' })) clearConfirm = false;
@@ -3587,7 +3598,7 @@
             {:else if cell.column.id === 'editedBy'}
               {#if r.editedByUser?.handle || r.editedByUser?.urn}
                 <div class="min-w-0">
-                  {#if r.editedByUser.handle}<div class="truncate text-zinc-700 dark:text-zinc-300">@{r.editedByUser.handle}</div>{/if}
+                  {#if r.editedByUser.handle}<div class="truncate"><RevisionEditor handle={r.editedByUser.handle} urn={r.editedByUser.urn} info={null} /></div>{/if}
                   {#if r.editedByUser.urn}<Urn value={r.editedByUser.urn} type="user" size={9} />{/if}
                 </div>
               {:else}
@@ -3624,10 +3635,21 @@
       <button type="button" class="fixed inset-0 z-40 cursor-default" aria-label={t('node.history.close-menu', 'Close menu')} onclick={() => (historyMenuFor = null)}></button>
       <div role="menu" class="fixed z-50 w-44 -translate-x-full rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" style="left: {historyMenuX}px; top: {historyMenuY}px;">
         <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('display')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.display', 'Display')}</button>
+        <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('label')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.label', 'Edit label')}</button>
         <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
         <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
         <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('delete')} class="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800">{t('node.history.action.delete', 'Delete')}</button>
       </div>
+    {/if}
+
+    {#if labelTarget}
+      <RevisionLabelDialog
+        label={labelTarget.revLabel ?? null}
+        busy={historyBusy}
+        error={historyError}
+        onsave={confirmLabel}
+        oncancel={() => (labelTarget = null)}
+      />
     {/if}
 
     {#if restoreTarget}

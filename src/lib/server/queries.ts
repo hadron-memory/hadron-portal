@@ -1573,6 +1573,14 @@ export const DELETE_NODE_REVISION_MUTATION = /* GraphQL */ `
   mutation DeleteNodeRevision($revisionId: ID!) { deleteNodeRevision(revisionId: $revisionId) }
 `;
 
+// #534: set or clear a revision's user-facing label (NodeRevision.revLabel,
+// 500-char cap on the server). Passing null clears it; omitting preserves.
+export const UPDATE_NODE_REVISION_MUTATION = /* GraphQL */ `
+  mutation UpdateNodeRevision($revisionId: ID!, $revLabel: String) {
+    updateNodeRevision(revisionId: $revisionId, revLabel: $revLabel) { id revLabel }
+  }
+`;
+
 export const CLEAR_NODE_HISTORY_MUTATION = /* GraphQL */ `
   mutation ClearNodeHistory($nodeRef: ID!) { clearNodeHistory(nodeRef: $nodeRef) }
 `;
