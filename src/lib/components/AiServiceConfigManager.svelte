@@ -828,7 +828,7 @@
                 <button
                   type="button"
                   onclick={() => (confirmDeleteId = null)}
-                  class="px-1 py-1 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  class="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
                 >
                   {s.cancelButton()}
                 </button>
