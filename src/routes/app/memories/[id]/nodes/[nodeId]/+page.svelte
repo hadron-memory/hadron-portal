@@ -1186,23 +1186,43 @@
   // Print (#1073): fetch the node's PDF render and open it in a new tab —
   // the browser's PDF viewer owns the print dialog, so this is the export
   // path with no save-to-disk step. Repeated prints hold at most one object
-  // URL: the previous one is revoked when a new PDF opens.
+  // URL: the previous one is revoked when a new PDF opens, and unmount
+  // revokes the live one. A popup the browser blocks says so instead of
+  // failing silently, and an export that lands after the page is gone opens
+  // nothing. The liveness check sits at the side effect, per
+  // hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
   let printBusy = $state(false);
   let printError = $state<string | null>(null);
   let printUrl: string | null = null;
+  let printAlive = true;
+  $effect(() => {
+    return () => {
+      printAlive = false;
+      if (printUrl) URL.revokeObjectURL(printUrl);
+      printUrl = null;
+    };
+  });
   async function printNode() {
     if (printBusy) return;
     printBusy = true;
     printError = null;
     try {
       const { blob } = await fetchNodeExport({ id: node.id, format: 'PDF', full: true });
+      if (!printAlive) return;
       if (printUrl) URL.revokeObjectURL(printUrl);
       printUrl = URL.createObjectURL(blob);
-      window.open(printUrl, '_blank');
+      const win = window.open(printUrl, '_blank');
+      if (!win) {
+        // Blocked: this URL was minted for a window that never opened —
+        // revoke it now rather than stranding it for the tab's lifetime.
+        URL.revokeObjectURL(printUrl);
+        printUrl = null;
+        printError = t('node-actions.print.blocked', 'The print window was blocked. Allow popups for this site, then try again.');
+      }
     } catch {
-      printError = t('node-actions.print.failed', 'Could not open the PDF. Please try again.');
+      if (printAlive) printError = t('node-actions.print.failed', 'Could not open the PDF. Please try again.');
     } finally {
-      printBusy = false;
+      if (printAlive) printBusy = false;
     }
   }
 

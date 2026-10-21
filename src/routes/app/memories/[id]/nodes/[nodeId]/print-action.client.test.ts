@@ -8,7 +8,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { NODE_BY_ID_QUERY, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/server/queries';
@@ -101,11 +101,14 @@ function stubExportFetch(data = 'JVBERi0xLjQ', ok = true) {
     }), { status: ok ? 200 : 500 }));
 }
 
+/** A truthy stand-in for the Window window.open returns on success. */
+const FAKE_WINDOW = {} as unknown as Window;
+
 describe('node menu Print (#1073)', () => {
   it('opens the node\'s PDF render in a new tab, revoking only the previous URL', async () => {
     const { target } = await mountPage();
     const { create, revoke } = stubObjectUrls();
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const open = vi.spyOn(window, 'open').mockReturnValue(FAKE_WINDOW);
     const fetchMock = stubExportFetch();
     vi.stubGlobal('fetch', fetchMock);
 
@@ -131,7 +134,7 @@ describe('node menu Print (#1073)', () => {
   it('renders an alert and opens nothing when the export fails', async () => {
     const { target } = await mountPage();
     stubObjectUrls();
-    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const open = vi.spyOn(window, 'open').mockReturnValue(FAKE_WINDOW);
     vi.stubGlobal('fetch', stubExportFetch('', false));
 
     clickMenuItem(target, 'Print');
@@ -140,5 +143,68 @@ describe('node menu Print (#1073)', () => {
     expect(open).not.toHaveBeenCalled();
     const alert = target.querySelector('[role="alert"]');
     expect(alert?.textContent).toContain('Could not open the PDF');
+  });
+
+  it('says the popup was blocked and does not strand its object URL', async () => {
+    const { target } = await mountPage();
+    const { create, revoke } = stubObjectUrls();
+    // null is what window.open returns when the browser blocks the popup.
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    vi.stubGlobal('fetch', stubExportFetch());
+
+    clickMenuItem(target, 'Print');
+    await settle();
+
+    expect(open).toHaveBeenCalledTimes(1);
+    // The URL minted for a window that never opened is revoked, not left to
+    // live for the tab's lifetime.
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(revoke).toHaveBeenCalledWith('blob:print-1');
+    const alert = target.querySelector('[role="alert"]');
+    expect(alert?.textContent).toMatch(/blocked/i);
+  });
+
+  it('revokes the live object URL on unmount', async () => {
+    const { target, unmount } = await mountPage();
+    const { revoke } = stubObjectUrls();
+    vi.spyOn(window, 'open').mockReturnValue(FAKE_WINDOW);
+    vi.stubGlobal('fetch', stubExportFetch());
+
+    clickMenuItem(target, 'Print');
+    await settle();
+    // Held for the open tab, not revoked the moment it opens.
+    expect(revoke).not.toHaveBeenCalled();
+
+    unmount();
+    expect(revoke).toHaveBeenCalledWith('blob:print-1');
+  });
+
+  it('opens nothing when the export resolves after unmount', async () => {
+    const { target, unmount } = await mountPage();
+    const { create } = stubObjectUrls();
+    const open = vi.spyOn(window, 'open').mockReturnValue(FAKE_WINDOW);
+    // Hold the export open so the unmount lands inside the await window —
+    // resolving it early would let the continuation finish first and the test
+    // would pass without ever entering the gap.
+    let resolveFetch!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn(
+      () => new Promise<Response>((r) => { resolveFetch = r; }),
+    ));
+
+    const rejections = await captureUnhandledRejections(async () => {
+      clickMenuItem(target, 'Print');
+      unmount();
+      resolveFetch(new Response(JSON.stringify({
+        filename: 'foo.pdf', mimeType: 'application/pdf',
+        data: 'JVBERi0xLjQ', encoding: 'BASE64',
+      }), { status: 200 }));
+      await settle();
+    });
+
+    // A tab opening after the user left the page is the #782-class hazard;
+    // a crash there surfaces only as an unhandled rejection.
+    expect(create).not.toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    expect(rejections).toEqual([]);
   });
 });
