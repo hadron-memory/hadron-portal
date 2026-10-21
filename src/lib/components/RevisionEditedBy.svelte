@@ -9,11 +9,14 @@
   import type { RevisionEditorView } from '$lib/revision-editor';
   import Urn from './Urn.svelte';
 
-  let { view }: { view: RevisionEditorView } = $props();
+  /** actorsOnly: the page already shows the user; add only the worker and agent. */
+  let { view, actorsOnly = false }: { view: RevisionEditorView; actorsOnly?: boolean } = $props();
 </script>
 
 <div class="min-w-0">
-  {#if view.user}
+  {#if actorsOnly}
+    <!-- the caller shows the user -->
+  {:else if view.user}
     {#if view.user.handle}<div class="truncate text-zinc-700 dark:text-zinc-300">@{view.user.handle}</div>{/if}
     {#if view.user.urn}<Urn value={view.user.urn} type="user" size={9} />{/if}
   {:else}

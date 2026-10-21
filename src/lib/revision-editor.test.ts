@@ -2,7 +2,7 @@
 // (server NodeRevision.editedByAgent / editedByWorker, #1610) beside the user.
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
-import { NODE_REVISIONS_QUERY } from '$lib/server/queries';
+import { NODE_REVISIONS_QUERY, NODE_REVISION_QUERY } from '$lib/server/queries';
 import { revisionEditorView } from './revision-editor';
 import RevisionEditedBy from './components/RevisionEditedBy.svelte';
 
@@ -62,9 +62,17 @@ describe('#1171 History cell', () => {
   });
 });
 
-describe('#1171 revisions query', () => {
-  it('selects the acting worker and agent', () => {
-    expect(NODE_REVISIONS_QUERY).toMatch(/editedByWorker\s*\{[^}]*\bid\b[^}]*\bname\b[^}]*\burn\b/);
-    expect(NODE_REVISIONS_QUERY).toMatch(/editedByAgent\s*\{[^}]*\bid\b[^}]*\bname\b[^}]*\burn\b/);
+describe('#1171 revision reads', () => {
+  it.each([['list', NODE_REVISIONS_QUERY], ['single revision', NODE_REVISION_QUERY]])('the %s read selects the acting worker and agent', (_, q) => {
+    expect(q).toMatch(/editedByWorker\s*\{[^}]*\bid\b[^}]*\bname\b[^}]*\burn\b/);
+    expect(q).toMatch(/editedByAgent\s*\{[^}]*\bid\b[^}]*\bname\b[^}]*\burn\b/);
+  });
+
+  it('the single-revision page shows only the actors, with no placeholder for a missing user', () => {
+    const { body } = render(RevisionEditedBy, {
+      props: { actorsOnly: true, view: revisionEditorView({ editedByUser: null, editedByInfo: null, editedByWorker: worker, editedByAgent: agent }) },
+    });
+    expect(body).toContain(worker.urn);
+    expect(body).not.toContain('—');
   });
 });

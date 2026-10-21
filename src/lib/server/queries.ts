@@ -1491,6 +1491,10 @@ export const NODE_REVISION_QUERY = /* GraphQL */ `
       editedBy
       editedByInfo
       editedByUser { handle urn }
+      # #1171 (server #1610): the Worker and Agent behind the edit; null on
+      # revisions captured before #1610 or with no agent behind them.
+      editedByWorker { id name urn }
+      editedByAgent { id name urn }
       revLabel
       changes
       createdAt

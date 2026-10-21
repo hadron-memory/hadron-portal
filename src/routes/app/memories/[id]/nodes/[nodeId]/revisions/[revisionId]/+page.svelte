@@ -2,6 +2,8 @@
   // #529: read-only snapshot view (opened in a new tab from the History tab).
   import Urn from '$lib/components/Urn.svelte';
   import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
+  import RevisionEditedBy from '$lib/components/RevisionEditedBy.svelte';
+  import { revisionEditorView } from '$lib/revision-editor';
   import type { NodeProvenance, ProvenanceResult } from '$lib/node-provenance';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -65,6 +67,8 @@
   {#if r.editedByUser?.urn}
     <div class="text-xs"><Urn value={r.editedByUser.urn} type="user" size={10} /></div>
   {/if}
+  <!-- #1171: the Worker and Agent behind this revision, when the server recorded them. -->
+  <div class="text-xs"><RevisionEditedBy actorsOnly view={revisionEditorView(r)} /></div>
 
   <div>
     <h2 class="mb-1 text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('node-revision.content', 'Content')}</h2>
