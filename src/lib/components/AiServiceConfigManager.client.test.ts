@@ -60,6 +60,21 @@ function button(root: HTMLElement, text: string): HTMLButtonElement {
   if (!b) throw new Error(`no button "${text}"`);
   return b as HTMLButtonElement;
 }
+// #1020 review (P2): the menu's Delete must ARM an inline confirm whose
+// irreversibility question is visible — not post, and not rely on the
+// menu item's title, which keyboard and touch users never see.
+function menuDelete(root: HTMLElement, name = 'default'): void {
+  const label = aiConfigStrings.actionsLabel(name);
+  const trigger = root.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  if (!trigger) throw new Error(`no ⋯ trigger for "${name}"`);
+  trigger.click();
+  flushSync();
+  const item = [...root.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find((x) => x.textContent?.trim() === 'Delete');
+  if (!item) throw new Error('no Delete menu item');
+  item.click();
+  flushSync();
+}
 // #1020: a row's Edit lives behind its ⋯ menu, so opening the editor means
 // opening the trigger, then the item — one config per test, named "default".
 function editRow(root: HTMLElement, name = 'default'): void {
@@ -396,5 +411,18 @@ describe('endpoint suggestions follow the provider (#951 Codex P2)', () => {
     set($<HTMLSelectElement>(root, '#ac-provider')!, 'openai-compatible'); // its own reply held
     await settle();
     expect(offered(root)).not.toContain('https://stale.example/v1');
+  });
+});
+
+describe('AI config Delete confirm (#1020 review P2)', () => {
+  it('arms an inline confirm whose "cannot be undone" question is visible, posting nothing yet', async () => {
+    const root = await open({ configs: [config()] });
+    menuDelete(root);
+    expect(root.textContent).toContain(aiConfigStrings.confirmQuestion());
+    expect(posts.filter((p) => p.action === 'delete')).toHaveLength(0);
+    // The confirm's own Delete is what posts, for the armed config.
+    button(root, 'Delete').click();
+    await settle();
+    expect(posts.find((p) => p.action === 'delete')).toMatchObject({ id: 'c1' });
   });
 });

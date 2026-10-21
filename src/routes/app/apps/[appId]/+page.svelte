@@ -2347,7 +2347,7 @@
               <NodeActionsMenu
                 actions={[{ id: 'unlink', label: t('app.agents.unlink', 'Unlink'), danger: true }]}
                 onselect={() => unlinkAgent(agent)}
-                label={`${t('app.agents.actions.label', 'Actions for')} ${agent.name}`}
+                label={t('app.agents.actions.label', 'Actions for {name}', { name: agent.name })}
                 fixed
                 compact
               />
@@ -2491,7 +2491,7 @@
                 <NodeActionsMenu
                   actions={[{ id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true }]}
                   onselect={() => revokeAppKey(key)}
-                  label={`${t('app.keys.actions.label', 'Actions for key')} ${key.keyPreview}`}
+                  label={t('app.keys.actions.label', 'Actions for key {key}', { key: key.keyPreview })}
                   fixed
                   compact
                 />

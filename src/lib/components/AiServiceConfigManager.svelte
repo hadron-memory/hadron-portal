@@ -192,7 +192,9 @@
     // string reaches TanStack's alphanumeric comparator, which reads the digit
     // groups and ignores the offset, ordering by wall clock rather than instant.
     { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 170 },
-    { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 120 },
+    // 170, not 120 (#1020 review): the cell's widest STATE is the inline Delete
+    // confirm (question + buttons), not the ⋯ trigger; 120 clipped it.
+    { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170 },
   ];
   const configFmt: Record<string, (v: unknown) => string> = {
     createdAt: (v) => (v == null ? '—' : new Date(v as number).toLocaleString()),
@@ -815,8 +817,11 @@
           {#if canManage}
             {#if confirmDeleteId === c.id}
               <!-- #1020: the menu's Delete expands this inline confirm in
-                   place (the assets-table idiom), not a modal. -->
-              <div class="flex items-center gap-1.5 whitespace-nowrap">
+                   place (the share-page idiom): the irreversibility question
+                   stays visible here, not only on the menu item's title,
+                   which keyboard and touch users never see. Wraps, if narrow. -->
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-xs text-zinc-500">{s.confirmQuestion()}</span>
                 <button
                   type="button"
                   onclick={() => doDelete(c.id)}

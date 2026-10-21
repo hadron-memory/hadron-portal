@@ -122,4 +122,8 @@ export const aiConfigStrings = {
 
   /** #1020: the row's ⋯ trigger names the config it acts on. */
   actionsLabel: (name: string): string => t('ai-config.actions.label', 'Actions for {name}', { name }),
+
+  /** #1020 review: the inline confirm keeps the irreversibility visible —
+   * the menu item's title is invisible to keyboard and touch users. */
+  confirmQuestion: (): string => t('ai-config.confirm-question', 'Delete? This cannot be undone.'),
 };
