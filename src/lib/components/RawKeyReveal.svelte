@@ -16,6 +16,8 @@
 
   let elapsedMs = $state(0);
   const remainingMs = $derived(Math.max(0, ttlMs - elapsedMs));
+  // Static per key (#1215): the alert states the limit once, never per tick.
+  const hideInMinutes = $derived(Math.ceil(ttlMs / 60_000));
   let copied = $state(false);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -73,6 +75,7 @@
   <div role="alert">
     <h2 class="mb-2 text-base font-semibold text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealHeading()}</h2>
     <p class="mb-3 text-sm text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealWarning()}</p>
+    <p class="mb-3 text-sm text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealHidesIn(hideInMinutes)}</p>
     <div class="flex items-start gap-2">
       <code class="flex-1 break-all rounded bg-amber-100 px-3 py-2 font-mono text-sm text-amber-950 dark:bg-amber-900 dark:text-amber-100">{rawKey}</code>
       <button
