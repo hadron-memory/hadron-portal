@@ -203,16 +203,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try {
     let { findNodes: r } = await runFind(findMode, granularity);
     // Preserve the ORIGINAL degrade reason so the "semantic search unavailable"
-    // note still shows after a fallback (the hybrid re-run may report no reason).
+    // note still shows after a fallback (the keyword re-run may report no reason).
     const noteReason = r?.reason ?? null;
     const degraded = new Set((r?.degraded ?? '').split(',').map((s) => s.trim()).filter(Boolean));
     let lexicalFallback = false;
-    // A memory with no
-    // vector index (or no embedding backend) returns nothing. Fall back to
-    // hybrid (keyword+vector fusion, no passages) so a fuzzy search still
-    // returns results everywhere — preserving pre-#430 behavior there.
+    // An unavailable semantic search falls back explicitly to keyword mode.
+    // A hybrid retry could recover semantic results mid-request, making the
+    // keyword-only notice false (#1207 LOCAL P3).
     if (findMode === 'vector' && (noteReason === 'no_vector_index' || noteReason === 'embedding_unavailable')) {
-      ({ findNodes: r } = await runFind('hybrid', null));
+      ({ findNodes: r } = await runFind('keyword', null));
       lexicalFallback = true;
       for (const code of (r?.degraded ?? '').split(',').map((s) => s.trim()).filter(Boolean)) degraded.add(code);
     }

@@ -97,7 +97,7 @@ describe('/api/nodes/search (#429)', () => {
     });
   });
 
-  it('#430: falls back to hybrid when the memory has no vector index', async () => {
+  it('#1162: falls back explicitly to keyword when the memory has no vector index', async () => {
     mockRequest
       .mockResolvedValueOnce({
         findNodes: { hits: [], passages: [], total: 0, reason: 'no_vector_index', degraded: null },
@@ -106,7 +106,7 @@ describe('/api/nodes/search (#429)', () => {
     const res = await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));
     expect(mockRequest).toHaveBeenCalledTimes(2);
     expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'vector', granularity: 'node' });
-    expect(mockRequest.mock.calls[1][1]).toMatchObject({ mode: 'hybrid', granularity: null });
+    expect(mockRequest.mock.calls[1][1]).toMatchObject({ mode: 'keyword', granularity: null });
     expect((await res.json()).nodes).toHaveLength(2);
   });
 
@@ -457,4 +457,15 @@ it('#1158: a failed optional passage request preserves successful nodes', async 
   expect(res.status).toBe(200);
   expect(body.nodes).toHaveLength(1);
   expect(body.note).toContain('Matching passages are unavailable');
+});
+
+it('#1207 LOCAL P3: transient embedding recovery must not make a keyword-labelled fallback semantic', async () => {
+  mockRequest.mockImplementation(async (_doc, vars) => ({findNodes: vars.mode === 'vector'
+    ? {hits: [], passages: [], total: 0, reason: 'embedding_unavailable', degraded: null}
+    : {hits: [{node: {id: vars.mode === 'hybrid' ? 'recovered-semantic-hit' : 'keyword-hit'}}], passages: [], total: 1, reason: null, degraded: null}
+  }));
+  const body = await (await POST(ev({query: 'facts', mode: 'fuzzy', memoryIds: ['m1']}))).json();
+  expect(body.nodes.map((n: {id: string}) => n.id)).toEqual(['keyword-hit']);
+  expect(mockRequest.mock.calls[1][1]).toMatchObject({mode: 'keyword', granularity: null});
+  expect(body.note).toContain('Showing keyword matches instead');
 });
