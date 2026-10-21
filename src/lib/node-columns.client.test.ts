@@ -56,6 +56,16 @@ describe('createNodeColumns', () => {
     c.destroy();
   });
 
+  it('learns that signing is off from a batch, and a later batch does not turn it back on', async () => {
+    const c = createNodeColumns(async (refs) => ({ rows: refs.map(row), unavailable: [] as string[], signing: refs[0] === 'on' }));
+    expect(c.signing).toBeNull();
+    await c.ensure(['off']);
+    expect(c.signing).toBe(false);
+    await c.ensure(['on']);
+    expect(c.signing).toBe(false);
+    c.destroy();
+  });
+
   it('reset forgets what was asked, so the same ids are read again, and drops an older batch that lands late', async () => {
     const g = gate();
     let call = 0;

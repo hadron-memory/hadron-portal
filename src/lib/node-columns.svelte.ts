@@ -17,6 +17,8 @@ export function createNodeColumns(fetchChunk: (refs: string[]) => Promise<Column
   let failed = $state(0);
   let unavailable = $state(0);
   let loading = $state(0);
+  // null until a batch says; false once any batch says signing is off (a deployment fact).
+  let signing = $state<boolean | null>(null);
   let destroyed = false;
   // Bumped by reset(): a batch from an older generation is stale.
   let generation = 0;
@@ -33,6 +35,7 @@ export function createNodeColumns(fetchChunk: (refs: string[]) => Promise<Column
     const refused = new Set<string>();
     const wrapped = async (refs: string[]) => {
       const chunk = await fetchChunk(refs);
+      if (!destroyed && mine === generation && chunk.signing !== undefined && signing !== false) signing = chunk.signing;
       for (const r of chunk.rows) returned.add(r.id);
       for (const id of chunk.unavailable) refused.add(id);
       return chunk;
@@ -59,6 +62,7 @@ export function createNodeColumns(fetchChunk: (refs: string[]) => Promise<Column
     get failed() { return failed; },
     get unavailable() { return unavailable; },
     get loading() { return loading; },
+    get signing() { return signing; },
     async ensure(ids: readonly string[]): Promise<void> {
       if (destroyed) return;
       const fresh = ids.filter((id) => !asked.has(id));

@@ -8,11 +8,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
-import { NODE_COLUMNS_QUERY } from '$lib/server/queries';
+const offersSigning = vi.fn();
+vi.mock('$lib/server/signing-capability', () => ({ deploymentOffersSigning: (t: string | null) => offersSigning(t) }));
+
+import { NODE_COLUMNS_QUERY, NODE_COLUMNS_NO_SIGNING_QUERY } from '$lib/server/queries';
 import { POST } from './+server';
 
 beforeEach(() => {
   mockRequest.mockReset();
+  offersSigning.mockReset();
+  offersSigning.mockResolvedValue(true);
 });
 
 function ev(body: unknown, token: string | null = 'tok') {
@@ -51,7 +56,27 @@ describe('/api/nodes/columns (#1174)', () => {
       }],
       unavailable: ['b'],
       omitted: [],
+      signing: true,
     });
+  });
+
+  it('with signing off the query does not select signatureStatus, so the other columns still load (Celine on #1181)', async () => {
+    offersSigning.mockResolvedValue(false);
+    const { signatureStatus: _drop, ...noSig } = node('a');
+    mockRequest.mockResolvedValue({ nodeBatch: { nodes: [noSig], unavailable: [], omitted: [], truncated: false } });
+    const body = await (await POST(ev({ refs: ['a'] }))).json();
+    expect(mockRequest).toHaveBeenCalledWith(NODE_COLUMNS_NO_SIGNING_QUERY, { refs: ['a'] });
+    expect(NODE_COLUMNS_NO_SIGNING_QUERY).not.toContain('signatureStatus');
+    expect(NODE_COLUMNS_QUERY).toContain('signatureStatus');
+    expect(body.signing).toBe(false);
+    expect(body.rows[0]).toMatchObject({ id: 'a', role: 'spec', approval: 'APPROVED', signature: null });
+  });
+
+  it('with signing on it asks for the signature too and says so', async () => {
+    mockRequest.mockResolvedValue({ nodeBatch: { nodes: [node('a')], unavailable: [], omitted: [], truncated: false } });
+    const body = await (await POST(ev({ refs: ['a'] }))).json();
+    expect(mockRequest).toHaveBeenCalledWith(NODE_COLUMNS_QUERY, { refs: ['a'] });
+    expect(body.signing).toBe(true);
   });
 
   it('reports omitted refs when the server truncates, never a silent short read', async () => {

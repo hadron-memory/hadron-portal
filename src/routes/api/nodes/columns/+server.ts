@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { NODE_COLUMNS_QUERY } from '$lib/server/queries';
+import { NODE_COLUMNS_NO_SIGNING_QUERY, NODE_COLUMNS_QUERY } from '$lib/server/queries';
+import { deploymentOffersSigning } from '$lib/server/signing-capability';
 import { COLUMN_BATCH, type ColumnActor, type NodeColumnRow } from '$lib/node-columns';
 import type { RequestHandler } from './$types';
 
@@ -17,7 +18,7 @@ type BatchNode = {
   updatedAt: string | null;
   revision: number | null;
   approvalStatus: { state: string } | null;
-  signatureStatus: { state: string | null } | null;
+  signatureStatus?: { state: string | null } | null;
   updatedByAgent: Actor;
   updatedByWorker: Actor;
 };
@@ -41,7 +42,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   try {
-    const { nodeBatch } = await gqlClient(locals.token).request<BatchResp>(NODE_COLUMNS_QUERY, { refs });
+    // Signing is a deployment switch; while it is off the signature field does
+    // not exist and selecting it would fail the whole batch.
+    const signing = await deploymentOffersSigning(locals.token);
+    const { nodeBatch } = await gqlClient(locals.token).request<BatchResp>(
+      signing ? NODE_COLUMNS_QUERY : NODE_COLUMNS_NO_SIGNING_QUERY,
+      { refs },
+    );
     const rows: NodeColumnRow[] = (nodeBatch?.nodes ?? []).map((n) => ({
       id: n.id,
       role: n.role ?? null,
@@ -52,7 +59,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       agent: actor(n.updatedByAgent),
       worker: actor(n.updatedByWorker),
     }));
-    return json({ rows, unavailable: nodeBatch?.unavailable ?? [], omitted: nodeBatch?.omitted ?? [] });
+    return json({ rows, unavailable: nodeBatch?.unavailable ?? [], omitted: nodeBatch?.omitted ?? [], signing });
   } catch (e: unknown) {
     // Log detail server-side; the client gets a generic message so query shapes
     // and server state are not leaked (the same rule as /api/nodes/search).

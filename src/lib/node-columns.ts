@@ -43,6 +43,8 @@ export interface ColumnChunk {
   unavailable: string[];
   /** Ids the server dropped to stay under its response-size cap: failed, not absent. */
   omitted?: string[];
+  /** Whether the deployment offers signing; false means the Signed column has nothing to say. */
+  signing?: boolean;
 }
 
 export interface ColumnLoad {

@@ -53,6 +53,14 @@ describe('NodeList extra columns (#1174)', () => {
     expect(dashes(beta)).toBe(1); // not loaded: blank, never a made-up empty
   });
 
+  it('says Off, not a blank, in the Signed column when the deployment does not offer signing', () => {
+    const noSig: Record<string, NodeColumnRow> = { n1: { ...cols.n1, signature: null } };
+    const off = render(NodeList, { props: { nodes: [node('n1', 'Alpha')], showColumns: true, columnData: noSig, signingOffered: false } }).body;
+    expect(off).toContain('Signing is not enabled on this server');
+    const on = render(NodeList, { props: { nodes: [node('n1', 'Alpha')], showColumns: true, columnData: noSig } }).body;
+    expect(on).not.toContain('Signing is not enabled on this server');
+  });
+
   it('keeps the status line mounted so a screen reader announces it', () => {
     const { body } = render(NodeList, { props: { nodes: [node('n1', 'Alpha')], showColumns: true, columnData: cols } });
     expect(body).toContain('data-testid="node-columns-status"');

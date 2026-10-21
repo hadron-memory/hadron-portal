@@ -348,7 +348,7 @@
       body: JSON.stringify({ refs }),
     });
     if (!res.ok) throw new Error(`columns ${res.status}`);
-    return (await res.json()) as { rows: NodeColumnRow[]; unavailable: string[]; omitted: string[] };
+    return (await res.json()) as { rows: NodeColumnRow[]; unavailable: string[]; omitted: string[]; signing?: boolean };
   });
   onDestroy(() => nodeColumns.destroy());
   // The rows on screen, as NodeList last reported them, so a refresh can re-read
@@ -1550,7 +1550,7 @@
                redundant second field. -->
           <NodeList
             nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta}
-            showColumns onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
+            showColumns onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
           />
         </div>
       {/if}

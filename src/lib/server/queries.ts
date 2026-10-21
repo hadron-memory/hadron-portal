@@ -2798,6 +2798,31 @@ export const NODE_COLUMNS_QUERY = /* GraphQL */ `
   }
 `;
 
+// The same read without signatureStatus. That field exists only while the
+// server has signing on (hadron-server#1918: while off it is removed from the
+// schema, so selecting it fails the WHOLE query), and the portal asks the
+// deployment first (`deploymentOffersSigning`, portal#1022). One hidden field
+// must not sink Role, Last changed, Revision and Approved with it (Celine on
+// #1181).
+export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
+  query NodeColumnsNoSigning($refs: [ID!]) {
+    nodeBatch(refs: $refs) {
+      nodes {
+        id
+        role
+        updatedAt
+        revision
+        approvalStatus { state }
+        updatedByAgent { id name urn }
+        updatedByWorker { id name urn }
+      }
+      unavailable
+      omitted
+      truncated
+    }
+  }
+`;
+
 export const NODE_FIND_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeFind(

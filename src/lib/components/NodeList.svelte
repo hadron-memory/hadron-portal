@@ -30,6 +30,7 @@
     columnData = {},
     columnsLoading = 0,
     columnsFailed = 0,
+    signingOffered = true,
     onretrycolumns,
     onvisiblenodes,
   }: {
@@ -64,6 +65,8 @@
     columnsLoading?: number;
     /** How many nodes' columns could not be read. */
     columnsFailed?: number;
+    /** False when the deployment has signing off: the Signed column then says so rather than staying blank. */
+    signingOffered?: boolean;
     onretrycolumns?: () => void;
     /**
      * portal#1174: the ids of the rows on screen now (the current page after
@@ -508,7 +511,7 @@
                 {:else if cell.column.id === 'approved'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{approvedCellText(c) || (c ? '—' : '')}</td>
                 {:else if cell.column.id === 'signed'}
-                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{signedCellText(c) || (c ? '—' : '')}</td>
+                  <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-300">{#if !signingOffered}<span class="text-zinc-400" title={t('node-list.signing-off-title', 'Signing is not enabled on this server')}>{t('node-list.signing-off', 'Off')}</span>{:else}{signedCellText(c) || (c ? '—' : '')}{/if}</td>
                 {:else if cell.column.id === 'nodeType'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 dark:border-zinc-800">
                     <span class="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">{n.nodeType}</span>
