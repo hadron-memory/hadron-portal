@@ -217,3 +217,18 @@ describe('reader memory editors (#646)', () => {
     expect(storageForm(target)!.closest('fieldset')!.disabled).toBe(false);
   });
 });
+
+it('disables missing-parent creation for a reader and preserves it for a writer (#646 LOCAL P2)', async () => {
+  const { target, props } = await mountPage();
+  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: false, breadcrumb: [
+    { label: 'Missing', path: 'missing', nodeId: null },
+    { label: 'Foo', path: 'missing:foo', nodeId: NODE.id },
+  ] }; });
+  await tick();
+  const create = target.querySelector<HTMLButtonElement>('form[action="?/createParent"] button')!;
+  expect(create).not.toBeNull();
+  expect(create.disabled).toBe(true);
+  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: true }; });
+  await tick();
+  expect(create.disabled).toBe(false);
+});

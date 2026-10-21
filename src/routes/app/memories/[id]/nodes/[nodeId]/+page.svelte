@@ -2079,7 +2079,7 @@
         <input type="hidden" name="_kind" value="createParent" />
         <input type="hidden" name="loc" value={seg.path} />
         <input type="hidden" name="name" value={seg.label} />
-        <button type="submit" class="text-xs text-indigo-500 hover:text-indigo-400">
+        <button type="submit" disabled={readOnly} class="text-xs text-indigo-500 hover:text-indigo-400">
           + Create parent node "{seg.label}"
         </button>
       </form>
