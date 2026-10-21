@@ -22,7 +22,7 @@ describe('drainFindNodes (#1226)', () => {
     const { client, request } = serverOf({ m: rows('n', FIND_NODES_PAGE + 7) });
     const out = await drainFindNodes(client, 'doc', { memoryIds: ['m'] });
     expect(out.findNodes.hits).toHaveLength(FIND_NODES_PAGE + 7);
-    expect(request.mock.calls.map((c) => c[1].offset)).toEqual([0, FIND_NODES_PAGE, FIND_NODES_PAGE * 2]);
+    expect(request.mock.calls.map((c) => c[1].offset)).toEqual([0, FIND_NODES_PAGE, FIND_NODES_PAGE + 7]);
   });
 
   it('does not stop at the first short page when it is the only page', async () => {
@@ -30,6 +30,36 @@ describe('drainFindNodes (#1226)', () => {
     await drainFindNodes(client, 'doc', { memoryIds: ['m'] });
     // The short page is confirmed by asking again: only an empty page ends the drain.
     expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('loses nothing when the server clamps the page below the request (short NON-empty pages)', async () => {
+    const all = rows('n', 55);
+    const request = vi.fn(async (_d: string, v: { limit: number; offset: number }) => ({
+      findNodes: { hits: all.slice(v.offset, v.offset + Math.min(v.limit, 20)) },
+    }));
+    const out = await drainFindNodes({ request } as unknown as GraphQLClient, 'doc', { memoryIds: ['m'] });
+    expect(out.findNodes.hits.map((h) => h.node.id)).toEqual(all.map((h) => h.node.id));
+    expect(request.mock.calls.map((c) => c[1].offset)).toEqual([0, 20, 40, 55]);
+  });
+
+  it('crosses the 20-row boundary without loss at exactly 20, 21 and 40 rows', async () => {
+    for (const n of [20, 21, 40]) {
+      const all = rows('n', n);
+      const request = vi.fn(async (_d: string, v: { limit: number; offset: number }) => ({
+        findNodes: { hits: all.slice(v.offset, v.offset + Math.min(v.limit, 20)) },
+      }));
+      const out = await drainFindNodes({ request } as unknown as GraphQLClient, 'doc', { memoryIds: ['m'] });
+      expect(out.findNodes.hits).toHaveLength(n);
+    }
+  });
+
+  it('a later-page failure rejects with the rows already read discarded', async () => {
+    const all = rows('n', 55);
+    const request = vi.fn(async (_d: string, v: { limit: number; offset: number }) => {
+      if (v.offset >= 20) throw new Error('page 2 failed');
+      return { findNodes: { hits: all.slice(v.offset, v.offset + 20) } };
+    });
+    await expect(drainFindNodes({ request } as unknown as GraphQLClient, 'doc', { memoryIds: ['m'] })).rejects.toThrow('page 2 failed');
   });
 
   it('drains each memory on its own request', async () => {

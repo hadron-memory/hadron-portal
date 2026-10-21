@@ -70,6 +70,7 @@ export async function drainFindNodes<Hit extends { node: { id: string } }>(
   const hits: Hit[] = [];
   const seen = new Set<string>();
   for (const memoryId of memoryIds) {
+    let offset = 0;
     for (let page = 0; ; page++) {
       if (page >= FIND_NODES_MAX_PAGES) {
         throw new Error(`drainFindNodes: memory ${memoryId} did not end after ${FIND_NODES_MAX_PAGES} pages`);
@@ -78,10 +79,13 @@ export async function drainFindNodes<Hit extends { node: { id: string } }>(
         ...rest,
         memoryIds: [memoryId],
         limit: FIND_NODES_PAGE,
-        offset: page * FIND_NODES_PAGE,
+        offset,
       });
       const pageHits = data.findNodes?.hits ?? [];
       if (pageHits.length === 0) break;
+      // Advance by what the server RETURNED, not what was asked for: a server
+      // that clamps `limit` below the request would otherwise skip rows.
+      offset += pageHits.length;
       let added = 0;
       for (const h of pageHits) {
         if (seen.has(h.node.id)) continue;
