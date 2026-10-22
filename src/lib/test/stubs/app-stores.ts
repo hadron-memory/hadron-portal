@@ -45,3 +45,6 @@ export function setStubPage(url: string, params: Record<string, string> = {}): v
 export function resetStubPage(): void {
   page.set(initial());
 }
+
+/** The shared route-pending signal; component tests explicitly settle it. */
+export const navigating = writable<unknown>(null);

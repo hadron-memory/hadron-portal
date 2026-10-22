@@ -12,3 +12,9 @@ it('returns the Dashboard shell data while chart requests remain pending', async
   expect(data.dashboard).toBeInstanceOf(Promise);
   expect(data.widgetData).toBeInstanceOf(Promise);
 });
+it('settles failures as explicit states rather than rejecting a streamed promise or seeding zeros', async () => {
+  request.mockRejectedValue(new Error('synthetic failure'));
+  const data = await load({ locals: { token: 'synthetic' } } as never) as any;
+  expect(await data.dashboard).toMatchObject({ loadFailed: true });
+  expect(await data.widgetData).toEqual({ data: {}, loadFailed: true });
+});

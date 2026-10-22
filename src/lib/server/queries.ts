@@ -3596,12 +3596,15 @@ export const MY_APPS_QUERY = /* GraphQL */ `
   }
 `;
 
-// #629 / #636: the dashboard fetches everything it needs in ONE request:
-//  - count-only memory/agent totals (limit:0 — they seed the default widgets'
-//    data; the "Your memories" preview was dropped, so no items),
-//  - the caller's placed widgets (dashboardWidgets, ordered by position), and
-//  - the combined per-widget-type data (dashboardWidgetData) — server #772/#773.
-// The portal maps the server enum to WidgetType and fans the data out by type.
+// #1230: layout and widget data stream independently; chart work must not
+// hold navigation or prevent the saved layout from rendering its placeholders.
+export const DASHBOARD_LAYOUT_QUERY = /* GraphQL */ `
+  query DashboardLayout {
+    dashboardWidgets { id type span rowSpan position config }
+  }
+`;
+
+// Counts seed defaults; configured data remains server-owned and batched.
 export const DASHBOARD_QUERY = /* GraphQL */ `
   query Dashboard {
     # #1176 — the same slice as PERSONAL_MEMORIES_QUERY, and it has to stay
@@ -3624,14 +3627,6 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
     }
     agents(limit: 0) {
       total
-    }
-    dashboardWidgets {
-      id
-      type
-      span
-      rowSpan
-      position
-      config
     }
     dashboardWidgetData {
       widgetId
