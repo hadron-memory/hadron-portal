@@ -794,6 +794,7 @@ describe('memory settings load — the owner (#652)', () => {
   function ev(graph: Record<string, unknown>) {
     return {
       locals: { token: 'tok', user: { id: 'viewer-1' } },
+      params: { id: graph.id as string },
       parent: async () => ({ graph, user: { id: 'viewer-1' } }),
     } as never;
   }
@@ -965,5 +966,163 @@ describe('memory-detail `retryFailedEmbeddings` action (#695 / server #882)', ()
     const result = await actions.retryFailedEmbeddings(retryEv());
 
     expect(retriedCountOf(result)).toBe(1);
+  });
+});
+
+// ── Tests for the `updateMarketplaceListing` action (#841) ─────────────
+// hrn:node:hadronmemory.com:specs:cor:acl:080:04: the marketplace catalogue is listedOnMarketplace AND
+// publicly accessible. Nothing could set the flag from any product surface —
+// this action is the portal half.
+
+/** RequestEvent-shaped object carrying form data for the marketplace toggle. */
+function marketplaceEv(form: Record<string, string>) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(form)) fd.append(k, v);
+  return {
+    params: { id: 'mem-id-abc' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['updateMarketplaceListing']>[0];
+}
+
+describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
+  it('lists a memory on the marketplace through updateMemory', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc', listedOnMarketplace: true } });
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({
+      listedOnMarketplace: 'true',
+    }));
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    // toEqual, not toMatchObject: the evidence map claims the variables
+    // carry id + the flag ONLY (Rook's P3 on #1244) — a subset match would
+    // let a smuggled extra field pass unnoticed.
+    expect(vars).toEqual({ id: 'mem-id-abc', listedOnMarketplace: true });
+  });
+
+  it('unlists explicitly — false is sent, not omitted', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc', listedOnMarketplace: false } });
+    const actions = await importActions();
+
+    await actions.updateMarketplaceListing(marketplaceEv({
+      listedOnMarketplace: 'false',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.listedOnMarketplace).toBe(false);
+  });
+
+  it('rejects a marketplace submission with the wrong form discriminator before calling the API', async () => {
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({
+      _kind: 'updateVectorIndex',
+      listedOnMarketplace: 'true',
+    }));
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns the scoped error message on a failure', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('marketplace refused'));
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({
+      listedOnMarketplace: 'true',
+    }));
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'marketplace refused' });
+  });
+
+  it('stamps the action form with the load form’s MEMORY-BOUND id — results must find their store, and only THIS memory’s', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc', listedOnMarketplace: true } });
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
+
+    expect((superFormFrom(result) as { id?: string })?.id).toBe('updateMarketplaceListing:mem-id-abc');
+  });
+
+  it('a denied writer sees the server’s refusal, not the request payload (#468 leak class)', async () => {
+    // graphql-request packs the whole query and variables into a
+    // ClientError's message; extractGqlError must surface the server's
+    // errors[0].message instead.
+    const refusal = { message: 'FORBIDDEN: you cannot update this memory', response: { errors: [{ message: 'You do not have write access to this memory.' }] } };
+    mockRequest.mockRejectedValueOnce(refusal);
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
+
+    const text = (superFormFrom(result)?.message as { text: string }).text;
+    expect(text).toBe('You do not have write access to this memory.');
+    expect(text).not.toContain('updateMemory');
+    expect(text).not.toContain('listedOnMarketplace');
+  });
+
+  // Gil's P2 and Gene's P2-2 on #1244, found independently: a missing or
+  // malformed mutation result must never read as success. `updateMemory: null`
+  // used to show "Changes saved." with the local intent as the saved fact,
+  // and a flagless row "confirmed" the listing as false.
+  describe('missing or malformed results are refused, never confirmed (#1244)', () => {
+    it.each([
+      ['a null result', { updateMemory: null }],
+      ['a flagless row', { updateMemory: { id: 'mem-id-abc' } }],
+      ['another memory’s row', { updateMemory: { id: 'some-other-memory', listedOnMarketplace: true } }],
+    ])('returns a safe failure for %s', async (_label, updateMemory) => {
+      mockRequest.mockResolvedValueOnce({ updateMemory });
+      const actions = await importActions();
+
+      const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
+
+      const outcome = superFormFrom(result);
+      const msg = outcome?.message as { type?: string; text?: string } | undefined;
+      expect(msg?.type).toBe('error');
+      expect(msg?.text).not.toBe('Changes saved.');
+      // No resync either: a refused confirmation must not touch the form's
+      // data — the user's tick stays as an unsaved intent, not a "fact".
+      expect(outcome?.data?.listedOnMarketplace).toBe(true);
+    });
+  });
+});
+
+// ── Load: the six-form set and the form-id contract (#841) ───────────
+// hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids:
+// a route with several superValidate calls must return distinct form ids,
+// and an explicit id on the new form must match between load and action.
+describe('memory-settings load: form ids (#841)', () => {
+  it('returns six distinct form ids; the marketplace form’s id is exact', async () => {
+    const mod = await import('./+page.server');
+    const graph = {
+      id: 'mem-1', urn: 'hrn:mem:acme.com:docs', name: 'Docs', class: 'knowledge',
+      isEncrypted: false, organizationId: 'org-1', userId: null,
+      shortDescription: null, description: null, tags: [], license: null,
+      category0: null, category1: null, category2: null, iconUrl: null, heroUrl: null,
+      homeUrl: null, source: null, readBranch: null, writeBranch: null,
+      visibility: 'PUBLIC', listedOnMarketplace: true, vectorIndexEnabled: false,
+      embeddingSource: 'abstract', chunkTokens: null, chunkOverlap: null,
+      forceFixedSize: false, vectorIndexEncryptedAckAt: null, schema: null,
+      syncStatus: 'OK', syncError: null, pendingEdgeCount: 0, lastSyncedAt: null,
+      createdAt: '1789430400000', updatedAt: '1789430400000',
+    };
+    // user null + graph.userId null: no owner lookup and no transfer-access
+    // read, so the mocked gql request list stays empty of side queries.
+    const parent = vi.fn().mockResolvedValue({ graph, user: null });
+    const data = (await mod.load({
+      parent, locals: { token: 't' }, params: { id: 'mem-1' },
+    } as unknown as Parameters<typeof mod.load>[0])) as Exclude<Awaited<ReturnType<typeof mod.load>>, void>;
+
+    const ids = [data.form, data.vectorForm, data.marketplaceForm, data.schemaForm, data.deleteForm, data.retryEmbedsForm]
+      .map((f) => (f as { id?: string }).id);
+    expect(new Set(ids).size).toBe(6);
+    // Memory-bound (`…:${params.id}`, stamped from the route param on both
+    // sides): distinct from every sibling AND from the same form on another
+    // memory, so a late result can only match its own card (Gene's P2-1).
+    expect(data.marketplaceForm.id).toBe('updateMarketplaceListing:mem-1');
+    // The persisted flag seeds the form (the checkbox starts from the fact).
+    expect(data.marketplaceForm.data.listedOnMarketplace).toBe(true);
   });
 });

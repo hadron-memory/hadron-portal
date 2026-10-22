@@ -27,6 +27,9 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     readBranch
     writeBranch
     visibility
+    # #841 / hrn:node:hadronmemory.com:specs:cor:acl:080:04 — the marketplace catalogue flag: the catalogue
+    # lists memories that are listed AND publicly accessible.
+    listedOnMarketplace
     class
     isEncrypted
     # 033-rag-vector-retrieval: per-memory vector-index config.
@@ -1416,6 +1419,7 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
     $category0: String, $category1: String, $category2: String,
     $iconUrl: String, $heroUrl: String, $homeUrl: String,
     $source: String, $readBranch: String, $writeBranch: String, $visibility: MemoryVisibility,
+    $listedOnMarketplace: Boolean,
     $vectorIndexEnabled: Boolean, $embeddingSource: EmbeddingSource,
     $acknowledgeVectorInversionRisk: Boolean,
     $chunkTokens: Int, $chunkOverlap: Int, $forceFixedSize: Boolean,
@@ -1428,6 +1432,7 @@ export const UPDATE_MEMORY_MUTATION = /* GraphQL */ `
       iconUrl: $iconUrl, heroUrl: $heroUrl, homeUrl: $homeUrl,
       source: $source, readBranch: $readBranch, writeBranch: $writeBranch,
       visibility: $visibility,
+      listedOnMarketplace: $listedOnMarketplace,
       vectorIndexEnabled: $vectorIndexEnabled, embeddingSource: $embeddingSource,
       acknowledgeVectorInversionRisk: $acknowledgeVectorInversionRisk,
       chunkTokens: $chunkTokens, chunkOverlap: $chunkOverlap, forceFixedSize: $forceFixedSize,
