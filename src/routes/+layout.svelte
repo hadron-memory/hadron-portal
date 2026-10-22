@@ -1,5 +1,6 @@
 <script lang="ts">
   import '../app.css';
+  import NavigationFeedback from '$lib/components/NavigationFeedback.svelte';
   import Nav from '$lib/components/Nav.svelte';
   import type { LayoutData } from './$types';
 
@@ -19,6 +20,8 @@
     document.documentElement.classList.toggle('dark', dark);
   }
 </script>
+
+<NavigationFeedback />
 
 <div class="min-h-screen {dark ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}">
   <Nav user={data.user} {dark} onToggleTheme={toggleTheme} />

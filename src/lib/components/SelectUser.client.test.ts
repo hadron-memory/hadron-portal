@@ -74,3 +74,67 @@ describe('SelectUser bounded preview (#1226)', () => {
     expect(footer()).not.toContain('more match');
   });
 });
+
+// portal#1169 — the popup can be dismissed with a visible control and dims the
+// page behind it.
+describe('SelectUser modal chrome (#1169)', () => {
+  it('has a Close button that dismisses the dialog', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ search: async () => ({ users: [], truncated: false }), onselect: () => {}, open: true });
+    const m = mountComponent(SelectUser as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    const close = [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((b) => b.textContent?.trim() === 'Close');
+    expect(close).toBeTruthy();
+    close!.click();
+    flushSync();
+    await tick();
+    expect(props.open).toBe(false);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('dims the page behind the dialog', () => {
+    open(async () => ({ users: [], truncated: false }));
+    const overlay = document.querySelector('[role="dialog"]')!.parentElement!;
+    expect(overlay.className).toMatch(/bg-black\/\d+/);
+  });
+
+  it('dims more strongly in dark mode, where bg-black/30 barely shows (Cooper, #1233)', () => {
+    open(async () => ({ users: [], truncated: false }));
+    const overlay = document.querySelector('[role="dialog"]')!.parentElement!;
+    expect(overlay.className).toMatch(/dark:bg-black\/\d+/);
+  });
+});
+
+// portal#1169 / hadron-server#2179 — organizations in common with the found person.
+describe('SelectUser shared organizations (#1169)', () => {
+  const withOrgs = (id: string, sharedOrganizations: unknown) => ({ ...u(id), sharedOrganizations });
+  async function show(users: unknown[]) {
+    const m = open(async () => ({ users: users as never, truncated: false }));
+    await find(m, 'abc');
+  }
+
+  it('lists the shared organizations with their URNs', async () => {
+    await show([withOrgs('a', { items: [{ id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' }], total: 1 })]);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('Acme');
+    expect(text.replace(/\s+/g, '')).toContain('hrn:org:acme.com');
+  });
+
+  it('says so when there are none in common, and distinguishes a withheld answer', async () => {
+    await show([withOrgs('a', { items: [], total: 0 }), withOrgs('b', null)]);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('No organizations in common');
+    expect(text).toContain('Not shown to you');
+  });
+
+  it('says how many more there are when the page is not the whole list', async () => {
+    await show([withOrgs('a', { items: [{ id: 'o1', name: 'Acme', urn: 'hrn:org:acme.com' }], total: 4 })]);
+    expect(document.body.textContent).toContain('and 3 more');
+  });
+
+  it('shows nothing about organizations when the server did not answer the field at all', async () => {
+    await show([u('a')]);
+    const text = document.body.textContent ?? '';
+    expect(text).not.toContain('Not shown to you');
+    expect(text).not.toContain('in common');
+  });
+});

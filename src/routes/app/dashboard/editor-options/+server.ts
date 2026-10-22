@@ -45,8 +45,9 @@ export const GET: RequestHandler = async ({ locals }) => {
       }>(MEMORY_OPTIONS_QUERY, { limit: PAGE_SIZE, offset });
       options.push(...data.memories.items.map(({ id, name }) => ({ id, name })));
       total = data.memories.total;
-      if (data.memories.items.length < PAGE_SIZE) break;
-      offset += PAGE_SIZE;
+      // An EMPTY page ends the drain, not the first short one (a server clamp).
+      if (data.memories.items.length === 0) break;
+      offset += data.memories.items.length;
     }
   } catch (e) {
     console.error('[dashboard/editor-options] memory options failed to load:', e);

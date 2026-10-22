@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
+  import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
+  import CappedNotice from '$lib/components/CappedNotice.svelte';
   import { formatPortalDate } from '$lib/format-portal-date';
   import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
@@ -147,6 +150,7 @@
   let showSource = $state(false);
   let confirmDelete = $state(false);
   let copied = $state(false);
+  const readOnly = $derived(data.canWriteMemory === false);
   let isEditing = $state(false);
 
   // Inline editing. #927: each text editor is a draft based on the revision it
@@ -994,7 +998,14 @@
   let memoryPickerOpen = $state(false);
   function onPickTargetMemory(memory: { urn: string }) {
     if (cleanLoc) $moveFormData.target = composeNodeUrn(memory.urn, cleanLoc);
+    // A pick can land in another memory, where the Location field no longer
+    // describes the destination — show the full URN so nothing stale submits.
+    moveFullUrn = locOfSameMemoryTarget(data.graph.urn ?? '', $moveFormData.target) === null;
   }
+  // #1164: Location (loc in this node's own memory) is the default way to move;
+  // the full-URN field is the cross-memory path. `target` stays the one value
+  // that is submitted in both modes.
+  let moveFullUrn = $state(false);
   let deleteOpen = $state(false);
   // #621: closing the delete confirmation drops the subtree consent — a
   // cancelled/reopened dialog (or a new target, or a jump to the Settings
@@ -1065,6 +1076,10 @@
     ...(openChat ? [{ id: 'open-chat', label: t('node-actions.open-chat', 'Open chat') }] : []),
     { id: 'edit', label: t('node-actions.edit', 'Edit') },
     { id: 'download', label: t('node-actions.download', 'Download') },
+    // #1073: opens the node's PDF render in a new tab for printing — the
+    // browser's PDF viewer owns print, so this is the Download path with no
+    // save-to-disk step.
+    { id: 'print', label: t('node-actions.print', 'Print') },
     ...(skillExportHosts.length > 0 ? [{ id: 'export-skill', label: t('node-actions.export-skill', 'Export as skill') }] : []),
     { id: 'add-child', label: t('node-actions.add-child', 'Add child') },
     ...(canAttachAsset ? [{ id: 'attach-asset', label: t('node-actions.attach-asset', 'Attach file') }] : []),
@@ -1074,7 +1089,7 @@
     ...(!node.isRunnable ? [{ id: 'convert-to-task', label: t('node-actions.convert-to-task', 'Convert to task') }] : []),
     ...(canTestFlow ? [{ id: 'run', label: t('node-actions.run', 'Run') }] : []),
     { id: 'delete', label: t('node-actions.delete', 'Delete'), danger: true },
-  ]);
+  ].filter((action) => !readOnly || ['open-chat', 'download', 'print', 'export-skill'].includes(action.id)));
 
   // portal#1175: a comment is feedback, so the actions that treat it as a node to
   // grow, relocate, copy or promote are not offered; Edit only to its author.
@@ -1110,6 +1125,7 @@
       case 'convert-to-task': convertForm?.requestSubmit(); break;
       case 'move':
         $moveFormData.target = fullUrn;
+        moveFullUrn = false;
         moveOpen = true;
         break;
       // #726: the chat root's node page, which opens on its Chat tab — the
@@ -1119,6 +1135,7 @@
       case 'open-chat': if (openChat) goto(`${basePath}/nodes/${openChat.nodeId}`); break;
       case 'add-child': goto(addChildHref); break;
       case 'download': downloadOpen = true; break;
+      case 'print': void printNode(); break;
       case 'export-skill': skillExportOpen = true; break;
       case 'delete': $deleteFormData.hard = false; $deleteFormData.recursive = false; deleteOpen = true; break;
     }
@@ -1159,41 +1176,53 @@
     return bytes;
   }
 
+  // POST to /api/nodes/export and return the served bytes as a Blob. The
+  // Download dialog and Print (#1073) share this path, so the response guards
+  // live in one place. Only Print passes a signal — its request is
+  // cancellable, so an abandoned export doesn't hang (#1193).
+  async function fetchNodeExport(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<{ blob: Blob; filename?: string }> {
+    const res = await fetch('/api/nodes/export', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!res.ok) throw new Error('Export failed');
+    const r = (await res.json()) as {
+      filename?: string;
+      mimeType?: string;
+      data?: string;
+      encoding?: string;
+    };
+    // Guard against a null/!=string `data` (e.g. nodeExport resolving to
+    // null) so we never blob the literal string "undefined".
+    if (!r || typeof r.data !== 'string') throw new Error('Invalid export data');
+    // Honor `encoding`: the API is already forward-compatible with BASE64
+    // (binary) payloads, so decode those to bytes rather than blobbing the
+    // base64 text. TEXT (the current default) passes through unchanged.
+    const part: BlobPart = r.encoding === 'BASE64' ? base64ToBytes(r.data) : r.data;
+    return { blob: new Blob([part], { type: r.mimeType || 'application/octet-stream' }), filename: r.filename };
+  }
+
   async function runDownload() {
     if (!dlCanDownload || dlBusy) return;
     dlBusy = true;
     dlError = null;
     try {
-      const res = await fetch('/api/nodes/export', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: node.id,
-          format: dlFormat,
-          // PDF is a presentation render; scope/sections don't apply.
-          full: dlFormat === 'PDF' ? true : dlFull,
-          ...(dlFormat === 'PDF' || dlFull ? {} : { sections: dlSelectedSections }),
-        }),
+      const { blob, filename } = await fetchNodeExport({
+        id: node.id,
+        format: dlFormat,
+        // PDF is a presentation render; scope/sections don't apply.
+        full: dlFormat === 'PDF' ? true : dlFull,
+        ...(dlFormat === 'PDF' || dlFull ? {} : { sections: dlSelectedSections }),
       });
-      if (!res.ok) throw new Error('Export failed');
-      const r = (await res.json()) as {
-        filename?: string;
-        mimeType?: string;
-        data?: string;
-        encoding?: string;
-      };
-      // Guard against a null/!=string `data` (e.g. nodeExport resolving to
-      // null) so we never blob the literal string "undefined".
-      if (!r || typeof r.data !== 'string') throw new Error('Invalid export data');
-      // Honor `encoding`: the API is already forward-compatible with BASE64
-      // (binary) payloads, so decode those to bytes rather than blobbing the
-      // base64 text. TEXT (the current default) passes through unchanged.
-      const part: BlobPart = r.encoding === 'BASE64' ? base64ToBytes(r.data) : r.data;
-      const blob = new Blob([part], { type: r.mimeType || 'application/octet-stream' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = r.filename || `export.${dlFormat.toLowerCase()}`;
+      a.download = filename || `export.${dlFormat.toLowerCase()}`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1203,6 +1232,97 @@
       dlError = 'Export failed. Please try again.';
     } finally {
       dlBusy = false;
+    }
+  }
+
+  // Print (#1073): fetch the node's PDF render and open it in a new tab —
+  // the browser's PDF viewer owns the print dialog, so this is the export
+  // path with no save-to-disk step. Repeated prints hold at most one object
+  // URL: the previous one is revoked when a new PDF opens, and unmount and
+  // node changes revoke the live one. The blank print window opens
+  // synchronously, inside the click's user gesture — after the export await,
+  // Safari/Firefox treat window.open as a popup — and its location is
+  // assigned only once the PDF arrives. A popup the browser blocks says so
+  // instead of failing silently.
+  let printBusy = $state(false);
+  let printError = $state<string | null>(null);
+  let printUrl: string | null = null;
+  // The in-flight print's request and blank window, owned until the PDF
+  // lands (the window is then the user's tab) or the print is invalidated,
+  // whichever comes first. Invalidation cancels the request and closes the
+  // window immediately rather than when the request settles: a hanging
+  // export must not hold its blank window open past a navigation or
+  // unmount (#1193 READ P2 residual).
+  let printAbort: AbortController | null = null;
+  let printWindow: Window | null = null;
+  // A print's generation: bumped by anything that invalidates it — teardown,
+  // and a node change (SvelteKit reuses this component between nodes, so an
+  // export for A must not open over B, and A's catch/finally must not write
+  // B's state; #1193 READ P2s). A stale run closes its window, opens
+  // nothing and writes nothing. The liveness check sits at the side effect,
+  // per hrn:node:hadronmemory.com:hadron-portal:review:async-onmount-runs-after-teardown.
+  let printGeneration = 0;
+  function invalidatePrint() {
+    printGeneration++;
+    // Release the abandoned print's resources NOW: abort its request and
+    // close its blank window. The stale run still lands in its catch /
+    // finally when the abort rejects, but the generation guards there skip
+    // every state write. Nothing waits for a hanging fetch to settle.
+    printAbort?.abort();
+    printAbort = null;
+    printWindow?.close();
+    printWindow = null;
+    if (printUrl) URL.revokeObjectURL(printUrl);
+    printUrl = null;
+    // The stale run's finally no longer clears the flag, so release the
+    // slot here — at most one live (uncancelled) export at a time.
+    printBusy = false;
+  }
+  $effect(() => () => invalidatePrint());
+  async function printNode() {
+    if (printBusy) return;
+    printBusy = true;
+    printError = null;
+    const run = printGeneration;
+    const win = window.open('', '_blank');
+    if (!win) {
+      printError = t('node-actions.print.blocked', 'The print window was blocked. Allow popups for this site, then try again.');
+      printBusy = false;
+      return;
+    }
+    printWindow = win;
+    const request = (printAbort = new AbortController());
+    try {
+      const { blob } = await fetchNodeExport({ id: node.id, format: 'PDF', full: true }, request.signal);
+      if (run !== printGeneration) {
+        // Already closed by the invalidation; a stale run mints no URL,
+        // opens nothing and writes nothing.
+        win.close();
+        return;
+      }
+      if (blob.type !== 'application/pdf') {
+        // Loud refusal, never a navigation to something that isn't the PDF.
+        win.close();
+        printWindow = null;
+        printError = t('node-actions.print.not-pdf', 'The export did not return a PDF. Please try again.');
+        return;
+      }
+      if (printUrl) URL.revokeObjectURL(printUrl);
+      printUrl = URL.createObjectURL(blob);
+      // The window stops being ours here: a later navigation revokes this
+      // URL but never closes the tab the user is reading.
+      printWindow = null;
+      win.location.href = printUrl;
+    } catch {
+      // A cancelled run rejects into this arm: its window is already
+      // closed, and the generation guard skips the state write.
+      win.close();
+      if (run === printGeneration) {
+        printWindow = null;
+        printError = t('node-actions.print.failed', 'Could not open the PDF. Please try again.');
+      }
+    } finally {
+      if (run === printGeneration) printBusy = false;
     }
   }
 
@@ -1597,6 +1717,8 @@
     /** Memory id that owns the edge (= source node's memory) — for the detail href. */
     sourceMemoryId: string;
     sourceId: string | null;
+    /** #1161: the far endpoint is DELETED per the server (recoveryEdges), not merely unreadable. */
+    endpointDeleted?: boolean;
   }
 
   // #656: label for an endpoint the caller isn't allowed to resolve.
@@ -1617,9 +1739,10 @@
       direction: 'Outgoing' as const,
       name: e.name || '—',
       // #656: target may be null (cross-memory edge into an unreadable memory).
-      endpointId: e.target?.id ?? null,
-      endpointName: e.target ? (e.target.name || e.target.loc) : PRIVATE_ENDPOINT,
-      endpointUrn: e.target ? endpointUrnOf(e.target) : '',
+      endpointId: e.target?.id ?? data.deletedEdges?.[e.id]?.target?.id ?? null,
+      endpointName: e.target ? (e.target.name || e.target.loc) : (data.deletedEdges?.[e.id]?.target?.name ?? PRIVATE_ENDPOINT),
+      endpointUrn: e.target ? endpointUrnOf(e.target) : (data.deletedEdges?.[e.id]?.target?.urn ?? ''),
+      endpointDeleted: !e.target && !!data.deletedEdges?.[e.id]?.target,
       // Outgoing: this node is the source.
       sourceMemoryId: node.memoryId,
       sourceId: node.id,
@@ -1630,9 +1753,10 @@
       name: e.name || '—',
       // #656: source may be null — the common case, since incomingEdges is how
       // a foreign memory's edge reaches this node.
-      endpointId: e.source?.id ?? null,
-      endpointName: e.source ? (e.source.name || e.source.loc) : PRIVATE_ENDPOINT,
-      endpointUrn: e.source ? endpointUrnOf(e.source) : '',
+      endpointId: e.source?.id ?? data.deletedEdges?.[e.id]?.source?.id ?? null,
+      endpointName: e.source ? (e.source.name || e.source.loc) : (data.deletedEdges?.[e.id]?.source?.name ?? PRIVATE_ENDPOINT),
+      endpointUrn: e.source ? endpointUrnOf(e.source) : (data.deletedEdges?.[e.id]?.source?.urn ?? ''),
+      endpointDeleted: !e.source && !!data.deletedEdges?.[e.id]?.source,
       // Incoming: the OTHER node is the source that owns the edge.
       sourceMemoryId: e.source?.memory?.id ?? node.memoryId,
       sourceId: e.source?.id ?? null,
@@ -1679,11 +1803,20 @@
   let revisionRows = $state<NodeRevision[]>([]);
   let revisionsLoaded = $state(false);
   let revisionsFailed = $state(false);
+  // The cap flag is pinned to the node whose read set it: `revisionsCappedFor`
+  // holds that node's id, and the cue shows only while it is the node on screen.
+  let revisionsCappedFor = $state<string | null>(null);
+  const revisionsCapped = $derived(revisionsCappedFor !== null && revisionsCappedFor === node.id);
   $effect(() => {
     const p = data.revisions; // track the current navigation's promise
     revisionsLoaded = false;
+    revisionsCappedFor = null;
     p.then((res) => {
+      // A late answer for the node the reader navigated away from must not land
+      // on this one (rows, cap flag or loaded state).
+      if (data.revisions !== p) return;
       revisionRows = res.items;
+      revisionsCappedFor = res.capped === true ? (res.nodeId ?? null) : null;
       revisionsFailed = !res.ok; // distinguish "no revisions" from "couldn't load"
       revisionsLoaded = true;
     });
@@ -2069,12 +2202,19 @@
       reorderMode = false;
       downloadOpen = false;
       dlError = null;
+      // An export in flight for the previous node no longer owns this page
+      // (#1193 READ P2s): invalidatePrint aborts its request, closes its
+      // blank window and releases the busy flag, so a print for the new
+      // node starts from clean ground.
+      invalidatePrint();
+      printError = null;
       skillExportOpen = false;
       testFlowOpen = false;
       $testFlowFormData.appId = '';
       $testFlowFormData.orgId = data.org?.id ?? '';
       $testFlowFormData.payload = '';
       moveOpen = false;
+      moveFullUrn = false;
       $moveFormData.target = '';
       closeDeleteConfirm();
       $deleteFormData.hard = false;
@@ -2130,7 +2270,7 @@
         <input type="hidden" name="_kind" value="createParent" />
         <input type="hidden" name="loc" value={seg.path} />
         <input type="hidden" name="name" value={seg.label} />
-        <button type="submit" class="text-xs text-indigo-500 hover:text-indigo-400">
+        <button type="submit" disabled={readOnly} class="text-xs text-indigo-500 hover:text-indigo-400">
           + Create parent node "{seg.label}"
         </button>
       </form>
@@ -2185,7 +2325,7 @@
         {#if approvalState}
           {#if mintState}<NodeMintLabel view={mintState} />{/if}
           <NodeApprovalBadge view={approvalState} currentRevision={node.revision} />
-          {#if approvalState.canApprove}
+          {#if !readOnly && approvalState.canApprove}
             <form method="POST" action="?/approveNode" use:approveEnhance novalidate class="flex items-center">
               <input type="hidden" name="_kind" value="approveNode" />
               <input type="hidden" name="revision" value={node.revision} />
@@ -2271,6 +2411,9 @@
       <!-- #503: the "⋯" menu is the single entry point for node actions;
            each item opens one of the panels/dialogs below. -->
       <NodeActionsMenu actions={menuActions} onselect={onMenuSelect} label={`Actions for ${node.name}`} />
+      {#if printError}
+        <p role="alert" class="text-xs text-red-500">{printError}</p>
+      {/if}
       <!-- Hidden form the menu's Duplicate item submits (requestSubmit fires
            the submit event use:enhance intercepts, unlike .submit()). -->
       <form bind:this={duplicateForm} method="POST" action="?/duplicate" use:duplicateEnhance novalidate class="hidden">
@@ -2469,6 +2612,24 @@
             >
               <input type="hidden" name="_kind" value={$moveFormData._kind} />
               <div>
+                {#if !moveFullUrn}
+                  <!-- #1164: Location — the loc in THIS memory. The hidden input
+                       carries the one submitted `target`, so Location and the
+                       full-URN field can never disagree. -->
+                  <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('node-actions.move-location', 'Location')}</label>
+                  <MoveLocationInput
+                    memoryUrn={data.graph.urn ?? ''}
+                    bind:target={$moveFormData.target}
+                    {inputClass}
+                    invalid={!!$moveErrors.target?.[0]}
+                    error={$moveErrors.target?.[0]}
+                    describedby={$moveErrors.target?.[0] ? 'moveTargetHint moveTargetError' : 'moveTargetHint'}
+                  />
+                  <p id="moveTargetHint" class="mt-1 text-xs text-zinc-400">
+                    {t('node-actions.move-location-hint', 'The node’s path in this memory — change it to rename or reparent. Fails if a node already lives there.')}
+                    <button type="button" onclick={() => (moveFullUrn = true)} class="ml-1 underline hover:text-zinc-600 dark:hover:text-zinc-200">{t('node-actions.move-use-full-urn', 'Use full URN')}</button>
+                  </p>
+                {:else}
                 <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Destination node URN</label>
                 <input
                   id="moveTarget"
@@ -2530,6 +2691,7 @@
                     >{t('node-actions.move-select-memory', 'Select target memory…')}</button>
                   {/if}
                 {/await}
+                {/if}
               </div>
               {#if moveActionError}
                 <p role="alert" class="text-xs text-red-500">{moveActionError}</p>
@@ -2537,7 +2699,7 @@
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={!$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
+                  disabled={readOnly || !$moveFormData.target.trim() || $moveFormData.target.trim() === fullUrn || $moveSubmitting}
                   class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >{$moveSubmitting ? t('node-actions.move.moving', 'Moving...') : 'Move node'}</button>
                 <button type="button" onclick={() => (moveOpen = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">Cancel</button>
@@ -2598,7 +2760,7 @@
               <div class="flex items-center gap-2">
                 <button
                   type="submit"
-                  disabled={$deleteSubmitting}
+                  disabled={readOnly || $deleteSubmitting}
                   class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {$deleteSubmitting
@@ -2821,6 +2983,7 @@
             use:fillViewport={contentSaveRow}
             class="block w-full resize-none rounded-lg border border-zinc-200 bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none focus:border-indigo-500"
             placeholder={createNodeStrings.contentSourcePlaceholder()}
+            readonly={readOnly}
             bind:value={contentDraft.text}
           ></textarea>
           <div bind:this={contentSaveRow} class="mt-2 flex flex-wrap items-center justify-end gap-2">
@@ -2839,7 +3002,7 @@
             {/if}
             <button
               onclick={saveContent}
-              disabled={saving || !contentDraft.dirty}
+              disabled={readOnly || saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{saving ? 'Saving...' : 'Save'}</button>
           </div>
@@ -2904,6 +3067,7 @@
             maxlength={ABSTRACT_MAX}
             placeholder={abstractPlaceholder()}
             aria-describedby={abstractHint ? 'node-abstract-search-hint' : undefined}
+            readonly={readOnly}
             bind:value={abstractDraft.text}
           ></textarea>
           <div bind:this={abstractSaveRow} class="mt-2 flex flex-wrap items-center justify-between gap-2">
@@ -2923,7 +3087,7 @@
               {/if}
               <button
                 onclick={saveAbstract}
-                disabled={savingAbstract || !abstractDraft.dirty}
+                disabled={readOnly || savingAbstract || !abstractDraft.dirty}
                 class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
               >{savingAbstract ? 'Saving...' : 'Save'}</button>
             </div>
@@ -3012,7 +3176,7 @@
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {dataParse.ok || dataEmpty ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             placeholder={'{\n  "key": "value"\n}'}
             spellcheck="false"
-            readonly={savingData}
+            readonly={readOnly || savingData}
             aria-busy={savingData}
             bind:value={dataDraft.text}
           ></textarea>
@@ -3030,7 +3194,7 @@
             <button
               type="button"
               onclick={saveData}
-              disabled={savingData || !dataParse.ok || !dataDirty}
+              disabled={readOnly || savingData || !dataParse.ok || !dataDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{savingData ? t('node.data.source.saving', 'Saving…') : t('node.data.source.save', 'Save')}</button>
           </div>
@@ -3120,7 +3284,7 @@
             aria-describedby="properties-source-status"
             class="w-full min-h-[160px] max-h-[calc(100vh-16rem)] resize-none overflow-y-auto rounded-lg border bg-zinc-50 p-4 font-mono text-sm text-zinc-800 dark:bg-zinc-950 dark:text-zinc-300 focus:outline-none {propertiesParse.ok ? 'border-zinc-200 focus:border-indigo-500 dark:border-zinc-800' : 'border-red-400 focus:border-red-500 dark:border-red-700'}"
             spellcheck="false"
-            readonly={savingProperties}
+            readonly={readOnly || savingProperties}
             aria-busy={savingProperties}
             bind:value={propertiesDraft.text}
           ></textarea>
@@ -3138,7 +3302,7 @@
             <button
               type="button"
               onclick={saveProperties}
-              disabled={savingProperties || !propertiesParse.ok || !propertiesDirty}
+              disabled={readOnly || savingProperties || !propertiesParse.ok || !propertiesDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
             >{savingProperties ? t('node.properties.source.saving', 'Saving…') : t('node.properties.source.save', 'Save')}</button>
           </div>
@@ -3215,6 +3379,7 @@
          The action carries `tab=properties` so a submit that navigates fully
          (no JS yet) reopens this tab rather than the node's default one. -->
     <div class="mt-6" hidden={activeTab !== 'properties' || showPropertiesSource}>
+      <fieldset disabled={readOnly}>
       <NodeStorageForm
         {node}
         memorySchema={data.graph.schema}
@@ -3223,8 +3388,9 @@
         action="?tab=properties&/updateStorage"
         skillCheck={data.skillCheck}
         runnableBlockedBy={data.runnableBlockedBy}
-        noWriteDoor={data.noWriteDoor}
+        noWriteDoor={readOnly ? t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.') : data.noWriteDoor}
       />
+      </fieldset>
     </div>
 
     <!-- ═══ FLOW TAB (#478) ═══ -->
@@ -3253,6 +3419,7 @@
           </div>
         {/if}
 
+        <fieldset disabled={readOnly}>
         <form method="POST" action="?/updateFlow" use:flowEnhance novalidate class="space-y-6">
           <!-- Extraction -->
           <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
@@ -3401,6 +3568,7 @@
             {/if}
           </div>
         </form>
+        </fieldset>
       </div>
     {/if}
 
@@ -3417,7 +3585,7 @@
           {#if reorderMode}<span class="text-xs text-zinc-500">Drag rows to reorder</span>{/if}
           <button
             type="button"
-            onclick={() => reorderMode = !reorderMode}
+            disabled={readOnly} onclick={() => reorderMode = !reorderMode}
             class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >{reorderMode ? 'Done' : 'Reorder'}</button>
         </div>
@@ -3482,7 +3650,7 @@
       <div class="mb-4 flex items-center justify-between">
         <h3 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">Edges</h3>
         {#if !editingEdges}
-          <button type="button" onclick={startEditEdges} disabled={hasUnreadableOutgoing}
+          <button type="button" onclick={startEditEdges} disabled={readOnly || hasUnreadableOutgoing}
             title={hasUnreadableOutgoing ? t('node-edges.edit-blocked', 'This node has an edge into a memory you can’t access. Editing would remove it, so edge editing is disabled here.') : undefined}
             class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">
             Edit edges
@@ -3520,6 +3688,10 @@
                 <div class="truncate">
                   {#if r.endpointId}
                     <a href="{basePath}/nodes/{r.endpointId}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{r.endpointName}</a>
+                    {#if r.endpointDeleted}
+                      <!-- #1161: the SERVER reported this endpoint deleted. -->
+                      <span data-testid="edge-endpoint-deleted" class="ml-1 shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{t('node.deleted.badge', 'Deleted')}</span>
+                    {/if}
                   {:else}
                     <!-- #656: unreadable cross-memory endpoint — opaque, not a link. -->
                     <span class="min-w-0 truncate italic text-zinc-400 dark:text-zinc-500" title={PRIVATE_ENDPOINT}>{r.endpointName}</span>
@@ -3595,7 +3767,7 @@
           </div>
 
           <div class="mt-4 flex items-center gap-2">
-            <button type="submit" disabled={$edgesSubmitting} class="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style="background: #fb8500;">
+            <button type="submit" disabled={readOnly || $edgesSubmitting} class="rounded-lg px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40" style="background: #fb8500;">
               {$edgesSubmitting ? t('node.edges.saving', 'Saving...') : t('node.edges.save', 'Save edges')}
             </button>
             <button type="button" onclick={cancelEditEdges}
@@ -3625,7 +3797,8 @@
       {:else}
         <div class="mb-3 flex items-center justify-between gap-3">
           <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Revisions saved on each edit, most recent first.')}</p>
-          <button type="button" onclick={() => (clearConfirm = true)} disabled={historyBusy}
+          {#if revisionsCapped}<CappedNotice shown={revisionRows.length} what={t('capped.revisions', 'revisions (the newest)')} />{/if}
+          <button type="button" onclick={() => (clearConfirm = true)} disabled={readOnly || historyBusy}
             class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
             {t('node.history.clear', 'Clear')}
           </button>
@@ -3694,9 +3867,9 @@
       <button type="button" class="fixed inset-0 z-40 cursor-default" aria-label={t('node.history.close-menu', 'Close menu')} onclick={() => (historyMenuFor = null)}></button>
       <div role="menu" class="fixed z-50 w-44 -translate-x-full rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900" style="left: {historyMenuX}px; top: {historyMenuY}px;">
         <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('display')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.display', 'Display')}</button>
-        <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
+        <button type="button" role="menuitem" disabled={readOnly} onclick={() => onHistoryMenuSelect('restore')} class="block w-full px-3 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('node.history.action.restore', 'Restore')}</button>
         <div class="my-1 border-t border-zinc-200 dark:border-zinc-800"></div>
-        <button type="button" role="menuitem" onclick={() => onHistoryMenuSelect('delete')} class="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800">{t('node.history.action.delete', 'Delete')}</button>
+        <button type="button" role="menuitem" disabled={readOnly} onclick={() => onHistoryMenuSelect('delete')} class="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800">{t('node.history.action.delete', 'Delete')}</button>
       </div>
     {/if}
 
@@ -3707,10 +3880,10 @@
           <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.restore.heading', 'Restore this revision?')}</h3>
           <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.restore.warning', 'This restores the node to the selected revision and deletes the history newer than it. This cannot be undone.')}</p>
           <p class="mt-2 text-xs text-zinc-500">{new Date(restoreTarget.createdAt).toLocaleString()}{restoreTarget.editedByUser?.handle ? ` · @${restoreTarget.editedByUser.handle}` : ''}</p>
-          {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
+          {#if historyError}<p role="alert" class="mt-2 text-xs text-red-500" data-testid="restore-error">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (restoreTarget = null)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.restore.cancel', 'Cancel')}</button>
-            <button type="button" onclick={confirmRestore} disabled={historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>
+            <button type="button" onclick={confirmRestore} disabled={readOnly || historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>
           </div>
         </div>
       </div>
@@ -3725,7 +3898,7 @@
           {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (clearConfirm = false)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.clear-dialog.cancel', 'Cancel')}</button>
-            <button type="button" onclick={confirmClear} disabled={historyBusy} class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50">{historyBusy ? t('node.history.clear-dialog.working', 'Clearing…') : t('node.history.clear-dialog.confirm', 'Clear all')}</button>
+            <button type="button" onclick={confirmClear} disabled={readOnly || historyBusy} class="rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:opacity-50">{historyBusy ? t('node.history.clear-dialog.working', 'Clearing…') : t('node.history.clear-dialog.confirm', 'Clear all')}</button>
           </div>
         </div>
       </div>
@@ -3733,14 +3906,14 @@
 
     <!-- ═══ SETTINGS TAB ═══ -->
     {#if activeTab === 'settings' || activeTab === 'info'}
-      {@const readOnly = activeTab === 'info'}
+      {@const readOnly = activeTab === 'info' || data.canWriteMemory === false}
       <div class="max-w-3xl space-y-8">
         <section>
           <div class="mb-4 flex items-center justify-between">
             <h2 class="font-semibold text-zinc-900 dark:text-white">Node</h2>
             {#if !isEditing && !readOnly}
               <div class="flex items-center gap-2">
-                <button onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
+                <button disabled={readOnly} onclick={() => isEditing = true} class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Edit</button>
                 <a href="{basePath}/graph?focus={node.id}" class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800">Graph</a>
               </div>
             {/if}
@@ -3805,7 +3978,7 @@
                 </label>
               </div>
               <div class="flex gap-3">
-                <button type="submit" disabled={$updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
+                <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
                   {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : t('node.meta.save', 'Save')}
                 </button>
                 <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
@@ -3893,7 +4066,7 @@
         <section class="border-t border-zinc-200 pt-6 dark:border-zinc-800">
           <h3 class="mb-2 text-sm font-semibold text-red-500">Danger zone</h3>
           {#if !confirmDelete}
-            <button onclick={() => { $deleteFormData.hard = false; $deleteFormData.recursive = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
+            <button disabled={readOnly} onclick={() => { $deleteFormData.hard = false; $deleteFormData.recursive = false; confirmDelete = true; }} class="rounded-md border border-red-300 px-3 py-1.5 text-sm text-red-500 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950">
               Delete node
             </button>
           {:else}
@@ -3914,7 +4087,7 @@
               {/if}
               <button
                 type="submit"
-                disabled={$deleteSubmitting}
+                disabled={readOnly || $deleteSubmitting}
                 class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
               >{$deleteSubmitting ? t('node-actions.delete.deleting', 'Deleting...') : 'Yes, delete'}</button>
               <button type="button" onclick={() => confirmDelete = false} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
@@ -3935,7 +4108,7 @@
      `invalidateAll()` on success rather than a local list update: the new
      reference node has to appear in the memory layout's node tree and in this
      node's Children tab, both of which come from loaders. -->
-{#if canAttachAsset}
+{#if !readOnly && canAttachAsset}
   <AttachAssetDialog
     bind:open={attachOpen}
     memoryId={node.memory?.id ?? data.graph.id}

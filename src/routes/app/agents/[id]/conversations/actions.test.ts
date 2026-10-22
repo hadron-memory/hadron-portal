@@ -18,7 +18,8 @@ const mockFetchAllItems = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
 }));
-vi.mock('$lib/server/paginate', () => ({
+vi.mock('$lib/server/paginate', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/server/paginate')>()),
   fetchAllItems: mockFetchAllItems,
 }));
 vi.mock('$lib/server/guards', () => ({
@@ -737,7 +738,7 @@ describe('load', () => {
     mockFetchAllItems.mockResolvedValueOnce([
       { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
     ]);
-    mockRequest.mockResolvedValue({
+    mockRequest.mockImplementation(async (_doc: string, v?: { offset?: number }) => (v?.offset ? { findNodes: { hits: [] } } : {
       findNodes: {
         hits: [
           {
@@ -808,7 +809,7 @@ describe('load', () => {
           },
         ],
       },
-    });
+    }));
 
     const result = (await runLoad()) as {
       addConversationForm: { data: { _kind: string; systemMemoryId: string; name: string } };
@@ -898,7 +899,7 @@ describe('load', () => {
     mockFetchAllItems.mockResolvedValueOnce([
       { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
     ]);
-    mockRequest.mockResolvedValue({
+    mockRequest.mockImplementation(async (_doc: string, v?: { offset?: number }) => (v?.offset ? { findNodes: { hits: [] } } : {
       findNodes: {
         hits: [
           {
@@ -914,7 +915,7 @@ describe('load', () => {
           },
         ],
       },
-    });
+    }));
 
     const result = (await runLoad()) as { edgeForms: Record<string, unknown> };
 
@@ -925,7 +926,7 @@ describe('load', () => {
     mockFetchAllItems.mockResolvedValueOnce([
       { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
     ]);
-    mockRequest.mockResolvedValue({
+    mockRequest.mockImplementation(async (_doc: string, v?: { offset?: number }) => (v?.offset ? { findNodes: { hits: [] } } : {
       findNodes: {
         hits: [
           {
@@ -950,7 +951,7 @@ describe('load', () => {
           },
         ],
       },
-    });
+    }));
 
     const result = (await runLoad()) as { edgeForms: Record<string, unknown> };
 
@@ -1193,7 +1194,7 @@ describe('system conversation retrieval (#874)', () => {
         }
       } });
       const visible = rows.filter(n => requested ? n.nodeType === requested : n.nodeType !== 'system');
-      return { findNodes: { hits: visible.map(node => ({ node })) } };
+      return { findNodes: { hits: (vars.offset as number) > 0 ? [] : visible.map(node => ({ node })) } };
     });
   }
   it('retrieves existing conversations, stages and prompts from a mixed-type system memory', async () => {
@@ -1218,7 +1219,7 @@ describe('system conversation retrieval (#874)', () => {
   });
   it('deduplicates overlapping responses and excludes nodes outside the scoped memory', async () => {
     serve();
-    mockRequest.mockResolvedValue({ findNodes: { hits: [...nodes, { ...nodes[0], id: 'foreign', memoryId: 'mem-other' }].map(node => ({ node })) } });
+    mockRequest.mockImplementation(async (_doc: string, v?: { offset?: number }) => (v?.offset ? { findNodes: { hits: [] } } : { findNodes: { hits: [...nodes, { ...nodes[0], id: 'foreign', memoryId: 'mem-other' }].map(node => ({ node })) } }));
     const result = await runLoad() as any;
     expect(result.systemNodes.map((n: { id: string }) => n.id)).toEqual(['conv', 'stage', 'prompt', 'info']);
   });

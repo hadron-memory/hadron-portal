@@ -238,12 +238,16 @@
       <!-- Shown rather than hiding the tab, so the reason has somewhere to
            live. `shareable` is the server's derived signal (#766) — the portal
            does not re-derive it from `class`, which would go stale the moment
-           the server widened the rule. -->
+           the server widened the rule. `class` only picks the wording. -->
       <div role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-        {t(
-          'memory-share.not-shareable',
-          'This memory cannot be shared with individual people. Direct sharing is available for personal memories; memories owned by an organization are reached through org membership and subscriptions instead.',
-        )}
+        {#if memory.class === 'private'}
+          {t('memory-share.not-shareable-private', 'Private memories cannot be shared.')}
+        {:else}
+          {t(
+            'memory-share.not-shareable',
+            'This memory cannot be shared with individual people. Direct sharing is available for personal memories; memories owned by an organization are reached through org membership and subscriptions instead.',
+          )}
+        {/if}
       </div>
     {/if}
 
@@ -330,7 +334,7 @@
               <NodeActionsMenu
                 actions={[{ id: 'revoke', label: t('memory-share.revoke', 'Remove access'), danger: true }]}
                 onselect={() => (confirmRevokeFor = row.granteeId)}
-                label={`${t('memory-share.actions.label', 'Actions for')} ${row.grantee}`}
+                label={t('memory-share.actions.label', 'Actions for {name}', { name: row.grantee })}
                 fixed
                 compact
               />

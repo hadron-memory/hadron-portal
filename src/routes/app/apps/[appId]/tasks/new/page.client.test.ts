@@ -103,3 +103,59 @@ describe('create page: a transport error keeps the typed fields', () => {
     expect(m.target.querySelector<HTMLInputElement>('#new-tags')?.value).toBe('x');
   });
 });
+
+// portal#1214: a create whose response carried warnings is answered in place.
+// The page is MOUNTED with the form showing, then given the action's result the
+// way kit's applyAction does, so the test sees the form go and the panel come.
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+
+describe('create page: a warned create replaces the form', () => {
+  const data = { app, candidates: { workers: [], people: [] }, roles: [], families: [], canWrite: true, impersonating: null };
+  async function warned(result: Record<string, unknown>) {
+    const props = reactiveProps<Record<string, unknown>>({ data, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    expect(m.target.querySelector('form')).not.toBeNull();
+    const form = m.target.querySelector<HTMLFormElement>('form')!;
+    // The submit callback runs (as kit would) before the result lands.
+    await submitEnhancedWithResult(form, { type: 'success', status: 200, data: result } as never);
+    props.form = result;
+    await tick(3);
+    return m.target;
+  }
+
+  it('removes the form, says created, lists the warnings and links to the new task', async () => {
+    const root = await warned({
+      created: { id: 't9' }, committedWithError: false, more: 0,
+      warnings: [{ code: 'task.create.no-source', text: 'This task has no source.' }],
+    });
+    expect(root.querySelector('form')).toBeNull();
+    expect(root.querySelector('button[type="submit"]')).toBeNull();
+    const panel = root.querySelector('[data-testid="task-created"]')!;
+    expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Task created. 1 warning below.');
+    expect(panel.querySelector('h2')?.getAttribute('role')).toBeNull();
+    expect(panel.querySelector('[data-testid="task-warnings"]')?.textContent).toContain('This task has no source.');
+    expect(panel.querySelector('a')?.getAttribute('href')).toBe('/app/apps/app-1/tasks/t9');
+  });
+
+  it('without an id, a committed-with-error create says so and links to the Tasks list', async () => {
+    const root = await warned({ created: { id: null }, committedWithError: true, more: 0, warnings: [{ code: 'c', text: 't' }] });
+    expect(root.querySelector('form')).toBeNull();
+    const panel = root.querySelector('[data-testid="task-created"]')!;
+    expect(panel.querySelector('h2')?.textContent?.trim()).toBe('Task created, but the server’s response also reported an error. 1 warning below.');
+    expect(panel.textContent).not.toContain('Not changed');
+    expect(panel.querySelector('a')?.getAttribute('href')).toBe('/app/apps/app-1/tasks');
+  });
+
+  it('a refusal still keeps the form (the panel is only for a created task)', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ data, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    props.form = { refusal: { kind: 'uncertain' }, values: { title: 'Keep me' } };
+    await tick(3);
+    expect(m.target.querySelector('form')).not.toBeNull();
+    expect(m.target.querySelector('[data-testid="task-created"]')).toBeNull();
+  });
+});

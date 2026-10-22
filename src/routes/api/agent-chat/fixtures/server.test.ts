@@ -59,6 +59,7 @@ function mockResolveAgent(scope: 'org' | 'personal' = 'org') {
       return { agents: { items: agents, total: agents.length } };
     }
     if (query === FIXTURE_NODES_QUERY) {
+      if ((vars as { offset?: number } | undefined)?.offset) return { findNodes: { hits: [] } };
       return { findNodes: { hits: [
         // Fixture in our agent's memory
         { node: {
@@ -139,7 +140,7 @@ describe('GET /api/agent-chat/fixtures', () => {
     const body = await res.json();
     expect(body.fixtures).toHaveLength(1);
     expect(body.fixtures[0].label).toBe('one');
-    expect(mockRequest).toHaveBeenCalledWith(FIXTURE_NODES_QUERY, { limit: 500, memoryIds: ['sys-mem-a'] });
+    expect(mockRequest).toHaveBeenCalledWith(FIXTURE_NODES_QUERY, { limit: 500, offset: 0, memoryIds: ['sys-mem-a'] });
     expect(body.fixtures[0].assertionMode).toBeNull();
   });
 

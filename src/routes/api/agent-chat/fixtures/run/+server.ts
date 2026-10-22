@@ -22,6 +22,7 @@ import { describeRegexFailure, type Verdict } from '$lib/server/agent-tester/ver
 import { testRegexSafely } from '$lib/server/safe-regex';
 import { rateLimitResponse } from '$lib/server/rate-limit';
 import type { RequestHandler } from './$types';
+import { drainFindNodes } from '$lib/server/paginate';
 
 /**
  * POST /api/agent-chat/fixtures/run
@@ -201,9 +202,9 @@ async function loadFixtures(
   const client = gqlClient(token);
   // hrn:node:hadronmemory.com:specs:cor:api:090:02: explicit memory scope does not lift the independent
   // system-node exclusion. Fixtures are system nodes (#1202).
-  const result = await client.request<{ findNodes: { hits: Array<{ node: {
+  const result = await drainFindNodes<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  } }> } }>(FIXTURE_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] });
+  } }>(client, FIXTURE_NODES_QUERY, { memoryIds: [systemMemoryId] });
   const out: LoadedFixture[] = [];
   for (const h of result.findNodes?.hits ?? []) {
     const n = h.node;

@@ -69,6 +69,9 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
 export async function submitEnhancedWithResult(
   form: HTMLFormElement,
   result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> },
+  // portal#1246: a test that pins what the callback does with kit's `update`
+  // (that it is called, and how) passes its own recorder here.
+  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> } = {},
 ): Promise<{ cancelled: boolean }> {
   const submit = enhanced.get(form);
   if (!submit) throw new Error('submitEnhancedWithResult: this form was never enhanced');
@@ -87,8 +90,33 @@ export async function submitEnhancedWithResult(
   });
   if (cancelled) return { cancelled };
   if (typeof handler !== 'function') throw new Error('submitEnhancedWithResult: superforms returned no result handler');
-  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: opts.update ?? (async () => {}) });
   return { cancelled };
+}
+
+/**
+ * portal#1237 — like `submitEnhancedWithResult`, but the server's answer arrives
+ * LATER: the submit callback runs now (capturing whatever the page held at
+ * submit time) and `finish(result)` delivers the result after the test has
+ * moved the page on. That is the interleaving a delayed response creates.
+ */
+export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
+  finish: (result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> }) => Promise<void>;
+}> {
+  const submit = enhanced.get(form);
+  if (!submit) throw new Error('submitEnhancedDeferred: this form was never enhanced');
+  const action = new URL(form.action || 'http://localhost/');
+  const formData = new FormData(form);
+  const handler = await submit({
+    action, formData, formElement: form, controller: new AbortController(),
+    submitter: form.querySelector('[type="submit"]'), cancel: () => {},
+  });
+  if (typeof handler !== 'function') throw new Error('submitEnhancedDeferred: no result handler');
+  return {
+    finish: async (result) => {
+      await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+    },
+  };
 }
 
 /**
