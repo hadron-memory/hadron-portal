@@ -10,9 +10,11 @@
  *    Agents tab holds it in a TanStack table with an add-agent path.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
@@ -38,6 +40,9 @@ const forms = (schemas: Parameters<typeof zod4>[0][]) =>
 const reader = { id: 'u2', handle: 'rae', githubUsername: 'rae', name: 'Rae Reader', avatarUrl: null, email: null };
 const agentOne = { id: 'ag1', urn: 'hrn:agent:acme.com:scribe', name: 'Scribe', personaRole: 'writer' };
 const agentTwo = { id: 'ag2', urn: 'hrn:agent:acme.com:critic', name: 'Critic', personaRole: 'reviewer' };
+
+/** The last mount's props, reactive, so a test can replay a navigation that reuses the page. */
+let lastProps: Record<string, unknown> = {};
 
 async function mountTab(tab: string, over: { app?: Record<string, unknown>; data?: Record<string, unknown>; form?: unknown } = {}) {
   setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
@@ -65,13 +70,14 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
     appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
     selectedChatKey: 'chats:team', initialTab: tab, initialChatFullView: false,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
-    currentUserId: 'u1', user: { id: 'u1' },
+    currentUserId: 'u1', user: { id: 'u1' }, bootPointerAppKey: 'a1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm,
     revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm,
     postTeamChatMessageForm, addMemberForm, ensureMemberForm, removeMemberForm,
     ...over.data,
   };
-  const m = mountComponent(Page as never, { data, form: over.form ?? null } as never) as Mounted<Record<string, unknown>>;
+  lastProps = reactiveProps<Record<string, unknown>>({ data, form: over.form ?? null });
+  const m = mountComponent(Page as never, lastProps as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
   return m.target;
@@ -282,7 +288,7 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
   });
 
   it('a result for one row never shows on another, and a refused draft stays on its own row', async () => {
-    const form = { pointer: { key: 'ag1', nodeRef: 'draft-for-scribe', refusal: { code: 'FORBIDDEN', lead: 'Only this App’s manager can change this pointer.', message: 'No.' } } };
+    const form = { pointer: { key: 'a1\u0000ag1', nodeRef: 'draft-for-scribe', refusal: { code: 'FORBIDDEN', lead: 'Only this App’s manager can change this pointer.', message: 'No.' } } };
     const target = await mountTab('agents', { data: { bootPointers, canManageApp: true }, form });
     // No-JS reload: the panel reopens on the row the result belongs to.
     let panel = target.querySelector('#app-agent-pointer-panel')!;
@@ -294,6 +300,33 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
     expect(panel.textContent).toContain('Critic');
     expect(panel.querySelector('[data-testid="boot-pointer-refusal"]')).toBeNull();
     expect(panel.querySelector<HTMLInputElement>('input[name="nodeRef"]')!.value).toBe('');
+  });
+
+  // George's P2 on #1246: the page is reused across /apps/A → B, and an agent
+  // installed in both must not carry A's open panel or draft into B.
+  it('navigating to another App closes the panel and drops a draft typed on the first, even for the same agent', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true } });
+    await openFor(target, 'Scribe');
+    const field = () => target.querySelector<HTMLInputElement>('#app-agent-pointer-node-ref');
+    field()!.value = 'draft-for-app-a';
+    field()!.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    expect(field()!.value).toBe('draft-for-app-a');
+
+    const data = lastProps.data as Record<string, unknown>;
+    setStubPage('https://example.test/app/apps/a2?tab=agents', { appId: 'a2' });
+    lastProps.data = { ...data, app: { ...(data.app as Record<string, unknown>), id: 'a2', urn: 'hrn:app:acme.com:other' }, bootPointerAppKey: 'a2' };
+    flushSync();
+    await tick(2);
+    expect(target.querySelector('#app-agent-pointer-panel')).toBeNull();
+    await openFor(target, 'Scribe');
+    expect(field()!.value).toBe('');
+  });
+
+  it('a result written for the same agent in another App is never shown', async () => {
+    const form = { pointer: { key: 'a2\u0000ag1', nodeRef: 'draft-elsewhere', refusal: { code: 'FORBIDDEN', lead: 'l', message: 'm' } } };
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true }, form });
+    expect(target.querySelector('#app-agent-pointer-panel')).toBeNull();
   });
 
   it('an explicit canManageApp false offers no Set action, but the column still shows', async () => {

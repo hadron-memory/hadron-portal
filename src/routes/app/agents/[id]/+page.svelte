@@ -18,7 +18,7 @@
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
-  import type { PointerResult } from '$lib/boot-prompt-pointer';
+  import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
   import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
@@ -1450,13 +1450,17 @@
            Its own form and action, so it never rides along with the Agent form. -->
       <section class="max-w-lg" aria-labelledby="bootPointerHeading">
         <h2 id="bootPointerHeading" class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('boot-pointer.agent.heading', 'Boot prompt pointer')}</h2>
-        <BootPromptPointer
-          read={data.bootPointer}
-          canManage={data.canManageAgent}
-          action="?/setBootPrompt"
-          result={(form as { pointer?: PointerResult } | null)?.pointer ?? null}
-          idPrefix="agent-boot-pointer"
-        />
+        <!-- Re-keyed per Agent: the page component is reused across /agents/A → B,
+             and a draft typed for A must never sit in B's form (George, #1246). -->
+        {#key data.agent.id}
+          <BootPromptPointer
+            read={data.bootPointer}
+            canManage={data.canManageAgent}
+            action="?/setBootPrompt"
+            result={pointerResultFor((form as { pointer?: PointerResult } | null)?.pointer, data.bootPointerKey)}
+            idPrefix="agent-boot-pointer"
+          />
+        {/key}
       </section>
 
       <!-- #942: how this agent starts out in an App's default channel. Saved on

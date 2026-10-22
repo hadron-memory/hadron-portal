@@ -74,6 +74,16 @@ export interface PointerResult {
   nodeRef?: string;
 }
 
+/** An App install's pointer key: the route's App ref and the agent id, so a result never crosses Apps. */
+export function appAgentPointerKey(appKey: string, agentId: string): string {
+  return `${appKey}\u0000${agentId}`;
+}
+
+/** A pointer result only for the surface it was written for (George's P2 on #1246). */
+export function pointerResultFor(result: PointerResult | null | undefined, key: string): PointerResult | null {
+  return result && result.key === key ? result : null;
+}
+
 /** The fixed line every control carries (Victor's FIT delta 2): what is built, no capability claimed. */
 export const POINTER_NOT_SERVED = () => t('boot-pointer.not-served', 'Pointers are recorded but not used to start agents yet.');
 

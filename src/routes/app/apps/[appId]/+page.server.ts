@@ -7,6 +7,7 @@ import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
 import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
+import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
 import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -917,6 +918,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
     bootPointers,
+    // The App half of a pointer result's key (the action's own params.appId).
+    bootPointerAppKey: params.appId,
     keyScopes,
     appKeys,
     appSettingsForm,
@@ -952,7 +955,7 @@ export const actions: Actions = {
   setAppAgentBootPrompt: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const agentRef = String(fd.get('agentRef') ?? '');
-    return pointerAction(fd, 'app', agentRef, (nodeRef) =>
+    return pointerAction(fd, 'app', appAgentPointerKey(params.appId, agentRef), (nodeRef) =>
       gqlClient(locals.token).request(SET_APP_AGENT_BOOT_PROMPT_MUTATION, { appRef: params.appId, agentRef, nodeRef }));
   },
 

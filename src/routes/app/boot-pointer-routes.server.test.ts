@@ -52,7 +52,7 @@ describe('Agent page: setBootPrompt', () => {
 describe('App page: setAppAgentBootPrompt', () => {
   it('sends appRef, the row’s agentRef and nodeRef, keyed to that row', async () => {
     const { actions } = await import('./apps/[appId]/+page.server');
-    expect(await actions.setAppAgentBootPrompt!(actionEvent({ appId: 'app-1' }, { agentRef: 'a2', intent: 'set', nodeRef: 'n9' }))).toEqual({ pointer: { key: 'a2', ok: true, cleared: false } });
+    expect(await actions.setAppAgentBootPrompt!(actionEvent({ appId: 'app-1' }, { agentRef: 'a2', intent: 'set', nodeRef: 'n9' }))).toEqual({ pointer: { key: 'app-1\u0000a2', ok: true, cleared: false } });
     await actions.setAppAgentBootPrompt!(actionEvent({ appId: 'app-1' }, { agentRef: 'a2', intent: 'clear' }));
     expect(callsTo(SET_APP_AGENT_BOOT_PROMPT_MUTATION)).toEqual([
       { appRef: 'app-1', agentRef: 'a2', nodeRef: 'n9' },
@@ -65,7 +65,7 @@ describe('App page: setAppAgentBootPrompt', () => {
     mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'Only the manager.', extensions: { code: 'FORBIDDEN' } }] } });
     const r = (await actions.setAppAgentBootPrompt!(actionEvent({ appId: 'app-1' }, { agentRef: 'a2', intent: 'set', nodeRef: 'n9' }))) as { status: number; data: { pointer: Record<string, unknown> } };
     expect(r.status).toBe(403);
-    expect(r.data.pointer).toMatchObject({ key: 'a2', nodeRef: 'n9', refusal: { code: 'FORBIDDEN', message: 'Only the manager.' } });
+    expect(r.data.pointer).toMatchObject({ key: 'app-1\u0000a2', nodeRef: 'n9', refusal: { code: 'FORBIDDEN', message: 'Only the manager.' } });
   });
 });
 

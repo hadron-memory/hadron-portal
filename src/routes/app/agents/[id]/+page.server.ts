@@ -349,6 +349,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     registerDefaultsForm,
     bootPointer,
     canManageAgent,
+    // The key a pointer result carries (the action's own params.id), so a
+    // result shows only for the Agent it was written for.
+    bootPointerKey: params.id,
     addMemoryForm,
     updateMemoryRoleForm,
     removeMemoryForm,

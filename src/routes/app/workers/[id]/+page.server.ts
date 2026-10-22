@@ -173,6 +173,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     wakeLoadedAt: new Date().toISOString(),
     bootPointer,
     canManageWorkerApp,
+    // The key a pointer result carries (the action's own params.id).
+    bootPointerKey: params.id,
   };
 };
 

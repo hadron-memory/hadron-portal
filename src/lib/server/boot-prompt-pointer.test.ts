@@ -78,6 +78,12 @@ describe('pointerAction', () => {
     expect(JSON.stringify(r.data)).not.toContain('PRIVATE-VARS');
   });
 
+  // Gaia's P3-2 on #1246: a refused Clear keeps the field's text too.
+  it('a refused Clear keeps what was in the field', async () => {
+    const r = (await pointerAction(fd({ intent: 'clear', nodeRef: 'still-here' }), 'agent', 'k', () => Promise.reject(refused('FORBIDDEN')))) as { data: { pointer: { nodeRef: string } } };
+    expect(r.data.pointer.nodeRef).toBe('still-here');
+  });
+
   it('an unknown code keeps the server message, with no lead', async () => {
     const r = (await pointerAction(fd({ nodeRef: 'n' }), 'app', 'k', () => Promise.reject(refused('SOMETHING_ELSE')))) as { data: { pointer: { refusal: { lead: unknown; message: string } } } };
     expect(r.data.pointer.refusal).toMatchObject({ lead: null, message: 'The server says no.' });

@@ -4,10 +4,11 @@
  * form hidden only on an explicit `canManage: false`, a refusal shown escaped
  * with the draft kept, and a fresh read replacing the old one after a save.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import BootPromptPointer from './BootPromptPointer.svelte';
 
 const URN = 'hrn:node:acme.com:team-sys:boot:compiled';
@@ -82,6 +83,20 @@ describe('BootPromptPointer', () => {
     expect(alert?.textContent).toContain(message);
     expect(alert?.textContent).toContain('BOOT_PROMPT_POINTER_NOT_COMPILED');
     expect(alert?.querySelector('img')).toBeNull();
+  });
+
+  // Gaia's P2-2 on #1246: the enhanced submit itself hands the result to kit's
+  // update(), which re-runs the loader and applies the action; without it a
+  // Set neither refreshes the read nor shows its result.
+  it('an enhanced submit calls kit’s update without resetting the field, then re-enables the buttons', async () => {
+    const { root } = await mountPointer({ read: { ok: true, ref: null, deleted: null } });
+    const update = vi.fn(async () => {});
+    await submitEnhancedWithResult(root.querySelector('form')!, { type: 'success', status: 200, data: { pointer: { key: 'k', ok: true, cleared: false } } }, { update });
+    await tick(2);
+    flushSync();
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith({ reset: false });
+    expect([...root.querySelectorAll<HTMLButtonElement>('button[type="submit"]')].every((b) => !b.disabled)).toBe(true);
   });
 
   it('after a save the fresh read replaces the old one (stale loader refresh)', async () => {

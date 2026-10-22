@@ -132,6 +132,8 @@ export async function pointerAction(
     return { pointer: { key, ok: true as const, cleared: ref.nodeRef === null } };
   } catch (e) {
     const refusal = pointerRefusal(e, owner);
-    return fail(refusalStatus(refusal.code), { pointer: { key, nodeRef: ref.nodeRef ?? '', refusal } });
+    // A refused Clear keeps whatever was in the field, as a refused Set does.
+    const typed = ref.nodeRef ?? String(fd.get('nodeRef') ?? '');
+    return fail(refusalStatus(refusal.code), { pointer: { key, nodeRef: typed, refusal } });
   }
 }

@@ -9,7 +9,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
-  import { appRowPointer, pointerText, pointerView, type PointerResult } from '$lib/boot-prompt-pointer';
+  import { appAgentPointerKey, appRowPointer, pointerResultFor, pointerText, pointerView, type PointerResult } from '$lib/boot-prompt-pointer';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
@@ -531,14 +531,22 @@
     { accessorFn: (row) => pointerText(appRowPointer(data.bootPointers, row.id)), id: 'bootPrompt', header: t('app.agents.column.boot-prompt', 'Boot prompt'), size: 280 },
     { id: 'actions', header: t('app.agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 160 },
   ];
-  // portal#1142 S8: which row's pointer panel is open. undefined = none chosen,
-  // so a no-JS result reopens the row it was written for; null = closed.
-  let pointerAgentId = $state<string | null | undefined>(undefined);
+  // portal#1142 S8: which row's pointer panel is open, for WHICH App. The page
+  // component is reused across /apps/A → B, so a choice made on A never opens
+  // on B, even for an agent both have installed (George, #1246). undefined =
+  // none chosen, so a no-JS result reopens the row it was written for.
+  let pointerChoice = $state<{ appKey: string; agentId: string | null } | undefined>(undefined);
   const formPointer = $derived((form as { pointer?: PointerResult } | null)?.pointer ?? null);
   const pointerAgent = $derived.by(() => {
-    const id = pointerAgentId === undefined ? (formPointer?.key ?? null) : pointerAgentId;
+    const appKey = data.bootPointerAppKey;
+    let id: string | null = null;
+    if (pointerChoice && pointerChoice.appKey === appKey) id = pointerChoice.agentId;
+    else if (pointerChoice === undefined || pointerChoice.appKey !== appKey) {
+      id = installedAgents.find((a) => formPointer?.key === appAgentPointerKey(appKey, a.id))?.id ?? null;
+    }
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
+  const choosePointerRow = (agentId: string | null) => (pointerChoice = { appKey: data.bootPointerAppKey, agentId });
   const agentsTable = createSvelteTable<InstalledAgent>({
     get data() {
       return installedAgentsSorted;
@@ -2501,7 +2509,7 @@
               {#if data.canManageApp !== false}
                 <button
                   type="button"
-                  onclick={() => (pointerAgentId = pointerAgent?.id === agent.id ? null : agent.id)}
+                  onclick={() => choosePointerRow(pointerAgent?.id === agent.id ? null : agent.id)}
                   aria-expanded={pointerAgent?.id === agent.id}
                   aria-controls={pointerAgent?.id === agent.id ? 'app-agent-pointer-panel' : undefined}
                   aria-label={t('app.agents.set-boot-prompt.label', 'Set boot prompt for {name}', { name: agent.name })}
@@ -2534,15 +2542,15 @@
               <h3 id="app-agent-pointer-title" class="text-sm font-semibold text-zinc-900 dark:text-white">
                 {t('app.agents.boot-prompt.title', 'Boot prompt for {name} in this App', { name: pointerAgent.name })}
               </h3>
-              <button type="button" onclick={() => (pointerAgentId = null)} class="text-xs text-zinc-500 hover:underline">{t('app.agents.boot-prompt.close', 'Close')}</button>
+              <button type="button" onclick={() => choosePointerRow(null)} class="text-xs text-zinc-500 hover:underline">{t('app.agents.boot-prompt.close', 'Close')}</button>
             </div>
-            {#key pointerAgent.id}
+            {#key `${data.bootPointerAppKey}\u0000${pointerAgent.id}`}
               <BootPromptPointer
                 read={appRowPointer(data.bootPointers, pointerAgent.id)}
                 canManage={data.canManageApp}
                 action="?tab=agents&/setAppAgentBootPrompt"
                 hidden={{ agentRef: pointerAgent.id }}
-                result={formPointer?.key === pointerAgent.id ? formPointer : null}
+                result={pointerResultFor(formPointer, appAgentPointerKey(data.bootPointerAppKey, pointerAgent.id))}
                 idPrefix="app-agent-pointer"
               />
             {/key}
