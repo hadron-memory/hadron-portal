@@ -330,7 +330,7 @@
               <NodeActionsMenu
                 actions={[{ id: 'revoke', label: i18n.revokeButton(), danger: true }]}
                 onselect={() => openConfirm(key.id, key.keyPreview)}
-                label={`${t('api-keys.actions.label', 'Actions for key')} …${key.keyPreview}`}
+                label={t('api-keys.actions.label', 'Actions for key …{preview}', { preview: key.keyPreview })}
                 fixed
                 compact
               />
