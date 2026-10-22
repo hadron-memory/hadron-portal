@@ -45,6 +45,8 @@ async function renderCard(opts: {
   graphOverrides?: Partial<Memory>;
   /** The layout's server-resolved effective write access. Default true. */
   canWriteMemory?: boolean;
+  /** Omit the flag entirely — must read as NO grant, never as a grant. */
+  omitCanWriteMemory?: boolean;
 }) {
   const graph = settingsGraph({ visibility: 'PUBLIC', ...opts.graphOverrides });
 
@@ -63,7 +65,7 @@ async function renderCard(opts: {
         org: null,
         allOrgs: [],
         transferCanDelete: false,
-        canWriteMemory: opts.canWriteMemory ?? true,
+        ...(opts.omitCanWriteMemory ? {} : { canWriteMemory: opts.canWriteMemory ?? true }),
         form,
         vectorForm,
         marketplaceForm,
@@ -127,5 +129,18 @@ describe('marketplace-listing visibility interplay (#841 / hrn:node:hadronmemory
     expect(card).toContain('checked');
     expect(card).not.toContain('marketplace-visibility-note');
     expect(card).not.toContain('disabled=""');
+  });
+
+  it('offers an ENABLED, unchecked control on a public unlisted memory — listing is opt-in, never automatic', async () => {
+    const html = await renderCard({ graphOverrides: { listedOnMarketplace: false } });
+    const card = cardRegion(html);
+    expect(card).not.toContain('checked');
+    expect(card).not.toContain('disabled=""');
+    expect(card).not.toContain('marketplace-visibility-note');
+  });
+
+  it('treats an ABSENT canWriteMemory as no grant — the card disappears', async () => {
+    const html = await renderCard({ omitCanWriteMemory: true });
+    expect(html).not.toContain(CARD_FORM);
   });
 });

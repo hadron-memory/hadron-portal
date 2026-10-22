@@ -1033,4 +1033,64 @@ describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'marketplace refused' });
   });
+
+  it('stamps the action form with the load form’s id — results must find their store', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
+
+    expect((superFormFrom(result) as { id?: string })?.id).toBe('updateMarketplaceListing');
+  });
+
+  it('a denied writer sees the server’s refusal, not the request payload (#468 leak class)', async () => {
+    // graphql-request packs the whole query and variables into a
+    // ClientError's message; extractGqlError must surface the server's
+    // errors[0].message instead.
+    const refusal = { message: 'FORBIDDEN: you cannot update this memory', response: { errors: [{ message: 'You do not have write access to this memory.' }] } };
+    mockRequest.mockRejectedValueOnce(refusal);
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
+
+    const text = (superFormFrom(result)?.message as { text: string }).text;
+    expect(text).toBe('You do not have write access to this memory.');
+    expect(text).not.toContain('updateMemory');
+    expect(text).not.toContain('listedOnMarketplace');
+  });
+});
+
+// ── Load: the six-form set and the form-id contract (#841) ───────────
+// hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids:
+// a route with several superValidate calls must return distinct form ids,
+// and an explicit id on the new form must match between load and action.
+describe('memory-settings load: form ids (#841)', () => {
+  it('returns six distinct form ids; the marketplace form’s id is exact', async () => {
+    const mod = await import('./+page.server');
+    const graph = {
+      id: 'mem-1', urn: 'hrn:mem:acme.com:docs', name: 'Docs', class: 'knowledge',
+      isEncrypted: false, organizationId: 'org-1', userId: null,
+      shortDescription: null, description: null, tags: [], license: null,
+      category0: null, category1: null, category2: null, iconUrl: null, heroUrl: null,
+      homeUrl: null, source: null, readBranch: null, writeBranch: null,
+      visibility: 'PUBLIC', listedOnMarketplace: true, vectorIndexEnabled: false,
+      embeddingSource: 'abstract', chunkTokens: null, chunkOverlap: null,
+      forceFixedSize: false, vectorIndexEncryptedAckAt: null, schema: null,
+      syncStatus: 'OK', syncError: null, pendingEdgeCount: 0, lastSyncedAt: null,
+      createdAt: '1789430400000', updatedAt: '1789430400000',
+    };
+    // user null + graph.userId null: no owner lookup and no transfer-access
+    // read, so the mocked gql request list stays empty of side queries.
+    const parent = vi.fn().mockResolvedValue({ graph, user: null });
+    const data = (await mod.load({
+      parent, locals: { token: 't' }, params: { id: 'mem-1' },
+    } as unknown as Parameters<typeof mod.load>[0])) as Exclude<Awaited<ReturnType<typeof mod.load>>, void>;
+
+    const ids = [data.form, data.vectorForm, data.marketplaceForm, data.schemaForm, data.deleteForm, data.retryEmbedsForm]
+      .map((f) => (f as { id?: string }).id);
+    expect(new Set(ids).size).toBe(6);
+    expect(data.marketplaceForm.id).toBe('updateMarketplaceListing');
+    // The persisted flag seeds the form (the checkbox starts from the fact).
+    expect(data.marketplaceForm.data.listedOnMarketplace).toBe(true);
+  });
 });

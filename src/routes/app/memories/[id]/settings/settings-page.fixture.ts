@@ -88,8 +88,11 @@ export async function settingsForms(graph: Memory, formVectorIndexEnabled = grap
       zod4(vectorIndexSettingsSchema),
       { errors: false },
     ),
-    // Seeded from the PERSISTED flag, mirroring the real load.
-    superValidate({ listedOnMarketplace: graph.listedOnMarketplace ?? false }, zod4(marketplaceListingSchema), { errors: false }),
+    // Seeded from the PERSISTED flag with the SAME explicit id the route's
+    // load and action use — the client form must carry the load's id or a
+    // delivered result lands on the wrong form
+    // (hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids).
+    superValidate({ listedOnMarketplace: graph.listedOnMarketplace ?? false }, zod4(marketplaceListingSchema), { errors: false, id: 'updateMarketplaceListing' }),
     superValidate({ schemaJson: '' }, zod4(memorySchemaSettingsSchema), { errors: false }),
     superValidate({ organizationId: 'org-1' }, zod4(deleteMemorySchema), { errors: false }),
     superValidate({}, zod4(retryFailedEmbeddingsSchema), { errors: false }),

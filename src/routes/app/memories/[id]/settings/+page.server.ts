@@ -174,7 +174,11 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
     superValidate<MarketplaceListingForm>(
       { listedOnMarketplace: graph.listedOnMarketplace ?? false },
       marketplaceListingFormAdapter,
-      { errors: false },
+      // Explicit id in BOTH the load and the action: with more than one
+      // superValidate on a route, shape-hash ids can collide and the wrong
+      // form consumes the posted result
+      // (hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids).
+      { errors: false, id: 'updateMarketplaceListing' },
     ),
     superValidate<MemorySchemaSettingsForm>(
       { schemaJson: graph.schema != null ? JSON.stringify(graph.schema, null, 2) : '' },
@@ -293,7 +297,8 @@ export const actions: Actions = {
   // the catalogue needs BOTH (listed AND publicly accessible) — the control
   // explains the interplay instead of producing a listing that never shows.
   updateMarketplaceListing: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), marketplaceListingFormAdapter);
+    // Same id as the load's form — see the load's comment.
+    const form = await superValidate(await request.formData(), marketplaceListingFormAdapter, { id: 'updateMarketplaceListing' });
     if (!form.valid) return fail(400, { form });
 
     try {
@@ -307,7 +312,7 @@ export const actions: Actions = {
       if (saved) {
         form.data = { ...form.data, listedOnMarketplace: saved.listedOnMarketplace ?? false };
       }
-      return message(form, { type: 'success', text: 'Changes saved.' });
+      return message(form, { type: 'success', text: t('memory-settings.marketplace.saved', 'Changes saved.') });
     } catch (e: unknown) {
       // extractGqlError, not e.message: graphql-request packs the whole query
       // and variables into ClientError.message (#468's leak class).

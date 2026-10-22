@@ -346,6 +346,22 @@
   // letting a non-public memory be listed into invisibility.
   const isPublicKnowledge = $derived(g.class === 'knowledge' && g.visibility === 'PUBLIC');
   const isListed = $derived(g.listedOnMarketplace === true);
+  // #841, same discipline as the vector form's #1163 reseed: only a changed
+  // persisted flag (or navigating to another memory) reseeds the toggle; an
+  // unrelated loader refresh must not erase an unsaved tick, and the flag
+  // after a save is the server's answer, never the local intent.
+  function marketplaceSnapshot() {
+    return JSON.stringify([g.id, g.listedOnMarketplace]);
+  }
+  let lastMarketplaceSnapshot = untrack(marketplaceSnapshot);
+  $effect(() => {
+    const snapshot = marketplaceSnapshot();
+    if (snapshot === lastMarketplaceSnapshot) return;
+    lastMarketplaceSnapshot = snapshot;
+    untrack(() => {
+      marketplaceForm.update((current) => ({ ...current, listedOnMarketplace: g.listedOnMarketplace === true }), { taint: false });
+    });
+  });
 
   // ── Re-drive failed embeddings (#695 / server #882) ─────────────────
   const initialRetryEmbedsForm = untrack(() => submittedForm<RetryFailedEmbeddingsForm>(form, 'retryFailedEmbeddings') as RetryFailedEmbeddingsSuperform | null ?? data.retryEmbedsForm);
@@ -892,10 +908,12 @@
     <!-- #841: listing is a deliberate second step after visibility, so it is
          its own card rather than a field on the visibility form. Offered for
          knowledge memories to callers who can edit (`canWriteMemory`, the
-         layout's server-resolved effective write access — the same fact the
-         surrounding fieldset disables on), and deliberately NOT gated on
-         vector-index state, which has nothing to do with the catalogue. -->
-    {#if g.class === 'knowledge' && data.canWriteMemory !== false}
+         layout's server-resolved effective write access). `=== true`, not
+         `!== false`: an absent value must not read as a grant — the card
+         disappears unless the server positively said this caller can write.
+         Deliberately NOT gated on vector-index state, which has nothing to
+         do with the catalogue. -->
+    {#if g.class === 'knowledge' && data.canWriteMemory === true}
       <form method="POST" action="?/updateMarketplaceListing" use:marketplaceEnhance
         class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
         <input type="hidden" name="_kind" value={$marketplaceForm._kind} />
@@ -931,7 +949,7 @@
         {/if}
         <div class="flex gap-3">
           <button type="submit" disabled={$marketplaceSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
-            {$marketplaceSubmitting ? 'Saving...' : 'Save'}
+            {$marketplaceSubmitting ? t('memory-settings.marketplace.saving', 'Saving...') : t('memory-settings.marketplace.save', 'Save')}
           </button>
         </div>
       </form>
