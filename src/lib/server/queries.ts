@@ -3317,6 +3317,24 @@ export const UPDATE_SPEC_NODE_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #1159 (server #2175): a soft-deleted node does not resolve through node(ref:).
+// recoveryNode is the explicit, writer-only read of the retained tombstone (null
+// for anyone who may not recover it, so existence stays hidden), and
+// restoreNode brings back that ONE node — never descendants or revisions.
+export const RECOVERY_NODE_QUERY = /* GraphQL */ `
+  query RecoveryNode($nodeRef: ID!) {
+    recoveryNode(nodeRef: $nodeRef) {
+      id urn memoryId loc name nodeType description deletedAt content
+    }
+  }
+`;
+
+export const RESTORE_NODE_MUTATION = /* GraphQL */ `
+  mutation RestoreNode($nodeRef: ID!) {
+    restoreNode(nodeRef: $nodeRef) { id }
+  }
+`;
+
 // hadron-server#542: deleteNode collapsed (loc, memoryId) into a single
 // nodeRef (a node PK or fully-qualified URN).
 // hard: true permanently removes the row (vs. the default soft-delete's

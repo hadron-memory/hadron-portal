@@ -2,6 +2,7 @@
 # portal#1148: App.members, memberCount, appAgents, agents and hasAiApiKey hand-applied as outer-nullable from the ACCEPTED hadron-server#2089 SDL delta (issue comment 6258905377, Andi), on top of the snapshot above. Not on server main yet; the next pnpm gql:schema after the server merge replaces this line with the landed wire.
 # portal#1169: User.sharedOrganizations, SharedOrganization and SharedOrganizationsPage hand-applied from MERGED hadron-server 10bcc57e (#2222, closes #2179), not a full refresh: a refresh would also revert the #1148 nullable delta (hadron-server#2089 is not on server main) and pull ~530 unrelated lines.
 # portal#1168: TeamRosterEntry.checkStatus, currentTask, pausedUntil and the types they need hand-applied from MERGED hadron-server 1caab6fc (#2221, closes #2178) and its #2138 check status. Not a full refresh: server main still has the old non-null App.members etc. (hadron-server#2089), so a refresh would revert the #1148 nullable delta.
+# portal#1159: RecoveryNode, RecoveryNodeSummary, RecoveryNodesPage, RecoveryEndpoint, RecoveryGraphEdge, RecoveryEdgesPage, Query.recoveryNode/recoveryNodes/recoveryEdges and Mutation.restoreNode hand-applied from MERGED hadron-server 916e0b9d (#2234, closes #2175), not a full refresh, for the same reason as the lines above.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -5102,6 +5103,8 @@ type ModelFamilyAvailability {
 }
 
 type Mutation {
+  "Restore one retained deleted node in a live memory you can read and write. Restore deleted ancestors first; governed nodes, comments, compiled boot prompts and protected internal addresses refuse. Does not restore descendants or revisions. hrn:node:hadronmemory.com:specs:cor:acl:130:02"
+  restoreNode(nodeRef: ID!): Node!
   acceptInvitation(slug: String!): Boolean!
 
   """
@@ -9605,7 +9608,40 @@ type PublicResourceRefPage {
   total: Int!
 }
 
+
+"Explicit writer-only tombstone content; no generic entity relations. hrn:node:hadronmemory.com:specs:cor:dmo:010:04"
+type RecoveryNode {
+  id: ID!
+  urn: String!
+  memoryId: ID!
+  loc: String!
+  name: String!
+  nodeType: String!
+  description: String
+  deletedAt: DateTime!
+  content: String
+}
+type RecoveryNodeSummary {
+  id: ID!
+  urn: String!
+  memoryId: ID!
+  loc: String!
+  name: String!
+  nodeType: String!
+  deletedAt: DateTime!
+}
+type RecoveryNodesPage { items: [RecoveryNodeSummary!]!, total: Int! }
+type RecoveryEndpoint { id: ID!, urn: String!, loc: String!, name: String!, deletedAt: DateTime }
+type RecoveryGraphEdge { id: ID!, name: String, source: RecoveryEndpoint!, target: RecoveryEndpoint! }
+type RecoveryEdgesPage { items: [RecoveryGraphEdge!]!, total: Int! }
+
 type Query {
+  "Read a retained deleted node in a live memory that you can read and write. Returns the stored body without expanding templates or includes. hrn:node:hadronmemory.com:specs:cor:dmo:010:04"
+  recoveryNode(nodeRef: ID!): RecoveryNode
+  "Page through retained deleted nodes you can recover. Default 20, maximum 200; total counts all accessible results. No timed purge. hrn:node:hadronmemory.com:specs:cor:api:120:04"
+  recoveryNodes(memoryRef: ID!, limit: Int = 20, offset: Int = 0): RecoveryNodesPage!
+  "Inspect live edges and accessible deleted endpoints in one memory you can read and write. Default 20, maximum 200. hrn:node:hadronmemory.com:specs:cor:api:110:02"
+  recoveryEdges(memoryRef: ID!, limit: Int = 20, offset: Int = 0): RecoveryEdgesPage!
   """The ticket ledger: minted, consumed-by-which-run, expired (org-ADMIN)."""
   actionTickets(limit: Int, offset: Int, orgRef: String!): ActionTicketsPage!
 
