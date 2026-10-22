@@ -2585,8 +2585,8 @@ export const NODE_FIELDS = /* GraphQL */ `
 // #1202: fixtures are system nodes, independently of the memory's class.
 // Keep this narrow read separate from GraphNodes' mixed-type default.
 export const FIXTURE_NODES_QUERY = /* GraphQL */ `
-  query FixtureNodes($limit: Int, $memoryIds: [ID!]!) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit) {
+  query FixtureNodes($limit: Int, $offset: Int, $memoryIds: [ID!]!) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit, offset: $offset) {
       hits { node { id loc memoryId data } }
     }
   }
@@ -2594,8 +2594,8 @@ export const FIXTURE_NODES_QUERY = /* GraphQL */ `
 
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query GraphNodes($limit: Int, $memoryIds: [ID!]) {
-    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
+  query GraphNodes($limit: Int, $offset: Int, $memoryIds: [ID!]) {
+    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit, offset: $offset) {
       hits {
         node {
           ...NodeFields
@@ -4404,6 +4404,49 @@ export const APP_INSTALLED_AGENTS_QUERY = /* GraphQL */ `
 export const SELF_CAN_MANAGE_QUERY = /* GraphQL */ `
   query SelfCanManage($user: ID!, $resource: ID!) {
     effectiveAccess(user: $user, resource: $resource) { canManage }
+  }
+`;
+
+// portal#1142 S8 (hadron-server#2219) — boot-prompt pointers. Each read is its
+// own small query, kept OUT of the shared Agent/Worker fragments that feed
+// other routes, so a failed read is told apart from a masked (null) one.
+// Both fields are null when no pointer is set OR the reader may not see it.
+export const AGENT_BOOT_POINTER_QUERY = /* GraphQL */ `
+  query AgentBootPointer($ref: ID!) {
+    agent(ref: $ref) { id bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+// The App's install rows, joined to the Agents tab by agent id. A row whose
+// agent is withheld (null) can't be joined and shows as not shown.
+export const APP_BOOT_POINTERS_QUERY = /* GraphQL */ `
+  query AppBootPointers($ref: ID!) {
+    app(ref: $ref) { id appAgents { agent { id } bootPromptRef bootPromptTargetDeleted } }
+  }
+`;
+
+export const WORKER_BOOT_POINTER_QUERY = /* GraphQL */ `
+  query WorkerBootPointer($ref: ID!) {
+    worker(ref: $ref) { id bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+// The setters: nodeRef is REQUIRED; an explicit null clears. GraphQL only (R24).
+export const SET_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
+  mutation SetAgentBootPrompt($agentRef: String!, $nodeRef: String) {
+    setAgentBootPrompt(agentRef: $agentRef, nodeRef: $nodeRef) { id bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+export const SET_APP_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
+  mutation SetAppAgentBootPrompt($appRef: String!, $agentRef: String!, $nodeRef: String) {
+    setAppAgentBootPrompt(appRef: $appRef, agentRef: $agentRef, nodeRef: $nodeRef) { bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+export const SET_WORKER_BOOT_PROMPT_MUTATION = /* GraphQL */ `
+  mutation SetWorkerBootPrompt($workerRef: ID!, $nodeRef: String) {
+    setWorkerBootPrompt(workerRef: $workerRef, nodeRef: $nodeRef) { id bootPromptRef bootPromptTargetDeleted }
   }
 `;
 

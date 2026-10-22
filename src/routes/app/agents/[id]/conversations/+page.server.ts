@@ -3,7 +3,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
+import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
@@ -71,8 +71,8 @@ const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionS
 // Edge condition/priority/data feed the canvas rule annotations and the
 // routing-rule side panel.
 const CONVERSATION_NODES_QUERY = /* GraphQL */ `
-  query ConversationNodes($limit: Int, $memoryIds: [ID!], $nodeType: String) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit) {
+  query ConversationNodes($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
       hits {
         node {
           id memoryId nodeType loc name description content tags seq data
@@ -136,12 +136,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // Preserve directly authored nodes while including the editor's system type.
   // Either read failing must fail the loader rather than show a partial canvas.
   const [defaultNodes, typedNodes] = await Promise.all([
-    client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
-      CONVERSATION_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] },
-    ),
-    client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
-      CONVERSATION_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId], nodeType: 'system' },
-    ),
+    drainFindNodes<{ node: MemoryNode }>(client, CONVERSATION_NODES_QUERY, { memoryIds: [systemMemoryId] }),
+    drainFindNodes<{ node: MemoryNode }>(client, CONVERSATION_NODES_QUERY, { memoryIds: [systemMemoryId], nodeType: 'system' }),
   ]);
   const systemNodes = Array.from(new Map(
     [...(defaultNodes.findNodes?.hits ?? []), ...(typedNodes.findNodes?.hits ?? [])]

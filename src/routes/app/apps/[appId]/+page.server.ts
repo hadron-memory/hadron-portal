@@ -6,6 +6,8 @@ import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout'
 import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
+import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
+import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
 import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -20,6 +22,7 @@ import {
   APP_QUERY,
   APP_MEMBERS_QUERY,
   SELF_CAN_MANAGE_QUERY,
+  SET_APP_AGENT_BOOT_PROMPT_MUTATION,
   MY_AGENTS_QUERY,
   PUBLIC_AGENTS_QUERY,
   UPDATE_APP_MUTATION,
@@ -635,7 +638,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster, bootPointers] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -736,6 +739,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // portal#1168 (hadron-server#2178): the grid's Task and Paused state, one
     // bulk read in its own classified request so its failure cannot take the page.
     loadAppTeamRoster(client, app.id),
+    // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
+    readAppPointers(client, app.id),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -912,6 +917,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     },
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
+    bootPointers,
+    // The App half of a pointer result's key (the action's own params.appId).
+    bootPointerAppKey: params.appId,
     keyScopes,
     appKeys,
     appSettingsForm,
@@ -940,6 +948,16 @@ export const actions: Actions = {
   addMember,
   ensureMember,
   removeMember,
+
+  // portal#1142 S8 (hadron-server#2219): set or clear one install's pointer.
+  // The App's manager, as themselves; the server decides. Keyed by agent id so
+  // the result shows on that row only.
+  setAppAgentBootPrompt: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const agentRef = String(fd.get('agentRef') ?? '');
+    return pointerAction(fd, 'app', appAgentPointerKey(params.appId, agentRef), (nodeRef) =>
+      gqlClient(locals.token).request(SET_APP_AGENT_BOOT_PROMPT_MUTATION, { appRef: params.appId, agentRef, nodeRef }));
+  },
 
   update: async ({ request, params, locals }) => {
     const form = await superValidate<AppSettingsForm>(
