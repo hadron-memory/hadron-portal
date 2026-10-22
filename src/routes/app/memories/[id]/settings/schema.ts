@@ -81,6 +81,19 @@ export const retryFailedEmbeddingsSchema = z.object({
   _kind: z.literal('retryFailedEmbeddings').default('retryFailedEmbeddings'),
 });
 
+// #841 / hrn:node:hadronmemory.com:specs:cor:acl:080:04 — list/unlist on the
+// marketplace catalogue. The catalogue shows listed AND publicly accessible
+// memories, but the spec keeps the two flags deliberately orthogonal: the
+// server accepts a listing on a non-public memory. The pairing is guarded
+// only at this control (disabled with an explanatory note until the memory
+// is public) — do not remove that gate believing the server would refuse.
+export const marketplaceListingSchema = z.object({
+  // Defaulted _kind accepts omitted hidden inputs while still rejecting a
+  // defined discriminator from the wrong action.
+  _kind: z.literal('updateMarketplaceListing').default('updateMarketplaceListing'),
+  listedOnMarketplace: booleanString.default(false),
+});
+
 // #588: the shared JSON-payload soft size cap (alias, not a copy — PR #613
 // review flagged the drift risk of two independent 256KB constants).
 export const SCHEMA_JSON_MAX = JSON_FIELD_MAX;

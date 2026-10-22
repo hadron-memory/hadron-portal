@@ -32,7 +32,7 @@ async function fetchWindow(
 ): Promise<{ items: AssetSummary[]; total: number }> {
   const items: AssetSummary[] = [];
   let total = 0;
-  for (let offset = 0; offset < WINDOW; offset += PAGE) {
+  for (let offset = 0; offset < WINDOW; ) {
     const data = await client.request<{ assets: { items: AssetSummary[]; total: number } }>(
       ASSETS_QUERY,
       { ...args, limit: Math.min(PAGE, WINDOW - offset), offset },
@@ -40,8 +40,10 @@ async function fetchWindow(
     const page = data.assets;
     total = page.total;
     items.push(...page.items);
-    // Stop on a short page too, so a shrinking or missing total can't loop.
-    if (page.items.length < PAGE || items.length >= total) break;
+    // An EMPTY page or the total ends the window, not the first short page (a
+    // server clamp returns short non-empty pages); advance by rows returned.
+    if (page.items.length === 0 || items.length >= total) break;
+    offset += page.items.length;
   }
   return { items, total };
 }

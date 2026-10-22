@@ -68,6 +68,7 @@ const STRANGER = { id: 'someone-else', handle: 'ada', roles: [] as string[] };
 async function renderShare(opts: {
   shares: ReturnType<typeof share>[];
   shareable?: boolean;
+  memoryClass?: string | null;
   /** Who is looking. Defaults to the memory's principal. */
   user?: { id: string; handle: string; roles: string[] };
 }) {
@@ -78,7 +79,7 @@ async function renderShare(opts: {
   ]);
   const shareMemory = {
     id: 'mem-1', name: 'Notes', urn: 'hrn:mem:acme.com:notes',
-    class: 'personal', userId: 'owner-1',
+    class: opts.memoryClass === undefined ? 'personal' : opts.memoryClass, userId: 'owner-1',
     shareable: opts.shareable ?? true,
     shares: opts.shares,
   };
@@ -153,6 +154,25 @@ describe('#668 Sharing tab — the three states are distinguishable', () => {
     // The explanation has somewhere to live precisely because the tab is not
     // hidden — asserting the two together stops a later "just hide it".
     expect(html).not.toContain(NOT_VISIBLE);
+  });
+
+  it('a PRIVATE memory says it is private, not the org-membership explanation', async () => {
+    const html = await renderShare({ shares: [], shareable: false, memoryClass: 'private' });
+    expect(html).toContain('Private memories cannot be shared.');
+    expect(html).not.toContain(NOT_SHAREABLE);
+    expect(html).not.toContain(ADD_FORM);
+  });
+
+  it('the class only picks the wording; a shareable private-class payload still follows the server signal', async () => {
+    const html = await renderShare({ shares: [], shareable: true, memoryClass: 'private' });
+    expect(html).not.toContain('Private memories cannot be shared.');
+    expect(html).toContain(ADD_FORM);
+  });
+
+  it('a non-private non-shareable class keeps the generic explanation', async () => {
+    const html = await renderShare({ shares: [], shareable: false, memoryClass: 'knowledge' });
+    expect(html).toContain(NOT_SHAREABLE);
+    expect(html).not.toContain('Private memories cannot be shared.');
   });
 
   it('a non-shareable memory that HAS shares still lists and can revoke them', async () => {

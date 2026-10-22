@@ -18,6 +18,26 @@ import {
   removeOrgMemberSchema, updateOrgMemberSchema,
 } from './schema';
 
+/**
+ * #1197: record what the page asks t() for. English renders the same bytes
+ * whether the name is concatenated around t() or interpolated through it, so
+ * the recorded CALL is the only observable — the routing is the contract
+ * (same approach as skill-export.i18n.test.ts).
+ */
+const { tCalls } = vi.hoisted(() => ({
+  tCalls: [] as Array<[id: string, text: string, vars?: Record<string, string | number | null | undefined>]>,
+}));
+vi.mock('$lib/i18n/t', async () => {
+  const actual = await vi.importActual<typeof import('$lib/i18n/t')>('$lib/i18n/t');
+  return {
+    ...actual,
+    t: (id: string, text: string, vars?: Record<string, string | number | null | undefined>) => {
+      tCalls.push([id, text, vars]);
+      return actual.t(id, text, vars);
+    },
+  };
+});
+
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
@@ -97,5 +117,13 @@ describe('org members row ⋯ menu (#1020)', () => {
   it('a reader gets no row menus at all', async () => {
     const target = await mountMembers('READER');
     expect(target.querySelectorAll('button[aria-label^="Actions for"]').length).toBe(0);
+  });
+
+  it('interpolates the member name through the t() boundary, not around it (#1197)', async () => {
+    tCalls.length = 0;
+    const target = await mountMembers('OWNER');
+    openRow(target, 'Ada');
+    const call = tCalls.find(([id]) => id === 'org-members.actions.label');
+    expect(call?.[2]).toEqual({ name: 'Ada' });
   });
 });

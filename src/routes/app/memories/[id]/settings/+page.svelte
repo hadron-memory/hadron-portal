@@ -6,6 +6,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import MarketplaceListingCard from './MarketplaceListingCard.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -322,6 +323,11 @@
       }
     },
   });
+  // ── Marketplace listing (#841) — see MarketplaceListingCard.svelte ──
+  // The card's superForm lives in a component keyed by `g.id` (rendered
+  // below), NOT here: this page component is reused on a [id] navigation, so
+  // a form in the page script would carry memory A's stores onto memory B.
+
   // ── Re-drive failed embeddings (#695 / server #882) ─────────────────
   const initialRetryEmbedsForm = untrack(() => submittedForm<RetryFailedEmbeddingsForm>(form, 'retryFailedEmbeddings') as RetryFailedEmbeddingsSuperform | null ?? data.retryEmbedsForm);
   const {
@@ -864,6 +870,24 @@
       {/if}
     </form>
 
+    <!-- #841: listing is a deliberate second step after visibility, so it is
+         its own card rather than a field on the visibility form. Offered for
+         knowledge memories to callers who can edit (`canWriteMemory`, the
+         layout's server-resolved effective write access). `=== true`, not
+         `!== false`: an absent value must not read as a grant — the card
+         disappears unless the server positively said this caller can write.
+         Deliberately NOT gated on vector-index state, which has nothing to
+         do with the catalogue.
+
+         Keyed by `g.id` so a [id] navigation REMOUNTS the card's form — the
+         page component is reused, and the key is what fences memory A's
+         superForm stores from memory B (Gene's P2-1 on #1244). -->
+    {#if g.class === 'knowledge' && data.canWriteMemory === true}
+      {#key g.id}
+        <MarketplaceListingCard {data} {form} />
+      {/key}
+    {/if}
+
     <!-- #695 (server #882): operator recovery for PERMANENTLY failed embeds.
          A sibling form, not a control inside the one above: nesting forms is
          invalid HTML, and a re-drive must not carry that form's unsaved dials.
@@ -1022,6 +1046,11 @@
       <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
         {t('memory-transfer.intro', 'Preview the new URN and dependent records before moving this memory. The destination must be an organization you administer or your own user account.')}
       </p>
+      {#if g.class === 'private'}
+        <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+          {t('memory-transfer.private-hint', 'Transferring changes this memory\'s class to Knowledge or Group in an organization you administer. It does not make a private memory shareable.')}
+        </p>
+      {/if}
       {#if transferError}
         <p role="alert" class="mb-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{transferError}</p>
       {/if}

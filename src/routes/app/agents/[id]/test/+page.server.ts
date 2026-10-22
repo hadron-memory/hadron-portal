@@ -10,6 +10,7 @@ import {
 import { decodeFixture, summarize, type FixtureSummary } from '$lib/server/agent-tester/fixture-codec';
 import { resolveTesterAgent } from '$lib/server/agent-tester/resolve-agent';
 import type { PageServerLoad } from './$types';
+import { drainFindNodes } from '$lib/server/paginate';
 
 // Spec 019 — Agent Chat Tester. Organization agents come from the caller's
 // organizations; user-owned agents come from the server's ownedByMe scope.
@@ -33,12 +34,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // T032's FixtureList can show an inline error tile if needed.
   const systemMemoryId = agent.systemMemoryId ?? null;
   let fixtures: FixtureSummary[] = [];
+  // Distinct from "no fixtures": a failed read (any page) must not look like an empty list.
+  let fixturesError = false;
   if (systemMemoryId) {
     // hrn:node:hadronmemory.com:specs:cor:api:090:02: memory scope lifts only the memory-class exclusion.
     // Fixtures are system-type nodes, so request that independent type too.
-    const nodesResult = await client.request<{ findNodes: { hits: Array<{ node: {
+    const nodesResult = await drainFindNodes<{ node: {
       id: string; loc: string; memoryId: string; data: unknown;
-    } }> } }>(FIXTURE_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] }).catch(() => null);
+    } }>(client, FIXTURE_NODES_QUERY, { memoryIds: [systemMemoryId] }).catch(() => null);
+    if (!nodesResult) fixturesError = true;
     if (nodesResult) {
       for (const h of nodesResult.findNodes?.hits ?? []) {
         const n = h.node;
@@ -52,7 +56,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }
   }
 
-  return { agent, org, llmProviderConfigured, llm, fixtures };
+  return { agent, org, llmProviderConfigured, llm, fixtures, fixturesError };
 };
 
 /**
