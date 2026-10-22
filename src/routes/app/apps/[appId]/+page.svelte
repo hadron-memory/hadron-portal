@@ -2394,7 +2394,7 @@
                 <NodeActionsMenu
                   {actions}
                   onselect={(id) => onWorkerAction(id, worker)}
-                  label={`${t('app.staff.actions.label', 'Actions for')} ${worker.name}`}
+                  label={t('app.staff.actions.label', 'Actions for {name}', { name: worker.name })}
                   disabled={$releaseWorkerSubmitting || $retireWorkerSubmitting}
                   fixed
                   compact

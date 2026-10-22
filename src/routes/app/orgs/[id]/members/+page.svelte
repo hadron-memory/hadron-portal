@@ -400,7 +400,7 @@
               <NodeActionsMenu
                 {actions}
                 onselect={(id) => onMemberAction(id, m)}
-                label={`${t('org-members.actions.label', 'Actions for')} ${memberName(m)}`}
+                label={t('org-members.actions.label', 'Actions for {name}', { name: memberName(m) })}
                 fixed
                 compact
               />
