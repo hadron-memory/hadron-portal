@@ -323,6 +323,23 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
     expect(field()!.value).toBe('');
   });
 
+  // Xylon on #1246: a loader refresh for the SAME App and agent keeps the open
+  // panel and what was typed.
+  it('a same-App loader refresh keeps the panel and the draft', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true } });
+    await openFor(target, 'Critic');
+    const field = () => target.querySelector<HTMLInputElement>('#app-agent-pointer-node-ref');
+    field()!.value = 'draft-kept';
+    field()!.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    lastProps.data = { ...(lastProps.data as Record<string, unknown>), bootPointers: { ok: true, byAgent: { ...bootPointers.byAgent, ag2: { ref: URN, deleted: true } } } };
+    flushSync();
+    await tick(2);
+    expect(target.querySelector('#app-agent-pointer-panel')?.textContent).toContain('Critic');
+    expect(field()!.value).toBe('draft-kept');
+    expect(target.querySelector('#app-agent-pointer-panel [data-pointer-state="deleted"]')).not.toBeNull();
+  });
+
   it('a result written for the same agent in another App is never shown', async () => {
     const form = { pointer: { key: 'a2\u0000ag1', nodeRef: 'draft-elsewhere', refusal: { code: 'FORBIDDEN', lead: 'l', message: 'm' } } };
     const target = await mountTab('agents', { data: { bootPointers, canManageApp: true }, form });

@@ -97,6 +97,20 @@ describe('Worker Boot briefing: boot-prompt pointer (portal#1142 S8)', () => {
     expect(input(root)!.value).toBe('');
   });
 
+  // Xylon on #1246: a loader refresh for the SAME worker keeps what was typed.
+  it('a same-worker loader refresh keeps the draft', async () => {
+    const props = reactiveProps({ data: await dataFor(worker('w-a', null), true), form: null } as Record<string, unknown>);
+    const root = await mountWorker(props);
+    input(root)!.value = 'draft-kept';
+    input(root)!.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    props.data = { ...(await dataFor(worker('w-a', 'someone-else'), true)), bootPointer: { ok: true, ref: 'hrn:node:a.com:install:boot', deleted: false } };
+    flushSync();
+    await tick(2);
+    expect(input(root)!.value).toBe('draft-kept');
+    expect(root.querySelector('[title="hrn:node:a.com:install:boot"]')).not.toBeNull();
+  });
+
   it('a result for another worker is never shown', async () => {
     const refusal = { code: 'FORBIDDEN', lead: 'Only this App’s manager can change this pointer.', message: 'No.' };
     const root = await mountWorker({ data: await dataFor(worker('w-b', null), true), form: { pointer: { key: 'w-a', nodeRef: 'draft-a', refusal } } });

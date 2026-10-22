@@ -50,6 +50,20 @@ describe('Agent Settings: boot-prompt pointer (portal#1142 S8)', () => {
     expect(input(root)!.value).toBe('');
   });
 
+  // Xylon on #1246: a loader refresh for the SAME Agent keeps what was typed.
+  it('a same-Agent loader refresh keeps the draft', async () => {
+    const props = reactiveProps({ data: await withPointer('a'), form: null } as Record<string, unknown>);
+    const root = await mountSettings(props);
+    input(root)!.value = 'draft-kept';
+    input(root)!.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    props.data = { ...(await withPointer('a')), bootPointer: { ok: false } };
+    flushSync();
+    await tick();
+    expect(input(root)!.value).toBe('draft-kept');
+    expect(root.querySelector('[data-pointer-state="unavailable"]')).not.toBeNull();
+  });
+
   it('a result for another Agent is never shown', async () => {
     const refusal = { code: 'FORBIDDEN', lead: 'Only this Agent’s manager can change its pointer.', message: 'No.' };
     const root = await mountSettings({ data: await withPointer('b'), form: { pointer: { key: 'a', nodeRef: 'draft-a', refusal } } });
