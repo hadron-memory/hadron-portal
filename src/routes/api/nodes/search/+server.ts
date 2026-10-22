@@ -2,7 +2,7 @@ import { t } from '$lib/i18n/t';
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
-import { NODE_FIND_QUERY } from '$lib/server/queries';
+import { NODE_FIND_QUERY, RECOVERY_NODES_QUERY } from '$lib/server/queries';
 import type { MemoryNode, SearchHitMeta } from '$lib/types';
 import { NODE_FIELD_MASK_SET } from '$lib/search/node-fields';
 import { CONTENT_SCOPES, type CommentHit, type ContentScope } from '$lib/comments';
@@ -282,8 +282,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         snippets[p.parentNodeId] = p.text;
       }
     }
+    const deletedIds = includeDeleted ? await deletedNodeIds(client, memoryIds as string[]) : undefined;
     return json({
       nodes,
+      ...(deletedIds ? { deletedIds } : {}),
       snippets,
       meta,
       total: r?.total ?? null,
@@ -332,4 +334,35 @@ function degradeNote(reason: string | null, degraded: Set<string>, fallback: boo
     parts.push(t('search.reduced-fidelity', 'Search ran with reduced capabilities.'));
   }
   return parts.length ? parts.join(' ') : null;
+}
+
+// #1161: ids of the deleted nodes in the searched memories, read from the server
+// (recoveryNodes) so a row is marked only when the server says it is deleted.
+// Writer-only: a read that throws, or any memory it cannot read, yields undefined
+// and the list simply shows no marks — never a guess from what is missing.
+const RECOVERY_PAGE = 200;
+const RECOVERY_MAX_PAGES = 25;
+async function deletedNodeIds(
+  client: ReturnType<typeof gqlClient>,
+  memoryIds: string[],
+): Promise<string[] | undefined> {
+  const ids = new Set<string>();
+  try {
+    for (const memoryRef of memoryIds.filter((m): m is string => typeof m === 'string')) {
+      let read = 0; // per memory: `total` counts that memory's deleted nodes only
+      for (let page = 0; page < RECOVERY_MAX_PAGES; page++) {
+        const r = await client.request<{ recoveryNodes?: { items: Array<{ id: string }>; total: number } | null }>(
+          RECOVERY_NODES_QUERY, { memoryRef, limit: RECOVERY_PAGE, offset: page * RECOVERY_PAGE },
+        );
+        const items = r?.recoveryNodes?.items;
+        if (!items) return undefined;
+        for (const it of items) ids.add(it.id);
+        read += items.length;
+        if (items.length < RECOVERY_PAGE || read >= (r.recoveryNodes?.total ?? 0)) break;
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  return [...ids];
 }

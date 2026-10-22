@@ -26,6 +26,7 @@
     hideSearch = false,
     snippets = {},
     meta = {},
+    deletedIds = [],
     showColumns = false,
     columnData = {},
     columnsLoading = 0,
@@ -53,6 +54,8 @@
      * a relevance % and a stale-abstract badge on the row. Empty in browse.
      */
     meta?: Record<string, SearchHitMeta>;
+    /** #1161: ids the SERVER reports as deleted (recoveryNodes); rows outside it carry no mark. */
+    deletedIds?: string[];
     /**
      * portal#1174: add Role, Last changed, Changed by, Revision, Approved and
      * Signed. Off by default so the children list and every other consumer keep
@@ -75,6 +78,7 @@
      */
     onvisiblenodes?: (ids: string[]) => void;
   } = $props();
+  const deletedSet = $derived(new Set(deletedIds));
 
   // portal#1174: the extra columns are read from `columnData` at render time,
   // NOT merged into the table's data. Rebuilding the data array whenever a page's
@@ -399,6 +403,9 @@
                           <span class="ml-1 text-xs tabular-nums text-zinc-400">#{n.seq}</span>
                         {/if}
                       </span>
+                      {#if deletedSet.has(n.id)}
+                        <span data-testid="node-deleted" class="shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{t('node.deleted.badge', 'Deleted')}</span>
+                      {/if}
                       {#if meta?.[n.id]?.scorePct !== null && meta?.[n.id]?.scorePct !== undefined}
                         <!-- #432: relevance relative to the top hit (scores aren't
                              comparable across modes, so % of top, not the raw score). -->
