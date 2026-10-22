@@ -42,6 +42,18 @@
     validators: zod4Client(marketplaceListingSchema),
     validationMethod: 'oninput',
     clearOnSubmit: 'none',
+    // #1248: with a STABLE, memory-bound form id, a sibling save's
+    // invalidateAll makes the fresh load form's id MATCH this form, so
+    // superForm's page subscription rebinds it from page.data — resetting an
+    // unsaved tick to the persisted flag, taint notwithstanding. Only the
+    // literal 'never' opts out of that data-path rebind: it is still truthy,
+    // so own results keep arriving — the enhance calls applyAction(result)
+    // and the page.form branch of this same subscription applies them,
+    // id-gated — while `false` would silence the form branch and LEAVE the
+    // rebind live. Reseeding stays where it belongs: the snapshot gate below
+    // on a changed persisted flag, and the {#key g.id} remount on a memory
+    // navigation.
+    applyAction: 'never',
   });
   const submittedForThisMemory = $derived(!!thisMemorySubmission());
   const marketplaceActionError = $derived(submittedForThisMemory
