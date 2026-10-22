@@ -1,8 +1,9 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import Page from './+page.svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
+import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 
 const placements = [
   { id: 'memory', type: 'memory-stats', span: 4, rowSpan: 1 },
@@ -79,4 +80,76 @@ it('does not render a departed load into a remounted Dashboard', async () => {
   expect(first.target.isConnected).toBe(false);
   expect(first.target.textContent).not.toContain('999');
   expect(next.target.querySelector('.tabular-nums')?.textContent).toBe('42');
+});
+
+// portal#1247: an open editor owns its unsaved working copy, so its lifetime
+// must not hang off the layout promise a route invalidation replaces.
+const saved = () => ({ placements, loadFailed: false });
+const widgetData = () => Promise.resolve({ data: { memory: { memoryCount: 7 } }, loadFailed: false });
+const form = (target: HTMLElement) => target.querySelector('form[action="?/saveLayout"]') as HTMLFormElement | null;
+const payload = (target: HTMLElement) => (form(target)!.querySelector('input[name=widgets]') as HTMLInputElement).value;
+async function editWithDraft() {
+  const page = await show({ dashboard: Promise.resolve(saved()), widgetData: widgetData() });
+  (page.target.querySelector('[aria-label="Customize dashboard"]') as HTMLButtonElement).click();
+  await tick(5);
+  const width = page.target.querySelector('select[id^="span-"]') as HTMLSelectElement;
+  width.value = '8';
+  width.dispatchEvent(new Event('change', { bubbles: true }));
+  await tick(5);
+  const node = form(page.target)!;
+  const draft = payload(page.target);
+  expect(JSON.parse(draft)[0].span).toBe(8);
+  return { ...page, node, draft };
+}
+it('keeps the open editor and its unsaved draft while a replacement layout is pending', async () => {
+  const { target, props, node, draft } = await editWithDraft();
+  const next = deferred<unknown>();
+  props.data = { dashboard: next.promise, widgetData: widgetData() };
+  await tick(5);
+  expect(form(target)).toBe(node);
+  expect(payload(target)).toBe(draft);
+  next.resolve({ placements: [placements[1]], loadFailed: false });
+  await tick(5);
+  expect(form(target)).toBe(node);
+  expect(payload(target)).toBe(draft);
+});
+it('keeps the open editor and its unsaved draft when the replacement layout fails', async () => {
+  const { target, props, node, draft } = await editWithDraft();
+  const next = deferred<unknown>();
+  props.data = { dashboard: next.promise, widgetData: widgetData() };
+  await tick(5);
+  next.resolve({ placements: [], loadFailed: true });
+  await tick(5);
+  expect(form(target)).toBe(node);
+  expect(payload(target)).toBe(draft);
+  expect(target.textContent).not.toContain('Could not load your dashboard layout');
+});
+it('Cancel discards the draft and reopening starts from the latest successful layout', async () => {
+  const { target, props } = await editWithDraft();
+  props.data = { dashboard: Promise.resolve({ placements: [placements[1]], loadFailed: false }), widgetData: widgetData() };
+  await tick(5);
+  vi.stubGlobal('confirm', () => true);
+  const cancel = [...target.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Cancel')!;
+  cancel.click();
+  await tick(5);
+  vi.unstubAllGlobals();
+  expect(form(target)).toBeNull();
+  (target.querySelector('[aria-label="Customize dashboard"]') as HTMLButtonElement).click();
+  await tick(5);
+  expect(JSON.parse(payload(target)).map((w: { id: string }) => w.id)).toEqual(['activity']);
+});
+it('a successful Save exits the editor', async () => {
+  const { target, node } = await editWithDraft();
+  await submitEnhancedWithResult(node, { type: 'success', status: 200, data: {} });
+  await tick(5);
+  expect(form(target)).toBeNull();
+  expect(target.querySelector('[aria-label="Customize dashboard"]')).not.toBeNull();
+});
+it('never offers the editor while the first layout is pending or failed', async () => {
+  const pending = await show({ dashboard: deferred<unknown>().promise, widgetData: widgetData() });
+  expect(pending.target.querySelector('[aria-label="Customize dashboard"]')).toBeNull();
+  expect(form(pending.target)).toBeNull();
+  const failed = await show({ dashboard: Promise.resolve({ placements: [], loadFailed: true }), widgetData: widgetData() });
+  expect(failed.target.querySelector('[aria-label="Customize dashboard"]')).toBeNull();
+  expect(form(failed.target)).toBeNull();
 });
