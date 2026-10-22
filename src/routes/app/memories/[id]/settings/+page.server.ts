@@ -112,7 +112,7 @@ function settingsFormDefaults(memory: Memory) {
   };
 }
 
-export const load: PageServerLoad = async ({ locals, parent }) => {
+export const load: PageServerLoad = async ({ locals, parent, params }) => {
   await requireNonConsumer(parent);
   const { graph, user } = await parent();
   const allOrgs = await fetchAllItems<Organization>(gqlClient(locals.token), ORGANIZATIONS_QUERY, 'organizations')
@@ -178,7 +178,13 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
       // superValidate on a route, shape-hash ids can collide and the wrong
       // form consumes the posted result
       // (hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids).
-      { errors: false, id: 'updateMarketplaceListing' },
+      // The id is MEMORY-BOUND (`…:${params.id}`) so a late result from
+      // memory A can never match a live form on memory B after a [id]
+      // navigation reuses the page component (Gene's P2-1 on #1244). Built
+      // from the route param on BOTH sides — the action has no graph, and
+      // deriving each side from a different source invites a divergence
+      // where results silently stop matching this card.
+      { errors: false, id: `updateMarketplaceListing:${params.id}` },
     ),
     superValidate<MemorySchemaSettingsForm>(
       { schemaJson: graph.schema != null ? JSON.stringify(graph.schema, null, 2) : '' },
@@ -297,8 +303,8 @@ export const actions: Actions = {
   // the catalogue needs BOTH (listed AND publicly accessible) — the control
   // explains the interplay instead of producing a listing that never shows.
   updateMarketplaceListing: async ({ request, params, locals }) => {
-    // Same id as the load's form — see the load's comment.
-    const form = await superValidate(await request.formData(), marketplaceListingFormAdapter, { id: 'updateMarketplaceListing' });
+    // Same memory-bound id as the load's form — see the load's comment.
+    const form = await superValidate(await request.formData(), marketplaceListingFormAdapter, { id: `updateMarketplaceListing:${params.id}` });
     if (!form.valid) return fail(400, { form });
 
     try {
@@ -306,12 +312,23 @@ export const actions: Actions = {
         id: params.id,
         listedOnMarketplace: form.data.listedOnMarketplace,
       });
+      // Never success for a missing or malformed result (Gil's P2 and
+      // Gene's P2-2 on #1244, found independently): the row must be THIS
+      // memory (matching returned id) carrying a boolean flag. Anything
+      // else is a safe failure that preserves the user's intent — no
+      // resync, no invented persisted false, no "Changes saved." over a
+      // state the server never confirmed.
+      if (!saved || saved.id !== params.id || typeof saved.listedOnMarketplace !== 'boolean') {
+        return message(
+          form,
+          { type: 'error', text: t('memory-settings.marketplace.unconfirmed', 'The server did not confirm the new listing state. Reload the page to see the current state.') },
+          { status: 502 },
+        );
+      }
       // Resync from the returned row (the `updateVectorIndex` pattern): the
       // checkbox shows what the server actually saved, not the local intent,
       // in the window before invalidation refreshes `g`.
-      if (saved) {
-        form.data = { ...form.data, listedOnMarketplace: saved.listedOnMarketplace ?? false };
-      }
+      form.data = { ...form.data, listedOnMarketplace: saved.listedOnMarketplace };
       return message(form, { type: 'success', text: t('memory-settings.marketplace.saved', 'Changes saved.') });
     } catch (e: unknown) {
       // extractGqlError, not e.message: graphql-request packs the whole query

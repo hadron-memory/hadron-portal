@@ -111,9 +111,16 @@ describe('marketplace-listing visibility interplay (#841 / hrn:node:hadronmemory
   it('tells the editor to set visibility first, and disables the toggle, on a non-public memory', async () => {
     const html = await renderCard({ graphOverrides: { visibility: 'ORGANIZATION' } });
     const card = cardRegion(html);
-    expect(card).toContain('Only public memories can be listed. Set Visibility to Public on this tab first.');
+    // "and save it": the gate reads the PERSISTED visibility, so choosing
+    // Public is not enough until the Visibility form is saved (Charles's UX
+    // P3 on #1244).
+    expect(card).toContain('Only public memories can be listed. Set Visibility to Public and save it first.');
     expect(card).toContain('aria-describedby="marketplace-visibility-note"');
     expect(card).toContain('disabled=""');
+    // The note is the sole explanation of the disabled state, so it must
+    // clear the 4.5:1 text floor in dark mode too (Charles's UX P2 on
+    // #1244): zinc-500 alone on dark:bg-zinc-900 is 3.67:1.
+    expect(card).toContain('text-zinc-500 dark:text-zinc-400');
   });
 
   it('offers the unlist escape on a listed-but-not-public memory — the toggle stays enabled', async () => {

@@ -794,6 +794,7 @@ describe('memory settings load — the owner (#652)', () => {
   function ev(graph: Record<string, unknown>) {
     return {
       locals: { token: 'tok', user: { id: 'viewer-1' } },
+      params: { id: graph.id as string },
       parent: async () => ({ graph, user: { id: 'viewer-1' } }),
     } as never;
   }
@@ -986,7 +987,7 @@ function marketplaceEv(form: Record<string, string>) {
 
 describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
   it('lists a memory on the marketplace through updateMemory', async () => {
-    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc', listedOnMarketplace: true } });
     const actions = await importActions();
 
     const result = await actions.updateMarketplaceListing(marketplaceEv({
@@ -995,11 +996,14 @@ describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
 
     expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
-    expect(vars).toMatchObject({ id: 'mem-id-abc', listedOnMarketplace: true });
+    // toEqual, not toMatchObject: the evidence map claims the variables
+    // carry id + the flag ONLY (Rook's P3 on #1244) — a subset match would
+    // let a smuggled extra field pass unnoticed.
+    expect(vars).toEqual({ id: 'mem-id-abc', listedOnMarketplace: true });
   });
 
   it('unlists explicitly — false is sent, not omitted', async () => {
-    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc', listedOnMarketplace: false } });
     const actions = await importActions();
 
     await actions.updateMarketplaceListing(marketplaceEv({
@@ -1034,13 +1038,13 @@ describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'marketplace refused' });
   });
 
-  it('stamps the action form with the load form’s id — results must find their store', async () => {
-    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+  it('stamps the action form with the load form’s MEMORY-BOUND id — results must find their store, and only THIS memory’s', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc', listedOnMarketplace: true } });
     const actions = await importActions();
 
     const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
 
-    expect((superFormFrom(result) as { id?: string })?.id).toBe('updateMarketplaceListing');
+    expect((superFormFrom(result) as { id?: string })?.id).toBe('updateMarketplaceListing:mem-id-abc');
   });
 
   it('a denied writer sees the server’s refusal, not the request payload (#468 leak class)', async () => {
@@ -1057,6 +1061,31 @@ describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
     expect(text).toBe('You do not have write access to this memory.');
     expect(text).not.toContain('updateMemory');
     expect(text).not.toContain('listedOnMarketplace');
+  });
+
+  // Gil's P2 and Gene's P2-2 on #1244, found independently: a missing or
+  // malformed mutation result must never read as success. `updateMemory: null`
+  // used to show "Changes saved." with the local intent as the saved fact,
+  // and a flagless row "confirmed" the listing as false.
+  describe('missing or malformed results are refused, never confirmed (#1244)', () => {
+    it.each([
+      ['a null result', { updateMemory: null }],
+      ['a flagless row', { updateMemory: { id: 'mem-id-abc' } }],
+      ['another memory’s row', { updateMemory: { id: 'some-other-memory', listedOnMarketplace: true } }],
+    ])('returns a safe failure for %s', async (_label, updateMemory) => {
+      mockRequest.mockResolvedValueOnce({ updateMemory });
+      const actions = await importActions();
+
+      const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
+
+      const outcome = superFormFrom(result);
+      const msg = outcome?.message as { type?: string; text?: string } | undefined;
+      expect(msg?.type).toBe('error');
+      expect(msg?.text).not.toBe('Changes saved.');
+      // No resync either: a refused confirmation must not touch the form's
+      // data — the user's tick stays as an unsaved intent, not a "fact".
+      expect(outcome?.data?.listedOnMarketplace).toBe(true);
+    });
   });
 });
 
@@ -1089,7 +1118,10 @@ describe('memory-settings load: form ids (#841)', () => {
     const ids = [data.form, data.vectorForm, data.marketplaceForm, data.schemaForm, data.deleteForm, data.retryEmbedsForm]
       .map((f) => (f as { id?: string }).id);
     expect(new Set(ids).size).toBe(6);
-    expect(data.marketplaceForm.id).toBe('updateMarketplaceListing');
+    // Memory-bound (`…:${params.id}`, stamped from the route param on both
+    // sides): distinct from every sibling AND from the same form on another
+    // memory, so a late result can only match its own card (Gene's P2-1).
+    expect(data.marketplaceForm.id).toBe('updateMarketplaceListing:mem-1');
     // The persisted flag seeds the form (the checkbox starts from the fact).
     expect(data.marketplaceForm.data.listedOnMarketplace).toBe(true);
   });

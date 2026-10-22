@@ -6,6 +6,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import MarketplaceListingCard from './MarketplaceListingCard.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -19,7 +20,6 @@
   import type { MemoryOwnerTransferPreview } from './+page.server';
   import {
     deleteMemorySchema,
-    marketplaceListingSchema,
     memorySchemaSettingsSchema,
     memorySettingsSchema,
     retryFailedEmbeddingsSchema,
@@ -28,13 +28,11 @@
 
   type MemorySettingsForm = Infer<typeof memorySettingsSchema, 'zod4'>;
   type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
-  type MarketplaceListingForm = Infer<typeof marketplaceListingSchema, 'zod4'>;
   type MemorySchemaSettingsForm = Infer<typeof memorySchemaSettingsSchema, 'zod4'>;
   type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
   type RetryFailedEmbeddingsForm = Infer<typeof retryFailedEmbeddingsSchema, 'zod4'>;
   type MemorySettingsSuperform = SuperValidated<MemorySettingsForm, App.Superforms.Message, MemorySettingsForm>;
   type VectorIndexSettingsSuperform = SuperValidated<VectorIndexSettingsForm, App.Superforms.Message, VectorIndexSettingsForm>;
-  type MarketplaceListingSuperform = SuperValidated<MarketplaceListingForm, App.Superforms.Message, MarketplaceListingForm>;
   type MemorySchemaSettingsSuperform = SuperValidated<MemorySchemaSettingsForm, App.Superforms.Message, MemorySchemaSettingsForm>;
   type DeleteMemorySuperform = SuperValidated<DeleteMemoryForm, App.Superforms.Message, DeleteMemoryForm>;
   type RetryFailedEmbeddingsSuperform = SuperValidated<RetryFailedEmbeddingsForm, App.Superforms.Message, RetryFailedEmbeddingsForm>;
@@ -325,43 +323,10 @@
       }
     },
   });
-  // ── Marketplace listing (#841 / hrn:node:hadronmemory.com:specs:cor:acl:080:04) ─────────────────────
-  const initialMarketplaceForm = untrack(() => submittedForm<MarketplaceListingForm>(form, 'updateMarketplaceListing') as MarketplaceListingSuperform | null ?? data.marketplaceForm);
-  const {
-    form: marketplaceForm,
-    message: marketplaceMessage,
-    submitting: marketplaceSubmitting,
-    enhance: marketplaceEnhance,
-  } = superForm<MarketplaceListingForm, App.Superforms.Message, MarketplaceListingForm>(initialMarketplaceForm, {
-    resetForm: false,
-    validators: zod4Client(marketplaceListingSchema),
-    validationMethod: 'oninput',
-    clearOnSubmit: 'none',
-  });
-  const marketplaceActionError = $derived(scopedActionError<MarketplaceListingForm>(form, 'updateMarketplaceListing', $marketplaceMessage));
-  const marketplaceActionSuccess = $derived(scopedActionSuccess<MarketplaceListingForm>(form, 'updateMarketplaceListing', $marketplaceMessage));
-  // The catalogue lists listed AND publicly accessible memories
-  // (hrn:node:hadronmemory.com:specs:cor:acl:080:04). A listing the visibility gate hides is the silent
-  // nothing #841 is about, so the control states the interplay rather than
-  // letting a non-public memory be listed into invisibility.
-  const isPublicKnowledge = $derived(g.class === 'knowledge' && g.visibility === 'PUBLIC');
-  const isListed = $derived(g.listedOnMarketplace === true);
-  // #841, same discipline as the vector form's #1163 reseed: only a changed
-  // persisted flag (or navigating to another memory) reseeds the toggle; an
-  // unrelated loader refresh must not erase an unsaved tick, and the flag
-  // after a save is the server's answer, never the local intent.
-  function marketplaceSnapshot() {
-    return JSON.stringify([g.id, g.listedOnMarketplace]);
-  }
-  let lastMarketplaceSnapshot = untrack(marketplaceSnapshot);
-  $effect(() => {
-    const snapshot = marketplaceSnapshot();
-    if (snapshot === lastMarketplaceSnapshot) return;
-    lastMarketplaceSnapshot = snapshot;
-    untrack(() => {
-      marketplaceForm.update((current) => ({ ...current, listedOnMarketplace: g.listedOnMarketplace === true }), { taint: false });
-    });
-  });
+  // ── Marketplace listing (#841) — see MarketplaceListingCard.svelte ──
+  // The card's superForm lives in a component keyed by `g.id` (rendered
+  // below), NOT here: this page component is reused on a [id] navigation, so
+  // a form in the page script would carry memory A's stores onto memory B.
 
   // ── Re-drive failed embeddings (#695 / server #882) ─────────────────
   const initialRetryEmbedsForm = untrack(() => submittedForm<RetryFailedEmbeddingsForm>(form, 'retryFailedEmbeddings') as RetryFailedEmbeddingsSuperform | null ?? data.retryEmbedsForm);
@@ -912,47 +877,15 @@
          `!== false`: an absent value must not read as a grant — the card
          disappears unless the server positively said this caller can write.
          Deliberately NOT gated on vector-index state, which has nothing to
-         do with the catalogue. -->
+         do with the catalogue.
+
+         Keyed by `g.id` so a [id] navigation REMOUNTS the card's form — the
+         page component is reused, and the key is what fences memory A's
+         superForm stores from memory B (Gene's P2-1 on #1244). -->
     {#if g.class === 'knowledge' && data.canWriteMemory === true}
-      <form method="POST" action="?/updateMarketplaceListing" use:marketplaceEnhance
-        class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
-        <input type="hidden" name="_kind" value={$marketplaceForm._kind} />
-        <input type="hidden" name="listedOnMarketplace" value={String($marketplaceForm.listedOnMarketplace)} />
-        <div>
-          <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('memory-settings.marketplace.title', 'Marketplace listing')}</h3>
-          <p class="mt-1 text-sm text-zinc-500">{t('memory-settings.marketplace.help', 'Listed memories appear in the public marketplace catalogue. The catalogue only shows public memories, so this goes together with Visibility: Public.')}</p>
-        </div>
-        {#if marketplaceActionError}
-          <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{marketplaceActionError}</div>
-        {:else if marketplaceActionSuccess}
-          <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{marketplaceActionSuccess}</div>
-        {/if}
-        <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
-          <input
-            type="checkbox"
-            checked={$marketplaceForm.listedOnMarketplace}
-            onchange={(e) => { $marketplaceForm.listedOnMarketplace = e.currentTarget.checked; }}
-            disabled={!isPublicKnowledge && !isListed}
-            aria-describedby={isPublicKnowledge ? undefined : 'marketplace-visibility-note'}
-            class="h-4 w-4 rounded border-zinc-300 text-amber-600 focus:ring-amber-500 dark:border-zinc-600 dark:bg-zinc-900"
-          />
-          {t('memory-settings.marketplace.list', 'List on the marketplace')}
-        </label>
-        {#if !isPublicKnowledge}
-          <p id="marketplace-visibility-note" class="text-xs text-zinc-500">
-            {#if isListed}
-              {t('memory-settings.marketplace.listed-not-public', 'This memory is listed but not public, so the catalogue hides it. Make it public to show it, or unlist it here.')}
-            {:else}
-              {t('memory-settings.marketplace.not-public', 'Only public memories can be listed. Set Visibility to Public on this tab first.')}
-            {/if}
-          </p>
-        {/if}
-        <div class="flex gap-3">
-          <button type="submit" disabled={$marketplaceSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
-            {$marketplaceSubmitting ? t('memory-settings.marketplace.saving', 'Saving...') : t('memory-settings.marketplace.save', 'Save')}
-          </button>
-        </div>
-      </form>
+      {#key g.id}
+        <MarketplaceListingCard {data} {form} />
+      {/key}
     {/if}
 
     <!-- #695 (server #882): operator recovery for PERMANENTLY failed embeds.

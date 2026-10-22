@@ -7,10 +7,12 @@
  *
  * The form-id contract is the load-bearing part
  * (hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids):
- * the load and the action both build the form with id
- * 'updateMarketplaceListing', and a result reaches THIS card's message store
- * only if the ids match. A collision would show in the network tab as a
- * successful save with a page that stays silent — invisible to SSR tests.
+ * the load and the action both build the form with the MEMORY-BOUND id
+ * `updateMarketplaceListing:${id}`, and a result reaches THIS card's message
+ * store only if the ids match — memory included. A collision would show in
+ * the network tab as a successful save with a page that stays silent —
+ * invisible to SSR tests — and a late result from another memory would flip
+ * a checkbox its user never touched (Gene's P2-1 on #1244).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -71,9 +73,13 @@ function toggle(target: HTMLElement, checked: boolean) {
   flushSync();
 }
 
-/** The result the action would answer with, built exactly as the action does. */
-async function cardOutcome(listed: boolean, success: boolean) {
-  const validated = await superValidate({ listedOnMarketplace: listed }, zod4(marketplaceListingSchema), { id: 'updateMarketplaceListing' });
+/**
+ * The result the action would answer with, built exactly as the action does —
+ * including the MEMORY-BOUND form id, so an outcome for `memoryId` only ever
+ * matches that memory's card.
+ */
+async function cardOutcome(listed: boolean, success: boolean, memoryId = 'mem-1') {
+  const validated = await superValidate({ listedOnMarketplace: listed }, zod4(marketplaceListingSchema), { id: `updateMarketplaceListing:${memoryId}` });
   validated.message = { type: success ? 'success' : 'error', text: success ? 'Changes saved.' : 'Failed to update marketplace listing.' };
   return { type: (success ? 'success' : 'failure') as 'success' | 'failure', status: success ? 200 : 500, data: { form: validated } };
 }
@@ -157,9 +163,78 @@ describe('marketplace-listing save delivery (#841)', () => {
     const m = await renderCard({ listedOnMarketplace: true });
     mounted.push(m);
     expect(cardBox(m.target).checked).toBe(true);
-    const data = m.props.data as { graph: Record<string, unknown> };
-    m.props.data = { ...data, graph: { ...data.graph, id: 'mem-2', listedOnMarketplace: false } };
+    // A real navigation reruns the LOAD for the new memory — the graph row
+    // AND the form set both come back for mem-2, so simulate both, not just
+    // the graph (the fixture seeds the way the load does).
+    const graphB = settingsGraph({ id: 'mem-2', visibility: 'PUBLIC', listedOnMarketplace: false });
+    const formsB = await settingsForms(graphB);
+    const data = m.props.data as Record<string, unknown>;
+    m.props.data = { ...data, ...formsB, graph: graphB };
     await tick();
     expect(cardBox(m.target).checked).toBe(false);
+  });
+
+  // Gene's P2-1 on #1244: the page component is REUSED on a [id] navigation,
+  // so a late result from memory A used to land on memory B's live form —
+  // flipping B's checkbox and showing A's banner. The fence is the pair of
+  // the memory-bound form id and the {#key g.id} remount; these pin both
+  // delivery paths (result-after-navigation and result-already-on-the-page).
+  it('a late SUCCESS from memory A never lands on memory B’s card', async () => {
+    const m = await renderCard({ listedOnMarketplace: false });
+    mounted.push(m);
+    toggle(m.target, true);
+    const deferred = await submitEnhancedDeferred(cardForm(m.target));
+    // Navigate to B (unlisted) while A's save is in flight; the keyed card
+    // remounts from B's own row.
+    const graphB = settingsGraph({ id: 'mem-2', visibility: 'PUBLIC', listedOnMarketplace: false });
+    const formsB = await settingsForms(graphB);
+    const data = m.props.data as Record<string, unknown>;
+    m.props.data = { ...data, ...formsB, graph: graphB };
+    await tick();
+    expect(cardBox(m.target).checked).toBe(false);
+    // A's confirmation (listed=true, id …:mem-1) arrives NOW — it must match
+    // no live form on B: no tick, no banner, no stuck pending.
+    const late = await cardOutcome(true, true, 'mem-1');
+    await deferred.finish(late);
+    m.props.form = late.data;
+    for (let i = 0; i < 5; i++) await tick();
+    expect(cardBox(m.target).checked).toBe(false);
+    expect(cardForm(m.target).textContent).not.toContain('Changes saved.');
+    expect(saveButton(m.target).disabled).toBe(false);
+  });
+
+  it('a late REFUSAL from memory A never lands on memory B’s card', async () => {
+    const m = await renderCard({ listedOnMarketplace: false });
+    mounted.push(m);
+    toggle(m.target, true);
+    const deferred = await submitEnhancedDeferred(cardForm(m.target));
+    const graphB = settingsGraph({ id: 'mem-2', visibility: 'PUBLIC', listedOnMarketplace: false });
+    const formsB = await settingsForms(graphB);
+    const data = m.props.data as Record<string, unknown>;
+    m.props.data = { ...data, ...formsB, graph: graphB };
+    await tick();
+    const late = await cardOutcome(true, false, 'mem-1');
+    await deferred.finish(late);
+    m.props.form = late.data;
+    for (let i = 0; i < 5; i++) await tick();
+    expect(cardForm(m.target).textContent).not.toContain('Failed to update marketplace listing.');
+    expect(cardBox(m.target).checked).toBe(false);
+  });
+
+  it('memory A’s result already on the page does not seed B’s card on navigation', async () => {
+    const m = await renderCard({ listedOnMarketplace: false });
+    mounted.push(m);
+    toggle(m.target, true);
+    await deliver(m.target, m.props, await cardOutcome(true, true));
+    expect(cardForm(m.target).textContent).toContain('Changes saved.');
+    // A's success is still the page's action data when the user navigates to
+    // B: the remount must seed from B's own row, never from A's result.
+    const graphB = settingsGraph({ id: 'mem-2', visibility: 'PUBLIC', listedOnMarketplace: false });
+    const formsB = await settingsForms(graphB);
+    const data = m.props.data as Record<string, unknown>;
+    m.props.data = { ...data, ...formsB, graph: graphB };
+    await tick();
+    expect(cardBox(m.target).checked).toBe(false);
+    expect(cardForm(m.target).textContent).not.toContain('Changes saved.');
   });
 });
