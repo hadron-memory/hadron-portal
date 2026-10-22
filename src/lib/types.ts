@@ -785,6 +785,8 @@ export interface TreeEntry {
   nodeType: string;
   hasActions: boolean;
   isVirtual: boolean;
+  /** #1161: the server reported this node deleted (recoveryNodes). Absent = no claim. */
+  deleted?: boolean;
 }
 
 export interface TopicNode {

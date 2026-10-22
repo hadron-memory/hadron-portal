@@ -135,3 +135,37 @@ describe('merge node command action', () => {
   });
 });
 
+// portal#1142 S2b (hadron-server#2226; Xylon's gate 6329041498).
+describe('merge refused for an include tag', () => {
+  const fields = {
+    _kind: 'mergeNode',
+    source: 'hrn:node:hadronmemory.com:demo:source',
+    target: 'hrn:node:hadronmemory.com:demo:target',
+    include: ['CONTENT'],
+  };
+  const refusal = (code: string) => ({
+    message: 'raw ClientError text with the query and PRIVATE-VARS',
+    response: { errors: [{ message: 'Include <b>t</b> names a node you cannot read.', extensions: { code, tag: '<img src=x onerror=alert(1)>{{> t}}' } }] },
+  });
+
+  it('says nothing was merged, with the server words and the tag, and offers no draft', async () => {
+    mockRequest.mockRejectedValueOnce(refusal('INCLUDE_TARGET_UNAVAILABLE'));
+    const result = await run(fields);
+    expect(result).toMatchObject({ status: 400 });
+    const message = superFormFrom(result)?.message as { type: string; text: string };
+    expect(message.type).toBe('error');
+    expect(message.text).toContain('Include <b>t</b> names a node you cannot read.');
+    expect(message.text).toContain('Tag: <img src=x onerror=alert(1)>{{> t}}.');
+    expect(message.text).toContain('Nothing was merged, and both nodes are unchanged.');
+    expect(message.text).not.toContain('Your edit is still here');
+    expect(message.text).not.toContain('save again');
+    expect(JSON.stringify(result)).not.toContain('PRIVATE-VARS');
+    expect(result).not.toHaveProperty('result');
+  });
+
+  it('an unknown code keeps the existing generic path', async () => {
+    mockRequest.mockRejectedValueOnce(refusal('SOMETHING_ELSE'));
+    const message = superFormFrom(await run(fields))?.message as { text: string };
+    expect(message.text).not.toContain('Nothing was merged');
+  });
+});

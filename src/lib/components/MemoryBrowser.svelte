@@ -87,11 +87,19 @@
   const displayTotal = $derived(nodesTotal ?? nodes.length);
   const isTruncated = $derived(nodesTotal != null && nodes.length < nodesTotal);
 
+  // The single memory being browsed, as carried by basePath
+  // (`/app/memories/<id>`); undefined on the multi-memory global browse
+  // page. One derivation for every memory-scoped key or lookup (saved
+  // views, sort persistence, search scope) so they cannot drift apart.
+  const memoryIdFromBasePath = $derived(
+    basePath && !multiMemory ? basePath.split('/').pop() : undefined,
+  );
+
   // Saved-views key for the flat node list (spec 020), scoped to the single
   // memory being browsed. Only set when viewing one memory's detail (basePath
   // is `/app/memories/<id>`); absent on the multi-memory global browse page.
   const nodeListKey = $derived(
-    basePath && !multiMemory ? `memory:${basePath.split('/').pop()}:nodes` : undefined,
+    memoryIdFromBasePath ? `memory:${memoryIdFromBasePath}:nodes` : undefined,
   );
 
   // ── Sub-view ──────────────────────────────────────────────────────────
@@ -388,6 +396,55 @@
   // 'loc' is the natural browse order and does NOT force a server fetch;
   // updatedAt/relevance require the server (not in the slim loaded set).
   let sortMode = $state<'loc' | 'updatedAt' | 'relevance'>('loc');
+  // portal#1223: the user's EXPLICIT Sort choice persists per memory (the
+  // nodeListKey scoping convention), so a reload or Back lands on the same
+  // order instead of silently snapping to Location. Unscoped on the
+  // multi-memory browse page, where there is no one memory to key on — as
+  // with nodeListKey, no key means no persistence. The restored value keeps
+  // its server-side meaning: updatedAt/relevance re-enter the server view
+  // and stay SERVER-sorted, never a client approximation of the loaded page.
+  // Retired or invalid stored values fall back to 'loc'.
+  const sortScopeKey = $derived(memoryIdFromBasePath ? `:${memoryIdFromBasePath}` : '');
+  function readStoredSort(): 'loc' | 'updatedAt' | 'relevance' {
+    if (typeof window === 'undefined' || !sortScopeKey) return 'loc';
+    try {
+      const v = window.localStorage.getItem(`hadron:memoryBrowser:sort${sortScopeKey}`);
+      return v === 'updatedAt' || v === 'relevance' ? v : 'loc';
+    } catch {
+      return 'loc';
+    }
+  }
+  // Persistence is keyed to the EVENT, not the value: the select's change
+  // event is the one place an explicit user choice happens, so it — and only
+  // it — writes storage. Keying on the value instead would refuse an
+  // explicit revert to Location ("still the seed") and let programmatic
+  // resets like clearAllFilters rewrite the stored preference; it also
+  // leaves the hydration effect below purely reading storage, never
+  // writing (no read-modify-write on sortMode).
+  function persistSortChoice(value: string): void {
+    if (typeof window === 'undefined' || !sortScopeKey) return;
+    if (value !== 'loc' && value !== 'updatedAt' && value !== 'relevance') return;
+    try {
+      window.localStorage.setItem(`hadron:memoryBrowser:sort${sortScopeKey}`, value);
+    } catch {
+      /* ignore quota / disabled storage */
+    }
+  }
+  // Hydrate per SCOPE, not once: SvelteKit reuses this component across
+  // memory navigations, so the scope key can change under a live instance.
+  // Re-seeding on every real memory scope keeps each memory's stored sort
+  // (and the old memory's key) untouched. The empty scope seeds only on the
+  // first run: after that, a transient unscoped render during a route-update
+  // gap must not discard the user's active sort on the multi-memory page.
+  let hydratedSortScope: string | undefined;
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const scope = sortScopeKey;
+    if (scope === hydratedSortScope) return;
+    if (scope === '' && hydratedSortScope !== undefined) return;
+    hydratedSortScope = scope;
+    sortMode = readStoredSort();
+  });
   // #433: include soft-deleted nodes (findNodes filter.includeDeleted) — an
   // audit/restore view; server-only (the slim loaded set excludes deleted).
   let includeDeleted = $state(false);
@@ -519,10 +576,7 @@
     for (const id of scopeMemoryIds) ids.add(id);
     // Single-memory pages carry the memory id in basePath (/app/memories/<id>)
     // even when nothing loaded — recover it so an empty memory is searchable.
-    if (!multiMemory && basePath) {
-      const id = basePath.split('/').pop();
-      if (id) ids.add(id);
-    }
+    if (memoryIdFromBasePath) ids.add(memoryIdFromBasePath);
     return [...ids].sort().join(',');
   });
 
@@ -565,6 +619,7 @@
   let searchCapped = $state(false); // server hit the result cap — showing a slice
   let searchSnippets = $state<Record<string, string>>({}); // #430 nodeId → matching passage
   let searchMeta = $state<Record<string, SearchHitMeta>>({}); // #432 nodeId → relevance/stale meta
+  let searchDeletedIds = $state<string[]>([]); // #1161 ids the server reports deleted (Include deleted)
   let searchSeq = 0; // monotonic — drops out-of-order responses
 
   // #589: the sortProperty payload in the server's shape (array path). Derived
@@ -604,6 +659,7 @@
     searchCapped = false;
     searchSnippets = {};
     searchMeta = {};
+    searchDeletedIds = [];
     try {
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
@@ -620,6 +676,7 @@
       searchCapped = !!data.capped;
       searchSnippets = data.snippets ?? {};
       searchMeta = data.meta ?? {};
+      searchDeletedIds = Array.isArray(data.deletedIds) ? data.deletedIds : [];
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
@@ -652,6 +709,7 @@
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
+    searchDeletedIds = [];
       return;
     }
     const ids = idsStr ? idsStr.split(',') : [];
@@ -668,6 +726,7 @@
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
+    searchDeletedIds = [];
       return;
     }
     // #431: validate a regex pattern client-side — the server 400s on invalid
@@ -685,6 +744,7 @@
         searchCapped = false;
         searchSnippets = {};
         searchMeta = {};
+    searchDeletedIds = [];
         return;
       }
     }
@@ -892,7 +952,12 @@
   // `visibleNodes` would filter the same nodes twice and, worse, hide the
   // folders whose only children are hidden — which is what makes "Show hidden"
   // reveal something rather than nothing.
-  const treeEntries = $derived(buildTreeEntries(filteredNodes, singleMemoryUrn));
+  const treeEntries = $derived.by(() => {
+    const entries = buildTreeEntries(filteredNodes, singleMemoryUrn);
+    if (searchDeletedIds.length === 0) return entries;
+    const deleted = new Set(searchDeletedIds);
+    return entries.map((e) => (e.nodeId && deleted.has(e.nodeId) ? { ...e, deleted: true } : e));
+  });
 
   // Color rules: multiple memories → color by memory; multiple selected types → color by type; otherwise same color
   const graphViewData = $derived.by(() => {
@@ -1279,6 +1344,7 @@
 
     <!-- #429: Sort (server-side for updatedAt/relevance; loc is the browse default) -->
     <select bind:value={sortMode} title="Sort order"
+      onchange={(e) => persistSortChoice(e.currentTarget.value)}
       class="rounded-lg border px-2 py-1.5 text-xs
         {sortMode !== 'loc' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="loc">Sort: Location</option>
@@ -1563,7 +1629,7 @@
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
           <NodeList
-            nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta}
+            nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} deletedIds={searchDeletedIds}
             showColumns onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
           />
         </div>

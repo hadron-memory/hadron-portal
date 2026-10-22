@@ -2590,8 +2590,8 @@ export const NODE_FIELDS = /* GraphQL */ `
 // #1202: fixtures are system nodes, independently of the memory's class.
 // Keep this narrow read separate from GraphNodes' mixed-type default.
 export const FIXTURE_NODES_QUERY = /* GraphQL */ `
-  query FixtureNodes($limit: Int, $memoryIds: [ID!]!) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit) {
+  query FixtureNodes($limit: Int, $offset: Int, $memoryIds: [ID!]!) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit, offset: $offset) {
       hits { node { id loc memoryId data } }
     }
   }
@@ -2599,8 +2599,8 @@ export const FIXTURE_NODES_QUERY = /* GraphQL */ `
 
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query GraphNodes($limit: Int, $memoryIds: [ID!]) {
-    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
+  query GraphNodes($limit: Int, $offset: Int, $memoryIds: [ID!]) {
+    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit, offset: $offset) {
       hits {
         node {
           ...NodeFields
@@ -3322,6 +3322,50 @@ export const UPDATE_SPEC_NODE_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #1159 (server #2175): a soft-deleted node does not resolve through node(ref:).
+// recoveryNode is the explicit, writer-only read of the retained tombstone (null
+// for anyone who may not recover it, so existence stays hidden), and
+// restoreNode brings back that ONE node — never descendants or revisions.
+export const RECOVERY_NODE_QUERY = /* GraphQL */ `
+  query RecoveryNode($nodeRef: ID!) {
+    recoveryNode(nodeRef: $nodeRef) {
+      id urn memoryId loc name nodeType description deletedAt content
+    }
+  }
+`;
+
+// #1161: which rows of a list are deleted, as the SERVER reports it (writer-only;
+// an unauthorized read throws and the caller marks nothing). Default 20, max 200.
+export const RECOVERY_NODES_QUERY = /* GraphQL */ `
+  query RecoveryNodes($memoryRef: ID!, $limit: Int, $offset: Int) {
+    recoveryNodes(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
+      items { id }
+      total
+    }
+  }
+`;
+
+// #1161: edges with a deleted endpoint, as the server reports them (writer-only).
+export const RECOVERY_EDGES_QUERY = /* GraphQL */ `
+  query RecoveryEdges($memoryRef: ID!, $limit: Int, $offset: Int) {
+    recoveryEdges(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        name
+        source { id urn loc name deletedAt }
+        target { id urn loc name deletedAt }
+      }
+      total
+    }
+  }
+`;
+
+export const RESTORE_NODE_MUTATION = /* GraphQL */ `
+  mutation RestoreNode($nodeRef: ID!) {
+    restoreNode(nodeRef: $nodeRef) { id }
+  }
+`;
+
 // hadron-server#542: deleteNode collapsed (loc, memoryId) into a single
 // nodeRef (a node PK or fully-qualified URN).
 // hard: true permanently removes the row (vs. the default soft-delete's
@@ -3583,12 +3627,15 @@ export const MY_APPS_QUERY = /* GraphQL */ `
   }
 `;
 
-// #629 / #636: the dashboard fetches everything it needs in ONE request:
-//  - count-only memory/agent totals (limit:0 — they seed the default widgets'
-//    data; the "Your memories" preview was dropped, so no items),
-//  - the caller's placed widgets (dashboardWidgets, ordered by position), and
-//  - the combined per-widget-type data (dashboardWidgetData) — server #772/#773.
-// The portal maps the server enum to WidgetType and fans the data out by type.
+// #1230: layout and widget data stream independently; chart work must not
+// hold navigation or prevent the saved layout from rendering its placeholders.
+export const DASHBOARD_LAYOUT_QUERY = /* GraphQL */ `
+  query DashboardLayout {
+    dashboardWidgets { id type span rowSpan position config }
+  }
+`;
+
+// Counts seed defaults; configured data remains server-owned and batched.
 export const DASHBOARD_QUERY = /* GraphQL */ `
   query Dashboard {
     # #1176 — the same slice as PERSONAL_MEMORIES_QUERY, and it has to stay
@@ -3611,14 +3658,6 @@ export const DASHBOARD_QUERY = /* GraphQL */ `
     }
     agents(limit: 0) {
       total
-    }
-    dashboardWidgets {
-      id
-      type
-      span
-      rowSpan
-      position
-      config
     }
     dashboardWidgetData {
       widgetId
@@ -4370,6 +4409,49 @@ export const APP_INSTALLED_AGENTS_QUERY = /* GraphQL */ `
 export const SELF_CAN_MANAGE_QUERY = /* GraphQL */ `
   query SelfCanManage($user: ID!, $resource: ID!) {
     effectiveAccess(user: $user, resource: $resource) { canManage }
+  }
+`;
+
+// portal#1142 S8 (hadron-server#2219) — boot-prompt pointers. Each read is its
+// own small query, kept OUT of the shared Agent/Worker fragments that feed
+// other routes, so a failed read is told apart from a masked (null) one.
+// Both fields are null when no pointer is set OR the reader may not see it.
+export const AGENT_BOOT_POINTER_QUERY = /* GraphQL */ `
+  query AgentBootPointer($ref: ID!) {
+    agent(ref: $ref) { id bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+// The App's install rows, joined to the Agents tab by agent id. A row whose
+// agent is withheld (null) can't be joined and shows as not shown.
+export const APP_BOOT_POINTERS_QUERY = /* GraphQL */ `
+  query AppBootPointers($ref: ID!) {
+    app(ref: $ref) { id appAgents { agent { id } bootPromptRef bootPromptTargetDeleted } }
+  }
+`;
+
+export const WORKER_BOOT_POINTER_QUERY = /* GraphQL */ `
+  query WorkerBootPointer($ref: ID!) {
+    worker(ref: $ref) { id bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+// The setters: nodeRef is REQUIRED; an explicit null clears. GraphQL only (R24).
+export const SET_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
+  mutation SetAgentBootPrompt($agentRef: String!, $nodeRef: String) {
+    setAgentBootPrompt(agentRef: $agentRef, nodeRef: $nodeRef) { id bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+export const SET_APP_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
+  mutation SetAppAgentBootPrompt($appRef: String!, $agentRef: String!, $nodeRef: String) {
+    setAppAgentBootPrompt(appRef: $appRef, agentRef: $agentRef, nodeRef: $nodeRef) { bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+export const SET_WORKER_BOOT_PROMPT_MUTATION = /* GraphQL */ `
+  mutation SetWorkerBootPrompt($workerRef: ID!, $nodeRef: String) {
+    setWorkerBootPrompt(workerRef: $workerRef, nodeRef: $nodeRef) { id bootPromptRef bootPromptTargetDeleted }
   }
 `;
 

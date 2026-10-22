@@ -69,6 +69,9 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
 export async function submitEnhancedWithResult(
   form: HTMLFormElement,
   result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> },
+  // portal#1246: a test that pins what the callback does with kit's `update`
+  // (that it is called, and how) passes its own recorder here.
+  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> } = {},
 ): Promise<{ cancelled: boolean }> {
   const submit = enhanced.get(form);
   if (!submit) throw new Error('submitEnhancedWithResult: this form was never enhanced');
@@ -87,7 +90,7 @@ export async function submitEnhancedWithResult(
   });
   if (cancelled) return { cancelled };
   if (typeof handler !== 'function') throw new Error('submitEnhancedWithResult: superforms returned no result handler');
-  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: opts.update ?? (async () => {}) });
   return { cancelled };
 }
 

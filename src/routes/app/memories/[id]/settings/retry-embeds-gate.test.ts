@@ -124,6 +124,26 @@ describe('#969 transfer control and preview', () => {
     expect(html).toContain('?/previewTransfer');
   });
 
+  it('tells the owner of a private memory what a transfer changes, beside the unchanged control', async () => {
+    const html = await renderSettings({
+      savedVectorIndexEnabled: false,
+      graphOverrides: { class: 'private', organizationId: null, userId: OWNER_ID },
+      transferCanDelete: true,
+    });
+    expect(html).toContain('?/previewTransfer');
+    expect(html).toContain('Transferring changes this memory');
+  });
+
+  it('shows no private-memory transfer hint for other classes', async () => {
+    const html = await renderSettings({
+      savedVectorIndexEnabled: false,
+      graphOverrides: { class: 'personal', organizationId: null, userId: OWNER_ID },
+      transferCanDelete: true,
+    });
+    expect(html).toContain('?/previewTransfer');
+    expect(html).not.toContain('Transferring changes this memory');
+  });
+
   it('withholds transfer from a personal-memory grantee, even with an admin role', async () => {
     const html = await renderSettings({
       savedVectorIndexEnabled: false, user: { ...STRANGER, roles: ['ADMIN'] }, orgRole: 'ADMIN',

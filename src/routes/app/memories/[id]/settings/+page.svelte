@@ -1046,6 +1046,11 @@
       <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
         {t('memory-transfer.intro', 'Preview the new URN and dependent records before moving this memory. The destination must be an organization you administer or your own user account.')}
       </p>
+      {#if g.class === 'private'}
+        <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+          {t('memory-transfer.private-hint', 'Transferring changes this memory\'s class to Knowledge or Group in an organization you administer. It does not make a private memory shareable.')}
+        </p>
+      {/if}
       {#if transferError}
         <p role="alert" class="mb-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{transferError}</p>
       {/if}

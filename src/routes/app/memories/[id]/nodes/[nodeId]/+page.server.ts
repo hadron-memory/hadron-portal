@@ -6,9 +6,10 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { fetchAllItems } from '$lib/server/paginate';
+import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
@@ -137,7 +138,18 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   //
   // Matches the memory layout's `throw error(404, 'Memory not found')` one level
   // up, which has always been right; this route was the outlier.
-  if (!data.node) throw error(404, 'Node not found');
+  if (!data.node) {
+    // #1159: not live, but possibly a retained tombstone this viewer may recover
+    // (an "Include deleted" row opens here). recoveryNode answers null for anyone
+    // who may not, so the 404 below stays the single answer for "missing" and
+    // "not yours". A failed recovery read is also just "not found".
+    const tomb = await gqlClient(locals.token)
+      .request<{ recoveryNode?: { id: string; memoryId: string } | null }>(RECOVERY_NODE_QUERY, { nodeRef: params.nodeId })
+      .then((r) => r?.recoveryNode ?? null)
+      .catch(() => null);
+    if (tomb) redirect(303, `/app/memories/${tomb.memoryId}/nodes/${params.nodeId}/deleted`);
+    throw error(404, 'Node not found');
+  }
   const node = data.node;
 
   // #237: the URL-acceptance counterpart to #234's URL-emission fix. The
@@ -509,6 +521,12 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   ]);
 
   const wikilinks = await wikilinksPromise;
+  // #1161: marks edges whose far endpoint the server reports deleted. Reads only
+  // when an endpoint is missing at all, and a missing endpoint the server does
+  // not report stays masked (it may be an unreadable memory, not a deletion).
+  const deletedEdges = await deletedEdgeEndpoints(
+    gqlClient(locals.token), node.memoryId, [...(node.outgoingEdges ?? []), ...(node.incomingEdges ?? [])],
+  );
   const chatMessages = await chatMessagesPromise;
 
   return {
@@ -528,6 +546,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     initialTab: url.searchParams.get('tab'),
     breadcrumb,
     wikilinks,
+    deletedEdges,
     testFlowApps,
     memories,
     revisions,
