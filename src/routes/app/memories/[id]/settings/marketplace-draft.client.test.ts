@@ -116,15 +116,21 @@ describe('marketplace-listing draft vs a real sibling save (portal#1248)', () =>
   });
 
   // #1163 discipline, kept: when the refreshed data DOES carry a different
-  // persisted flag, the toggle reseeds to the server's answer, never the
-  // local intent.
+  // persisted flag, the toggle reseeds to the server's answer. The toggle is
+  // left UNTOUCHED so reseed and retained draft diverge: on a boolean a flip
+  // always equals the draft, so a drafted shape cannot tell a reseed from a
+  // kept draft — a never-reseed card passed it (Gil's P2 on #1254). Only an
+  // untouched toggle whose persisted flag flips discriminates.
   it('reseeds when the persisted flag changed behind the sibling save', async () => {
     const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', listedOnMarketplace: false }));
     mounted.push(m);
-    setBox(m.target, true);
     await siblingSave(m, settingsGraph({ visibility: 'PUBLIC', listedOnMarketplace: true }));
     expect(cardBox(m.target).checked).toBe(true);
-    setBox(m.target, false);
+  });
+
+  it('reseeds when the persisted flag changed in the other direction', async () => {
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', listedOnMarketplace: true }));
+    mounted.push(m);
     await siblingSave(m, settingsGraph({ visibility: 'PUBLIC', listedOnMarketplace: false }));
     expect(cardBox(m.target).checked).toBe(false);
   });
