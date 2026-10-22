@@ -6,6 +6,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import { fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
@@ -27,6 +28,8 @@ import {
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
+  AGENT_BOOT_POINTER_QUERY,
+  SET_AGENT_BOOT_PROMPT_MUTATION,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
   APP_ORG_AGENT_GRANTS_QUERY,
   PUBLISH_AGENT_IMPORT_MUTATION,
@@ -126,7 +129,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }>;
   };
 
-  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, bootPointer, canManageAgent] = await Promise.all([
     allMemoryIds.length > 0
       ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
           GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
@@ -173,6 +176,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       .catch(() => null),
     loadAgentInheritance(client, agent.id),
     loadInheritanceManagement(client, agent.id, agent.urn, locals.user?.id ?? null, !!locals.impersonation),
+    // portal#1142 S8: the Agent's boot-prompt pointer (its own read, so a
+    // failure is not a null pointer), and whether to offer its form.
+    readPointer(
+      () => client.request<{ agent: { bootPromptRef: string | null; bootPromptTargetDeleted: boolean | null } | null }>(AGENT_BOOT_POINTER_QUERY, { ref: agent.id }),
+      (r) => r.agent,
+      `agent ${agent.id}`,
+    ),
+    selfCanManage(client, locals.user?.id, agent.urn),
   ]);
 
   // An agent can be installed into several apps (as the primary agentId or via
@@ -336,6 +347,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     form,
     registerDefaults: registerDefaultsResult,
     registerDefaultsForm,
+    bootPointer,
+    canManageAgent,
+    // The key a pointer result carries (the action's own params.id), so a
+    // result shows only for the Agent it was written for.
+    bootPointerKey: params.id,
     addMemoryForm,
     updateMemoryRoleForm,
     removeMemoryForm,
@@ -492,6 +508,12 @@ export const actions: Actions = {
       }
     }
   },
+
+  // portal#1142 S8 (hadron-server#2219): set or clear the Agent's pointer.
+  // The Agent's manager, as themselves; the server decides.
+  setBootPrompt: async ({ request, params, locals }) =>
+    pointerAction(await request.formData(), 'agent', params.id, (nodeRef) =>
+      gqlClient(locals.token).request(SET_AGENT_BOOT_PROMPT_MUTATION, { agentRef: params.id, nodeRef })),
 
   delete: async ({ request, params, locals }) => {
     const form = await superValidate<DeleteAgentForm>(
