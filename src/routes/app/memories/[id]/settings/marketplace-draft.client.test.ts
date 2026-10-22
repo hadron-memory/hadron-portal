@@ -1,16 +1,21 @@
 /**
  * portal#1248 — an unsaved marketplace-listing tick must survive a REAL
- * sibling save. The mounted tests on the card (marketplace-save) deliver a
- * sibling's ActionResult but never replace `data`, so the loader refresh a
- * real save triggers (invalidateAll → all load functions rerun → fresh page
- * data with a fresh marketplaceForm) was never exercised — which is exactly
- * the discard Cooper's QA saw on #1244: save the Memory card, the unsaved
- * tick is gone.
+ * sibling save. The discard Charles reproduced in the browser is
+ * superForm's page-data subscription: a sibling save's invalidateAll
+ * replaces page.data while page.form is still empty, and because this
+ * card's form id is STABLE and memory-bound, the fresh load form's id
+ * matches — so the data-path rebind overwrites the form store with the
+ * persisted flag, taint notwithstanding. The card now opts out with
+ * `applyAction: 'never'`; reseeding belongs to its snapshot gate (changed
+ * persisted flag) and the `{#key g.id}` remount (memory navigation).
  *
  * The sibling here is the Memory card form (`?/update`), driven through its
- * real superforms handlers (`submitEnhancedWithResult`, #957), then the page
- * data is replaced wholesale the way the loader rerun does — new `graph`
- * object, fresh six-form set — before asserting on the checkbox.
+ * real superforms handlers (`submitEnhancedDeferred`, #957/#1237) in kit's
+ * actual order — page.data replaced wholesale FIRST (the invalidateAll the
+ * loader rerun causes), the ActionResult as page.form SECOND — before
+ * asserting on the checkbox. Reversing that order is a false green: the
+ * page's form branch then shadows its data branch and the rebind never
+ * runs (exactly how this file passed over the live defect the first time).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -19,7 +24,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { setStubPage, page } from '$lib/test/stubs/app-stores';
-import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import type { Memory } from '$lib/types';
 import { memorySettingsSchema } from './schema';
 import { OWNER, OWNER_ID, settingsForms, settingsGraph } from './settings-page.fixture';
@@ -78,23 +83,32 @@ async function memoryOutcome() {
 }
 
 /**
- * A real sibling save: the Memory card's superforms handlers run against a
- * successful result, then kit invalidates all loaders — fresh graph and a
- * fresh six-form set replace `data`, and the sibling's result becomes the
- * page's action data.
+ * A real sibling save, in kit's actual order. The enhanced fetch resolves and
+ * superforms' own result handler runs: invalidateAll() first — loaders rerun,
+ * `__data.json` replaces page.data wholesale (fresh graph, fresh six-form set)
+ * while page.form still holds no action data — and only then does applyAction
+ * deliver the ActionResult as page.form.
+ *
+ * The order is load-bearing. An earlier harness delivered the result first,
+ * so the stub's applyAction had already set page.form and superForm's page
+ * subscription took its form branch, never its data branch — the wholesale
+ * data rebind (the discard Charles reproduced in the browser, portal#1248)
+ * never ran, and the pin passed green over the live defect.
  */
 async function siblingSave(m: { target: HTMLElement; props: Record<string, unknown> }, refreshedGraph: Memory) {
   // The repro's exact gesture: the Memory card form exists only in Edit mode.
   const edit = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Edit')!;
   edit.click();
   flushSync();
+  const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>(MEMORY)!);
   const outcome = await memoryOutcome();
-  const sent = await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>(MEMORY)!, outcome);
-  expect(sent.cancelled).toBe(false);
+  // 1. invalidateAll: page.data replaced wholesale, page.form untouched.
   const forms = await settingsForms(refreshedGraph);
   m.props.data = { ...(m.props.data as Record<string, unknown>), graph: refreshedGraph, ...forms };
   page.update((p) => ({ ...p, data: m.props.data as Record<string, unknown> }));
   m.props.form = outcome.data;
+  // 2. applyAction: the sibling's ActionResult becomes page.form.
+  await deferred.finish(outcome);
   for (let i = 0; i < 5; i++) await tick();
 }
 
