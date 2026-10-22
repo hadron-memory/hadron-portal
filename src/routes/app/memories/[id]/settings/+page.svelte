@@ -305,6 +305,17 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #1255: the load and action now stamp this form's id
+    // (`updateVectorIndex:${id}`); with the empty-string default it matched
+    // every unstamped form's data AND results, so a sibling save discarded
+    // an unsaved draft twice over — page.data rebind on invalidateAll, and
+    // the sibling's ActionResult landing on this form. The stamped id stops
+    // the foreign results; 'never' additionally opts the form out of the
+    // page.data rebind (the only option that does). Own results still apply
+    // — 'never' is truthy, so they arrive through applyAction and the
+    // id-matching page.form branch. Reseeding stays with the snapshot gate
+    // below: a changed persisted configuration, or a memory navigation.
+    applyAction: 'never',
     onResult: ({ result }) => {
       const needsEncryptedAck =
         result.type === 'failure' &&
@@ -375,6 +386,14 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #1255: stamped id (`updateSchema:${id}`, load and action) + 'never',
+    // same recipe and reasons as the vector form above — the empty-string
+    // default id let a sibling save's invalidateAll and the sibling's
+    // ActionResult both overwrite an unsaved editor draft. resetForm:false
+    // for the same reason as the other settings forms: a save keeps its
+    // canonical returned values, not a reset to the pre-save load data.
+    applyAction: 'never',
+    resetForm: false,
     onResult: ({ result }) => {
       if (result.type === 'success') confirmSchemaClear = false;
     },
