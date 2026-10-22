@@ -334,7 +334,7 @@
               <NodeActionsMenu
                 actions={[{ id: 'revoke', label: t('memory-share.revoke', 'Remove access'), danger: true }]}
                 onselect={() => (confirmRevokeFor = row.granteeId)}
-                label={`${t('memory-share.actions.label', 'Actions for')} ${row.grantee}`}
+                label={t('memory-share.actions.label', 'Actions for {name}', { name: row.grantee })}
                 fixed
                 compact
               />
