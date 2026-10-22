@@ -397,6 +397,79 @@ describe('vector/schema drafts vs a real sibling save (portal#1255)', () => {
     expect(m.target.textContent).toContain("Remove this memory's schema?");
   });
 
+  it('adopts the loader\'s URN stamp on a same-memory id→URN navigation (own refusal must apply)', async () => {
+    // Gene's scoped delta P2 at 6d9eec8: navigating mem-1 →
+    // hrn:mem:acme.com:docs (SAME memory, different ref spelling) leaves
+    // g.id unchanged, so a re-stamp gated on g.id never fires; the live
+    // form id keeps the id spelling while the loader/actions now stamp
+    // the URN — the next OWN result fails both resultIsForForm and the
+    // library id gate. Adoption must key on the LOADED STAMP, not the
+    // entity id.
+    const g1 = settingsGraph({ visibility: 'PUBLIC', isEncrypted: true, vectorIndexEnabled: false, embeddingSource: 'contentChunks', chunkTokens: 300, chunkOverlap: 30 });
+    const m = await renderSettings(g1);
+    mounted.push(m);
+    await refreshData(m, g1, 'hrn:mem:acme.com:docs');
+    const enableBox = () => m.target.querySelector<HTMLInputElement>('form[action="?/updateVectorIndex"] input[type="checkbox"]')!;
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>('form[action="?/updateVectorIndex"]')!);
+    const refusal = await vectorOutcome('hrn:mem:acme.com:docs', { chunkTokens: '300', chunkOverlap: '30' });
+    await deferred.finish({ type: 'failure', status: 400, data: { form: refusal.data.form, needsEncryptedAck: true } });
+    await settle();
+    expect(enableBox().checked).toBe(true);
+    expect(m.target.textContent).toContain('Enabling vector search on an encrypted memory');
+  });
+
+  it('adopts the loader\'s id stamp on a same-memory URN→id navigation (own refusal must apply)', async () => {
+    // The reverse spelling: URN-addressed mount, then the same memory
+    // addressed by its id. Same predicate gap, other direction.
+    const g1 = settingsGraph({ visibility: 'PUBLIC', isEncrypted: true, vectorIndexEnabled: false, embeddingSource: 'contentChunks', chunkTokens: 300, chunkOverlap: 30 });
+    const m = await renderSettings(g1, 'hrn:mem:acme.com:docs');
+    mounted.push(m);
+    await refreshData(m, g1, 'mem-1');
+    const enableBox = () => m.target.querySelector<HTMLInputElement>('form[action="?/updateVectorIndex"] input[type="checkbox"]')!;
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>('form[action="?/updateVectorIndex"]')!);
+    const refusal = await vectorOutcome('mem-1', { chunkTokens: '300', chunkOverlap: '30' });
+    await deferred.finish({ type: 'failure', status: 400, data: { form: refusal.data.form, needsEncryptedAck: true } });
+    await settle();
+    expect(enableBox().checked).toBe(true);
+    expect(m.target.textContent).toContain('Enabling vector search on an encrypted memory');
+  });
+
+  it('adopts the schema loader\'s URN stamp on a same-memory id→URN navigation (own success must clear)', async () => {
+    // Schema twin of Gene's P2, id→URN direction. The draft set before
+    // Save survives the spelling navigation (same memory, same stored
+    // schema — the value reseed must NOT fire on a spelling change).
+    const g1 = settingsGraph({ visibility: 'PUBLIC', schema: { title: 'string' } });
+    const m = await renderSettings(g1);
+    mounted.push(m);
+    await refreshData(m, g1, 'hrn:mem:acme.com:docs');
+    setDraft(m.target, schemaArea(m.target), '');
+    const save = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Save schema')!;
+    save.click();
+    flushSync();
+    expect(m.target.textContent).toContain("Remove this memory's schema?");
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>(SCHEMA)!);
+    await deferred.finish(await schemaOutcome('hrn:mem:acme.com:docs'));
+    await settle();
+    expect(m.target.textContent).not.toContain("Remove this memory's schema?");
+  });
+
+  it('adopts the schema loader\'s id stamp on a same-memory URN→id navigation (own success must clear)', async () => {
+    // Schema twin, URN→id direction.
+    const g1 = settingsGraph({ visibility: 'PUBLIC', schema: { title: 'string' } });
+    const m = await renderSettings(g1, 'hrn:mem:acme.com:docs');
+    mounted.push(m);
+    await refreshData(m, g1, 'mem-1');
+    setDraft(m.target, schemaArea(m.target), '');
+    const save = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Save schema')!;
+    save.click();
+    flushSync();
+    expect(m.target.textContent).toContain("Remove this memory's schema?");
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>(SCHEMA)!);
+    await deferred.finish(await schemaOutcome('mem-1'));
+    await settle();
+    expect(m.target.textContent).not.toContain("Remove this memory's schema?");
+  });
+
   it('reseeds the schema editor on a [id] navigation even when both memories share the same stored schema', async () => {
     // Charles's browser finding at 02491b1: with 'never' opting out of the
     // page.data rebind, the resync tracked only the STORED schema — A→B

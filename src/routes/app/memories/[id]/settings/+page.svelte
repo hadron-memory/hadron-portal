@@ -470,23 +470,24 @@
     if (moved) untrack(() => { confirmSchemaClear = false; });
   });
 
-  // #1255 late-result fence: same as the vector form — 'never' keeps the
-  // form's id at the memory it was created for, so a [id] navigation must
-  // re-stamp it or a late own-action result from the previous memory still
+  // #1255 late-result fence, id half: same as the vector form — 'never'
+  // keeps the form's id at what it was created for, so it must be
+  // re-stamped or a late own-action result from the previous memory still
   // matches (the schema resync above reseeds VALUES; it does not touch the
-  // id, and two memories with the same stored schema would not even fire
-  // it).
-  let schemaIdMemoryId = untrack(() => g.id);
+  // id). Adoption keys on the LOADED STAMP (data.schemaForm.id), not g.id:
+  // the stamp changes not only across memories but across REF SPELLINGS of
+  // the same memory (id→URN, URN→id — g.id unchanged, Gene's scoped delta
+  // P2 on #1256), and it carries the URL's spelling, which cannot be
+  // recovered from the row. Reading data.schemaForm tracks the load
+  // object's identity (replaced on every refresh); the value guard keeps
+  // an unchanged refresh a no-op. Never a rebuilt stamp, never a VALUE
+  // here — a spelling change is not a memory change.
+  let schemaStamp = untrack(() => data.schemaForm.id);
   $effect(() => {
-    const id = g.id;
-    if (id === schemaIdMemoryId) return;
-    schemaIdMemoryId = id;
-    // Adopt the fresh load's own stamp, never a rebuilt one: the stamp
-    // carries the URL's ref spelling (id or URN), which cannot be
-    // recovered from g.id — a rebuilt stamp re-spells a URN-addressed
-    // page as its UUID and the fence/gate then reject the page's own
-    // results (Gil's delta P2 on #1256).
-    untrack(() => schemaFormId.set(data.schemaForm.id));
+    const stamp = data.schemaForm.id;
+    if (stamp === schemaStamp) return;
+    schemaStamp = stamp;
+    untrack(() => schemaFormId.set(stamp));
   });
 
   const schemaFieldError = $derived($schemaErrors.schemaJson?.[0] ?? null);
@@ -568,22 +569,25 @@
     });
   });
 
-  // #1255 late-result fence: 'never' also opts this form out of the
-  // page.data rebind that would otherwise refresh the form's id on a [id]
+  // #1255 late-result fence, vector half: 'never' also opts this form out
+  // of the page.data rebind that would otherwise refresh the form's id on
   // navigation — so after moving to another memory the live form would
   // keep THIS memory's stamp and a late own-action result (this form's
   // submit completing after the navigation) would still match and land on
-  // the new memory's form. Re-stamp the id to the memory actually shown.
-  // (The marketplace card gets this for free by remounting on navigation;
-  // these forms live in the page script and do not remount.)
-  let vectorIdMemoryId = untrack(() => g.id);
+  // the new memory's form. Adoption keys on the LOADED STAMP
+  // (data.vectorForm.id), exactly as the schema re-stamp above: it covers
+  // cross-memory moves AND same-memory ref-spelling changes (id→URN,
+  // URN→id — g.id unchanged, Gene's scoped delta P2 on #1256), adopts the
+  // URL's spelling without rebuilding, and value-guards an unchanged
+  // refresh to a no-op. (The marketplace card gets this for free by
+  // remounting on navigation; these forms live in the page script and do
+  // not remount.)
+  let vectorStamp = untrack(() => data.vectorForm.id);
   $effect(() => {
-    const id = g.id;
-    if (id === vectorIdMemoryId) return;
-    vectorIdMemoryId = id;
-    // Same as the schema re-stamp above: adopt data.vectorForm.id — the
-    // URL's ref spelling — never a stamp rebuilt from the row's UUID.
-    untrack(() => vectorFormId.set(data.vectorForm.id));
+    const stamp = data.vectorForm.id;
+    if (stamp === vectorStamp) return;
+    vectorStamp = stamp;
+    untrack(() => vectorFormId.set(stamp));
   });
 
   const viSourceIncludesChunks = $derived($vectorForm.embeddingSource === 'contentChunks' || $vectorForm.embeddingSource === 'both');
