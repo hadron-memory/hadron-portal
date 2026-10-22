@@ -343,3 +343,9 @@ describe('#695 re-drive outcome copy', () => {
     expect(html).not.toContain('Queued 7 nodes for re-embedding.');
   });
 });
+
+it('uses the same date format as memory Info for Settings Created (#1167)', async () => {
+  const html = await renderSettings({ savedVectorIndexEnabled: false,
+    graphOverrides: { createdAt: new Date(2026, 9, 19, 12).toISOString() } });
+  expect(html).toContain('Oct 19, 2026');
+});

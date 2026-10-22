@@ -38,13 +38,15 @@ const PARENT = {
 };
 
 let revisionCount = 0;
+let revisionCreatedAt = '2026-10-01T00:00:00Z';
 const revisionRows = (n: number) => Array.from({ length: n }, (_, i) => ({
   id: `r${i}`, revNo: i, nodeId: 'leaf-pk', loc: 'foo', name: 'Foo', alias: null, description: null,
-  tags: [], editedBy: null, revLabel: null, changedFields: [], createdAt: '2026-10-01T00:00:00Z',
+  tags: [], editedBy: null, revLabel: null, changedFields: [], createdAt: revisionCreatedAt,
 }));
 
 beforeEach(() => {
   revisionCount = 0;
+  revisionCreatedAt = '2026-10-01T00:00:00Z';
   mockRequest.mockReset();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   setStubPage('http://localhost/app/memories/mem-A/nodes/leaf-pk', { id: 'mem-A', nodeId: 'leaf-pk' });
@@ -149,4 +151,11 @@ describe('History tab full-window cue (portal#1226)', () => {
     await settle();
     expect(m.target.textContent).not.toContain(NOTICE);
   });
+});
+
+it('renders History timestamps with the Info date style and retains seconds (#1167)', async () => {
+  revisionCount = 1;
+  revisionCreatedAt = new Date(2026, 9, 19, 13, 4, 5).toISOString();
+  await mountPage('?tab=history');
+  expect(document.body.textContent).toContain('Oct 19, 2026, 1:04:05 PM');
 });

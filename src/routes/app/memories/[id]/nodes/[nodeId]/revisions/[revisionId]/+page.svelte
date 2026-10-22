@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatPortalDateTime } from '$lib/format-portal-date';
   // #529: read-only snapshot view (opened in a new tab from the History tab).
   import Urn from '$lib/components/Urn.svelte';
   import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
@@ -51,7 +52,7 @@
     </div>
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">{r.name}</h1>
     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-      {t('node-revision.saved', 'Saved')} {new Date(r.createdAt).toLocaleString()}
+      {t('node-revision.saved', 'Saved')} {formatPortalDateTime(r.createdAt)}
       {#if r.editedByUser?.handle}
         · {t('node-revision.by', 'by')} @{r.editedByUser.handle}
       {:else if r.editedByInfo}
