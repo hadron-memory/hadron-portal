@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
+  import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
+  import CappedNotice from '$lib/components/CappedNotice.svelte';
   import { formatPortalDate } from '$lib/format-portal-date';
   import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
@@ -995,7 +998,14 @@
   let memoryPickerOpen = $state(false);
   function onPickTargetMemory(memory: { urn: string }) {
     if (cleanLoc) $moveFormData.target = composeNodeUrn(memory.urn, cleanLoc);
+    // A pick can land in another memory, where the Location field no longer
+    // describes the destination — show the full URN so nothing stale submits.
+    moveFullUrn = locOfSameMemoryTarget(data.graph.urn ?? '', $moveFormData.target) === null;
   }
+  // #1164: Location (loc in this node's own memory) is the default way to move;
+  // the full-URN field is the cross-memory path. `target` stays the one value
+  // that is submitted in both modes.
+  let moveFullUrn = $state(false);
   let deleteOpen = $state(false);
   // #621: closing the delete confirmation drops the subtree consent — a
   // cancelled/reopened dialog (or a new target, or a jump to the Settings
@@ -1115,6 +1125,7 @@
       case 'convert-to-task': convertForm?.requestSubmit(); break;
       case 'move':
         $moveFormData.target = fullUrn;
+        moveFullUrn = false;
         moveOpen = true;
         break;
       // #726: the chat root's node page, which opens on its Chat tab — the
@@ -1706,6 +1717,8 @@
     /** Memory id that owns the edge (= source node's memory) — for the detail href. */
     sourceMemoryId: string;
     sourceId: string | null;
+    /** #1161: the far endpoint is DELETED per the server (recoveryEdges), not merely unreadable. */
+    endpointDeleted?: boolean;
   }
 
   // #656: label for an endpoint the caller isn't allowed to resolve.
@@ -1726,9 +1739,10 @@
       direction: 'Outgoing' as const,
       name: e.name || '—',
       // #656: target may be null (cross-memory edge into an unreadable memory).
-      endpointId: e.target?.id ?? null,
-      endpointName: e.target ? (e.target.name || e.target.loc) : PRIVATE_ENDPOINT,
-      endpointUrn: e.target ? endpointUrnOf(e.target) : '',
+      endpointId: e.target?.id ?? data.deletedEdges?.[e.id]?.target?.id ?? null,
+      endpointName: e.target ? (e.target.name || e.target.loc) : (data.deletedEdges?.[e.id]?.target?.name ?? PRIVATE_ENDPOINT),
+      endpointUrn: e.target ? endpointUrnOf(e.target) : (data.deletedEdges?.[e.id]?.target?.urn ?? ''),
+      endpointDeleted: !e.target && !!data.deletedEdges?.[e.id]?.target,
       // Outgoing: this node is the source.
       sourceMemoryId: node.memoryId,
       sourceId: node.id,
@@ -1739,9 +1753,10 @@
       name: e.name || '—',
       // #656: source may be null — the common case, since incomingEdges is how
       // a foreign memory's edge reaches this node.
-      endpointId: e.source?.id ?? null,
-      endpointName: e.source ? (e.source.name || e.source.loc) : PRIVATE_ENDPOINT,
-      endpointUrn: e.source ? endpointUrnOf(e.source) : '',
+      endpointId: e.source?.id ?? data.deletedEdges?.[e.id]?.source?.id ?? null,
+      endpointName: e.source ? (e.source.name || e.source.loc) : (data.deletedEdges?.[e.id]?.source?.name ?? PRIVATE_ENDPOINT),
+      endpointUrn: e.source ? endpointUrnOf(e.source) : (data.deletedEdges?.[e.id]?.source?.urn ?? ''),
+      endpointDeleted: !e.source && !!data.deletedEdges?.[e.id]?.source,
       // Incoming: the OTHER node is the source that owns the edge.
       sourceMemoryId: e.source?.memory?.id ?? node.memoryId,
       sourceId: e.source?.id ?? null,
@@ -1788,11 +1803,20 @@
   let revisionRows = $state<NodeRevision[]>([]);
   let revisionsLoaded = $state(false);
   let revisionsFailed = $state(false);
+  // The cap flag is pinned to the node whose read set it: `revisionsCappedFor`
+  // holds that node's id, and the cue shows only while it is the node on screen.
+  let revisionsCappedFor = $state<string | null>(null);
+  const revisionsCapped = $derived(revisionsCappedFor !== null && revisionsCappedFor === node.id);
   $effect(() => {
     const p = data.revisions; // track the current navigation's promise
     revisionsLoaded = false;
+    revisionsCappedFor = null;
     p.then((res) => {
+      // A late answer for the node the reader navigated away from must not land
+      // on this one (rows, cap flag or loaded state).
+      if (data.revisions !== p) return;
       revisionRows = res.items;
+      revisionsCappedFor = res.capped === true ? (res.nodeId ?? null) : null;
       revisionsFailed = !res.ok; // distinguish "no revisions" from "couldn't load"
       revisionsLoaded = true;
     });
@@ -2190,6 +2214,7 @@
       $testFlowFormData.orgId = data.org?.id ?? '';
       $testFlowFormData.payload = '';
       moveOpen = false;
+      moveFullUrn = false;
       $moveFormData.target = '';
       closeDeleteConfirm();
       $deleteFormData.hard = false;
@@ -2587,6 +2612,24 @@
             >
               <input type="hidden" name="_kind" value={$moveFormData._kind} />
               <div>
+                {#if !moveFullUrn}
+                  <!-- #1164: Location — the loc in THIS memory. The hidden input
+                       carries the one submitted `target`, so Location and the
+                       full-URN field can never disagree. -->
+                  <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('node-actions.move-location', 'Location')}</label>
+                  <MoveLocationInput
+                    memoryUrn={data.graph.urn ?? ''}
+                    bind:target={$moveFormData.target}
+                    {inputClass}
+                    invalid={!!$moveErrors.target?.[0]}
+                    error={$moveErrors.target?.[0]}
+                    describedby={$moveErrors.target?.[0] ? 'moveTargetHint moveTargetError' : 'moveTargetHint'}
+                  />
+                  <p id="moveTargetHint" class="mt-1 text-xs text-zinc-400">
+                    {t('node-actions.move-location-hint', 'The node’s path in this memory — change it to rename or reparent. Fails if a node already lives there.')}
+                    <button type="button" onclick={() => (moveFullUrn = true)} class="ml-1 underline hover:text-zinc-600 dark:hover:text-zinc-200">{t('node-actions.move-use-full-urn', 'Use full URN')}</button>
+                  </p>
+                {:else}
                 <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Destination node URN</label>
                 <input
                   id="moveTarget"
@@ -2648,6 +2691,7 @@
                     >{t('node-actions.move-select-memory', 'Select target memory…')}</button>
                   {/if}
                 {/await}
+                {/if}
               </div>
               {#if moveActionError}
                 <p role="alert" class="text-xs text-red-500">{moveActionError}</p>
@@ -3644,6 +3688,10 @@
                 <div class="truncate">
                   {#if r.endpointId}
                     <a href="{basePath}/nodes/{r.endpointId}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{r.endpointName}</a>
+                    {#if r.endpointDeleted}
+                      <!-- #1161: the SERVER reported this endpoint deleted. -->
+                      <span data-testid="edge-endpoint-deleted" class="ml-1 shrink-0 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{t('node.deleted.badge', 'Deleted')}</span>
+                    {/if}
                   {:else}
                     <!-- #656: unreadable cross-memory endpoint — opaque, not a link. -->
                     <span class="min-w-0 truncate italic text-zinc-400 dark:text-zinc-500" title={PRIVATE_ENDPOINT}>{r.endpointName}</span>
@@ -3749,6 +3797,7 @@
       {:else}
         <div class="mb-3 flex items-center justify-between gap-3">
           <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.intro', 'Revisions saved on each edit, most recent first.')}</p>
+          {#if revisionsCapped}<CappedNotice shown={revisionRows.length} what={t('capped.revisions', 'revisions (the newest)')} />{/if}
           <button type="button" onclick={() => (clearConfirm = true)} disabled={readOnly || historyBusy}
             class="rounded-md border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">
             {t('node.history.clear', 'Clear')}
@@ -3831,7 +3880,7 @@
           <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.restore.heading', 'Restore this revision?')}</h3>
           <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.restore.warning', 'This restores the node to the selected revision and deletes the history newer than it. This cannot be undone.')}</p>
           <p class="mt-2 text-xs text-zinc-500">{new Date(restoreTarget.createdAt).toLocaleString()}{restoreTarget.editedByUser?.handle ? ` · @${restoreTarget.editedByUser.handle}` : ''}</p>
-          {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
+          {#if historyError}<p role="alert" class="mt-2 text-xs text-red-500" data-testid="restore-error">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (restoreTarget = null)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.restore.cancel', 'Cancel')}</button>
             <button type="button" onclick={confirmRestore} disabled={readOnly || historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>

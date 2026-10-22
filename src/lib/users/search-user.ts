@@ -12,6 +12,10 @@ export interface SearchUser {
   githubUsername: string | null;
   avatarUrl: string | null;
   emailMasked: string | null;
+  /** portal#1169 — organizations the viewer shares with this person: a bounded
+   *  page and the full count. `null` is "not shown to you" (never "none");
+   *  `undefined` means the server did not answer the field. */
+  sharedOrganizations?: { items: { id: string; name: string; urn: string }[]; total: number } | null;
 }
 
 // Best identifier we're allowed to show: handle, then @github, then the masked

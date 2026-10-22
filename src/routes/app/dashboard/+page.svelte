@@ -4,6 +4,7 @@
   // Org-scoped stats and activity charts are a deliberate follow-up.
   // #636/#788: the cogwheel flips the widget grid into the in-place editor
   // (drag/reorder/resize) right here.
+  import { DEFAULT_PLACEMENTS } from '$lib/dashboard/widgets/defaults';
   import DashboardGrid from '$lib/dashboard/DashboardGrid.svelte';
   import DashboardEditor from '$lib/dashboard/DashboardEditor.svelte';
   import { t } from '$lib/i18n/t';
@@ -12,7 +13,6 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   let editing = $state(false);
-  const loadFailed = $derived(data.loadFailed === true);
 
   // #666/#806: the editor's option lists — the scope picker's memories and the
   // caller's saved widget presets — fetched lazily the first time the editor
@@ -87,10 +87,6 @@
     }
   }
 
-  // #636: layout + per-widget data come from the server (dashboardWidgets +
-  // dashboardWidgetData), with a default layout when the user hasn't customized.
-  const placements = $derived(data.placements ?? []);
-  const widgetData = $derived(data.widgetData ?? {});
   // The /app layout merges `user` into page data.
   const displayName = $derived(
     (data as { user?: { name?: string | null; handle?: string | null } }).user?.name ??
@@ -111,7 +107,9 @@
         {t('dashboard.heading', 'Dashboard')}
       {/if}
     </h1>
-    {#if !editing && !loadFailed}
+    {#await data.dashboard then layout}
+    {#await data.widgetData then widgets}
+    {#if !editing && !layout.loadFailed && !widgets.loadFailed}
       <button
         type="button"
         onclick={openEditor}
@@ -122,28 +120,31 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
     {/if}
+    {/await}
+    {/await}
   </div>
 
-  {#if loadFailed}
-    <div role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-      {t('dashboard.load-failed', "Couldn't load your stats just now — this is a temporary error. Try refreshing the page.")}
-    </div>
-  {:else if editing}
-    <!-- In-place editor (#636/#788): same grid, wrapped in edit chrome. Keyed
-         so re-entering edit mode always starts from the loaded placements. -->
-    <DashboardEditor
-      {placements}
-      {widgetData}
-      {memoryOptions}
-      {presets}
-      onCreatePreset={createPreset}
-      onDeletePreset={deletePreset}
-      error={form?.error ?? null}
-      onDone={() => (editing = false)}
-    />
-  {:else}
-    <!-- Widget grid (#636). Only rendered when the load succeeded (the alert
-         branch above handles failure), so widgets don't need a loadFailed prop. -->
-    <DashboardGrid {placements} {widgetData} />
-  {/if}
+  {#await data.dashboard}
+    <p role="status">{t('dashboard.layout.loading', 'Loading dashboard…')}</p>
+    <DashboardGrid placements={DEFAULT_PLACEMENTS} loading />
+  {:then layout}
+    {#if layout.loadFailed}
+      <p role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+        {t('dashboard.layout.failed', 'Could not load your dashboard layout. Refresh the page to try again.')}
+      </p>
+    {:else if editing}
+      {#await data.widgetData then widgets}
+        <DashboardEditor
+          placements={layout.placements}
+          widgetData={widgets.data}
+          {memoryOptions} {presets}
+          onCreatePreset={createPreset} onDeletePreset={deletePreset}
+          error={form?.error ?? null}
+          onDone={() => (editing = false)}
+        />
+      {/await}
+    {:else}
+      <DashboardGrid placements={layout.placements} streamedData={data.widgetData} />
+    {/if}
+  {/await}
 </div>

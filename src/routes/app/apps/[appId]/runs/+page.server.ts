@@ -9,12 +9,16 @@ import { flowRoots, type FlowGraphNode } from '$lib/flow/flows';
 import { RUN_STATUSES, type AppRun, type AppRunStatus } from '$lib/flow/runs';
 import type { Actions, PageServerLoad } from './$types';
 import { runAppFlowSchema } from './schema';
+import { isCapped } from '$lib/server/capped';
 
 // The runs audit list (#478 phase 3): what ran, why, what it cost, and the
 // entry into the detail/kill-switch page. Server-paginated — a busy app's
 // run history is unbounded, so no fetchAllItems here (deliberate divergence
 // from the completion-pager rule; the page IS the pagination UI).
 const PAGE_SIZE = 25;
+
+// appNodes has no continuation (hadron-server#2212): one window, and a banner when it is full.
+const APP_NODES_LIMIT = 500;
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   // #648: canonical org-optional — runs are app-scoped (no org query); a
@@ -52,7 +56,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // failure only hides the Flows section, never the audit list (auxiliary
     // data; hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
     client
-      .request<{ appNodes: FlowGraphNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
+      .request<{ appNodes: FlowGraphNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch((e) => {
         console.warn(`[runs] appNodes fetch failed for ${params.appId}:`, e);
         return { appNodes: [] as FlowGraphNode[] };
@@ -69,6 +73,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     pageSize: PAGE_SIZE,
     status,
     flows: flowRoots(nodesData.appNodes),
+    flowsCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT),
+    flowsScanned: nodesData.appNodes?.length ?? 0,
     runForm,
   };
 };

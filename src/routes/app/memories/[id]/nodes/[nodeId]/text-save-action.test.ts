@@ -249,6 +249,8 @@ describe.each([
     ['INVALID_INCLUDE', 'Malformed include tag {{> }}.', '{{> }}'],
     ['INCLUDE_CYCLE', 'Include {{> a}} would make this node include itself.', '{{> a}}'],
     ['INCLUDE_TOO_DEEP', 'Includes nest too deep.', '{{> deep}}'],
+    // portal#1142 S2b (hadron-server#2226).
+    ['INCLUDE_TARGET_UNAVAILABLE', 'Include {{> gone}} names a node you cannot read.', '{{> gone}}'],
   ])('%s is a 400 `include` with the server message and the tag', async (code, message, tag) => {
     mockRequest.mockImplementation(async (query: unknown) => {
       if (query === NODE_BY_ID_QUERY) return { node: { ...stored, role: null, isRunnable: null } };

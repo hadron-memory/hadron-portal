@@ -5,6 +5,7 @@
   // series rendered by the shared UsageActivityChart. Chart data is fetched
   // client-side from ./usage/activity so the browser's time zone reaches the
   // server's day bucketing and window changes swap data without a reload.
+  import CappedNotice from '$lib/components/CappedNotice.svelte';
   import UsageEventsTable from '$lib/components/table/UsageEventsTable.svelte';
   import UsageActivityChart from '$lib/components/UsageActivityChart.svelte';
   import type { UsageEvent } from '$lib/components/table/usageEvent';
@@ -162,6 +163,9 @@
   </div>
 
   {#if pane === 'table'}
+    {#if data.eventsCapped}
+      <div class="mb-3"><CappedNotice shown={data.events.length} what={t('capped.usage-events', 'usage events')} /></div>
+    {/if}
     <UsageEventsTable events={data.events as UsageEvent[]} listKey="memory:{g.id}:usage" />
   {:else}
     <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

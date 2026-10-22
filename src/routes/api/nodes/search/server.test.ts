@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
+import { RECOVERY_NODES_QUERY } from '$lib/server/queries';
 import { POST } from './+server';
 
 beforeEach(() => {
@@ -209,9 +210,61 @@ describe('/api/nodes/search (#429)', () => {
   it('#433: includeDeleted is forwarded and drives a filter-only fetch (no query)', async () => {
     mockRequest.mockResolvedValue(findNodesResult(3, 3));
     const res = await POST(ev({ memoryIds: ['m1'], filter: { includeDeleted: true } }));
-    expect(mockRequest).toHaveBeenCalledTimes(1); // includeDeleted counts as a filter
+    // includeDeleted counts as a filter (one findNodes) and asks the server which rows are deleted (#1161)
+    expect(mockRequest).toHaveBeenCalledTimes(2);
     expect(mockRequest.mock.calls[0][1]).toMatchObject({ query: null, includeDeleted: true });
     expect((await res.json()).nodes).toHaveLength(3);
+  });
+
+  describe('#1161: deleted rows are marked from the server, never inferred', () => {
+    const page = (ids: string[], total: number) => ({ recoveryNodes: { items: ids.map((id) => ({ id })), total } });
+
+    it('returns the ids recoveryNodes reports for each searched memory', async () => {
+      mockRequest.mockImplementation(async (q: string) =>
+        q === RECOVERY_NODES_QUERY ? page(['n1', 'n2'], 2) : findNodesResult(3, 3));
+      const body = await (await POST(ev({ memoryIds: ['m1'], filter: { includeDeleted: true } }))).json();
+      expect(mockRequest).toHaveBeenCalledWith(RECOVERY_NODES_QUERY, { memoryRef: 'm1', limit: 200, offset: 0 });
+      expect(body.deletedIds).toEqual(['n1', 'n2']);
+    });
+
+    it('pages through recoveryNodes until every deleted id is read', async () => {
+      const first = Array.from({ length: 200 }, (_, i) => `a${i}`);
+      mockRequest.mockImplementation(async (q: string, v: { offset?: number }) =>
+        q === RECOVERY_NODES_QUERY ? (v.offset === 0 ? page(first, 203) : page(['b0', 'b1', 'b2'], 203)) : findNodesResult(1, 1));
+      const body = await (await POST(ev({ memoryIds: ['m1'], filter: { includeDeleted: true } }))).json();
+      expect(body.deletedIds).toHaveLength(203);
+      expect(mockRequest).toHaveBeenCalledWith(RECOVERY_NODES_QUERY, { memoryRef: 'm1', limit: 200, offset: 200 });
+    });
+
+    it('reads every page of EACH memory: a later memory is not cut short by an earlier one\'s count (#1242 READ)', async () => {
+      const a = Array.from({ length: 200 }, (_, i) => `a${i}`);
+      const b1 = Array.from({ length: 200 }, (_, i) => `b${i}`);
+      mockRequest.mockImplementation(async (q: string, v: { memoryRef?: string; offset?: number }) => {
+        if (q !== RECOVERY_NODES_QUERY) return findNodesResult(1, 1);
+        if (v.memoryRef === 'mA') return page(a, 200);
+        return v.offset === 0 ? page(b1, 201) : page(['b200'], 201);
+      });
+      const body = await (await POST(ev({ memoryIds: ['mA', 'mB'], filter: { includeDeleted: true } }))).json();
+      expect(body.deletedIds).toHaveLength(401);
+      expect(body.deletedIds).toContain('b200');
+    });
+
+    it('does not ask when Include deleted is off', async () => {
+      mockRequest.mockResolvedValue(findNodesResult(1));
+      const body = await (await POST(ev({ query: 'foo', mode: 'exact', memoryIds: ['m1'], filter: { includeDeleted: false } }))).json();
+      expect(mockRequest.mock.calls.some(([q]) => q === RECOVERY_NODES_QUERY)).toBe(false);
+      expect(body.deletedIds).toBeUndefined();
+    });
+
+    it('keeps the node list and marks nothing when the recovery read fails (a non-writer)', async () => {
+      mockRequest.mockImplementation(async (q: string) => {
+        if (q === RECOVERY_NODES_QUERY) throw new Error('FORBIDDEN');
+        return findNodesResult(2, 2);
+      });
+      const body = await (await POST(ev({ memoryIds: ['m1'], filter: { includeDeleted: true } }))).json();
+      expect(body.nodes).toHaveLength(2);
+      expect(body.deletedIds).toBeUndefined();
+    });
   });
 
   it('#433: includeDeleted omitted/false sends null (server default excludes deleted)', async () => {

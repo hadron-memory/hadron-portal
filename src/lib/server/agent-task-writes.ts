@@ -1,5 +1,7 @@
 import { fail } from '@sveltejs/kit';
+import type { GraphQLClient } from 'graphql-request';
 import { WRITE_UNCERTAIN_TEXT, type WriteRefusal } from '$lib/agent-tasks/actions';
+import { readTaskWarnings, type TaskWarnings } from '$lib/agent-tasks/warnings';
 
 /**
  * portal#1090 — what a task write's failure tells the reader
@@ -63,6 +65,46 @@ export function writeRefusalStatus(r: WriteRefusal): number {
       return 409;
     default:
       return 400;
+  }
+}
+
+/**
+ * portal#1214 — a task write that keeps its response's warnings
+ * (hadron-server#2198; see $lib/agent-tasks/warnings).
+ *
+ * `request()` returns `data` only and drops `extensions`, so a write whose
+ * warnings matter goes through `rawRequest()`. Three outcomes:
+ *
+ * - `ok`: the write answered data; its warnings, if any.
+ * - `committed-error`: the response errored but still carries a warning under
+ *   this write's path. The server files those only after the write committed
+ *   and drops them for an errored path, so the write is saved. It is never
+ *   reported as failed, and the error itself is not shown: only the
+ *   warnings' code and text are a public carrier.
+ * - `refused`: anything else, classified exactly as before.
+ */
+export type TaskWriteOutcome<D> =
+  | ({ kind: 'ok'; data: D } & TaskWarnings)
+  | ({ kind: 'committed-error'; data: Partial<D> | null } & TaskWarnings)
+  | { kind: 'refused'; refusal: WriteRefusal };
+
+export async function taskWrite<D>(
+  client: Pick<GraphQLClient, 'rawRequest'>,
+  doc: string,
+  vars: Record<string, unknown>,
+  path: string,
+): Promise<TaskWriteOutcome<D>> {
+  try {
+    const r = await client.rawRequest<D>(doc, vars);
+    return { kind: 'ok', data: r.data, ...readTaskWarnings(r.extensions, path) };
+  } catch (e) {
+    const response = e && typeof e === 'object' ? (e as { response?: { data?: unknown; extensions?: unknown } }).response : undefined;
+    const w = readTaskWarnings(response?.extensions, path);
+    if (w.committed) {
+      const data = response?.data && typeof response.data === 'object' ? (response.data as Partial<D>) : null;
+      return { kind: 'committed-error', data, ...w };
+    }
+    return { kind: 'refused', refusal: classifyWriteError(e) };
   }
 }
 
