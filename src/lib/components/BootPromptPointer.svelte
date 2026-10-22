@@ -3,9 +3,10 @@
   (when the viewer may be its manager) a form to set or clear it
   (hadron-server#2219, R23–R27; Xylon's stamp 6330444824).
 
-  - A set pointer is a URN chip (review:render-urn). A null pair is "Not shown":
-    unset and masked look the same, so it never says "no pointer". A failed
-    read says so.
+  - A set pointer is a URN chip
+    (hrn:node:hadronmemory.com:hadron-portal:review:render-urn). A null pair
+    is "Not shown": unset and masked look the same, so it never says "no
+    pointer". A failed read says so.
   - The form is a presentation hint only: hidden on an explicit
     `canManage === false`, offered otherwise. The server's setter decides.
   - Set sends the typed text; Clear sends an explicit null. A refusal keeps
