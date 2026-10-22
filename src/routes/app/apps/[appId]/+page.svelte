@@ -8,6 +8,8 @@
   import JSZip from 'jszip';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
+  import { appRowPointer, pointerText, pointerView, type PointerResult } from '$lib/boot-prompt-pointer';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
@@ -525,8 +527,18 @@
     // still matches it because the accessor keeps it in the filter text.
     { accessorFn: (row) => `${row.name} ${row.urn ?? ''}`, id: 'name', header: t('app.agents.column.name', 'Name'), enableHiding: false, size: 320 },
     { accessorFn: (row) => row.personaRole ?? '', id: 'role', header: t('app.agents.column.role', 'Role'), size: 180 },
-    { id: 'actions', header: t('app.agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 100 },
+    // portal#1142 S8: this install's boot-prompt pointer, joined by agent id.
+    { accessorFn: (row) => pointerText(appRowPointer(data.bootPointers, row.id)), id: 'bootPrompt', header: t('app.agents.column.boot-prompt', 'Boot prompt'), size: 280 },
+    { id: 'actions', header: t('app.agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 160 },
   ];
+  // portal#1142 S8: which row's pointer panel is open. undefined = none chosen,
+  // so a no-JS result reopens the row it was written for; null = closed.
+  let pointerAgentId = $state<string | null | undefined>(undefined);
+  const formPointer = $derived((form as { pointer?: PointerResult } | null)?.pointer ?? null);
+  const pointerAgent = $derived.by(() => {
+    const id = pointerAgentId === undefined ? (formPointer?.key ?? null) : pointerAgentId;
+    return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
+  });
   const agentsTable = createSvelteTable<InstalledAgent>({
     get data() {
       return installedAgentsSorted;
@@ -2477,7 +2489,25 @@
               {:else}
                 <span class="text-zinc-500">{t('app.agents.no-role', 'No role')}</span>
               {/if}
+            {:else if cell.column.id === 'bootPrompt'}
+              {@const view = pointerView(appRowPointer(data.bootPointers, agent.id))}
+              {#if view.kind === 'set' || view.kind === 'deleted'}
+                <div class="min-w-0"><Urn value={view.ref} type="node" compact /></div>
+                {#if view.kind === 'deleted'}<div class="text-xs text-amber-800 dark:text-amber-300">{t('boot-pointer.deleted-short', 'target deleted')}</div>{/if}
+              {:else}
+                <span class="text-xs text-zinc-500">{pointerText(appRowPointer(data.bootPointers, agent.id))}</span>
+              {/if}
             {:else if cell.column.id === 'actions'}
+              {#if data.canManageApp !== false}
+                <button
+                  type="button"
+                  onclick={() => (pointerAgentId = pointerAgent?.id === agent.id ? null : agent.id)}
+                  aria-expanded={pointerAgent?.id === agent.id}
+                  aria-controls={pointerAgent?.id === agent.id ? 'app-agent-pointer-panel' : undefined}
+                  aria-label={t('app.agents.set-boot-prompt.label', 'Set boot prompt for {name}', { name: agent.name })}
+                  class="mr-3 text-xs text-indigo-600 hover:underline dark:text-indigo-300"
+                >{t('app.agents.set-boot-prompt', 'Set boot prompt…')}</button>
+              {/if}
               <!-- Keep both handlers: onclick updates before client validation for button activation;
                    onsubmit covers keyboard/requestSubmit paths. -->
               <form method="POST" action="?/removeAgent" use:removeAgentEnhance onsubmit={() => setRemoveAgent(agent.id)} novalidate>
@@ -2496,6 +2526,28 @@
             {/if}
           {/snippet}
         </DataTable>
+        {#if pointerAgent}
+          <!-- portal#1142 S8: one install's pointer. Re-keyed per row, so a draft
+               or result typed for one agent never shows on another. -->
+          <section id="app-agent-pointer-panel" aria-labelledby="app-agent-pointer-title" class="mt-3 max-w-lg rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+            <div class="mb-2 flex items-center justify-between gap-2">
+              <h3 id="app-agent-pointer-title" class="text-sm font-semibold text-zinc-900 dark:text-white">
+                {t('app.agents.boot-prompt.title', 'Boot prompt for {name} in this App', { name: pointerAgent.name })}
+              </h3>
+              <button type="button" onclick={() => (pointerAgentId = null)} class="text-xs text-zinc-500 hover:underline">{t('app.agents.boot-prompt.close', 'Close')}</button>
+            </div>
+            {#key pointerAgent.id}
+              <BootPromptPointer
+                read={appRowPointer(data.bootPointers, pointerAgent.id)}
+                canManage={data.canManageApp}
+                action="?tab=agents&/setAppAgentBootPrompt"
+                hidden={{ agentRef: pointerAgent.id }}
+                result={formPointer?.key === pointerAgent.id ? formPointer : null}
+                idPrefix="app-agent-pointer"
+              />
+            {/key}
+          </section>
+        {/if}
       {/if}
 
       <!-- Add an agent: the install picker that used to appear only while the

@@ -39,7 +39,7 @@ const reader = { id: 'u2', handle: 'rae', githubUsername: 'rae', name: 'Rae Read
 const agentOne = { id: 'ag1', urn: 'hrn:agent:acme.com:scribe', name: 'Scribe', personaRole: 'writer' };
 const agentTwo = { id: 'ag2', urn: 'hrn:agent:acme.com:critic', name: 'Critic', personaRole: 'reviewer' };
 
-async function mountTab(tab: string, over: { app?: Record<string, unknown>; data?: Record<string, unknown> } = {}) {
+async function mountTab(tab: string, over: { app?: Record<string, unknown>; data?: Record<string, unknown>; form?: unknown } = {}) {
   setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
   window.history.replaceState({}, '', `/app/apps/a1?tab=${tab}`);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm,
@@ -71,7 +71,7 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
     postTeamChatMessageForm, addMemberForm, ensureMemberForm, removeMemberForm,
     ...over.data,
   };
-  const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+  const m = mountComponent(Page as never, { data, form: over.form ?? null } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
   return m.target;
@@ -243,5 +243,72 @@ describe('full-window cues on the App page (#1226)', () => {
 
   it('and says nothing when the chat list was complete', async () => {
     expect((await mountTab('chats', { data: { chatsCapped: false } })).textContent).not.toContain('Showing the first');
+  });
+});
+
+// portal#1142 S8 (hadron-server#2219; Xylon's stamp 6330444824): each install's
+// boot-prompt pointer, joined by agent id, with a per-row panel.
+describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
+  const URN = 'hrn:node:acme.com:team-install:boot';
+  const bootPointers = { ok: true, byAgent: { ag1: { ref: URN, deleted: false } } };
+  const rows = (target: HTMLElement) => [...target.querySelectorAll<HTMLTableRowElement>('#panel-agents tbody tr')];
+  const rowOf = (target: HTMLElement, name: string) => rows(target).find((r) => r.textContent?.includes(name))!;
+  const openFor = async (target: HTMLElement, name: string) => {
+    rowOf(target, name).querySelector<HTMLButtonElement>('button[aria-label^="Set boot prompt for"]')!.click();
+    await tick(2);
+  };
+
+  it('each row shows its own pointer, and a row with no entry is "Not shown", never another row’s', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true } });
+    expect(rowOf(target, 'Scribe').querySelector(`[title="${URN}"]`)).not.toBeNull();
+    expect(rowOf(target, 'Critic').textContent).toContain('Not shown');
+    expect(rowOf(target, 'Critic').querySelector(`[title="${URN}"]`)).toBeNull();
+  });
+
+  it('a failed read marks every row as unavailable', async () => {
+    const target = await mountTab('agents', { data: { bootPointers: { ok: false }, canManageApp: true } });
+    expect(rowOf(target, 'Scribe').textContent).toContain('Couldn’t load the pointer.');
+    expect(rowOf(target, 'Critic').textContent).toContain('Couldn’t load the pointer.');
+  });
+
+  it('the panel opens for that row, posts that row’s agentRef, and carries the tab', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: null } });
+    await openFor(target, 'Critic');
+    const panel = target.querySelector('#app-agent-pointer-panel')!;
+    expect(panel.textContent).toContain('Boot prompt for Critic in this App');
+    expect(panel.querySelector<HTMLInputElement>('input[name="agentRef"]')!.value).toBe('ag2');
+    expect(panel.querySelector('form')!.getAttribute('action')).toBe('?tab=agents&/setAppAgentBootPrompt');
+    expect(panel.textContent).toContain('Pointers are recorded but not used to start agents yet.');
+  });
+
+  it('a result for one row never shows on another, and a refused draft stays on its own row', async () => {
+    const form = { pointer: { key: 'ag1', nodeRef: 'draft-for-scribe', refusal: { code: 'FORBIDDEN', lead: 'Only this App’s manager can change this pointer.', message: 'No.' } } };
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true }, form });
+    // No-JS reload: the panel reopens on the row the result belongs to.
+    let panel = target.querySelector('#app-agent-pointer-panel')!;
+    expect(panel.textContent).toContain('Scribe');
+    expect(panel.querySelector('[data-testid="boot-pointer-refusal"]')).not.toBeNull();
+    expect(panel.querySelector<HTMLInputElement>('input[name="nodeRef"]')!.value).toBe('draft-for-scribe');
+    await openFor(target, 'Critic');
+    panel = target.querySelector('#app-agent-pointer-panel')!;
+    expect(panel.textContent).toContain('Critic');
+    expect(panel.querySelector('[data-testid="boot-pointer-refusal"]')).toBeNull();
+    expect(panel.querySelector<HTMLInputElement>('input[name="nodeRef"]')!.value).toBe('');
+  });
+
+  it('an explicit canManageApp false offers no Set action, but the column still shows', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: false } });
+    expect(target.querySelector('button[aria-label^="Set boot prompt for"]')).toBeNull();
+    expect(rowOf(target, 'Scribe').querySelector(`[title="${URN}"]`)).not.toBeNull();
+  });
+
+  it('the grid’s search finds a row by its pointer', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true } });
+    const search = target.querySelector<HTMLInputElement>('#panel-agents input[type="text"][aria-label]');
+    expect(search).not.toBeNull();
+    search!.value = 'team-install:boot';
+    search!.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(3);
+    expect(rows(target).map((r) => r.textContent?.includes('Scribe'))).toEqual([true]);
   });
 });

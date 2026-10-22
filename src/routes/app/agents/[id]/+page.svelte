@@ -17,6 +17,8 @@
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
+  import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
+  import type { PointerResult } from '$lib/boot-prompt-pointer';
   import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode } from '$lib/types';
@@ -439,6 +441,10 @@
   // are visible, as the delete form above does (#971 Codex P2).
   $effect(() => {
     if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults') || submittedForm<{ _kind: 'setAgentBase' }>(form, 'setAgentBase') || submittedForm<{ _kind: 'setAgentIndexRefs' }>(form, 'setAgentIndexRefs')) activeTab = 'settings';
+  });
+  // portal#1142 S8: a no-JS pointer result opens Settings too, where it shows.
+  $effect(() => {
+    if ((form as { pointer?: PointerResult } | null)?.pointer) activeTab = 'settings';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -1438,6 +1444,19 @@
             </div>
           </div>
         {/if}
+      </section>
+
+      <!-- portal#1142 S8: the Agent's boot-prompt pointer (hadron-server#2219).
+           Its own form and action, so it never rides along with the Agent form. -->
+      <section class="max-w-lg" aria-labelledby="bootPointerHeading">
+        <h2 id="bootPointerHeading" class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('boot-pointer.agent.heading', 'Boot prompt pointer')}</h2>
+        <BootPromptPointer
+          read={data.bootPointer}
+          canManage={data.canManageAgent}
+          action="?/setBootPrompt"
+          result={(form as { pointer?: PointerResult } | null)?.pointer ?? null}
+          idPrefix="agent-boot-pointer"
+        />
       </section>
 
       <!-- #942: how this agent starts out in an App's default channel. Saved on
