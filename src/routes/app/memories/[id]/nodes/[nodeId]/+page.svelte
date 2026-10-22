@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
+  import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
   import CappedNotice from '$lib/components/CappedNotice.svelte';
   import { formatPortalDate } from '$lib/format-portal-date';
   import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
@@ -996,7 +998,14 @@
   let memoryPickerOpen = $state(false);
   function onPickTargetMemory(memory: { urn: string }) {
     if (cleanLoc) $moveFormData.target = composeNodeUrn(memory.urn, cleanLoc);
+    // A pick can land in another memory, where the Location field no longer
+    // describes the destination — show the full URN so nothing stale submits.
+    moveFullUrn = locOfSameMemoryTarget(data.graph.urn ?? '', $moveFormData.target) === null;
   }
+  // #1164: Location (loc in this node's own memory) is the default way to move;
+  // the full-URN field is the cross-memory path. `target` stays the one value
+  // that is submitted in both modes.
+  let moveFullUrn = $state(false);
   let deleteOpen = $state(false);
   // #621: closing the delete confirmation drops the subtree consent — a
   // cancelled/reopened dialog (or a new target, or a jump to the Settings
@@ -1116,6 +1125,7 @@
       case 'convert-to-task': convertForm?.requestSubmit(); break;
       case 'move':
         $moveFormData.target = fullUrn;
+        moveFullUrn = false;
         moveOpen = true;
         break;
       // #726: the chat root's node page, which opens on its Chat tab — the
@@ -2204,6 +2214,7 @@
       $testFlowFormData.orgId = data.org?.id ?? '';
       $testFlowFormData.payload = '';
       moveOpen = false;
+      moveFullUrn = false;
       $moveFormData.target = '';
       closeDeleteConfirm();
       $deleteFormData.hard = false;
@@ -2601,6 +2612,24 @@
             >
               <input type="hidden" name="_kind" value={$moveFormData._kind} />
               <div>
+                {#if !moveFullUrn}
+                  <!-- #1164: Location — the loc in THIS memory. The hidden input
+                       carries the one submitted `target`, so Location and the
+                       full-URN field can never disagree. -->
+                  <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('node-actions.move-location', 'Location')}</label>
+                  <MoveLocationInput
+                    memoryUrn={data.graph.urn ?? ''}
+                    bind:target={$moveFormData.target}
+                    {inputClass}
+                    invalid={!!$moveErrors.target?.[0]}
+                    error={$moveErrors.target?.[0]}
+                    describedby={$moveErrors.target?.[0] ? 'moveTargetHint moveTargetError' : 'moveTargetHint'}
+                  />
+                  <p id="moveTargetHint" class="mt-1 text-xs text-zinc-400">
+                    {t('node-actions.move-location-hint', 'The node’s path in this memory — change it to rename or reparent. Fails if a node already lives there.')}
+                    <button type="button" onclick={() => (moveFullUrn = true)} class="ml-1 underline hover:text-zinc-600 dark:hover:text-zinc-200">{t('node-actions.move-use-full-urn', 'Use full URN')}</button>
+                  </p>
+                {:else}
                 <label for="moveTarget" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Destination node URN</label>
                 <input
                   id="moveTarget"
@@ -2662,6 +2691,7 @@
                     >{t('node-actions.move-select-memory', 'Select target memory…')}</button>
                   {/if}
                 {/await}
+                {/if}
               </div>
               {#if moveActionError}
                 <p role="alert" class="text-xs text-red-500">{moveActionError}</p>
