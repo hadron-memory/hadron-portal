@@ -23,6 +23,7 @@ import type { Actions, PageServerLoad } from './$types';
 import {
   deleteMemorySchema,
   memorySchemaSettingsSchema,
+  marketplaceListingSchema,
   memorySettingsSchema,
   retryFailedEmbeddingsSchema,
   previewTransferSchema,
@@ -32,11 +33,13 @@ import {
 
 const memorySettingsFormAdapter = zod4(memorySettingsSchema);
 const vectorIndexSettingsFormAdapter = zod4(vectorIndexSettingsSchema);
+const marketplaceListingFormAdapter = zod4(marketplaceListingSchema);
 const memorySchemaSettingsFormAdapter = zod4(memorySchemaSettingsSchema);
 const deleteMemoryFormAdapter = zod4(deleteMemorySchema);
 const retryFailedEmbeddingsFormAdapter = zod4(retryFailedEmbeddingsSchema);
 type MemorySettingsForm = Infer<typeof memorySettingsSchema, 'zod4'>;
 type VectorIndexSettingsForm = Infer<typeof vectorIndexSettingsSchema, 'zod4'>;
+type MarketplaceListingForm = Infer<typeof marketplaceListingSchema, 'zod4'>;
 type MemorySchemaSettingsForm = Infer<typeof memorySchemaSettingsSchema, 'zod4'>;
 type DeleteMemoryForm = Infer<typeof deleteMemorySchema, 'zod4'>;
 type RetryFailedEmbeddingsForm = Infer<typeof retryFailedEmbeddingsSchema, 'zod4'>;
@@ -154,7 +157,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
         return false;
       })
     : false;
-  const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
+  const [form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
     superValidate<MemorySettingsForm>(settingsFormDefaults(graph), memorySettingsFormAdapter, { errors: false }),
     superValidate<VectorIndexSettingsForm>(
       {
@@ -166,6 +169,11 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
         acknowledgeVectorInversionRisk: false,
       },
       vectorIndexSettingsFormAdapter,
+      { errors: false },
+    ),
+    superValidate<MarketplaceListingForm>(
+      { listedOnMarketplace: graph.listedOnMarketplace ?? false },
+      marketplaceListingFormAdapter,
       { errors: false },
     ),
     superValidate<MemorySchemaSettingsForm>(
@@ -180,7 +188,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
     ),
     superValidate<RetryFailedEmbeddingsForm>({}, retryFailedEmbeddingsFormAdapter, { errors: false }),
   ]);
-  return { allOrgs, owner, ownerUserId, transferCanDelete, form, vectorForm, schemaForm, deleteForm, retryEmbedsForm };
+  return { allOrgs, owner, ownerUserId, transferCanDelete, form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm };
 };
 
 export const actions: Actions = {
@@ -277,6 +285,37 @@ export const actions: Actions = {
       return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
       return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update' }, { status: 500 });
+    }
+  },
+
+  // #841 / hrn:node:hadronmemory.com:specs:cor:acl:080:04 — the marketplace listing toggle. Deliberately its
+  // own form and action: listing is a separate decision from visibility, and
+  // the catalogue needs BOTH (listed AND publicly accessible) — the control
+  // explains the interplay instead of producing a listing that never shows.
+  updateMarketplaceListing: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), marketplaceListingFormAdapter);
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      const { updateMemory: saved } = await gqlClient(locals.token).request<{ updateMemory?: Memory }>(UPDATE_MEMORY_MUTATION, {
+        id: params.id,
+        listedOnMarketplace: form.data.listedOnMarketplace,
+      });
+      // Resync from the returned row (the `updateVectorIndex` pattern): the
+      // checkbox shows what the server actually saved, not the local intent,
+      // in the window before invalidation refreshes `g`.
+      if (saved) {
+        form.data = { ...form.data, listedOnMarketplace: saved.listedOnMarketplace ?? false };
+      }
+      return message(form, { type: 'success', text: 'Changes saved.' });
+    } catch (e: unknown) {
+      // extractGqlError, not e.message: graphql-request packs the whole query
+      // and variables into ClientError.message (#468's leak class).
+      return message(
+        form,
+        { type: 'error', text: extractGqlError(e, t('memory-settings.marketplace.failed', 'Failed to update marketplace listing.')) },
+        { status: 500 },
+      );
     }
   },
 

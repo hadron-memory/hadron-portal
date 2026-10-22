@@ -967,3 +967,70 @@ describe('memory-detail `retryFailedEmbeddings` action (#695 / server #882)', ()
     expect(retriedCountOf(result)).toBe(1);
   });
 });
+
+// ── Tests for the `updateMarketplaceListing` action (#841) ─────────────
+// hrn:node:hadronmemory.com:specs:cor:acl:080:04: the marketplace catalogue is listedOnMarketplace AND
+// publicly accessible. Nothing could set the flag from any product surface —
+// this action is the portal half.
+
+/** RequestEvent-shaped object carrying form data for the marketplace toggle. */
+function marketplaceEv(form: Record<string, string>) {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(form)) fd.append(k, v);
+  return {
+    params: { id: 'mem-id-abc' },
+    locals: { token: 'test-token' },
+    request: { formData: async () => fd },
+  } as unknown as Parameters<Awaited<ReturnType<typeof importActions>>['updateMarketplaceListing']>[0];
+}
+
+describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
+  it('lists a memory on the marketplace through updateMemory', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({
+      listedOnMarketplace: 'true',
+    }));
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Changes saved.' });
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars).toMatchObject({ id: 'mem-id-abc', listedOnMarketplace: true });
+  });
+
+  it('unlists explicitly — false is sent, not omitted', async () => {
+    mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'mem-id-abc' } });
+    const actions = await importActions();
+
+    await actions.updateMarketplaceListing(marketplaceEv({
+      listedOnMarketplace: 'false',
+    }));
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
+    expect(vars.listedOnMarketplace).toBe(false);
+  });
+
+  it('rejects a marketplace submission with the wrong form discriminator before calling the API', async () => {
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({
+      _kind: 'updateVectorIndex',
+      listedOnMarketplace: 'true',
+    }));
+
+    expect((result as { status: number }).status).toBe(400);
+    expect(superFormFrom(result)?.errors?._kind).toBeDefined();
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns the scoped error message on a failure', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('marketplace refused'));
+    const actions = await importActions();
+
+    const result = await actions.updateMarketplaceListing(marketplaceEv({
+      listedOnMarketplace: 'true',
+    }));
+
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'marketplace refused' });
+  });
+});

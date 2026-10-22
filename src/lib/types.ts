@@ -32,6 +32,9 @@ export interface Memory {
   // null for owner-only (personal/private) and the app/system classes. The old
   // PERSONAL/PRIVATE values are removed (privacy is now the class, not visibility).
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'GROUP' | null;
+  // #841 / hrn:node:hadronmemory.com:specs:cor:acl:080:04 — the marketplace catalogue flag: a memory shows in
+  // the marketplace when it is listed AND publicly accessible.
+  listedOnMarketplace?: boolean | null;
   // Spec 005-agent-subscription introduced the four-way memory class
   // typology. Spec 013-soft-delete-memory reads `class` and `userId` to
   // gate the detail-page Danger-zone affordance: personal-class memories
