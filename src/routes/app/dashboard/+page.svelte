@@ -5,6 +5,7 @@
   // #636/#788: the cogwheel flips the widget grid into the in-place editor
   // (drag/reorder/resize) right here.
   import { DEFAULT_PLACEMENTS } from '$lib/dashboard/widgets/defaults';
+  import type { WidgetDataMap, WidgetPlacement } from '$lib/dashboard/widgets/types';
   import DashboardGrid from '$lib/dashboard/DashboardGrid.svelte';
   import DashboardEditor from '$lib/dashboard/DashboardEditor.svelte';
   import { t } from '$lib/i18n/t';
@@ -12,7 +13,13 @@
   import type { ActionData, PageData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
-  let editing = $state(false);
+  // portal#1247: Customize snapshots the settled layout and widget data, and the
+  // editor renders from that snapshot OUTSIDE the streamed layout await. The
+  // editor owns its unsaved working copy, so its lifetime must not hang off
+  // `data.dashboard`: an invalidation swaps in a pending (or failed) layout
+  // promise, and an editor nested in the await would unmount and lose the draft.
+  type Layout = { placements: WidgetPlacement[]; widgetData: WidgetDataMap };
+  let editing = $state<Layout | null>(null);
 
   // #666/#806: the editor's option lists — the scope picker's memories and the
   // caller's saved widget presets — fetched lazily the first time the editor
@@ -22,8 +29,8 @@
   let memoryOptions = $state<Array<{ id: string; name: string }>>([]);
   let presets = $state<WidgetPreset[]>([]);
   let editorOptionsLoaded = false;
-  async function openEditor() {
-    editing = true;
+  async function openEditor(layout: Layout) {
+    editing = layout;
     if (editorOptionsLoaded) return;
     try {
       const res = await fetch('/app/dashboard/editor-options');
@@ -112,7 +119,7 @@
     {#if !editing && !layout.loadFailed && !widgets.loadFailed}
       <button
         type="button"
-        onclick={openEditor}
+        onclick={() => openEditor({ placements: layout.placements, widgetData: widgets.data })}
         title={t('dashboard.customize.link-title', 'Customize dashboard')}
         aria-label={t('dashboard.customize.link-aria', 'Customize dashboard')}
         class="shrink-0 rounded-lg p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
@@ -124,27 +131,27 @@
     {/await}
   </div>
 
-  {#await data.dashboard}
-    <p role="status">{t('dashboard.layout.loading', 'Loading dashboard…')}</p>
-    <DashboardGrid placements={DEFAULT_PLACEMENTS} loading />
-  {:then layout}
-    {#if layout.loadFailed}
-      <p role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-        {t('dashboard.layout.failed', 'Could not load your dashboard layout. Refresh the page to try again.')}
-      </p>
-    {:else if editing}
-      {#await data.widgetData then widgets}
-        <DashboardEditor
-          placements={layout.placements}
-          widgetData={widgets.data}
-          {memoryOptions} {presets}
-          onCreatePreset={createPreset} onDeletePreset={deletePreset}
-          error={form?.error ?? null}
-          onDone={() => (editing = false)}
-        />
-      {/await}
-    {:else}
-      <DashboardGrid placements={layout.placements} streamedData={data.widgetData} />
-    {/if}
-  {/await}
+  {#if editing}
+    <DashboardEditor
+      placements={editing.placements}
+      widgetData={editing.widgetData}
+      {memoryOptions} {presets}
+      onCreatePreset={createPreset} onDeletePreset={deletePreset}
+      error={form?.error ?? null}
+      onDone={() => (editing = null)}
+    />
+  {:else}
+    {#await data.dashboard}
+      <p role="status">{t('dashboard.layout.loading', 'Loading dashboard…')}</p>
+      <DashboardGrid placements={DEFAULT_PLACEMENTS} loading />
+    {:then layout}
+      {#if layout.loadFailed}
+        <p role="alert" class="rounded-xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+          {t('dashboard.layout.failed', 'Could not load your dashboard layout. Refresh the page to try again.')}
+        </p>
+      {:else}
+        <DashboardGrid placements={layout.placements} streamedData={data.widgetData} />
+      {/if}
+    {/await}
+  {/if}
 </div>
