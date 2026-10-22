@@ -236,6 +236,19 @@ describe('/api/nodes/search (#429)', () => {
       expect(mockRequest).toHaveBeenCalledWith(RECOVERY_NODES_QUERY, { memoryRef: 'm1', limit: 200, offset: 200 });
     });
 
+    it('reads every page of EACH memory: a later memory is not cut short by an earlier one\'s count (#1242 READ)', async () => {
+      const a = Array.from({ length: 200 }, (_, i) => `a${i}`);
+      const b1 = Array.from({ length: 200 }, (_, i) => `b${i}`);
+      mockRequest.mockImplementation(async (q: string, v: { memoryRef?: string; offset?: number }) => {
+        if (q !== RECOVERY_NODES_QUERY) return findNodesResult(1, 1);
+        if (v.memoryRef === 'mA') return page(a, 200);
+        return v.offset === 0 ? page(b1, 201) : page(['b200'], 201);
+      });
+      const body = await (await POST(ev({ memoryIds: ['mA', 'mB'], filter: { includeDeleted: true } }))).json();
+      expect(body.deletedIds).toHaveLength(401);
+      expect(body.deletedIds).toContain('b200');
+    });
+
     it('does not ask when Include deleted is off', async () => {
       mockRequest.mockResolvedValue(findNodesResult(1));
       const body = await (await POST(ev({ query: 'foo', mode: 'exact', memoryIds: ['m1'], filter: { includeDeleted: false } }))).json();

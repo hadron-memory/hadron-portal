@@ -349,6 +349,7 @@ async function deletedNodeIds(
   const ids = new Set<string>();
   try {
     for (const memoryRef of memoryIds.filter((m): m is string => typeof m === 'string')) {
+      let read = 0; // per memory: `total` counts that memory's deleted nodes only
       for (let page = 0; page < RECOVERY_MAX_PAGES; page++) {
         const r = await client.request<{ recoveryNodes?: { items: Array<{ id: string }>; total: number } | null }>(
           RECOVERY_NODES_QUERY, { memoryRef, limit: RECOVERY_PAGE, offset: page * RECOVERY_PAGE },
@@ -356,7 +357,8 @@ async function deletedNodeIds(
         const items = r?.recoveryNodes?.items;
         if (!items) return undefined;
         for (const it of items) ids.add(it.id);
-        if (items.length < RECOVERY_PAGE || ids.size >= (r.recoveryNodes?.total ?? 0)) break;
+        read += items.length;
+        if (items.length < RECOVERY_PAGE || read >= (r.recoveryNodes?.total ?? 0)) break;
       }
     }
   } catch {
