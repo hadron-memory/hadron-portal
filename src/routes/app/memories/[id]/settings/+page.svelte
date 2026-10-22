@@ -42,11 +42,18 @@
 
   // #1255: superforms runs onResult BEFORE its form-id gate, so result
   // callbacks must fence themselves. A form-bearing ActionResult carries
-  // the memory-bound stamp its action set; one stamped for a different
-  // memory than the page currently shows is a late result from before a
-  // [id] navigation and must not write any UI state. Results without a
-  // form object (none of this route's actions produce them) pass through.
-  function resultIsForMemory(result: unknown, stamp: string): boolean {
+  // the memory-bound stamp its action set; one not matching this form's
+  // LIVE id is a late result from before a [id] navigation and must not
+  // write any UI state. The comparison stamp is the live form id store —
+  // exactly what superforms' own gate uses — never one rebuilt from g.id:
+  // the load and actions stamp from params.id, the URL's REF spelling,
+  // which may be a URN
+  // (hrn:node:hadronmemory.com:hadron-portal:review:route-param-may-be-a-ref),
+  // and a rebuilt stamp re-spells a URN-addressed page as its UUID,
+  // swallowing every OWN result (Gil's delta P2 on #1256). Results
+  // without a form object (none of this route's actions produce them)
+  // pass through.
+  function resultIsForForm(result: unknown, stamp: string): boolean {
     // `unknown`, not a `{ data }` shape: ActionResult's redirect variant has
     // no data property at all, and every path below treats absence as pass.
     if (!result || typeof result !== 'object' || !('data' in result)) return true;
@@ -345,7 +352,7 @@
     // confirmation state. The stamped id fences it: a form-bearing result
     // not stamped for the memory currently shown is not ours to apply.
     onResult: ({ result }) => {
-      if (!resultIsForMemory(result, `updateVectorIndex:${g.id}`)) return;
+      if (!resultIsForForm(result, $vectorFormId)) return;
       const needsEncryptedAck =
         result.type === 'failure' &&
         result.data &&
@@ -429,7 +436,7 @@
     // gate, so a stale success from memory A must not clear memory B's
     // clearing-confirmation.
     onResult: ({ result }) => {
-      if (!resultIsForMemory(result, `updateSchema:${g.id}`)) return;
+      if (!resultIsForForm(result, $schemaFormId)) return;
       if (result.type === 'success') confirmSchemaClear = false;
     },
   });
@@ -474,7 +481,12 @@
     const id = g.id;
     if (id === schemaIdMemoryId) return;
     schemaIdMemoryId = id;
-    untrack(() => schemaFormId.set(`updateSchema:${id}`));
+    // Adopt the fresh load's own stamp, never a rebuilt one: the stamp
+    // carries the URL's ref spelling (id or URN), which cannot be
+    // recovered from g.id — a rebuilt stamp re-spells a URN-addressed
+    // page as its UUID and the fence/gate then reject the page's own
+    // results (Gil's delta P2 on #1256).
+    untrack(() => schemaFormId.set(data.schemaForm.id));
   });
 
   const schemaFieldError = $derived($schemaErrors.schemaJson?.[0] ?? null);
@@ -569,7 +581,9 @@
     const id = g.id;
     if (id === vectorIdMemoryId) return;
     vectorIdMemoryId = id;
-    untrack(() => vectorFormId.set(`updateVectorIndex:${id}`));
+    // Same as the schema re-stamp above: adopt data.vectorForm.id — the
+    // URL's ref spelling — never a stamp rebuilt from the row's UUID.
+    untrack(() => vectorFormId.set(data.vectorForm.id));
   });
 
   const viSourceIncludesChunks = $derived($vectorForm.embeddingSource === 'contentChunks' || $vectorForm.embeddingSource === 'both');

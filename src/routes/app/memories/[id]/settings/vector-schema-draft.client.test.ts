@@ -42,8 +42,8 @@ import Page from './+page.svelte';
 const MEMORY = 'form#graph-settings';
 const SCHEMA = 'form[action="?/updateSchema"]';
 
-async function renderSettings(graph: Memory) {
-  const forms = await settingsForms(graph);
+async function renderSettings(graph: Memory, ref = 'mem-1') {
+  const forms = await settingsForms(graph, undefined, ref);
   const props = reactiveProps<Record<string, unknown>>({
     data: {
       graph,
@@ -58,7 +58,7 @@ async function renderSettings(graph: Memory) {
     } as never,
     form: null as never,
   });
-  setStubPage('http://localhost/app/memories/mem-1/settings', { id: 'mem-1' });
+  setStubPage(`http://localhost/app/memories/${ref}/settings`, { id: ref });
   page.update((p) => ({ ...p, data: props.data as Record<string, unknown> }));
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   await tick();
@@ -110,15 +110,15 @@ async function vectorOutcome(memoryId: string, canonical: { chunkTokens: string;
 }
 
 /** The result `?/updateSchema` answers with, built as the action does. */
-async function schemaOutcome() {
-  const validated = await superValidate({}, zod4(memorySchemaSettingsSchema), { errors: false, id: 'updateSchema:mem-1' });
+async function schemaOutcome(ref = 'mem-1') {
+  const validated = await superValidate({}, zod4(memorySchemaSettingsSchema), { errors: false, id: `updateSchema:${ref}` });
   validated.message = { type: 'success', text: 'Schema saved.' };
   return { type: 'success' as const, status: 200, data: { form: validated } };
 }
 
 /** kit's invalidateAll step: page.data replaced wholesale, page.form untouched. */
-async function refreshData(m: { props: Record<string, unknown> }, refreshedGraph: Memory) {
-  const forms = await settingsForms(refreshedGraph);
+async function refreshData(m: { props: Record<string, unknown> }, refreshedGraph: Memory, ref = refreshedGraph.id) {
+  const forms = await settingsForms(refreshedGraph, undefined, ref);
   m.props.data = { ...(m.props.data as Record<string, unknown>), graph: refreshedGraph, ...forms };
   page.update((p) => ({ ...p, data: m.props.data as Record<string, unknown> }));
 }
@@ -300,6 +300,80 @@ describe('vector/schema drafts vs a real sibling save (portal#1255)', () => {
     await settle();
     expect(enableBox().checked).toBe(true);
     expect(m.target.textContent).toContain('Enabling vector search on an encrypted memory');
+  });
+
+  it('still applies an encrypted-ack refusal on a URN-addressed page (same-memory control, ref spelling)', async () => {
+    // Gil's delta P2 at c62905f: the fence rebuilt its comparison stamp
+    // from g.id (the UUID), but load, action and client all stamp from
+    // params.id — the URL's REF spelling, which may be a URN
+    // (hrn:node:hadronmemory.com:hadron-portal:review:route-param-may-be-a-ref).
+    // On a URN-addressed settings URL every own result looked foreign and
+    // was swallowed: the encrypted-ack backstop never opened. The fence
+    // must compare against the form's LIVE id, exactly what superforms
+    // gates on — never a stamp rebuilt from the row.
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', isEncrypted: true, vectorIndexEnabled: false, embeddingSource: 'contentChunks', chunkTokens: 300, chunkOverlap: 30 }), 'hrn:mem:acme.com:docs');
+    mounted.push(m);
+    const enableBox = () => m.target.querySelector<HTMLInputElement>('form[action="?/updateVectorIndex"] input[type="checkbox"]')!;
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>('form[action="?/updateVectorIndex"]')!);
+    const refusal = await vectorOutcome('hrn:mem:acme.com:docs', { chunkTokens: '300', chunkOverlap: '30' });
+    await deferred.finish({ type: 'failure', status: 400, data: { form: refusal.data.form, needsEncryptedAck: true } });
+    await settle();
+    expect(enableBox().checked).toBe(true);
+    expect(m.target.textContent).toContain('Enabling vector search on an encrypted memory');
+  });
+
+  it('applies B\'s own refusal after an A→B navigation when B is URN-addressed (re-stamp adopts the load\'s spelling)', async () => {
+    // The re-stamp half of the same P2: rebuilding the stamp from g.id
+    // re-spells a URN-addressed memory as its UUID after a [id]
+    // navigation, and the page's OWN results then mismatch. The re-stamp
+    // must ADOPT the fresh load's stamp (data.vectorForm.id), which
+    // carries the URL's ref spelling.
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', isEncrypted: true, vectorIndexEnabled: false, embeddingSource: 'contentChunks', chunkTokens: 300, chunkOverlap: 30 }));
+    mounted.push(m);
+    await refreshData(m, settingsGraph({ visibility: 'PUBLIC', id: 'mem-2', isEncrypted: true, vectorIndexEnabled: false, embeddingSource: 'contentChunks', chunkTokens: 250, chunkOverlap: 25 }), 'hrn:mem:acme.com:beta');
+    const enableBox = () => m.target.querySelector<HTMLInputElement>('form[action="?/updateVectorIndex"] input[type="checkbox"]')!;
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>('form[action="?/updateVectorIndex"]')!);
+    const refusal = await vectorOutcome('hrn:mem:acme.com:beta', { chunkTokens: '250', chunkOverlap: '25' });
+    await deferred.finish({ type: 'failure', status: 400, data: { form: refusal.data.form, needsEncryptedAck: true } });
+    await settle();
+    expect(enableBox().checked).toBe(true);
+    expect(m.target.textContent).toContain('Enabling vector search on an encrypted memory');
+  });
+
+  it('still clears the schema clearing-confirmation on a URN-addressed page after an own schema save', async () => {
+    // Schema half of the same P2: an own success stamped with the URL's
+    // ref spelling must still clear the clearing-confirmation.
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', schema: { title: 'string' } }), 'hrn:mem:acme.com:docs');
+    mounted.push(m);
+    setDraft(m.target, schemaArea(m.target), '');
+    const save = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Save schema')!;
+    save.click();
+    flushSync();
+    expect(m.target.textContent).toContain("Remove this memory's schema?");
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>(SCHEMA)!);
+    const outcome = await schemaOutcome('hrn:mem:acme.com:docs');
+    await deferred.finish(outcome);
+    await settle();
+    expect(m.target.textContent).not.toContain("Remove this memory's schema?");
+  });
+
+  it('clears B\'s schema clearing-confirmation after an A→B navigation when B is URN-addressed', async () => {
+    // The schema re-stamp half: after navigating to a URN-addressed B, an
+    // own schema success must still apply (the re-stamp adopts
+    // data.schemaForm.id, and the fence reads the live id).
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', schema: { title: 'string' } }));
+    mounted.push(m);
+    await refreshData(m, settingsGraph({ visibility: 'PUBLIC', id: 'mem-2', schema: { other: 'thing' } }), 'hrn:mem:acme.com:beta');
+    setDraft(m.target, schemaArea(m.target), '');
+    const save = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Save schema')!;
+    save.click();
+    flushSync();
+    expect(m.target.textContent).toContain("Remove this memory's schema?");
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>(SCHEMA)!);
+    const outcome = await schemaOutcome('hrn:mem:acme.com:beta');
+    await deferred.finish(outcome);
+    await settle();
+    expect(m.target.textContent).not.toContain("Remove this memory's schema?");
   });
 
   it('keeps a late success from mem-1 from clearing mem-2\'s schema clearing-confirmation', async () => {
