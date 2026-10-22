@@ -246,6 +246,96 @@ describe('vector/schema drafts vs a real sibling save (portal#1255)', () => {
     expect(schemaArea(m.target).value).toBe('{"title": "string"}');
   });
 
+  it('keeps a late encrypted-ack refusal from mem-1 off mem-2\'s vector checkbox after a [id] navigation', async () => {
+    // #1255 second fence: onResult runs BEFORE superforms' id gate, so the
+    // stamped id alone does not stop the callback's writes — a late mem-1
+    // refusal (needsEncryptedAck) would force mem-2's checkbox on and open
+    // its disclosure. The callback must fence itself on the result's stamp.
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', vectorIndexEnabled: true, embeddingSource: 'contentChunks', chunkTokens: 300, chunkOverlap: 30 }));
+    mounted.push(m);
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>('form[action="?/updateVectorIndex"]')!);
+    await refreshData(m, settingsGraph({ visibility: 'PUBLIC', id: 'mem-2', vectorIndexEnabled: false, embeddingSource: 'contentChunks', chunkTokens: 250, chunkOverlap: 25 }));
+    const enableBox = () => m.target.querySelector<HTMLInputElement>('form[action="?/updateVectorIndex"] input[type="checkbox"]')!;
+    expect(enableBox().checked).toBe(false);
+    const refusal = await vectorOutcome('mem-1', { chunkTokens: '300', chunkOverlap: '30' });
+    await deferred.finish({ type: 'failure', status: 400, data: { form: refusal.data.form, needsEncryptedAck: true } });
+    await settle();
+    expect(enableBox().checked).toBe(false);
+    expect(m.target.textContent).not.toContain('Enabling vector search on an encrypted memory');
+  });
+
+  it('keeps a late success from mem-1 from clearing mem-2\'s disclosure', async () => {
+    // The pre-state (mem-2's disclosure open) is set BEFORE the deferred
+    // starts because every attempt-save path is disabled while a submit is
+    // in flight; what the pin proves is the fence — a result stamped for
+    // mem-1 reaching the onResult callback while mem-2 is shown must not
+    // clear mem-2's confirmation state.
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', vectorIndexEnabled: true, embeddingSource: 'contentChunks', chunkTokens: 300, chunkOverlap: 30 }));
+    mounted.push(m);
+    await refreshData(m, settingsGraph({ visibility: 'PUBLIC', id: 'mem-2', isEncrypted: true, vectorIndexEnabled: false, embeddingSource: 'contentChunks', chunkTokens: 250, chunkOverlap: 25 }));
+    const enableBox = () => m.target.querySelector<HTMLInputElement>('form[action="?/updateVectorIndex"] input[type="checkbox"]')!;
+    enableBox().checked = true;
+    enableBox().dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    const save = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Save vector index settings')!;
+    save.click();
+    flushSync();
+    expect(m.target.textContent).toContain('Enabling vector search on an encrypted memory');
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>('form[action="?/updateVectorIndex"]')!);
+    await deferred.finish(await vectorOutcome('mem-1', { chunkTokens: '300', chunkOverlap: '30' }));
+    await settle();
+    expect(m.target.textContent).toContain('Enabling vector search on an encrypted memory');
+  });
+
+  it('still applies an encrypted-ack refusal stamped for the memory shown (same-memory control)', async () => {
+    // The fence must not swallow the refusal it exists to protect: on the
+    // SAME memory, needsEncryptedAck still forces the enable intent and
+    // opens the disclosure.
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', isEncrypted: true, vectorIndexEnabled: false, embeddingSource: 'contentChunks', chunkTokens: 300, chunkOverlap: 30 }));
+    mounted.push(m);
+    const enableBox = () => m.target.querySelector<HTMLInputElement>('form[action="?/updateVectorIndex"] input[type="checkbox"]')!;
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>('form[action="?/updateVectorIndex"]')!);
+    const refusal = await vectorOutcome('mem-1', { chunkTokens: '300', chunkOverlap: '30' });
+    await deferred.finish({ type: 'failure', status: 400, data: { form: refusal.data.form, needsEncryptedAck: true } });
+    await settle();
+    expect(enableBox().checked).toBe(true);
+    expect(m.target.textContent).toContain('Enabling vector search on an encrypted memory');
+  });
+
+  it('keeps a late success from mem-1 from clearing mem-2\'s schema clearing-confirmation', async () => {
+    // Pre-state first (the clear-confirmation is only reachable via Save
+    // schema, disabled while a submit is in flight), then the deferred —
+    // the fence under test is the onResult id check, same as the vector
+    // pin above.
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', schema: { title: 'string' } }));
+    mounted.push(m);
+    await refreshData(m, settingsGraph({ visibility: 'PUBLIC', id: 'mem-2', schema: { other: 'thing' } }));
+    setDraft(m.target, schemaArea(m.target), '');
+    const save = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Save schema')!;
+    save.click();
+    flushSync();
+    expect(m.target.textContent).toContain("Remove this memory's schema?");
+    const deferred = await submitEnhancedDeferred(m.target.querySelector<HTMLFormElement>(SCHEMA)!);
+    const outcome = await schemaOutcome();
+    outcome.data.form.id = 'updateSchema:mem-1';
+    await deferred.finish(outcome);
+    await settle();
+    expect(m.target.textContent).toContain("Remove this memory's schema?");
+  });
+
+  it('reseeds the schema editor on a [id] navigation even when both memories share the same stored schema', async () => {
+    // Charles's browser finding at 02491b1: with 'never' opting out of the
+    // page.data rebind, the resync tracked only the STORED schema — A→B
+    // with both null never fired it and A's draft carried onto B. The
+    // resync must track the memory itself.
+    const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC' }));
+    mounted.push(m);
+    setDraft(m.target, schemaArea(m.target), '{"title": "string"}');
+    await refreshData(m, settingsGraph({ visibility: 'PUBLIC', id: 'mem-2' }));
+    await settle();
+    expect(schemaArea(m.target).value).toBe('');
+  });
+
   it('reseeds the vector form on a memory navigation', async () => {
     const m = await renderSettings(settingsGraph({ visibility: 'PUBLIC', vectorIndexEnabled: true, embeddingSource: 'contentChunks', chunkTokens: 300 }));
     mounted.push(m);

@@ -40,6 +40,23 @@
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
 
+  // #1255: superforms runs onResult BEFORE its form-id gate, so result
+  // callbacks must fence themselves. A form-bearing ActionResult carries
+  // the memory-bound stamp its action set; one stamped for a different
+  // memory than the page currently shows is a late result from before a
+  // [id] navigation and must not write any UI state. Results without a
+  // form object (none of this route's actions produce them) pass through.
+  function resultIsForMemory(result: unknown, stamp: string): boolean {
+    // `unknown`, not a `{ data }` shape: ActionResult's redirect variant has
+    // no data property at all, and every path below treats absence as pass.
+    if (!result || typeof result !== 'object' || !('data' in result)) return true;
+    const data = (result as { data?: unknown }).data;
+    if (!data || typeof data !== 'object' || !('form' in data)) return true;
+    const form = (data as { form?: unknown }).form;
+    if (!form || typeof form !== 'object') return true;
+    return (form as { id?: string }).id === stamp;
+  }
+
   // Agent system memories are owned by their agent and have a stripped-down
   // settings view: no org transfer, no categories, no license, no visibility,
   // no subscriptions. Most fields don't apply (they're the agent's program,
@@ -320,7 +337,15 @@
     // Reseeding stays with the snapshot gate below: a changed persisted
     // configuration, or a memory navigation.
     applyAction: 'never',
+    // #1255: this callback runs BEFORE superforms' id gate (onResult fires
+    // ahead of the formId check in superForm.js), so a late result
+    // submitted on memory A still reaches these writes after a [id]
+    // navigation to memory B — a stale refusal would force B's checkbox on
+    // and open B's disclosure, a stale success would clear B's
+    // confirmation state. The stamped id fences it: a form-bearing result
+    // not stamped for the memory currently shown is not ours to apply.
     onResult: ({ result }) => {
+      if (!resultIsForMemory(result, `updateVectorIndex:${g.id}`)) return;
       const needsEncryptedAck =
         result.type === 'failure' &&
         result.data &&
@@ -400,7 +425,11 @@
     // effect below) is the late-result fence, as in the vector form.
     applyAction: 'never',
     resetForm: false,
+    // #1255: same fence as the vector form — onResult precedes the id
+    // gate, so a stale success from memory A must not clear memory B's
+    // clearing-confirmation.
     onResult: ({ result }) => {
+      if (!resultIsForMemory(result, `updateSchema:${g.id}`)) return;
       if (result.type === 'success') confirmSchemaClear = false;
     },
   });
@@ -411,11 +440,27 @@
   // invalidateAll reloads `g`) — same pattern as the vector-index resync.
   // The user's in-progress edit is never clobbered mid-edit because `g.*`
   // only changes on navigation/invalidate.
+  // #1255: the MEMORY is tracked too, not just the stored schema — two
+  // memories can share a stored schema (e.g. both null), and a draft must
+  // not outlive its memory: navigating A→B reseeds even when B's stored
+  // schema equals A's (the page.data rebind that used to wipe it is opted
+  // out by 'never'). The vector snapshot gate includes g.id for exactly
+  // this reason; the clearing-confirmation resets on the same move.
+  let schemaResyncMemoryId = untrack(() => g.id);
+  let lastSchemaStored = untrack(() => storedSchemaJson);
   $effect(() => {
+    const memoryId = g.id;
     const next = storedSchemaJson;
-    schemaForm.update((current) => (
-      current.schemaJson === next ? current : { ...current, schemaJson: next }
-    ), { taint: false });
+    const moved = schemaResyncMemoryId !== memoryId;
+    const storedChanged = lastSchemaStored !== next;
+    // Reading g.* tracks the graph object's IDENTITY, so this effect re-runs
+    // on every loader refresh; the VALUE guards keep an unchanged refresh a
+    // no-op, or an unsaved draft would not survive a sibling save (#1255).
+    if (!moved && !storedChanged) return;
+    schemaResyncMemoryId = memoryId;
+    lastSchemaStored = next;
+    schemaForm.update((current) => ({ ...current, schemaJson: next }), { taint: false });
+    if (moved) untrack(() => { confirmSchemaClear = false; });
   });
 
   // #1255 late-result fence: same as the vector form — 'never' keeps the
