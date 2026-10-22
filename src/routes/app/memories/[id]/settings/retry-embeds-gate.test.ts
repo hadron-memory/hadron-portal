@@ -349,3 +349,9 @@ it('uses the same date format as memory Info for Settings Created (#1167)', asyn
     graphOverrides: { createdAt: new Date(2026, 9, 19, 12).toISOString() } });
   expect(html).toContain('Oct 19, 2026');
 });
+
+it('formats the persisted encrypted-index acknowledgement timestamp without accepting it (#1167)', async () => {
+  const html = await renderSettings({ savedVectorIndexEnabled: true,
+    graphOverrides: { isEncrypted: true, vectorIndexEncryptedAckAt: new Date(2026, 9, 19, 13, 4, 5).toISOString() } });
+  expect(html).toContain('Encrypted-index disclosure accepted on Oct 19, 2026, 1:04:05 PM.');
+});

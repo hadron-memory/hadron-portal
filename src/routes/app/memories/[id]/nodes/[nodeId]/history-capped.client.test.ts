@@ -159,3 +159,31 @@ it('renders History timestamps with the Info date style and retains seconds (#11
   await mountPage('?tab=history');
   expect(document.body.textContent).toContain('Oct 19, 2026, 1:04:05 PM');
 });
+
+it('matches both the displayed History timestamp and its raw wire value (#1167)', async () => {
+  revisionCount = 1;
+  revisionCreatedAt = new Date(2026, 9, 19, 13, 4, 5).toISOString();
+  const m = await mountPage('?tab=history');
+  const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search history…"]')!;
+  expect(search).not.toBeNull();
+  for (const query of ['Oct 19, 2026, 1:04:05 PM', revisionCreatedAt]) {
+    search.value = query;
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    expect(m.target.querySelectorAll('button[aria-label="Revision actions"]')).toHaveLength(1);
+  }
+});
+
+it('uses the same timestamp in the restore confirmation without restoring (#1167)', async () => {
+  revisionCount = 1;
+  revisionCreatedAt = new Date(2026, 9, 19, 13, 4, 5).toISOString();
+  const m = await mountPage('?tab=history');
+  m.target.querySelector<HTMLButtonElement>('button[aria-label="Revision actions"]')!.click();
+  await settle();
+  const restore = [...m.target.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(b => b.textContent?.trim() === 'Restore')!;
+  expect(restore.disabled).toBe(false);
+  restore.click();
+  await settle();
+  const heading = [...m.target.querySelectorAll('h3')].find(h => h.textContent === 'Restore this revision?')!;
+  expect(heading.parentElement!.textContent).toContain('Oct 19, 2026, 1:04:05 PM');
+});
