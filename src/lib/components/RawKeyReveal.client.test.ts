@@ -81,3 +81,37 @@ describe('RawKeyReveal (#498)', () => {
     expect(m.target.textContent).toContain('does not revoke');
   });
 });
+
+describe('RawKeyReveal live-region a11y (#1215)', () => {
+  it('announces the reveal from exactly one alert region carrying the key', () => {
+    const m = mountReveal({ rawKey: 'hk_secret', ttlMs: 300_000, ondismiss: () => {} });
+    const alerts = m.target.querySelectorAll('[role="alert"]');
+    expect(alerts.length).toBe(1);
+    expect(alerts[0].textContent).toContain('hk_secret');
+  });
+
+  it('ticks the countdown outside the alert: the alert content never changes', () => {
+    const m = mountReveal({ rawKey: 'hk_secret', ttlMs: 300_000, ondismiss: () => {} });
+    const alert = m.target.querySelector('[role="alert"]')!;
+    const before = alert.textContent;
+    // #1215: the ticking element must not sit inside any assertive live region…
+    const ticking = m.target.querySelector('[data-testid="raw-key-countdown"]')!;
+    expect(ticking.closest('[role="alert"], [aria-live="assertive"]')).toBeNull();
+    // …so the announced text stays stable while the clock runs.
+    vi.advanceTimersByTime(61_000);
+    flushSync();
+    expect(countdown(m)).toContain('3:59');
+    expect(alert.textContent).toBe(before);
+  });
+
+  it('states the time limit in the alert, statically across ticks (#1215 P2)', () => {
+    const m = mountReveal({ rawKey: 'hk_secret', ttlMs: 300_000, ondismiss: () => {} });
+    const alert = m.target.querySelector('[role="alert"]')!;
+    expect(alert.textContent).toContain('disappears in 5 minutes');
+    vi.advanceTimersByTime(61_000);
+    flushSync();
+    expect(countdown(m)).toContain('3:59');                        // the clock did tick…
+    expect(alert.textContent).toContain('disappears in 5 minutes'); // …but the limit stays static
+    expect(alert.textContent).not.toContain('3:59');               // and no ticking text leaked in
+  });
+});
