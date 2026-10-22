@@ -2585,8 +2585,8 @@ export const NODE_FIELDS = /* GraphQL */ `
 // #1202: fixtures are system nodes, independently of the memory's class.
 // Keep this narrow read separate from GraphNodes' mixed-type default.
 export const FIXTURE_NODES_QUERY = /* GraphQL */ `
-  query FixtureNodes($limit: Int, $memoryIds: [ID!]!) {
-    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit) {
+  query FixtureNodes($limit: Int, $offset: Int, $memoryIds: [ID!]!) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: "system" }, limit: $limit, offset: $offset) {
       hits { node { id loc memoryId data } }
     }
   }
@@ -2594,8 +2594,8 @@ export const FIXTURE_NODES_QUERY = /* GraphQL */ `
 
 export const GRAPH_NODES_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
-  query GraphNodes($limit: Int, $memoryIds: [ID!]) {
-    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
+  query GraphNodes($limit: Int, $offset: Int, $memoryIds: [ID!]) {
+    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit, offset: $offset) {
       hits {
         node {
           ...NodeFields

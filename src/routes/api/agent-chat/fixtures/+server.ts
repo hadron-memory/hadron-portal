@@ -19,6 +19,7 @@ import {
 } from '$lib/server/agent-tester/fixture-codec';
 import { createNodeErrorCode } from '$lib/i18n/create-node-strings';
 import type { RequestHandler } from './$types';
+import { drainFindNodes } from '$lib/server/paginate';
 
 /**
  * /api/agent-chat/fixtures
@@ -56,9 +57,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const client = gqlClient(locals.token);
   // hrn:node:hadronmemory.com:specs:cor:api:090:02: memory scope and system-node type are independent
   // filters. Fixtures are system nodes, so name both (#1202).
-  const result = await client.request<{ findNodes: { hits: Array<{ node: {
+  const result = await drainFindNodes<{ node: {
     id: string; loc: string; memoryId: string; data: unknown;
-  } }> } }>(FIXTURE_NODES_QUERY, { limit: 500, memoryIds: [resolved.systemMemoryId] });
+  } }>(client, FIXTURE_NODES_QUERY, { memoryIds: [resolved.systemMemoryId] });
 
   const fixtures: FixtureSummary[] = [];
   for (const h of result.findNodes?.hits ?? []) {

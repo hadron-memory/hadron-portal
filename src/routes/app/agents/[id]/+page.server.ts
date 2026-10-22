@@ -7,7 +7,7 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
-import { fetchAllItems } from '$lib/server/paginate';
+import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
@@ -131,8 +131,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
   const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, bootPointer, canManageAgent] = await Promise.all([
     allMemoryIds.length > 0
-      ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
-          GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
+      ? drainFindNodes<{ node: MemoryNode }>(
+          client, GRAPH_NODES_QUERY, { memoryIds: allMemoryIds },
         ).catch(() => null)
       : Promise.resolve(null),
     // Org system memories feed the system-memory picker — org-only; a user-owned
@@ -250,6 +250,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   }
   const bundledAgents = [...bundledById.values()].sort((a, b) => a.name.localeCompare(b.name));
 
+  // A failed read (any page) is not an empty memory; the Nodes tab says so.
+  const agentNodesError = allMemoryIds.length > 0 && nodesResult === null;
+
   // #1173: what the Bundled tab can add. ONLY the agents the org subscribes to
   // (active grants, the App page's #1172 read), minus this agent and anything
   // it already imports. Not the org's OWNED agents: publishAgentImport needs an
@@ -331,6 +334,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     agent,
     org,
     agentNodes,
+    agentNodesError,
     installedApps,
     bundledAgents,
     bundleCandidates,
