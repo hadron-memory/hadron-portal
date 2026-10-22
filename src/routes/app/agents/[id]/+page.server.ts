@@ -1,3 +1,4 @@
+import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
 import { loadInheritanceManagement, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
 import { loadAgentInheritance } from '$lib/server/agent-inheritance';
@@ -71,7 +72,7 @@ function urnSlug(urn: string): string {
   return idx >= 0 ? urn.slice(idx + 1) : urn;
 }
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
 
   // #636: resolve the agent through the owner-accessible find-one so BOTH org
@@ -335,7 +336,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     superValidate({ _kind: 'setAgentBase', operation: 'set', baseRef: '' }, zod4(agentBaseSchema), { id: 'agentBase', errors: false }),
     superValidate({ _kind: 'setAgentIndexRefs', tasksOperation: 'keep', tasksIndexRef: '', processesOperation: 'keep', processesIndexRef: '' }, zod4(agentIndexRefsSchema), { id: 'agentIndexRefs', errors: false }),
   ]);
+  const [extendedBy, systemMemoryIdentity] = await Promise.all([
+    loadAgentExtensions(client, agent.id, url?.searchParams.get('extendedAfter') ?? null),
+    loadSystemMemoryIdentity(client, systemMemoryId),
+  ]);
   return {
+    extendedBy, systemMemoryIdentity,
     inheritanceManagement, baseForm, indexRefsForm,
     inheritance,
     agent,

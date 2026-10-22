@@ -22,3 +22,13 @@ it('moves profile routes into Agent actions and shows the authorized system memo
   expect(m.target.querySelector('[role=menuitem][href="/app/agents/a/conversations"]')).not.toBeNull();
   expect(m.target.querySelector('[role=menuitem][href="/app/memories/mem-sys"]')).not.toBeNull();
 });
+it('keeps unreadable system identity absent and retains org-less install restrictions', async () => {
+  setStubPage('http://localhost/app/agents/private');
+  const data = { ...await pageData('private', null, { systemMemoryId: 'unreadable' }), systemMemoryIdentity: null };
+  const m = mountComponent(Page as never, { data, form: null } as never); mounted.push(m); await tick(5);
+  expect(m.target.textContent).not.toContain('hrn:mem:');
+  (m.target.querySelector('[aria-label="Agent actions"]') as HTMLButtonElement).click(); await tick(5);
+  expect(m.target.querySelector('[role=menuitem][href="/app/memories/unreadable"]')).toBeNull();
+  expect([...m.target.querySelectorAll('[role=menuitem]')].some(x => x.textContent?.includes('Install into app'))).toBe(false);
+  expect(m.target.querySelector('[role=menuitem][href="/app/agents/private/conversations"]')).not.toBeNull();
+});
