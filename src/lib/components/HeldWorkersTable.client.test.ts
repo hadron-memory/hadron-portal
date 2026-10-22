@@ -50,7 +50,7 @@ describe('HeldWorkersTable — mounted', () => {
 
   it('does not match a digit the cells never show', async () => {
     // A sort-only rank would be 0 for Live and 2 for Never. Neither row SHOWS
-    // a 0 or a 2 ("Active now", "Never driven", an App URN without digits),
+    // a 0 or a 2 ("Active now", "No recorded activity", an App URN without digits),
     // so neither may match; only the idle row, whose shown date has both, can.
     for (const digit of ['0', '2']) {
       const { target } = mount(WORKERS);
@@ -63,7 +63,7 @@ describe('HeldWorkersTable — mounted', () => {
   it('finds rows by the state words it shows', async () => {
     const { target } = mount(WORKERS);
     await tick(2);
-    await search(target, 'never driven');
+    await search(target, 'no recorded activity');
     expect(names(target)).toEqual(['team/Never']);
   });
 });

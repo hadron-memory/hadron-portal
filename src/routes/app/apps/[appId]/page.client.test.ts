@@ -6,7 +6,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { submitEnhanced } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatMessage } from '$lib/types';
@@ -175,12 +175,12 @@ describe('App team chat full view (#980)', () => {
 });
 
 describe('Worker agents tab (#1009)', () => {
-  async function mountStaff(staff: unknown[]) {
+  async function mountStaff(staff: unknown[], roster: unknown = { kind: 'unavailable' }) {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
     window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
     const data = await pageData();
     const m = mountComponent(Page as never, {
-      data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff },
+      data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff, teamRoster: roster },
       form: null,
     } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
@@ -189,7 +189,7 @@ describe('Worker agents tab (#1009)', () => {
   }
   const worker = (over: Record<string, unknown>) => ({
     id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null,
-    memoryId: 'mem-ada', agent: { id: 'ag-coord', name: 'Coordinator' }, heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
+    memoryId: 'mem-ada', agent: { id: 'ag-coord', name: 'Coordinator', systemMemoryId: 'mem-sys' }, family: 'claude', hasLiveSession: true, heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
     ...over,
   });
   function menuOf(target: HTMLElement, name: string) {
@@ -209,12 +209,14 @@ describe('Worker agents tab (#1009)', () => {
     expect(nameCell.textContent?.replace(/\s+/g, '')).toContain('hrn:worker:acme.com:team:ada');
   });
 
-  it('an active worker you hold: Edit, Open working memory, Open role agent, Release, Retire', async () => {
+  it('an active worker you hold: Edit, Open working memory, Open system memory, Open role agent, Release, Retire', async () => {
     const target = await mountStaff([worker({})]);
     expect(menuOf(target, 'Ada')).toEqual([
       ['Edit', '/app/workers/w1?tab=briefing&view=source'],
       ['Open working memory', '/app/memories/mem-ada'],
+      ['Open system memory', '/app/memories/mem-sys'],
       ['Open role agent', '/app/agents/ag-coord'],
+      ['Pause…', null],
       ['Release', null],
       ['Retire', null],
     ]);
@@ -226,7 +228,218 @@ describe('Worker agents tab (#1009)', () => {
       worker({ id: 'w3', name: 'Cy', heldByUserId: null, heldAt: null }),
     ]);
     expect(menuOf(target, 'Bo').map(([l]) => l)).toContain('Force-release');
-    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open role agent', 'Retire']);
+    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open system memory', 'Open role agent', 'Pause…', 'Retire']);
+  });
+
+  // portal#1168 — the AI Team grid: Status and Model family in, Working memory
+  // and Agent columns out (both stay reachable from the ⋯ menu).
+  it('drops the Working memory and Agent columns, keeping both links in the menu', async () => {
+    const target = await mountStaff([worker({})]);
+    const heads = [...target.querySelectorAll('thead th')].map((th) => th.textContent?.trim() ?? '');
+    expect(heads.some((h) => h.startsWith('Working memory'))).toBe(false);
+    expect(heads.some((h) => h === 'Agent' || h.startsWith('Agent'))).toBe(false);
+    const items = menuOf(target, 'Ada');
+    expect(items).toContainEqual(['Open working memory', '/app/memories/mem-ada']);
+    expect(items).toContainEqual(['Open role agent', '/app/agents/ag-coord']);
+  });
+
+  it('the menu offers the role agent’s system memory only when the server shows it', async () => {
+    const target = await mountStaff([
+      worker({}),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', agent: { id: 'ag-x', name: 'X', systemMemoryId: null } }),
+    ]);
+    expect(menuOf(target, 'Ada')).toContainEqual(['Open system memory', '/app/memories/mem-sys']);
+    expect(menuOf(target, 'Bo').map(([l]) => l)).not.toContain('Open system memory');
+  });
+
+  it('shows a Model family column: the bound family, or a dash when none is shown', async () => {
+    const target = await mountStaff([
+      worker({}),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', family: null }),
+    ]);
+    expect(columnTexts(target, 'Model family')).toEqual(['claude', '—']);
+  });
+
+  it('shows a Status column that keeps masked apart from idle and never', async () => {
+    const target = await mountStaff([
+      worker({ id: 'w1', name: 'Ada', hasLiveSession: true }),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', hasLiveSession: false, lastActiveAt: '2026-10-14T10:00:00.000Z' }),
+      worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy', hasLiveSession: false, lastActiveAt: null }),
+      worker({ id: 'w4', name: 'Dee', urn: 'hrn:worker:acme.com:team:dee', hasLiveSession: null, lastActiveAt: null }),
+    ]);
+    expect(columnTexts(target, 'Status')).toEqual(['Active now', 'Idle', 'No recorded activity', 'Not shown to you']);
+  });
+
+  // portal#1168 (hadron-server#2178) — Task and Paused, from one bulk roster read.
+  const entry = (over: Record<string, unknown> = {}) => ({
+    checkStatus: { status: 'OK', pendingReason: null }, pausedUntil: null, currentTask: null, ...over,
+  });
+
+  it('shows each worker’s current task, linked, with its status; none is a dash', async () => {
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })],
+      { kind: 'ok', byWorker: {
+        w1: entry({ currentTask: { id: 't9', title: 'Ship the grid', status: 'STARTED' } }),
+        w2: entry(),
+      } },
+    );
+    expect(columnTexts(target, 'Task')[0]).toContain('Ship the grid');
+    expect(columnTexts(target, 'Task')[0]).toContain('Started');
+    expect(target.querySelector('a[href="/app/apps/a1/tasks/t9"]')).not.toBeNull();
+    expect(columnTexts(target, 'Task')[1]).toBe('—');
+  });
+
+  it('marks a paused worker from the server’s check status, not from pausedUntil alone', async () => {
+    const future = '2099-01-01T00:00:00.000Z';
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' }), worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy' })],
+      { kind: 'ok', byWorker: {
+        w1: entry({ checkStatus: { status: 'PENDING', pendingReason: 'PAUSED' }, pausedUntil: future }),
+        // An expired stored timestamp is history: the server says OK, so no badge.
+        w2: entry({ pausedUntil: '2020-01-01T00:00:00.000Z' }),
+        w3: entry({ checkStatus: { status: 'PENDING', pendingReason: 'TEAM_PAUSED' } }),
+      } },
+    );
+    const status = columnTexts(target, 'Status');
+    expect(status[0]).toContain('Paused');
+    expect(status[1]).not.toContain('Paused');
+    expect(status[2]).toContain('Team paused');
+  });
+
+  it('says plainly when the roster could not be read or is withheld, and never shows it as no tasks', async () => {
+    const failed = await mountStaff([worker({})], { kind: 'failed' });
+    expect(failed.textContent).toContain('Task and pause state could not be loaded');
+    // Riana/Glen: a failed or withheld roster must not read as "no task".
+    expect(columnTexts(failed, 'Task')[0]).toBe('Not available');
+    const hidden = await mountStaff([worker({})], { kind: 'hidden' });
+    expect(hidden.textContent).toContain('Task and pause state are not shown to you');
+    expect(columnTexts(hidden, 'Task')[0]).toBe('Not available');
+  });
+
+  // portal#1168 — Pause / Unpause. The portal offers the action and the server's
+  // gate decides; "Unpause" only when the SERVER's check status says paused.
+  const paused = () => ({ kind: 'ok', byWorker: { w1: entry({ checkStatus: { status: 'PENDING', pendingReason: 'PAUSED' }, pausedUntil: '2099-01-01T00:00:00.000Z' }) } });
+
+  it('offers Unpause only for a worker the server says is paused, and never on a team pause', async () => {
+    const target = await mountStaff([worker({})], paused());
+    expect(menuOf(target, 'Ada').map(([l]) => l)).toContain('Unpause');
+    expect(menuOf(target, 'Ada').map(([l]) => l)).not.toContain('Pause…');
+    const teamPaused = await mountStaff([worker({})], { kind: 'ok', byWorker: { w1: entry({ checkStatus: { status: 'PENDING', pendingReason: 'TEAM_PAUSED' } }) } });
+    const labels = menuOf(teamPaused, 'Ada').map(([l]) => l);
+    expect(labels).not.toContain('Unpause');
+  });
+
+  it('offers no pause action on a retired worker', async () => {
+    const target = await mountStaff([worker({ retiredAt: '2026-09-01T00:00:00.000Z' })]);
+    expect(menuOf(target, 'Ada').map(([l]) => l)).not.toContain('Pause…');
+  });
+
+  it('Pause… opens a dialog with an empty end time (no default) and cannot submit until one is chosen', async () => {
+    const target = await mountStaff([worker({})]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const dlg = target.querySelector<HTMLElement>('[role="dialog"][aria-label*="Pause"]');
+    expect(dlg).not.toBeNull();
+    const input = dlg!.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+    expect(input.value).toBe('');
+    const submit = dlg!.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(submit.disabled).toBe(true);
+    input.value = '2099-01-01T10:00';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    expect(submit.disabled).toBe(false);
+    const hidden = dlg!.querySelector<HTMLInputElement>('input[name="until"]')!;
+    expect(hidden.value).toBe(new Date('2099-01-01T10:00').toISOString());
+    expect(dlg!.querySelector<HTMLInputElement>('input[name="mode"]')!.value).toBe('pause');
+    expect(dlg!.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w1');
+  });
+
+  it('Unpause submits clear for THAT worker', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountStaff([worker({})], paused());
+    pick(target, 'Ada', 'Unpause');
+    await tick(2);
+    const form = target.querySelector<HTMLFormElement>('form[action="?/setWorkerPause"]')!;
+    expect(requestSubmit).toHaveBeenCalled();
+    expect(form.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w1');
+    expect(form.querySelector<HTMLInputElement>('input[name="mode"]')!.value).toBe('clear');
+    requestSubmit.mockRestore();
+  });
+
+  it('a worker the successful roster read did not return is “Not available”, not a quiet dash', async () => {
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })],
+      { kind: 'ok', byWorker: { w1: entry() } },
+    );
+    expect(columnTexts(target, 'Task')).toEqual(['—', 'Not available']);
+    expect(columnTexts(target, 'Status')[1]).toContain('Pause state unknown');
+  });
+
+  it('Unpause cannot be submitted twice while the first is pending', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountStaff([worker({})], paused());
+    pick(target, 'Ada', 'Unpause');
+    await tick(2);
+    pick(target, 'Ada', 'Unpause');
+    await tick(2);
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    requestSubmit.mockRestore();
+  });
+
+  // Colin P2: a delayed answer for one worker/dialog must not act on another.
+  it('a delayed success for Ada does not close Bo’s fresh dialog or its draft', async () => {
+    const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const adaForm = target.querySelector<HTMLFormElement>('[role="dialog"] form')!;
+    const input = () => target.querySelector<HTMLInputElement>('[role="dialog"] input[type="datetime-local"]')!;
+    input().value = '2099-01-01T10:00';
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const delayed = await submitEnhancedDeferred(adaForm);
+    // Ada's dialog is dismissed and Bo's opened with a draft before the answer lands.
+    target.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')!.click();
+    flushSync();
+    pick(target, 'Bo', 'Pause…');
+    await tick(2);
+    input().value = '2099-02-02T10:00';
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    await delayed.finish({ type: 'success', status: 200, data: { pauseResult: { ok: true, workerId: 'w1', message: 'Worker paused.' } } });
+    await tick(2);
+    expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(input().value).toBe('2099-02-02T10:00');
+  });
+
+  it('a delayed refusal for Ada does not appear inside Bo’s fresh dialog', async () => {
+    const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const adaForm = target.querySelector<HTMLFormElement>('[role="dialog"] form')!;
+    const delayed = await submitEnhancedDeferred(adaForm);
+    target.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')!.click();
+    flushSync();
+    pick(target, 'Bo', 'Pause…');
+    await tick(2);
+    await delayed.finish({ type: 'failure', status: 403, data: { pauseResult: { ok: false, workerId: 'w1', message: 'You can’t pause or unpause this worker.' } } });
+    await tick(2);
+    expect(target.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+  });
+
+  it('a delayed answer after the SAME worker’s dialog was reopened is also ignored by the new dialog', async () => {
+    const target = await mountStaff([worker({})]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const first = target.querySelector<HTMLFormElement>('[role="dialog"] form')!;
+    const delayed = await submitEnhancedDeferred(first);
+    target.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')!.click();
+    flushSync();
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    await delayed.finish({ type: 'failure', status: 500, data: { pauseResult: { ok: false, workerId: 'w1', message: 'Could not change the pause.' } } });
+    await tick(2);
+    expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(target.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
   });
 
   // portal#1067 — who each worker reports to, next to last activity.
@@ -302,7 +515,7 @@ describe('Worker agents tab (#1009)', () => {
 
   it('a retired worker keeps only the links: nothing to edit, release or retire', async () => {
     const target = await mountStaff([worker({ id: 'w4', name: 'Dee', retiredAt: '2026-09-01T00:00:00.000Z' })]);
-    expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open role agent']);
+    expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open system memory', 'Open role agent']);
   });
 
   // Cody's #1048 QA: the menu CONTENTS were pinned, the DISPATCH was not.

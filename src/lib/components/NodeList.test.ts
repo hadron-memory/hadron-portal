@@ -146,3 +146,25 @@ describe('comment search hits (portal#1015)', () => {
     expect(body).not.toContain('comment-hit');
   });
 });
+
+// #1161: a deleted row is marked from what the SERVER reported (deletedIds from
+// recoveryNodes), never inferred. Rows not in the set carry no mark.
+describe('deleted rows are marked (#1161)', () => {
+  const live = { ...node, id: 'live1', name: 'Live One', loc: 'live-one' };
+  const gone = { ...node, id: 'gone1', name: 'Gone One', loc: 'gone-one' };
+
+  it('badges only the ids the server reported as deleted', () => {
+    const { body } = render(NodeList, {
+      props: { nodes: [live, gone], memoryUrn: 'micromentor.org::mmdata', deletedIds: ['gone1'] },
+    });
+    expect(body.match(/data-testid="node-deleted"/g)).toHaveLength(1);
+    const goneRow = body.slice(body.indexOf('Gone One'));
+    expect(goneRow).toContain('node-deleted');
+    expect(body.slice(body.indexOf('Live One'), body.indexOf('Gone One'))).not.toContain('node-deleted');
+  });
+
+  it('marks nothing when no deleted ids are supplied', () => {
+    const { body } = render(NodeList, { props: { nodes: [live, gone], memoryUrn: 'micromentor.org::mmdata' } });
+    expect(body).not.toContain('node-deleted');
+  });
+});

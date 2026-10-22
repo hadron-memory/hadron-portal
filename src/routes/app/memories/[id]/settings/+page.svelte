@@ -296,6 +296,9 @@
     submitting: vectorSubmitting,
     enhance: vectorEnhance,
   } = superForm<VectorIndexSettingsForm, App.Superforms.Message, VectorIndexSettingsForm>(initialVectorForm, {
+    // A settings save keeps its canonical returned values, not the page's
+    // original defaults (Superforms resets successful forms by default).
+    resetForm: false,
     validators: zod4Client(vectorIndexSettingsSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
@@ -431,21 +434,36 @@
   let confirmRevoke = $state(false);
   let viFormEl: HTMLFormElement;
 
-  // Resync local state when the page data changes (after a successful save,
-  // invalidateAll reloads `g`). Mirrors the node-detail editContent pattern —
-  // `g.*` only changes on navigation/invalidate, never mid-edit. The enable
-  // toggle is left alone while the disclosure panel is open so a server
-  // backstop (needsEncryptedAck) can keep the user's enable intent and let
-  // them acknowledge + enable in one flow instead of resyncing back to false.
+  // Only a changed persisted configuration (or memory navigation) reseeds
+  // the draft. Unrelated loader refreshes must not erase an unsaved edit.
+  function vectorSnapshot() {
+    return JSON.stringify([g.id, g.vectorIndexEnabled, g.embeddingSource, g.chunkTokens, g.chunkOverlap, g.forceFixedSize]);
+  }
+  let lastVectorSnapshot = untrack(vectorSnapshot);
+  let vectorMemoryId = untrack(() => g.id);
   $effect(() => {
-    vectorForm.update((current) => ({
-      ...current,
-      vectorIndexEnabled: showDisclosure ? current.vectorIndexEnabled : (g.vectorIndexEnabled ?? false),
+    const snapshot = vectorSnapshot();
+    if (snapshot === lastVectorSnapshot) return;
+    lastVectorSnapshot = snapshot;
+    const moved = vectorMemoryId !== g.id;
+    vectorMemoryId = g.id;
+    const saved = {
+      vectorIndexEnabled: g.vectorIndexEnabled ?? false,
       embeddingSource: g.embeddingSource ?? 'abstract',
       chunkTokens: g.chunkTokens != null ? String(g.chunkTokens) : '',
       chunkOverlap: g.chunkOverlap != null ? String(g.chunkOverlap) : '',
       forceFixedSize: g.forceFixedSize ?? false,
-    }), { taint: false });
+    };
+    untrack(() => {
+      if (moved) { showDisclosure = false; confirmRevoke = false; }
+      vectorForm.update((current) => ({
+        ...current,
+        ...saved,
+        acknowledgeVectorInversionRisk: moved ? false : current.acknowledgeVectorInversionRisk,
+        // The encrypted acknowledgement backstop retains the enable intent.
+        vectorIndexEnabled: showDisclosure ? current.vectorIndexEnabled : saved.vectorIndexEnabled,
+      }), { taint: false });
+    });
   });
 
   const viSourceIncludesChunks = $derived($vectorForm.embeddingSource === 'contentChunks' || $vectorForm.embeddingSource === 'both');
@@ -480,7 +498,7 @@
 
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
-<div class="space-y-8">
+<fieldset disabled={data.canWriteMemory === false} class="space-y-8">
   {#if settingsActionSuccess && !isEditing}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{settingsActionSuccess}</div>
   {/if}
@@ -723,7 +741,7 @@
   </section>
 
   <!-- Spec 033 §2/§3: Vector index settings -->
-  <section class="max-w-lg">
+  <section id="vector-index" class="max-w-lg">
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Vector index</h2>
     <form bind:this={viFormEl} method="POST" action="?/updateVectorIndex" use:vectorEnhance
       class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
@@ -1139,4 +1157,4 @@
       {/if}
     </section>
   {/if}
-</div>
+</fieldset>

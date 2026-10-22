@@ -264,6 +264,7 @@
   {/if}
 
   <!-- Edit form -->
+  <fieldset disabled={data.canWriteMemory === false}>
   <form method="POST" action="?/update" use:enhance class="max-w-2xl space-y-5 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" novalidate>
     <input type="hidden" name="_kind" value={$formData._kind} />
     <div>
@@ -421,6 +422,7 @@
       <a href="{basePath}/nodes/{host.id}" class="text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200">Back to node</a>
     </div>
   </form>
+  </fieldset>
 
   <!-- Effective firing order among this node's routing edges (#478). Reflects
        unsaved edits to THIS edge so authors preview what saving will do. -->
@@ -484,7 +486,8 @@
         Delete edge
       </button>
     {:else}
-      <form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
+      <fieldset disabled={data.canWriteMemory === false}>
+<form method="POST" action="?/delete" use:deleteEnhance class="flex items-center gap-2" novalidate>
         <input type="hidden" name="_kind" value={$deleteFormData._kind} />
         <span class="text-sm text-red-500">Delete this edge? This cannot be undone.</span>
         <button type="submit" disabled={$deleteSubmitting} class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-500 disabled:opacity-50">
@@ -492,6 +495,7 @@
         </button>
         <button type="button" onclick={() => (confirmDelete = false)} class="text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
       </form>
+</fieldset>
     {/if}
   </section>
 </div>

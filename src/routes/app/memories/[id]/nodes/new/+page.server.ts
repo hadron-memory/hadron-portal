@@ -4,6 +4,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { CREATE_NODE_MUTATION } from '$lib/server/queries';
+import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import {
   createNodeStrings,
@@ -80,6 +81,7 @@ export const actions: Actions = {
     const description = form.data.description || null;
     const abstract = form.data.abstract || null;
     const content = form.data.content || null;
+    const tags = [...new Set(form.data.tags.split(',').map((tag) => tag.trim()).filter(Boolean))];
     // #588: empty → omit (ordinary node / no properties). The zod schema
     // already proved propertiesJson parses to an object; re-parse only to
     // produce the typed payload. The server validates both against the
@@ -110,11 +112,15 @@ export const actions: Actions = {
           abstract,
           content,
           properties,
-          tags: [],
+          tags,
         },
       });
       newId = result.createNode.id;
     } catch (e: unknown) {
+      // portal#1142 S2b: an include refusal created nothing; the form keeps
+      // what was typed, with the server's words, the tag and the next step.
+      const include = includeRefusalOf(e);
+      if (include) return message(form, { type: 'error', text: includeRefusalText(include, 'create') }, { status: 400 });
       const error = translateCreateNodeError(e);
       const status = createNodeErrorStatus(e);
       const code = createNodeErrorCode(e);

@@ -10,9 +10,11 @@
   import type { ContentScope } from '$lib/comments';
   import { onDestroy, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
+  import { createNodeColumns } from '$lib/node-columns.svelte';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { Memory, MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
+  import type { NodeColumnRow } from '$lib/node-columns';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
@@ -28,6 +30,7 @@
     nodesTotal = null,
     basePath = '',
     multiMemory = false,
+    readOnly = false,
     writableMemoryIds = [],
     scopeMemoryIds = [],
     forcedView,
@@ -44,6 +47,8 @@
     nodesTotal?: number | null;
     basePath?: string;
     multiMemory?: boolean;
+    /** Single-memory pages carry the server write decision (#646). */
+    readOnly?: boolean;
     writableMemoryIds?: string[];
     /**
      * #433: the page's full memory scope, independent of which nodes loaded.
@@ -335,6 +340,41 @@
   $effect(() => { graphState.searchFilter = keyword; });
   onDestroy(() => { graphState.searchFilter = ''; graphState.searchResultNodeIds = null; });
 
+  // portal#1174: the Nodes tab's Role / Last changed / Changed by / Revision /
+  // Approved / Signed columns. They are not on the slim rows the layout loads,
+  // so they are read here, lazily, for the rows on the DISPLAYED page only
+  // (hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers).
+  const nodeColumns = createNodeColumns(async (refs) => {
+    const res = await fetch('/api/nodes/columns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refs }),
+    });
+    if (!res.ok) throw new Error(`columns ${res.status}`);
+    return (await res.json()) as { rows: NodeColumnRow[]; unavailable: string[]; omitted: string[]; signing?: boolean };
+  });
+  onDestroy(() => nodeColumns.destroy());
+  // The rows on screen, as NodeList last reported them, so a refresh can re-read
+  // exactly those.
+  let columnIds: string[] = [];
+  function showColumnsFor(ids: string[]) {
+    columnIds = ids;
+    void nodeColumns.ensure(ids);
+  }
+  // An approval or mint changes what Approved/Signed/Revision say, and the
+  // layout bumps `refreshKey` after those actions; the cached columns are then
+  // stale, so forget them and read the page again (Gizelle on #1181).
+  let columnsRefreshKey = untrack(() => refreshKey);
+  $effect(() => {
+    const key = refreshKey;
+    if (key === columnsRefreshKey) return;
+    columnsRefreshKey = key;
+    untrack(() => {
+      nodeColumns.reset();
+      void nodeColumns.ensure(columnIds);
+    });
+  });
+
   // #429: structured server-side dimensions the slim loaded set can't answer
   // client-side. `myNodesOnly` → findNodes filter.createdBy (needs the caller's
   // id); `changedSince` → filter.updatedAfter; `sortMode` → server sort. These,
@@ -521,9 +561,11 @@
   let searching = $state(false);
   let searchError = $state<string | null>(null);
   let searchNote = $state<string | null>(null);
+  let searchNeedsIndex = $state(false);
   let searchCapped = $state(false); // server hit the result cap — showing a slice
   let searchSnippets = $state<Record<string, string>>({}); // #430 nodeId → matching passage
   let searchMeta = $state<Record<string, SearchHitMeta>>({}); // #432 nodeId → relevance/stale meta
+  let searchDeletedIds = $state<string[]>([]); // #1161 ids the server reports deleted (Include deleted)
   let searchSeq = 0; // monotonic — drops out-of-order responses
 
   // #589: the sortProperty payload in the server's shape (array path). Derived
@@ -559,9 +601,11 @@
     searching = true;
     searchError = null;
     searchNote = null;
+    searchNeedsIndex = false;
     searchCapped = false;
     searchSnippets = {};
     searchMeta = {};
+    searchDeletedIds = [];
     try {
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
@@ -574,9 +618,11 @@
       if (!res.ok) { searchError = data.error ?? 'Search failed'; setServerResults([]); return; }
       setServerResults(data.nodes ?? []);
       searchNote = data.note ?? null;
+      searchNeedsIndex = data.reason === 'no_vector_index' || data.degraded?.includes('no_vector_index') === true;
       searchCapped = !!data.capped;
       searchSnippets = data.snippets ?? {};
       searchMeta = data.meta ?? {};
+      searchDeletedIds = Array.isArray(data.deletedIds) ? data.deletedIds : [];
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
@@ -605,9 +651,11 @@
       searching = false;
       searchError = null;
       searchNote = null;
+      searchNeedsIndex = false;
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
+    searchDeletedIds = [];
       return;
     }
     const ids = idsStr ? idsStr.split(',') : [];
@@ -620,9 +668,11 @@
       searching = false;
       searchError = whereError;
       searchNote = null;
+      searchNeedsIndex = false;
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
+    searchDeletedIds = [];
       return;
     }
     // #431: validate a regex pattern client-side — the server 400s on invalid
@@ -636,9 +686,11 @@
         searching = false;
         searchError = 'Invalid regex pattern.';
         searchNote = null;
+        searchNeedsIndex = false;
         searchCapped = false;
         searchSnippets = {};
         searchMeta = {};
+    searchDeletedIds = [];
         return;
       }
     }
@@ -846,7 +898,12 @@
   // `visibleNodes` would filter the same nodes twice and, worse, hide the
   // folders whose only children are hidden — which is what makes "Show hidden"
   // reveal something rather than nothing.
-  const treeEntries = $derived(buildTreeEntries(filteredNodes, singleMemoryUrn));
+  const treeEntries = $derived.by(() => {
+    const entries = buildTreeEntries(filteredNodes, singleMemoryUrn);
+    if (searchDeletedIds.length === 0) return entries;
+    const deleted = new Set(searchDeletedIds);
+    return entries.map((e) => (e.nodeId && deleted.has(e.nodeId) ? { ...e, deleted: true } : e));
+  });
 
   // Color rules: multiple memories → color by memory; multiple selected types → color by type; otherwise same color
   const graphViewData = $derived.by(() => {
@@ -881,8 +938,8 @@
       idToMemory[n.id] = n.memory?.name ?? n.memory?.urn ?? '';
       locToType[n.loc] = n.nodeType ?? 'info';
       locToMemory[n.loc] = n.memory?.name ?? n.memory?.urn ?? '';
-      if (writableSet.size > 0) {
-        idToReadOnly[n.id] = !writableSet.has(n.memoryId);
+      if (readOnly || writableSet.size > 0) {
+        idToReadOnly[n.id] = readOnly || !writableSet.has(n.memoryId);
       }
     }
 
@@ -1200,13 +1257,17 @@
     </select>
 
     <!-- portal#1015: Content / Comments / All, applied by the server before ranking and the result cap -->
-    <select bind:value={contentScope} data-testid="scope-filter" aria-label={t('memory-browser.scope-filter', 'Search scope')} title={t('memory-browser.scope-filter', 'Search scope')}
+    <!-- portal#1174: a bare "Content" beside "Node Types" read as a second type filter; name what it is. One label wraps both so they never split across lines, and the select takes its accessible name from the visible word (an aria-label would override it, WCAG 2.5.3). -->
+    <label class="inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+      <span>{t('memory-browser.scope-label', 'Show')}</span>
+    <select bind:value={contentScope} id="scope-filter" data-testid="scope-filter"
       class="rounded-lg border px-2 py-1.5 text-xs
         {contentScope !== 'CONTENT' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="CONTENT">{t('memory-browser.scope.content', 'Content')}</option>
       <option value="COMMENTS">{t('memory-browser.scope.comments', 'Comments')}</option>
       <option value="ALL">{t('memory-browser.scope.all', 'Content and comments')}</option>
     </select>
+    </label>
 
     <!-- #992: approval and minting state (server-side findNodes filter) -->
     <select bind:value={approvalFilter} data-testid="approval-filter" aria-label={t('memory-browser.approval-filter', 'Filter by approval')} title={t('memory-browser.approval-filter', 'Filter by approval')}
@@ -1320,6 +1381,9 @@
   {#if serverResults !== null && (searchError || searchNote)}
     <div class="text-xs {searchError ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}">
       {searchError ?? searchNote}
+      {#if !searchError && searchNeedsIndex && !multiMemory && basePath}
+        <a class="underline" href={`${basePath}/settings#vector-index`}>{t('search.vector-settings', 'Open vector index settings')}</a>
+      {/if}
     </div>
   {/if}
 
@@ -1468,7 +1532,9 @@
             ? 'rounded-lg'
             : 'rounded-lg sm:rounded-l-none sm:rounded-r-lg'}"
       >
-        <div style="display: flex; height: 100%;">
+        <!-- Percentage height cannot resolve against the outer min-height.
+             Give vis-network a definite canvas frame before its initial fit. -->
+        <div data-testid="graph-canvas-frame" style="display: flex; height: var(--memory-browser-h); height: calc(100dvh - 320px); min-height: 400px;">
           <!-- resultsVersion (#616): re-mount when the server working set
                changes, even at the same size — see setServerResults.
                showHidden (#706): TopicGraph builds its vis datasets ONCE, in
@@ -1507,7 +1573,10 @@
           <!-- hideSearch: the single search box lives in MemoryBrowser now
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
-          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} />
+          <NodeList
+            nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} deletedIds={searchDeletedIds}
+            showColumns onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
+          />
         </div>
       {/if}
     </div>

@@ -137,7 +137,7 @@ export const DELETE_COMMENT_THREAD_MUTATION = /* GraphQL */ `
 `;
 
 /** How many threads the tab loads. The tab says when there are more, never implying it shows all. */
-export const THREAD_PAGE_SIZE = 50;
+export const THREAD_PAGE_SIZE = 20;
 
 
 /** Per comment: did the reader write it. The server's `viewerIsAuthor`, never inferred from names or ids. */
