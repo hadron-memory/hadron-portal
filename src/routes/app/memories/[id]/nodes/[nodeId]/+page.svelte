@@ -3842,7 +3842,7 @@
           <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.restore.heading', 'Restore this revision?')}</h3>
           <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.restore.warning', 'This restores the node to the selected revision and deletes the history newer than it. This cannot be undone.')}</p>
           <p class="mt-2 text-xs text-zinc-500">{new Date(restoreTarget.createdAt).toLocaleString()}{restoreTarget.editedByUser?.handle ? ` · @${restoreTarget.editedByUser.handle}` : ''}</p>
-          {#if historyError}<p class="mt-2 text-xs text-red-500">{historyError}</p>{/if}
+          {#if historyError}<p role="alert" class="mt-2 text-xs text-red-500" data-testid="restore-error">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (restoreTarget = null)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.restore.cancel', 'Cancel')}</button>
             <button type="button" onclick={confirmRestore} disabled={readOnly || historyBusy} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50">{historyBusy ? t('node.history.restore.working', 'Restoring…') : t('node.history.restore.confirm', 'Restore')}</button>

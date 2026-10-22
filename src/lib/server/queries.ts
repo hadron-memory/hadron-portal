@@ -1226,7 +1226,9 @@ export const USERS_QUERY = /* GraphQL */ `
 export const SEARCH_USERS_QUERY = /* GraphQL */ `
   query SearchUsers($query: String!, $limit: Int) {
     users(filter: { query: $query }, limit: $limit) {
-      items { id handle urn githubUsername name avatarUrl email }
+      # portal#1169 (hadron-server#2179): the orgs the viewer shares with each
+      # found person, a bounded page; null is 'not shown to you'.
+      items { id handle urn githubUsername name avatarUrl email sharedOrganizations(limit: 5) { items { id name urn } total } }
       total
     }
   }
@@ -3316,6 +3318,24 @@ export const UPDATE_SPEC_NODE_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #1159 (server #2175): a soft-deleted node does not resolve through node(ref:).
+// recoveryNode is the explicit, writer-only read of the retained tombstone (null
+// for anyone who may not recover it, so existence stays hidden), and
+// restoreNode brings back that ONE node — never descendants or revisions.
+export const RECOVERY_NODE_QUERY = /* GraphQL */ `
+  query RecoveryNode($nodeRef: ID!) {
+    recoveryNode(nodeRef: $nodeRef) {
+      id urn memoryId loc name nodeType description deletedAt content
+    }
+  }
+`;
+
+export const RESTORE_NODE_MUTATION = /* GraphQL */ `
+  mutation RestoreNode($nodeRef: ID!) {
+    restoreNode(nodeRef: $nodeRef) { id }
+  }
+`;
+
 // hadron-server#542: deleteNode collapsed (loc, memoryId) into a single
 // nodeRef (a node PK or fully-qualified URN).
 // hard: true permanently removes the row (vs. the default soft-delete's
@@ -4625,6 +4645,31 @@ export const TEAM_ROSTER_QUERY = /* GraphQL */ `
         waitingSince
         unreactedChildTask
         alarms
+      }
+    }
+  }
+`;
+
+// portal#1168: pause intent ONLY. The input is built by the action and carries
+// exactly one of pausedUntil / clearPause, never `mentions`; the server's gate
+// (the worker, its holder or an App manager) decides who may.
+export const SET_WORKER_WAKE_SETTINGS_MUTATION = /* GraphQL */ `
+  mutation SetWorkerPause($workerRef: String!, $input: WorkerWakeSettingsInput!) {
+    setWorkerWakeSettings(workerRef: $workerRef, input: $input) { pausedUntil }
+  }
+`;
+
+// portal#1168 (hadron-server#2178): the AI Team grid's Task and Paused state,
+// one bulk read joined to the staff by worker id. Selects only what the grid
+// renders.
+export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
+  query AppTeamRoster($appRef: ID!) {
+    teamRoster(appRef: $appRef) {
+      workers {
+        worker { id }
+        checkStatus { status pendingReason }
+        pausedUntil
+        currentTask { id title status }
       }
     }
   }

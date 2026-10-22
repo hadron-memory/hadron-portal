@@ -88,6 +88,11 @@ export const apiKeysStrings = {
   rawKeyRevealCountdown: (remaining: string): string =>
     t('api-keys.reveal.countdown', 'This key disappears in {remaining}.', { remaining }),
 
+  /** Static time-limit sentence inside the alert, computed once per key from
+   *  the TTL — the announcement states the limit without ticking (#1215). */
+  rawKeyRevealHidesIn: (minutes: number): string =>
+    t('api-keys.reveal.hides-in', 'This key disappears in {minutes} minutes.', { minutes }),
+
   /** Empty-state message when the user has no keys. */
   emptyState: (): string =>
     t('api-keys.empty', "You haven't minted any API keys yet."),

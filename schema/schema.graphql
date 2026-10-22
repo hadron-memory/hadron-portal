@@ -1,5 +1,8 @@
 # Exported from hadron-server 87e0bb7dfbb1284e51f6b8aa7b7b2f10e940f837 (origin/main, 2026-10-19T02:58:16-07:00) by pnpm gql:schema — do not edit.
 # portal#1148: App.members, memberCount, appAgents, agents and hasAiApiKey hand-applied as outer-nullable from the ACCEPTED hadron-server#2089 SDL delta (issue comment 6258905377, Andi), on top of the snapshot above. Not on server main yet; the next pnpm gql:schema after the server merge replaces this line with the landed wire.
+# portal#1169: User.sharedOrganizations, SharedOrganization and SharedOrganizationsPage hand-applied from MERGED hadron-server 10bcc57e (#2222, closes #2179), not a full refresh: a refresh would also revert the #1148 nullable delta (hadron-server#2089 is not on server main) and pull ~530 unrelated lines.
+# portal#1168: TeamRosterEntry.checkStatus, currentTask, pausedUntil and the types they need hand-applied from MERGED hadron-server 1caab6fc (#2221, closes #2178) and its #2138 check status. Not a full refresh: server main still has the old non-null App.members etc. (hadron-server#2089), so a refresh would revert the #1148 nullable delta.
+# portal#1159: RecoveryNode, RecoveryNodeSummary, RecoveryNodesPage, RecoveryEndpoint, RecoveryGraphEdge, RecoveryEdgesPage, Query.recoveryNode/recoveryNodes/recoveryEdges and Mutation.restoreNode hand-applied from MERGED hadron-server 916e0b9d (#2234, closes #2175), not a full refresh, for the same reason as the lines above.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -5100,6 +5103,8 @@ type ModelFamilyAvailability {
 }
 
 type Mutation {
+  "Restore one retained deleted node in a live memory you can read and write. Restore deleted ancestors first; governed nodes, comments, compiled boot prompts and protected internal addresses refuse. Does not restore descendants or revisions. hrn:node:hadronmemory.com:specs:cor:acl:130:02"
+  restoreNode(nodeRef: ID!): Node!
   acceptInvitation(slug: String!): Boolean!
 
   """
@@ -9603,7 +9608,40 @@ type PublicResourceRefPage {
   total: Int!
 }
 
+
+"Explicit writer-only tombstone content; no generic entity relations. hrn:node:hadronmemory.com:specs:cor:dmo:010:04"
+type RecoveryNode {
+  id: ID!
+  urn: String!
+  memoryId: ID!
+  loc: String!
+  name: String!
+  nodeType: String!
+  description: String
+  deletedAt: DateTime!
+  content: String
+}
+type RecoveryNodeSummary {
+  id: ID!
+  urn: String!
+  memoryId: ID!
+  loc: String!
+  name: String!
+  nodeType: String!
+  deletedAt: DateTime!
+}
+type RecoveryNodesPage { items: [RecoveryNodeSummary!]!, total: Int! }
+type RecoveryEndpoint { id: ID!, urn: String!, loc: String!, name: String!, deletedAt: DateTime }
+type RecoveryGraphEdge { id: ID!, name: String, source: RecoveryEndpoint!, target: RecoveryEndpoint! }
+type RecoveryEdgesPage { items: [RecoveryGraphEdge!]!, total: Int! }
+
 type Query {
+  "Read a retained deleted node in a live memory that you can read and write. Returns the stored body without expanding templates or includes. hrn:node:hadronmemory.com:specs:cor:dmo:010:04"
+  recoveryNode(nodeRef: ID!): RecoveryNode
+  "Page through retained deleted nodes you can recover. Default 20, maximum 200; total counts all accessible results. No timed purge. hrn:node:hadronmemory.com:specs:cor:api:120:04"
+  recoveryNodes(memoryRef: ID!, limit: Int = 20, offset: Int = 0): RecoveryNodesPage!
+  "Inspect live edges and accessible deleted endpoints in one memory you can read and write. Default 20, maximum 200. hrn:node:hadronmemory.com:specs:cor:api:110:02"
+  recoveryEdges(memoryRef: ID!, limit: Int = 20, offset: Int = 0): RecoveryEdgesPage!
   """The ticket ledger: minted, consumed-by-which-run, expired (org-ADMIN)."""
   actionTickets(limit: Int, offset: Int, orgRef: String!): ActionTicketsPage!
 
@@ -12624,6 +12662,20 @@ input SetWorkerAvailabilityInput {
 }
 
 """
+Only safe identity scalars for a live organization shared with the effective human viewer.
+"""
+type SharedOrganization {
+  id: ID!
+  name: String!
+  urn: String!
+}
+
+type SharedOrganizationsPage {
+  items: [SharedOrganization!]!
+  total: Int!
+}
+
+"""
 #1632 (hrn:node:hadronmemory.com:specs:cor:dmo:130:04) — a signature's state, derived on every read. An invalid record is never a signature: it is counted in NodeSignatureStatus.integrityProblems instead.
 """
 enum SignatureState {
@@ -13617,6 +13669,78 @@ type TeamRoster {
   workers: [TeamRosterEntry!]!
 }
 
+"""
+#2138 §3.4 — a worker's check status. A worker HAS A TASK when an open task is
+assigned to it or its Agent has usesTasks: false. The OVERDUE clock runs from
+the latest of lastCheckedAt, its newest open assignment, its live session's
+start and the end of its own pause.
+"""
+type WorkerCheckStatus {
+  """
+  When it last checked the App's team channel through its own session; null if never.
+  """
+  lastCheckedAt: DateTime
+
+  """Set only when status is PENDING."""
+  pendingReason: WorkerPendingReason
+  status: WorkerCheckState!
+}
+
+"""
+#2138 §3.4 (experimental) — a worker's check status. Draft spec: hrn:node:hadronmemory.com:hadron-dev-team-vera:work:2138-experiment-spec.
+"""
+enum WorkerCheckState {
+  """No live session."""
+  NO_SESSION
+
+  """
+  Has a task and checked within failedChecksToOverdue × checkPeriodSeconds + 5 minutes.
+  """
+  OK
+
+  """
+  Has a task and hasn't checked for longer than that. Long turns show here on purpose.
+  """
+  OVERDUE
+
+  """Not expected to check now; pendingReason says why."""
+  PENDING
+}
+
+"""
+#2138 §3.4 — why a worker is PENDING. Precedence: TEAM_PAUSED, STOPPED, PAUSED, ISOLATED, STANDBY, NO_TASK.
+"""
+enum WorkerPendingReason {
+  """In isolation (unreachable until isolation is built)."""
+  ISOLATED
+
+  """No open task assigned, and its Agent uses tasks."""
+  NO_TASK
+
+  """Its own pause (pausedUntil) is in force."""
+  PAUSED
+
+  """On standby (unreachable until standby is built)."""
+  STANDBY
+
+  """
+  #2022: a PAUSE or HALT stop signal covers the worker, so it is not ticked (hrn:node:hadronmemory.com:specs:cor:agt:090:03).
+  """
+  STOPPED
+
+  """A team pause is in force (App.teamPausedAt); the worker can't lift it."""
+  TEAM_PAUSED
+}
+
+"""
+A readable open assignment selected for display, independently of session liveness or execution eligibility.
+"""
+type TeamRosterTaskSummary {
+  id: ID!
+  status: AgentTaskStatus!
+  title: String!
+}
+
 """#1707 — one worker on the team roster."""
 type TeamRosterEntry {
   """YOUR_MOVE: unacknowledged alarms it has been woken on."""
@@ -13690,6 +13814,21 @@ type TeamRosterEntry {
   """WAITING: when the oldest of those was created."""
   waitingSince: DateTime
   worker: AgentTaskParty!
+
+  """
+  #2138 §3.4 (experimental) — whether it is checking its team channel as expected.
+  """
+  checkStatus: WorkerCheckStatus
+
+  """
+  The worker's top open assignment you can read, for display only. STARTED before PENDING, then oldest assignment (null last), creation time and id. Null when none is readable; ending a session does not clear an assignment.
+  """
+  currentTask: TeamRosterTaskSummary
+
+  """
+  The worker's own stored pause timestamp, including expired history; use checkStatus for current pause state. Separate from team pause and availability.
+  """
+  pausedUntil: DateTime
 }
 
 """
@@ -14284,6 +14423,11 @@ type User {
   Platform roles; an empty list is returned to viewers without personal-field access.
   """
   roles: [Role!]!
+
+  """
+  Live shared memberships only; null for unsupported viewers or deleted users, empty for no intersection. Default 20, cap 200, nonnegative offset, organization id order. Impersonation stays in its one organization. Pages are live across requests.
+  """
+  sharedOrganizations(limit: Int, offset: Int): SharedOrganizationsPage
 
   """
   Canonical `hrn:user:<handle>` URN (spec cor:urn:010:01). Computed from the

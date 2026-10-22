@@ -94,6 +94,31 @@ export async function submitEnhancedWithResult(
 }
 
 /**
+ * portal#1237 — like `submitEnhancedWithResult`, but the server's answer arrives
+ * LATER: the submit callback runs now (capturing whatever the page held at
+ * submit time) and `finish(result)` delivers the result after the test has
+ * moved the page on. That is the interleaving a delayed response creates.
+ */
+export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
+  finish: (result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> }) => Promise<void>;
+}> {
+  const submit = enhanced.get(form);
+  if (!submit) throw new Error('submitEnhancedDeferred: this form was never enhanced');
+  const action = new URL(form.action || 'http://localhost/');
+  const formData = new FormData(form);
+  const handler = await submit({
+    action, formData, formElement: form, controller: new AbortController(),
+    submitter: form.querySelector('[type="submit"]'), cancel: () => {},
+  });
+  if (typeof handler !== 'function') throw new Error('submitEnhancedDeferred: no result handler');
+  return {
+    finish: async (result) => {
+      await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+    },
+  };
+}
+
+/**
  * What kit's `applyAction` does with a success/failure result: it becomes the
  * page's action data. Superforms (applyAction: true, its default) reacts to
  * that page update, not to its own result handler, so without this nothing
