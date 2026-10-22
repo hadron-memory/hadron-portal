@@ -292,6 +292,7 @@
   const initialVectorForm = untrack(() => submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex') as VectorIndexSettingsSuperform | null ?? data.vectorForm);
   const {
     form: vectorForm,
+    formId: vectorFormId,
     errors: vectorErrors,
     message: vectorMessage,
     submitting: vectorSubmitting,
@@ -305,16 +306,19 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    // #1255: the load and action now stamp this form's id
-    // (`updateVectorIndex:${id}`); with the empty-string default it matched
-    // every unstamped form's data AND results, so a sibling save discarded
-    // an unsaved draft twice over — page.data rebind on invalidateAll, and
-    // the sibling's ActionResult landing on this form. The stamped id stops
-    // the foreign results; 'never' additionally opts the form out of the
-    // page.data rebind (the only option that does). Own results still apply
-    // — 'never' is truthy, so they arrive through applyAction and the
-    // id-matching page.form branch. Reseeding stays with the snapshot gate
-    // below: a changed persisted configuration, or a memory navigation.
+    // #1255: a sibling save's invalidateAll replaces page.data while
+    // page.form is still empty, and the page subscription rebinds this form
+    // from that fresh data — discarding an unsaved draft, taint
+    // notwithstanding (the default form id is a hash of the schema's SHAPE,
+    // stable across loads of one schema, so the fresh load form always
+    // matches). 'never' is the ONLY option that opts the form out of that
+    // rebind; own results still apply — 'never' is truthy, so they arrive
+    // through applyAction and the id-matching page.form branch. The
+    // memory-bound id stamped in the load and action (plus the re-stamp on
+    // navigation, below) is the late-result fence, not a sibling-result
+    // fix: different-schema siblings never matched this form anyway.
+    // Reseeding stays with the snapshot gate below: a changed persisted
+    // configuration, or a memory navigation.
     applyAction: 'never',
     onResult: ({ result }) => {
       const needsEncryptedAck =
@@ -376,6 +380,7 @@
   const initialSchemaForm = untrack(() => submittedForm<MemorySchemaSettingsForm>(form, 'updateSchema') as MemorySchemaSettingsSuperform | null ?? data.schemaForm);
   const {
     form: schemaForm,
+    formId: schemaFormId,
     errors: schemaErrors,
     message: schemaMessage,
     submitting: schemaSubmitting,
@@ -386,12 +391,13 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    // #1255: stamped id (`updateSchema:${id}`, load and action) + 'never',
-    // same recipe and reasons as the vector form above — the empty-string
-    // default id let a sibling save's invalidateAll and the sibling's
-    // ActionResult both overwrite an unsaved editor draft. resetForm:false
-    // for the same reason as the other settings forms: a save keeps its
-    // canonical returned values, not a reset to the pre-save load data.
+    // #1255: 'never' for the same reason as the vector form above — a
+    // sibling save's invalidateAll rebinds this form from fresh page.data
+    // and discards an unsaved editor draft (default ids are schema shape
+    // hashes, so the fresh load form always matches). resetForm:false so a
+    // save keeps its returned form values instead of resetting to the
+    // pre-save load data; the memory-bound id + navigation re-stamp (the
+    // effect below) is the late-result fence, as in the vector form.
     applyAction: 'never',
     resetForm: false,
     onResult: ({ result }) => {
@@ -410,6 +416,20 @@
     schemaForm.update((current) => (
       current.schemaJson === next ? current : { ...current, schemaJson: next }
     ), { taint: false });
+  });
+
+  // #1255 late-result fence: same as the vector form — 'never' keeps the
+  // form's id at the memory it was created for, so a [id] navigation must
+  // re-stamp it or a late own-action result from the previous memory still
+  // matches (the schema resync above reseeds VALUES; it does not touch the
+  // id, and two memories with the same stored schema would not even fire
+  // it).
+  let schemaIdMemoryId = untrack(() => g.id);
+  $effect(() => {
+    const id = g.id;
+    if (id === schemaIdMemoryId) return;
+    schemaIdMemoryId = id;
+    untrack(() => schemaFormId.set(`updateSchema:${id}`));
   });
 
   const schemaFieldError = $derived($schemaErrors.schemaJson?.[0] ?? null);
@@ -489,6 +509,22 @@
         vectorIndexEnabled: showDisclosure ? current.vectorIndexEnabled : saved.vectorIndexEnabled,
       }), { taint: false });
     });
+  });
+
+  // #1255 late-result fence: 'never' also opts this form out of the
+  // page.data rebind that would otherwise refresh the form's id on a [id]
+  // navigation — so after moving to another memory the live form would
+  // keep THIS memory's stamp and a late own-action result (this form's
+  // submit completing after the navigation) would still match and land on
+  // the new memory's form. Re-stamp the id to the memory actually shown.
+  // (The marketplace card gets this for free by remounting on navigation;
+  // these forms live in the page script and do not remount.)
+  let vectorIdMemoryId = untrack(() => g.id);
+  $effect(() => {
+    const id = g.id;
+    if (id === vectorIdMemoryId) return;
+    vectorIdMemoryId = id;
+    untrack(() => vectorFormId.set(`updateVectorIndex:${id}`));
   });
 
   const viSourceIncludesChunks = $derived($vectorForm.embeddingSource === 'contentChunks' || $vectorForm.embeddingSource === 'both');
