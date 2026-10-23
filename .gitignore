@@ -19,3 +19,6 @@ public
 
 # Claude Design reference screenshots show real account/org data
 design/screenshots/
+
+# Pinned companion checkout for the synthetic API-key browser chain
+.e2e-server/
