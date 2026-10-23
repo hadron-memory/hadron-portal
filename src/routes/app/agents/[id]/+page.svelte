@@ -15,13 +15,14 @@
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
+  import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
   import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
-  import type { MemoryNode } from '$lib/types';
+  import type { MemoryNode, OrgSummary } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import {
     addAgentMemorySchema,
@@ -75,6 +76,9 @@
     (data as { installedApps?: Array<{ id: string; name: string; urn: string; orgId: string }> })
       .installedApps ?? [],
   );
+  // The loader reads the Apps list in two calls; a failed call is not an empty
+  // list, so it travels as its own flag.
+  const installedAppsError = $derived(!!(data as { installedAppsError?: boolean }).installedAppsError);
   const writableMemoryIds = $derived((agent.memoryItems ?? []).filter((m) => m.role === 'read-write').map((m) => m.memory.id));
   // #713: agents bundled with this one — co-installed siblings plus AgentImport
   // edges, assembled server-side (see the loader for why siblings are the source
@@ -615,6 +619,91 @@
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
+
+  // ── Apps tab grid (#472) ──────────────────────────────────────────────
+  // The installed-Apps list on the shared TanStack DataTable. Rows come from
+  // the loader's member-scoped `installedApps`; org names come from the
+  // layout's already-authorized member orgs (`navOrgs`), never a new fetch.
+  // The table pages the rows already loaded; the loader is not server-paged.
+  interface AgentAppRow {
+    id: string;
+    name: string;
+    urn: string;
+    orgId: string | null;
+    /** Null for a personal (org-less) App, or an org this user is not a member of. */
+    orgName: string | null;
+  }
+
+  const navOrgs = $derived((data as { navOrgs?: OrgSummary[] }).navOrgs ?? []);
+  const appRows = $derived.by<AgentAppRow[]>(() => {
+    const names = new Map(navOrgs.map((o) => [o.id, o.name]));
+    return installedApps.map((a) => ({
+      id: a.id,
+      name: a.name,
+      urn: a.urn,
+      orgId: a.orgId || null,
+      orgName: a.orgId ? (names.get(a.orgId) ?? null) : null,
+    }));
+  });
+  // Only orgs that own at least one of this agent's Apps can narrow the list.
+  const appOrgOptions = $derived(navOrgs.filter((o) => appRows.some((a) => a.orgId === o.id)));
+  let appOrgPick = $state<string | null>(null);
+  // A pick whose org left the data (reload, another agent) is no filter at all.
+  const appOrgFilter = $derived(appOrgPick && appOrgOptions.some((o) => o.id === appOrgPick) ? appOrgPick : null);
+  const appOrgFilterName = $derived(appOrgOptions.find((o) => o.id === appOrgFilter)?.name ?? null);
+  const visibleAppRows = $derived(appOrgFilter ? appRows.filter((a) => a.orgId === appOrgFilter) : appRows);
+  let appsFilter = $state('');
+  let appOrgPickerOpen = $state(false);
+
+  function appOrgLabel(a: AgentAppRow): string {
+    if (a.orgName) return a.orgName;
+    return a.orgId
+      ? t('agent.apps.org-unavailable', 'Organization not visible to you')
+      : t('agent.apps.org-personal', 'Personal');
+  }
+
+  const appColumns: PortalColumnDef<AgentAppRow>[] = [
+    { accessorKey: 'name', header: 'Name', enableHiding: false, size: 240 }, // identity column
+    { accessorKey: 'urn', header: 'URN', size: 340 },
+    { accessorFn: (a) => appOrgLabel(a), id: 'org', header: 'Organization', size: 200 },
+  ];
+
+  const appsTable = createSvelteTable<AgentAppRow>({
+    get data() {
+      return visibleAppRows;
+    },
+    columns: appColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return appsFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      appsFilter = typeof u === 'function' ? u(appsFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
+
+  function pickAppOrg(o: OrgSummary | null) {
+    appOrgPick = o?.id ?? null;
+    appsTable.resetPageIndex();
+  }
+
+  // The page component is reused across /app/agents/[id] navigations; a filter
+  // chosen on one agent must not carry to the next. Reads agent.id; the reset
+  // itself is untracked (the table's reset reads and writes its own state).
+  $effect(() => {
+    void agent.id;
+    untrack(() => {
+      appOrgPick = null;
+      appsFilter = '';
+      appsTable.resetPageIndex();
+    });
+  });
 </script>
 
 <svelte:head><title>{agent.name} · Hadron</title></svelte:head>
@@ -992,16 +1081,49 @@
           >Install as app</a>
         {/if}
       </div>
+      {#if installedAppsError}
+        <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">
+          {installedApps.length > 0
+            ? t('agent.apps.error-partial', 'Part of the Apps list could not be loaded, so this list may be incomplete. Reload to try again.')
+            : t('agent.apps.error', 'The Apps list could not be loaded. Reload to try again.')}
+        </p>
+      {/if}
       {#if installedApps.length > 0}
-        <ul class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-          {#each installedApps as app (app.id)}
-            <li class="flex items-center gap-2 px-3 py-2">
-              <a href="/app/apps/{app.id}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{app.name}</a>
-              <Urn value={app.urn} type="app" size={10} />
-            </li>
-          {/each}
-        </ul>
-      {:else}
+        <div class="mb-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onclick={() => (appOrgPickerOpen = true)}
+            aria-haspopup="dialog"
+            class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >{t('agent.apps.org-filter', 'Organization')}: {appOrgFilterName ?? t('agent.apps.org-all', 'All organizations')}</button>
+          {#if appOrgFilter}
+            <button
+              type="button"
+              onclick={() => pickAppOrg(null)}
+              class="rounded-lg px-2 py-1.5 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+            >{t('agent.apps.org-clear', 'Clear')}</button>
+          {/if}
+        </div>
+        <SelectOrg orgs={appOrgOptions} bind:open={appOrgPickerOpen} onselect={pickAppOrg} />
+        <DataTable
+          table={appsTable}
+          listKey="agent:apps"
+          searchPlaceholder="Search apps..."
+          searchAriaLabel="Search apps"
+          bind:globalFilter={appsFilter}
+          maxHeight="max(200px, calc(100vh - 20rem))"
+        >
+          {#snippet cell(cell, a)}
+            {#if cell.column.id === 'name'}
+              <a href="/app/apps/{a.id}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{a.name}</a>
+            {:else if cell.column.id === 'urn'}
+              <Urn value={a.urn} type="app" size={10} />
+            {:else if cell.column.id === 'org'}
+              <span class="truncate {a.orgName ? '' : 'text-zinc-500'}">{appOrgLabel(a)}</span>
+            {/if}
+          {/snippet}
+        </DataTable>
+      {:else if !installedAppsError}
         <p class="text-sm text-zinc-500">This agent isn't installed into any apps yet.</p>
       {/if}
     </section>
