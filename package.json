@@ -13,6 +13,7 @@
     "test:node-phone-layout": "node scripts/test-node-phone-layout.mjs",
     "test:usage-toolbar-layout": "node scripts/test-usage-toolbar-layout.mjs",
     "test:tickers-layout": "node scripts/test-tickers-layout.mjs",
+    "test:api-keys-e2e": "node scripts/test-api-keys-e2e.mjs",
     "test:watch": "vitest",
     "gql:validate": "node scripts/validate-graphql.mjs",
     "gql:schema": "node scripts/refresh-schema.mjs",

@@ -86,6 +86,16 @@ jobs:
       - name: Check App picker phone layout
         run: node scripts/test-select-app-layout.mjs
 
+      # #226 (spec 025 T049): the API-keys page in a real browser against a
+      # local stand-in server: mint, reveal, copy, /mcp 200, revoke, /mcp 401.
+      # The second command proves the chain goes red for a broken UI and for a
+      # broken revocation. No real server, account, key or tunnel is involved.
+      - name: API keys e2e
+        run: pnpm test:api-keys-e2e
+
+      - name: API keys e2e red controls
+        run: pnpm test:api-keys-e2e --red-controls
+
       - name: Check
         run: pnpm check
 
