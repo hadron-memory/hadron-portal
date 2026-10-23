@@ -2,7 +2,7 @@
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
   import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
   import CappedNotice from '$lib/components/CappedNotice.svelte';
-  import { formatPortalDate } from '$lib/format-portal-date';
+  import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
   import { deleteNodeStrings } from '$lib/i18n/delete-node-strings';
   import { invalidateAll, goto } from '$app/navigation';
   import { canonicalJson, parseDataSource, parsePropertiesSource, sameProperties, PROPERTIES_MAX, PROPERTIES_MAX_DEPTH } from '$lib/properties-source';
@@ -2000,13 +2000,13 @@
       revisionFilter = typeof u === 'function' ? u(revisionFilter) : u;
     },
     // #820 — `when` accessors epoch millis so the history sorts by instant,
-    // while the cell renders `new Date(r.createdAt).toLocaleString()`. Matched
+    // while the cell renders `formatPortalDateTime(r.createdAt)`. Matched
     // from the ORIGINAL row by calling that same expression rather than
     // rebuilding it from the epoch, which would be a second definition of what
     // the cell shows; the raw ISO rides along, and it is also the cell's own
     // `title`, so a reader can search what the tooltip shows them.
     globalFilterFn: makeGlobalFilterFn<HistoryRow>({}, {
-      when: (row) => `${new Date(row.createdAt).toLocaleString()} ${row.createdAt}`,
+      when: (row) => `${formatPortalDateTime(row.createdAt)} ${row.createdAt}`,
     }),
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
@@ -3821,7 +3821,7 @@
           >
           {#snippet cell(cell, r)}
             {#if cell.column.id === 'when'}
-              <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{new Date(r.createdAt).toLocaleString()}</span>
+              <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{formatPortalDateTime(r.createdAt)}</span>
             {:else if cell.column.id === 'label'}
               <span class="text-zinc-600 dark:text-zinc-400">{r.revLabel ?? '—'}</span>
             {:else if cell.column.id === 'changes'}
@@ -3879,7 +3879,7 @@
         <div class="relative w-full max-w-md rounded-xl border border-zinc-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
           <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('node.history.restore.heading', 'Restore this revision?')}</h3>
           <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-400">{t('node.history.restore.warning', 'This restores the node to the selected revision and deletes the history newer than it. This cannot be undone.')}</p>
-          <p class="mt-2 text-xs text-zinc-500">{new Date(restoreTarget.createdAt).toLocaleString()}{restoreTarget.editedByUser?.handle ? ` · @${restoreTarget.editedByUser.handle}` : ''}</p>
+          <p class="mt-2 text-xs text-zinc-500">{formatPortalDateTime(restoreTarget.createdAt)}{restoreTarget.editedByUser?.handle ? ` · @${restoreTarget.editedByUser.handle}` : ''}</p>
           {#if historyError}<p role="alert" class="mt-2 text-xs text-red-500" data-testid="restore-error">{historyError}</p>{/if}
           <div class="mt-4 flex items-center justify-end gap-2">
             <button type="button" onclick={() => (restoreTarget = null)} class="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">{t('node.history.restore.cancel', 'Cancel')}</button>
