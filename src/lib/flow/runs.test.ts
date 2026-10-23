@@ -87,15 +87,15 @@ describe('fmtRunTime', () => {
 describe('parseHops (#482)', () => {
   const hop = (over: Record<string, unknown> = {}) => ({
     node: 'hrn:node:acme.com:flows:classify',
-    edgeOut: 'hrn:edge:acme.com:flows:classify-to-reply',
-    startedAt: '2026-10-01T10:00:00.000Z',
-    finishedAt: '2026-10-01T10:00:02.500Z',
+    edgeOut: 'next',
+    startedAt: 1790848800000,
+    finishedAt: 1790848802500,
     tokensSpent: 120,
     ...over,
   });
 
   it('absent, non-array and malformed trails are unavailable, never invented as zero hops', () => {
-    for (const raw of [null, undefined, {}, 'x', 7, [null], [1], [hop({ node: '' })], [hop({ node: 3 })], [hop({ tokensSpent: -1 })], [hop({ tokensSpent: 'many' })], [hop({ startedAt: 'nope' })], [hop({ edgeOut: 4 })]]) {
+    for (const raw of [null, undefined, {}, 'x', 7, [null], [1], [hop({ node: '' })], [hop({ node: 3 })], [hop({ tokensSpent: -1 })], [hop({ tokensSpent: 'many' })], [hop({ startedAt: 'nope' }), hop({ finishedAt: Number.NaN }), hop({ startedAt: -5 }), hop({ startedAt: Infinity })], [hop({ edgeOut: 4 })]]) {
       expect(parseHops(raw)).toEqual({ state: 'unavailable' });
     }
   });
@@ -113,10 +113,19 @@ describe('parseHops (#482)', () => {
     expect(r.state).toBe('ready');
     if (r.state !== 'ready') throw new Error('unreachable');
     expect(r.hops.map((h) => h.node)).toEqual(['hrn:node:acme.com:flows:classify', 'hrn:node:acme.com:flows:reply']);
-    expect(r.hops[0].edgeOut).toBe('hrn:edge:acme.com:flows:classify-to-reply');
+    expect(r.hops[0].edgeOut).toBe('next');
     expect(r.hops[1].edgeOut).toBeNull();
     expect(r.hops[0].tokensSpent).toBeNull();
     expect(r.hops[1].tokensSpent).toBe(0);
+  });
+
+  it('accepts the producer wire shape: epoch-millisecond numbers (hadron-server appRuns.ts), normalised to ISO; ISO strings too', () => {
+    const r = parseHops([hop(), hop({ startedAt: '2026-10-01T10:00:00.000Z', finishedAt: '2026-10-01T10:00:02.000Z' })]);
+    expect(r.state).toBe('ready');
+    if (r.state !== 'ready') throw new Error('unreachable');
+    expect(r.hops[0].startedAt).toBe('2026-10-01T10:00:00.000Z');
+    expect(fmtHopDuration(r.hops[0].startedAt, r.hops[0].finishedAt)).toBe('3s');
+    expect(r.hops[1].startedAt).toBe('2026-10-01T10:00:00.000Z');
   });
 
   it('formats unknown tokens and durations as unknown, zero as 0', () => {

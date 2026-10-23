@@ -231,7 +231,7 @@
               <div>
                 <dt class={rowLabel}>{t('run.timeline.edge-out', 'Edge taken next')}</dt>
                 <dd class={rowValue}>
-                  {#if hop.edgeOut}<Urn value={hop.edgeOut} type="edge" size={11} copyUrl={false} label={t('run.timeline.edge', 'edge')} />{:else}—{/if}
+                  {#if hop.edgeOut}<span data-testid="hop-edge" class="font-mono">{hop.edgeOut}</span>{:else}—{/if}
                 </dd>
               </div>
             </dl>

@@ -158,6 +158,7 @@ export function visibleEnvelope(data: Record<string, unknown> | null | undefined
  */
 export interface RunHop {
   node: string;
+  /** The routing edge NAME taken from this hop (the producer's edgeName) — not a URN. */
   edgeOut: string | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -186,8 +187,17 @@ export function parseHops(raw: unknown): RunTrail {
     const times: Array<string | null> = [];
     for (const key of ['startedAt', 'finishedAt'] as const) {
       const v = o[key] ?? null;
-      if (v !== null && (typeof v !== 'string' || !parseApiDate(v))) return UNAVAILABLE;
-      times.push(v);
+      if (v === null) {
+        times.push(null);
+        continue;
+      }
+      // The producer (hadron-server jobs/appRuns.ts) writes Date.now() — JSON
+      // NUMBERS, not Date-scalar strings, since `hops` is untyped JSON. ISO strings
+      // are accepted too. Normalised to ISO so every consumer sees one shape.
+      const d = typeof v === 'number' ? (Number.isFinite(v) && v >= 0 ? new Date(v) : null)
+        : typeof v === 'string' ? parseApiDate(v) : null;
+      if (!d || isNaN(d.getTime())) return UNAVAILABLE;
+      times.push(d.toISOString());
     }
     const tokens = o.tokensSpent ?? null;
     if (tokens !== null && (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens < 0)) {

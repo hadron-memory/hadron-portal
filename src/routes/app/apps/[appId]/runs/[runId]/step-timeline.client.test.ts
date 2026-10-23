@@ -35,8 +35,8 @@ const baseRun = () => ({
   ...runOver,
 });
 const hop = (over: Record<string, unknown> = {}) => ({
-  node: CLASSIFY, edgeOut: 'hrn:edge:acme.com:flows:classify-to-reply',
-  startedAt: '2026-10-01T10:00:00.000Z', finishedAt: '2026-10-01T10:00:02.000Z',
+  node: CLASSIFY, edgeOut: 'to-reply',
+  startedAt: 1790848800000, finishedAt: 1790848802000,
   tokensSpent: 1200, ...over,
 });
 
@@ -79,17 +79,27 @@ const text = (m: Mounted<Record<string, unknown>>) => m.target.textContent ?? ''
 
 describe('run step timeline (portal#482)', () => {
   it('renders one row per completed hop, in order, with duration, tokens and the edge taken FROM it', async () => {
-    hopsAnswer = [hop(), hop({ node: REPLY, edgeOut: null, tokensSpent: 0, finishedAt: '2026-10-01T10:00:05.000Z', startedAt: '2026-10-01T10:00:03.000Z' })];
+    hopsAnswer = [hop(), hop({ node: REPLY, edgeOut: null, tokensSpent: 0, finishedAt: 1790848805000, startedAt: 1790848803000 })];
     const m = await mountPage();
     const r = rows(m);
     expect(r).toHaveLength(2);
     expect(r[0].textContent).toContain('classify');
     expect(r[0].textContent).toContain('1,200');
     expect(r[0].textContent).toContain('2s');
-    expect(r[0].textContent).toContain('classify-to-reply');
+    expect(r[0].textContent).toContain('to-reply');
     expect(r[1].textContent).toContain('reply');
-    expect(r[1].textContent).not.toContain('classify-to-reply');
+    expect(r[1].textContent).not.toContain('to-reply');
     expect(r[1].textContent).toMatch(/\b0\b/);
+  });
+
+  it('the edge is a routing NAME: shown as plain escaped text, never as an invented URN with copy controls', async () => {
+    hopsAnswer = [hop({ edgeOut: '<b>next</b>' })];
+    const m = await mountPage();
+    const edge = rows(m)[0].querySelector('[data-testid="hop-edge"]');
+    expect(edge?.textContent).toBe('<b>next</b>');
+    expect(edge?.querySelector('b')).toBeNull();
+    expect(rows(m)[0].textContent).not.toContain('hrn:edge');
+    expect(rows(m)[0].querySelectorAll('button')).toHaveLength(2); // the step's own copy URN / URL only
   });
 
   it('null tokens read as unknown, not 0', async () => {
@@ -128,7 +138,7 @@ describe('run step timeline (portal#482)', () => {
 
   it('a RUNNING run shows its current position apart from the rows; the last completed row is not marked live', async () => {
     runOver = { status: 'RUNNING', curNodeUrn: CURRENT, finishedAt: null };
-    hopsAnswer = [hop({ edgeOut: 'hrn:edge:acme.com:flows:classify-to-next' })];
+    hopsAnswer = [hop({ edgeOut: 'next' })];
     const m = await mountPage();
     expect(rows(m)).toHaveLength(1);
     expect(rows(m)[0].textContent).not.toContain('summarise');
