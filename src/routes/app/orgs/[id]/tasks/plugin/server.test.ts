@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
 import { ClientError } from 'graphql-request';
+import { GraphQLError } from 'graphql';
 import * as taskMemories from '$lib/server/org-task-memories';
 import {
   CREATE_SCOPE_MUTATION,
@@ -359,7 +360,7 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
 
 describe('#1077 scope refusals and cleanup', () => {
   const providerError = (code: string) => new ClientError(
-    { status: 200, errors: [{ message: 'provider refusal', extensions: { code } }] },
+    { status: 200, headers: new Headers(), body: '', errors: [new GraphQLError('provider refusal', { extensions: { code } })] },
     { query: CREATE_SCOPE_MUTATION },
   );
 
