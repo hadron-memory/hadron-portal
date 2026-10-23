@@ -7,6 +7,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import JSZip from 'jszip';
+import { ClientError } from 'graphql-request';
+import * as taskMemories from '$lib/server/org-task-memories';
 import {
   CREATE_SCOPE_MUTATION,
   DELETE_SCOPE_MUTATION,
@@ -20,6 +22,7 @@ const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   mockRequest.mockReset();
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
@@ -50,17 +53,21 @@ function route(opts: {
   unrecognized?: unknown[];
   scopeThrows?: boolean;
   deleteThrows?: boolean;
+  scopeError?: unknown;
+  deleteFalse?: boolean;
+  orgId?: string;
 }) {
   mockRequest.mockImplementation(async (query: string, vars?: Record<string, unknown>) => {
     // Spec 049: EXPORT refuses `memories`, even an empty list — the org's memory
     // set travels as a persisted scope, created for the call and deleted after.
     if (query === CREATE_SCOPE_MUTATION) {
       if (opts.scopeThrows) throw new Error('scope boom');
+      if (opts.scopeError) throw opts.scopeError;
       return { createScope: { id: 'scope-1' } };
     }
     if (query === DELETE_SCOPE_MUTATION) {
       if (opts.deleteThrows) throw new Error('delete boom');
-      return { deleteScope: true };
+      return { deleteScope: !opts.deleteFalse };
     }
     if (query === ORG_SYSTEM_MEMORY_IDS_QUERY) {
       if (opts.systemThrow) throw new Error('system boom');
@@ -72,7 +79,7 @@ function route(opts: {
       return { skillPlan: { entries: opts.otherEntries ?? [] } };
     }
     if (query === ORG_SKILL_BUNDLE_QUERY) {
-      return { organization: { id: 'org-1', name: 'Acme', memories: opts.memories ?? [{ id: 'mem-1' }] } };
+      return { organization: { id: opts.orgId ?? 'org-1', name: 'Acme', memories: opts.memories ?? [{ id: 'mem-1' }] } };
     }
     if (query === SKILL_PLAN_EXPORT_QUERY) {
       if (opts.planThrows) throw new Error('boom');
@@ -346,5 +353,65 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
     // Structure, not a substring of the whole document: the field must sit
     // inside skillPlan's selection with keyCount beneath it.
     expect(doc).toMatch(/skillPlan\([^)]*\)\s*\{[^]*?\bunrecognized\s*\{[^}]*\bkeyCount\b/);
+  });
+});
+
+
+describe('#1077 scope refusals and cleanup', () => {
+  const providerError = (code: string) => new ClientError(
+    { status: 200, errors: [{ message: 'provider refusal', extensions: { code } }] },
+    { query: CREATE_SCOPE_MUTATION },
+  );
+
+  it('maps only provider FORBIDDEN to scope-forbidden and never starts either plan', async () => {
+    route({ scopeError: providerError('FORBIDDEN') });
+    expect(await post({ host: 'codexSkill' })).toEqual({ status: 403, body: { code: 'scope-forbidden' } });
+    for (const query of [SKILL_PLAN_EXPORT_QUERY, SKILL_PLAN_STATUS_QUERY, DELETE_SCOPE_MUTATION]) {
+      expect(mockRequest.mock.calls.filter(([q]) => q === query)).toHaveLength(0);
+    }
+  });
+
+  it.each(['INTERNAL_SERVER_ERROR', 'NOT_FOUND', 'PERMISSION_DENIED'])('keeps provider %s as plan-failed/502', async (code) => {
+    route({ scopeError: providerError(code) });
+    const r = await post({ host: 'codexSkill' });
+    expect(r.status).toBe(502);
+    expect(r.body.code).toBe('plan-failed');
+  });
+
+  it('does not infer FORBIDDEN from transport error text', async () => {
+    route({ scopeError: new Error('FORBIDDEN') });
+    const r = await post({ host: 'codexSkill' });
+    expect(r.status).toBe(502);
+    expect(r.body.code).toBe('plan-failed');
+  });
+
+  it('logs a false delete result safely while still delivering the archive', async () => {
+    route({ entries: [entry()], deleteFalse: true });
+    const r = await post({ host: 'codexSkill' });
+    expect(r.status).toBe(200);
+    expect(r.body.zipBase64).toBeTruthy();
+    expect(console.error).toHaveBeenCalledWith('[org tasks] deleteScope failed');
+    expect(vi.mocked(console.error).mock.calls).toEqual([['[org tasks] deleteScope failed']]);
+  });
+
+  it('does not log cleanup error payloads', async () => {
+    route({ entries: [entry()], deleteThrows: true });
+    expect((await post({ host: 'codexSkill' })).status).toBe(200);
+    expect(vi.mocked(console.error).mock.calls).toEqual([['[org tasks] deleteScope failed']]);
+  });
+
+  it('prefers the resolved org id over a differently spelled route ref', async () => {
+    route({ orgId: 'resolved-org-id' });
+    await post({ host: 'codexSkill' });
+    expect(mockRequest.mock.calls.find(([q]) => q === CREATE_SCOPE_MUTATION)?.[1]).toMatchObject({ input: { organizationRef: 'resolved-org-id' } });
+  });
+
+  it('pins params fallback at the helper boundary when org is null', async () => {
+    route({});
+    // The real helper refuses absent orgs before scope creation; exercise the
+    // defensive fallback without inventing an illegal GraphQL response.
+    vi.spyOn(taskMemories, 'orgTaskMemoryIds').mockResolvedValueOnce({ ids: ['mem-1'], org: null, systemFailed: false });
+    await post({ host: 'codexSkill' });
+    expect(mockRequest.mock.calls.find(([q]) => q === CREATE_SCOPE_MUTATION)?.[1]).toMatchObject({ input: { organizationRef: 'org-1' } });
   });
 });
