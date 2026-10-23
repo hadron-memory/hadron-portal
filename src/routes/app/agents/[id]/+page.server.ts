@@ -129,6 +129,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }>;
   };
 
+  // A failed Apps read is not an empty list: the Apps tab says it could not load.
+  let installedAppsError = false;
+  const appsReadFailed = () => {
+    installedAppsError = true;
+    return [] as AgentAppLite[];
+  };
+
   const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, bootPointer, canManageAgent] = await Promise.all([
     allMemoryIds.length > 0
       ? drainFindNodes<{ node: MemoryNode }>(
@@ -149,13 +156,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       ownerType: 'AGENT', ownerId: agent.id,
     }).catch(() => null),
     // Apps this agent is installed into (member-scoped, all caller orgs).
-    // Non-fatal: on failure the Apps tab just shows none.
-    fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
+    // Non-fatal: a failure flags `installedAppsError` instead of reading as none.
+    fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps').catch(appsReadFailed),
     // …plus the caller's OWN org-less apps. `apps()` routes on org membership,
     // so a user-owned App is only reachable through filter.ownedByMe (#782) —
     // without this a personal team App showed neither in the Apps tab nor in
     // Bundled agents, though createTeamPersona supports one (#714 review).
-    fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
+    fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps').catch(appsReadFailed),
     // #642: the caller's OWN personal memories, offered as "Add memory" options
     // for a personal agent. Gated on `!org && visibility !== 'PUBLIC'`, which
     // means the caller OWNS a non-PUBLIC org-less agent: agent(ref:) only returns
@@ -336,6 +343,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     agentNodes,
     agentNodesError,
     installedApps,
+    installedAppsError,
     bundledAgents,
     bundleCandidates,
     bundleCandidatesError,
