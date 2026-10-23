@@ -8,8 +8,8 @@ import { once } from 'node:events';
 import { mkdtemp, rm, readFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { createServer } from 'vite';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createServer as createHttpServer } from 'node:http';
 import { chromium } from 'playwright';
 
 const portal = fileURLToPath(new URL('../', import.meta.url));
@@ -32,7 +32,7 @@ const env = {
   GRAPHS_PATH: resolve(scratch, 'graphs'), HADRON_E2E_SERVER_DIR: serverRoot,
   EMBEDDING_API_URL: '', NATS_URL: '', RESEND_API_KEY: '', FRONTEND_URL: '',
 };
-let fixture, vite, browser, context, page, created = false, stage = 'setup';
+let fixture, portalServer, browser, context, page, created = false, stage = 'setup';
 const savedConsole = Object.fromEntries(['log','info','warn','error','debug'].map(k=>[k,console[k]]));
 
 const commandChildren = new Set();
@@ -52,7 +52,7 @@ async function cleanup() {
     await page?.evaluate(() => navigator.clipboard.writeText('')).catch(() => {});
     await context?.close().catch(() => {});
     await browser?.close().catch(() => {});
-    await vite?.close().catch(() => {});
+    if (portalServer) await new Promise((done) => portalServer.close(done));
     if (fixture?.connected) {
       fixture.send('cleanup');
       await Promise.race([once(fixture, 'exit'), new Promise((r) => setTimeout(r, 3000))]);
@@ -114,27 +114,38 @@ try {
   process.env.LOCAL_SERVER_URL = ready.origin;
   // Product error logs may contain GraphQL request headers. Do not emit them.
   for (const key of Object.keys(savedConsole)) console[key] = () => {};
-  vite = await createServer({ root: portal, envDir: scratch, server: { host: '127.0.0.1', port: 0 }, logLevel: 'silent' });
-  await vite.listen();
-  const origin = vite.resolvedUrls.local[0];
+  // Bind first so ORIGIN is exact before adapter-node snapshots its config.
+  // Without it adapter-node defaults to https and rejects our HTTP form Origin.
+  let portalHandler;
+  portalServer = createHttpServer((req, res) => portalHandler(req, res));
+  await new Promise((done) => portalServer.listen(0, '127.0.0.1', done));
+  const origin = `http://127.0.0.1:${portalServer.address().port}/`;
+  process.env.ORIGIN = origin.slice(0, -1);
+  ({ handler: portalHandler } = await import(pathToFileURL(resolve(portal, 'build/handler.js')).href));
   browser = await chromium.launch({ headless: true });
   context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   await context.addCookies([{ name: 'hadron_token', value: ready.token, url: origin, httpOnly: true, sameSite: 'Lax' }]);
-  page = await context.newPage(); page.setDefaultTimeout(15_000);
-  stage = 'authenticated page';
+  page = await context.newPage();
+  page.setDefaultTimeout(60_000);
+  stage = 'authenticated page navigation';
   await page.goto(`${origin}app/account/api-keys`);
+  assert.equal(new URL(page.url()).pathname, '/app/account/api-keys', 'Fixture session did not reach account page');
+  stage = 'authenticated page hydration';
   await page.waitForLoadState('networkidle');
+  stage = 'mint form readiness';
   await page.locator('form[action="?/create"] input[name="label"]').fill('synthetic-key-chain');
   stage = 'mint and reveal';
   await page.locator('form[action="?/create"] button[type="submit"]').click();
+  stage = 'raw reveal visibility';
   const reveal = page.getByTestId('raw-key-reveal'); await reveal.waitFor();
+  stage = 'raw reveal format';
   // Secret values stay only in memory. Assertions never compare/dump the values.
   const raw = await reveal.locator('code').textContent();
   assert.ok(raw?.startsWith('hdr_user_'), 'Raw reveal missing');
   stage = 'copy raw reveal';
   await page.waitForLoadState('networkidle');
   await page.getByTestId('raw-key-copy').click();
-  await page.getByTestId('raw-key-copy').filter({hasText:'Copied'}).waitFor();
+  await page.getByTestId('raw-key-copy').filter({hasText:'Copied'}).waitFor({ timeout: 10_000 });
   assert.ok(await page.evaluate((value) => navigator.clipboard.readText().then((v) => v === value), raw), 'Copy did not use raw reveal');
   stage = 'authenticated MCP operation';
   const initialized = await rpc(ready.origin, raw, 'initialize', init);

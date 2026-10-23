@@ -8,12 +8,12 @@ No route interception or mocked mint/revoke response is used.
 ## Run
 
 1. Check out hadron-server at the exact commit in `server-revision.txt` into a
-   separate directory. Install its locked dependencies and generate its Prisma
+   separate directory outside the portal source tree. Install its locked dependencies and generate its Prisma
    client (`pnpm install --frozen-lockfile`, `pnpm db:generate`).
 2. Have local Postgres with pgvector available and a role allowed to create/drop
    databases. Set `HADRON_E2E_DATABASE_URL` to its maintenance database URL (only
    loopback endpoints are accepted). No application database is read or reused.
-3. Install portal dependencies, run `pnpm exec svelte-kit sync`, and install
+3. Install portal dependencies, run `pnpm build`, and install
    Chromium (`pnpm exec playwright install chromium`).
 4. Run `HADRON_E2E_SERVER_DIR=/absolute/server/checkout pnpm test:api-key-chain`.
 
@@ -37,7 +37,7 @@ executes `hadron_whoami`. It then opens the row menu, confirms Revoke, verifies 
 **new** MCP initialize request returns 401, checks the revoked row, and verifies
 reload removes the raw reveal. Existing-session revocation is outside this test.
 
-The test starts Vite and the backend on ephemeral loopback ports. Backend
+The test starts the production adapter-node handler and the backend on ephemeral loopback ports. Backend
 service/provider environment is a clean allowlist; external fetch is rejected.
 There are no real-provider calls, tunnels, production users or keys.
 
