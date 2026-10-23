@@ -102,6 +102,17 @@ describe('run step timeline (portal#482)', () => {
     expect(rows(m)[0].querySelectorAll('button')).toHaveLength(2); // the step's own copy URN / URL only
   });
 
+  it('a long unbroken routing name wraps inside its cell instead of widening the page (UX P2)', async () => {
+    hopsAnswer = [hop({ edgeOut: 'x'.repeat(60) })];
+    const m = await mountPage();
+    const edge = rows(m)[0].querySelector('[data-testid="hop-edge"]') as HTMLElement;
+    // jsdom has no layout, so pin the three things that bound it: the cell may
+    // shrink (min-w-0), the text may break anywhere, and the row clips nothing.
+    expect(edge.className).toContain('[overflow-wrap:anywhere]');
+    expect(edge.parentElement?.className).toContain('min-w-0');
+    expect(edge.parentElement?.parentElement?.className).toContain('min-w-0');
+  });
+
   it('null tokens read as unknown, not 0', async () => {
     hopsAnswer = [hop({ tokensSpent: null, edgeOut: null })];
     const m = await mountPage();

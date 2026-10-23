@@ -228,10 +228,10 @@
                 <dt class={rowLabel}>{t('run.timeline.tokens', 'Tokens')}</dt>
                 <dd class={rowValue}>{fmtHopTokens(hop.tokensSpent)}</dd>
               </div>
-              <div>
+              <div class="min-w-0">
                 <dt class={rowLabel}>{t('run.timeline.edge-out', 'Edge taken next')}</dt>
-                <dd class={rowValue}>
-                  {#if hop.edgeOut}<span data-testid="hop-edge" class="font-mono">{hop.edgeOut}</span>{:else}—{/if}
+                <dd class="{rowValue} min-w-0">
+                  {#if hop.edgeOut}<span data-testid="hop-edge" class="font-mono [overflow-wrap:anywhere]">{hop.edgeOut}</span>{:else}—{/if}
                 </dd>
               </div>
             </dl>
