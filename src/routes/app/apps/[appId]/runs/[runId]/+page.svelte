@@ -14,7 +14,11 @@
     failureCode,
     failureMessage,
     fmtRunTime,
+    fmtHopDuration,
+    fmtHopTokens,
     isCancellable,
+    parseHops,
+    type RunTrail,
     runDuration,
     statusChipClass,
     visibleEnvelope,
@@ -36,6 +40,18 @@
   const live = $derived(isCancellable(run.status));
   const envelope = $derived(visibleEnvelope(data.envelope));
   const eventDataShown = $derived(visibleEnvelope(run.eventData));
+  // #482: the trail belongs to the run it was read for. A trail stamped for any
+  // other run (a poll answered after navigation) is never shown on this one.
+  const trail = $derived<RunTrail>(
+    data.trail.runId === run.id && data.trail.supported ? parseHops(data.trail.raw) : { state: 'unavailable' },
+  );
+  // The step in flight / the step that failed has NO hops element (only completed
+  // hops are recorded), so it is shown apart from the rows, never as one.
+  const stoppedLabel = $derived(
+    run.status === 'FAILED' ? t('run.timeline.failed-at', 'Failed at')
+      : run.status === 'TIMED_OUT' ? t('run.timeline.timed-out-at', 'Timed out at')
+      : null,
+  );
   const recordUrn = $derived(run.status === 'COMPLETED' ? defaultRunRecordUrn(run) : null);
   const initialCancelForm = untrack(() => submittedForm<CancelAppRunForm>(form, 'cancelRun') as CancelAppRunSuperform | null ?? data.cancelForm);
   const {
@@ -184,6 +200,52 @@
       <pre class="mt-3 overflow-x-auto rounded-lg bg-white/60 p-3 font-mono text-xs text-red-900 dark:bg-black/30 dark:text-red-200">{JSON.stringify(run.failure, null, 2)}</pre>
     </section>
   {/if}
+
+  <!-- Step timeline: the completed hops (#482) -->
+  <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="run-timeline-heading">
+    <h2 id="run-timeline-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('run.timeline', 'Step timeline')}</h2>
+    <p class="mt-1 text-xs text-zinc-400">
+      {t('run.timeline.hint', 'Steps the run has completed, in order. The step in progress, or the one that failed, is not listed until it completes.')}
+    </p>
+    {#if trail.state === 'unavailable'}
+      <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('run.timeline.unavailable', 'Step trail unavailable for this run.')}</p>
+    {:else if trail.hops.length === 0}
+      <p class="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{t('run.timeline.empty', 'No completed steps recorded.')}</p>
+    {:else}
+      <ol class="mt-3 space-y-2">
+        {#each trail.hops as hop, i (i)}
+          <li data-testid="hop-row" class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span class="text-xs font-semibold text-zinc-500">{i + 1}</span>
+              <Urn value={hop.node} type="node" size={11} label={t('run.timeline.step', 'step')} />
+            </div>
+            <dl class="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+              <div>
+                <dt class={rowLabel}>{t('run.timeline.duration', 'Duration')}</dt>
+                <dd class={rowValue}>{fmtHopDuration(hop.startedAt, hop.finishedAt)}</dd>
+              </div>
+              <div>
+                <dt class={rowLabel}>{t('run.timeline.tokens', 'Tokens')}</dt>
+                <dd class={rowValue}>{fmtHopTokens(hop.tokensSpent)}</dd>
+              </div>
+              <div>
+                <dt class={rowLabel}>{t('run.timeline.edge-out', 'Edge taken next')}</dt>
+                <dd class={rowValue}>
+                  {#if hop.edgeOut}<Urn value={hop.edgeOut} type="edge" size={11} copyUrl={false} label={t('run.timeline.edge', 'edge')} />{:else}—{/if}
+                </dd>
+              </div>
+            </dl>
+          </li>
+        {/each}
+      </ol>
+    {/if}
+    {#if run.curNodeUrn && (live || stoppedLabel)}
+      <div data-testid="timeline-current" class="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+        <p class={rowLabel}>{live ? t('run.timeline.in-progress-at', 'In progress at') : stoppedLabel}</p>
+        <div class="mt-0.5"><Urn value={run.curNodeUrn} type="node" size={11} /></div>
+      </div>
+    {/if}
+  </section>
 
   <!-- Envelope: what the flow extracted -->
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

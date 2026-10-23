@@ -4,7 +4,7 @@
  * hadron-server#534 (where selecting AppRun.data errors the whole query).
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AGENT_TASKS_APP_QUERY, APP_QUERY, APP_RUN_QUERY, APP_RUN_ENVELOPE_QUERY, CANCEL_APP_RUN_MUTATION } from '$lib/server/queries';
+import { AGENT_TASKS_APP_QUERY, APP_QUERY, APP_RUN_QUERY, APP_RUN_ENVELOPE_QUERY, APP_RUN_HOPS_QUERY, CANCEL_APP_RUN_MUTATION } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -59,13 +59,17 @@ const run = {
   createdAt: '900',
 };
 
-function routeByQuery(opts: { envelope?: unknown; envelopeError?: boolean; run?: unknown }) {
+function routeByQuery(opts: { envelope?: unknown; envelopeError?: boolean; run?: unknown; hops?: unknown; hopsError?: boolean; hopsRunId?: string }) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
     if (query === APP_RUN_QUERY) return { appRun: 'run' in opts ? opts.run : run };
     if (query === APP_RUN_ENVELOPE_QUERY) {
       if (opts.envelopeError) throw new Error('Cannot query field "data" on type "AppRun".');
       return { appRun: { id: 'run-1', data: opts.envelope ?? null } };
+    }
+    if (query === APP_RUN_HOPS_QUERY) {
+      if (opts.hopsError) throw new Error('Cannot query field "hops" on type "AppRun".');
+      return { appRun: { id: opts.hopsRunId ?? 'run-1', hops: 'hops' in opts ? opts.hops : null } };
     }
     throw new Error(`unexpected query: ${query.slice(0, 60)}`);
   });
@@ -120,6 +124,26 @@ describe('run detail load', () => {
     expect(result.run).toMatchObject({ id: 'run-1' });
     expect(result.envelope).toBeNull();
     expect(result.envelopeSupported).toBe(false);
+  });
+
+  it('returns the hops trail pinned to the run it was read for (#482)', async () => {
+    const hops = [{ node: 'hrn:node:acme.com:flows:classify', edgeOut: null, startedAt: null, finishedAt: null, tokensSpent: 0 }];
+    routeByQuery({ hops });
+    const result = (await runLoad()) as { trail: { runId: string; supported: boolean; raw: unknown } };
+    expect(result.trail).toEqual({ runId: 'run-1', supported: true, raw: hops });
+  });
+
+  it('a server without AppRun.hops degrades the trail to unsupported instead of erroring (#482)', async () => {
+    routeByQuery({ hopsError: true });
+    const result = (await runLoad()) as { run: unknown; trail: { runId: string; supported: boolean; raw: unknown } };
+    expect(result.run).toMatchObject({ id: 'run-1' });
+    expect(result.trail).toEqual({ runId: 'run-1', supported: false, raw: null });
+  });
+
+  it('a trail answered for a DIFFERENT run is never attached to this one (#482)', async () => {
+    routeByQuery({ hops: [], hopsRunId: 'run-OTHER' });
+    const result = (await runLoad()) as { trail: { runId: string; supported: boolean; raw: unknown } };
+    expect(result.trail).toEqual({ runId: 'run-1', supported: true, raw: null });
   });
 
   it('redirects a wrong-app URL to the run’s canonical (org-independent) page', async () => {

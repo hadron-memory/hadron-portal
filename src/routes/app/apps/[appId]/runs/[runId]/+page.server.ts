@@ -6,6 +6,7 @@ import { extractGqlError } from '$lib/server/gqlError';
 import {
   APP_RUN_QUERY,
   APP_RUN_ENVELOPE_QUERY,
+  APP_RUN_HOPS_QUERY,
   CANCEL_APP_RUN_MUTATION,
 } from '$lib/server/queries';
 import type { AppRun } from '$lib/flow/runs';
@@ -61,9 +62,25 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     console.warn(`[run-detail] envelope fetch failed for ${params.runId} (server without #534?):`, e);
   }
 
+  // The completed-hops trail (hadron-server#538, #482): same degrade-don't-break
+  // shape as the envelope. The result is stamped with the run it was read for so
+  // the page can refuse a late or stale answer; an answer naming another run is
+  // dropped to "no trail" rather than attached to this one.
+  let trail: { runId: string; supported: boolean; raw: unknown } = { runId: run.id, supported: true, raw: null };
+  try {
+    const res = await client.request<{ appRun: { id: string; hops: unknown } | null }>(
+      APP_RUN_HOPS_QUERY,
+      { ref: params.runId },
+    );
+    trail = { runId: run.id, supported: true, raw: res.appRun?.id === run.id ? (res.appRun.hops ?? null) : null };
+  } catch (e) {
+    trail = { runId: run.id, supported: false, raw: null };
+    console.warn(`[run-detail] hops fetch failed for ${params.runId} (server without #538?):`, e);
+  }
+
   const cancelForm = await superValidate(zod4(cancelAppRunSchema), { errors: false });
 
-  return { app, run, envelope, envelopeSupported, cancelForm };
+  return { app, run, envelope, envelopeSupported, trail, cancelForm };
 };
 
 export const actions: Actions = {

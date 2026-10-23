@@ -149,3 +149,61 @@ export function visibleEnvelope(data: Record<string, unknown> | null | undefined
   const entries = Object.entries(data).filter(([k]) => !k.startsWith('__'));
   return entries.length > 0 ? Object.fromEntries(entries) : null;
 }
+
+/**
+ * One COMPLETED hop of AppRun.hops (#482 / hadron-server#538). `edgeOut` is the
+ * routing edge taken FROM this hop (null on the last); a hop that failed
+ * mid-execution has no element, so the failed/current step is never in the
+ * trail — it is `curNodeUrn` plus `failure`.
+ */
+export interface RunHop {
+  node: string;
+  edgeOut: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  /** null = unknown (the server recorded nothing); 0 is a real zero. */
+  tokensSpent: number | null;
+}
+
+export type RunTrail = { state: 'ready'; hops: RunHop[] } | { state: 'unavailable' };
+
+const UNAVAILABLE: RunTrail = { state: 'unavailable' };
+
+/**
+ * Validate the untyped `hops` JSON. Absent, non-array, or ANY malformed element
+ * makes the whole trail unavailable: a partial trail would silently drop steps,
+ * and an invented zero-hop trail reads as "the run did nothing".
+ */
+export function parseHops(raw: unknown): RunTrail {
+  if (!Array.isArray(raw)) return UNAVAILABLE;
+  const hops: RunHop[] = [];
+  for (const el of raw) {
+    if (!el || typeof el !== 'object' || Array.isArray(el)) return UNAVAILABLE;
+    const o = el as Record<string, unknown>;
+    if (typeof o.node !== 'string' || o.node === '') return UNAVAILABLE;
+    const edgeOut = o.edgeOut ?? null;
+    if (edgeOut !== null && typeof edgeOut !== 'string') return UNAVAILABLE;
+    const times: Array<string | null> = [];
+    for (const key of ['startedAt', 'finishedAt'] as const) {
+      const v = o[key] ?? null;
+      if (v !== null && (typeof v !== 'string' || !parseApiDate(v))) return UNAVAILABLE;
+      times.push(v);
+    }
+    const tokens = o.tokensSpent ?? null;
+    if (tokens !== null && (typeof tokens !== 'number' || !Number.isFinite(tokens) || tokens < 0)) {
+      return UNAVAILABLE;
+    }
+    hops.push({ node: o.node, edgeOut: edgeOut as string | null, startedAt: times[0], finishedAt: times[1], tokensSpent: tokens });
+  }
+  return { state: 'ready', hops };
+}
+
+/** Token count with thousands separators (pinned locale); em-dash when unknown. */
+export function fmtHopTokens(n: number | null): string {
+  return n === null ? '—' : n.toLocaleString('en-US');
+}
+
+/** Duration of one hop; em-dash when either time is missing or the order is impossible. */
+export function fmtHopDuration(startedAt: string | null, finishedAt: string | null): string {
+  return runDuration({ startedAt, finishedAt });
+}
