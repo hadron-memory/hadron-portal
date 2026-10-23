@@ -189,3 +189,10 @@ export const removeAppMemberSchema = z.object({
   userId: z.string().trim().min(1, 'User is required.').prefault(''),
 });
 
+
+// #1023: exact requester attestation, not boolean coercion or a default.
+export const deleteWorkerSchema = z.object({
+  _kind: z.literal('deleteWorker'),
+  workerRef: z.string().trim().min(1, 'Worker is required.'),
+  confirmation: z.literal('verified-no-external-attribution'),
+});

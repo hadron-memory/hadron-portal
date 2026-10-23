@@ -1,4 +1,5 @@
 <script lang="ts">
+  import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
@@ -439,6 +440,9 @@
     unpauseForm?.requestSubmit();
   }
   const workerNameOf = (id: string) => (staff ?? []).find((w) => w.id === id)?.name ?? '';
+  let deleteWorkerTarget = $state<Worker | null>(null);
+  $effect(() => { app.id; deleteWorkerTarget = null; });
+
   function workerActions(worker: Worker): NodeMenuAction[] {
     const hold = workerHold(worker, data.user?.id);
     const active = !worker.retiredAt;
@@ -467,10 +471,13 @@
           }]
         : []),
       ...(active ? [{ id: 'retire', label: t('app.staff.retire', 'Retire'), danger: true }] : []),
+      { id: 'delete-unused', label: t('app.staff.delete.action', 'Delete verified-unused worker'), danger: true },
     ];
   }
   function onWorkerAction(id: string, worker: Worker) {
-    if (id === 'pause') {
+    if (id === 'delete-unused') {
+      deleteWorkerTarget = worker;
+    } else if (id === 'pause') {
       openPause(worker);
     } else if (id === 'unpause') {
       void unpauseWorker(worker.id);
@@ -3119,3 +3126,10 @@
     </div>
   {/if}
 </div>
+
+
+{#if deleteWorkerTarget}
+  {#key deleteWorkerTarget.id}
+    <WorkerDeleteDialog worker={{ id: deleteWorkerTarget.id, name: deleteWorkerTarget.name, urn: deleteWorkerTarget.urn ?? null }} onclose={() => { deleteWorkerTarget = null; }} />
+  {/key}
+{/if}
