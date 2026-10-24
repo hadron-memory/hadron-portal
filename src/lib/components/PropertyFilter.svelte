@@ -6,11 +6,12 @@
 
   interface Props { collection: MemorySchemaObjectType | null; value?: string }
   let { collection, value = $bindable('') }: Props = $props();
-  let mode = $state<'fields' | 'advanced'>('fields');
-  let field = $state('');
-  let operator = $state('eq');
-  let input = $state('');
-  let advanced = $state('');
+  const initial = untrack(() => readPropertyFilter(collection, value));
+  let mode = $state<'fields' | 'advanced'>(initial ? 'fields' : 'advanced');
+  let field = $state(initial?.field ?? '');
+  let operator = $state(initial?.operator ?? 'eq');
+  let input = $state(initial?.input ?? '');
+  let advanced = $state(untrack(() => value));
   let dirty = $state(false);
   const basicAvailable = $derived(!!collection && readPropertyFilter(collection, value) !== null);
   const declaration = $derived(collection && Object.hasOwn(collection.fields, field) ? collection.fields[field] : null);
@@ -71,11 +72,11 @@
 <div class="space-y-2" data-testid="property-filter">
   <div class="flex flex-wrap gap-2" role="group" aria-label={t('property-filter.mode', 'Filter editor')}>
     <button type="button" aria-pressed={mode === 'fields'} disabled={dirty || !basicAvailable}
-      onclick={() => switchMode('fields')} class="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-zinc-700">
+      onclick={() => switchMode('fields')} class="rounded border border-zinc-300 px-2 py-1 text-xs aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-900 disabled:opacity-50 dark:border-zinc-700 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200">
       {t('property-filter.fields', 'Fields')}
     </button>
     <button type="button" aria-pressed={mode === 'advanced'} disabled={dirty}
-      onclick={() => switchMode('advanced')} class="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-zinc-700">
+      onclick={() => switchMode('advanced')} class="rounded border border-zinc-300 px-2 py-1 text-xs aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-900 disabled:opacity-50 dark:border-zinc-700 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200">
       {t('property-filter.advanced', 'Advanced JSON')}
     </button>
   </div>
@@ -121,7 +122,7 @@
     {#if !canApply}
       <p role="status" class="text-xs text-zinc-500 dark:text-zinc-400">{!declaration
         ? t('property-filter.field-required', 'Choose a field before applying a filter.')
-        : t('property-filter.value-invalid', 'Enter a valid {type} value before applying.', { type: declaration.type })}</p>
+        : t('property-filter.value-invalid', 'Choose or enter a valid value before applying.')}</p>
     {/if}
   {:else}
     <label for="structured-where" class="block text-xs text-zinc-600 dark:text-zinc-400">{t('property-filter.raw-label', 'Filter JSON')}</label>
