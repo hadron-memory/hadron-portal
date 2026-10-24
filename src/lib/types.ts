@@ -669,6 +669,10 @@ export interface MemoryNode {
   alias: string | null;
   description: string | null;
   abstract: string | null;
+  /** #257: optional because only the node-detail query selects embedding state. */
+  embeddingPendingAt?: string | null;
+  embeddingFailedAt?: string | null;
+  embeddingError?: string | null;
   content: string | null;
   tokens: number | null;
   tags: string[];
