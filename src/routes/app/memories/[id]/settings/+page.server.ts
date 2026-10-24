@@ -169,7 +169,17 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
         acknowledgeVectorInversionRisk: false,
       },
       vectorIndexSettingsFormAdapter,
-      { errors: false },
+      // #1255: a STABLE, memory-bound id on both sides (load and action).
+      // Without one, superValidate defaults the id to '' and this form
+      // matches EVERY unstamped form's data and results — a sibling save's
+      // invalidateAll rebinds it from page.data (discarding an unsaved
+      // draft, taint notwithstanding) and a sibling's ActionResult rebinds
+      // it with the sibling's form data. Paired with applyAction:'never' on
+      // the client (see +page.svelte): own results still match and apply;
+      // nothing else touches the form. Same recipe as the marketplace card
+      // (#1248), arrived at from the opposite direction — the card had a
+      // stable id and no opt-out; this form had neither.
+      { errors: false, id: `updateVectorIndex:${params.id}` },
     ),
     superValidate<MarketplaceListingForm>(
       { listedOnMarketplace: graph.listedOnMarketplace ?? false },
@@ -189,7 +199,8 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
     superValidate<MemorySchemaSettingsForm>(
       { schemaJson: graph.schema != null ? JSON.stringify(graph.schema, null, 2) : '' },
       memorySchemaSettingsFormAdapter,
-      { errors: false },
+      // #1255: same memory-bound id discipline as the vector form above.
+      { errors: false, id: `updateSchema:${params.id}` },
     ),
     superValidate<DeleteMemoryForm>(
       { organizationId: graph.organizationId ?? '' },
@@ -409,6 +420,7 @@ export const actions: Actions = {
     const form = await superValidate<VectorIndexSettingsForm>(
       fd,
       vectorIndexSettingsFormAdapter,
+      { id: `updateVectorIndex:${params.id}` },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -531,6 +543,7 @@ export const actions: Actions = {
     const form = await superValidate<MemorySchemaSettingsForm>(
       await request.formData(),
       memorySchemaSettingsFormAdapter,
+      { id: `updateSchema:${params.id}` },
     );
     if (!form.valid) return fail(400, { form });
 
