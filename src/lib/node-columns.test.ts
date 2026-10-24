@@ -103,3 +103,13 @@ describe('cell text', () => {
     expect(changedByView(undefined).worker).toBeNull();
   });
 });
+
+it('Changed by preserves the human beside worker and agent; null stays unknown', () => {
+  const user = { handle: 'rae', urn: 'hrn:user:acme.com:rae' };
+  const worker = { id: 'w', name: 'George', urn: 'hrn:worker:acme.com:team:george' };
+  const agent = { id: 'a', name: 'Engineer', urn: 'hrn:agent:acme.com:engineer' };
+  expect(changedByView(row('n', { user, worker, agent }))).toMatchObject({ user, worker, agent });
+  expect(changedByView(row('n', { user })).searchText).toContain(user.urn);
+  expect(changedByView(row('n', { user: null })).user).toBeNull();
+  expect(changedByView(undefined).user).toBeNull();
+});
