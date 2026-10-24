@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cloneRefusal, eligibleCloneTargets, showCloneEntry } from './clone';
+import { eligibleCloneTargets, showCloneEntry } from './clone';
+import { cloneRefusal } from '$lib/server/clone-refusal';
 
 const org = (id: string, members: Array<[string, string]>) => ({
   id, urn: `hrn:org:x:${id}`, name: id,
