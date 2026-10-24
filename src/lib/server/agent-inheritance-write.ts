@@ -1,5 +1,7 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlError } from './gqlError';
+import { fetchOwnedAgents } from './personal-agents';
+import { APP_ORG_AGENTS_QUERY } from './queries';
 import { t } from '$lib/i18n/t';
 
 export const SELF_AGENT_MANAGE_QUERY = /* GraphQL */ `
@@ -38,6 +40,41 @@ export function indexVariables(ref: string, form: IndexWrite) {
     ...(form.processesOperation === 'keep' ? {} : { processesIndexRef: form.processesOperation === 'clear' ? null : form.processesIndexRef }),
   };
 }
+/** One row the parent-agent SelectAgent modal offers. */
+export interface BaseCandidate {
+  id: string;
+  name: string;
+  urn: string;
+  description?: string | null;
+}
+
+/**
+ * #1108: parent-agent picker candidates, already access-scoped by whichever
+ * query returns them — an org agent's parents come from the org's
+ * member-readable agent list (APP_ORG_AGENTS_QUERY), a personal agent's from
+ * the caller's own agents (MY_AGENTS_QUERY, server-side ownedByMe — never an
+ * admin-bypass surface). The picker is advisory: setAgentBase eligibility
+ * stays authoritative server-side, so this list only needs to avoid OFFERING
+ * what the caller cannot even see. Self is filtered (a cycle the server would
+ * refuse anyway). Null — not [] — on failure, so the picker says "could not
+ * load" instead of pretending there are no candidates.
+ */
+export async function loadBaseCandidates(
+  client: GraphQLClient,
+  token: string | null,
+  organizationId: string | null,
+  selfId: string,
+): Promise<BaseCandidate[] | null> {
+  try {
+    const agents: BaseCandidate[] = organizationId
+      ? (await client.request<{ organization: { agents: BaseCandidate[] } | null }>(APP_ORG_AGENTS_QUERY, { ref: organizationId })).organization?.agents ?? []
+      : await fetchOwnedAgents(token);
+    return agents.filter((a) => a.id !== selfId);
+  } catch {
+    return null;
+  }
+}
+
 export interface InheritanceManagement {
   canManage: boolean;
   refs: { extendsAgentId: string | null; tasksIndexRef: string | null; processesIndexRef: string | null } | null;

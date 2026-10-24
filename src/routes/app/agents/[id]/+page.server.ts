@@ -1,6 +1,6 @@
 import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
-import { loadInheritanceManagement, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
+import { loadInheritanceManagement, loadBaseCandidates, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
 import { loadAgentInheritance } from '$lib/server/agent-inheritance';
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
@@ -138,7 +138,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     return [] as AgentAppLite[];
   };
 
-  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, bootPointer, canManageAgent] = await Promise.all([
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, baseCandidates, bootPointer, canManageAgent] = await Promise.all([
     allMemoryIds.length > 0
       ? drainFindNodes<{ node: MemoryNode }>(
           client, GRAPH_NODES_QUERY, { memoryIds: allMemoryIds },
@@ -185,6 +185,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       .catch(() => null),
     loadAgentInheritance(client, agent.id),
     loadInheritanceManagement(client, agent.id, agent.urn, locals.user?.id ?? null, !!locals.impersonation),
+    // #1108: parent-agent picker candidates — same-scope and access-scoped
+    // (org list for an org Agent, the caller's own agents for a personal
+    // one). Null on failure: the picker degrades to a "could not load" note
+    // and never to a fake-empty list.
+    loadBaseCandidates(client, locals.token, agent.organizationId, agent.id),
     // portal#1142 S8: the Agent's boot-prompt pointer (its own read, so a
     // failure is not a null pointer), and whether to offer its form.
     readPointer(
@@ -343,7 +348,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   ]);
   return {
     extendedBy, systemMemoryIdentity,
-    inheritanceManagement, baseForm, indexRefsForm,
+    inheritanceManagement, baseCandidates, baseForm, indexRefsForm,
     inheritance,
     agent,
     org,
