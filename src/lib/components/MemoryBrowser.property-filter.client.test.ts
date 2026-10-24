@@ -36,6 +36,9 @@ function click(t: HTMLElement, label: string) {
   const b = [...t.querySelectorAll<HTMLButtonElement>('[data-testid="property-filter"] button')].find(b => b.textContent?.trim() === label);
   expect(b, label).toBeTruthy(); b!.click(); flushSync();
 }
+function discardButton(t: HTMLElement) {
+  return [...t.querySelectorAll<HTMLButtonElement>('[data-testid="property-filter"] button')].find(b => b.textContent?.trim() === 'Discard changes');
+}
 async function bodies() {
   await vi.advanceTimersByTimeAsync(400); await tick();
   return fetchMock.mock.calls.filter(([url]) => url === '/api/nodes/search').map(([, init]) => JSON.parse((init as RequestInit).body as string));
@@ -228,9 +231,12 @@ describe('#1221 review draft regressions', () => {
   it('discards invalid draft without clearing the applied predicate or sending a request', async () => {
     const { target } = browser(); filter(target); await bodies();
     click(target, 'Advanced JSON');
+    expect(discardButton(target)).toBeUndefined();
     pick(target, '#structured-where', '{');
+    expect(discardButton(target)).toBeDefined();
     const before = fetchMock.mock.calls.length;
     click(target, 'Discard changes');
+    expect(discardButton(target)).toBeUndefined();
     expect(JSON.parse((target.querySelector('#structured-where') as HTMLTextAreaElement).value)).toEqual({ path: ['enabled'], as: 'boolean', eq: false });
     expect(target.querySelector('[data-testid="property-filter"] [role="alert"]')).toBeNull();
     await bodies(); expect(fetchMock.mock.calls.length).toBe(before);
@@ -251,4 +257,42 @@ it('preserves unapplied Advanced text when an equal schema reloads', () => {
   props.memory = { id: 'mem-a', schema: JSON.parse(JSON.stringify(schema)) }; flushSync();
   expect((target.querySelector('#structured-where') as HTMLTextAreaElement).value).toBe('{');
   expect(target.querySelector('[data-testid="property-filter"] [role="alert"]')).not.toBeNull();
+});
+
+describe('#1281 schema declaration changes versus a reload of the same declarations', () => {
+  // The unapplied draft is seeded from the declarations, so only a change in
+  // what the schema declares may reseed it; the same declarations in another
+  // key order are the same schema.
+  const base = { status: { type: 'enum', values: ['draft', 'live'] }, count: { type: 'number' }, enabled: { type: 'boolean' } };
+  const withFields = (fields: Record<string, unknown>) => ({ objectTypes: { task: { fields }, other: { fields: { status: { type: 'text' } } } } });
+  function draft(field: string, value: string) {
+    const m = browser();
+    pick(m.target, '#structured-object-type', 'task');
+    pick(m.target, '[data-testid="property-filter-field"]', field);
+    pick(m.target, '[data-testid="property-filter-value"]', value);
+    return m;
+  }
+  const draftField = (t: HTMLElement) => (t.querySelector('[data-testid="property-filter-field"]') as HTMLSelectElement).value;
+  const draftValue = (t: HTMLElement) => (t.querySelector('[data-testid="property-filter-value"]') as HTMLInputElement | HTMLSelectElement).value;
+
+  it('keeps the draft when the same fields arrive in a different key order', () => {
+    const { target, props } = draft('count', '42');
+    props.memory = { id: 'mem-a', schema: withFields({ enabled: base.enabled, count: base.count, status: base.status }) }; flushSync();
+    expect(draftField(target)).toBe('count');
+    expect(draftValue(target)).toBe('42');
+  });
+
+  it.each([
+    ['an enum value order', 'status', 'live', { ...base, status: { type: 'enum', values: ['live', 'draft'] } }],
+    ['an enum value', 'status', 'live', { ...base, status: { type: 'enum', values: ['draft', 'archived'] } }],
+    ['a field type', 'count', '42', { ...base, count: { type: 'text' } }],
+    // Renames a field the draft does not use, keeping the sorted position, so the draft cannot reseed just
+    // because its own field vanished from the select.
+    ['a field name', 'count', '42', { status: base.status, count: base.count, flag: base.enabled }],
+  ])('reseeds the draft when only %s changes', (_what, field, value, fields) => {
+    const { target, props } = draft(field, value);
+    expect(draftField(target)).toBe(field);
+    props.memory = { id: 'mem-a', schema: withFields(fields) }; flushSync();
+    expect(draftField(target)).toBe('');
+  });
 });
