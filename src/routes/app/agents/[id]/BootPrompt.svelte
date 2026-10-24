@@ -9,9 +9,10 @@
 
   type Prompt = Infer<typeof bootPromptSchema, 'zod4'>;
   type PromptForm = SuperValidated<Prompt, App.Superforms.Message>;
-  let { stored, initial, submitted }: { stored: string; initial: PromptForm; submitted?: PromptForm | null } = $props();
+  let { stored, initial, submitted, canManage = null }: { stored: string; initial: PromptForm; submitted?: PromptForm | null; canManage?: boolean | null } = $props();
   const seed = untrack(() => submitted ?? initial);
-  const { form, errors, message, submitting, enhance } = superForm(seed, {
+  const { form, errors, message, submitting, enhance, reset } = superForm(seed, {
+    taintedMessage: t('agent.boot.unsaved', 'Discard your unsaved boot prompt?'),
     validators: zod4Client(bootPromptSchema), resetForm: false, clearOnSubmit: 'none',
   });
   let source = $state(untrack(() => !!submitted));
@@ -39,10 +40,12 @@
   <form hidden={!source} method="POST" action="?/updateBootPrompt" use:enhance novalidate class="space-y-3">
     <input type="hidden" name="_kind" value={$form._kind} />
     <label for="bootPromptSource" class="sr-only">{t('agent.boot.source-label', 'Boot prompt source')}</label>
-    <textarea id="bootPromptSource" name="systemPrompt" bind:value={$form.systemPrompt} rows="24" aria-invalid={!!$errors.systemPrompt?.length} aria-describedby="bootPromptHelp" class="w-full rounded-lg border border-zinc-300 bg-white p-4 font-mono text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"></textarea>
+    <textarea id="bootPromptSource" name="systemPrompt" bind:value={$form.systemPrompt} rows="24" readonly={canManage === false} aria-invalid={!!$errors.systemPrompt?.length} aria-describedby="bootPromptHelp" class="w-full rounded-lg border border-zinc-300 bg-white p-4 font-mono text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"></textarea>
     <p id="bootPromptHelp" class="text-xs text-zinc-500 dark:text-zinc-400">{t('agent.boot.help', 'Shared by chats and workers. Worker placeholders are kept as written here.')}</p>
     {#if $errors.systemPrompt?.length}<p role="alert" class="text-sm text-red-600 dark:text-red-400">{$errors.systemPrompt[0]}</p>{/if}
-    <div class="flex justify-end"><button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{$submitting ? t('agent.boot.saving', 'Saving...') : t('agent.boot.save', 'Save')}</button></div>
+    {#if canManage !== false}
+    <div class="flex justify-end gap-2"><button type="button" disabled={$submitting} onclick={() => reset({ data: { _kind: 'bootPrompt', systemPrompt: stored } })} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700">{t('agent.boot.cancel', 'Cancel')}</button><button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{$submitting ? t('agent.boot.saving', 'Saving...') : t('agent.boot.save', 'Save')}</button></div>
+    {/if}
   </form>
   {#if $message}<p role={$message.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
 </section>

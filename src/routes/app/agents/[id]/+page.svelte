@@ -799,7 +799,7 @@
   {#if data.bootPromptForm}
     <div hidden={activeTab !== 'boot'}>
       {#key agent.id}
-        <BootPrompt stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null} />
+        <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null} />
       {/key}
     </div>
   {/if}
