@@ -93,3 +93,63 @@ it('reseeds the editor when navigating from one agent to another', async () => {
   await tick(5);
   expect(root.querySelector<HTMLTextAreaElement>('[data-boot-prompt] textarea')?.value).toBe('Agent B');
 });
+
+it('isolates a delayed old agent save from the new editor and feedback', async () => {
+  const { reactiveProps } = await import('$lib/test/reactiveProps.svelte');
+  const { submitEnhancedDeferred } = await import('$lib/test/stubs/app-forms');
+  const { setStubPage, resetStubPage } = await import('$lib/test/stubs/app-stores');
+  setStubPage('http://localhost/app/agents/a');
+  try {
+    const a = await pageData('a', null, { systemPrompt: 'Agent A' });
+    const props = reactiveProps({ data: a, form: null } as Record<string, unknown>);
+    mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    await tick(5);
+    const root = mounted.target;
+    button(root, 'Boot prompt').click(); button(root, 'Source').click();
+    await tick();
+    const textarea = root.querySelector<HTMLTextAreaElement>('[data-boot-prompt] textarea')!;
+    textarea.value = 'Late A'; textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    const pending = await submitEnhancedDeferred(root.querySelector<HTMLFormElement>('[data-boot-prompt] form')!);
+    props.data = await pageData('b', null, { systemPrompt: 'Agent B' });
+    setStubPage('http://localhost/app/agents/b');
+    await tick(5);
+    const result = { type: 'success' as const, status: 200, data: { form: {
+      ...a.bootPromptForm, posted: true, valid: true,
+      data: { _kind: 'bootPrompt', systemPrompt: 'Late A' },
+      message: { type: 'success', text: 'Boot prompt saved.' },
+    } } };
+    await pending.finish(result);
+    // Kit also exposes the same action data as the page's form prop.
+    props.form = result.data;
+    await tick(5);
+    expect(root.querySelector<HTMLTextAreaElement>('[data-boot-prompt] textarea')?.value).toBe('Agent B');
+    expect(root.querySelector('[data-boot-prompt] [role=status]')).toBeNull();
+  } finally { resetStubPage(); }
+});
+
+it('still applies a save result to the agent that submitted it', async () => {
+  const { reactiveProps } = await import('$lib/test/reactiveProps.svelte');
+  const { submitEnhancedWithResult } = await import('$lib/test/stubs/app-forms');
+  const { setStubPage, resetStubPage } = await import('$lib/test/stubs/app-stores');
+  setStubPage('http://localhost/app/agents/a');
+  try {
+    const data = await pageData('a', null, { systemPrompt: 'Agent A' });
+    const props = reactiveProps({ data, form: null } as Record<string, unknown>);
+    mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    await tick(5);
+    const root = mounted.target;
+    button(root, 'Boot prompt').click(); button(root, 'Source').click();
+    await tick();
+    const result = { type: 'success' as const, status: 200, data: { form: {
+      ...data.bootPromptForm, posted: true, valid: true,
+      data: { _kind: 'bootPrompt', systemPrompt: 'Saved A' },
+      message: { type: 'success', text: 'Boot prompt saved.' },
+    } } };
+    await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('[data-boot-prompt] form')!, result);
+    props.form = result.data;
+    await tick(5);
+    expect(root.querySelector<HTMLTextAreaElement>('[data-boot-prompt] textarea')?.value).toBe('Saved A');
+    expect(root.querySelector('[data-boot-prompt] [role=status]')?.textContent).toBe('Boot prompt saved.');
+  } finally { resetStubPage(); }
+});

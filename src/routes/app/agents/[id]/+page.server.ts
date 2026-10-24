@@ -364,7 +364,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
     form,
-    bootPromptForm: await superValidate({ systemPrompt: agent.systemPrompt ?? '' }, zod4(bootPromptSchema), { id: 'bootPrompt', errors: false }),
+    bootPromptForm: await superValidate({ systemPrompt: agent.systemPrompt ?? '' }, zod4(bootPromptSchema), { id: `bootPrompt:${params.id}`, errors: false }),
     registerDefaults: registerDefaultsResult,
     registerDefaultsForm,
     bootPointer,
@@ -401,7 +401,7 @@ export const actions: Actions = {
     }
   },
   updateBootPrompt: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(bootPromptSchema), { id: 'bootPrompt', strict: true });
+    const form = await superValidate(await request.formData(), zod4(bootPromptSchema), { id: `bootPrompt:${params.id}`, strict: true });
     if (!form.valid) return fail(400, { form });
     // Browser multipart encoding expands textarea LF to CRLF. Restore LF
     // without trimming source whitespace or interpreting template placeholders.

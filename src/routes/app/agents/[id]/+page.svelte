@@ -454,8 +454,14 @@
     if ((form as { pointer?: PointerResult } | null)?.pointer) activeTab = 'settings';
   });
 
+  // A delayed action from another route instance must not seed this editor
+  // or reopen it. Superforms also uses this route-specific id to isolate stores.
+  const bootPromptSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null;
+    return result?.id === data.bootPromptForm?.id ? result : null;
+  });
   $effect(() => {
-    if (submittedForm(form, 'bootPrompt')) activeTab = 'boot';
+    if (bootPromptSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -798,8 +804,8 @@
   {/if}
   {#if data.bootPromptForm}
     <div hidden={activeTab !== 'boot'}>
-      {#key agent.id}
-        <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null} />
+      {#key data.bootPromptForm.id}
+        <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
       {/key}
     </div>
   {/if}
