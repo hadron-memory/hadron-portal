@@ -790,9 +790,12 @@
   }
 
   function handleWindowClick(e: MouseEvent) {
-    if (openDropdown && !(e.target as Element)?.closest?.('.filter-dropdown')) {
-      openDropdown = null;
-    }
+    // Discard can remove its own button before this listener runs. The event's
+    // dispatch path retains the original dropdown even when target.closest cannot.
+    const insideDropdown = e.composedPath().some(
+      (target) => target instanceof Element && target.classList.contains('filter-dropdown'),
+    );
+    if (openDropdown && !insideDropdown) openDropdown = null;
   }
 
   // #589: how many structured-query controls are active — drives the

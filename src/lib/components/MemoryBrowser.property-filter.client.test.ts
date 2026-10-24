@@ -10,12 +10,15 @@ const schema = { objectTypes: {
 } };
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 let fetchMock: ReturnType<typeof vi.fn>;
+// Model the browser's DOM-update checkpoint before the window dismissal listener.
+const flushBeforeWindowClick = () => flushSync();
 beforeEach(() => {
   vi.useFakeTimers();
   fetchMock = vi.fn(async () => new Response(JSON.stringify({ nodes: [], total: 0 }), { status: 200 }));
   vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => {
+  window.removeEventListener('click', flushBeforeWindowClick);
   while (mounted.length) mounted.pop()!.unmount();
   vi.useRealTimers(); vi.unstubAllGlobals();
 });
@@ -254,8 +257,16 @@ it('preserves unapplied Advanced text when an equal schema reloads', () => {
 });
 
 describe('#1280 keyboard focus and filter feedback', () => {
+  it('still dismisses the Properties panel for a real outside click', () => {
+    const { target } = browser();
+    expect(target.querySelector('#structured-object-type')).not.toBeNull();
+    document.body.click(); flushSync();
+    expect(target.querySelector('#structured-object-type')).toBeNull();
+  });
+
   it('returns keyboard focus to the first editor control after Discard removes the button', async () => {
     vi.useRealTimers();
+    window.addEventListener('click', flushBeforeWindowClick);
     const { target } = browser();
     pick(target, '#structured-object-type', 'task');
     pick(target, '[data-testid="property-filter-field"]', 'count');
@@ -269,6 +280,7 @@ describe('#1280 keyboard focus and filter feedback', () => {
 
   it('restores focus to the Advanced editor after discarding invalid JSON', async () => {
     vi.useRealTimers();
+    window.addEventListener('click', flushBeforeWindowClick);
     const { target } = browser();
     pick(target, '#structured-where', '{');
     const discard = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Discard changes')!;
