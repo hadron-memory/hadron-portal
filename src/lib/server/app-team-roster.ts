@@ -22,7 +22,14 @@ export type RosterEntry = {
   checkStatus: { status: string; pendingReason: string | null } | null;
   pausedUntil: string | null;
   currentTask: { id: string; title: string; status: string } | null;
+  /** hadron-server#2223 — who holds the worker's name. Null for nobody, a deleted
+   *  holder, or a reader behind the working-state gate: those three are not told apart. */
+  heldBy: RosterHolder | null;
+  heldAt: string | null;
 };
+
+/** A sanitized holder identity. `name` is null when withheld AND when unset. */
+export type RosterHolder = { id: string; handle: string | null; urn: string | null; name: string | null };
 
 export type TeamRosterRead =
   | { kind: 'ok'; byWorker: Record<string, RosterEntry> }

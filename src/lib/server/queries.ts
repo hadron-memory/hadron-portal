@@ -4738,6 +4738,8 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
         checkStatus { status pendingReason }
         pausedUntil
         currentTask { id title status }
+        heldBy { id handle urn name }
+        heldAt
       }
     }
   }

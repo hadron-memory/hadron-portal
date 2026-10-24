@@ -2368,6 +2368,13 @@
                    staffing we did not read. Absence of a claim beats a confident
                    wrong one. -->
               {@const hold = workerHold(worker, data.user?.id)}
+              <!-- portal#1168 / hadron-server#2223 — the roster read names the
+                   holder. Null is nobody, a deleted holder, or a masked read,
+                   which the server does not tell apart: a hold we know exists
+                   (`hold.kind`) with no holder falls back to the unnamed line,
+                   never a guess. `name` is null both withheld and unset, so the
+                   handle stands in. -->
+              {@const holder = rosterEntry(worker.id)?.heldBy ?? null}
               {#if hold.kind === 'self'}
                 <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">
                   {t('app.staff.held.you', 'Your name — held by you')}
@@ -2377,13 +2384,18 @@
                 </span>
               {:else if hold.kind === 'other'}
                 <span class="text-xs text-zinc-500">
-                  <!-- Unnamed until the server resolves the holder (#748) —
-                       resolving it here would be one query per roster row. -->
-                  {t('app.staff.held.other', 'Held by another member')}
+                  {#if holder}
+                    {holder.name ?? holder.handle ?? t('app.staff.held.other', 'Held by another member')}
+                  {:else}
+                    {t('app.staff.held.other', 'Held by another member')}
+                  {/if}
                   {#if hold.since}
                     · {t('app.staff.held.since', 'since')} {formatDate(hold.since)}
                   {/if}
                 </span>
+                {#if holder?.urn}
+                  <div><Urn value={holder.urn} type="user" compact /></div>
+                {/if}
               {:else}
                 <span class="text-xs text-zinc-400">—</span>
               {/if}
