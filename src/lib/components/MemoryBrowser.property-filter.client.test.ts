@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushSync } from 'svelte';
+import { flushSync, tick as svelteTick } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import MemoryBrowser from './MemoryBrowser.svelte';
@@ -10,12 +10,15 @@ const schema = { objectTypes: {
 } };
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 let fetchMock: ReturnType<typeof vi.fn>;
+// Model the browser's DOM-update checkpoint before the window dismissal listener.
+const flushBeforeWindowClick = () => flushSync();
 beforeEach(() => {
   vi.useFakeTimers();
   fetchMock = vi.fn(async () => new Response(JSON.stringify({ nodes: [], total: 0 }), { status: 200 }));
   vi.stubGlobal('fetch', fetchMock);
 });
 afterEach(() => {
+  window.removeEventListener('click', flushBeforeWindowClick);
   while (mounted.length) mounted.pop()!.unmount();
   vi.useRealTimers(); vi.unstubAllGlobals();
 });
@@ -257,6 +260,59 @@ it('preserves unapplied Advanced text when an equal schema reloads', () => {
   props.memory = { id: 'mem-a', schema: JSON.parse(JSON.stringify(schema)) }; flushSync();
   expect((target.querySelector('#structured-where') as HTMLTextAreaElement).value).toBe('{');
   expect(target.querySelector('[data-testid="property-filter"] [role="alert"]')).not.toBeNull();
+});
+
+describe('#1280 keyboard focus and filter feedback', () => {
+  it('still dismisses the Properties panel for a real outside click', () => {
+    const { target } = browser();
+    expect(target.querySelector('#structured-object-type')).not.toBeNull();
+    document.body.click(); flushSync();
+    expect(target.querySelector('#structured-object-type')).toBeNull();
+  });
+
+  it('returns keyboard focus to the first editor control after Discard removes the button', async () => {
+    vi.useRealTimers();
+    window.addEventListener('click', flushBeforeWindowClick);
+    const { target } = browser();
+    pick(target, '#structured-object-type', 'task');
+    pick(target, '[data-testid="property-filter-field"]', 'count');
+    pick(target, '[data-testid="property-filter-value"]', '7');
+    const discard = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Discard changes')!;
+    discard.focus(); expect(document.activeElement).toBe(discard);
+    discard.click(); flushSync(); await svelteTick();
+    expect(discard.isConnected).toBe(false);
+    await vi.waitFor(() => expect(document.activeElement).toBe(target.querySelector('[data-testid="property-filter-field"]')));
+  });
+
+  it('restores focus to the Advanced editor after discarding invalid JSON', async () => {
+    vi.useRealTimers();
+    window.addEventListener('click', flushBeforeWindowClick);
+    const { target } = browser();
+    pick(target, '#structured-where', '{');
+    const discard = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Discard changes')!;
+    discard.focus(); discard.click(); flushSync(); await svelteTick();
+    await vi.waitFor(() => expect(document.activeElement).toBe(target.querySelector('#structured-where')));
+  });
+
+  it('keeps one feedback region mounted through Apply, collection reset and explicit Clear', async () => {
+    const { target, props } = browser();
+    const status = target.querySelector('[data-testid="property-filter-status"]');
+    expect(status).not.toBeNull();
+    expect(status!.getAttribute('aria-live')).toBe('polite');
+    expect(status!.textContent?.trim()).toBe('');
+    filter(target); await bodies();
+    expect(status!.textContent).toContain('Filter applied');
+    pick(target, '#structured-object-type', 'other'); await bodies();
+    expect(target.querySelector('[data-testid="property-filter-status"]')).toBe(status);
+    expect(status!.textContent).toContain('Filter cleared because the collection changed');
+    pick(target, '#structured-object-type', 'task');
+    expect(status!.textContent?.trim()).toBe(''); // no applied predicate was cleared
+    filter(target); click(target, 'Clear filter'); await bodies();
+    expect(status!.textContent).toContain('Filter cleared');
+    expect((await bodies()).at(-1).filter.where).toBeNull();
+    props.basePath = '/app/memories/mem-b'; props.memory = { id: 'mem-b', schema }; flushSync();
+    expect(status!.textContent?.trim()).toBe('');
+  });
 });
 
 describe('#1281 schema declaration changes versus a reload of the same declarations', () => {
