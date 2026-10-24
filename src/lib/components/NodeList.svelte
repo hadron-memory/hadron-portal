@@ -311,6 +311,9 @@
     <p class="text-sm text-zinc-500">No nodes.</p>
   {:else}
     {#if showColumns}
+      <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+        {t('node-list.last-changed-explanation', 'Last changed is when the node was last updated. Revisions show when snapshots were saved; these times can differ.')}
+      </p>
       <!-- portal#1174: the extra columns arrive after the list; say so, and say when a batch failed, rather than leaving blanks unexplained. Always mounted so a screen reader announces a change. -->
       <p role="status" data-testid="node-columns-status" class="mb-2 min-h-4 text-xs text-zinc-500 dark:text-zinc-400">
         {#if columnsLoading > 0}{t('node-list.columns-loading', 'Loading details…')}{/if}

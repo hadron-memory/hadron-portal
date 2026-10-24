@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
 import type { NodeColumnRow } from '$lib/node-columns';
+import type { MemoryNode } from '$lib/types';
 
 let tableOptions: any;
 vi.mock('$lib/table/createSvelteTable.svelte', async (original) => {
@@ -15,10 +16,12 @@ import NodeList from './NodeList.svelte';
 const nodes = ['Alpha', 'Beta'].map((name, i) => ({
   id: `n${i}`, name, memoryId: 'm', memory: { id: 'm', name: 'Memory', urn: 'hrn:mem:example.com:memory' },
   nodeType: 'info', loc: name.toLowerCase(), description: null, tags: [],
-  createdAt: '2026-10-01T12:00:00Z',
+  alias: null, abstract: null, content: null, tokens: null, seq: null, data: null,
+  ownerRepo: null, isRunnable: false, outgoingEdges: [], incomingEdges: [],
+  createdAt: '2026-10-01T12:00:00Z', updatedAt: '2026-10-15T12:00:00Z',
   // Deliberately unrelated snapshot time: never the live node update time.
   revisions: [{ createdAt: '2026-10-10T12:00:00Z' }],
-}));
+} satisfies MemoryNode & { revisions: { createdAt: string }[] }));
 const updates = ['2026-10-20T23:30:00-04:00', '2026-10-21T01:00:00Z'];
 const columnData = Object.fromEntries(nodes.map((n, i) => [n.id, {
   id: n.id, role: null, updatedAt: updates[i], revision: 3,
