@@ -145,6 +145,7 @@ function routeMock(opts: {
       return opts.nodes?.data ?? { findNodes: { hits: [] } };
     }
     if (query === AGENT_APPS_QUERY) {
+      if (opts.apps?.error !== undefined) throw opts.apps.error;
       const apps = (opts.apps?.data as unknown[]) ?? [];
       return { apps: { items: apps, total: apps.length } };
     }
@@ -152,6 +153,7 @@ function routeMock(opts: {
     // loader catches its failure, so an unmocked one would degrade silently
     // instead of failing the test.
     if (query === AGENT_OWNED_APPS_QUERY) {
+      if (opts.ownedApps?.error !== undefined) throw opts.ownedApps.error;
       const apps = (opts.ownedApps?.data as unknown[]) ?? [];
       return { apps: { items: apps, total: apps.length } };
     }
@@ -202,6 +204,23 @@ describe('/app/agents/[id] loader', () => {
     const result = (await load(ev({ agentId: 'agent-aaa' }))) as { agentNodes: unknown[]; agentNodesError: boolean };
     expect(result.agentNodesError).toBe(true);
     expect(result.agentNodes).toEqual([]);
+  });
+
+  it('#472: a failed Apps read (either call) is installedAppsError, and the other call\'s rows survive', async () => {
+    const lite = (id: string) => ({ id, name: id, urn: `hrn:app:x:${id}`, organizationId: 'org-a', agentId: 'agent-aaa', agents: [] });
+    const run = async (opts: Parameters<typeof routeMock>[0]) => {
+      routeMock({ agent: { data: { agent: agentInA } }, myOrgs: { data: { organizations: [orgA] } }, ...opts });
+      const load = await importLoad();
+      return (await load(ev({ agentId: 'agent-aaa' }))) as { installedApps: Array<{ id: string }>; installedAppsError: boolean };
+    };
+    const ok = await run({ apps: { data: [lite('one')] } });
+    expect(ok.installedAppsError).toBe(false);
+    const orgFailed = await run({ apps: { error: new Error('outage') }, ownedApps: { data: [lite('mine')] } });
+    expect(orgFailed.installedAppsError).toBe(true);
+    expect(orgFailed.installedApps.map((a) => a.id)).toEqual(['mine']);
+    const ownedFailed = await run({ apps: { data: [lite('one')] }, ownedApps: { error: new Error('outage') } });
+    expect(ownedFailed.installedAppsError).toBe(true);
+    expect(ownedFailed.installedApps.map((a) => a.id)).toEqual(['one']);
   });
 
   // ── Org agents: resolved via agent(ref:), org chrome loaded ──────────────

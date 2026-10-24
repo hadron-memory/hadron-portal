@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { replaceState } from '$app/navigation';
@@ -858,7 +859,7 @@
         {/if}
         <div class="flex items-center justify-between px-5 py-3">
           <span class="text-sm text-zinc-500">Created</span>
-          <span class="text-sm text-zinc-900 dark:text-white">{new Date(g.createdAt).toLocaleDateString()}</span>
+          <span class="text-sm text-zinc-900 dark:text-white">{formatPortalDate(g.createdAt)}</span>
         </div>
       </div>
     {/if}
@@ -932,7 +933,7 @@
       {/if}
 
       {#if g.vectorIndexEncryptedAckAt}
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">Encrypted-index disclosure accepted on {new Date(g.vectorIndexEncryptedAckAt).toLocaleString()}.</p>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">Encrypted-index disclosure accepted on {formatPortalDateTime(g.vectorIndexEncryptedAckAt)}.</p>
       {/if}
 
       {#if viDirty && !showDisclosure && !confirmRevoke}

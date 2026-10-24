@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatPortalDate } from '$lib/format-portal-date';
   // #668 — the PRINCIPAL side of memory sharing (spec 023 US3). The grantee
   // side already existed: "Memories shared with me" (#778) and self-removal
   // (#649). This is the owner's half — see who has access, grant, change a
@@ -91,7 +92,7 @@
   const formatGranted = (value: string | number) => {
     const ms = Number(value);
     const d = new Date(Number.isFinite(ms) && value !== '' ? ms : value);
-    return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString();
+    return Number.isNaN(d.getTime()) ? '—' : formatPortalDate(d.toISOString());
   };
 
   let globalFilter = $state('');
