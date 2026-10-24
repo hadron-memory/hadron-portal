@@ -86,6 +86,13 @@ describe('clone load', () => {
     expect(d.targets.map((o: any) => o.id)).toEqual(['a']);
     expect(d.agent.id).toBe('agent-1');
   });
+  it('a typed FORBIDDEN read is a plain 404; an internal error is a 500', async () => {
+    const l = await load();
+    mockRequest.mockRejectedValue(gqlErr('FORBIDDEN'));
+    await expect(l({ params: { id: 'x' }, locals: { token: 't' }, parent } as any)).rejects.toMatchObject({ status: 404 });
+    mockRequest.mockRejectedValue(gqlErr('INTERNAL_SERVER_ERROR'));
+    await expect(l({ params: { id: 'x' }, locals: { token: 't' }, parent } as any)).rejects.toMatchObject({ status: 500 });
+  });
   it('a transport failure is a 500, not a not-found', async () => {
     mockRequest.mockRejectedValue(new Error('down'));
     const l = await load();

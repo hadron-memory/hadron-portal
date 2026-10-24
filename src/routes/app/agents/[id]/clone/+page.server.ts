@@ -10,6 +10,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { AGENT_PUBLIC_QUERY, CLONE_AGENT_MUTATION } from '$lib/server/queries';
 import { cloneRefusal, eligibleCloneTargets } from '$lib/agents/clone';
 import type { Agent, Organization } from '$lib/types';
@@ -23,7 +24,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const [{ agent }, layout] = await Promise.all([
     client
       .request<{ agent: Pick<Agent, 'id' | 'urn' | 'name' | 'description' | 'organizationId' | 'visibility'> | null }>(AGENT_PUBLIC_QUERY, { ref: params.id })
-      .catch(() => {
+      .catch((err: unknown) => {
+        // Only typed not-found/forbidden refusals read as "no such Agent";
+        // anything else (transport, internal) stays a distinguishable 500.
+        const code = extractGqlErrorCode(err);
+        if (code && ['NOT_FOUND', 'AGENT_NOT_FOUND', 'FORBIDDEN', 'PERMISSION_DENIED'].includes(code)) return { agent: null };
         throw error(500, 'Failed to load agent');
       }),
     parent() as Promise<{ user?: { id: string } | null; navOrgs?: Organization[] }>,

@@ -12,10 +12,11 @@ afterEach(() => { mounted?.unmount(); mounted = null; });
 const agent = { id: 'agent-1', name: 'Helper', urn: 'hrn:agent:acme.com:helper', description: null, organizationId: 'o', visibility: 'PUBLIC' };
 const targets = [{ id: 'org-2', name: 'Beta', urn: 'hrn:org:beta.com' }];
 
+let props: Record<string, unknown>;
 async function open(opts: { form?: unknown; targets?: typeof targets; message?: unknown } = {}) {
   const list = opts.targets ?? targets;
   const sv = await superValidate({ target: list.length === 1 ? list[0].id : '', name: '', slug: '' }, zod4(cloneAgentSchema), { errors: false });
-  const props = reactiveProps<Record<string, unknown>>({
+  props = reactiveProps<Record<string, unknown>>({
     data: { agent, targets: opts.targets ?? targets, form: sv },
     form: opts.form ?? null,
   });
@@ -53,5 +54,17 @@ describe('#1262 clone page', () => {
     expect(alert.textContent).toContain('Shared base');
     expect(alert.textContent).toContain('item 4');
     expect(alert.textContent).not.toMatch(/undefined|\[object/);
+  });
+  it('re-seeds the form and drops the old banner when the route moves to another Agent', async () => {
+    const sv = await superValidate({ target: 'org-2', name: 'typed', slug: '' }, zod4(cloneAgentSchema), { errors: false });
+    (sv as any).message = { type: 'error', text: 'Old agent refusal' };
+    const root = await open({ form: { form: sv, blockers: [] } });
+    expect(root.textContent).toContain('Old agent refusal');
+    const fresh = await superValidate({ target: 'org-2', name: '', slug: '' }, zod4(cloneAgentSchema), { errors: false });
+    (props as any).data = { agent: { ...agent, id: 'agent-2', name: 'Other', urn: 'hrn:agent:acme.com:other' }, targets, form: fresh };
+    (props as any).form = null;
+    await tick();
+    expect(root.textContent).not.toContain('Old agent refusal');
+    expect(root.querySelector<HTMLInputElement>('#clone-name')!.value).toBe('');
   });
 });

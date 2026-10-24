@@ -24,6 +24,21 @@
   });
 
   let pickerOpen = $state(false);
+
+  // A [id] route reuses this component when the reader moves to another Agent's
+  // clone page: re-seed the form and drop the previous Agent's banner/errors.
+  let lastAgentId = $state(untrack(() => data.agent.id));
+  $effect(() => {
+    const id = data.agent.id;
+    if (id === lastAgentId) return;
+    lastAgentId = id;
+    untrack(() => {
+      values.set({ ...data.form.data });
+      message.set(undefined);
+      errors.set({});
+      pickerOpen = false;
+    });
+  });
   const selected = $derived(targets.find((o) => o.id === $values.target) ?? null);
   const blockers = $derived<CloneBlocker[]>(
     (form && 'blockers' in form ? (form.blockers as CloneBlocker[] | undefined) : undefined) ?? [],
