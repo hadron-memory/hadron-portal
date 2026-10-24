@@ -19,6 +19,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import NodeEmbeddingBadges from '$lib/components/NodeEmbeddingBadges.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeList from '$lib/components/NodeList.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
@@ -2316,6 +2317,8 @@
         {/if}
       </h1>
       <Urn value={fullUrn} type="node" />
+      <NodeEmbeddingBadges enabled={data.graph.vectorIndexEnabled === true}
+        pendingAt={node.embeddingPendingAt} failedAt={node.embeddingFailedAt} error={node.embeddingError} />
       {#if isComment}
         <!-- portal#1014: a comment is feedback, never approved or minted (hrn:node:hadronmemory.com:specs:cor:dmo:110:06),
              so its page offers no approval row at all. portal#1175: and needs no note saying so. -->

@@ -391,10 +391,10 @@
     // edges per request, `+layout.server.ts`), so a button whose whole result
     // is a count would re-fetch every node in the memory.
     //
-    // Nothing this page renders changes: the re-drive re-stamps
-    // `embeddingFailedAt` on nodes, and the portal displays no embedding state
-    // anywhere (#257's slices 4/6 were never built — see #695's PR body). The
-    // count comes back in the action result, not from the reloaded data.
+    // Nothing this settings page renders changes: the re-drive resets failure
+    // state and re-stamps pending work on nodes. #257 shows those stamps on
+    // node detail, not in this settings page; the memory-wide rollup remains
+    // deferred. The count comes back in the action result, not reloaded data.
     invalidateAll: false,
   });
 
