@@ -114,6 +114,9 @@
   };
 
   function failureText(code: string | undefined, detail: string | undefined): string {
+    if (code === 'scope-forbidden') {
+      return t('tasks.bundle.error.scope-forbidden', 'Downloading tasks requires Contributor access or higher in this organization.');
+    }
     if (code === 'no-memories') return t('tasks.bundle.error.no-memories', 'This organization has no memories to export from.');
     return detail ?? t('tasks.bundle.error.failed', 'The download could not be prepared. Try again shortly.');
   }
