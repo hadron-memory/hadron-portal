@@ -572,6 +572,67 @@ describe('Worker agents tab (#1009)', () => {
     }
   });
 
+  it.each([
+    { name: 'same-App refresh preserves the dialog and pending refusal', changesApp: false },
+    { name: 'a different App closes the dialog and discards its late refusal', changesApp: true },
+  ])('#1272: $name', async ({ changesApp }) => {
+    const oldShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+    const oldClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
+    let m: Mounted<Record<string, unknown>> | undefined;
+    try {
+      setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+      window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+      const data = await pageData();
+      const props = reactiveProps({ data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff: [worker({})], teamRoster: { kind: 'unavailable' } }, form: null });
+      m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      await tick(2);
+      pick(m.target, 'Ada', 'Delete verified-unused worker'); await tick();
+      const dialog = m.target.querySelector('dialog')!;
+      const form = dialog.querySelector('form')!;
+      const checkbox = form.querySelector<HTMLInputElement>('input[type=checkbox]')!;
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true })); await tick();
+      const pending = await submitEnhancedDeferred(form); await tick();
+      expect(dialog.querySelector('[role=status]')?.textContent).toContain('Deleting');
+
+      // SvelteKit replaces the App object on revalidation, even when its ID is unchanged.
+      props.data = { ...props.data, app: { ...props.data.app,
+        ...(changesApp ? { id: 'a2', urn: 'hrn:app:acme.com:other', name: 'Other App' } : {}),
+      } };
+      await tick(2);
+      if (changesApp) {
+        expect(m.target.querySelector('dialog')).toBeNull();
+      } else {
+        expect(m.target.querySelector('dialog')).toBe(dialog);
+        expect(checkbox.checked).toBe(true);
+        expect(dialog.querySelector('[role=status]')?.textContent).toContain('Deleting');
+        expect((await submitEnhanced(form)).cancelled).toBe(true);
+      }
+      await pending.finish({ type: 'failure', status: 400, data: {
+        deleteWorkerResult: { ok: false, workerRef: 'w1', code: 'WORKER_IN_USE', message: 'Retire it instead.' },
+      } });
+      await tick(2);
+      if (changesApp) {
+        expect(m.target.querySelector('dialog')).toBeNull();
+        expect(m.target.textContent).not.toContain('Retire it instead.');
+      } else {
+        expect(m.target.querySelector('dialog')).toBe(dialog);
+        expect(dialog.querySelector('[role=alert]')?.textContent).toBe('Retire it instead.');
+        expect(dialog.querySelector('[role=status]')).toBeNull();
+        expect(new FormData(form).get('workerRef')).toBe('w1');
+      }
+      expect(m.target.querySelector('a[href="/app/workers/w1"]')).not.toBeNull();
+    } finally {
+      m?.unmount();
+      for (const [key, old] of [['showModal', oldShow], ['close', oldClose]] as const) {
+        if (old) Object.defineProperty(HTMLDialogElement.prototype, key, old);
+        else Reflect.deleteProperty(HTMLDialogElement.prototype, key);
+      }
+    }
+  });
+
   it('picking Retire submits the retire form for THAT worker, uncancelled', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
