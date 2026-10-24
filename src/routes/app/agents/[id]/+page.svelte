@@ -1416,7 +1416,7 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
     {#if data.inheritanceManagement}
-      <AgentInheritanceSettings management={data.inheritanceManagement} currentBase={data.inheritance.base} baseForm={data.baseForm} indexRefsForm={data.indexRefsForm} actionData={form} />
+      <AgentInheritanceSettings management={data.inheritanceManagement} currentBase={data.inheritance.base} candidates={data.baseCandidates} baseForm={data.baseForm} indexRefsForm={data.indexRefsForm} actionData={form} />
     {/if}
     <div class="space-y-8">
       <!-- Agent settings (editable). #352 follow-up: the editable agent form

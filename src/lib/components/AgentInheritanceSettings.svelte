@@ -6,14 +6,17 @@
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { t } from '$lib/i18n/t';
   import type { AgentBaseRead } from '$lib/agent-inheritance';
+  import type { BaseCandidate } from '$lib/server/agent-inheritance-write';
+  import SelectAgent from './SelectAgent.svelte';
   import Urn from './Urn.svelte';
   type Base = Infer<typeof agentBaseSchema>;
   type Indexes = Infer<typeof agentIndexRefsSchema>;
-  let { management, currentBase, baseForm, indexRefsForm, actionData }: {
+  let { management, currentBase, baseForm, indexRefsForm, candidates, actionData }: {
     management: InheritanceManagement;
     currentBase?: AgentBaseRead;
     baseForm: SuperValidated<Base>;
     indexRefsForm: SuperValidated<Indexes>;
+    candidates: BaseCandidate[] | null;
     actionData: unknown;
   } = $props();
   const base = $derived(failedSubmission<Base>(actionData, 'setAgentBase') ?? baseForm);
@@ -23,7 +26,22 @@
   const indexError = $derived(scopedActionError<Indexes>(actionData, 'setAgentIndexRefs', indexes.message, indexes.errors, ['tasksOperation', 'tasksIndexRef', 'processesOperation', 'processesIndexRef', '_kind']));
   const indexSuccess = $derived(scopedActionSuccess<Indexes>(actionData, 'setAgentIndexRefs', submittedForm<Indexes>(actionData, 'setAgentIndexRefs')?.message));
   const inputClass = 'w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900';
-  const buttonClass = 'rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500';
+  const buttonClass = 'rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50';
+  const secondaryButtonClass = 'rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800';
+  // #1108: the parent-agent draft. `pick` holds the SelectAgent selection; a
+  // refused POST re-seeds the draft through the failed form's baseRef
+  // (base.data.baseRef), so the user keeps what they chose. Both reset when the
+  // page hands the component another Agent's forms (fresh baseForm object).
+  let pick = $state<BaseCandidate | null>(null);
+  let pickerOpen = $state(false);
+  $effect(() => {
+    void baseForm;
+    pick = null;
+    pickerOpen = false;
+  });
+  const draftRef = $derived(pick?.urn ?? base.data.baseRef);
+  const resolvedDraft = $derived(draftRef ? (candidates ?? []).find((c) => c.urn === draftRef || c.id === draftRef) ?? null : null);
+  const displayAgent = $derived(pick ?? resolvedDraft ?? (draftRef ? null : currentBase?.agent ?? null));
 </script>
 {#snippet baseFeedback()}
   {#if baseError}<p id="agent-base-error" role="alert" class="break-words text-sm text-red-600 dark:text-red-400">{baseError}</p>{/if}
@@ -41,35 +59,42 @@
   <p role="alert" class="break-words text-sm text-red-600 dark:text-red-400">{management.error}</p>
 {:else if management.canManage && management.refs}
   <section class="max-w-lg space-y-6 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-labelledby="inheritance-settings-title">
-    <h2 id="inheritance-settings-title" class="text-lg font-semibold">{t('agent.inheritance.settings', 'Agent inheritance')}</h2>
+    <h2 id="inheritance-settings-title" class="text-lg font-semibold">{t('agent.parent.heading', 'Parent agent')}</h2>
     <!-- Native POST forms keep the server-returned discriminator, values and
-         errors together; no client form store outlives an Agent navigation. -->
+         errors together; no client form store outlives an Agent navigation.
+         The set/clear intent rides the submitting button's name/value, so no
+         mode dropdown and no client state can diverge from what is POSTed. -->
     <form method="POST" action="?/setBase" novalidate class="space-y-3">
       <input type="hidden" name="_kind" value="setAgentBase" />
-      <h3 class="font-medium">{t('agent.base.heading', 'Base Agent')}</h3>
-      {#if currentBase?.agent}
-        <span class="block break-words text-sm">{currentBase.agent.name}</span>
-        <Urn value={currentBase.agent.urn} label={t('agent.base.label', 'base Agent')} linked />
-      {:else if currentBase?.error}
-        <p role="alert" class="break-words text-sm text-red-600">{currentBase.error}</p>
-      {:else if currentBase?.id}
-        <p class="text-sm text-zinc-500">{t('agent.base.unavailable', 'Base Agent details are unavailable.')}</p>
-      {:else}
-        <p class="text-sm text-zinc-500">{t('agent.inheritance.none', 'None')}</p>
+      <div class="min-w-0">
+        {#if displayAgent}
+          <span class="block break-words text-sm">{displayAgent.name}</span>
+          <Urn value={displayAgent.urn} label={t('agent.base.label', 'base Agent')} linked />
+        {:else if draftRef}
+          <!-- A draft the candidate list cannot name (e.g. a refused ref
+               outside it): still show the URN once, never a bare id. -->
+          <Urn value={draftRef} label={t('agent.base.label', 'base Agent')} linked />
+        {:else if currentBase?.error}
+          <p role="alert" class="break-words text-sm text-red-600">{currentBase.error}</p>
+        {:else if currentBase?.id}
+          <p class="text-sm text-zinc-500">{t('agent.base.unavailable', 'Base Agent details are unavailable.')}</p>
+        {:else}
+          <p class="text-sm text-zinc-500">{t('agent.inheritance.none', 'None')}</p>
+        {/if}
+      </div>
+      <input type="hidden" name="baseRef" value={draftRef} />
+      <div class="flex flex-wrap items-center gap-3">
+        <button type="button" onclick={() => (pickerOpen = true)} disabled={candidates === null} class={secondaryButtonClass}>{t('agent.parent.change', 'Change…')}</button>
+        <button type="submit" name="operation" value="set" disabled={!draftRef} class={buttonClass}>{t('agent.parent.save', 'Save')}</button>
+        <button type="submit" name="operation" value="clear" disabled={!currentBase?.id && !draftRef} class={secondaryButtonClass}>{t('agent.parent.clear', 'Clear')}</button>
+        <p class="w-full text-sm text-zinc-500 sm:w-auto sm:flex-1">{t('agent.inheritance.clear-help', 'Clearing the base removes inherited tasks and processes from this Agent. Its own definitions stay unchanged.')}</p>
+      </div>
+      {#if candidates === null}
+        <p class="text-sm text-zinc-500">{t('agent.parent.candidates-unavailable', 'Could not load agents to choose from.')}</p>
       {/if}
-      <p class="text-sm text-zinc-500">{t('agent.inheritance.clear-help', 'Clearing the base removes inherited tasks and processes from this Agent. Its own definitions stay unchanged.')}</p>
-      <label class="block space-y-1"><span class="text-sm">{t('agent.inheritance.base-operation', 'Base change')}</span>
-        <select name="operation" value={base.data.operation} class={inputClass}>
-          <option value="set">{t('agent.inheritance.base-set', 'Set or change base')}</option>
-          <option value="clear">{t('agent.inheritance.base-clear', 'Clear base')}</option>
-        </select>
-      </label>
-      <label class="block space-y-1"><span class="text-sm">{t('agent.inheritance.base-ref', 'Base Agent reference (used when setting)')}</span>
-        <input name="baseRef" value={base.data.baseRef} placeholder="hrn:agent:example.com:base" class={inputClass} aria-invalid={!!base.errors.baseRef} aria-describedby={baseError ? 'agent-base-error' : undefined} />
-      </label>
       {@render baseFeedback()}
-      <button type="submit" class={buttonClass}>{t('agent.inheritance.save-base', 'Save base')}</button>
     </form>
+    <SelectAgent agents={candidates ?? []} bind:open={pickerOpen} onselect={(agent) => (pick = agent)} />
     <form method="POST" action="?/setIndexRefs" novalidate class="space-y-4 border-t border-zinc-200 pt-4 dark:border-zinc-800">
       <input type="hidden" name="_kind" value="setAgentIndexRefs" />
       <h3 class="font-medium">{t('agent.inheritance.indexes', 'Index references')}</h3>
