@@ -213,8 +213,19 @@ describe('Agents tab (#1006)', () => {
 
   it('unlinks the agent of THAT row', async () => {
     const target = await mountTab('agents');
-    const forms = [...target.querySelectorAll<HTMLFormElement>('#panel-agents form[action="?/removeAgent"]')];
-    expect(forms.map((f) => f.querySelector<HTMLInputElement>('input[name="agentId"]')!.value).sort()).toEqual(['ag1', 'ag2']);
+    // #1020: Unlink sits in each row's ⋯ menu; ONE hidden form below the
+    // table is the submit target, filled for whichever row was picked.
+    const hidden = [...target.querySelectorAll<HTMLFormElement>('#panel-agents form[action="?/removeAgent"]')];
+    expect(hidden).toHaveLength(1);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    // Critic's row (ag2), not Scribe's (ag1).
+    target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Critic"]')!.click();
+    flushSync();
+    [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find((i) => i.textContent?.trim() === 'Unlink')!.click();
+    await tick(2);
+    expect(requestSubmit.mock.contexts[0]).toBe(hidden[0]);
+    expect(hidden[0].querySelector<HTMLInputElement>('input[name="agentId"]')!.value).toBe('ag2');
   });
 });
 
@@ -259,8 +270,14 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
   const bootPointers = { ok: true, byAgent: { ag1: { ref: URN, deleted: false } } };
   const rows = (target: HTMLElement) => [...target.querySelectorAll<HTMLTableRowElement>('#panel-agents tbody tr')];
   const rowOf = (target: HTMLElement, name: string) => rows(target).find((r) => r.textContent?.includes(name))!;
+  // #1020: Set boot prompt sits in the row's ⋯ menu, next to Unlink.
+  const menuItems = (target: HTMLElement, name: string) => {
+    rowOf(target, name).querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${name}"]`)!.click();
+    flushSync();
+    return [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  };
   const openFor = async (target: HTMLElement, name: string) => {
-    rowOf(target, name).querySelector<HTMLButtonElement>('button[aria-label^="Set boot prompt for"]')!.click();
+    menuItems(target, name).find((i) => i.textContent?.trim() === 'Set boot prompt…')!.click();
     await tick(2);
   };
 
@@ -348,7 +365,8 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
 
   it('an explicit canManageApp false offers no Set action, but the column still shows', async () => {
     const target = await mountTab('agents', { data: { bootPointers, canManageApp: false } });
-    expect(target.querySelector('button[aria-label^="Set boot prompt for"]')).toBeNull();
+    // The ⋯ menu still opens (Unlink remains) but offers no Set boot prompt.
+    expect(menuItems(target, 'Scribe').some((i) => i.textContent?.trim() === 'Set boot prompt…')).toBe(false);
     expect(rowOf(target, 'Scribe').querySelector(`[title="${URN}"]`)).not.toBeNull();
   });
 
