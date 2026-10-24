@@ -441,7 +441,9 @@
   }
   const workerNameOf = (id: string) => (staff ?? []).find((w) => w.id === id)?.name ?? '';
   let deleteWorkerTarget = $state<Worker | null>(null);
-  $effect(() => { app.id; deleteWorkerTarget = null; });
+  // Compare the App identity, not the loader object replaced on revalidation.
+  const deleteWorkerAppId = $derived(app.id);
+  $effect(() => { deleteWorkerAppId; deleteWorkerTarget = null; });
 
   function workerActions(worker: Worker): NodeMenuAction[] {
     const hold = workerHold(worker, data.user?.id);
