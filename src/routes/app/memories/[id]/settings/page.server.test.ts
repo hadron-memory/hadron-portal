@@ -244,6 +244,9 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
       chunkOverlap: 32,
       forceFixedSize: true,
     });
+    // #1255: the action stamps the load's memory-bound id, so its result
+    // finds THIS form's store and nothing else's.
+    expect((superFormFrom(result) as { id?: string })?.id).toBe('updateVectorIndex:mem-id-abc');
   });
 
   it('parses booleans from strings and omits acknowledgement unless explicitly accepted', async () => {
@@ -703,6 +706,9 @@ describe('memory-detail `updateSchema` action (#588)', () => {
     const result = await actions.updateSchema(schemaEv({ schemaJson: VALID_SCHEMA }));
 
     expect(successMessage(result)).toEqual({ type: 'success', text: 'Schema saved.' });
+    // #1255: the action stamps the load's memory-bound id, so its result
+    // finds THIS form's store and nothing else's.
+    expect((superFormFrom(result) as { id?: string })?.id).toBe('updateSchema:mem-id-abc');
     const [, vars] = mockRequest.mock.calls[0]! as [unknown, Record<string, unknown>];
     expect(vars).toEqual({
       id: 'mem-id-abc',
@@ -1122,6 +1128,11 @@ describe('memory-settings load: form ids (#841)', () => {
     // sides): distinct from every sibling AND from the same form on another
     // memory, so a late result can only match its own card (Gene's P2-1).
     expect(data.marketplaceForm.id).toBe('updateMarketplaceListing:mem-1');
+    // Same discipline for the vector and schema forms (#1255): unstamped
+    // ids matched sibling data/results and a sibling save's invalidateAll
+    // rebound these forms, discarding an unsaved draft.
+    expect(data.vectorForm.id).toBe('updateVectorIndex:mem-1');
+    expect(data.schemaForm.id).toBe('updateSchema:mem-1');
     // The persisted flag seeds the form (the checkbox starts from the fact).
     expect(data.marketplaceForm.data.listedOnMarketplace).toBe(true);
   });

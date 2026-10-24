@@ -98,7 +98,7 @@ function toggle(target: HTMLElement, enabled: boolean) {
   const box = checkbox(target); box.checked = enabled; box.dispatchEvent(new Event('change', {bubbles: true})); flushSync();
 }
 async function result(target: HTMLElement, props: Record<string, unknown>, enabled: boolean, success: boolean) {
-  const validated = await superValidate({vectorIndexEnabled: enabled, embeddingSource: 'abstract', chunkTokens: '', chunkOverlap: '', forceFixedSize: false, acknowledgeVectorInversionRisk: false}, zod4(vectorIndexSettingsSchema));
+  const validated = await superValidate({vectorIndexEnabled: enabled, embeddingSource: 'abstract', chunkTokens: '', chunkOverlap: '', forceFixedSize: false, acknowledgeVectorInversionRisk: false}, zod4(vectorIndexSettingsSchema), { id: 'updateVectorIndex:mem-1' });
   validated.message = {type: success ? 'success' : 'error', text: success ? 'Changes saved.' : 'Save failed.'};
   const outcome = {type: success ? 'success' as const : 'failure' as const, status: success ? 200 : 500, data: {form: validated}};
   const sent = await submitEnhancedWithResult(target.querySelector<HTMLFormElement>('form[action="?/updateVectorIndex"]')!, outcome);

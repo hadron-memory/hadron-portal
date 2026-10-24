@@ -73,27 +73,47 @@ export function settingsGraph(overrides: Partial<Memory> = {}): Memory {
  * the persisted flag, because the #695/#1163 tests turn exactly on the two
  * disagreeing.
  */
-export async function settingsForms(graph: Memory, formVectorIndexEnabled = graph.vectorIndexEnabled) {
+/**
+ * `ref` is the URL's spelling of the memory — what the route's load receives
+ * as `params.id` and stamps every form id with. It defaults to the row id
+ * (the canonical spelling every in-app link produces), but a URN-addressed
+ * render passes the URN: `params.id` is a ref, id OR URN
+ * (hrn:node:hadronmemory.com:hadron-portal:review:route-param-may-be-a-ref),
+ * and the stamps must follow the URL, not the row.
+ */
+export async function settingsForms(graph: Memory, formVectorIndexEnabled = graph.vectorIndexEnabled, ref = graph.id) {
   const [form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
     superValidate({}, zod4(memorySettingsSchema), { errors: false }),
+    // Seeded from the graph exactly as the route's load seeds it — the
+    // chunk fields' visibility gates on the form's embeddingSource
+    // (#1255's pins turn on chunk fields being live at render time).
     superValidate(
       {
         vectorIndexEnabled: formVectorIndexEnabled,
-        embeddingSource: 'abstract' as const,
-        chunkTokens: '',
-        chunkOverlap: '',
-        forceFixedSize: false,
+        embeddingSource: graph.embeddingSource ?? 'abstract',
+        chunkTokens: graph.chunkTokens != null ? String(graph.chunkTokens) : '',
+        chunkOverlap: graph.chunkOverlap != null ? String(graph.chunkOverlap) : '',
+        forceFixedSize: graph.forceFixedSize ?? false,
         acknowledgeVectorInversionRisk: false,
       },
       zod4(vectorIndexSettingsSchema),
-      { errors: false },
+      // Same explicit, memory-bound id as the load and `?/updateVectorIndex`
+      // action (#1255) — an unstamped id ('') matches every other unstamped
+      // form's data and results.
+      { errors: false, id: `updateVectorIndex:${ref}` },
     ),
     // Seeded from the PERSISTED flag with the SAME explicit, memory-bound id
     // the route's load and action use (`…:${id}`) — the client form must
     // carry the load's id or a delivered result lands on the wrong form
     // (hrn:node:hadronmemory.com:hadron-portal:review:superforms-distinct-form-ids).
-    superValidate({ listedOnMarketplace: graph.listedOnMarketplace ?? false }, zod4(marketplaceListingSchema), { errors: false, id: `updateMarketplaceListing:${graph.id}` }),
-    superValidate({ schemaJson: '' }, zod4(memorySchemaSettingsSchema), { errors: false }),
+    superValidate({ listedOnMarketplace: graph.listedOnMarketplace ?? false }, zod4(marketplaceListingSchema), { errors: false, id: `updateMarketplaceListing:${ref}` }),
+    superValidate(
+      { schemaJson: graph.schema != null ? JSON.stringify(graph.schema, null, 2) : '' },
+      zod4(memorySchemaSettingsSchema),
+      // Same explicit, memory-bound id as the load and `?/updateSchema`
+      // action (#1255).
+      { errors: false, id: `updateSchema:${ref}` },
+    ),
     superValidate({ organizationId: 'org-1' }, zod4(deleteMemorySchema), { errors: false }),
     superValidate({}, zod4(retryFailedEmbeddingsSchema), { errors: false }),
   ]);

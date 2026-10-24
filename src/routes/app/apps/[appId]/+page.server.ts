@@ -1,3 +1,5 @@
+import { deleteWorkerSchema } from './schema';
+import type { DeleteWorkerResult } from './delete-worker';
 import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -37,6 +39,7 @@ import {
   WORKERS_QUERY,
   CAST_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
+  DELETE_WORKER_MUTATION,
   SET_WORKER_WAKE_SETTINGS_MUTATION,
   RELEASE_WORKER_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
@@ -1212,6 +1215,40 @@ export const actions: Actions = {
       return fail(forbidden ? 403 : 500, { pauseResult: { ok: false as const, workerId, message: forbidden
         ? t('app.staff.pause.error.forbidden', 'You can’t pause or unpause this worker. Only the worker, its holder or an App manager can.')
         : t('app.staff.pause.error.failed', 'Could not confirm the change. Check the worker’s status and try again.') } });
+    }
+  },
+
+  // #1023: no local eligibility or App-based authority shortcut. The mutation
+  // resolves the supplied worker and checks its own staffing/reference gates.
+  deleteWorker: async ({ request, locals }) => {
+    const posted = await request.formData();
+    const workerRef = typeof posted.get('workerRef') === 'string' ? String(posted.get('workerRef')) : '';
+    const refuse = (status: number, message: string, code: string | null = null) =>
+      fail(status, { deleteWorkerResult: { ok: false, workerRef, message, code } satisfies DeleteWorkerResult });
+    if (['_kind', 'workerRef', 'confirmation'].some(key => posted.getAll(key).length !== 1)) {
+      return refuse(400, t('app.staff.delete.confirm-required', 'Explicit external-artifact verification is required.'));
+    }
+    const parsed = deleteWorkerSchema.safeParse(Object.fromEntries(posted));
+    if (!parsed.success) return refuse(400, t('app.staff.delete.confirm-required', 'Explicit external-artifact verification is required.'));
+    try {
+      const result = await gqlClient(locals.token).request<{ deleteWorker: boolean }>(DELETE_WORKER_MUTATION, {
+        workerRef: parsed.data.workerRef, confirmNoExternalAttribution: true,
+      });
+      if (result.deleteWorker !== true) return refuse(500, t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh the roster before trying again.'));
+      return { deleteWorkerResult: { ok: true, workerRef: parsed.data.workerRef,
+        message: t('app.staff.delete.done', 'Worker deleted.') } satisfies DeleteWorkerResult };
+    } catch (e: unknown) {
+      const code = gqlErrorCode(e);
+      // Only GraphQL's own refusal sentence, never the request/extension census
+      // or a transport exception containing query variables, reaches the UI.
+      const errors = (e as { response?: { errors?: { message?: string }[] } } | null)?.response?.errors;
+      const status = code === 'FORBIDDEN' ? 403
+        : code === 'WORKER_NOT_FOUND' ? 404
+        : code === 'WORKER_IN_USE' || code === 'WORKER_EXTERNAL_ATTRIBUTION_UNCONFIRMED' ? 400 : 500;
+      const text = status < 500 && typeof errors?.[0]?.message === 'string'
+        ? errors[0].message
+        : t('app.staff.delete.failed', 'Could not confirm deletion. Refresh the roster and try again.');
+      return refuse(status, text, code);
     }
   },
 

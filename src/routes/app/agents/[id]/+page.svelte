@@ -1,5 +1,7 @@
 <script lang="ts">
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
+  import AgentExtendedBy from '$lib/components/AgentExtendedBy.svelte';
+  import type { NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import AgentDefinitions from '$lib/components/AgentDefinitions.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -20,7 +22,6 @@
   import { t } from '$lib/i18n/t';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
-  import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode, OrgSummary } from '$lib/types';
   import type { PageData, ActionData } from './$types';
@@ -530,6 +531,15 @@
   // The memory chosen in the "Add memory" picker — used to label the picker button.
   const selectedAddMemory = $derived(allMemories.find((m) => m.id === $addMemoryForm.memoryId));
 
+  const profileActions = $derived.by(() => {
+    const actions: NodeMenuAction[] = [];
+    // Keep the existing org-only install route/audience.
+    if (org) actions.push({ id: 'install', label: t('agent.actions.install', 'Install into app'), href: `/app/orgs/${encodeURIComponent(org.id)}/agents/install/${encodeURIComponent(agent.id)}` });
+    if (agent.systemMemoryId) actions.push({ id: 'conversations', label: t('agent.actions.conversations', 'Conversation editor'), href: `/app/agents/${encodeURIComponent(agent.id)}/conversations` });
+    if (data.systemMemoryIdentity?.urn) actions.push({ id: 'system-memory', label: t('agent.actions.system-memory', 'Open system memory'), href: `/app/memories/${encodeURIComponent(data.systemMemoryIdentity.id)}` });
+    return actions;
+  });
+
   // ── Memories tab grid (#371 follow-up) ────────────────────────────────
   // The attached-memories list migrated from a hand-rolled card list to the
   // shared TanStack DataTable. Rows carry only what the cells render; the
@@ -728,19 +738,8 @@
         <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
       {/if}
     </div>
-    <!-- 009-install-agent-flow T013: Install action surfaces here as the
-         primary call-to-action for the Agent detail page. Soft-deleted
-         Agents don't reach this page (the load redirect would 404 first),
-         so no client-side gate needed. Install is an org-only flow — a
-         user-owned (org-less) agent has no org install surface (#636). -->
-    {#if org}
-      <a
-        href="/app/orgs/{org.id}/agents/install/{agent.id}"
-        class="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
-        style="background: #fb8500;"
-      >
-        {installStrings.buttonLabel()}
-      </a>
+    {#if profileActions.length > 0}
+      <NodeActionsMenu label={t('agent.actions.label', 'Agent actions')} actions={profileActions} />
     {/if}
   </div>
 
@@ -822,12 +821,6 @@
               <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
             </div>
           {/if}
-          {#if agent.systemPrompt}
-            <div class="px-5 py-3">
-              <span class="text-sm text-zinc-500">System Prompt</span>
-              <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
-            </div>
-          {/if}
           <!-- #974: persona DRESSING on a reusable role-actor. Not an identity —
                the named individual is a Worker cast into an App. -->
           {#if agent.personaRole}
@@ -836,14 +829,10 @@
               <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
             </div>
           {/if}
-          {#if agent.systemMemoryId}
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Agent system memory</span>
-              <a href="/app/memories/{agent.systemMemoryId}" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">{systemMemory?.name ?? 'System memory'} →</a>
-            </div>
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Conversations</span>
-              <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
+          {#if data.systemMemoryIdentity?.urn}
+            <div class="space-y-1 px-5 py-3">
+              <span class="text-sm text-zinc-500">{t('agent.system-memory.label', 'Agent system memory')}</span>
+              <div><Urn value={data.systemMemoryIdentity.urn} type="memory" linked label={t('agent.system-memory.label', 'Agent system memory')} /></div>
             </div>
           {/if}
           {#if org}
@@ -858,6 +847,8 @@
           </div>
         </div>
       </section>
+
+      <AgentExtendedBy agentId={agent.id} result={data.extendedBy ?? { items: [], endCursor: null, hasMore: false, failed: true }} />
 
       <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
            The v1 per-agent asset-upload toggle is being replaced by a per-
