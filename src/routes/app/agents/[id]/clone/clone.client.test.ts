@@ -55,6 +55,24 @@ describe('#1262 clone page', () => {
     expect(alert.textContent).toContain('item 4');
     expect(alert.textContent).not.toMatch(/undefined|\[object/);
   });
+  it('renders a Name validation error from a refused submit (201 characters)', async () => {
+    const sv = await superValidate({ target: 'org-2', name: 'x'.repeat(201), slug: '' }, zod4(cloneAgentSchema));
+    expect(sv.valid).toBe(false);
+    const root = await open({ form: { form: sv, blockers: [] } });
+    expect(root.querySelector('#clone-name-error')?.textContent).toBeTruthy();
+    expect(root.querySelector('#clone-name')!.getAttribute('aria-invalid')).toBe('true');
+  });
+  it('with several orgs Clone stays enabled and a refused submit shows the target error', async () => {
+    const two = [...targets, { id: 'org-3', name: 'Gamma', urn: 'hrn:org:gamma.com' }];
+    const sv = await superValidate({ target: '', name: '', slug: '' }, zod4(cloneAgentSchema));
+    const root = await open({ targets: two, form: { form: sv, blockers: [] } });
+    expect(root.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(false);
+    expect(root.querySelector('#clone-target-error')?.textContent).toBeTruthy();
+  });
+  it('offers a way back', async () => {
+    const root = await open();
+    expect(root.querySelector('form a[href="/app/agents/agent-1"]')?.textContent).toMatch(/Cancel/);
+  });
   it('re-seeds the form and drops the old banner when the route moves to another Agent', async () => {
     const sv = await superValidate({ target: 'org-2', name: 'typed', slug: '' }, zod4(cloneAgentSchema), { errors: false });
     (sv as any).message = { type: 'error', text: 'Old agent refusal' };

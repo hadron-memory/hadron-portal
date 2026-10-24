@@ -44,6 +44,7 @@
     (form && 'blockers' in form ? (form.blockers as CloneBlocker[] | undefined) : undefined) ?? [],
   );
   const targetError = $derived($errors.target?.[0] ?? null);
+  const nameError = $derived($errors.name?.[0] ?? null);
   const slugError = $derived($errors.slug?.[0] ?? null);
   const actionError = $derived($message?.type === 'error' ? $message.text : null);
 
@@ -135,8 +136,18 @@
           <label for="clone-name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
             {t('agent.clone.name.label', 'Name (optional)')}
           </label>
-          <input id="clone-name" type="text" name="name" bind:value={$values.name} aria-describedby="clone-name-help" class={inputClass} />
+          <input
+            id="clone-name"
+            type="text"
+            name="name"
+            maxlength="200"
+            bind:value={$values.name}
+            aria-invalid={!!nameError}
+            aria-describedby={nameError ? 'clone-name-error clone-name-help' : 'clone-name-help'}
+            class={inputClass}
+          />
           <p id="clone-name-help" class="mt-1 text-xs text-zinc-400">{t('agent.clone.name.help', 'Leave blank to use the server’s default name.')}</p>
+          {#if nameError}<p id="clone-name-error" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{nameError}</p>{/if}
         </div>
 
         <div>
@@ -147,6 +158,7 @@
             id="clone-slug"
             type="text"
             name="slug"
+            maxlength="200"
             bind:value={$values.slug}
             aria-invalid={!!slugError}
             aria-describedby={slugError ? 'clone-slug-error clone-slug-help' : 'clone-slug-help'}
@@ -156,9 +168,10 @@
           {#if slugError}<p id="clone-slug-error" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{slugError}</p>{/if}
         </div>
 
-        <button type="submit" disabled={$submitting || !$values.target} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+        <button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
           {$submitting ? t('agent.clone.submitting', 'Cloning...') : t('agent.clone.submit', 'Clone Agent')}
         </button>
+        <a href={`/app/agents/${encodeURIComponent(agent.id)}`} class="ml-3 text-sm text-zinc-600 hover:underline dark:text-zinc-400">{t('agent.clone.cancel', 'Cancel')}</a>
       </form>
       <SelectOrg orgs={targets} bind:open={pickerOpen} onselect={(o) => { $values.target = o.id; }} />
     {/if}
