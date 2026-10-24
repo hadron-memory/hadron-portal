@@ -252,3 +252,35 @@ it('preserves unapplied Advanced text when an equal schema reloads', () => {
   expect((target.querySelector('#structured-where') as HTMLTextAreaElement).value).toBe('{');
   expect(target.querySelector('[data-testid="property-filter"] [role="alert"]')).not.toBeNull();
 });
+
+describe('#1280 keyboard focus and filter feedback', () => {
+  it('returns keyboard focus to the first editor control after Discard removes the button', async () => {
+    const { target } = browser();
+    pick(target, '#structured-object-type', 'task');
+    pick(target, '[data-testid="property-filter-field"]', 'count');
+    pick(target, '[data-testid="property-filter-value"]', '7');
+    const discard = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Discard changes')!;
+    discard.focus(); expect(document.activeElement).toBe(discard);
+    discard.click(); flushSync(); await tick();
+    expect(discard.isConnected).toBe(false);
+    expect(document.activeElement).toBe(target.querySelector('[data-testid="property-filter-field"]'));
+  });
+
+  it('keeps one feedback region mounted through Apply, collection reset and explicit Clear', async () => {
+    const { target } = browser();
+    const status = target.querySelector('[data-testid="property-filter-status"]');
+    expect(status).not.toBeNull();
+    expect(status!.getAttribute('aria-live')).toBe('polite');
+    expect(status!.textContent?.trim()).toBe('');
+    filter(target); await bodies();
+    expect(status!.textContent).toContain('Filter applied');
+    pick(target, '#structured-object-type', 'other'); await bodies();
+    expect(target.querySelector('[data-testid="property-filter-status"]')).toBe(status);
+    expect(status!.textContent).toContain('Filter cleared because the collection changed');
+    pick(target, '#structured-object-type', 'task');
+    expect(status!.textContent?.trim()).toBe(''); // no applied predicate was cleared
+    filter(target); click(target, 'Clear filter'); await bodies();
+    expect(status!.textContent).toContain('Filter cleared');
+    expect((await bodies()).at(-1).filter.where).toBeNull();
+  });
+});
