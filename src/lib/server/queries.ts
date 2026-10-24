@@ -4815,3 +4815,10 @@ export const APP_PEOPLE_QUERY = /* GraphQL */ `
     app(ref: $ref) { id members { user { id handle name } } }
   }
 `;
+
+// #1023: only the server may authorize a verified-unused casting repair.
+export const DELETE_WORKER_MUTATION = /* GraphQL */ `
+  mutation DeleteWorker($workerRef: ID!, $confirmNoExternalAttribution: Boolean!) {
+    deleteWorker(workerRef: $workerRef, confirmNoExternalAttribution: $confirmNoExternalAttribution)
+  }
+`;
