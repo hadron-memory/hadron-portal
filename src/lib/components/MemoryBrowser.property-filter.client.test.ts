@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { flushSync } from 'svelte';
+import { flushSync, tick as svelteTick } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import MemoryBrowser from './MemoryBrowser.svelte';
@@ -255,19 +255,29 @@ it('preserves unapplied Advanced text when an equal schema reloads', () => {
 
 describe('#1280 keyboard focus and filter feedback', () => {
   it('returns keyboard focus to the first editor control after Discard removes the button', async () => {
+    vi.useRealTimers();
     const { target } = browser();
     pick(target, '#structured-object-type', 'task');
     pick(target, '[data-testid="property-filter-field"]', 'count');
     pick(target, '[data-testid="property-filter-value"]', '7');
     const discard = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Discard changes')!;
     discard.focus(); expect(document.activeElement).toBe(discard);
-    discard.click(); flushSync(); await tick();
+    discard.click(); flushSync(); await svelteTick();
     expect(discard.isConnected).toBe(false);
-    expect(document.activeElement).toBe(target.querySelector('[data-testid="property-filter-field"]'));
+    await vi.waitFor(() => expect(document.activeElement).toBe(target.querySelector('[data-testid="property-filter-field"]')));
+  });
+
+  it('restores focus to the Advanced editor after discarding invalid JSON', async () => {
+    vi.useRealTimers();
+    const { target } = browser();
+    pick(target, '#structured-where', '{');
+    const discard = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Discard changes')!;
+    discard.focus(); discard.click(); flushSync(); await svelteTick();
+    await vi.waitFor(() => expect(document.activeElement).toBe(target.querySelector('#structured-where')));
   });
 
   it('keeps one feedback region mounted through Apply, collection reset and explicit Clear', async () => {
-    const { target } = browser();
+    const { target, props } = browser();
     const status = target.querySelector('[data-testid="property-filter-status"]');
     expect(status).not.toBeNull();
     expect(status!.getAttribute('aria-live')).toBe('polite');
@@ -282,5 +292,7 @@ describe('#1280 keyboard focus and filter feedback', () => {
     filter(target); click(target, 'Clear filter'); await bodies();
     expect(status!.textContent).toContain('Filter cleared');
     expect((await bodies()).at(-1).filter.where).toBeNull();
+    props.basePath = '/app/memories/mem-b'; props.memory = { id: 'mem-b', schema }; flushSync();
+    expect(status!.textContent?.trim()).toBe('');
   });
 });
