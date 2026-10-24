@@ -39,8 +39,14 @@
     dirty = false;
     if (!draft) mode = 'advanced';
   }
+  // Reloaded loader objects may have a new identity but the same query fields.
+  // Only a declaration change invalidates an unapplied draft.
+  const declarationKey = $derived(collection ? JSON.stringify(
+    Object.entries(collection.fields).sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, field]) => [name, field.type, field.values ?? null]),
+  ) : null);
   $effect(() => {
-    void value; void collection;
+    void value; void declarationKey;
     untrack(seed);
   });
   function chooseField() { operator = 'eq'; input = ''; dirty = true; }
@@ -71,17 +77,17 @@
 
 <div class="space-y-2" data-testid="property-filter">
   <div class="flex flex-wrap gap-2" role="group" aria-label={t('property-filter.mode', 'Filter editor')}>
-    <button type="button" aria-pressed={mode === 'fields'} disabled={dirty || !basicAvailable}
+    <button type="button" aria-pressed={mode === 'fields'} disabled={dirty || !basicAvailable} aria-describedby={dirty ? 'structured-draft-hint' : undefined}
       onclick={() => switchMode('fields')} class="rounded border border-zinc-300 px-2 py-1 text-xs aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-900 disabled:opacity-50 dark:border-zinc-700 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200">
       {t('property-filter.fields', 'Fields')}
     </button>
-    <button type="button" aria-pressed={mode === 'advanced'} disabled={dirty}
+    <button type="button" aria-pressed={mode === 'advanced'} disabled={dirty} aria-describedby={dirty ? 'structured-draft-hint' : undefined}
       onclick={() => switchMode('advanced')} class="rounded border border-zinc-300 px-2 py-1 text-xs aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-900 disabled:opacity-50 dark:border-zinc-700 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200">
       {t('property-filter.advanced', 'Advanced JSON')}
     </button>
   </div>
   {#if dirty}
-    <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('property-filter.unapplied', 'Apply or clear your changes before switching editors. The current filter stays applied until then.')}</p>
+    <p id="structured-draft-hint" class="text-xs text-zinc-500 dark:text-zinc-400">{t('property-filter.unapplied', 'Apply, discard or clear your changes before switching editors. The current filter stays applied until then.')}</p>
   {:else if !basicAvailable}
     <p class="text-xs text-zinc-500 dark:text-zinc-400">
       {collection
@@ -132,6 +138,7 @@
     {:else}<p id="structured-where-hint" class="text-xs text-zinc-500 dark:text-zinc-400">{t('property-filter.raw-hint', 'Use the existing path/operator or and/or/not grammar. The server validates applied filters.')}</p>{/if}
   {/if}
   <div class="flex flex-wrap gap-2">
+    {#if dirty}<button type="button" onclick={seed} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700">{t('property-filter.discard', 'Discard changes')}</button>{/if}
     <button type="button" disabled={!canApply} onclick={apply} class="rounded-lg bg-indigo-900 px-3 py-1.5 text-xs text-white disabled:opacity-50 dark:bg-indigo-400 dark:text-zinc-950">{t('property-filter.apply', 'Apply filter')}</button>
     <button type="button" onclick={clear} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs dark:border-zinc-700">{t('property-filter.clear', 'Clear filter')}</button>
   </div>

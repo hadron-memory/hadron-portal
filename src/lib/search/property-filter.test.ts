@@ -46,3 +46,20 @@ describe('schema property filter → existing where grammar', () => {
     }
   });
 });
+
+
+it.each([
+  { path: ['title'], eq: 'a', ne: 'b' },
+  { path: ['title'], eq: 'a', in: ['b'] },
+  { path: ['title'], eq: 'a', contains: 'b' },
+  { path: ['title'], eq: 'a', between: ['b', 'c'] },
+  { path: ['title'], eq: 'a', surprise: true },
+  { path: ['title'], as: 'number', eq: 'a' },
+  { path: ['title'], eq: false },
+  { path: ['title', 'nested'], eq: 'a' },
+  { path: ['title'], exists: 'false' },
+  { path: ['title'], exists: false, eq: 'a' },
+  { path: ['status'], eq: 'undeclared' },
+])('keeps nonrepresentable leaf in Advanced without dropping constraints: %j', predicate => {
+  expect(readPropertyFilter(collection, JSON.stringify(predicate))).toBeNull();
+});

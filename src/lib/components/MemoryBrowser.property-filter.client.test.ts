@@ -236,5 +236,19 @@ describe('#1221 review draft regressions', () => {
     await bodies(); expect(fetchMock.mock.calls.length).toBe(before);
     click(target, 'Fields');
     expect((target.querySelector('[data-testid="property-filter-value"]') as HTMLSelectElement).value).toBe('false');
+    pick(target, '[data-testid="property-filter-field"]', 'count');
+    pick(target, '[data-testid="property-filter-value"]', 'invalid');
+    click(target, 'Discard changes');
+    expect((target.querySelector('[data-testid="property-filter-field"]') as HTMLSelectElement).value).toBe('enabled');
+    expect((target.querySelector('[data-testid="property-filter-value"]') as HTMLSelectElement).value).toBe('false');
   });
+});
+
+
+it('preserves unapplied Advanced text when an equal schema reloads', () => {
+  const { target, props } = browser(); filter(target);
+  click(target, 'Advanced JSON'); pick(target, '#structured-where', '{');
+  props.memory = { id: 'mem-a', schema: JSON.parse(JSON.stringify(schema)) }; flushSync();
+  expect((target.querySelector('#structured-where') as HTMLTextAreaElement).value).toBe('{');
+  expect(target.querySelector('[data-testid="property-filter"] [role="alert"]')).not.toBeNull();
 });
