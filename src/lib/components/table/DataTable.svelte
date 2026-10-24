@@ -161,10 +161,14 @@
 </div>
 </TableFrame>
 
-<!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
-<div class="flex items-center justify-between gap-3">
+<!-- Footer: page size (left of Prev/Next) + pagination; always visible.
+     Both rows wrap (#1270): the select is sized by its longest option label
+     and cannot shrink beside Previous/Next, so a no-wrap footer pushed the
+     document 14px wide on a 390px phone. Wrapping keeps every control in
+     flow and reachable instead. -->
+<div class="flex flex-wrap items-center justify-between gap-3">
   <span class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
-  <div class="flex items-center gap-2">
+  <div class="flex flex-wrap items-center gap-2">
     <select value={pageSize} onchange={(e) => table.setPageSize(Number((e.target as HTMLSelectElement).value))}
       aria-label={tableStrings.rowsPerPage()}
       class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">
