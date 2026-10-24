@@ -1,8 +1,8 @@
 /**
  * #629 / #636: /app/dashboard renders a widget grid for EVERY user. The
- * loader issues ONE DASHBOARD_QUERY (count-only totals, no org redirect) and
- * returns the widget placements (from the server selection, or a default) and
- * the per-widget combined data.
+ * loader streams independent layout and data promises (no org redirect).
+ * These mapping/action tests settle both; streaming.server.test pins that
+ * neither read blocks returning the page shell.
  * #788: the in-place editor saves the layout back via the saveLayout action
  * (position = array order, server row ids kept so they survive the save).
  */
@@ -34,7 +34,12 @@ function ev() {
 
 async function runLoad() {
   const load = await importLoad();
-  return load(ev());
+  const result = await load(ev()) as {
+    dashboard: Promise<{ placements: unknown[]; loadFailed: boolean }>;
+    widgetData: Promise<{ data: Record<string, unknown>; loadFailed: boolean }>;
+  };
+  const [dashboard, widgets] = await Promise.all([result.dashboard, result.widgetData]);
+  return { ...dashboard, widgetData: widgets.data, loadFailed: dashboard.loadFailed || widgets.loadFailed };
 }
 
 /** A server widget row in the full #788 shape. */

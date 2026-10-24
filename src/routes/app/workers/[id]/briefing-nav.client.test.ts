@@ -102,7 +102,8 @@ describe('#1010 — the no-JS path keeps its view (@codex/@copilot on #857)', ()
     const mounted = mountComponent(Page as never, { data: await dataFor(worker('w-a', 'X')) } as never);
     try {
       openSource(mounted.target);
-      const action = mounted.target.querySelector('form[method="POST"]')?.getAttribute('action') ?? '';
+      // portal#1142 S8 added a pointer form above this one; pick the briefing form itself.
+      const action = mounted.target.querySelector('form[method="POST"][action*="/updateBriefing"]')?.getAttribute('action') ?? '';
       // A bare `?/updateBriefing` replaces the query string, so a JS-off submit
       // lands on Profile/Rendered — and a failure leaves the preserved text and
       // the error in a panel that reader can no longer see.

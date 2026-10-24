@@ -4,6 +4,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { CREATE_NODE_MUTATION } from '$lib/server/queries';
+import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import {
   createNodeStrings,
@@ -116,6 +117,10 @@ export const actions: Actions = {
       });
       newId = result.createNode.id;
     } catch (e: unknown) {
+      // portal#1142 S2b: an include refusal created nothing; the form keeps
+      // what was typed, with the server's words, the tag and the next step.
+      const include = includeRefusalOf(e);
+      if (include) return message(form, { type: 'error', text: includeRefusalText(include, 'create') }, { status: 400 });
       const error = translateCreateNodeError(e);
       const status = createNodeErrorStatus(e);
       const code = createNodeErrorCode(e);

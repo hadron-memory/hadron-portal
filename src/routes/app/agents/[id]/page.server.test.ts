@@ -1,3 +1,4 @@
+import { AGENT_EXTENSIONS_QUERY, AGENT_SYSTEM_MEMORY_IDENTITY_QUERY } from '$lib/server/agent-profile';
 import { SELF_AGENT_MANAGE_QUERY, AGENT_INDEX_REFS_QUERY } from '$lib/server/agent-inheritance-write';
 /**
  * Spec 018 — /app/agents/[id] detail-page loader tests.
@@ -22,6 +23,8 @@ import {
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
   AGENT_REGISTER_DEFAULTS_QUERY,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
+  APP_ORG_AGENT_GRANTS_QUERY,
+  PUBLISH_AGENT_IMPORT_MUTATION,
 } from '$lib/server/queries';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
@@ -111,8 +114,19 @@ function routeMock(opts: {
   apps?: { data?: unknown; error?: unknown };
   ownedApps?: { data?: unknown; error?: unknown };
   registerDefaults?: { data?: unknown; error?: unknown };
+  orgAgents?: { data?: unknown; error?: unknown };
+  extensions?: { data?: unknown; error?: unknown };
+  systemIdentity?: { data?: unknown; error?: unknown };
 }) {
   mockRequest.mockImplementation(async (query: string) => {
+    if (query === AGENT_EXTENSIONS_QUERY) {
+      if (opts.extensions?.error) throw opts.extensions.error;
+      return opts.extensions?.data ?? { agent: { extendedBy: { items: [], endCursor: null, hasMore: false } } };
+    }
+    if (query === AGENT_SYSTEM_MEMORY_IDENTITY_QUERY) {
+      if (opts.systemIdentity?.error) throw opts.systemIdentity.error;
+      return opts.systemIdentity?.data ?? { memory: null };
+    }
     if (query === AGENT_QUERY) {
       if (opts.agent?.error !== undefined) throw opts.agent.error;
       return opts.agent?.data ?? { agent: null };
@@ -142,6 +156,7 @@ function routeMock(opts: {
       return opts.nodes?.data ?? { findNodes: { hits: [] } };
     }
     if (query === AGENT_APPS_QUERY) {
+      if (opts.apps?.error !== undefined) throw opts.apps.error;
       const apps = (opts.apps?.data as unknown[]) ?? [];
       return { apps: { items: apps, total: apps.length } };
     }
@@ -149,6 +164,7 @@ function routeMock(opts: {
     // loader catches its failure, so an unmocked one would degrade silently
     // instead of failing the test.
     if (query === AGENT_OWNED_APPS_QUERY) {
+      if (opts.ownedApps?.error !== undefined) throw opts.ownedApps.error;
       const apps = (opts.ownedApps?.data as unknown[]) ?? [];
       return { apps: { items: apps, total: apps.length } };
     }
@@ -157,6 +173,12 @@ function routeMock(opts: {
     if (query === AGENT_REGISTER_DEFAULTS_QUERY) {
       if (opts.registerDefaults?.error !== undefined) throw opts.registerDefaults.error;
       return opts.registerDefaults?.data ?? { agent: { id: 'agent-id-123', registerDefaults: { mentionOnly: false } } };
+    }
+    // #1173: the Bundled tab's candidates, a request of its own (a refusal
+    // costs the add control, never the page).
+    if (query === APP_ORG_AGENT_GRANTS_QUERY) {
+      if (opts.orgAgents?.error !== undefined) throw opts.orgAgents.error;
+      return opts.orgAgents?.data ?? { organization: { id: 'org-a', agentOrgGrants: [] } };
     }
     throw new Error(`Unexpected query passed to mockRequest`);
   });
@@ -183,6 +205,35 @@ const publicPersonalAgent = { ...personalAgent, id: 'agent-public', visibility: 
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe('/app/agents/[id] loader', () => {
+  it('#1226: a failed Nodes-tab read (any page) is agentNodesError, not an empty memory', async () => {
+    routeMock({
+      agent: { data: { agent: { ...agentInA, memoryItems: [{ memory: { id: 'mem-1' }, role: 'read' }] } } },
+      myOrgs: { data: { organizations: [orgA] } },
+      nodes: { error: new Error('page 2 outage') },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-aaa' }))) as { agentNodes: unknown[]; agentNodesError: boolean };
+    expect(result.agentNodesError).toBe(true);
+    expect(result.agentNodes).toEqual([]);
+  });
+
+  it('#472: a failed Apps read (either call) is installedAppsError, and the other call\'s rows survive', async () => {
+    const lite = (id: string) => ({ id, name: id, urn: `hrn:app:x:${id}`, organizationId: 'org-a', agentId: 'agent-aaa', agents: [] });
+    const run = async (opts: Parameters<typeof routeMock>[0]) => {
+      routeMock({ agent: { data: { agent: agentInA } }, myOrgs: { data: { organizations: [orgA] } }, ...opts });
+      const load = await importLoad();
+      return (await load(ev({ agentId: 'agent-aaa' }))) as { installedApps: Array<{ id: string }>; installedAppsError: boolean };
+    };
+    const ok = await run({ apps: { data: [lite('one')] } });
+    expect(ok.installedAppsError).toBe(false);
+    const orgFailed = await run({ apps: { error: new Error('outage') }, ownedApps: { data: [lite('mine')] } });
+    expect(orgFailed.installedAppsError).toBe(true);
+    expect(orgFailed.installedApps.map((a) => a.id)).toEqual(['mine']);
+    const ownedFailed = await run({ apps: { data: [lite('one')] }, ownedApps: { error: new Error('outage') } });
+    expect(ownedFailed.installedAppsError).toBe(true);
+    expect(ownedFailed.installedApps.map((a) => a.id)).toEqual(['one']);
+  });
+
   // ── Org agents: resolved via agent(ref:), org chrome loaded ──────────────
 
   it('org agent: returns the agent + its org (agent(ref:) then organizations())', async () => {
@@ -805,4 +856,126 @@ it('self-audits the actual loaded Agent by full URN, never its ambiguous id', as
   const result = await load({ ...ev(), locals: { token: 'token', user: { id: 'me' }, impersonation: null } } as never) as unknown as { inheritanceManagement: { canManage: boolean; error: string | null }; baseForm: { data: { baseRef: string } } };
   expect(result.baseForm.data.baseRef).toBe('');
   expect(result.inheritanceManagement).toMatchObject({ canManage: true, error: null });
+});
+
+describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
+  const helper = { id: 'agent-helper', name: 'Helper', urn: 'hrn:agent:acme.com:helper' };
+  const subscribed = { id: 'agent-sub', name: 'Project Manager', urn: 'hrn:agent:hadronmemory.com:project-manager' };
+  const already = { id: 'agent-cal', name: 'Calendar', urn: 'hrn:agent:acme.com:calendar' };
+  const self = { id: 'agent-aaa', name: 'Agent in A', urn: 'urn:agent:a' };
+
+  async function loadCandidates(orgAgents: { data?: unknown; error?: unknown }, agentOver: Record<string, unknown> = {}) {
+    routeMock({
+      agent: { data: { agent: { ...agentInA, ...agentOver } } },
+      myOrgs: { data: { organizations: [orgA] } },
+      orgAgents,
+    });
+    const load = await importLoad();
+    return (await load(ev({ agentId: 'agent-aaa' }))) as {
+      bundleCandidates: Array<{ id: string }>;
+      bundleCandidatesError: boolean;
+      nextImportPosition: number;
+    };
+  }
+
+  it('offers only the agents the org is licensed for, minus itself and what it already bundles', async () => {
+    const r = await loadCandidates(
+      {
+        data: {
+          organization: {
+            id: 'org-a',
+            // Owned agents are NOT offered: the server refuses them (an org
+            // cannot grant itself an agent), so they would be dead choices.
+            agents: [self, helper, already],
+            agentOrgGrants: [
+              { isActive: true, agent: subscribed },
+              { isActive: true, agent: already },
+              { isActive: true, agent: self },
+              { isActive: true, agent: null },
+              { isActive: false, agent: { id: 'agent-x', name: 'X', urn: 'u' } },
+              { isActive: true, revokedAt: '2026-01-01T00:00:00Z', agent: { id: 'agent-y', name: 'Y', urn: 'u2' } },
+            ],
+          },
+        },
+      },
+      { imports: [{ parentAgentId: 'agent-aaa', importedAgentId: 'agent-cal', position: 4, required: true, importedAgent: already }] },
+    );
+    expect(r.bundleCandidates.map((a) => a.id)).toEqual(['agent-sub']);
+    expect(r.bundleCandidatesError).toBe(false);
+    expect(r.nextImportPosition).toBe(5);
+  });
+
+  it('an import the viewer cannot read still counts as bundled, so it is not offered again', async () => {
+    const r = await loadCandidates(
+      { data: { organization: { id: 'org-a', agents: [], agentOrgGrants: [{ isActive: true, agent: helper }] } } },
+      { imports: [{ parentAgentId: 'agent-aaa', importedAgentId: 'agent-helper', position: 1, required: false, importedAgent: null }] },
+    );
+    expect(r.bundleCandidates).toEqual([]);
+  });
+
+  it('a refusing candidates request costs the add control, not the page', async () => {
+    const r = await loadCandidates({ error: new Error('boom') });
+    expect(r.bundleCandidates).toEqual([]);
+    expect(r.bundleCandidatesError).toBe(true);
+  });
+
+  it('publishes the import with the chosen agent, position and required flag', async () => {
+    mockRequest.mockResolvedValue({ publishAgentImport: { importedAgentId: 'agent-helper' } });
+    const { actions } = await importMod();
+    const result = await actions.addBundledAgent(
+      actionEv({ agentId: 'agent-helper', position: '3', required: 'on' }) as never,
+    );
+    expect(mockRequest).toHaveBeenCalledWith(PUBLISH_AGENT_IMPORT_MUTATION, {
+      importedAgentRef: 'agent-helper',
+      parentAgentRef: 'agent-id-123',
+      position: 3,
+      required: true,
+    });
+    expect(result).toMatchObject({ bundleAdded: true });
+  });
+
+  it('an unticked required box publishes an optional import', async () => {
+    mockRequest.mockResolvedValue({ publishAgentImport: { importedAgentId: 'agent-helper' } });
+    const { actions } = await importMod();
+    await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never);
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ required: false });
+  });
+
+  it('refuses a missing agent or a bad position before calling the API', async () => {
+    const { actions } = await importMod();
+    const bad: Array<Record<string, string>> = [{ position: '1' }, { agentId: 'agent-helper', position: '0' }, { agentId: 'agent-helper', position: 'x' }];
+    for (const fields of bad) {
+      const r = (await actions.addBundledAgent(actionEv(fields) as never)) as { status?: number };
+      expect(r.status).toBe(400);
+    }
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('returns the server’s refusal sentence and does not report success', async () => {
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Imports are one level deep.', extensions: { code: 'IMPORT_DEPTH' } }] } });
+    const { actions } = await importMod();
+    const r = (await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never)) as {
+      status?: number; data?: { bundleError?: string; bundleAdded?: boolean };
+    };
+    expect(r.status).toBe(500);
+    expect(r.data?.bundleAdded).toBeUndefined();
+    expect(r.data?.bundleError).toContain('one level deep');
+  });
+});
+
+it('#1170 passes the URL continuation to the authorized reverse read and resolves system identity', async () => {
+  const memory = { id: 'system', name: 'System', urn: 'hrn:mem:example.com:system' };
+  routeMock({ agent: { data: { agent: { ...personalAgent, systemMemoryId: 'system' } } },
+    extensions: { data: { agent: { extendedBy: { items: [], hasMore: true, endCursor: 'opaque-next' } } } }, systemIdentity: { data: { memory } } });
+  const event = ev({ agentId: personalAgent.id }); event.url.searchParams.set('extendedAfter', 'opaque-after');
+  const result = await (await importLoad())(event) as any;
+  expect(mockRequest).toHaveBeenCalledWith(AGENT_EXTENSIONS_QUERY, { ref: personalAgent.id, after: 'opaque-after' });
+  expect(mockRequest).toHaveBeenCalledWith(AGENT_SYSTEM_MEMORY_IDENTITY_QUERY, { ref: 'system' });
+  expect(result.extendedBy).toMatchObject({ hasMore: true, items: [], endCursor: 'opaque-next', failed: false });
+  expect(result.systemMemoryIdentity).toEqual(memory);
+});
+it('#1170 never starts reverse enumeration when the base Agent is unreadable', async () => {
+  routeMock({ agent: { data: { agent: null } } });
+  await expect((await importLoad())(ev())).rejects.toMatchObject({ status: 404 });
+  expect(mockRequest).not.toHaveBeenCalledWith(AGENT_EXTENSIONS_QUERY, expect.anything());
 });

@@ -176,7 +176,7 @@
               { id: 'delete', label: t('org-apps.action.delete', 'Delete'), danger: true },
             ]}
             onselect={(id) => { if (id === 'delete') deleteApp(app); }}
-            label={`${t('org-apps.actions.label', 'Actions for')} ${app.name}`}
+            label={t('org-apps.actions.label', 'Actions for {name}', { name: app.name })}
             disabled={$deleteSubmitting}
             fixed
             compact

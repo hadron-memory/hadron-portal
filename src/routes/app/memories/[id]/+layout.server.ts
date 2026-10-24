@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
   ORGANIZATION_QUERY,
+  SELF_CAN_WRITE_QUERY,
   MEMORY_BY_ID_QUERY,
   MEMORY_NODES_QUERY,
   MEMORY_EDGES_QUERY,
@@ -49,12 +50,14 @@ async function pageAll<T>(
 ): Promise<{ items: T[]; total: number }> {
   const items: T[] = [];
   let total = 0;
-  for (let offset = 0; ; offset += GRAPH_PAGE) {
+  for (let offset = 0; ; ) {
     const page = await run(GRAPH_PAGE, offset);
     total = page.total;
     items.push(...page.items);
-    // Stop on a short/empty page too, so a shrinking/missing total can't loop.
-    if (page.items.length < GRAPH_PAGE || items.length >= total) break;
+    // End on an EMPTY page or at `total`, never the first short one (a server
+    // clamp returns short non-empty pages); advance by rows returned.
+    if (page.items.length === 0 || items.length >= total) break;
+    offset += page.items.length;
   }
   return { items, total };
 }
@@ -169,6 +172,20 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   const memory = memoryData.memory;
   if (!memory) throw error(404, 'Memory not found');
 
+  // #646: ask the same server gate writes use; a share role alone cannot
+  // account for another grant. Failure keeps reading available, never editing.
+  let canWriteMemory = false;
+  if (locals.user?.id) {
+    try {
+      const access = await client.request<{ effectiveAccess: { canWrite: boolean } }>(SELF_CAN_WRITE_QUERY, {
+        user: locals.user.id, resource: memory.urn,
+      });
+      canWriteMemory = access.effectiveAccess.canWrite === true;
+    } catch {
+      console.warn('[memory-layout] write access unavailable');
+    }
+  }
+
   // Load the owning org for breadcrumb + settings (members/urn). Keyed on the
   // memory's own organizationId, not a URL segment. ORGANIZATION_QUERY is
   // authz-gated, so a non-member viewer gets `org: null` — the settings page
@@ -215,6 +232,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   return {
     org: orgData.organization,
     graph: memory,
+    canWriteMemory,
     graphNodes: memoryNodes,
     nodesTotal,
     nodesFailed,

@@ -14,16 +14,11 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
+import type { Memory } from '$lib/types';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import type { Memory } from '$lib/types';
-import {
-  deleteMemorySchema,
-  memorySchemaSettingsSchema,
-  memorySettingsSchema,
-  retryFailedEmbeddingsSchema,
-  vectorIndexSettingsSchema,
-} from './schema';
+import { retryFailedEmbeddingsSchema, vectorIndexSettingsSchema } from './schema';
+import { OWNER, OWNER_ID, STRANGER, settingsForms, settingsGraph } from './settings-page.fixture';
 
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({
@@ -52,10 +47,6 @@ import Page from './+page.svelte';
 
 const RETRY_CONTROL = 'Retry failed embeds';
 
-const OWNER_ID = 'owner-1';
-const OWNER = { id: OWNER_ID, handle: 'holger', githubUsername: null, name: 'Holger', avatarUrl: null, roles: [] as string[] };
-const STRANGER = { ...OWNER, id: 'someone-else' };
-
 async function renderSettings(opts: {
   /** The PERSISTED state — what the memory actually is. */
   savedVectorIndexEnabled: boolean;
@@ -71,65 +62,10 @@ async function renderSettings(opts: {
   transferCanDelete?: boolean;
   ownerUserId?: string | null;
 }) {
-  // A full `Memory`, not a cast partial. The page reads far more of it than
-  // this test cares about, and a cast would let the next field it learns to
-  // read arrive `undefined` at runtime with the suite still green.
-  const graph: Memory = {
-    id: 'mem-1',
-    name: 'Docs',
-    urn: 'hrn:mem:acme.com:docs',
-    class: 'knowledge',
-    isEncrypted: false,
-    organizationId: 'org-1',
-    userId: OWNER_ID,
-    shortDescription: null,
-    description: null,
-    tags: [],
-    license: null,
-    category0: null,
-    category1: null,
-    category2: null,
-    iconUrl: null,
-    heroUrl: null,
-    homeUrl: null,
-    source: null,
-    readBranch: null,
-    writeBranch: null,
-    visibility: 'ORGANIZATION',
-    vectorIndexEnabled: opts.savedVectorIndexEnabled,
-    embeddingSource: 'abstract',
-    chunkTokens: null,
-    chunkOverlap: null,
-    forceFixedSize: false,
-    vectorIndexEncryptedAckAt: null,
-    schema: null,
-    syncStatus: 'OK',
-    syncError: null,
-    pendingEdgeCount: 0,
-    lastSyncedAt: null,
-    createdAt: '1789430400000',
-    updatedAt: '1789430400000',
-    ...opts.graphOverrides,
-  };
+  const graph = settingsGraph({ vectorIndexEnabled: opts.savedVectorIndexEnabled, ...opts.graphOverrides });
 
-  const [form, vectorForm, schemaForm, deleteForm, retryEmbedsForm] = await Promise.all([
-    superValidate({}, zod4(memorySettingsSchema), { errors: false }),
-    superValidate(
-      {
-        vectorIndexEnabled: opts.formVectorIndexEnabled ?? opts.savedVectorIndexEnabled,
-        embeddingSource: 'abstract' as const,
-        chunkTokens: '',
-        chunkOverlap: '',
-        forceFixedSize: false,
-        acknowledgeVectorInversionRisk: false,
-      },
-      zod4(vectorIndexSettingsSchema),
-      { errors: false },
-    ),
-    superValidate({ schemaJson: '' }, zod4(memorySchemaSettingsSchema), { errors: false }),
-    superValidate({ organizationId: 'org-1' }, zod4(deleteMemorySchema), { errors: false }),
-    superValidate({}, zod4(retryFailedEmbeddingsSchema), { errors: false }),
-  ]);
+  const { form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm } =
+    await settingsForms(graph, opts.formVectorIndexEnabled ?? opts.savedVectorIndexEnabled);
 
   // `graph` above is typed as a full `Memory` deliberately — it is what this
   // page reads, so a missing or mistyped field there is a real defect the
@@ -158,6 +94,7 @@ async function renderSettings(opts: {
         transferCanDelete: opts.transferCanDelete ?? false,
         form,
         vectorForm,
+        marketplaceForm,
         schemaForm,
         deleteForm,
         retryEmbedsForm,
@@ -185,6 +122,26 @@ describe('#969 transfer control and preview', () => {
   it('offers transfer to an org contributor with a memory.delete grant', async () => {
     const html = await renderSettings({ savedVectorIndexEnabled: false, user: STRANGER, orgRole: 'READER', transferCanDelete: true, graphOverrides: { userId: null }, ownerUserId: null });
     expect(html).toContain('?/previewTransfer');
+  });
+
+  it('tells the owner of a private memory what a transfer changes, beside the unchanged control', async () => {
+    const html = await renderSettings({
+      savedVectorIndexEnabled: false,
+      graphOverrides: { class: 'private', organizationId: null, userId: OWNER_ID },
+      transferCanDelete: true,
+    });
+    expect(html).toContain('?/previewTransfer');
+    expect(html).toContain('Transferring changes this memory');
+  });
+
+  it('shows no private-memory transfer hint for other classes', async () => {
+    const html = await renderSettings({
+      savedVectorIndexEnabled: false,
+      graphOverrides: { class: 'personal', organizationId: null, userId: OWNER_ID },
+      transferCanDelete: true,
+    });
+    expect(html).toContain('?/previewTransfer');
+    expect(html).not.toContain('Transferring changes this memory');
   });
 
   it('withholds transfer from a personal-memory grantee, even with an admin role', async () => {
@@ -385,4 +342,16 @@ describe('#695 re-drive outcome copy', () => {
     });
     expect(html).not.toContain('Queued 7 nodes for re-embedding.');
   });
+});
+
+it('uses the same date format as memory Info for Settings Created (#1167)', async () => {
+  const html = await renderSettings({ savedVectorIndexEnabled: false,
+    graphOverrides: { createdAt: new Date(2026, 9, 19, 12).toISOString() } });
+  expect(html).toContain('Oct 19, 2026');
+});
+
+it('formats the persisted encrypted-index acknowledgement timestamp without accepting it (#1167)', async () => {
+  const html = await renderSettings({ savedVectorIndexEnabled: true,
+    graphOverrides: { isEncrypted: true, vectorIndexEncryptedAckAt: new Date(2026, 9, 19, 13, 4, 5).toISOString() } });
+  expect(html).toContain('Encrypted-index disclosure accepted on Oct 19, 2026, 1:04:05 PM.');
 });

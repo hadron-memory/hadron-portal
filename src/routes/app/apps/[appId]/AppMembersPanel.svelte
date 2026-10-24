@@ -3,7 +3,7 @@
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import SelectUser from '$lib/components/SelectUser.svelte';
-  import { type SearchUser, userLabel as searchUserLabel } from '$lib/users/search-user';
+  import { type SearchUser, searchUsersPage, userLabel as searchUserLabel } from '$lib/users/search-user';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import type { App, AppMember } from '$lib/types';
@@ -41,17 +41,7 @@
   const selectedUserLabel = $derived(selectedUser ? searchUserLabel(selectedUser) : '');
   const memberIdSet = $derived(new Set(members.map((m) => m.userId)));
 
-  async function searchUsers(query: string): Promise<SearchUser[]> {
-    const res = await fetch('/api/users/search', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ query }),
-    });
-    if (!res.ok) throw new Error('Search failed');
-    const data = (await res.json()) as { users?: SearchUser[] };
-    // Hide users already on this app — they can't be added again.
-    return (data.users ?? []).filter((u) => !memberIdSet.has(u.id));
-  }
+  const searchUsers = (query: string) => searchUsersPage(query, memberIdSet);
 
   function selectAddUser(user: SearchUser) {
     selectedUser = user;

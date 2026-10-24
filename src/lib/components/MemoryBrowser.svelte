@@ -10,9 +10,12 @@
   import type { ContentScope } from '$lib/comments';
   import { onDestroy, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
+  import { createNodeColumns } from '$lib/node-columns.svelte';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
+  import PropertyFilter from '$lib/components/PropertyFilter.svelte';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { Memory, MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
+  import type { NodeColumnRow } from '$lib/node-columns';
 
   /** Build the URL to a node's detail page, or empty if memory context is missing */
   function nodeHref(node: MemoryNode, base: string): string {
@@ -28,6 +31,7 @@
     nodesTotal = null,
     basePath = '',
     multiMemory = false,
+    readOnly = false,
     writableMemoryIds = [],
     scopeMemoryIds = [],
     forcedView,
@@ -44,6 +48,8 @@
     nodesTotal?: number | null;
     basePath?: string;
     multiMemory?: boolean;
+    /** Single-memory pages carry the server write decision (#646). */
+    readOnly?: boolean;
     writableMemoryIds?: string[];
     /**
      * #433: the page's full memory scope, independent of which nodes loaded.
@@ -82,11 +88,19 @@
   const displayTotal = $derived(nodesTotal ?? nodes.length);
   const isTruncated = $derived(nodesTotal != null && nodes.length < nodesTotal);
 
+  // The single memory being browsed, as carried by basePath
+  // (`/app/memories/<id>`); undefined on the multi-memory global browse
+  // page. One derivation for every memory-scoped key or lookup (saved
+  // views, sort persistence, search scope) so they cannot drift apart.
+  const memoryIdFromBasePath = $derived(
+    basePath && !multiMemory ? basePath.split('/').pop() : undefined,
+  );
+
   // Saved-views key for the flat node list (spec 020), scoped to the single
   // memory being browsed. Only set when viewing one memory's detail (basePath
   // is `/app/memories/<id>`); absent on the multi-memory global browse page.
   const nodeListKey = $derived(
-    basePath && !multiMemory ? `memory:${basePath.split('/').pop()}:nodes` : undefined,
+    memoryIdFromBasePath ? `memory:${memoryIdFromBasePath}:nodes` : undefined,
   );
 
   // ── Sub-view ──────────────────────────────────────────────────────────
@@ -335,6 +349,41 @@
   $effect(() => { graphState.searchFilter = keyword; });
   onDestroy(() => { graphState.searchFilter = ''; graphState.searchResultNodeIds = null; });
 
+  // portal#1174: the Nodes tab's Role / Last changed / Changed by / Revision /
+  // Approved / Signed columns. They are not on the slim rows the layout loads,
+  // so they are read here, lazily, for the rows on the DISPLAYED page only
+  // (hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers).
+  const nodeColumns = createNodeColumns(async (refs) => {
+    const res = await fetch('/api/nodes/columns', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refs }),
+    });
+    if (!res.ok) throw new Error(`columns ${res.status}`);
+    return (await res.json()) as { rows: NodeColumnRow[]; unavailable: string[]; omitted: string[]; signing?: boolean };
+  });
+  onDestroy(() => nodeColumns.destroy());
+  // The rows on screen, as NodeList last reported them, so a refresh can re-read
+  // exactly those.
+  let columnIds: string[] = [];
+  function showColumnsFor(ids: string[]) {
+    columnIds = ids;
+    void nodeColumns.ensure(ids);
+  }
+  // An approval or mint changes what Approved/Signed/Revision say, and the
+  // layout bumps `refreshKey` after those actions; the cached columns are then
+  // stale, so forget them and read the page again (Gizelle on #1181).
+  let columnsRefreshKey = untrack(() => refreshKey);
+  $effect(() => {
+    const key = refreshKey;
+    if (key === columnsRefreshKey) return;
+    columnsRefreshKey = key;
+    untrack(() => {
+      nodeColumns.reset();
+      void nodeColumns.ensure(columnIds);
+    });
+  });
+
   // #429: structured server-side dimensions the slim loaded set can't answer
   // client-side. `myNodesOnly` → findNodes filter.createdBy (needs the caller's
   // id); `changedSince` → filter.updatedAfter; `sortMode` → server sort. These,
@@ -348,6 +397,55 @@
   // 'loc' is the natural browse order and does NOT force a server fetch;
   // updatedAt/relevance require the server (not in the slim loaded set).
   let sortMode = $state<'loc' | 'updatedAt' | 'relevance'>('loc');
+  // portal#1223: the user's EXPLICIT Sort choice persists per memory (the
+  // nodeListKey scoping convention), so a reload or Back lands on the same
+  // order instead of silently snapping to Location. Unscoped on the
+  // multi-memory browse page, where there is no one memory to key on — as
+  // with nodeListKey, no key means no persistence. The restored value keeps
+  // its server-side meaning: updatedAt/relevance re-enter the server view
+  // and stay SERVER-sorted, never a client approximation of the loaded page.
+  // Retired or invalid stored values fall back to 'loc'.
+  const sortScopeKey = $derived(memoryIdFromBasePath ? `:${memoryIdFromBasePath}` : '');
+  function readStoredSort(): 'loc' | 'updatedAt' | 'relevance' {
+    if (typeof window === 'undefined' || !sortScopeKey) return 'loc';
+    try {
+      const v = window.localStorage.getItem(`hadron:memoryBrowser:sort${sortScopeKey}`);
+      return v === 'updatedAt' || v === 'relevance' ? v : 'loc';
+    } catch {
+      return 'loc';
+    }
+  }
+  // Persistence is keyed to the EVENT, not the value: the select's change
+  // event is the one place an explicit user choice happens, so it — and only
+  // it — writes storage. Keying on the value instead would refuse an
+  // explicit revert to Location ("still the seed") and let programmatic
+  // resets like clearAllFilters rewrite the stored preference; it also
+  // leaves the hydration effect below purely reading storage, never
+  // writing (no read-modify-write on sortMode).
+  function persistSortChoice(value: string): void {
+    if (typeof window === 'undefined' || !sortScopeKey) return;
+    if (value !== 'loc' && value !== 'updatedAt' && value !== 'relevance') return;
+    try {
+      window.localStorage.setItem(`hadron:memoryBrowser:sort${sortScopeKey}`, value);
+    } catch {
+      /* ignore quota / disabled storage */
+    }
+  }
+  // Hydrate per SCOPE, not once: SvelteKit reuses this component across
+  // memory navigations, so the scope key can change under a live instance.
+  // Re-seeding on every real memory scope keeps each memory's stored sort
+  // (and the old memory's key) untouched. The empty scope seeds only on the
+  // first run: after that, a transient unscoped render during a route-update
+  // gap must not discard the user's active sort on the multi-memory page.
+  let hydratedSortScope: string | undefined;
+  $effect(() => {
+    if (typeof window === 'undefined') return;
+    const scope = sortScopeKey;
+    if (scope === hydratedSortScope) return;
+    if (scope === '' && hydratedSortScope !== undefined) return;
+    hydratedSortScope = scope;
+    sortMode = readStoredSort();
+  });
   // #433: include soft-deleted nodes (findNodes filter.includeDeleted) — an
   // audit/restore view; server-only (the slim loaded set excludes deleted).
   let includeDeleted = $state(false);
@@ -369,8 +467,8 @@
 
   // #589 (server #719/#725): structured query over a node's properties/data.
   // objectType is the collection facet; `where` is the recursive predicate
-  // (v1: a validated raw-JSON editor — grammar parity with the server; a
-  // visual builder is a fast-follow); sortProperty orders by a JSON path and
+  // (a schema-aware leaf builder plus Advanced JSON for the full grammar).
+  // sortProperty orders by a JSON path and
   // overrides the sort enum. All three are server-side dimensions (the slim
   // loaded set carries no properties), so any of them puts the browser into
   // server view.
@@ -379,6 +477,18 @@
   const memoryEncrypted = $derived(!!memory?.isEncrypted);
   let objectTypeFilter = $state('');
   let whereJson = $state('');
+  let propertyEditorVersion = $state(0);
+  // A declared field belongs to one memory/collection. Reused route instances
+  // must not carry its applied predicate into the next memory.
+  const propertyMemoryScope = $derived(`${basePath}:${memory?.id ?? ''}`);
+  let propertyScope: string | undefined;
+  $effect(() => {
+    const scope = propertyMemoryScope;
+    if (scope === propertyScope) return;
+    propertyScope = scope;
+    objectTypeFilter = '';
+    whereJson = '';
+  });
   const whereParse = $derived.by(() => {
     const trimmed = whereJson.trim();
     if (!trimmed) return { value: null as Record<string, unknown> | null, error: null as string | null };
@@ -479,10 +589,7 @@
     for (const id of scopeMemoryIds) ids.add(id);
     // Single-memory pages carry the memory id in basePath (/app/memories/<id>)
     // even when nothing loaded — recover it so an empty memory is searchable.
-    if (!multiMemory && basePath) {
-      const id = basePath.split('/').pop();
-      if (id) ids.add(id);
-    }
+    if (memoryIdFromBasePath) ids.add(memoryIdFromBasePath);
     return [...ids].sort().join(',');
   });
 
@@ -521,9 +628,11 @@
   let searching = $state(false);
   let searchError = $state<string | null>(null);
   let searchNote = $state<string | null>(null);
+  let searchNeedsIndex = $state(false);
   let searchCapped = $state(false); // server hit the result cap — showing a slice
   let searchSnippets = $state<Record<string, string>>({}); // #430 nodeId → matching passage
   let searchMeta = $state<Record<string, SearchHitMeta>>({}); // #432 nodeId → relevance/stale meta
+  let searchDeletedIds = $state<string[]>([]); // #1161 ids the server reports deleted (Include deleted)
   let searchSeq = 0; // monotonic — drops out-of-order responses
 
   // #589: the sortProperty payload in the server's shape (array path). Derived
@@ -559,9 +668,11 @@
     searching = true;
     searchError = null;
     searchNote = null;
+    searchNeedsIndex = false;
     searchCapped = false;
     searchSnippets = {};
     searchMeta = {};
+    searchDeletedIds = [];
     try {
       const res = await fetch('/api/nodes/search', {
         method: 'POST',
@@ -574,9 +685,11 @@
       if (!res.ok) { searchError = data.error ?? 'Search failed'; setServerResults([]); return; }
       setServerResults(data.nodes ?? []);
       searchNote = data.note ?? null;
+      searchNeedsIndex = data.reason === 'no_vector_index' || data.degraded?.includes('no_vector_index') === true;
       searchCapped = !!data.capped;
       searchSnippets = data.snippets ?? {};
       searchMeta = data.meta ?? {};
+      searchDeletedIds = Array.isArray(data.deletedIds) ? data.deletedIds : [];
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') return; // superseded / destroyed
       if (seq !== searchSeq) return;
@@ -605,9 +718,11 @@
       searching = false;
       searchError = null;
       searchNote = null;
+      searchNeedsIndex = false;
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
+    searchDeletedIds = [];
       return;
     }
     const ids = idsStr ? idsStr.split(',') : [];
@@ -620,9 +735,11 @@
       searching = false;
       searchError = whereError;
       searchNote = null;
+      searchNeedsIndex = false;
       searchCapped = false;
       searchSnippets = {};
       searchMeta = {};
+    searchDeletedIds = [];
       return;
     }
     // #431: validate a regex pattern client-side — the server 400s on invalid
@@ -636,9 +753,11 @@
         searching = false;
         searchError = 'Invalid regex pattern.';
         searchNote = null;
+        searchNeedsIndex = false;
         searchCapped = false;
         searchSnippets = {};
         searchMeta = {};
+    searchDeletedIds = [];
         return;
       }
     }
@@ -647,6 +766,7 @@
     const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, sortProperty, fields, controller.signal), 300);
     return () => {
       clearTimeout(timer);
+      searchSeq++; // invalidate even a transport that ignores abort, before the next debounce
       controller.abort(); // cancel an in-flight fetch on new keystroke / destroy
     };
   });
@@ -695,7 +815,15 @@
       sortMode !== 'loc',
   );
 
+  function clearStructuredFilters() {
+    objectTypeFilter = '';
+    whereJson = '';
+    sortPropPath = '';
+    propertyEditorVersion++;
+  }
+
   function clearAllFilters() {
+    propertyEditorVersion++;
     activeMemoryUrns = new Set();
     activeNodeTypes = new Set();
     activeTags = new Set();
@@ -846,7 +974,12 @@
   // `visibleNodes` would filter the same nodes twice and, worse, hide the
   // folders whose only children are hidden — which is what makes "Show hidden"
   // reveal something rather than nothing.
-  const treeEntries = $derived(buildTreeEntries(filteredNodes, singleMemoryUrn));
+  const treeEntries = $derived.by(() => {
+    const entries = buildTreeEntries(filteredNodes, singleMemoryUrn);
+    if (searchDeletedIds.length === 0) return entries;
+    const deleted = new Set(searchDeletedIds);
+    return entries.map((e) => (e.nodeId && deleted.has(e.nodeId) ? { ...e, deleted: true } : e));
+  });
 
   // Color rules: multiple memories → color by memory; multiple selected types → color by type; otherwise same color
   const graphViewData = $derived.by(() => {
@@ -881,8 +1014,8 @@
       idToMemory[n.id] = n.memory?.name ?? n.memory?.urn ?? '';
       locToType[n.loc] = n.nodeType ?? 'info';
       locToMemory[n.loc] = n.memory?.name ?? n.memory?.urn ?? '';
-      if (writableSet.size > 0) {
-        idToReadOnly[n.id] = !writableSet.has(n.memoryId);
+      if (readOnly || writableSet.size > 0) {
+        idToReadOnly[n.id] = readOnly || !writableSet.has(n.memoryId);
       }
     }
 
@@ -1072,7 +1205,7 @@
     {/if}
 
     <!-- #589 (server #719/#725): structured query over properties/data —
-         objectType facet, where predicate (raw JSON v1), sort-by-property. -->
+         objectType facet, where predicate, sort-by-property. -->
     <div class="relative filter-dropdown">
       <button type="button" onclick={() => toggleDropdown('properties')}
         title="Filter and sort by structured properties"
@@ -1082,9 +1215,9 @@
         <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'properties' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
       </button>
       {#if openDropdown === 'properties'}
-        <div class="absolute left-0 top-full z-20 mt-1 w-80 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
+        <div class="absolute left-0 top-full z-20 mt-1 w-72 max-w-[calc(100vw-2rem)] max-h-[70vh] overflow-y-auto rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
           {#if structuredActiveCount > 0}
-            <button type="button" onclick={() => { objectTypeFilter = ''; whereJson = ''; sortPropPath = ''; }}
+            <button type="button" onclick={clearStructuredFilters}
               class="w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
           {/if}
 
@@ -1094,7 +1227,7 @@
             {#if collectionNames.length > 0}
               <!-- onchange: re-run the cast auto-pick — switching collections
                    can change the selected sort field's declared type. -->
-              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={syncSortCastFromSchema}
+              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={() => { whereJson = ''; syncSortCastFromSchema(); }}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
                 <option value="">Any</option>
                 {#each collectionNames as name (name)}
@@ -1102,29 +1235,18 @@
                 {/each}
               </select>
             {:else}
-              <input id="structured-object-type" type="text" bind:value={objectTypeFilter} placeholder="e.g. competitor"
+              <input id="structured-object-type" type="text" bind:value={objectTypeFilter} oninput={() => whereJson = ''} placeholder="e.g. competitor"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-500" />
             {/if}
           </div>
 
-          <!-- Structured predicate (filter.where) — raw JSON v1 -->
-          <div>
-            <label for="structured-where" class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Filter (where, JSON)</label>
-            <textarea id="structured-where" rows="4" bind:value={whereJson} spellcheck="false"
-              aria-invalid={!!whereParse.error}
-              aria-describedby={whereParse.error ? 'structured-where-error' : 'structured-where-hint'}
-              placeholder={'{"path": ["stage"], "eq": "seed"}'}
-              class="w-full rounded-lg border bg-white px-2 py-1.5 font-mono text-xs text-zinc-900 placeholder-zinc-400 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-600 {whereParse.error ? 'border-red-400 dark:border-red-700' : 'border-zinc-300 dark:border-zinc-700'}"
-              style="resize: vertical;"></textarea>
-            {#if whereParse.error}
-              <p id="structured-where-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{whereParse.error}</p>
-            {:else}
-              <p id="structured-where-hint" class="mt-1 text-[10px] leading-tight text-zinc-400">
-                A leaf is a path + one operator (eq, ne, in, lt, lte, gt, gte, between, exists, contains);
-                branches are and / or / not. Optional per-leaf: field (properties | data), as (text | number | datetime | boolean).
-              </p>
-            {/if}
-          </div>
+          <!-- The builder and Advanced share the same applied where channel. -->
+          {#key `${propertyMemoryScope}:${objectTypeFilter}:${propertyEditorVersion}`}
+            <PropertyFilter
+              collection={memorySchema && Object.hasOwn(memorySchema.objectTypes, objectTypeFilter) ? memorySchema.objectTypes[objectTypeFilter] : null}
+              bind:value={whereJson}
+            />
+          {/key}
 
           <!-- Property sort (sortProperty) — overrides the Sort dropdown -->
           <div>
@@ -1200,13 +1322,17 @@
     </select>
 
     <!-- portal#1015: Content / Comments / All, applied by the server before ranking and the result cap -->
-    <select bind:value={contentScope} data-testid="scope-filter" aria-label={t('memory-browser.scope-filter', 'Search scope')} title={t('memory-browser.scope-filter', 'Search scope')}
+    <!-- portal#1174: a bare "Content" beside "Node Types" read as a second type filter; name what it is. One label wraps both so they never split across lines, and the select takes its accessible name from the visible word (an aria-label would override it, WCAG 2.5.3). -->
+    <label class="inline-flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
+      <span>{t('memory-browser.scope-label', 'Show')}</span>
+    <select bind:value={contentScope} id="scope-filter" data-testid="scope-filter"
       class="rounded-lg border px-2 py-1.5 text-xs
         {contentScope !== 'CONTENT' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="CONTENT">{t('memory-browser.scope.content', 'Content')}</option>
       <option value="COMMENTS">{t('memory-browser.scope.comments', 'Comments')}</option>
       <option value="ALL">{t('memory-browser.scope.all', 'Content and comments')}</option>
     </select>
+    </label>
 
     <!-- #992: approval and minting state (server-side findNodes filter) -->
     <select bind:value={approvalFilter} data-testid="approval-filter" aria-label={t('memory-browser.approval-filter', 'Filter by approval')} title={t('memory-browser.approval-filter', 'Filter by approval')}
@@ -1229,6 +1355,7 @@
 
     <!-- #429: Sort (server-side for updatedAt/relevance; loc is the browse default) -->
     <select bind:value={sortMode} title="Sort order"
+      onchange={(e) => persistSortChoice(e.currentTarget.value)}
       class="rounded-lg border px-2 py-1.5 text-xs
         {sortMode !== 'loc' ? 'border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-700 dark:bg-indigo-950 dark:text-indigo-300' : 'border-zinc-300 bg-white text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400'}">
       <option value="loc">Sort: Location</option>
@@ -1320,6 +1447,9 @@
   {#if serverResults !== null && (searchError || searchNote)}
     <div class="text-xs {searchError ? 'text-red-500' : 'text-amber-600 dark:text-amber-400'}">
       {searchError ?? searchNote}
+      {#if !searchError && searchNeedsIndex && !multiMemory && basePath}
+        <a class="underline" href={`${basePath}/settings#vector-index`}>{t('search.vector-settings', 'Open vector index settings')}</a>
+      {/if}
     </div>
   {/if}
 
@@ -1468,7 +1598,9 @@
             ? 'rounded-lg'
             : 'rounded-lg sm:rounded-l-none sm:rounded-r-lg'}"
       >
-        <div style="display: flex; height: 100%;">
+        <!-- Percentage height cannot resolve against the outer min-height.
+             Give vis-network a definite canvas frame before its initial fit. -->
+        <div data-testid="graph-canvas-frame" style="display: flex; height: var(--memory-browser-h); height: calc(100dvh - 320px); min-height: 400px;">
           <!-- resultsVersion (#616): re-mount when the server working set
                changes, even at the same size — see setServerResults.
                showHidden (#706): TopicGraph builds its vis datasets ONCE, in
@@ -1507,7 +1639,10 @@
           <!-- hideSearch: the single search box lives in MemoryBrowser now
                (issue #355 — was two boxes); NodeList's own box would be the
                redundant second field. -->
-          <NodeList nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} />
+          <NodeList
+            nodes={searchedNodes} {basePath} memoryUrn={singleMemoryUrn ?? ''} listKey={nodeListKey} hideSearch={true} snippets={searchSnippets} meta={searchMeta} deletedIds={searchDeletedIds}
+            showColumns onvisiblenodes={showColumnsFor} columnData={nodeColumns.rows} signingOffered={nodeColumns.signing !== false} columnsLoading={nodeColumns.loading} columnsFailed={nodeColumns.failed} onretrycolumns={() => void nodeColumns.retry()}
+          />
         </div>
       {/if}
     </div>

@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { formatPortalDateTime } from '$lib/format-portal-date';
   // #529: read-only snapshot view (opened in a new tab from the History tab).
   import Urn from '$lib/components/Urn.svelte';
   import NodeProvenanceRows from '$lib/components/NodeProvenanceRows.svelte';
+  import RevisionEditedBy from '$lib/components/RevisionEditedBy.svelte';
+  import { revisionEditorView } from '$lib/revision-editor';
   import type { NodeProvenance, ProvenanceResult } from '$lib/node-provenance';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -49,7 +52,7 @@
     </div>
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">{r.name}</h1>
     <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-      {t('node-revision.saved', 'Saved')} {new Date(r.createdAt).toLocaleString()}
+      {t('node-revision.saved', 'Saved')} {formatPortalDateTime(r.createdAt)}
       {#if r.editedByUser?.handle}
         · {t('node-revision.by', 'by')} @{r.editedByUser.handle}
       {:else if r.editedByInfo}
@@ -82,6 +85,8 @@
   {#if r.editedByUser?.urn}
     <div class="text-xs"><Urn value={r.editedByUser.urn} type="user" size={10} /></div>
   {/if}
+  <!-- #1171: the Worker and Agent behind this revision, when the server recorded them. -->
+  <div class="text-xs"><RevisionEditedBy actorsOnly view={revisionEditorView(r)} /></div>
 
   <!-- #1001: a revision is the state BEFORE an edit, so this is what that edit changed. -->
   <div>

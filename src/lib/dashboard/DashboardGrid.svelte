@@ -1,16 +1,22 @@
 <script lang="ts">
+  import WidgetCard from './WidgetCard.svelte';
+  import { t } from '$lib/i18n/t';
   import { lookupOwn } from '$lib/lookup';
   // #636: the dashboard layout framework. Lays widgets out on a 12-column grid
   // on desktop; each widget declares how many columns to span. On smaller
   // screens every widget is full-width (see the note on clamping below).
   import { WIDGET_REGISTRY } from './widgets/registry';
   import { widgetDataFor } from './widgets/types';
-  import type { WidgetDataMap, WidgetPlacement } from './widgets/types';
+  import type { WidgetDataMap, WidgetPlacement, WidgetDataResult } from './widgets/types';
 
   // `widgetData` is the per-type combined data (from the server's
   // dashboardWidgetData); each widget reads its own slice.
-  let { placements, widgetData }: { placements: WidgetPlacement[]; widgetData: WidgetDataMap } =
-    $props();
+  let { placements, widgetData = {}, streamedData, loading = false }: {
+    placements: WidgetPlacement[];
+    widgetData?: WidgetDataMap;
+    streamedData?: Promise<WidgetDataResult>;
+    loading?: boolean;
+  } = $props();
 
   // Only render placements whose type is registered (defensive against stale
   // server-provided selections).
@@ -33,7 +39,28 @@
   {#each resolved as { placement, def }, i (i)}
     {@const Widget = def.component}
     <div class="slot" style="--span: {placement.span}; --row-span: {placement.rowSpan ?? 1}">
-      <Widget {...(widgetDataFor(widgetData, placement) ?? {})} widgetConfig={placement.config ?? null} />
+      {#if loading}
+        <WidgetCard title={t(def.titleKey, def.titleDefault)}>
+          <p role="status" aria-busy="true">{t('dashboard.widget.loading', 'Loading widget…')}</p>
+        </WidgetCard>
+      {:else if streamedData}
+        {#await streamedData}
+          <WidgetCard title={t(def.titleKey, def.titleDefault)}>
+            <p role="status" aria-busy="true">{t('dashboard.widget.loading', 'Loading widget…')}</p>
+          </WidgetCard>
+        {:then result}
+          {@const payload = widgetDataFor(result.data, placement)}
+          {#if result.loadFailed || !payload}
+            <WidgetCard title={t(def.titleKey, def.titleDefault)}>
+              <p role="alert">{t('dashboard.widget.failed', 'Could not load this widget. Refresh the page to try again.')}</p>
+            </WidgetCard>
+          {:else}
+            <Widget {...payload} widgetConfig={placement.config ?? null} />
+          {/if}
+        {/await}
+      {:else}
+        <Widget {...(widgetDataFor(widgetData, placement) ?? {})} widgetConfig={placement.config ?? null} />
+      {/if}
     </div>
   {/each}
 </div>

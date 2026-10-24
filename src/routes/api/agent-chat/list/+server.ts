@@ -1,6 +1,6 @@
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { MY_CHATS_QUERY } from '$lib/server/queries';
+import { loadAgentChats } from '$lib/server/agent-chat-metadata';
 import { TEAM_CHAT_LOC } from '$lib/server/team-chat';
 import type { Chat } from '$lib/types';
 import type { RequestHandler } from './$types';
@@ -56,10 +56,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   }
 
   try {
-    const result = await gqlClient(locals.token).request<{ myChats: Chat[] }>(MY_CHATS_QUERY, {
-      agentRef: agentId,
-    });
-    return new Response(JSON.stringify({ chats: (result.myChats ?? []).filter(isAgentChat) }), {
+    const chats = await loadAgentChats(gqlClient(locals.token), agentId);
+    return new Response(JSON.stringify({ chats: chats.filter(isAgentChat) }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
