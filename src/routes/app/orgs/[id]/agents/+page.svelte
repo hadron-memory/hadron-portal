@@ -455,7 +455,7 @@
               <NodeActionsMenu
                 actions={activeGrantActions}
                 onselect={(actionId) => onGrantAction(actionId, grant)}
-                label={`${t('org-agents.subscribed.actions.label', 'Actions for')} ${grant.agent?.name ?? grant.agentId}`}
+                label={t('org-agents.subscribed.actions.label', 'Actions for {name}', { name: grant.agent?.name ?? grant.agentId })}
                 disabled={unsubscribePendingAgentId === grant.agentId || $unsubscribeSubmitting}
                 fixed
                 compact
@@ -499,7 +499,7 @@
                stays one text line tall and matches the Subscribed tab. -->
           <NodeActionsMenu
             actions={ownAgentActions(agent)}
-            label={`${t('org-agents.actions.label', 'Actions for')} ${agent.name}`}
+            label={t('org-agents.actions.label', 'Actions for {name}', { name: agent.name })}
             fixed
             compact
           />

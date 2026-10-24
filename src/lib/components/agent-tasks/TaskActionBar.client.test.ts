@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import TaskActionBar from './TaskActionBar.svelte';
 
@@ -242,6 +242,113 @@ describe('TaskActionBar', () => {
       await tick(2);
       expect(root.textContent).not.toContain('use the CLI or MCP for now');
       expect(root.textContent).toContain('Park');
+    });
+  });
+
+  // portal#1214 — the warnings a reassign's response carried.
+  describe('warnings', () => {
+    const URN = 'hrn:node:hadronmemory.com:hadron-dev-team-roles:tasks:find-a-source';
+    async function reassign(data: Record<string, unknown>) {
+      const root = await mountBar();
+      button(root, 'Reassign…').click();
+      await tick(2);
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-reassign')!, { type: 'success', status: 200, data });
+      await tick(3);
+      flushSync();
+      return root;
+    }
+
+    it('shows them under the status line after the reload, verbatim with their code', async () => {
+      const root = await reassign({
+        action: 'reassign', ok: true, committedWithError: false, more: 0,
+        warnings: [{ code: 'task.assign.assignee-busy', text: 'The assignee already has a task started.', register: { state: 'mapped', taskLoc: 'tasks:x', taskUrn: URN } }],
+      });
+      expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+      const list = root.querySelector('[data-testid="task-warnings"]');
+      expect(list?.textContent).toContain('The assignee already has a task started.');
+      expect(list?.textContent).toContain('task.assign.assignee-busy');
+      expect(list?.querySelector(`code [title="${URN}"]`)).not.toBeNull();
+      expect(list?.querySelector('a')).toBeNull();
+      // Uma's P2 on #1216: the focused line says the warnings follow.
+      const status = root.querySelector('[role="status"]');
+      expect(status?.textContent?.trim()).toBe('Assigned. 1 warning below.');
+      expect(document.activeElement).toBe(status);
+    });
+
+    it('counts what the cap left out in the focused line', async () => {
+      const root = await reassign({ action: 'reassign', ok: true, committedWithError: false, more: 2, warnings: [{ code: 'c', text: 't' }] });
+      expect(root.querySelector('[role="status"]')?.textContent?.trim()).toBe('Assigned. 3 warnings below.');
+    });
+
+    // Gene's P2 on #1216: the page reuses this bar across tasks. A result is
+    // about the task it was written to: it survives that task's own reload and
+    // never shows on another.
+    async function mountReactive() {
+      const props = reactiveProps<Record<string, unknown>>({
+        task: task(), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false },
+      });
+      const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      button(m.target, 'Reassign…').click();
+      await tick(2);
+      return { props, root: m.target };
+    }
+    const busy = { action: 'reassign', ok: true, committedWithError: false, more: 0, warnings: [{ code: 'task.assign.assignee-busy', text: 'Busy.' }] };
+
+    it('keeps task A’s warnings through A’s reload, and drops them when the bar shows task B', async () => {
+      const { props, root } = await mountReactive();
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-reassign')!, { type: 'success', status: 200, data: busy });
+      await tick(3);
+      flushSync();
+      expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
+
+      props.task = task({ updatedAt: '2026-10-21T10:00:00Z' });
+      await tick(2);
+      flushSync();
+      expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
+
+      props.task = task({ id: 't2', title: 'Another task' });
+      await tick(2);
+      flushSync();
+      expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
+      expect(root.textContent).not.toContain('Busy.');
+      expect(root.textContent).not.toContain('Assigned.');
+    });
+
+    it('a result that lands after the reader moved to another task is dropped', async () => {
+      const { props, root } = await mountReactive();
+      // The navigation happens during the reload the success awaits.
+      navigationHooks.onInvalidateAll = () => {
+        props.task = task({ id: 't2', title: 'Another task' });
+      };
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-reassign')!, { type: 'success', status: 200, data: busy });
+      await tick(3);
+      flushSync();
+      expect(root.textContent).not.toContain('Busy.');
+      expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
+    });
+
+    it('a committed write whose response errored says saved, with the fixed line, never “not changed”', async () => {
+      const root = await reassign({ action: 'reassign', ok: true, committedWithError: true, more: 0, warnings: [{ code: 'c', text: 't' }] });
+      const status = root.querySelector('[role="status"]');
+      expect(status?.textContent?.trim()).toBe('Saved, but the server’s response also reported an error. Reload to check the task. 1 warning below.');
+      expect(status?.className).toContain('text-amber-800');
+      expect(root.textContent).not.toContain('Not changed');
+      expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
+    });
+
+    it('opening another panel clears them', async () => {
+      const root = await reassign({ action: 'reassign', ok: true, committedWithError: false, more: 0, warnings: [{ code: 'c', text: 't' }] });
+      expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
+      button(root, 'Cancel…').click();
+      await tick(2);
+      expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
+    });
+
+    it('a success with no warnings shows none', async () => {
+      const root = await reassign({ action: 'reassign', ok: true, committedWithError: false, warnings: [], more: 0 });
+      expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
     });
   });
 });

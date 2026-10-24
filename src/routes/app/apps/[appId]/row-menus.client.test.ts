@@ -70,11 +70,14 @@ function openMenu(target: HTMLElement, ariaLabel: string) {
 }
 
 describe('App Agents tab row ⋯ menu (#1020)', () => {
-  it('offers Unlink as the only menu item, with no inline Unlink button', async () => {
+  it('offers the row actions only in the menu — Set boot prompt (#1142) and Unlink — with no inline buttons', async () => {
     const target = await mountTab('agents');
     expect(target.textContent).not.toContain('Unlink');
     const items = openMenu(target, 'Actions for Beta');
-    expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([['BUTTON', 'Unlink']]);
+    expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([
+      ['BUTTON', 'Set boot prompt…'],
+      ['BUTTON', 'Unlink'],
+    ]);
   });
 
   it('Unlink submits the hidden removeAgent form for the PICKED agent', async () => {

@@ -131,9 +131,13 @@ export const nodeTestFlowSchema = z.object({
 
 // Defaulted _kind accepts omitted hidden inputs while still rejecting a
 // defined discriminator from the wrong action.
+// `recursive` (#621): only sent after the server refused with
+// NODE_HAS_DESCENDANTS and the dialog offered the subtree checkbox, so a
+// subtree is never deleted without an explicit choice.
 export const nodeDeleteSchema = z.object({
   _kind: z.literal('deleteNode').default('deleteNode'),
   hard: checkboxBoolean.default(false),
+  recursive: checkboxBoolean.default(false),
 });
 
 // Defaulted _kind accepts omitted hidden inputs while still rejecting a

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatPortalDate } from '$lib/format-portal-date';
   // #266: Integrations tab — GitHub source + branches and the sync/push actions,
   // split out of the Settings page.
   import { t } from '$lib/i18n/t';
@@ -84,11 +85,7 @@
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
-  function fmtDate(s: string | null | undefined): string {
-    if (!s) return '—';
-    const d = new Date(s);
-    return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  }
+
 </script>
 
 <svelte:head><title>{g.name} &middot; Integrations &middot; Hadron</title></svelte:head>
@@ -174,7 +171,7 @@
     <div class="overflow-hidden rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-200 dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
       <div class="flex items-center justify-between px-5 py-3">
         <span class="text-sm text-zinc-500">{t('integrations.status', 'Status')}</span>
-        <span class="text-sm font-medium text-zinc-900 dark:text-white">{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {fmtDate(g.lastSyncedAt)}{/if}</span>
+        <span class="text-sm font-medium text-zinc-900 dark:text-white">{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {formatPortalDate(g.lastSyncedAt)}{/if}</span>
       </div>
       {#if g.syncStatus === 'ERROR'}
         <SyncErrorDetail syncError={g.syncError} />

@@ -45,16 +45,40 @@ async function runSignin(fields: Record<string, string>, search = '') {
   return actions.default(actionEvent(fields, search));
 }
 
+async function runLoad(search = '') {
+  const { load } = await importMod();
+  return load({ url: new URL(`http://localhost/signin${search}`) } as Parameters<typeof load>[0]);
+}
+
 describe('signin load()', () => {
   it('seeds the email form without initial errors', async () => {
-    const { load } = await importMod();
-    const result = await load({} as Parameters<typeof load>[0]);
+    const result = await runLoad();
 
     expect((result as { form: { data: Record<string, string>; errors: Record<string, string[]> } }).form.data).toEqual({
       email: '',
     });
     expect((result as { form: { errors: Record<string, string[]> } }).form.errors).toEqual({});
   });
+
+  // portal#1091: /auth/callback sends a refused session exchange (a missing,
+  // mismatched or expired browser nonce, a used code) to `/signin?error=auth`.
+  // The page used to render nothing for it, so a reader who followed a magic
+  // link from another browser landed on a bare form with no idea why. The flag
+  // is a fixed boolean: the query value is never reflected, and no other value
+  // turns it on, so the page cannot be made to show a reason the server did not
+  // give.
+  it('flags a refused sign-in for ?error=auth', async () => {
+    const result = (await runLoad('?error=auth')) as { authFailed: boolean };
+    expect(result.authFailed).toBe(true);
+  });
+
+  it.each(['', '?error=', '?error=AUTH', '?error=passkey', '?error=%3Cscript%3E', '?error=auth-x'])(
+    'does not flag a refused sign-in for %s',
+    async (search) => {
+      const result = (await runLoad(search)) as { authFailed: boolean };
+      expect(result.authFailed).toBe(false);
+    },
+  );
 });
 
 describe('signin action', () => {

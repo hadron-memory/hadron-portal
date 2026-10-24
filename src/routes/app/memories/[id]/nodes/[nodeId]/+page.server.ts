@@ -3,11 +3,13 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { fetchAllItems } from '$lib/server/paginate';
+import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
@@ -24,13 +26,18 @@ import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePr
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
-import { loadCommentSummary, loadDiscussion } from '$lib/server/comments';
+import { loadCommentSummary, loadDiscussion, sendCommentWrite } from '$lib/server/comments';
 import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
 import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
 import type { MemoryNode, NodeRevision } from '$lib/types';
+import { isCapped } from '$lib/server/capped';
+
+// nodeRevisions has no offset or cursor (hadron-server#2212): the history is one
+// window of the newest revisions, and the History tab says when it came back full.
+const REVISIONS_LIMIT = 100;
 import type { Actions, PageServerLoad } from './$types';
 import { loadSkillCheck } from '$lib/server/skill-check';
 import { nodeStorageSeed, noWriteDoor, runnableBlockedBy, updateStorage } from './storage-action';
@@ -131,7 +138,18 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   //
   // Matches the memory layout's `throw error(404, 'Memory not found')` one level
   // up, which has always been right; this route was the outlier.
-  if (!data.node) throw error(404, 'Node not found');
+  if (!data.node) {
+    // #1159: not live, but possibly a retained tombstone this viewer may recover
+    // (an "Include deleted" row opens here). recoveryNode answers null for anyone
+    // who may not, so the 404 below stays the single answer for "missing" and
+    // "not yours". A failed recovery read is also just "not found".
+    const tomb = await gqlClient(locals.token)
+      .request<{ recoveryNode?: { id: string; memoryId: string } | null }>(RECOVERY_NODE_QUERY, { nodeRef: params.nodeId })
+      .then((r) => r?.recoveryNode ?? null)
+      .catch(() => null);
+    if (tomb) redirect(303, `/app/memories/${tomb.memoryId}/nodes/${params.nodeId}/deleted`);
+    throw error(404, 'Node not found');
+  }
   const node = data.node;
 
   // #237: the URL-acceptance counterpart to #234's URL-emission fix. The
@@ -293,14 +311,15 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // tab can tell "no revisions" from "couldn't load" — a silent [] on failure
   // masks real errors (schema drift, a down server) as an empty history.
   const isComment = node.nodeType === COMMENT_NODE_TYPE;
-  const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[] }> => {
+  const revisions = (async (): Promise<{ ok: boolean; items: NodeRevision[]; capped?: boolean; nodeId?: string }> => {
     if (isComment) return { ok: true, items: [] };
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeRevision[] }>(
         NODE_REVISIONS_QUERY,
-        { nodeRef: node.id, limit: 100 },
+        { nodeRef: node.id, limit: REVISIONS_LIMIT },
       );
-      return { ok: true, items: r?.nodeRevisions ?? [] };
+      const items = r?.nodeRevisions ?? [];
+      return { ok: true, items, capped: isCapped(items.length, REVISIONS_LIMIT), nodeId: node.id };
     } catch (e) {
       console.warn('[node-detail] revision history failed:', e);
       return { ok: false, items: [] };
@@ -379,7 +398,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     try {
       const r = await gqlClient(locals.token).request<{ nodeRevisions: NodeProvenance[] }>(
         NODE_REVISIONS_PROVENANCE_QUERY,
-        { nodeRef: node.id, limit: 100 },
+        { nodeRef: node.id, limit: REVISIONS_LIMIT },
       );
       return { ok: true, value: r?.nodeRevisions ?? [] };
     } catch (e) {
@@ -502,6 +521,12 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   ]);
 
   const wikilinks = await wikilinksPromise;
+  // #1161: marks edges whose far endpoint the server reports deleted. Reads only
+  // when an endpoint is missing at all, and a missing endpoint the server does
+  // not report stays masked (it may be an unreadable memory, not a deletion).
+  const deletedEdges = await deletedEdgeEndpoints(
+    gqlClient(locals.token), node.memoryId, [...(node.outgoingEdges ?? []), ...(node.incomingEdges ?? [])],
+  );
   const chatMessages = await chatMessagesPromise;
 
   return {
@@ -521,6 +546,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     initialTab: url.searchParams.get('tab'),
     breadcrumb,
     wikilinks,
+    deletedEdges,
     testFlowApps,
     memories,
     revisions,
@@ -587,6 +613,21 @@ async function saveNodeText(
   }
   if (!node) return fail(404, { [failed]: { code: 'not-found', detail: null } });
 
+  // portal#1175: a comment's text is edited through `editComment`, with the
+  // comment's own write counter as the precondition. The generic node write is
+  // refused for a comment (hrn:node:hadronmemory.com:specs:cor:dmo:110:04), so
+  // never fall through to it. Without the comment's details there is no safe
+  // way to write: refuse rather than guess.
+  if (node.nodeType === COMMENT_NODE_TYPE) {
+    if (field !== 'content' || !node.asComment) return fail(403, { [failed]: { code: 'failed', detail: null } });
+    const sent = await sendCommentWrite(client, node.id, {
+      op: 'edit', commentId: node.asComment.id, body: value, expectedRevision,
+    });
+    if (sent.ok) return { [`${field}Saved`]: true };
+    if (sent.code === 'NODE_WRITE_CONFLICT') return fail(409, { [failed]: { code: 'changed', detail: null } });
+    return fail(sent.status, { [failed]: { code: 'failed', detail: sent.text } });
+  }
+
   // #868: this edit touches neither governance signal, so the resulting kind
   // is the node's CURRENT one — which is why the fetched node, not the input,
   // decides the door.
@@ -616,6 +657,10 @@ async function saveNodeText(
     if (extractGqlErrorCode(e) === 'NODE_WRITE_CONFLICT') {
       return fail(409, { [failed]: { code: 'changed', detail: extractGqlError(e, '') || null } });
     }
+    // portal#1142 P0a: an include refusal (hadron-server#2040) wrote nothing;
+    // say so with the server's words, the tag and the next step.
+    const include = includeRefusalOf(e);
+    if (include) return fail(400, { [failed]: { code: 'include', detail: includeRefusalText(include) } });
     const detail = extractGqlError(e, 'Save failed');
     if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
     return fail(500, { [failed]: { code: 'failed', detail } });
@@ -785,8 +830,26 @@ export const actions: Actions = {
     const node = data.node;
     try {
       // #542: deleteNode takes a single nodeRef — pass the resolved node's PK.
-      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id, hard });
+      // `recursive` (#621) is only ever true after the dialog below offered
+      // the subtree choice, which itself only appears after a refusal.
+      await gqlClient(locals.token).request(DELETE_NODE_MUTATION, { nodeRef: node.id, hard, recursive: form.data.recursive });
     } catch (e: unknown) {
+      // A parent node's delete is refused with NODE_HAS_DESCENDANTS (#621):
+      // the server names the count and points at recursive — CLI jargon the
+      // portal user cannot act on. Map it to a 409 whose message says which
+      // checkbox deletes the subtree, and carry the count on the action
+      // result so the dialog renders that checkbox even when the page's
+      // graph payload undercounted the subtree.
+      if (extractGqlErrorCode(e) === 'NODE_HAS_DESCENDANTS') {
+        const count = Number(extractGqlErrorExtensions(e)?.count ?? 0);
+        message(form, {
+          type: 'error',
+          text: t('node-actions.delete.has-descendants',
+            'This node has {count} descendant node(s). To delete the whole subtree, check "Also delete its descendants" and confirm.',
+            { count }),
+        });
+        return fail(409, { form, deleteRefusedDescendants: count });
+      }
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to delete') }, { status: 500 });
     }
     // Redirect to the *actual* memory's list — not the URL's gid, which

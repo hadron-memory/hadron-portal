@@ -55,17 +55,7 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>([
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const urn = normalizeUrn(params.urn);
 
-  // portal#1099 — `resolveUrn` doesn't resolve ticker URNs yet (hrn:node:hadronmemory.com:specs:cor:agt:080:01
-  // lists that as partly built), but `ticker(ref:)` takes one and runs the
-  // ticker's own read gate, answering null for a missing ticker and an
-  // unreachable one alike. So a ticker link resolves here, with the same
-  // no-oracle 404 and the same temporary redirect as every other kind.
-  if (urn.startsWith('hrn:ticker:')) {
-    const ticker = await loadTicker(gqlClient(locals.token), urn);
-    if (!ticker) throw error(404, notFoundMessage(urn));
-    redirect(307, withQuery(`/app/apps/${ticker.app.id}/tickers/${ticker.id}`, url.search));
-  }
-
+  // #1213: ticker and generic resolution share this rejection boundary.
   // #567: a URN the server *rejects* (GraphQL error) must not surface as an
   // unhandled 500 — but only KNOWN rejection codes are mapped, and only when
   // the ClientError actually carries a GraphQL errors payload (graphql-request
@@ -77,6 +67,19 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // stays a distinguishable 500 (see hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   let resolveUrn: UrnResolution | null;
   try {
+    // portal#1099 — `resolveUrn` doesn't resolve ticker URNs yet (hrn:node:hadronmemory.com:specs:cor:agt:080:01
+    // lists that as partly built), but `ticker(ref:)` takes one and runs the
+    // ticker's own read gate, answering null for a missing ticker and an
+    // unreachable one alike — and null `app` when the reader can't read the
+    // App (#1209), which is the same ordinary not-found here. So a ticker link
+    // resolves here, with the same no-oracle 404 and the same temporary
+    // redirect as every other kind.
+    if (urn.startsWith('hrn:ticker:')) {
+      const ticker = await loadTicker(gqlClient(locals.token), urn);
+      if (!ticker?.app) throw error(404, notFoundMessage(urn));
+      redirect(307, withQuery(`/app/apps/${ticker.app.id}/tickers/${ticker.id}`, url.search));
+    }
+
     ({ resolveUrn } = await gqlClient(locals.token).request<{
       resolveUrn: UrnResolution | null;
     }>(RESOLVE_URN_QUERY, { urn }));
