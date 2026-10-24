@@ -43,6 +43,20 @@ it('keeps refusal text escaped, target intact and roster unrefreshed', async () 
   expect(onclose).not.toHaveBeenCalled(); expect(navigationCalls).toHaveLength(0);
   expect(new FormData(form()).get('workerRef')).toBe('one');
 });
+it('rejects a mismatched worker response without closing, refreshing or changing the target', async () => {
+  const { props, onclose } = open(); await tick(); await check();
+  const selected = props.worker;
+  const pending = await submitEnhancedDeferred(form()); flushSync(); await tick();
+  expect(document.querySelector('[role=status]')?.textContent).toContain('Deleting the selected worker');
+  await pending.finish(result(true, 'other-worker')); flushSync(); await tick();
+  expect(document.querySelector('[role=alert]')?.textContent).toBe('Deletion was not confirmed. Refresh the roster before trying again.');
+  expect(document.querySelector('[role=status]')).toBeNull();
+  expect(document.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(false);
+  expect(document.querySelector<HTMLDialogElement>('dialog')!.open).toBe(true);
+  expect(onclose).not.toHaveBeenCalled(); expect(navigationCalls).toHaveLength(0);
+  expect(props.worker).toBe(selected);
+  expect(new FormData(form()).get('workerRef')).toBe('one');
+});
 it('guards duplicate submits and refreshes authoritative data only on confirmed success', async () => {
   const { onclose } = open(); await tick(); await check();
   const pending = await submitEnhancedDeferred(form());
