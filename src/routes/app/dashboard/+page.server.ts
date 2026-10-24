@@ -1,12 +1,12 @@
 // #629: /app/dashboard is the stats page for EVERY user (an org page is the
 // wrong content for a dashboard). #636: it renders a widget grid whose layout
 // (the caller's placed widgets) and per-widget data both come from the server
-// in a single request (dashboardWidgets + dashboardWidgetData — server #772).
+// through independently streamed layout/data reads (#1230; server #772).
 // The in-place editor (server #788) saves the layout back via ?/saveLayout.
 import { fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { DASHBOARD_QUERY, SET_DASHBOARD_WIDGETS_MUTATION } from '$lib/server/queries';
+import { DASHBOARD_LAYOUT_QUERY, DASHBOARD_QUERY, SET_DASHBOARD_WIDGETS_MUTATION } from '$lib/server/queries';
 import { WIDGET_TYPE_FROM_SERVER, WIDGET_TYPE_TO_SERVER } from '$lib/dashboard/widgets/types';
 import { lookupOwn } from '$lib/lookup';
 import type { WidgetDataMap, WidgetPlacement, WidgetType } from '$lib/dashboard/widgets/types';
@@ -45,53 +45,30 @@ function toPlacements(widgets: ServerWidget[]): WidgetPlacement[] {
     });
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
-  // Count-only entity queries (limit:0 — the memories preview was dropped, the
-  // counts seed the default widgets' data). Surface a failed fetch rather than
-  // silently reporting "0 memories" (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
-  try {
-    const data = await gqlClient(locals.token).request<{
-      memories: { total: number };
-      agents: { total: number };
-      dashboardWidgets: ServerWidget[];
-      dashboardWidgetData: ServerWidgetData[];
-    }>(DASHBOARD_QUERY);
-
-    const memoryCount = data.memories.total;
-    const agentCount = data.agents.total;
-
-    const placements = toPlacements(data.dashboardWidgets);
-    const effectivePlacements = placements.length > 0 ? placements : DEFAULT_PLACEMENTS;
-
-    // Fan the combined data out by placement row id (#797 — each entry is built
-    // from that placement's own config), skipping unknown types defensively.
-    const widgetData: WidgetDataMap = {};
+export const load: PageServerLoad = ({ locals }) => {
+  const client = gqlClient(locals.token);
+  // Both promises are returned immediately. Attach failure handling now so a
+  // rejection before the streamed await block subscribes cannot be unhandled.
+  const dashboard = client.request<{ dashboardWidgets: ServerWidget[] }>(DASHBOARD_LAYOUT_QUERY)
+    .then(data => {
+      const placements = toPlacements(data.dashboardWidgets);
+      return { placements: placements.length ? placements : DEFAULT_PLACEMENTS, loadFailed: false };
+    })
+    .catch(() => ({ placements: DEFAULT_PLACEMENTS, loadFailed: true }));
+  const widgetData = client.request<{
+    memories: { total: number };
+    agents: { total: number };
+    dashboardWidgetData: ServerWidgetData[];
+  }>(DASHBOARD_QUERY).then(data => {
+    const widgets: WidgetDataMap = {};
     for (const d of data.dashboardWidgetData) {
-      if (lookupOwn(WIDGET_TYPE_FROM_SERVER, d.type)) widgetData[d.widgetId] = d.data;
+      if (lookupOwn(WIDGET_TYPE_FROM_SERVER, d.type)) widgets[d.widgetId] = d.data;
     }
-    // Default widgets render before the user activates any widget server-side
-    // (dashboardWidgetData is empty until then) and their placements carry no
-    // row id, so seed their data under TYPE keys from the counts already
-    // fetched — widgetDataFor falls back to the type key when id lookup misses.
-    if (!widgetData['memory-stats']) widgetData['memory-stats'] = { memoryCount };
-    if (!widgetData['agent-stats']) widgetData['agent-stats'] = { agentCount };
-
-    return {
-      placements: effectivePlacements,
-      widgetData,
-      loadFailed: false,
-    };
-  } catch (e) {
-    console.error('[dashboard] failed to load stats:', e);
-    return {
-      placements: DEFAULT_PLACEMENTS,
-      widgetData: {
-        'memory-stats': { memoryCount: 0 },
-        'agent-stats': { agentCount: 0 },
-      } as WidgetDataMap,
-      loadFailed: true,
-    };
-  }
+    if (!widgets['memory-stats']) widgets['memory-stats'] = { memoryCount: data.memories.total };
+    if (!widgets['agent-stats']) widgets['agent-stats'] = { agentCount: data.agents.total };
+    return { data: widgets, loadFailed: false };
+  }).catch(() => ({ data: {} as WidgetDataMap, loadFailed: true }));
+  return { dashboard, widgetData };
 };
 
 const SPAN_MIN = 1;

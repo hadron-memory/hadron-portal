@@ -3,10 +3,10 @@ import { gqlClient } from '$lib/server/api';
 import { CREATE_AGENT_TASK_MUTATION } from '$lib/server/queries';
 import { loadTasksApp, loadWriteCandidates } from '$lib/server/agent-tasks';
 import {
-  classifyWriteError,
   formValues,
   impersonationRefusal,
   parsePartyChoice,
+  taskWrite,
   writeFailure,
 } from '$lib/server/agent-task-writes';
 import { t } from '$lib/i18n/t';
@@ -123,13 +123,28 @@ export const actions: Actions = {
     if (tags.length) input.tags = tags;
     input.closeSessionWhenDone = fd.get('closeSessionWhenDone') === 'on';
 
-    let id: string;
-    try {
-      const r = await client.request<{ createAgentTask: { id: string } }>(CREATE_AGENT_TASK_MUTATION, { input });
-      id = r.createAgentTask.id;
-    } catch (e) {
-      return writeFailure('create', classifyWriteError(e), values);
+    const out = await taskWrite<{ createAgentTask: { id: string } | null }>(client, CREATE_AGENT_TASK_MUTATION, { input }, 'createAgentTask');
+    if (out.kind === 'refused') return writeFailure('create', out.refusal, values);
+    const id = taskId(out.data?.createAgentTask?.id);
+
+    // portal#1214: a create with nothing to show goes to its page, as before.
+    if (out.kind === 'ok' && out.warnings.length === 0 && out.more === 0) {
+      if (id) redirect(303, `/app/apps/${app.id}/tasks/${id}?created=1`);
+      // No usable id and no warning to prove the write: the outcome is unknown.
+      if (!out.committed) return writeFailure('create', { kind: 'uncertain' }, values);
     }
-    redirect(303, `/app/apps/${app.id}/tasks/${id}?created=1`);
+    // Warnings, or a committed write whose response errored: shown here, in the
+    // same response, in place of the form. Nothing crosses a request.
+    return {
+      created: { id },
+      committedWithError: out.kind === 'committed-error',
+      warnings: out.warnings,
+      more: out.more,
+    };
   },
 };
+
+/** A returned task id the page may build a link from; anything else links to the Tasks list instead. */
+function taskId(x: unknown): string | null {
+  return typeof x === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(x) ? x : null;
+}

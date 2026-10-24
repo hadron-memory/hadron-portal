@@ -1,3 +1,4 @@
+import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
 import { loadInheritanceManagement, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
 import { loadAgentInheritance } from '$lib/server/agent-inheritance';
@@ -6,11 +7,14 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
+import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
+import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
+import { grantedAgents, type InstallableAgent, type OrgAgentPool } from '$lib/server/installable-agents';
+import { withTimeout, OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import {
   AGENT_QUERY,
   ORGANIZATIONS_QUERY,
@@ -25,7 +29,11 @@ import {
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
+  AGENT_BOOT_POINTER_QUERY,
+  SET_AGENT_BOOT_PROMPT_MUTATION,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
+  APP_ORG_AGENT_GRANTS_QUERY,
+  PUBLISH_AGENT_IMPORT_MUTATION,
 } from '$lib/server/queries';
 import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -65,7 +73,7 @@ function urnSlug(urn: string): string {
   return idx >= 0 ? urn.slice(idx + 1) : urn;
 }
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
 
   // #636: resolve the agent through the owner-accessible find-one so BOTH org
@@ -123,10 +131,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }>;
   };
 
-  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement] = await Promise.all([
+  // A failed Apps read is not an empty list: the Apps tab says it could not load.
+  let installedAppsError = false;
+  const appsReadFailed = () => {
+    installedAppsError = true;
+    return [] as AgentAppLite[];
+  };
+
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, bootPointer, canManageAgent] = await Promise.all([
     allMemoryIds.length > 0
-      ? client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
-          GRAPH_NODES_QUERY, { limit: 500, memoryIds: allMemoryIds },
+      ? drainFindNodes<{ node: MemoryNode }>(
+          client, GRAPH_NODES_QUERY, { memoryIds: allMemoryIds },
         ).catch(() => null)
       : Promise.resolve(null),
     // Org system memories feed the system-memory picker — org-only; a user-owned
@@ -143,13 +158,13 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       ownerType: 'AGENT', ownerId: agent.id,
     }).catch(() => null),
     // Apps this agent is installed into (member-scoped, all caller orgs).
-    // Non-fatal: on failure the Apps tab just shows none.
-    fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
+    // Non-fatal: a failure flags `installedAppsError` instead of reading as none.
+    fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps').catch(appsReadFailed),
     // …plus the caller's OWN org-less apps. `apps()` routes on org membership,
     // so a user-owned App is only reachable through filter.ownedByMe (#782) —
     // without this a personal team App showed neither in the Apps tab nor in
     // Bundled agents, though createTeamPersona supports one (#714 review).
-    fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
+    fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps').catch(appsReadFailed),
     // #642: the caller's OWN personal memories, offered as "Add memory" options
     // for a personal agent. Gated on `!org && visibility !== 'PUBLIC'`, which
     // means the caller OWNS a non-PUBLIC org-less agent: agent(ref:) only returns
@@ -170,6 +185,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       .catch(() => null),
     loadAgentInheritance(client, agent.id),
     loadInheritanceManagement(client, agent.id, agent.urn, locals.user?.id ?? null, !!locals.impersonation),
+    // portal#1142 S8: the Agent's boot-prompt pointer (its own read, so a
+    // failure is not a null pointer), and whether to offer its form.
+    readPointer(
+      () => client.request<{ agent: { bootPromptRef: string | null; bootPromptTargetDeleted: boolean | null } | null }>(AGENT_BOOT_POINTER_QUERY, { ref: agent.id }),
+      (r) => r.agent,
+      `agent ${agent.id}`,
+    ),
+    selfCanManage(client, locals.user?.id, agent.urn),
   ]);
 
   // An agent can be installed into several apps (as the primary agentId or via
@@ -236,6 +259,35 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   }
   const bundledAgents = [...bundledById.values()].sort((a, b) => a.name.localeCompare(b.name));
 
+  // A failed read (any page) is not an empty memory; the Nodes tab says so.
+  const agentNodesError = allMemoryIds.length > 0 && nodesResult === null;
+
+  // #1173: what the Bundled tab can add. ONLY the agents the org subscribes to
+  // (active grants, the App page's #1172 read), minus this agent and anything
+  // it already imports. Not the org's OWNED agents: publishAgentImport needs an
+  // active AgentOrgGrant from the parent's org for the imported agent, and an org
+  // cannot grant itself an agent (SELF_AGENT_ORG_GRANT), so every owned agent is
+  // refused (browser QA, portal#1189). An import the viewer cannot read (importedAgent null)
+  // still counts, by its id, so it is never offered a second time. Asked as a
+  // request of its own: a refusal costs the add control, not the page. An
+  // org-less agent has no org pool, so it gets none.
+  const importedIds = new Set((agent.imports ?? []).map((i) => i.importedAgentId));
+  let bundleCandidates: InstallableAgent[] = [];
+  let bundleCandidatesError = false;
+  if (org) {
+    const pool = await withTimeout(
+      client
+        .request<{ organization: Pick<OrgAgentPool, 'agentOrgGrants'> | null }>(APP_ORG_AGENT_GRANTS_QUERY, { ref: org.id })
+        .then((r) => (r.organization ? grantedAgents({ agents: [], agentOrgGrants: r.organization.agentOrgGrants }) : null)),
+      OPTIONAL_LIST_TIMEOUT_MS,
+      null,
+    ).catch(() => null);
+    bundleCandidatesError = pool === null;
+    bundleCandidates = (pool ?? []).filter((a) => a.id !== agentId && !importedIds.has(a.id));
+  }
+  // The next free slot; the server owns ordering, this only avoids a clash.
+  const nextImportPosition = Math.max(0, ...(agent.imports ?? []).map((i) => i.position)) + 1;
+
   if (nodesResult) {
     const memoryMap = new Map((agent.memoryItems ?? []).map((m) => [m.memory.id, m.memory]));
     agentNodes = (nodesResult.findNodes?.hits ?? [])
@@ -285,14 +337,24 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     superValidate({ _kind: 'setAgentBase', operation: 'set', baseRef: '' }, zod4(agentBaseSchema), { id: 'agentBase', errors: false }),
     superValidate({ _kind: 'setAgentIndexRefs', tasksOperation: 'keep', tasksIndexRef: '', processesOperation: 'keep', processesIndexRef: '' }, zod4(agentIndexRefsSchema), { id: 'agentIndexRefs', errors: false }),
   ]);
+  const [extendedBy, systemMemoryIdentity] = await Promise.all([
+    loadAgentExtensions(client, agent.id, url?.searchParams.get('extendedAfter') ?? null),
+    loadSystemMemoryIdentity(client, systemMemoryId),
+  ]);
   return {
+    extendedBy, systemMemoryIdentity,
     inheritanceManagement, baseForm, indexRefsForm,
     inheritance,
     agent,
     org,
     agentNodes,
+    agentNodesError,
     installedApps,
+    installedAppsError,
     bundledAgents,
+    bundleCandidates,
+    bundleCandidatesError,
+    nextImportPosition,
     bundledWithheldApps,
     allOrgs: orgs,
     orgSystemMemories,
@@ -305,6 +367,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     bootPromptForm: await superValidate({ systemPrompt: agent.systemPrompt ?? '' }, zod4(bootPromptSchema), { id: 'bootPrompt', errors: false }),
     registerDefaults: registerDefaultsResult,
     registerDefaultsForm,
+    bootPointer,
+    canManageAgent,
+    // The key a pointer result carries (the action's own params.id), so a
+    // result shows only for the Agent it was written for.
+    bootPointerKey: params.id,
     addMemoryForm,
     updateMemoryRoleForm,
     removeMemoryForm,
@@ -480,6 +547,12 @@ export const actions: Actions = {
     }
   },
 
+  // portal#1142 S8 (hadron-server#2219): set or clear the Agent's pointer.
+  // The Agent's manager, as themselves; the server decides.
+  setBootPrompt: async ({ request, params, locals }) =>
+    pointerAction(await request.formData(), 'agent', params.id, (nodeRef) =>
+      gqlClient(locals.token).request(SET_AGENT_BOOT_PROMPT_MUTATION, { agentRef: params.id, nodeRef })),
+
   delete: async ({ request, params, locals }) => {
     const form = await superValidate<DeleteAgentForm>(
       await request.formData(),
@@ -536,6 +609,29 @@ export const actions: Actions = {
         { type: 'error', text: extractGqlError(e, 'Failed to add memory') },
         { status: 500 },
       );
+    }
+  },
+
+  // #1173: bundle another Agent (an AgentImport edge). The server decides who
+  // may and what is legal (one level, no cycle); its sentence is shown as is.
+  addBundledAgent: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const agentId = String(fd.get('agentId') ?? '').trim();
+    const position = Number(fd.get('position'));
+    if (!agentId) return fail(400, { bundleError: 'Select an agent to bundle.' });
+    if (!Number.isInteger(position) || position < 1) {
+      return fail(400, { bundleError: 'Could not work out where to add it. Reload and try again.' });
+    }
+    try {
+      await gqlClient(locals.token).request(PUBLISH_AGENT_IMPORT_MUTATION, {
+        importedAgentRef: agentId,
+        parentAgentRef: params.id,
+        position,
+        required: fd.get('required') === 'on',
+      });
+      return { bundleAdded: true };
+    } catch (e: unknown) {
+      return fail(500, { bundleError: extractGqlError(e, 'Failed to bundle the agent') });
     }
   },
 

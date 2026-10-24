@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import AppleLoginButton from '$lib/components/AppleLoginButton.svelte';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
+  import SignInRestartNotice from '$lib/components/SignInRestartNotice.svelte';
   import { authEmailSchema } from '$lib/forms/authEmail';
   import { isLocalPath } from '$lib/safeRedirect';
   import { untrack } from 'svelte';
@@ -75,6 +76,9 @@
         {successMessage}
       </div>
     {:else}
+      {#if data.authFailed}
+        <SignInRestartNotice />
+      {/if}
       <div class="mb-3">
         <GoogleLoginButton href={googleUrl} />
       </div>

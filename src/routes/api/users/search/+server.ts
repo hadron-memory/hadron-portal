@@ -24,6 +24,7 @@ interface SearchUserRow {
   name: string | null;
   avatarUrl: string | null;
   email: string | null;
+  sharedOrganizations?: { items: { id: string; name: string; urn: string }[]; total: number } | null;
 }
 
 // "john.doe@example.com" → "j•••@example.com". Returns null when there's no
@@ -34,6 +35,9 @@ function maskEmail(email: string | null): string | null {
   if (at <= 0) return null;
   return `${email[0]}•••${email.slice(at)}`;
 }
+
+/** hadron-server#2211: lists default to 20 or less; the picker asks for its page explicitly. */
+const SEARCH_USERS_LIMIT = 20;
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   if (!locals.token) {
@@ -47,9 +51,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   if (q.length < 3) return json({ users: [] });
 
   try {
-    const data = await gqlClient(locals.token).request<{ users: { items: SearchUserRow[] } }>(
+    const data = await gqlClient(locals.token).request<{ users: { items: SearchUserRow[]; total: number } }>(
       SEARCH_USERS_QUERY,
-      { query: q },
+      { query: q, limit: SEARCH_USERS_LIMIT },
     );
     // Drop name + raw email before the data leaves the server.
     const users = (data.users.items ?? []).map((u) => ({
@@ -59,8 +63,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       githubUsername: u.githubUsername,
       avatarUrl: u.avatarUrl,
       emailMasked: maskEmail(u.email),
+      // null stays null ("not shown"); an absent field stays absent.
+      ...(u.sharedOrganizations === undefined ? {} : { sharedOrganizations: u.sharedOrganizations }),
     }));
-    return json({ users });
+    // `total` lets the picker say when the page is not the whole answer.
+    return json({ users, total: data.users.total ?? users.length });
   } catch (e: unknown) {
     // Log detail server-side; return a generic message so GraphQL/DB internals
     // aren't leaked to the client (mirrors /api/nodes/search).
