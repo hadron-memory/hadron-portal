@@ -497,6 +497,12 @@
                 {:else if cell.column.id === 'changedBy'}
                   {@const by = changedByView(c)}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs dark:border-zinc-800">
+                    {#if by.user}
+                      <div data-testid="changed-by-user" class="min-w-0">
+                        <div class="truncate text-zinc-700 dark:text-zinc-300">{by.user.handle ? `@${by.user.handle}` : t('node-list.changed-by.user', 'User')}</div>
+                        {#if by.user.urn}<Urn value={by.user.urn} type="user" size={8} />{/if}
+                      </div>
+                    {/if}
                     {#if by.worker}
                       <div data-testid="changed-by-worker" class="min-w-0">
                         <div class="truncate text-zinc-700 dark:text-zinc-300">{by.worker.name}</div>
@@ -509,7 +515,7 @@
                         {#if by.agent.urn}<Urn value={by.agent.urn} type="agent" linked size={8} />{/if}
                       </div>
                     {/if}
-                    {#if c && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
+                    {#if c && !by.user && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
                   </td>
                 {:else if cell.column.id === 'revision'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">

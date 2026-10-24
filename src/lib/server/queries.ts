@@ -2870,8 +2870,8 @@ export const NODE_COLUMNS_QUERY = /* GraphQL */ `
         revision
         approvalStatus { state }
         signatureStatus { state }
-        # hadron-server #1610: the Agent and Worker behind the last authored
-        # edit. A user half ("Changed by (user)") waits on hadron-server#2176.
+        # Last authored-edit attribution; the user projection landed in #2189.
+        updatedByUser { handle urn }
         updatedByAgent { id name urn }
         updatedByWorker { id name urn }
       }
@@ -2897,6 +2897,7 @@ export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
         updatedAt
         revision
         approvalStatus { state }
+        updatedByUser { handle urn }
         updatedByAgent { id name urn }
         updatedByWorker { id name urn }
       }
@@ -3180,6 +3181,10 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
   query NodeById($ref: ID!) {
     node(ref: $ref, raw: true) {
       ...NodeFields
+      # #257: embedding state is detail-only; do not grow list/search payloads.
+      embeddingPendingAt
+      embeddingFailedAt
+      embeddingError
       # #518: properties is detail-only — kept OUT of the shared NodeFields
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).

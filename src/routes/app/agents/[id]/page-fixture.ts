@@ -6,6 +6,7 @@
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import {
+  bootPromptSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
   agentSettingsSchema,
@@ -44,6 +45,7 @@ export async function pageData(
       { name: `Agent ${id}`, urnSlug: id, description: '', systemPrompt: '', visibility: 'PERSONAL', systemMemoryId: '', personaRole: '' },
       zod4(agentSettingsSchema), { errors: false },
     ),
+    bootPromptForm: await superValidate({ systemPrompt: String(agentOverride.systemPrompt ?? '') }, zod4(bootPromptSchema), { id: `bootPrompt:${id}`, errors: false }),
     registerDefaults,
     registerDefaultsForm: await superValidate(
       { mentionOnly: registerDefaults?.mentionOnly ?? false },

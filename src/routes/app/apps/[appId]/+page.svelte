@@ -262,7 +262,7 @@
     ...(untrack(() => data.keyScopes?.kind === 'ok')
       ? [{ id: 'scopes', accessorFn: (row: AppKey) => keyScopesText(row.id), header: t('app.keys.column.scopes', 'Scopes'), enableSorting: false, size: 220 } satisfies PortalColumnDef<AppKey>]
       : []),
-    { id: 'actions', header: t('app.keys.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 100 },
+    { id: 'actions', header: t('app.keys.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
   const appKeyFmt: Record<string, (v: unknown) => string> = {
     label: (v) => (v as string | null) ?? '—',
@@ -441,7 +441,9 @@
   }
   const workerNameOf = (id: string) => (staff ?? []).find((w) => w.id === id)?.name ?? '';
   let deleteWorkerTarget = $state<Worker | null>(null);
-  $effect(() => { app.id; deleteWorkerTarget = null; });
+  // Compare the App identity, not the loader object replaced on revalidation.
+  const deleteWorkerAppId = $derived(app.id);
+  $effect(() => { deleteWorkerAppId; deleteWorkerTarget = null; });
 
   function workerActions(worker: Worker): NodeMenuAction[] {
     const hold = workerHold(worker, data.user?.id);
@@ -536,7 +538,7 @@
     { accessorFn: (row) => row.personaRole ?? '', id: 'role', header: t('app.agents.column.role', 'Role'), size: 180 },
     // portal#1142 S8: this install's boot-prompt pointer, joined by agent id.
     { accessorFn: (row) => pointerText(appRowPointer(data.bootPointers, row.id)), id: 'bootPrompt', header: t('app.agents.column.boot-prompt', 'Boot prompt'), size: 280 },
-    { id: 'actions', header: t('app.agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 160 },
+    { id: 'actions', header: t('app.agents.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
   // portal#1142 S8: which row's pointer panel is open, for WHICH App. The page
   // component is reused across /apps/A → B, so a choice made on A never opens
@@ -554,6 +556,30 @@
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
   const choosePointerRow = (agentId: string | null) => (pointerChoice = { appKey: data.bootPointerAppKey, agentId });
+
+  // #1020 + #1142 S8: the agents grid's row actions. Set boot prompt opens
+  // the pointer panel below the table (omitted when this viewer cannot manage
+  // the App, the pre-menu button's gate); Unlink submits the hidden form
+  // below the table for the picked row.
+  function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
+    return [
+      ...(data.canManageApp !== false
+        ? [{
+            id: 'set-boot-prompt',
+            label: t('app.agents.set-boot-prompt', 'Set boot prompt…'),
+            ariaLabel: t('app.agents.set-boot-prompt.label', 'Set boot prompt for {name}', { name: agent.name }),
+          }]
+        : []),
+      { id: 'unlink', label: t('app.agents.unlink', 'Unlink'), danger: true },
+    ];
+  }
+  function onAgentAction(id: string, agent: InstalledAgent) {
+    if (id === 'set-boot-prompt') {
+      choosePointerRow(pointerAgent?.id === agent.id ? null : agent.id);
+    } else if (id === 'unlink') {
+      unlinkAgent(agent);
+    }
+  }
   const agentsTable = createSvelteTable<InstalledAgent>({
     get data() {
       return installedAgentsSorted;
@@ -1281,6 +1307,26 @@
 
   function setRevokeKey(keyId: string) {
     revokeKeyForm.update((current) => ({ ...current, keyId }), { taint: false });
+  }
+
+  // #1020: Unlink and Revoke live in their rows' ⋯ menus; one hidden form per
+  // action, below its table, is submitted for the picked row (the org-members
+  // idiom). The Keys confirm is the same browser confirm the old per-row form
+  // ran; a decline submits nothing.
+  let removeAgentFormEl = $state<HTMLFormElement | null>(null);
+  let revokeKeyFormEl = $state<HTMLFormElement | null>(null);
+  async function unlinkAgent(agent: { id: string; name: string }) {
+    if ($removeAgentSubmitting) return;
+    setRemoveAgent(agent.id);
+    await tick();
+    removeAgentFormEl?.requestSubmit();
+  }
+  async function revokeAppKey(key: { id: string }) {
+    if ($revokeKeySubmitting) return;
+    if (!confirm(t('app.keys.revoke.confirm', 'Revoke this key? This cannot be undone.'))) return;
+    setRevokeKey(key.id);
+    await tick();
+    revokeKeyFormEl?.requestSubmit();
   }
 
   // ── Per-tool MCP config generators ────────────────────────────────────
@@ -2513,29 +2559,18 @@
                 <span class="text-xs text-zinc-500">{pointerText(appRowPointer(data.bootPointers, agent.id))}</span>
               {/if}
             {:else if cell.column.id === 'actions'}
-              {#if data.canManageApp !== false}
-                <button
-                  type="button"
-                  onclick={() => choosePointerRow(pointerAgent?.id === agent.id ? null : agent.id)}
-                  aria-expanded={pointerAgent?.id === agent.id}
-                  aria-controls={pointerAgent?.id === agent.id ? 'app-agent-pointer-panel' : undefined}
-                  aria-label={t('app.agents.set-boot-prompt.label', 'Set boot prompt for {name}', { name: agent.name })}
-                  class="mr-3 text-xs text-indigo-600 hover:underline dark:text-indigo-300"
-                >{t('app.agents.set-boot-prompt', 'Set boot prompt…')}</button>
-              {/if}
-              <!-- Keep both handlers: onclick updates before client validation for button activation;
-                   onsubmit covers keyboard/requestSubmit paths. -->
-              <form method="POST" action="?/removeAgent" use:removeAgentEnhance onsubmit={() => setRemoveAgent(agent.id)} novalidate>
-                <input type="hidden" name="_kind" value="removeAgent" />
-                <input type="hidden" name="agentId" value={agent.id} />
-                <button
-                  type="submit"
-                  disabled={$removeAgentSubmitting}
-                  onclick={() => setRemoveAgent(agent.id)}
-                  aria-label={`${t('app.agents.unlink', 'Unlink')} ${agent.name}`}
-                  class="text-xs text-red-500 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400 dark:hover:text-red-300"
-                >{t('app.agents.unlink', 'Unlink')}</button>
-              </form>
+              <!-- #1020: Set boot prompt (#1142 S8) and Unlink live in the
+                   row's ⋯ menu; the hidden form below the table submits the
+                   unlink for the picked agent, and the pointer panel opens
+                   below the table for the picked row. -->
+              <NodeActionsMenu
+                actions={agentRowActions(agent)}
+                onselect={(id) => onAgentAction(id, agent)}
+                label={t('app.agents.actions.label', 'Actions for {name}', { name: agent.name })}
+                disabled={$removeAgentSubmitting}
+                fixed
+                compact
+              />
             {:else}
               <div class="truncate">{cell.getValue() ?? '—'}</div>
             {/if}
@@ -2564,6 +2599,12 @@
           </section>
         {/if}
       {/if}
+
+      <!-- #1020: Unlink's submit target — one hidden form for every row. -->
+      <form bind:this={removeAgentFormEl} method="POST" action="?/removeAgent" use:removeAgentEnhance class="hidden">
+        <input type="hidden" name="_kind" value="removeAgent" />
+        <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
+      </form>
 
       <!-- Add an agent: the install picker that used to appear only while the
            App had no agent. -->
@@ -2702,28 +2743,16 @@
                   </span>
                 {/if}
               {:else if cell.column.id === 'actions'}
-                <!-- Keep BOTH handlers: onclick updates before client
-                     validation for button activation; onsubmit covers
-                     keyboard/requestSubmit paths and carries the confirm. -->
-                <form method="POST" action="?/revokeKey" use:revokeKeyEnhance
-                    onsubmit={(e) => {
-                      if (!confirm(t('app.keys.revoke.confirm', 'Revoke this key? This cannot be undone.'))) {
-                        e.preventDefault();
-                        setRevokeKey('');
-                        return;
-                      }
-                      setRevokeKey(key.id);
-                    }}
-                    novalidate>
-                    <input type="hidden" name="_kind" value="revokeKey" />
-                    <input type="hidden" name="keyId" value={key.id} />
-                    <button type="submit"
-                      disabled={$revokeKeySubmitting}
-                      onclick={() => setRevokeKey(key.id)}
-                      class="rounded border border-red-300 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
-                    {t('app.keys.revoke', 'Revoke')}
-                  </button>
-                </form>
+                <!-- #1020: Revoke lives in the row's ⋯ menu; the browser
+                     confirm and the hidden form below the table carry what
+                     the per-row form did. -->
+                <NodeActionsMenu
+                  actions={[{ id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true }]}
+                  onselect={() => revokeAppKey(key)}
+                  label={t('app.keys.actions.label', 'Actions for key {key}', { key: key.keyPreview })}
+                  fixed
+                  compact
+                />
               {:else}
                 {@const f = appKeyFmt[cell.column.id]}
                 <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
@@ -2731,6 +2760,12 @@
             {/snippet}
           </DataTable>
         {/if}
+
+        <!-- #1020: Revoke's submit target — one hidden form for every row. -->
+        <form bind:this={revokeKeyFormEl} method="POST" action="?/revokeKey" use:revokeKeyEnhance class="hidden">
+          <input type="hidden" name="_kind" value="revokeKey" />
+          <input type="hidden" name="keyId" value={$revokeKeyForm.keyId} />
+        </form>
       </section>
     </div>
     </div>

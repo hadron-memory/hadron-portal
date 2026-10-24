@@ -12,6 +12,7 @@
   import { t } from '$lib/i18n/t';
   import { createNodeColumns } from '$lib/node-columns.svelte';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
+  import PropertyFilter from '$lib/components/PropertyFilter.svelte';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { Memory, MemoryNode, TreeEntry, SearchHitMeta } from '$lib/types';
   import type { NodeColumnRow } from '$lib/node-columns';
@@ -466,8 +467,8 @@
 
   // #589 (server #719/#725): structured query over a node's properties/data.
   // objectType is the collection facet; `where` is the recursive predicate
-  // (v1: a validated raw-JSON editor — grammar parity with the server; a
-  // visual builder is a fast-follow); sortProperty orders by a JSON path and
+  // (a schema-aware leaf builder plus Advanced JSON for the full grammar).
+  // sortProperty orders by a JSON path and
   // overrides the sort enum. All three are server-side dimensions (the slim
   // loaded set carries no properties), so any of them puts the browser into
   // server view.
@@ -476,6 +477,18 @@
   const memoryEncrypted = $derived(!!memory?.isEncrypted);
   let objectTypeFilter = $state('');
   let whereJson = $state('');
+  let propertyEditorVersion = $state(0);
+  // A declared field belongs to one memory/collection. Reused route instances
+  // must not carry its applied predicate into the next memory.
+  const propertyMemoryScope = $derived(`${basePath}:${memory?.id ?? ''}`);
+  let propertyScope: string | undefined;
+  $effect(() => {
+    const scope = propertyMemoryScope;
+    if (scope === propertyScope) return;
+    propertyScope = scope;
+    objectTypeFilter = '';
+    whereJson = '';
+  });
   const whereParse = $derived.by(() => {
     const trimmed = whereJson.trim();
     if (!trimmed) return { value: null as Record<string, unknown> | null, error: null as string | null };
@@ -753,6 +766,7 @@
     const timer = setTimeout(() => runServerFetch(q, mode, ids, filter, sort, sortProperty, fields, controller.signal), 300);
     return () => {
       clearTimeout(timer);
+      searchSeq++; // invalidate even a transport that ignores abort, before the next debounce
       controller.abort(); // cancel an in-flight fetch on new keystroke / destroy
     };
   });
@@ -801,7 +815,15 @@
       sortMode !== 'loc',
   );
 
+  function clearStructuredFilters() {
+    objectTypeFilter = '';
+    whereJson = '';
+    sortPropPath = '';
+    propertyEditorVersion++;
+  }
+
   function clearAllFilters() {
+    propertyEditorVersion++;
     activeMemoryUrns = new Set();
     activeNodeTypes = new Set();
     activeTags = new Set();
@@ -1183,7 +1205,7 @@
     {/if}
 
     <!-- #589 (server #719/#725): structured query over properties/data —
-         objectType facet, where predicate (raw JSON v1), sort-by-property. -->
+         objectType facet, where predicate, sort-by-property. -->
     <div class="relative filter-dropdown">
       <button type="button" onclick={() => toggleDropdown('properties')}
         title="Filter and sort by structured properties"
@@ -1193,9 +1215,9 @@
         <svg width="10" height="10" viewBox="0 0 10 10" class="transition-transform {openDropdown === 'properties' ? 'rotate-180' : ''}"><path d="M2 4 L5 7 L8 4" stroke="currentColor" fill="none" stroke-width="1.5"/></svg>
       </button>
       {#if openDropdown === 'properties'}
-        <div class="absolute left-0 top-full z-20 mt-1 w-80 rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
+        <div class="absolute left-0 top-full z-20 mt-1 w-72 max-w-[calc(100vw-2rem)] max-h-[70vh] overflow-y-auto rounded-lg border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 space-y-3">
           {#if structuredActiveCount > 0}
-            <button type="button" onclick={() => { objectTypeFilter = ''; whereJson = ''; sortPropPath = ''; }}
+            <button type="button" onclick={clearStructuredFilters}
               class="w-full rounded px-2 py-1 text-left text-xs text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-zinc-800">Clear</button>
           {/if}
 
@@ -1205,7 +1227,7 @@
             {#if collectionNames.length > 0}
               <!-- onchange: re-run the cast auto-pick — switching collections
                    can change the selected sort field's declared type. -->
-              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={syncSortCastFromSchema}
+              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={() => { whereJson = ''; syncSortCastFromSchema(); }}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
                 <option value="">Any</option>
                 {#each collectionNames as name (name)}
@@ -1213,29 +1235,18 @@
                 {/each}
               </select>
             {:else}
-              <input id="structured-object-type" type="text" bind:value={objectTypeFilter} placeholder="e.g. competitor"
+              <input id="structured-object-type" type="text" bind:value={objectTypeFilter} oninput={() => whereJson = ''} placeholder="e.g. competitor"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-500" />
             {/if}
           </div>
 
-          <!-- Structured predicate (filter.where) — raw JSON v1 -->
-          <div>
-            <label for="structured-where" class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">Filter (where, JSON)</label>
-            <textarea id="structured-where" rows="4" bind:value={whereJson} spellcheck="false"
-              aria-invalid={!!whereParse.error}
-              aria-describedby={whereParse.error ? 'structured-where-error' : 'structured-where-hint'}
-              placeholder={'{"path": ["stage"], "eq": "seed"}'}
-              class="w-full rounded-lg border bg-white px-2 py-1.5 font-mono text-xs text-zinc-900 placeholder-zinc-400 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-600 {whereParse.error ? 'border-red-400 dark:border-red-700' : 'border-zinc-300 dark:border-zinc-700'}"
-              style="resize: vertical;"></textarea>
-            {#if whereParse.error}
-              <p id="structured-where-error" class="mt-1 text-xs text-red-600 dark:text-red-400">{whereParse.error}</p>
-            {:else}
-              <p id="structured-where-hint" class="mt-1 text-[10px] leading-tight text-zinc-400">
-                A leaf is a path + one operator (eq, ne, in, lt, lte, gt, gte, between, exists, contains);
-                branches are and / or / not. Optional per-leaf: field (properties | data), as (text | number | datetime | boolean).
-              </p>
-            {/if}
-          </div>
+          <!-- The builder and Advanced share the same applied where channel. -->
+          {#key `${propertyMemoryScope}:${objectTypeFilter}:${propertyEditorVersion}`}
+            <PropertyFilter
+              collection={memorySchema && Object.hasOwn(memorySchema.objectTypes, objectTypeFilter) ? memorySchema.objectTypes[objectTypeFilter] : null}
+              bind:value={whereJson}
+            />
+          {/key}
 
           <!-- Property sort (sortProperty) — overrides the Sort dropdown -->
           <div>
