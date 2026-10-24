@@ -477,6 +477,7 @@
   const memoryEncrypted = $derived(!!memory?.isEncrypted);
   let objectTypeFilter = $state('');
   let whereJson = $state('');
+  let propertyFilterStatus = $state('');
   let propertyEditorVersion = $state(0);
   // A declared field belongs to one memory/collection. Reused route instances
   // must not carry its applied predicate into the next memory.
@@ -486,6 +487,7 @@
     const scope = propertyMemoryScope;
     if (scope === propertyScope) return;
     propertyScope = scope;
+    propertyFilterStatus = '';
     objectTypeFilter = '';
     whereJson = '';
   });
@@ -788,9 +790,12 @@
   }
 
   function handleWindowClick(e: MouseEvent) {
-    if (openDropdown && !(e.target as Element)?.closest?.('.filter-dropdown')) {
-      openDropdown = null;
-    }
+    // Discard can remove its own button before this listener runs. The event's
+    // dispatch path retains the original dropdown even when target.closest cannot.
+    const insideDropdown = e.composedPath().some(
+      (target) => target instanceof Element && target.classList.contains('filter-dropdown'),
+    );
+    if (openDropdown && !insideDropdown) openDropdown = null;
   }
 
   // #589: how many structured-query controls are active — drives the
@@ -815,7 +820,14 @@
       sortMode !== 'loc',
   );
 
+  function changeCollection() {
+    propertyFilterStatus = whereJson.trim()
+      ? t('property-filter.collection-cleared', 'Filter cleared because the collection changed.') : '';
+    whereJson = '';
+  }
+
   function clearStructuredFilters() {
+    propertyFilterStatus = t('property-filter.all-cleared', 'Property filters cleared.');
     objectTypeFilter = '';
     whereJson = '';
     sortPropPath = '';
@@ -823,6 +835,7 @@
   }
 
   function clearAllFilters() {
+    propertyFilterStatus = '';
     propertyEditorVersion++;
     activeMemoryUrns = new Set();
     activeNodeTypes = new Set();
@@ -1227,7 +1240,7 @@
             {#if collectionNames.length > 0}
               <!-- onchange: re-run the cast auto-pick — switching collections
                    can change the selected sort field's declared type. -->
-              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={() => { whereJson = ''; syncSortCastFromSchema(); }}
+              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={() => { changeCollection(); syncSortCastFromSchema(); }}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
                 <option value="">Any</option>
                 {#each collectionNames as name (name)}
@@ -1235,16 +1248,19 @@
                 {/each}
               </select>
             {:else}
-              <input id="structured-object-type" type="text" bind:value={objectTypeFilter} oninput={() => whereJson = ''} placeholder="e.g. competitor"
+              <input id="structured-object-type" type="text" bind:value={objectTypeFilter} oninput={changeCollection} placeholder="e.g. competitor"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-500" />
             {/if}
           </div>
 
+          <!-- Outside the keyed editor: collection changes must update an existing live region. -->
+          <p role="status" aria-live="polite" aria-atomic="true" data-testid="property-filter-status" class="min-h-4 text-xs text-zinc-500 dark:text-zinc-400">{propertyFilterStatus}</p>
           <!-- The builder and Advanced share the same applied where channel. -->
           {#key `${propertyMemoryScope}:${objectTypeFilter}:${propertyEditorVersion}`}
             <PropertyFilter
               collection={memorySchema && Object.hasOwn(memorySchema.objectTypes, objectTypeFilter) ? memorySchema.objectTypes[objectTypeFilter] : null}
               bind:value={whereJson}
+              onstatus={(message) => propertyFilterStatus = message}
             />
           {/key}
 
