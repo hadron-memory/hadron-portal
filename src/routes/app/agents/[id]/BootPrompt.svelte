@@ -47,5 +47,5 @@
     <div class="flex justify-end gap-2"><button type="button" disabled={$submitting} onclick={() => reset({ data: { _kind: 'bootPrompt', systemPrompt: stored } })} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700">{t('agent.boot.cancel', 'Cancel')}</button><button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{$submitting ? t('agent.boot.saving', 'Saving...') : t('agent.boot.save', 'Save')}</button></div>
     {/if}
   </form>
-  {#if $message}<p role={$message.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
+  {#if submitted && $message}<p role={$message.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
 </section>
