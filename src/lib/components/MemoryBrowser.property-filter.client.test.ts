@@ -211,3 +211,30 @@ it('the Properties Clear resets an invalid draft even when its applied value was
   expect((target.querySelector('#structured-where') as HTMLTextAreaElement).value).toBe('');
   expect(target.querySelector('[data-testid="property-filter"] [role="alert"]')).toBeNull();
 });
+
+
+describe('#1221 review draft regressions', () => {
+  it('preserves a draft on equal schema refresh, reseeds on changed declarations', () => {
+    const { target, props } = browser();
+    pick(target, '#structured-object-type', 'task');
+    pick(target, '[data-testid="property-filter-field"]', 'count');
+    pick(target, '[data-testid="property-filter-value"]', '42');
+    props.memory = { id: 'mem-a', schema: JSON.parse(JSON.stringify(schema)) }; flushSync();
+    expect((target.querySelector('[data-testid="property-filter-field"]') as HTMLSelectElement).value).toBe('count');
+    expect((target.querySelector('[data-testid="property-filter-value"]') as HTMLInputElement).value).toBe('42');
+    props.memory = { id: 'mem-a', schema: { objectTypes: { task: { fields: { title: { type: 'text' } } } } } }; flushSync();
+    expect((target.querySelector('[data-testid="property-filter-field"]') as HTMLSelectElement).value).toBe('');
+  });
+  it('discards invalid draft without clearing the applied predicate or sending a request', async () => {
+    const { target } = browser(); filter(target); await bodies();
+    click(target, 'Advanced JSON');
+    pick(target, '#structured-where', '{');
+    const before = fetchMock.mock.calls.length;
+    click(target, 'Discard changes');
+    expect(JSON.parse((target.querySelector('#structured-where') as HTMLTextAreaElement).value)).toEqual({ path: ['enabled'], as: 'boolean', eq: false });
+    expect(target.querySelector('[data-testid="property-filter"] [role="alert"]')).toBeNull();
+    await bodies(); expect(fetchMock.mock.calls.length).toBe(before);
+    click(target, 'Fields');
+    expect((target.querySelector('[data-testid="property-filter-value"]') as HTMLSelectElement).value).toBe('false');
+  });
+});
