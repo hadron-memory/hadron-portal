@@ -32,16 +32,27 @@
   // refused POST re-seeds the draft through the failed form's baseRef
   // (base.data.baseRef), so the user keeps what they chose. Both reset when the
   // page hands the component another Agent's forms (fresh baseForm object).
+  // `discardSeed` (#1271 fix head) lets Discard drop a refused-POST seed too,
+  // not just a fresh pick.
   let pick = $state<BaseCandidate | null>(null);
   let pickerOpen = $state(false);
+  let discardSeed = $state(false);
   $effect(() => {
     void baseForm;
     pick = null;
     pickerOpen = false;
+    discardSeed = false;
   });
-  const draftRef = $derived(pick?.urn ?? base.data.baseRef);
+  const draftRef = $derived(pick?.urn ?? (discardSeed ? '' : base.data.baseRef));
   const resolvedDraft = $derived(draftRef ? (candidates ?? []).find((c) => c.urn === draftRef || c.id === draftRef) ?? null : null);
   const displayAgent = $derived(pick ?? resolvedDraft ?? (draftRef ? null : currentBase?.agent ?? null));
+  // #1271 fix head (Uma P2): a draft naming anything other than the current
+  // base is UNSAVED and must say so, with a way back. The same comparison
+  // disables a no-op Save (draft equals the saved base).
+  const draftMatchesSaved = $derived(
+    !!draftRef && (draftRef === currentBase?.agent?.urn || draftRef === currentBase?.agent?.id || draftRef === currentBase?.id),
+  );
+  const draftUnsaved = $derived(!!draftRef && !draftMatchesSaved);
 </script>
 {#snippet baseFeedback()}
   {#if baseError}<p id="agent-base-error" role="alert" class="break-words text-sm text-red-600 dark:text-red-400">{baseError}</p>{/if}
@@ -81,12 +92,20 @@
         {:else}
           <p class="text-sm text-zinc-500">{t('agent.inheritance.none', 'None')}</p>
         {/if}
+        {#if draftUnsaved}
+          {#if currentBase?.agent}
+            <p role="status" class="text-sm text-amber-600 dark:text-amber-400">{t('agent.parent.unsaved-replace', 'Not saved yet — Save will replace {name} as the parent agent.', { name: currentBase.agent.name })}</p>
+          {:else}
+            <p role="status" class="text-sm text-amber-600 dark:text-amber-400">{t('agent.parent.unsaved-set', 'Not saved yet — Save will set {name} as the parent agent.', { name: displayAgent?.name ?? draftRef })}</p>
+          {/if}
+        {/if}
       </div>
       <input type="hidden" name="baseRef" value={draftRef} />
       <div class="flex flex-wrap items-center gap-3">
         <button type="button" onclick={() => (pickerOpen = true)} disabled={candidates === null} class={secondaryButtonClass}>{t('agent.parent.change', 'Change…')}</button>
-        <button type="submit" name="operation" value="set" disabled={!draftRef} class={buttonClass}>{t('agent.parent.save', 'Save')}</button>
+        <button type="submit" name="operation" value="set" disabled={!draftUnsaved} class={buttonClass}>{t('agent.parent.save', 'Save')}</button>
         <button type="submit" name="operation" value="clear" disabled={!currentBase?.id && !draftRef} class={secondaryButtonClass}>{t('agent.parent.clear', 'Clear')}</button>
+        <button type="button" onclick={() => { pick = null; discardSeed = true; }} disabled={!draftUnsaved} class={secondaryButtonClass}>{t('agent.parent.discard', 'Discard')}</button>
         <p class="w-full text-sm text-zinc-500 sm:w-auto sm:flex-1">{t('agent.inheritance.clear-help', 'Clearing the base removes inherited tasks and processes from this Agent. Its own definitions stay unchanged.')}</p>
       </div>
       {#if candidates === null}

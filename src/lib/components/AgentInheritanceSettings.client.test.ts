@@ -31,6 +31,11 @@ function selectInRow(row: Element) {
 function baseForm(root: HTMLElement) {
   return root.querySelector<HTMLFormElement>('form[action="?/setBase"]')!;
 }
+// With a current base rendered, the Urn component's buttons precede Change… in
+// the form, so find it by label — never by button-position.
+function changeButton(root: HTMLElement) {
+  return [...baseForm(root).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Change…')!;
+}
 function submitter(root: HTMLElement, value: 'set' | 'clear') {
   return baseForm(root).querySelector<HTMLButtonElement>(`button[name="operation"][value="${value}"]`)!;
 }
@@ -76,7 +81,10 @@ it('picks a parent through the SelectAgent modal and posts its URN', async () =>
   await tick();
   expect(root.querySelector('tbody')).toBeNull();
   expect(new window.FormData(baseForm(root)).get('baseRef')).toBe('hrn:agent:example.com:peer');
-  expect((baseForm(root).textContent ?? '').match(/Peer Agent/g)).toHaveLength(1);
+  // Twice is correct here: once as the entity display, once in the unsaved cue
+  // naming what Save would set (fix-head pin for the UX seat's P2).
+  expect((baseForm(root).textContent ?? '').match(/Peer Agent/g)).toHaveLength(2);
+  expect(baseForm(root).textContent).toContain('Not saved yet — Save will set Peer Agent as the parent agent.');
   expect(submitter(root, 'set').disabled).toBe(false);
 });
 it('degrades visibly when candidates fail to load instead of offering an empty picker', async () => {
@@ -95,7 +103,8 @@ it('resolves and keeps a failed draft, scoped to the base form', async () => {
   expect(root.querySelector('#agent-base-error')?.textContent).toBe('AGENT_BASE_CYCLE: exact server text');
   expect(root.querySelector('#agent-index-error')).toBeNull();
   expect(new window.FormData(baseForm(root)).get('baseRef')).toBe('hrn:agent:example.com:peer');
-  expect((baseForm(root).textContent ?? '').match(/Peer Agent/g)).toHaveLength(1);
+  // Entity display + unsaved cue both name the seeded draft (see picker test).
+  expect((baseForm(root).textContent ?? '').match(/Peer Agent/g)).toHaveLength(2);
   expect(root.querySelector('#agent-base-error')!.closest('form')?.getAttribute('action')).toBe('?/setBase');
 });
 it('does not carry a pick to another Agent', async () => {
@@ -108,6 +117,46 @@ it('does not carry a pick to another Agent', async () => {
   expect(new window.FormData(baseForm(root)).get('baseRef')).toBe('hrn:agent:example.com:peer');
   Object.assign(p, await props('base-b')); flushSync(); await tick();
   expect(new window.FormData(baseForm(root)).get('baseRef')).toBe('');
+});
+it('marks a picked draft as unsaved, names what it replaces, and Discard reverts it', async () => {
+  const root = await mount({ ...await props(), currentBase });
+  changeButton(root).click();
+  await tick();
+  selectInRow([...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent?.includes('Peer Agent'))!).click();
+  await tick();
+  const cue = [...baseForm(root).querySelectorAll('[role="status"]')].map((n) => n.textContent).find((t) => t?.includes('Not saved yet'));
+  expect(cue).toContain('Save will replace Base Engineer as the parent agent.');
+  const discard = [...baseForm(root).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Discard')!;
+  expect(discard.disabled).toBe(false);
+  discard.click();
+  await tick();
+  expect(new window.FormData(baseForm(root)).get('baseRef')).toBe('');
+  // Back to the saved parent: cue gone, Save disabled, Clear still offered.
+  expect((baseForm(root).textContent ?? '').match(/Base Engineer/g)).toHaveLength(1);
+  expect([...baseForm(root).querySelectorAll('[role="status"]')].some((n) => n.textContent?.includes('Not saved yet'))).toBe(false);
+  expect(submitter(root, 'set').disabled).toBe(true);
+  expect(submitter(root, 'clear').disabled).toBe(false);
+});
+it('disables Save and Discard for a no-op draft that matches the saved parent', async () => {
+  const root = await mount({ ...await props(), currentBase });
+  changeButton(root).click();
+  await tick();
+  selectInRow([...root.querySelectorAll('tbody tr')].find((tr) => tr.textContent?.includes('Base Engineer'))!).click();
+  await tick();
+  expect(new window.FormData(baseForm(root)).get('baseRef')).toBe('hrn:agent:example.com:base');
+  expect(submitter(root, 'set').disabled).toBe(true);
+  expect([...baseForm(root).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Discard')!.disabled).toBe(true);
+});
+it('Discard drops a refused-POST seeded draft without erasing the server error', async () => {
+  const p = await props();
+  p.actionData = { form: { ...p.baseForm, data: { ...p.baseForm.data, baseRef: 'hrn:agent:example.com:peer' }, message: { type: 'error', text: 'AGENT_BASE_CYCLE: exact server text' } } };
+  const root = await mount(p);
+  const discard = [...baseForm(root).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Discard')!;
+  expect(discard.disabled).toBe(false);
+  discard.click();
+  await tick();
+  expect(new window.FormData(baseForm(root)).get('baseRef')).toBe('');
+  expect(root.querySelector('#agent-base-error')).not.toBeNull();
 });
 it('hides writes for non-managers and makes a failed permission read visible', async () => {
   const p = reactiveProps(await props());
