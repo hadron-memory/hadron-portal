@@ -21,6 +21,7 @@
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
+  import { eligibleCloneTargets, showCloneEntry } from '$lib/agents/clone';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
@@ -547,6 +548,11 @@
     const actions: NodeMenuAction[] = [];
     // Keep the existing org-only install route/audience.
     if (org) actions.push({ id: 'install', label: t('agent.actions.install', 'Install into app'), href: `/app/orgs/${encodeURIComponent(org.id)}/agents/install/${encodeURIComponent(agent.id)}` });
+    // #1262: clone into an organization the caller administers. The eligible-org
+    // list is a hint; the server's ADMIN gate on the target is authoritative.
+    if (showCloneEntry({ visibility: agent.visibility, canManage: !!data.canManageAgent, eligibleCount: eligibleCloneTargets(navOrgs, data.currentUserId).length })) {
+      actions.push({ id: 'clone', label: t('agent.actions.clone', 'Clone to organization'), href: `/app/agents/${encodeURIComponent(agent.id)}/clone` });
+    }
     if (agent.systemMemoryId) actions.push({ id: 'conversations', label: t('agent.actions.conversations', 'Conversation editor'), href: `/app/agents/${encodeURIComponent(agent.id)}/conversations` });
     if (data.systemMemoryIdentity?.urn) actions.push({ id: 'system-memory', label: t('agent.actions.system-memory', 'Open system memory'), href: `/app/memories/${encodeURIComponent(data.systemMemoryIdentity.id)}` });
     return actions;
