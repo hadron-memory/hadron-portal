@@ -40,6 +40,7 @@ async function pageData(initialTab: 'agents' | 'keys') {
       agents: initialTab === 'agents' ? [AGENT] : [],
     },
     appKeys: { kind: 'ok', keys: initialTab === 'keys' ? [KEY] : [] },
+    viewerManages: { kind: 'known', manages: true },
     org: null, availableAgents: [], staff: [], staffError: false,
     teamChatMessages: [], teamChatTotal: 0, teamChatError: false,
     appChats: [], chatsError: false, selectedChatKey: null,

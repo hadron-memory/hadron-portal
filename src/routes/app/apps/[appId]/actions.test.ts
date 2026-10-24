@@ -7,6 +7,7 @@ import {
   APP_NODES_QUERY,
   APP_QUERY,
   APP_KEYS_QUERY,
+  APP_VIEWER_MANAGES_QUERY,
   APP_MEMBERS_QUERY,
   CAST_WORKER_MUTATION,
   CREATE_APP_KEY_MUTATION,
@@ -2017,7 +2018,7 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
 // classified read, so a refusal there is a state, not a 404.
 describe('load: key inventory (portal#1068)', () => {
   const forbidden = { response: { errors: [{ message: 'no', extensions: { code: 'FORBIDDEN' } }] } };
-  async function loadWith(keysRead: () => Promise<unknown>) {
+  async function loadWith(keysRead: () => Promise<unknown>, managesRead: () => Promise<unknown> = () => Promise.resolve({ app: { id: 'app-1', viewerManages: true } })) {
     mockFetchAllItems.mockResolvedValue([]);
     mockRequest.mockImplementation((query) => {
       if (query === APP_QUERY) {
@@ -2031,6 +2032,7 @@ describe('load: key inventory (portal#1068)', () => {
         });
       }
       if (query === APP_KEYS_QUERY) return keysRead();
+      if (query === APP_VIEWER_MANAGES_QUERY) return managesRead();
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
       if (query === TEAM_CHAT_MESSAGES_QUERY) return Promise.resolve({ teamChatMessages: { items: [], total: 0 } });
@@ -2044,7 +2046,7 @@ describe('load: key inventory (portal#1068)', () => {
       parent: async () => ({}),
       depends: () => {},
       url: new URL('http://localhost/app/apps/app-1'),
-    } as unknown as Parameters<typeof load>[0])) as { app: { id: string }; appKeys: unknown };
+    } as unknown as Parameters<typeof load>[0])) as { app: { id: string }; appKeys: unknown; viewerManages: unknown };
   }
   it('the App query selects no keys field', () => {
     expect(APP_QUERY).not.toMatch(/^\s*keys\s*\{/m);
@@ -2062,6 +2064,28 @@ describe('load: key inventory (portal#1068)', () => {
     const r = await loadWith(() => Promise.reject(new Error('boom')));
     expect(r.app.id).toBe('app-1');
     expect(r.appKeys).toEqual({ kind: 'failed' });
+  });
+
+  // portal#1153 — App.viewerManages: `false` is an answer, a failed or missing read is unknown.
+  describe('viewerManages', () => {
+    const keys = () => Promise.resolve({ appKeys: [] });
+    it('true and false are both known answers', async () => {
+      expect((await loadWith(keys, () => Promise.resolve({ app: { id: 'app-1', viewerManages: true } }))).viewerManages).toEqual({ kind: 'known', manages: true });
+      expect((await loadWith(keys, () => Promise.resolve({ app: { id: 'app-1', viewerManages: false } }))).viewerManages).toEqual({ kind: 'known', manages: false });
+    });
+    it('a failed read is unknown, never false, and the App still loads', async () => {
+      const r = await loadWith(keys, () => Promise.reject(new Error('Cannot query field "viewerManages"')));
+      expect(r.app.id).toBe('app-1');
+      expect(r.viewerManages).toEqual({ kind: 'unknown' });
+    });
+    it('an answer without the field is unknown, never false', async () => {
+      expect((await loadWith(keys, () => Promise.resolve({ app: { id: 'app-1' } }))).viewerManages).toEqual({ kind: 'unknown' });
+      expect((await loadWith(keys, () => Promise.resolve({ app: null }))).viewerManages).toEqual({ kind: 'unknown' });
+    });
+    it('is selected in its own request, not on the shared App document', () => {
+      expect(APP_VIEWER_MANAGES_QUERY).toMatch(/viewerManages/);
+      expect(APP_QUERY).not.toMatch(/viewerManages/);
+    });
   });
 });
 

@@ -77,7 +77,7 @@ import type {
   TeamWorkItem,
 } from '$lib/types';
 import { loadAppKeyScopes } from '$lib/server/tickers';
-import { loadAppKeys } from '$lib/server/app-keys';
+import { loadAppKeys, loadViewerManages } from '$lib/server/app-keys';
 import type { Actions, PageServerLoad } from './$types';
 import {
   addAgentSchema,
@@ -641,7 +641,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster, bootPointers] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -739,6 +739,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // manager-only and non-null (hadron-server#2080), so on the App fragment it
     // nulled the whole App (a false 404 here) for every non-manager.
     loadAppKeys(client, app.id),
+    // portal#1153 — App.viewerManages in its own request (a server without the
+    // field answers with an error, which must not take the page): the key
+    // controls hide on a real `false` only.
+    loadViewerManages(client, app.id),
     // portal#1168 (hadron-server#2178): the grid's Task and Paused state, one
     // bulk read in its own classified request so its failure cannot take the page.
     loadAppTeamRoster(client, app.id),
@@ -925,6 +929,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     bootPointerAppKey: params.appId,
     keyScopes,
     appKeys,
+    viewerManages,
     appSettingsForm,
     addAgentForm,
     createKeyForm,

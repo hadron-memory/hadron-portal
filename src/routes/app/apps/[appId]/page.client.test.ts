@@ -53,6 +53,7 @@ async function pageData() {
       role: 'OWNER', surfaces: [], agentId: null, agent: null, agents: [],
     },
     appKeys: { kind: 'ok', keys: [] },
+    viewerManages: { kind: 'known', manages: true },
     org: null, availableAgents: [], staff: [
       { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null },
     ],
@@ -901,7 +902,8 @@ describe('App key inventory states (portal#1068)', () => {
   });
   it.each(['keys', 'client'] as const)('%s tab: hidden names who may see keys, never "No keys yet." or a count', async (tab) => {
     const panel = await mountTab(tab, { kind: 'hidden' });
-    expect(panel.textContent).toContain(HIDDEN);
+    // portal#1153: on the Keys tab one combined line replaces the list-hidden line.
+    expect(panel.textContent).toContain(tab === 'keys' ? 'Only people who manage this App can see, create or revoke its keys' : HIDDEN);
     expect(panel.textContent).not.toContain('No keys yet.');
     expect(panel.textContent).not.toContain('No active keys');
     expect(panel.textContent).not.toMatch(/Client Keys\s*\(0\)/);
@@ -1124,5 +1126,133 @@ describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
     all[1].click();
     await settle();
     expect(requestSubmit).toHaveBeenCalledTimes(1);
+  });
+});
+
+// portal#1153 (hadron-server#2109): App.viewerManages hides the key controls and nothing else.
+describe('key controls follow App.viewerManages (portal#1153)', () => {
+  const MANAGERS = 'Only people who manage this App can create or revoke its keys';
+  const COMBINED = 'Only people who manage this App can see, create or revoke its keys';
+  const HIDDEN = 'Only the App’s managers can see its keys.';
+  const UNKNOWN = 'Couldn’t check whether you can manage this App’s keys. If you can’t, the change will be refused.';
+  const IMPERSONATION = 'This is a read-only impersonation session, so it can’t create or revoke keys.';
+  const FAILED = 'Couldn’t load this App’s keys.';
+  const key = {
+    id: 'k1', label: 'router', keyPreview: 'hk_ab…yz',
+    createdAt: '2026-10-01T12:00:00.000Z', lastUsedAt: null, revokedAt: null,
+  };
+  async function mountTab(tab: 'keys' | 'client', over: Record<string, unknown>, app: Record<string, unknown> = {}) {
+    setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, reactiveProps({
+      data: { ...data, initialTab: tab, keyScopes: { kind: 'hidden' }, appKeys: { kind: 'ok', keys: [key] }, app: { ...data.app, ...app }, ...over }, form: null,
+    }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target.querySelector(`#panel-${tab}`)!;
+  }
+  const manager = { viewerManages: { kind: 'known', manages: true } };
+  const nonManager = { viewerManages: { kind: 'known', manages: false } };
+  const unknown = { viewerManages: { kind: 'unknown' } };
+  const createForm = (p: Element) => p.querySelector('form[action="?/createKey"]');
+  const revoke = (p: Element) => p.querySelector('form[action="?/revokeKey"]');
+  const openNewKey = async (p: Element) => {
+    [...p.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'New Client Key')?.click();
+    await tick(2);
+  };
+  const setupButton = (p: Element) => [...p.querySelectorAll('button')].find((b) => b.textContent?.includes('Download setup files'));
+
+  it('a manager sees the controls and no extra line', async () => {
+    const keys = await mountTab('keys', manager);
+    expect(createForm(keys)).not.toBeNull();
+    expect(keys.textContent).not.toContain(MANAGERS);
+    expect(keys.textContent).not.toContain(UNKNOWN);
+    const client = await mountTab('client', manager);
+    expect(revoke(client)).not.toBeNull();
+    await openNewKey(client);
+    expect(setupButton(client)).toBeDefined();
+    expect(client.textContent).not.toContain(UNKNOWN);
+  });
+
+  it('keys tab: false removes the create form from the DOM and says who can', async () => {
+    const panel = await mountTab('keys', nonManager);
+    expect(createForm(panel)).toBeNull();
+    expect(panel.querySelector('form[action="?/revokeKey"]')).toBeNull();
+    expect(panel.querySelector('[data-testid="key-controls-withheld"]')?.textContent).toContain(MANAGERS);
+    expect(panel.textContent).not.toContain(UNKNOWN);
+    // The Keys tab stays in the strip for a non-manager, so the rule stays discoverable.
+    expect([...document.querySelectorAll('[role=tab]')].some((t) => t.textContent?.includes('App Keys'))).toBe(true);
+  });
+
+  it('keys tab: false with the list also hidden shows ONE combined line, not two', async () => {
+    const panel = await mountTab('keys', { ...nonManager, appKeys: { kind: 'hidden' } });
+    expect(panel.textContent).toContain(COMBINED);
+    expect(panel.textContent).not.toContain(HIDDEN);
+    expect(panel.textContent?.split(COMBINED).length).toBe(2);
+    expect(createForm(panel)).toBeNull();
+  });
+
+  it('a hidden key list outranks unknown: controls withheld, no unknown line', async () => {
+    const panel = await mountTab('keys', { ...unknown, appKeys: { kind: 'hidden' } });
+    expect(createForm(panel)).toBeNull();
+    expect(panel.textContent).toContain(COMBINED);
+    expect(panel.textContent).not.toContain(UNKNOWN);
+  });
+
+  it('impersonation swaps the managers line for the read-only sentence', async () => {
+    const panel = await mountTab('keys', { ...nonManager, impersonation: { expiresAt: '2099-01-01T00:00:00Z' } });
+    expect(panel.textContent).toContain(IMPERSONATION);
+    expect(panel.textContent).not.toContain(MANAGERS);
+    expect(createForm(panel)).toBeNull();
+  });
+
+  it('keys tab: unknown KEEPS the controls and adds one neutral status line', async () => {
+    const panel = await mountTab('keys', unknown);
+    expect(createForm(panel)).not.toBeNull();
+    const note = panel.querySelector('[data-testid="key-controls-unknown"]');
+    expect(note?.textContent).toBe(UNKNOWN);
+    expect(note?.getAttribute('role')).toBe('status');
+    expect(panel.textContent).not.toContain(MANAGERS);
+  });
+
+  it('unknown with the key list failed too shows both different reads', async () => {
+    const panel = await mountTab('keys', { ...unknown, appKeys: { kind: 'failed' } });
+    expect(panel.textContent).toContain(FAILED);
+    expect(panel.textContent).toContain(UNKNOWN);
+    expect(createForm(panel)).not.toBeNull();
+  });
+
+  it('client tab: false removes Revoke and the setup download, with a next step', async () => {
+    const panel = await mountTab('client', nonManager, { organizationId: 'o1' });
+    expect(revoke(panel)).toBeNull();
+    expect(setupButton(panel)).toBeUndefined();
+    expect(panel.querySelector('#keyLabel')).toBeNull();
+    expect(panel.querySelector('[data-testid="setup-withheld"]')?.textContent).toContain('Ask one of its owners');
+  });
+
+  it('client tab: an org-owned App names the organization in the next step', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=client', { appId: 'a1' });
+    const data = await pageData();
+    const m = mountComponent(Page as never, reactiveProps({
+      data: { ...data, initialTab: 'client', keyScopes: { kind: 'hidden' }, ...nonManager, org: { id: 'o1', name: 'Acme', members: [] }, app: { ...data.app, organizationId: 'o1' } }, form: null,
+    }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    expect(m.target.querySelector('[data-testid="setup-withheld"]')?.textContent).toContain('an admin of Acme');
+  });
+
+  it('client tab: unknown keeps Revoke and the download, with the neutral line', async () => {
+    const panel = await mountTab('client', unknown);
+    expect(revoke(panel)).not.toBeNull();
+    await openNewKey(panel);
+    expect(setupButton(panel)).toBeDefined();
+    expect(panel.querySelector('[data-testid="key-controls-unknown"]')?.textContent).toBe(UNKNOWN);
+  });
+
+  it('false never gates the plugin checkboxes (a separate rule, #1138 territory)', async () => {
+    const panel = await mountTab('client', { ...nonManager, canManageApp: true });
+    const boxes = panel.querySelectorAll<HTMLInputElement>('input[type=checkbox]');
+    expect(boxes.length).toBeGreaterThan(0);
+    expect([...boxes].every((b) => !b.disabled)).toBe(true);
   });
 });
