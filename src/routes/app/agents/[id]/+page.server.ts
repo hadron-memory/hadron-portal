@@ -403,9 +403,12 @@ export const actions: Actions = {
   updateBootPrompt: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), zod4(bootPromptSchema), { id: 'bootPrompt', strict: true });
     if (!form.valid) return fail(400, { form });
+    // Browser multipart encoding expands textarea LF to CRLF. Restore LF
+    // without trimming source whitespace or interpreting template placeholders.
+    const systemPrompt = form.data.systemPrompt.replace(/\r\n/g, '\n');
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
-        ref: params.id, systemPrompt: form.data.systemPrompt === '' ? null : form.data.systemPrompt,
+        ref: params.id, systemPrompt: systemPrompt === '' ? null : systemPrompt,
       });
       return message(form, { type: 'success', text: t('agent.boot.saved', 'Boot prompt saved.') });
     } catch {

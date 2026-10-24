@@ -23,6 +23,12 @@ describe('#999 prompt-only action', () => {
     expect(result.data.form.data.systemPrompt).toBe(' draft\n');
     expect(result.data.form.message.text).not.toContain('private upstream detail');
   });
+  it('normalizes multipart CRLF without trimming source or compiling placeholders', async () => {
+    await save('  # Hello\r\n\r\n{{worker.name}}\r\n');
+    expect(request).toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, {
+      ref: 'agent-1', systemPrompt: '  # Hello\n\n{{worker.name}}\n',
+    });
+  });
   it('clears an empty prompt with null', async () => {
     await save('');
     expect(request).toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, { ref: 'agent-1', systemPrompt: null });
