@@ -1720,6 +1720,16 @@ export const AGENT_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1262 — S1 cloneAgent: the new Agent's identity only. The origin
+// (clonedFromAgentRef) is out of this cut.
+export const CLONE_AGENT_MUTATION = /* GraphQL */ `
+  mutation CloneAgent($source: ID!, $target: ID!, $name: String, $slug: String) {
+    cloneAgent(source: $source, target: $target, name: $name, slug: $slug) {
+      id urn name organizationId visibility
+    }
+  }
+`;
+
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
   mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String) {
