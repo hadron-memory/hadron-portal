@@ -8,7 +8,7 @@
   import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
   import { isHiddenNodeType } from '$lib/node-types';
   import type { ContentScope } from '$lib/comments';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { createNodeColumns } from '$lib/node-columns.svelte';
   import { NODE_FIELD_MASK_OPTIONS } from '$lib/search/node-fields';
@@ -476,6 +476,7 @@
   const collectionNames = $derived(objectTypeNames(memorySchema));
   const memoryEncrypted = $derived(!!memory?.isEncrypted);
   let objectTypeFilter = $state('');
+  let collectionControl = $state<HTMLSelectElement | HTMLInputElement>();
   let whereJson = $state('');
   let propertyFilterStatus = $state('');
   let propertyEditorVersion = $state(0);
@@ -820,18 +821,25 @@
       sortMode !== 'loc',
   );
 
-  function changeCollection() {
-    propertyFilterStatus = whereJson.trim()
-      ? t('property-filter.collection-cleared', 'Filter cleared because the collection changed.') : '';
+  function changeCollection(typing = false) {
+    if (whereJson.trim()) {
+      propertyFilterStatus = t('property-filter.collection-cleared', 'Filter cleared because the collection changed.');
+    } else if (!typing) {
+      propertyFilterStatus = '';
+    }
+    // The first input event already cleared the predicate. Keep its notice
+    // visible while subsequent events complete the free-text collection name.
     whereJson = '';
   }
 
-  function clearStructuredFilters() {
+  async function clearStructuredFilters() {
     propertyFilterStatus = t('property-filter.all-cleared', 'Property filters cleared.');
     objectTypeFilter = '';
     whereJson = '';
     sortPropPath = '';
     propertyEditorVersion++;
+    await tick();
+    collectionControl?.focus();
   }
 
   function clearAllFilters() {
@@ -1240,7 +1248,7 @@
             {#if collectionNames.length > 0}
               <!-- onchange: re-run the cast auto-pick — switching collections
                    can change the selected sort field's declared type. -->
-              <select id="structured-object-type" bind:value={objectTypeFilter} onchange={() => { changeCollection(); syncSortCastFromSchema(); }}
+              <select id="structured-object-type" bind:this={collectionControl} bind:value={objectTypeFilter} onchange={() => { changeCollection(); syncSortCastFromSchema(); }}
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white">
                 <option value="">Any</option>
                 {#each collectionNames as name (name)}
@@ -1248,7 +1256,7 @@
                 {/each}
               </select>
             {:else}
-              <input id="structured-object-type" type="text" bind:value={objectTypeFilter} oninput={changeCollection} placeholder="e.g. competitor"
+              <input id="structured-object-type" bind:this={collectionControl} type="text" bind:value={objectTypeFilter} oninput={() => changeCollection(true)} placeholder="e.g. competitor"
                 class="w-full rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 placeholder-zinc-400 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white dark:placeholder-zinc-500" />
             {/if}
           </div>
