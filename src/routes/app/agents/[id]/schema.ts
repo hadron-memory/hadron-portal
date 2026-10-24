@@ -74,3 +74,9 @@ export type AddAgentMemorySchema = typeof addAgentMemorySchema;
 export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;
 export type RemoveAgentMemorySchema = typeof removeAgentMemorySchema;
 export type DeleteAgentSchema = typeof deleteAgentSchema;
+
+// #999: a separate form prevents unrelated metadata saves from overwriting it.
+export const bootPromptSchema = z.object({
+  _kind: z.literal('bootPrompt').default('bootPrompt'),
+  systemPrompt: z.string(),
+});

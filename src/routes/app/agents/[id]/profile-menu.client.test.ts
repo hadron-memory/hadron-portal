@@ -12,7 +12,8 @@ it('moves profile routes into Agent actions and shows the authorized system memo
     systemMemoryIdentity: { id: 'mem-sys', name: 'System memory', urn: 'hrn:mem:example.com:agent-system' },
   };
   const m = mountComponent(Page as never, { data, form: null } as never); mounted.push(m); await tick(5);
-  expect(m.target.textContent).not.toContain('PRIVATE PROMPT BODY');
+  // The prompt is retained in the hidden Boot prompt tab, never on Profile.
+  expect([...m.target.querySelectorAll('p, textarea')].filter(el => !el.closest('[hidden]')).map(el => el.textContent).join(' ')).not.toContain('PRIVATE PROMPT BODY');
   expect(m.target.querySelector('a[href="/app/agents/a/conversations"]')).toBeNull();
   expect(m.target.querySelector('a[href="/app/orgs/org-a/agents/install/a"]')).toBeNull();
   expect(m.target.querySelector('a[href="/app/u/hrn:mem:example.com:agent-system"]')).not.toBeNull();
