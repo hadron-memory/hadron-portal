@@ -24,6 +24,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import RawKeyReveal from '$lib/components/RawKeyReveal.svelte';
   import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
   import { t } from '$lib/i18n/t';
   import { scopedActionError } from '$lib/forms/scoped-message';
@@ -112,40 +113,14 @@
     form && 'success' in form && form.success === 'mint' ? form.rawKey : undefined,
   );
 
-  // Reset hook bound to the "I have copied this key" dismiss button.
+  // #498: how long a freshly minted key stays on screen.
+  const RAW_KEY_REVEAL_TTL_MS = 5 * 60 * 1000;
+
+  // Reset hook bound to the dismiss button and the reveal's expiry.
   // SvelteKit re-renders when `form` changes; setting it to null wipes
   // the reveal banner without a navigation round-trip.
   function dismissReveal() {
     form = null;
-  }
-
-  // #230: copy-to-clipboard on the raw-key reveal. `copied` toggles
-  // briefly for the "Copied!" confirmation; the timer is cleared on
-  // each click to avoid stale resets if the user clicks twice quickly,
-  // and on unmount so we don't fire a state update against a destroyed
-  // component (per gemini-bot review on PR #242).
-  let copied = $state(false);
-  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
-
-  $effect(() => () => {
-    if (copiedTimer) clearTimeout(copiedTimer);
-  });
-
-  async function copyKey(value: string) {
-    // Defensive: navigator.clipboard is undefined in insecure contexts
-    // (HTTP, file://, sandboxed iframes) and on a few older browsers.
-    // Bail before `await` so we don't throw an uncaught rejection.
-    if (!navigator?.clipboard) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      copied = true;
-      if (copiedTimer) clearTimeout(copiedTimer);
-      copiedTimer = setTimeout(() => { copied = false; }, 2000);
-    } catch {
-      // writeText can still reject (permission denied, transient
-      // platform error) — silently no-op. The <code> block stays
-      // selectable as the manual fallback.
-    }
   }
 
   // Revoke-confirm dialog state.
@@ -262,41 +237,10 @@
     <div class="max-w-3xl rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{actionError}</div>
   {/if}
 
-  <!-- One-shot reveal: shown after a successful mint, persists for one
-       render. The key value is in `form.rawKey` (cleared on next nav). -->
+  <!-- One-shot reveal: shown after a successful mint. The key value is in
+       `form.rawKey` (cleared on next nav); #498: it also expires on a timer. -->
   {#if rawKey}
-    <div
-      class="max-w-3xl rounded-lg border-2 border-amber-500 bg-amber-50 p-5 dark:border-amber-600 dark:bg-amber-950"
-      role="alert"
-      data-testid="raw-key-reveal"
-    >
-      <h2 class="mb-2 text-base font-semibold text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealHeading()}</h2>
-      <p class="mb-3 text-sm text-amber-900 dark:text-amber-200">{i18n.rawKeyRevealWarning()}</p>
-      <!-- #230: copy button beside the code block. <code> is flex-1 so
-           long keys wrap; button is shrink-0 so it stays full-width on
-           narrow viewports. -->
-      <div class="flex items-start gap-2">
-        <code class="flex-1 break-all rounded bg-amber-100 px-3 py-2 font-mono text-sm text-amber-950 dark:bg-amber-900 dark:text-amber-100">{rawKey}</code>
-        <button
-          type="button"
-          onclick={() => copyKey(rawKey ?? '')}
-          aria-live="polite"
-          class="shrink-0 rounded-md border border-amber-600 bg-amber-100 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-200 dark:border-amber-500 dark:bg-amber-900 dark:text-amber-100 dark:hover:bg-amber-800"
-          data-testid="raw-key-copy"
-        >
-          {copied ? i18n.rawKeyRevealCopied() : i18n.rawKeyRevealCopy()}
-        </button>
-      </div>
-      <div class="mt-3 flex justify-end">
-        <button
-          type="button"
-          onclick={dismissReveal}
-          class="rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
-        >
-          {i18n.rawKeyRevealDismiss()}
-        </button>
-      </div>
-    </div>
+    <RawKeyReveal {rawKey} ttlMs={RAW_KEY_REVEAL_TTL_MS} ondismiss={dismissReveal} />
   {/if}
 
   <!-- Mint form. -->
@@ -386,7 +330,7 @@
               <NodeActionsMenu
                 actions={[{ id: 'revoke', label: i18n.revokeButton(), danger: true }]}
                 onselect={() => openConfirm(key.id, key.keyPreview)}
-                label={`${t('api-keys.actions.label', 'Actions for key')} …${key.keyPreview}`}
+                label={t('api-keys.actions.label', 'Actions for key …{key}', { key: key.keyPreview })}
                 fixed
                 compact
               />

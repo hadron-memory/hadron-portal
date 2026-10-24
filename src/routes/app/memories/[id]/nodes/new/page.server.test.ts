@@ -100,6 +100,7 @@ describe('new node load()', () => {
       nodeType: 'info',
       description: '',
       abstract: '',
+      tags: '',
       content: '',
       objectType: '',
       propertiesJson: '',
@@ -220,6 +221,15 @@ describe('new node create action', () => {
     }));
   });
 
+  it('#1166: forwards comma-separated tags, trimmed, dropping blanks and duplicates', async () => {
+    mockRequest.mockResolvedValueOnce({ createNode: { id: 'node-5' } });
+
+    await runCreate({ name: 'Node', loc: 'node', nodeType: 'info', tags: ' alpha, beta ,,alpha ' });
+
+    const [, vars] = mockRequest.mock.calls[0]! as [unknown, { input: { tags: string[] } }];
+    expect(vars.input.tags).toEqual(['alpha', 'beta']);
+  });
+
   it('omits objectType and properties when empty', async () => {
     mockRequest.mockResolvedValueOnce({ createNode: { id: 'node-4' } });
 
@@ -301,5 +311,37 @@ describe('new node create action', () => {
       type: 'error',
       text: "You don't have write access to this memory. Ask the memory's owner to add you as a writer.",
     });
+  });
+});
+
+// portal#1142 S2b (hadron-server#2226; Xylon's gate 6329041498).
+describe('create refused for an include tag', () => {
+  const refusal = (code: string, tag: unknown = '<img src=x onerror=alert(1)>{{> t}}') => ({
+    message: 'raw ClientError text with the query and PRIVATE-VARS',
+    response: { errors: [{ message: 'Include {{> t}} names a node you cannot read.', extensions: { code, tag } }] },
+  });
+
+  it.each(['INCLUDE_TARGET_UNAVAILABLE', 'INVALID_INCLUDE', 'INCLUDE_CYCLE'])(
+    '%s keeps the form as typed and says so with the server words, the tag and the draft sentence',
+    async (code) => {
+      mockRequest.mockRejectedValueOnce(refusal(code));
+      const result = await runCreate({ name: 'Node', loc: 'node', nodeType: 'info', content: 'see {{> t}}' });
+      expect(result).toMatchObject({ status: 400 });
+      const form = superFormFrom(result);
+      expect(form?.data).toMatchObject({ name: 'Node', content: 'see {{> t}}' });
+      const message = form?.message as { type: string; text: string } | undefined;
+      expect(message?.type).toBe('error');
+      const text = String(message?.text);
+      expect(text).toContain('Include {{> t}} names a node you cannot read.');
+      expect(text).toContain('Tag: <img src=x onerror=alert(1)>{{> t}}.');
+      expect(text).toContain('Your edit is still here.');
+      expect(JSON.stringify(result)).not.toContain('PRIVATE-VARS');
+    },
+  );
+
+  it('an unknown code keeps the existing message path, without the include text', async () => {
+    mockRequest.mockRejectedValueOnce(refusal('SOMETHING_ELSE'));
+    const result = await runCreate({ name: 'Node', loc: 'node', nodeType: 'info' });
+    expect(String((superFormFrom(result)?.message as { text?: string } | undefined)?.text)).not.toContain('include tag');
   });
 });

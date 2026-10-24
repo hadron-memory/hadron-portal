@@ -28,6 +28,8 @@
   import type { AgentTaskDetail, WriteCandidates } from '$lib/agent-tasks/types';
   import PartyPicker from './PartyPicker.svelte';
   import WriteRefusalAlert from './WriteRefusal.svelte';
+  import TaskWarnings from './TaskWarnings.svelte';
+  import { warningsBelow, type TaskWarning } from '$lib/agent-tasks/warnings';
 
   let {
     task,
@@ -49,7 +51,14 @@
   let open = $state<TaskAction | null>(null);
   let submitting = $state(false);
   let refusal = $state<{ action: TaskAction; refusal: WriteRefusal; inPanel: boolean } | null>(null);
-  let status = $state<string | null>(null);
+  /**
+   * The last successful write's result line and, portal#1214, the warnings its
+   * response carried. Tagged with the task it was about: the page reuses this
+   * bar across tasks, so a result shows only while that task is the one in view
+   * (Gene's P2 on #1216), and survives the same task's own reload.
+   */
+  let status = $state<{ taskId: string; text: string; caution: boolean; warnings: TaskWarning[]; more: number } | null>(null);
+  const shown = $derived(status && status.taskId === task.id ? status : null);
   let values = $state<Record<string, string>>({});
   let assignee = $state('');
 
@@ -118,16 +127,28 @@
 
   function submitter(a: TaskAction) {
     return ({ formData }: { formData: FormData }) => {
+      const forTask = task.id;
       submitting = true;
       values = Object.fromEntries([...formData.entries()].map(([k, v]) => [k, String(v)]));
       return async ({ result }: { result: { type: string; data?: Record<string, unknown> } }) => {
         submitting = false;
         if (result.type === 'success') {
-          const text = successText(a, formData);
+          const d = result.data ?? {};
+          // A committed write whose response also errored: saved, said with a fixed line, never the error itself.
+          const caution = d.committedWithError === true;
+          const text = caution
+            ? t('app.tasks.write.done.committed-error', 'Saved, but the server’s response also reported an error. Reload to check the task.')
+            : successText(a, formData);
+          const warnings = Array.isArray(d.warnings) ? (d.warnings as TaskWarning[]) : [];
+          const more = typeof d.more === 'number' ? d.more : 0;
           await invalidateAll();
+          // The reader moved to another task while this one was saving: its result isn't theirs to see.
+          if (task.id !== forTask) return;
           open = null;
           refusal = null;
-          status = text;
+          // Uma's P2 on #1216: the focused line says the warnings are there, so a screen reader hears it.
+          const below = warningsBelow(warnings.length + more);
+          status = { taskId: forTask, text: below ? `${text} ${below}` : text, caution, warnings, more };
           await tick();
           statusLine?.focus();
           return;
@@ -164,11 +185,12 @@
 {/snippet}
 
 <div class="mt-3 space-y-2">
-  {#if created && !status}
+  {#if created && !shown}
     <p bind:this={createdLine} tabindex="-1" role="status" class="text-sm font-medium text-green-700 dark:text-green-300">{t('app.tasks.write.done.created', 'Task created.')}</p>
   {/if}
-  {#if status}
-    <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
+  {#if shown}
+    <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium {shown.caution ? 'text-amber-800 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}">{shown.text}</p>
+    <TaskWarnings warnings={shown.warnings} more={shown.more} />
   {/if}
 
   <!-- Uma's P3-1 on #1135: a stale-view refusal (e.g. TASK_ENDED) renders here, outside the
@@ -219,6 +241,8 @@
           other={values.assigneeOther ?? ''}
           workers={candidates.workers}
           people={candidates.people}
+          peopleWithheld={candidates.peopleWithheld ?? false}
+          peopleFailed={candidates.peopleFailed ?? false}
           exclude={reassigning ? currentAssignee : null}
           required
         />

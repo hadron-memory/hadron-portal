@@ -40,3 +40,19 @@ describe('chooseAppChatTabRender — spec 016 US4', () => {
     expect(chooseAppChatTabRender({ surfaces: ['mcp'], agentId: 'a', llmReady: false })).toBe('hidden');
   });
 });
+
+// portal#1148 (hadron-server#2089): the no-agent decision comes from the nullable COLLECTION.
+describe('chooseAppChatTabRender — withheld agents', () => {
+  it("null agents + null agentId is 'withheld', never 'empty-no-agent'", () => {
+    expect(chooseAppChatTabRender({ surfaces: ['chat'], agentId: null, agents: null })).toBe('withheld');
+  });
+  it("known-empty control: agents [] + null agentId stays 'empty-no-agent'", () => {
+    expect(chooseAppChatTabRender({ surfaces: ['chat'], agentId: null, agents: [] })).toBe('empty-no-agent');
+  });
+  it("a linked agent still renders chat, even if the roster is withheld", () => {
+    expect(chooseAppChatTabRender({ surfaces: ['chat'], agentId: 'agent-1', agents: null })).toBe('agent-chat');
+  });
+  it("chat off stays 'hidden' regardless of the roster", () => {
+    expect(chooseAppChatTabRender({ surfaces: [], agentId: null, agents: null })).toBe('hidden');
+  });
+});

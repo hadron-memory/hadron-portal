@@ -4,6 +4,8 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import PartyPicker from '$lib/components/agent-tasks/PartyPicker.svelte';
   import WriteRefusalAlert from '$lib/components/agent-tasks/WriteRefusal.svelte';
+  import TaskWarnings from '$lib/components/agent-tasks/TaskWarnings.svelte';
+  import { warningsBelow, type TaskWarning } from '$lib/agent-tasks/warnings';
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import { localDateTimeToIso } from '$lib/agent-tasks/start-by';
@@ -14,6 +16,11 @@
    * (hrn:node:hadronmemory.com:hadron-portal:designs:agent-task-writes §6).
    * A refusal keeps every value typed and shows the server's sentence; success
    * redirects to the new task's page, which says "Task created."
+   *
+   * portal#1214: a create whose response carried warnings (or committed while
+   * its response errored) is answered here instead, in place of the form, so
+   * the warnings come from this response alone and nothing invites a second
+   * create. The link uses the returned id, or the Tasks list without one.
    */
   let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -21,6 +28,12 @@
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
 
   const result = $derived(form as { refusal?: WriteRefusal; values?: Record<string, string | string[]> } | null);
+  const created = $derived(
+    form && 'created' in form
+      ? (form as { created: { id: string | null }; committedWithError: boolean; warnings: TaskWarning[]; more: number })
+      : null,
+  );
+  let createdHeading = $state<HTMLElement | null>(null);
   const v = (k: string): string => {
     const x = result?.values?.[k];
     return Array.isArray(x) ? (x[0] ?? '') : (x ?? '');
@@ -95,6 +108,10 @@
       await update({ reset: false });
       submitting = false;
       await tick();
+      if (created) {
+        createdHeading?.focus();
+        return;
+      }
       const r = (form as { refusal?: WriteRefusal } | null)?.refusal;
       if (r?.kind === 'refused' && (r.code === 'TASK_ASSIGNEE_INVALID' || r.code === 'TASK_OWNER_INVALID')) {
         document.getElementById(r.code === 'TASK_OWNER_INVALID' ? 'new-owner' : 'new-assignee')?.focus();
@@ -133,6 +150,24 @@
     <p class="text-sm text-zinc-500 dark:text-zinc-400">
       {t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: data.impersonating ?? '—' })}
     </p>
+  {:else if created}
+    <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" data-testid="task-created">
+      <!-- Uma's P2/P3 on #1216: focus lands here, so the heading says warnings follow; no role, so it stays a heading. -->
+      <h2 bind:this={createdHeading} tabindex="-1" class="text-sm font-semibold {created.committedWithError ? 'text-amber-800 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}">
+        {[
+          created.committedWithError
+            ? t('app.tasks.new.created-error', 'Task created, but the server’s response also reported an error.')
+            : t('app.tasks.write.done.created', 'Task created.'),
+          warningsBelow(created.warnings.length + created.more),
+        ].filter(Boolean).join(' ')}
+      </h2>
+      <TaskWarnings warnings={created.warnings} more={created.more} />
+      {#if created.created.id}
+        <a href="{basePath}/tasks/{encodeURIComponent(created.created.id)}" class="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.new.open-created', 'Open the task')}</a>
+      {:else}
+        <a href="{basePath}/tasks" class="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.new.find-created', 'Find it in the Tasks list')}</a>
+      {/if}
+    </section>
   {:else}
     <form method="POST" use:enhance={submit} class="space-y-5 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
       <input type="hidden" name="startByUtc" value={startByUtc} />
@@ -171,6 +206,8 @@
         leading={[{ value: 'me', label: t('app.tasks.new.owner.me', 'Me') }]}
         workers={data.candidates.workers}
         people={data.candidates.people}
+        peopleWithheld={data.candidates.peopleWithheld ?? false}
+        peopleFailed={data.candidates.peopleFailed ?? false}
       />
       {#if fieldRefusal('owner')}<p class="text-xs text-red-700 dark:text-red-300" role="alert">{fieldRefusal('owner')}</p>{/if}
 
@@ -185,6 +222,8 @@
           leading={[{ value: 'nobody', label: t('app.tasks.new.assignee.nobody', 'Nobody: let Hadron match a worker') }]}
           workers={data.candidates.workers}
           people={data.candidates.people}
+          peopleWithheld={data.candidates.peopleWithheld ?? false}
+        peopleFailed={data.candidates.peopleFailed ?? false}
         />
         {#if fieldRefusal('assignee')}<p class="text-xs text-red-700 dark:text-red-300" role="alert">{fieldRefusal('assignee')}</p>{/if}
 

@@ -311,7 +311,7 @@
                   danger: true,
                 }]}
                 onselect={() => leave(row)}
-                label={`${t('my-memories.shared.actions.label', 'Actions for')} ${row.name}`}
+                label={t('my-memories.shared.actions.label', 'Actions for {name}', { name: row.name })}
                 disabled={leavingId === row.id}
                 fixed
                 compact

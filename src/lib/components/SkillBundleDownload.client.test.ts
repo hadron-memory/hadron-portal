@@ -244,3 +244,25 @@ describe('SkillBundleDownload — when the buttons are offered', () => {
     expect(downloadButtons(target).every((b) => !b.disabled)).toBe(true);
   });
 });
+
+
+describe('#1077 distinct download refusal', () => {
+  it.each(['claudeSkill', 'codexSkill'])('shows the scope role refusal for %s without downloading', async (host) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ code: 'scope-forbidden', detail: 'private provider detail' }), { status: 403 })));
+    const { target } = panel({ orgId: 'org-1', checkedCount: 1 });
+    downloadButtons(target).find((b) => b.textContent?.includes(host === 'codexSkill' ? 'Codex' : 'Claude'))!.click();
+    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')?.textContent).toContain('Downloading tasks requires Contributor access or higher in this organization.'));
+    expect(target.textContent).not.toContain('private provider detail');
+    expect(target.querySelector('[role="status"]')).toBeNull();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(downloadButtons(target).every((b) => !b.disabled)).toBe(true);
+  });
+
+  it('keeps an unrelated failure distinct from the role refusal', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ code: 'plan-failed', detail: 'The export plan failed' }), { status: 502 })));
+    const { target } = panel({ orgId: 'org-1', checkedCount: 1 });
+    downloadButtons(target)[0].click();
+    await vi.waitFor(() => expect(target.querySelector('[role="alert"]')?.textContent).toBe('The export plan failed'));
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+});
