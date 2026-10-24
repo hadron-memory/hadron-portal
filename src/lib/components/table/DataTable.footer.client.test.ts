@@ -25,9 +25,9 @@ function mountFooter() {
   const m = mountComponent(TableFooterHarness as never, {} as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   flushSync();
-  // The footer is DataTable's second root node, after the TableFrame.
-  const frame = m.target.querySelector('[data-testid="table-frame"]')!;
-  const footer = frame.nextElementSibling as HTMLElement;
+  // The footer carries its own testid (TableFrame does the same for its
+  // roots), so the lookup survives new root nodes between it and the frame.
+  const footer = m.target.querySelector('[data-testid="table-footer"]') as HTMLElement;
   const select = footer.querySelector('select')!;
   const group = select.parentElement!;
   return { footer, group, select };

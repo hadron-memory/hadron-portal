@@ -542,10 +542,14 @@
     </div>
 
     {#if !orderable}
-      <!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
-      <div class="flex items-center justify-between gap-3">
+      <!-- Footer: page size (left of Prev/Next) + pagination; always visible.
+           Both rows wrap (#1270): this is the same footer DataTable carries —
+           the select is sized by its longest option label and cannot shrink
+           beside Previous/Next, so a no-wrap footer pushed the document wide
+           on a 390px phone. -->
+      <div data-testid="table-footer" class="flex flex-wrap items-center justify-between gap-3">
         <span class="text-sm text-zinc-500">{pageCount > 1 ? `Page ${pageIndex + 1} of ${pageCount}` : ''}</span>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <select value={pageSize} onchange={(e) => changePageSize(Number((e.target as HTMLSelectElement).value))}
             aria-label="Nodes per page"
             class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">
