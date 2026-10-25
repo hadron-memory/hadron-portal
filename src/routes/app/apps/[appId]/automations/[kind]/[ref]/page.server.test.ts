@@ -4,6 +4,7 @@
  * stale hash is shown, never retried; Decline sends kind and ref only.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClientError } from 'graphql-request';
 import { AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
 import { APPROVE_AUTOMATION_MUTATION, AUTOMATION_APPROVAL_QUERY, DECLINE_AUTOMATION_MUTATION } from '$lib/server/automation-approval';
 
@@ -118,5 +119,35 @@ describe('decline', () => {
     expect(await act('decline', {})).toMatchObject({ status: 403 });
     request.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR'));
     await expect(act('decline', {})).rejects.toBeTruthy();
+  });
+});
+
+describe('a refusal that carries no words of its own (QA #1301)', () => {
+  // A real ClientError: graphql-request packs the whole request into .message, and the GraphQL error's own message
+  // is what the server meant for the person. When that is empty, nothing of the packed text may reach the page
+  // (hrn:node:hadronmemory.com:hadron-portal:review:a-response-fixture-must-be-legal-under-the-schema).
+  const refusal = (message: string) => new ClientError(
+    { status: 200, errors: [{ message, extensions: { code: 'FORBIDDEN' } }] } as never,
+    { query: 'mutation DeclineAutomation { declineAutomation }', variables: { triggerRef: 'sch-1' } },
+  );
+
+  it('the fixture is the real thing: its message packs the request', () => {
+    expect(refusal('').message).toContain('DeclineAutomation');
+    expect(refusal('').message).toContain('sch-1');
+  });
+
+  it.each(['approve', 'decline'] as const)('%s: the page gets an empty message, never the packed request', async (name) => {
+    request.mockRejectedValue(refusal(''));
+    const r = (await act(name, { expectedHash: 'h' })) as { status: number; data: { code: string; message: string } };
+    expect(r.status).toBe(403);
+    expect(r.data.code).toBe('refused');
+    expect(r.data.message).toBe('');
+  });
+
+  it('a whitespace-only message is empty too, and a real message still comes through', async () => {
+    request.mockRejectedValueOnce(refusal('   '));
+    expect(((await act('decline', {})) as { data: { message: string } }).data.message).toBe('');
+    request.mockRejectedValueOnce(refusal('Only the run-as user may decline this.'));
+    expect(((await act('decline', {})) as { data: { message: string } }).data.message).toBe('Only the run-as user may decline this.');
   });
 });
