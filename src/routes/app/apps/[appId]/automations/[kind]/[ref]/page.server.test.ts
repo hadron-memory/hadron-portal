@@ -41,6 +41,11 @@ describe('loader', () => {
     expect(request.mock.calls.find((c) => c[0] === AUTOMATION_APPROVAL_QUERY)![1]).toEqual({ triggerKind: 'WEBHOOK', triggerRef: 'wh-9' });
   });
 
+  it('a null approval is the same 404, not a render that throws', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { automationApproval: null }));
+    await expect(loadDetail()).rejects.toMatchObject({ status: 404 });
+  });
+
   it('an unknown kind in the URL is a 404 and asks the server nothing', async () => {
     await expect(loadDetail('cron', 'x')).rejects.toMatchObject({ status: 404 });
     expect(request).not.toHaveBeenCalled();

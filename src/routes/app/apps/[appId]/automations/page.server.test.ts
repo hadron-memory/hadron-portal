@@ -48,6 +48,18 @@ describe('list loader', () => {
     expect(request.mock.calls.find((c) => c[0] === AUTOMATION_APPROVALS_QUERY)![1]).toEqual({ appRef: 'app-1', after: 'abc_-123' });
   });
 
+  it.each(['?after=a%25b', '?after=' + 'x'.repeat(513)])('a cursor the server could not have sent (%#) is a 400 in words a person can read, and asks nothing', async (search) => {
+    request.mockImplementation(answer({ rows: [], nextCursor: null, omitted: [MANUAL] }));
+    await expect(loadList(search)).rejects.toMatchObject({ status: 400, body: { message: 'That page of automations does not exist.' } });
+    expect(request.mock.calls.find((c) => c[0] === AUTOMATION_APPROVALS_QUERY)).toBeUndefined();
+  });
+
+  it('an empty ?after= is the first page', async () => {
+    request.mockImplementation(answer({ rows: [], nextCursor: null, omitted: [MANUAL] }));
+    await loadList('?after=');
+    expect(request.mock.calls.find((c) => c[0] === AUTOMATION_APPROVALS_QUERY)![1]).toEqual({ appRef: 'app-1', after: null });
+  });
+
   it('a caller the server refuses (FORBIDDEN) gets the same empty answer as a caller with nothing to approve', async () => {
     request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw gqlError('FORBIDDEN'); });
     const refused = await loadList();

@@ -95,4 +95,10 @@ describe('approval page', () => {
     const html = page({}, { code: 'refused', message: 'You cannot read <b>a memory</b>' });
     expect(html).toMatch(/role="alert"[^>]*>[^<]*You cannot read &lt;b>a memory&lt;\/b>/);
   });
+
+  it('a refusal that arrives without words still says something, in the alert', () => {
+    const html = page({}, { code: 'refused', message: '' });
+    expect(html).toMatch(/role="alert"[^>]*>[^<]*\S/);
+    expect(html).toContain('The server refused this action.');
+  });
 });
