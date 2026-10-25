@@ -73,3 +73,25 @@ describe('NodeList extra columns (#1174)', () => {
     expect(failed).toContain("couldn't be loaded");
   });
 });
+
+it('renders the server-reported human with URN beside worker/agent, escaped and opt-in', () => {
+  const user = { handle: '<img src=x onerror=alert(1)>', urn: 'hrn:user:acme.com:rae' };
+  const columns = { n1: { ...cols.n1, user } };
+  const { body } = render(NodeList, { props: { nodes: [node('n1', 'Alpha')], showColumns: true, columnData: columns } });
+  expect(body).toContain('data-testid="changed-by-user"');
+  expect(body).toContain(user.urn);
+  expect(body).toContain('&lt;img');
+  expect(body).not.toContain('<img src=x');
+  expect(body).toContain('changed-by-worker');
+  expect(body).toContain('changed-by-agent');
+  const plain = render(NodeList, { props: { nodes: [node('n1', 'Alpha')], columnData: columns } }).body;
+  expect(plain).not.toContain('changed-by-user');
+});
+
+it('does not invent a human for legacy, withheld or absent attribution', () => {
+  for (const user of [null, undefined]) {
+    const { body } = render(NodeList, { props: { nodes: [node('n1', 'Alpha')], showColumns: true, columnData: { n1: { ...cols.n1, user } } } });
+    expect(body).not.toContain('changed-by-user');
+    expect(body).toContain('changed-by-worker');
+  }
+});

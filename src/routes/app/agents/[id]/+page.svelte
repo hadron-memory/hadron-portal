@@ -1,5 +1,8 @@
 <script lang="ts">
+  import BootPrompt from './BootPrompt.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
+  import AgentExtendedBy from '$lib/components/AgentExtendedBy.svelte';
+  import type { NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import AgentDefinitions from '$lib/components/AgentDefinitions.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -18,9 +21,9 @@
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
+  import { eligibleCloneTargets, showCloneEntry } from '$lib/agents/clone';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
-  import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import type { MemoryNode, OrgSummary } from '$lib/types';
   import type { PageData, ActionData } from './$types';
@@ -107,7 +110,7 @@
   // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
   // AI Providers were split out of the old Settings tab; the old "Memory"
   // node browser is now "Nodes"; Settings keeps the danger zone.
-  type TabId = 'tasks' | 'processes' | 'profile' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
+  type TabId = 'tasks' | 'processes' | 'profile' | 'boot' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
   let activeTab = $state<TabId>('profile');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
@@ -192,6 +195,7 @@
   // the /test tester.
   const tabs = $derived<{ id: TabId; label: string }[]>([
     { id: 'profile', label: 'Profile' },
+    { id: 'boot', label: t('agent.boot.tab', 'Boot prompt') },
     { id: 'tasks', label: t('agent.tasks.tab', 'Tasks') },
     { id: 'processes', label: t('agent.processes.tab', 'Processes') },
     { id: 'memories', label: 'Memories' },
@@ -451,6 +455,16 @@
     if ((form as { pointer?: PointerResult } | null)?.pointer) activeTab = 'settings';
   });
 
+  // A delayed action from another route instance must not seed this editor
+  // or reopen it. Superforms also uses this route-specific id to isolate stores.
+  const bootPromptSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null;
+    return result?.id === data.bootPromptForm?.id ? result : null;
+  });
+  $effect(() => {
+    if (bootPromptSubmission) activeTab = 'boot';
+  });
+
   function submitMemoryRoleChange(e: Event) {
     const select = e.currentTarget as HTMLSelectElement;
     const memoryId = select.dataset.memoryId ?? '';
@@ -529,6 +543,20 @@
   );
   // The memory chosen in the "Add memory" picker — used to label the picker button.
   const selectedAddMemory = $derived(allMemories.find((m) => m.id === $addMemoryForm.memoryId));
+
+  const profileActions = $derived.by(() => {
+    const actions: NodeMenuAction[] = [];
+    // Keep the existing org-only install route/audience.
+    if (org) actions.push({ id: 'install', label: t('agent.actions.install', 'Install into app'), href: `/app/orgs/${encodeURIComponent(org.id)}/agents/install/${encodeURIComponent(agent.id)}` });
+    // #1262: clone into an organization the caller administers. The eligible-org
+    // list is a hint; the server's ADMIN gate on the target is authoritative.
+    if (showCloneEntry({ visibility: agent.visibility, canManage: !!data.canManageAgent, eligibleCount: eligibleCloneTargets(navOrgs, data.currentUserId).length })) {
+      actions.push({ id: 'clone', label: t('agent.actions.clone', 'Clone to organization'), href: `/app/agents/${encodeURIComponent(agent.id)}/clone` });
+    }
+    if (agent.systemMemoryId) actions.push({ id: 'conversations', label: t('agent.actions.conversations', 'Conversation editor'), href: `/app/agents/${encodeURIComponent(agent.id)}/conversations` });
+    if (data.systemMemoryIdentity?.urn) actions.push({ id: 'system-memory', label: t('agent.actions.system-memory', 'Open system memory'), href: `/app/memories/${encodeURIComponent(data.systemMemoryIdentity.id)}` });
+    return actions;
+  });
 
   // ── Memories tab grid (#371 follow-up) ────────────────────────────────
   // The attached-memories list migrated from a hand-rolled card list to the
@@ -728,19 +756,8 @@
         <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
       {/if}
     </div>
-    <!-- 009-install-agent-flow T013: Install action surfaces here as the
-         primary call-to-action for the Agent detail page. Soft-deleted
-         Agents don't reach this page (the load redirect would 404 first),
-         so no client-side gate needed. Install is an org-only flow — a
-         user-owned (org-less) agent has no org install surface (#636). -->
-    {#if org}
-      <a
-        href="/app/orgs/{org.id}/agents/install/{agent.id}"
-        class="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
-        style="background: #fb8500;"
-      >
-        {installStrings.buttonLabel()}
-      </a>
+    {#if profileActions.length > 0}
+      <NodeActionsMenu label={t('agent.actions.label', 'Agent actions')} actions={profileActions} />
     {/if}
   </div>
 
@@ -791,6 +808,13 @@
   {#if activeTab === 'processes' && data.inheritance}
     <AgentDefinitions agentId={agent.id} read={data.inheritance.processes} processes />
   {/if}
+  {#if data.bootPromptForm}
+    <div hidden={activeTab !== 'boot'}>
+      {#key data.bootPromptForm.id}
+        <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
+      {/key}
+    </div>
+  {/if}
   {#if activeTab === 'profile'}
     {#if data.inheritance}
       <section class="mb-6 min-w-0 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-label={t('agent.base.label', 'base Agent')}>
@@ -822,12 +846,6 @@
               <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
             </div>
           {/if}
-          {#if agent.systemPrompt}
-            <div class="px-5 py-3">
-              <span class="text-sm text-zinc-500">System Prompt</span>
-              <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
-            </div>
-          {/if}
           <!-- #974: persona DRESSING on a reusable role-actor. Not an identity —
                the named individual is a Worker cast into an App. -->
           {#if agent.personaRole}
@@ -836,14 +854,10 @@
               <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
             </div>
           {/if}
-          {#if agent.systemMemoryId}
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Agent system memory</span>
-              <a href="/app/memories/{agent.systemMemoryId}" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">{systemMemory?.name ?? 'System memory'} →</a>
-            </div>
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Conversations</span>
-              <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
+          {#if data.systemMemoryIdentity?.urn}
+            <div class="space-y-1 px-5 py-3">
+              <span class="text-sm text-zinc-500">{t('agent.system-memory.label', 'Agent system memory')}</span>
+              <div><Urn value={data.systemMemoryIdentity.urn} type="memory" linked label={t('agent.system-memory.label', 'Agent system memory')} /></div>
             </div>
           {/if}
           {#if org}
@@ -858,6 +872,8 @@
           </div>
         </div>
       </section>
+
+      <AgentExtendedBy agentId={agent.id} result={data.extendedBy ?? { items: [], endCursor: null, hasMore: false, failed: true }} />
 
       <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
            The v1 per-agent asset-upload toggle is being replaced by a per-
@@ -1416,7 +1432,7 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
     {#if data.inheritanceManagement}
-      <AgentInheritanceSettings management={data.inheritanceManagement} currentBase={data.inheritance.base} baseForm={data.baseForm} indexRefsForm={data.indexRefsForm} actionData={form} />
+      <AgentInheritanceSettings management={data.inheritanceManagement} currentBase={data.inheritance.base} candidates={data.baseCandidates} baseForm={data.baseForm} indexRefsForm={data.indexRefsForm} actionData={form} />
     {/if}
     <div class="space-y-8">
       <!-- Agent settings (editable). #352 follow-up: the editable agent form
@@ -1464,11 +1480,6 @@
             <div>
               <label for="editDescription" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
               <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" bind:value={$agentSettingsForm.description} class={inputClass}></textarea>
-            </div>
-            <div>
-              <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder={t('agent.system-prompt.placeholder', 'Instructions shared by chats and workers')} bind:value={$agentSettingsForm.systemPrompt} class={inputClass}></textarea>
-              <p class="mt-1 text-xs text-zinc-400">{t('agent.system-prompt.help', 'Shared by agent chats and workers cast from this agent. In a worker briefing, {{name}} and {{role}} are filled in; each worker can add a prompt override.')}</p>
             </div>
             <div>
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
@@ -1535,12 +1546,6 @@
               <div class="px-5 py-3">
                 <span class="text-sm text-zinc-500">Description</span>
                 <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
-              </div>
-            {/if}
-            {#if agent.systemPrompt}
-              <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">System Prompt</span>
-                <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
               </div>
             {/if}
             {#if agent.personaRole}

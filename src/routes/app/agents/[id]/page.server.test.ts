@@ -1,3 +1,4 @@
+import { AGENT_EXTENSIONS_QUERY, AGENT_SYSTEM_MEMORY_IDENTITY_QUERY } from '$lib/server/agent-profile';
 import { SELF_AGENT_MANAGE_QUERY, AGENT_INDEX_REFS_QUERY } from '$lib/server/agent-inheritance-write';
 /**
  * Spec 018 — /app/agents/[id] detail-page loader tests.
@@ -114,8 +115,18 @@ function routeMock(opts: {
   ownedApps?: { data?: unknown; error?: unknown };
   registerDefaults?: { data?: unknown; error?: unknown };
   orgAgents?: { data?: unknown; error?: unknown };
+  extensions?: { data?: unknown; error?: unknown };
+  systemIdentity?: { data?: unknown; error?: unknown };
 }) {
   mockRequest.mockImplementation(async (query: string) => {
+    if (query === AGENT_EXTENSIONS_QUERY) {
+      if (opts.extensions?.error) throw opts.extensions.error;
+      return opts.extensions?.data ?? { agent: { extendedBy: { items: [], endCursor: null, hasMore: false } } };
+    }
+    if (query === AGENT_SYSTEM_MEMORY_IDENTITY_QUERY) {
+      if (opts.systemIdentity?.error) throw opts.systemIdentity.error;
+      return opts.systemIdentity?.data ?? { memory: null };
+    }
     if (query === AGENT_QUERY) {
       if (opts.agent?.error !== undefined) throw opts.agent.error;
       return opts.agent?.data ?? { agent: null };
@@ -950,4 +961,21 @@ describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
     expect(r.data?.bundleAdded).toBeUndefined();
     expect(r.data?.bundleError).toContain('one level deep');
   });
+});
+
+it('#1170 passes the URL continuation to the authorized reverse read and resolves system identity', async () => {
+  const memory = { id: 'system', name: 'System', urn: 'hrn:mem:example.com:system' };
+  routeMock({ agent: { data: { agent: { ...personalAgent, systemMemoryId: 'system' } } },
+    extensions: { data: { agent: { extendedBy: { items: [], hasMore: true, endCursor: 'opaque-next' } } } }, systemIdentity: { data: { memory } } });
+  const event = ev({ agentId: personalAgent.id }); event.url.searchParams.set('extendedAfter', 'opaque-after');
+  const result = await (await importLoad())(event) as any;
+  expect(mockRequest).toHaveBeenCalledWith(AGENT_EXTENSIONS_QUERY, { ref: personalAgent.id, after: 'opaque-after' });
+  expect(mockRequest).toHaveBeenCalledWith(AGENT_SYSTEM_MEMORY_IDENTITY_QUERY, { ref: 'system' });
+  expect(result.extendedBy).toMatchObject({ hasMore: true, items: [], endCursor: 'opaque-next', failed: false });
+  expect(result.systemMemoryIdentity).toEqual(memory);
+});
+it('#1170 never starts reverse enumeration when the base Agent is unreadable', async () => {
+  routeMock({ agent: { data: { agent: null } } });
+  await expect((await importLoad())(ev())).rejects.toMatchObject({ status: 404 });
+  expect(mockRequest).not.toHaveBeenCalledWith(AGENT_EXTENSIONS_QUERY, expect.anything());
 });

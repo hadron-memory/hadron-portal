@@ -1720,6 +1720,16 @@ export const AGENT_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1262 — S1 cloneAgent: the new Agent's identity only. The origin
+// (clonedFromAgentRef) is out of this cut.
+export const CLONE_AGENT_MUTATION = /* GraphQL */ `
+  mutation CloneAgent($source: ID!, $target: ID!, $name: String, $slug: String) {
+    cloneAgent(source: $source, target: $target, name: $name, slug: $slug) {
+      id urn name organizationId visibility
+    }
+  }
+`;
+
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
   mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String) {
@@ -2870,8 +2880,8 @@ export const NODE_COLUMNS_QUERY = /* GraphQL */ `
         revision
         approvalStatus { state }
         signatureStatus { state }
-        # hadron-server #1610: the Agent and Worker behind the last authored
-        # edit. A user half ("Changed by (user)") waits on hadron-server#2176.
+        # Last authored-edit attribution; the user projection landed in #2189.
+        updatedByUser { handle urn }
         updatedByAgent { id name urn }
         updatedByWorker { id name urn }
       }
@@ -2897,6 +2907,7 @@ export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
         updatedAt
         revision
         approvalStatus { state }
+        updatedByUser { handle urn }
         updatedByAgent { id name urn }
         updatedByWorker { id name urn }
       }
@@ -3180,6 +3191,10 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
   query NodeById($ref: ID!) {
     node(ref: $ref, raw: true) {
       ...NodeFields
+      # #257: embedding state is detail-only; do not grow list/search payloads.
+      embeddingPendingAt
+      embeddingFailedAt
+      embeddingError
       # #518: properties is detail-only — kept OUT of the shared NodeFields
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
@@ -4815,5 +4830,12 @@ export const PARK_AGENT_TASK_MUTATION = /* GraphQL */ `
 export const APP_PEOPLE_QUERY = /* GraphQL */ `
   query AppPeople($ref: ID!) {
     app(ref: $ref) { id members { user { id handle name } } }
+  }
+`;
+
+// #1023: only the server may authorize a verified-unused casting repair.
+export const DELETE_WORKER_MUTATION = /* GraphQL */ `
+  mutation DeleteWorker($workerRef: ID!, $confirmNoExternalAttribution: Boolean!) {
+    deleteWorker(workerRef: $workerRef, confirmNoExternalAttribution: $confirmNoExternalAttribution)
   }
 `;

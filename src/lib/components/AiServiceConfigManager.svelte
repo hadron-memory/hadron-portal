@@ -10,6 +10,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import DataTable from './table/DataTable.svelte';
+  import NodeActionsMenu from './NodeActionsMenu.svelte';
   import {
     isValidConfigName,
     resolveKeyInput,
@@ -191,6 +192,8 @@
     // string reaches TanStack's alphanumeric comparator, which reads the digit
     // groups and ignores the offset, ordering by wall clock rather than instant.
     { accessorFn: (row) => configDateMs(row.createdAt), id: 'createdAt', header: t('ai-config.column.created', 'Created'), size: 170 },
+    // 170, not 120 (#1020 review): the cell's widest STATE is the inline Delete
+    // confirm (question + buttons), not the ⋯ trigger; 120 clipped it.
     { id: 'actions', header: t('ai-config.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 170 },
   ];
   const configFmt: Record<string, (v: unknown) => string> = {
@@ -812,41 +815,47 @@
           <span class="font-mono text-xs text-zinc-400">{maskedKey(c)}</span>
         {:else if cell.column.id === 'actions'}
           {#if canManage}
-            <div class="flex items-center gap-2">
-              {#if confirmDeleteId === c.id}
-                <span class="text-xs text-zinc-500">{s.confirmDelete(c.name)}</span>
+            {#if confirmDeleteId === c.id}
+              <!-- #1020: the menu's Delete expands this inline confirm in
+                   place (the share-page idiom): the irreversibility question
+                   stays visible here, not only on the menu item's title,
+                   which keyboard and touch users never see. Wraps, if narrow. -->
+              <div class="flex flex-wrap items-center gap-1.5">
+                <span class="text-xs text-zinc-500">{s.confirmQuestion()}</span>
                 <button
                   type="button"
                   onclick={() => doDelete(c.id)}
                   disabled={busy}
-                  class="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950 disabled:opacity-50"
+                  class="rounded-md bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500 disabled:opacity-50"
                 >
-                  {s.confirmYes()}
+                  {s.deleteButton()}
                 </button>
                 <button
                   type="button"
                   onclick={() => (confirmDeleteId = null)}
-                  class="px-2 py-1 text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+                  class="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
                 >
                   {s.cancelButton()}
                 </button>
-              {:else}
-                <button
-                  type="button"
-                  onclick={() => openEdit(c)}
-                  class="rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                >
-                  {s.editButton()}
-                </button>
-                <button
-                  type="button"
-                  onclick={() => (confirmDeleteId = c.id)}
-                  class="rounded-md border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
-                >
-                  {s.deleteButton()}
-                </button>
-              {/if}
-            </div>
+              </div>
+            {:else}
+              <!-- #1020: Edit and Delete live in the row's ⋯ menu, like every
+                   other portal grid. The question the old inline confirm asked
+                   is the Delete item's title. -->
+              <NodeActionsMenu
+                actions={[
+                  { id: 'edit', label: s.editButton() },
+                  { id: 'delete', label: s.deleteButton(), danger: true, title: s.confirmDelete(c.name) },
+                ]}
+                onselect={(id) => {
+                  if (id === 'edit') openEdit(c);
+                  else confirmDeleteId = c.id;
+                }}
+                label={s.actionsLabel(c.name)}
+                fixed
+                compact
+              />
+            {/if}
           {/if}
         {:else}
           {@const f = configFmt[cell.column.id]}

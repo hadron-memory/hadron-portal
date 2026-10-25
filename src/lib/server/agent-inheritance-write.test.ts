@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { baseVariables, indexVariables, loadInheritanceManagement, SELF_AGENT_MANAGE_QUERY } from './agent-inheritance-write';
 describe('Agent inheritance writes', () => {
   it('makes clearing the base explicit', () => {
@@ -42,4 +42,31 @@ it('keeps manager controls available when an index identity cannot render', asyn
   expect(result.error).toBeNull();
   expect(result.tasksNode).toBeNull();
   expect(result.refs?.tasksIndexRef).toBe('tasks-id');
+});
+const fetchOwnedAgents = vi.fn();
+vi.mock('$lib/server/personal-agents', () => ({ fetchOwnedAgents: (...a: unknown[]) => fetchOwnedAgents(...a) }));
+import { loadBaseCandidates } from './agent-inheritance-write';
+import { APP_ORG_AGENTS_QUERY } from './queries';
+describe('Parent-agent picker candidates', () => {
+  const self = { id: 'child', name: 'Child', urn: 'hrn:agent:example.com:child' };
+  beforeEach(() => { fetchOwnedAgents.mockReset(); });
+  it('offers the organization agents for an org agent, minus itself', async () => {
+    const request = vi.fn().mockResolvedValue({ organization: { agents: [self, { id: 'org-b', name: 'Org Peer', urn: 'hrn:agent:example.com:org-b' }] } });
+    const result = await loadBaseCandidates({ request } as never, 'token', 'org-1', 'child');
+    expect(request).toHaveBeenCalledWith(APP_ORG_AGENTS_QUERY, { ref: 'org-1' });
+    expect(result?.map((a) => a.id)).toEqual(['org-b']);
+  });
+  it('offers the caller-owned agents for a personal agent, minus itself', async () => {
+    const request = vi.fn();
+    fetchOwnedAgents.mockResolvedValueOnce([self, { id: 'own-b', name: 'Own Peer', urn: 'hrn:agent:example.com:own-b' }]);
+    const result = await loadBaseCandidates({ request } as never, 'token', null, 'child');
+    expect(request).not.toHaveBeenCalled();
+    expect(result?.map((a) => a.id)).toEqual(['own-b']);
+  });
+  it('returns null — not an empty list — when the candidate read fails', async () => {
+    const request = vi.fn().mockRejectedValue(new Error('offline'));
+    await expect(loadBaseCandidates({ request } as never, 'token', 'org-1', 'child')).resolves.toBeNull();
+    fetchOwnedAgents.mockRejectedValueOnce(new Error('offline'));
+    await expect(loadBaseCandidates({ request } as never, 'token', null, 'child')).resolves.toBeNull();
+  });
 });
