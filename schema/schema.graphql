@@ -1,4 +1,4 @@
-# Exported from hadron-server bad02099ecb103cdb3815a858ab3a95eeef1abbf (origin/main, 2026-10-24T06:52:25-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 36d2c9b98763c92a3cc1dc2976ff75eb37a8c1b2 (36d2c9b98763c92a3cc1dc2976ff75eb37a8c1b2, 2026-10-25T12:02:47-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -238,6 +238,11 @@ type Agent {
   it with setAgentIndexRefs; read the Agent's whole task list with agentTaskList.
   """
   tasksIndexRef: ID
+
+  """
+  #2024 — the tickers this Agent declares. Casting a worker from it creates them for the worker (a snapshot: later edits reach only future casts). Readable by anyone who can read the Agent.
+  """
+  tickerTemplates: [AgentTickerTemplate!]!
   type: AgentType!
   urn: String!
 
@@ -245,6 +250,11 @@ type Agent {
   #2138: false means every Worker cast from this Agent counts as having a task and is expected to check its team channel every period (coordinators, the lifecycle agent). Default true.
   """
   usesTasks: Boolean!
+
+  """
+  #2024 — whether the caller may create, change or delete this Agent's ticker templates (the Agent ADMIN door, the same as editing the Agent). Null when it cannot be decided.
+  """
+  viewerMayEditTickerTemplates: Boolean
   visibility: AgentVisibility!
 }
 
@@ -798,6 +808,58 @@ type AgentTeamEvent {
 
 enum AgentTeamEventSeverity {
   ALARM
+}
+
+"""
+#2024 — one ticker an Agent declares. Casting a worker from the Agent into an App creates the worker's tickers from the live
+templates and subscribes it, in the cast's own transaction. A SNAPSHOT: a later edit or removal reaches only future casts;
+existing workers and tickers are untouched. Identity is the id, never the name or the position. The cadence is the requested
+one; the cast raises it to the App's floor. Reasons are never empty.
+"""
+type AgentTickerTemplate {
+  agent: Agent!
+  cadenceSeconds: Int!
+  createdAt: DateTime!
+  id: ID!
+  name: String!
+
+  """A timezone and weekly windows; null when none."""
+  quietHours: JSON
+  reasons: [TickerReason!]!
+  relevance: TickerRelevance!
+
+  """
+  Counts edits; an update or delete must name the revision it saw, and a stale one is refused with TICKER_TEMPLATE_REVISION_MISMATCH.
+  """
+  revision: Int!
+
+  """The shape of this record. Only 1 exists."""
+  shapeVersion: Int!
+  updatedAt: DateTime
+}
+
+input AgentTickerTemplateInput {
+  cadenceSeconds: Int!
+  name: String!
+  quietHours: JSON
+
+  """Absent = [READ_TEAM_CHANNEL]; an empty list is refused."""
+  reasons: [TickerReason!]
+  relevance: TickerRelevance
+}
+
+"""
+Absent fields are unchanged. Use clearQuietHours to remove the quiet hours.
+"""
+input AgentTickerTemplatePatch {
+  cadenceSeconds: Int
+  clearQuietHours: Boolean
+  name: String
+  quietHours: JSON
+
+  """An empty list is refused."""
+  reasons: [TickerReason!]
+  relevance: TickerRelevance
 }
 
 enum AgentType {
@@ -1596,11 +1658,13 @@ type AppRun {
   failed — strictly more than a sum over the hops trail, which has no element
   for a hop that did not complete.
   
-  KNOWN GAP: a hop aborted by the TOOL LOOP (a tool denied by policy, or a
-  tool handler that threw) is NOT counted. The provider has already billed
-  that call, but the tool-loop helper discards the accumulated usage when a
-  tool throws, so the number is not available at the failure site. Such a run
-  under-reports. Do not treat this as a billing figure.
+  A tool-loop call that is REJECTED (a provider or transport error, a tool
+  denied by policy, a handler that threw, hadron_fail) counts the steps the
+  SDK had already completed, once: the provider billed them. Usage the SDK
+  did not report is not counted: the step that failed, and any completed step
+  without token counts. Such a run can still under-report. A rejection before
+  any step completed counts nothing, and unknown is never recorded as zero.
+  Do not treat this as a billing figure.
   
   NULL means UNKNOWN: a run minted before the counter existed, with no hop
   trail to back-fill from. 0 means it genuinely spent nothing.
@@ -1956,6 +2020,68 @@ input AuthorizeContextResetStopInput {
   resetId: ID!
 }
 
+"""
+#2441: UNADOPTED = no valid adoption; ADOPTED = a valid adoption; CHANGED = the automation differs from what was adopted (computed on open only), so the next run fails AUTOMATION_CHANGED.
+"""
+enum AutomationAdoptionState {
+  ADOPTED
+  CHANGED
+  UNADOPTED
+}
+
+"""
+#2441: what an adopter reviews before approving. depth carries only what previewAutomation returns to the same caller, plus the registered resources with URL userinfo and query removed.
+"""
+type AutomationApproval {
+  depth: JSON!
+  hash: String!
+  state: AutomationAdoptionState!
+  summary: AutomationSummary!
+}
+
+type AutomationApprovalOmission {
+  reason: String!
+  triggerKind: AutomationTriggerKind!
+}
+
+type AutomationApprovalPage {
+  nextCursor: String
+  omitted: [AutomationApprovalOmission!]!
+  rows: [AutomationApprovalRow!]!
+}
+
+type AutomationApprovalRow {
+  headline: String!
+  name: String!
+  state: AutomationAdoptionState!
+  triggerKind: AutomationTriggerKind!
+  triggerRef: String!
+}
+
+"""
+#2441: one flow of an automation (the entry flow or a flow it routes to).
+"""
+type AutomationFlowSummary {
+  name: String!
+  tools: [String!]!
+  urn: String!
+  writes: [String!]!
+}
+
+"""
+#2441: plain-language facts derived from the previewed automation. A fact the pin cannot show says not stated; nothing here is a maximum the approval enforces.
+"""
+type AutomationSummary {
+  cannotDo: [String!]!
+  flows: [AutomationFlowSummary!]!
+  limits: [String!]!
+  name: String!
+  reads: [String!]!
+  schedule: String
+  tools: [String!]!
+  writes: [String!]!
+}
+
 enum AutomationTriggerKind {
   MANUAL
   SCHEDULE
@@ -2159,6 +2285,26 @@ type CalendarPerson {
   name: String
 }
 
+"""#2024 — one ticker a cast would create from an Agent ticker template."""
+type CastPreviewTicker {
+  """
+  What the ticker gets: the larger of the requested cadence and the App's floor.
+  """
+  effectiveCadenceSeconds: Int!
+
+  """
+  The generated name: the template name, a middle dot, then the worker name.
+  """
+  name: String!
+  reasons: [TickerReason!]!
+  relevance: TickerRelevance!
+
+  """What the template asks for."""
+  requestedCadenceSeconds: Int!
+  templateId: ID!
+  templateRevision: Int!
+}
+
 """
 What castWorker WOULD do (#964) — an unsaved projection, deliberately not a
 Worker (no fake id to mistake for a real row). Scalars only: the ids/names
@@ -2190,6 +2336,11 @@ type CastWorkerPreview {
 
   """The casting's role: explicit, else the agent's personaRole dressing."""
   role: String
+
+  """
+  #2024 — the tickers this cast would create, each at its effective cadence (the larger of the template's and the App's floor). Non-reserving: nothing is written or held, so a later cast may differ if the App changes. Empty when the Agent declares none.
+  """
+  tickers: [CastPreviewTicker!]!
 }
 
 """
@@ -2571,6 +2722,24 @@ type CommentThreadPage {
 enum CommentThreadState {
   OPEN
   RESOLVED
+}
+
+"""
+#2046 — the result of a compile: the new unapproved revision of the compiled node.
+"""
+type CompiledBootPrompt {
+  """Always false: a compile never approves or signs."""
+  approvalIssued: Boolean!
+
+  """SHA-256 hex of the compiled text."""
+  contentHash: String!
+  node: Node!
+
+  """Whether this compile wrote the pointer."""
+  pointerSet: Boolean!
+
+  """The revision this compile wrote."""
+  revNo: Int!
 }
 
 input CompleteAssetUploadInput {
@@ -4631,6 +4800,71 @@ type LiftStopSignalResult {
 }
 
 """
+#2048 (hrn:node:hadronmemory.com:specs:cor:agt:040:13) — what link lint warns about.
+"""
+enum LintKind {
+  """
+  The target is missing or the caller cannot read it. Position only: it never says which, or anything about the target.
+  """
+  BROKEN_INCLUDE
+
+  """
+  The target is readable but has no revision that meets the include's settings (approved and/or rev=N).
+  """
+  NO_QUALIFYING_REVISION
+
+  """The include pins a revision and a newer revision is approved."""
+  PINNED_NEWER_APPROVED
+
+  """
+  The include's target is soft-deleted (hrn:node:hadronmemory.com:specs:cor:agt:040:13, R20 A).
+  """
+  RETIRED_TARGET
+
+  """The include says signed; signing is not checked yet."""
+  SIGNING_NOT_CHECKED
+}
+
+"""
+#2048 — one link-lint warning. A fixed set of fields: there is no free-form detail.
+"""
+type LintWarning {
+  kind: LintKind!
+
+  """The newest approved revision, for PINNED_NEWER_APPROVED."""
+  newerRevision: Int
+
+  """Reserved for the policy-agent override notice; null for source lint."""
+  overriddenNodeLoc: String
+
+  """The revision the include pins, when it pins one."""
+  pinnedRevision: Int
+
+  """0-based offset of the include tag in the node's source text."""
+  position: Int!
+
+  """
+  The target's URN, only for a target the caller can read; null for BROKEN_INCLUDE.
+  """
+  targetUrn: String
+  text: String!
+
+  """Reserved for the worker signature/trailer lint; null for source lint."""
+  workerField: String
+}
+
+"""#2048 — one page of warnings, ordered by position."""
+type LintWarningPage {
+  items: [LintWarning!]!
+
+  """Pass as after for the next page; null on the last."""
+  nextCursor: String
+
+  """All warnings that hold, not just this page."""
+  total: Int!
+}
+
+"""
 One registered EXTERNAL MCP server (hadrontool-mcp conduit registry).
 Org-owned. Static auth headers are encrypted at rest and WRITE-ONLY:
 no field here ever returns them — hasHeaders is all a reader gets.
@@ -5640,7 +5874,12 @@ type Mutation {
   applyMemoryConfigTemplate(dryRun: Boolean, expectedTemplateRevision: Int, memoryRef: ID!, templateRef: ID!): MemoryConfigApplyResult!
 
   """
-  #1591 — approve the current revision of every live, unminted node of a memory (ID or fully-qualified URN) that isn't approved yet, in one transaction. Placeholders are skipped and reported.
+  #2441: adopt the automation by the hash the adopter reviewed (automationApproval.hash). Same door as reAdoptAutomation: one APPROVE event per successful call, even when nothing changed. A changed automation answers AUTOMATION_CHANGED.
+  """
+  approveAutomation(expectedHash: String!, triggerKind: AutomationTriggerKind!, triggerRef: String!): Boolean!
+
+  """
+  #1591 — approve the current revision of every live node of a memory (ID or fully-qualified URN) in the mint scope (unminted, or minted and changed since or with no recorded minted revision, #1612) that isn't approved yet, in one transaction. Placeholders are skipped and reported.
   """
   approveMemoryNodes(memoryRef: String!): ApproveMemoryNodesResult!
 
@@ -5940,6 +6179,34 @@ type Mutation {
   first: at most 200, default 20.
   """
   collectHostOperations(appRef: String!, first: Int): [HostOperation!]!
+
+  """
+  #2046 (S9-4, hrn:node:hadronmemory.com:specs:cor:agt:040:12) — compile an Agent's boot prompt from its source ('boot:source') in the Agent's
+  system memory into the compiled node 'boot:compiled' there, as a NEW unapproved revision (every compile writes
+  one, even when the text is unchanged), with its provenance and a derived 'compiled-from' edge to the source.
+  Sets 'Agent.bootPromptRef' unless 'setPointer: false'. Never approves or signs ('approvalIssued' is always false).
+  
+  Whoever manages the Agent, as themselves: a request bound to a worker session, a non-manager, an App key, an
+  impersonation, a run, and a target that does not exist are alike refused BOOT_PROMPT_COMPILE_NOT_PERMITTED. Only then: BOOT_PROMPT_TARGET_RETIRED, BOOT_PROMPT_NO_SOURCE, BOOT_PROMPT_SOURCE_INVALID, the
+  include refusals (BOOT_PROMPT_INCLUDE_*, _GRANT_REQUIRED, _COMPILE_LIMIT_EXCEEDED, with the tag's 'position'),
+  and CONFLICT when the compile could not settle inside its 30-second budget (retry).
+  A refusal changes nothing. No MCP twin.
+  """
+  compileAgentBootPrompt(agentRef: String!, setPointer: Boolean = true): CompiledBootPrompt!
+
+  """
+  #2046 — compile an installed Agent's boot prompt for one App into 'boot:compiled' in the App's install memory
+  (the App's own 'boot:source' if it has a live one, else the Agent's, with the App's replacing nodes). Always sets
+  'AppAgent.bootPromptRef'. Whoever manages the App; otherwise as compileAgentBootPrompt.
+  """
+  compileAppAgentBootPrompt(agentRef: String!, appRef: String!): CompiledBootPrompt!
+
+  """
+  #2046 — compile a customised worker's boot prompt from 'boot:workers:<workerId>:source' into
+  'boot:workers:<workerId>:compiled' in the App's install memory. Sets the worker's pointer unless 'setPointer: false'.
+  Whoever manages the worker's App; otherwise as compileAgentBootPrompt. workerRef is the worker's id or URN.
+  """
+  compileWorkerBootPrompt(setPointer: Boolean = true, workerRef: ID!): CompiledBootPrompt!
   completeAssetUpload(input: CompleteAssetUploadInput!): Asset!
 
   """
@@ -5999,6 +6266,13 @@ type Mutation {
   already see it on the roster.
   """
   createAgentTask(input: CreateAgentTaskInput!): AgentTask!
+
+  """
+  #2024 — declare a ticker on an Agent. Whoever may edit the Agent (ADMIN on it); an App manager is not thereby an Agent editor.
+  Affects only FUTURE casts. Refusals: TICKER_TEMPLATE_NAME_TAKEN, TICKER_TEMPLATE_LIMIT_REACHED, TICKER_CADENCE_OUT_OF_RANGE,
+  TICKER_QUIET_HOURS_INVALID, BAD_USER_INPUT (reasons), AGENT_NOT_FOUND, FORBIDDEN.
+  """
+  createAgentTickerTemplate(agentRef: String!, input: AgentTickerTemplateInput!): AgentTickerTemplate!
 
   """
   Create a webhook trigger — returns the URL path + platform token ONCE (D-2026-05-02).
@@ -6675,6 +6949,11 @@ type Mutation {
   createUserInvitation(email: String, expiresInDays: Int, githubUsername: String, maxActivations: Int, memberRole: Role!, name: String, orgId: ID!): UserInvitation!
 
   """
+  #2441: decline. An adopted trigger is revoked, so its next run fails AUTOMATION_UNADOPTED (REVOKE event); with nothing adopted it changes no state (DECLINE event). A MANUAL origin deletes its consent row. Runs already started keep their snapshot.
+  """
+  declineAutomation(triggerKind: AutomationTriggerKind!, triggerRef: String!): Boolean!
+
+  """
   Soft-delete an Agent and its owned system memory. Requires management
   access to the readable Agent. Refuses while a live
   App install or live parent Agent import references it, or a live Agent
@@ -6691,6 +6970,11 @@ type Mutation {
   """
   deleteAgent(ref: ID!): Boolean!
   deleteAgentSchedule(id: ID!): Boolean!
+
+  """
+  #2024 — remove a template (it stays as history; its name may be reused). expectedRevision as for update. Tickers already generated from it are untouched.
+  """
+  deleteAgentTickerTemplate(expectedRevision: Int!, id: ID!): Boolean!
   deleteAgentWebhook(id: ID!): Boolean!
 
   """
@@ -7446,18 +7730,21 @@ type Mutation {
   mintActionTickets(input: MintActionTicketsInput!): Int!
 
   """
-  #1591 — mint the unminted live nodes of a memory, at once, excluding
-  comment nodes and the decision role family. Each node is
+  #1591 — mint the live nodes of a memory in the mint scope, at once,
+  excluding comment nodes and the decision role family. The scope is the
+  unminted nodes plus (#1612) minted nodes whose content changed since their
+  minted revision or that have no recorded minted revision; a re-mint keeps
+  the first mint's time and minter. Each node is
   stamped with its current revision and that revision's approval hash
   (Node.mintStatus); a minted node's moves then record URN aliases. Refuses
-  SPEC_CORPUS_MINT_BLOCKED while any blocker remains among the unminted
-  nodes: a placeholder, an unresolved reference, a structural lint error over
+  SPEC_CORPUS_MINT_BLOCKED while any blocker remains among the nodes in
+  scope: a placeholder, an unresolved reference, a structural lint error over
   spec-marked or citation-shaped nodes (nodetype-info, tag-spec, serialization-leak,
   duplicate-loc), a stale abstract once staleAbstractsBlock is true,
   NOT_APPROVED (the current revision is not approved), TAMPERED (approved
   text changed outside the revision system), or CITES_UNMINTED (an
-  edge into another memory's node that is not minted). Nodes minted earlier
-  are not re-checked. dryRun returns the full report without minting. Any
+  edge into another memory's node that is not minted). Minted nodes outside
+  the scope are not re-checked. dryRun returns the full report without minting. Any
   writer of the memory. memoryRef accepts the ID or URN. A real run holds
   every write to the memory off while it checks and stamps, and refuses
   SPEC_CORPUS_BUSY (retryable) if a write is already in flight. Encrypted
@@ -8197,8 +8484,9 @@ type Mutation {
   #2022 (hrn:node:hadronmemory.com:specs:cor:agt:090:01, :06) — set a stop signal. Whoever manages the App: any level and
   scope. A host key: a HALT on its own host only. Never replaces another signal. Refusals: APP_MANAGER_REQUIRED,
   HOST_SCOPE_REQUIRED, STOP_SIGNAL_SCOPE_FORBIDDEN, STOP_SIGNAL_NOT_FOUND (the target), BAD_USER_INPUT, APP_NOT_FOUND.
-  #2173 (R95): until the stop-notice lane is in effect, setting ANY signal is refused with STOP_SIGNAL_UNAVAILABLE (a worker
-  would be stopped without being told); lifting and listing are unaffected, and the refusal lifts when the lane is turned on.
+  #2173/#2169 (R95): setting ANY signal is refused with STOP_SIGNAL_UNAVAILABLE while a worker it would cover is on a lane with
+  no fresh stop-consumer declaration (a worker would be stopped without being told; the extensions name the worker count and the
+  lanes). A consumer declares a lane by polling dueWakes with accepts: [STOP]. Lifting and listing are unaffected.
   """
   setTeamStopSignal(input: SetTeamStopSignalInput!): StopSignal!
 
@@ -8434,6 +8722,12 @@ type Mutation {
   """
   updateAgentMemoryRole(agentRef: ID!, memoryRef: ID!, role: String!): Agent!
   updateAgentSchedule(id: ID!, input: UpdateAgentScheduleInput!): AgentSchedule!
+
+  """
+  #2024 — change a template; absent fields are unchanged. expectedRevision must be the revision you read, else
+  TICKER_TEMPLATE_REVISION_MISMATCH and nothing is written. Affects only future casts.
+  """
+  updateAgentTickerTemplate(expectedRevision: Int!, id: ID!, input: AgentTickerTemplatePatch!): AgentTickerTemplate!
 
   """
   036-ai-service-config: update a named AI config. All fields optional.
@@ -9098,6 +9392,11 @@ type Node {
   omitting a label is free, while omitting this means the node does not run.
   """
   isRunnable: Boolean
+
+  """
+  #2048 (hrn:node:hadronmemory.com:specs:cor:agt:040:13) — link lint for a boot-prompt source: the warnings that hold for this node as it is now, read as the caller (a target the caller cannot read is a position-only BROKEN_INCLUDE). An empty page is a real answer; null means the warnings are unavailable (a fault, or a compiled boot prompt, whose warnings read its recorded provenance). Lint never blocks a write, and nothing is stored or pushed. Pages default to 50 and clamp at 100.
+  """
+  lintWarnings(after: String, first: Int = 50): LintWarningPage
   llmModel: String
   loc: String!
 
@@ -9239,6 +9538,11 @@ type NodeApproval {
 """#1591 — a node and its approval, returned by the approve mutations."""
 type NodeApprovalReceipt {
   approval: NodeApproval!
+
+  """
+  #2048 — the link-lint warnings for this node as they hold now; the same data as Node.lintWarnings. Approving never blocks on a warning.
+  """
+  lintWarnings(after: String, first: Int = 50): LintWarningPage
   loc: String!
   nodeId: ID!
   urn: String!
@@ -10460,6 +10764,12 @@ type Query {
     taskId: ID
     types: [String!]
   ): [AgentTeamEvent!]!
+
+  """
+  #2024 — the live ticker templates of an Agent, by name. Anyone who can read the Agent. An Agent the caller cannot read answers
+  as absent (AGENT_NOT_FOUND).
+  """
+  agentTickerTemplates(agentRef: String!): [AgentTickerTemplate!]!
   agentWebhooks(appRef: String!, limit: Int, offset: Int): AgentWebhooksPage!
 
   """
@@ -10649,6 +10959,16 @@ type Query {
   AuthContext type for the full security posture.
   """
   authContext: AuthContext
+
+  """
+  #2441: state, hash, plain summary and graph depth for one trigger. MANUAL takes the origin run id. Same gate as approveAutomation.
+  """
+  automationApproval(triggerKind: AutomationTriggerKind!, triggerRef: String!): AutomationApproval!
+
+  """
+  #2441: the schedules and webhooks of an App that the caller may adopt, with their adoption state. Authorization first, then ordered by (name, kind, id) and paged: limit defaults to 20, maximum 50; after is the previous page's nextCursor. MANUAL triggers are never listed (consent is per run); omitted says so. Only an adopter sees any row.
+  """
+  automationApprovals(after: String, appRef: String!, limit: Int = 20): AutomationApprovalPage!
 
   """One event by id. Grant scope: calendar.read."""
   calendarEvent(calendarId: String, connectionRef: ID!, eventId: ID!): CalendarEvent!
@@ -10907,8 +11227,14 @@ type Query {
 
   """
   #1748 — the wakes due now (hrn:node:hadronmemory.com:specs:cor:agt:080:08). Counts and seq ranges only; reads nothing it does not return.
+  accepts (#2169, hrn:node:hadronmemory.com:specs:cor:agt:090:04): the reason kinds this caller can deliver. Omit it and no STOP notice is
+  ever returned (the shipped ticker-wake). A call that lists STOP is offered the worker's newest undelivered stop notice, and
+  declares the lane it serves (a host key: its own registration; a person who manages the App, or a key without a host:
+  the unhosted lane) for STOP_CONSUMER_FRESH_SECONDS (default 600), but only when it read the lane from its start to its end in one call:
+  no workerRefs, no after, and no next page (ask for first: 200; a lane larger than a page cannot declare). A worker whose host is lost has no serving lane until the host returns. Setting a stop signal is refused (STOP_SIGNAL_UNAVAILABLE)
+  while any worker it would cover is on a lane with no fresh declaration.
   """
-  dueWakes(after: String, appRef: String!, first: Int, workerRefs: [String!]): DueWakePage!
+  dueWakes(accepts: [WakeKind!], after: String, appRef: String!, first: Int, workerRefs: [String!]): DueWakePage!
 
   """
   The uniform single-edge read (#473) — edges are first-class, loc-addressed
@@ -14105,7 +14431,7 @@ type SpecCorpusMintReport {
   memoryId: ID!
 
   """
-  #1591 — the locs this call minted, or would mint on a dry run, ordered by loc.
+  #1591 — the locs of NEW nodes this call minted, or would mint on a dry run, ordered by loc.
   """
   mintLocs: [String!]!
 
@@ -14117,6 +14443,14 @@ type SpecCorpusMintReport {
   """#1591 — how many nodes this call minted (0 on a dry run or refusal)."""
   mintedCount: Int!
   openQuestions: [SpecOpenQuestionGroup!]!
+
+  """
+  #1612 — the locs of already-minted nodes this call re-minted (edited since, or minted with no recorded revision), or would on a dry run, ordered by loc. A re-mint keeps the first mint's time and minter.
+  """
+  remintLocs: [String!]!
+
+  """#1612 — how many of mintedCount were re-mints."""
+  remintedCount: Int!
   staleAbstracts: [SpecMintFinding!]!
   staleAbstractsBlock: Boolean!
 
@@ -14140,7 +14474,7 @@ type SpecMintFinding {
 """#1448 — why the mint report lists an item."""
 enum SpecMintFindingKind {
   """
-  #1591 — an edge into another memory's node that is not minted yet (targetLoc is its URN).
+  #1591 — an edge, live pending edge or text citation (a prefixed node URN) into another memory's node that is not minted yet (targetLoc is its URN).
   """
   CITES_UNMINTED
 
@@ -14388,17 +14722,17 @@ enum StopSignalEndKind {
 """
 enum StopSignalLevel {
   """
-  Also interrupts each covered worker, to save its work and write a hand-off (the notice is recorded but not yet delivered: no interrupt happens yet).
+  Also tells each covered worker to save its work and write a hand-off now. The notice is typed as an ordinary message into a verified-empty input, with no interrupt key (Holger, option A, 2026-10-24); one that cannot be typed is logged and flagged to the coordinator.
   """
   HALT
 
   """
-  Also stops ticks and stall time. Each covered worker is told to finish or stop at its next sub-task (the notice is recorded but not yet delivered).
+  Also stops ticks and stall time. Each covered worker is told to finish or stop at its next sub-task, by a consumer that has declared its lane (a set is refused until one has).
   """
   PAUSE
 
   """
-  Stops assignment only: matching skips the covered workers and a manual assignment to one is refused (TASK_STOPPED). Its coordinators are told (the notice is recorded but not yet delivered).
+  Stops assignment only: matching skips the covered workers and a manual assignment to one is refused (TASK_STOPPED). Its coordinators are told, by a consumer that has declared their lane (a set is refused until one has).
   """
   PAUSE_DISPATCH
 }
@@ -15610,7 +15944,7 @@ enum WakeKind {
   MENTION
 
   """
-  #2022 — a stop-signal notice (hrn:node:hadronmemory.com:specs:cor:agt:090:04): ahead of everything else, past the floor, the busy delay and the budget's refusal. Not yet offered (DARK until the host consumer ships).
+  #2022 — a stop-signal notice (hrn:node:hadronmemory.com:specs:cor:agt:090:04): ahead of everything else, past the floor, the busy delay and the budget's refusal. Offered only to a dueWakes call that lists STOP in accepts (#2169).
   """
   STOP
 
