@@ -17,7 +17,7 @@ const approval = (over: Record<string, unknown> = {}) => ({
   summary: { name: 'Nightly digest', schedule: 'Runs daily.', reads: [], writes: [], tools: [], limits: [], cannotDo: [], flows: [] }, ...over,
 });
 
-beforeEach(() => request.mockReset());
+beforeEach(() => { request.mockReset(); });
 
 const locals = { token: 'tok', user: { id: 'u1' }, impersonation: null };
 async function loadDetail(kind = 'schedule', ref = 'sch-1') {

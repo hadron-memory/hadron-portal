@@ -79,7 +79,7 @@ describe('approval page', () => {
     const html = page({ approval: approval({ summary: summary({ name: evil, schedule: '<b>x</b>', reads: ['**r**'], flows: [{ name: evil, urn: 'u', tools: [evil], writes: [evil] }] }) }) });
     expect(html).not.toContain('<img src=x');
     expect(html).not.toContain('<b>x</b>');
-    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)>');
     expect(html).toContain('**r**');
   });
 
@@ -93,6 +93,6 @@ describe('approval page', () => {
 
   it('shows a refusal in a role=alert with the server’s words as text', () => {
     const html = page({}, { code: 'refused', message: 'You cannot read <b>a memory</b>' });
-    expect(html).toMatch(/role="alert"[^>]*>[^<]*You cannot read &lt;b&gt;a memory&lt;\/b&gt;/);
+    expect(html).toMatch(/role="alert"[^>]*>[^<]*You cannot read &lt;b>a memory&lt;\/b>/);
   });
 });

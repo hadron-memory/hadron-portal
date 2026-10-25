@@ -49,7 +49,7 @@ describe('Automations list', () => {
     expect(html).not.toContain('<img src=x');
     expect(html).not.toContain('<b>bold</b>');
     expect(html).not.toMatch(/<a[^>]*href="javascript:/);
-    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(html).toContain('&lt;img src=x onerror=alert(1)>');
     expect(html).toContain('**md**');
   });
 

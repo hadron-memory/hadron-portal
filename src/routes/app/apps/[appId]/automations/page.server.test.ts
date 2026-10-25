@@ -20,7 +20,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   headline: 'Nightly digest: Runs on the schedule "0 6 * * *" (UTC); waiting for approval', ...over,
 });
 
-beforeEach(() => request.mockReset());
+beforeEach(() => { request.mockReset(); });
 
 async function loadList(search = '') {
   const { load } = await import('./+page.server');
@@ -59,9 +59,11 @@ describe('list loader', () => {
 
   it('an unexpected failure is not an empty list', async () => {
     request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw gqlError('INTERNAL_SERVER_ERROR'); });
-    await expect(loadList()).rejects.toBeTruthy();
-    request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw new Error('502 Bad Gateway'); });
-    await expect(loadList()).rejects.toBeTruthy();
+    await expect(loadList()).rejects.toMatchObject({ response: { errors: [{ extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } });
+    // A transport failure is a ClientError with a response and no errors payload.
+    const transport = { message: '502 Bad Gateway', response: { status: 502 } };
+    request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw transport; });
+    await expect(loadList()).rejects.toBe(transport);
   });
 
   it('a viewer who cannot see the App gets the App page’s 404', async () => {
