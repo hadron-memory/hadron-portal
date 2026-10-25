@@ -1,6 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { GraphQLClient } from 'graphql-request';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { isAccessRefusal } from '$lib/server/agent-tasks';
 import type { Approval, ApprovalPage, ApprovalRow, ApprovalTriggerKind } from '$lib/automation/approval';
 
@@ -100,6 +100,16 @@ export async function loadAutomationApproval(client: GraphQLClient, triggerKind:
 
 export type AutomationWrite = { ok: true } | { ok: false; reason: 'stale' } | { ok: false; reason: 'refused'; message: string };
 
+/**
+ * The GraphQL error's OWN message, or '' when it has none. Not extractGqlError: with an empty message that falls back
+ * to ClientError.message, which graphql-request fills with the whole request (the operation and the trigger ref).
+ * The page shows a fixed sentence for '' (portal#1301).
+ */
+function ownWords(e: unknown): string {
+  const message = (e as { response?: { errors?: { message?: unknown }[] } } | null)?.response?.errors?.[0]?.message;
+  return typeof message === 'string' ? message.trim() : '';
+}
+
 /** One mutation call, never a retry: a stale hash is shown to the person, who approves again. */
 async function write(run: () => Promise<unknown>): Promise<AutomationWrite> {
   try {
@@ -109,7 +119,7 @@ async function write(run: () => Promise<unknown>): Promise<AutomationWrite> {
     const code = extractGqlErrorCode(e);
     if (code === 'AUTOMATION_CHANGED') return { ok: false, reason: 'stale' };
     // The server's FORBIDDEN carries plain words for the adopter (an unreadable memory, who may adopt).
-    if (code === 'FORBIDDEN') return { ok: false, reason: 'refused', message: extractGqlError(e, '') };
+    if (code === 'FORBIDDEN') return { ok: false, reason: 'refused', message: ownWords(e) };
     throw e;
   }
 }
