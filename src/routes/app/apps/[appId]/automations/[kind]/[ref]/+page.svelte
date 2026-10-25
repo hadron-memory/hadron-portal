@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
+  import { tick, untrack } from 'svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -30,6 +31,32 @@
 
   let confirmingDecline = $state(false);
   let submitting = $state(false);
+  let declineButton = $state<HTMLButtonElement>();
+  let confirmation = $state<HTMLElement>();
+  let outcome = $state<HTMLElement>();
+
+  // SvelteKit reuses this component when the reader goes to another automation, and the confirmation's relative
+  // ?/decline would then address that one. The confirmation belongs to ONE automation: closing it is keyed to the
+  // scalar identity (hrn:node:hadronmemory.com:hadron-portal:review:identity-reset-tracks-scalar-not-loader-object),
+  // so a reload of the same automation keeps it open.
+  const identity = $derived(`${data.app.id}:${data.kind}:${data.ref}`);
+  $effect.pre(() => {
+    void identity;
+    untrack(() => { confirmingDecline = false; submitting = false; });
+  });
+
+  // Focus follows the person's action: into the confirmation when it opens, back to Decline when it is cancelled,
+  // and to the outcome after a submit, since the button that sent it may be gone.
+  async function openDecline() {
+    confirmingDecline = true;
+    await tick();
+    confirmation?.focus();
+  }
+  async function cancelDecline() {
+    confirmingDecline = false;
+    await tick();
+    declineButton?.focus();
+  }
 
   const listOrNone = (items: string[]) => (items.length ? items : [t('app.automations.none', 'None')]);
 
@@ -42,6 +69,8 @@
       if (result.type === 'failure' && (result.data as { code?: string } | undefined)?.code === 'stale') await invalidateAll();
       confirmingDecline = false;
       submitting = false;
+      await tick();
+      outcome?.focus();
     };
   };
 
@@ -114,21 +143,23 @@
   </section>
 
   <div class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-800">
-    {#if form?.code === 'stale'}
-      <p role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-        {t('app.automations.stale', 'This automation changed while you were reviewing it. The summary below is the new one. Review it, then approve again.')}
-      </p>
-    {:else if form?.code === 'refused'}
-      <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.message}</p>
-    {:else if form?.code === 'missing-hash'}
-      <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-        {t('app.automations.missing-hash', 'Reload the page and try again.')}
-      </p>
-    {:else if form && 'approved' in form}
-      <p role="status" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{t('app.automations.approved-done', 'Approved.')}</p>
-    {:else if form && 'declined' in form}
-      <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.declined-done', 'Declined.')}</p>
-    {/if}
+    <div bind:this={outcome} tabindex="-1" data-testid="automation-outcome" class="space-y-2 outline-none">
+      {#if form?.code === 'stale'}
+        <p role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          {t('app.automations.stale', 'This automation changed while you were reviewing it. The summary below is the new one. Review it, then approve again.')}
+        </p>
+      {:else if form?.code === 'refused'}
+        <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.message || t('app.automations.refused', 'The server refused this action.')}</p>
+      {:else if form?.code === 'missing-hash'}
+        <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          {t('app.automations.missing-hash', 'Reload the page and try again.')}
+        </p>
+      {:else if form && 'approved' in form}
+        <p role="status" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{t('app.automations.approved-done', 'Approved.')}</p>
+      {:else if form && 'declined' in form}
+        <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.declined-done', 'Declined.')}</p>
+      {/if}
+    </div>
     <div class="flex flex-wrap items-center gap-2">
       {#if !approved}
         <!-- The hash is the one the page showed, from the server's read, not from anything typed or clicked. -->
@@ -138,13 +169,13 @@
         </form>
       {/if}
       {#if !confirmingDecline}
-        <button type="button" onclick={() => (confirmingDecline = true)} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.decline', 'Decline')}</button>
+        <button type="button" bind:this={declineButton} onclick={openDecline} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.decline', 'Decline')}</button>
       {/if}
     </div>
 
     {#if confirmingDecline}
       <!-- Decline asks first: on an approved automation it switches the automation off. -->
-      <form method="POST" action="?/decline" use:enhance={submitted} class="space-y-2 rounded-lg border border-zinc-300 p-3 dark:border-zinc-700">
+      <form method="POST" action="?/decline" use:enhance={submitted} bind:this={confirmation} tabindex="-1" data-testid="decline-confirmation" class="space-y-2 rounded-lg border border-zinc-300 p-3 outline-none dark:border-zinc-700">
         <p class="text-sm text-zinc-800 dark:text-zinc-200">
           {#if hasApproval}
             {t('app.automations.decline-approved', 'Its next run will fail until it is approved again.')}
@@ -154,7 +185,7 @@
         </p>
         <div class="flex flex-wrap gap-2">
           <button type="submit" disabled={submitting} class="rounded-lg border border-red-600 px-3 py-1.5 text-sm font-medium text-red-700 disabled:opacity-50 dark:border-red-400 dark:text-red-300">{t('app.automations.decline', 'Decline')}</button>
-          <button type="button" onclick={() => (confirmingDecline = false)} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.cancel', 'Cancel')}</button>
+          <button type="button" onclick={cancelDecline} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.cancel', 'Cancel')}</button>
         </div>
       </form>
     {/if}
@@ -166,7 +197,7 @@
       <div>
         <h2 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.automations.flows', 'Flows')}</h2>
         <ul class="mt-1 space-y-2">
-          {#each summary.flows as flow (flow.urn)}
+          {#each summary.flows as flow, i (i)}
             <li class="min-w-0">
               <span class="block font-medium">{flow.name}</span>
               <span class="mt-1 block"><Urn value={flow.urn} size={9} compact linked /></span>

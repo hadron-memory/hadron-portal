@@ -22,8 +22,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
 
-  const after = url.searchParams.get('after');
-  if (after !== null && !CURSOR.test(after)) throw error(400, 'Not a page of this list');
+  // An empty ?after= is the first page; anything else must look like a cursor the server sent.
+  const after = url.searchParams.get('after') || null;
+  if (after !== null && !CURSOR.test(after)) throw error(400, 'That page of automations does not exist.');
 
   return { app, approvals: await loadAutomationApprovals(client, app.id, after), after };
 };

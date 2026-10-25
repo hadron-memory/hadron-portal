@@ -26,6 +26,8 @@ function open(state: string, form: unknown = null) {
 }
 const button = (t: HTMLElement, label: string) => [...t.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === label);
 const declineForm = (t: HTMLElement) => t.querySelector<HTMLFormElement>('form[action="?/decline"]');
+// Focus moves in a continuation after the render, so settle past both.
+const settle = async () => { flushSync(); await tick(); await tick(); };
 const approveForm = (t: HTMLElement) => t.querySelector<HTMLFormElement>('form[action="?/approve"]');
 
 describe('Decline confirmation', () => {
@@ -89,11 +91,11 @@ describe('the confirmation belongs to one automation (LOCAL P2)', () => {
 describe('focus (UX P2)', () => {
   it('opening the confirmation moves focus into it, and Cancel returns it to Decline', async () => {
     const { t } = open('ADOPTED');
-    button(t, 'Decline')!.click(); flushSync(); await tick();
+    button(t, 'Decline')!.click(); await settle();
     const confirm = t.querySelector<HTMLElement>('[data-testid="decline-confirmation"]')!;
     expect(confirm).toBeTruthy();
     expect(confirm.contains(document.activeElement)).toBe(true);
-    button(t, 'Cancel')!.click(); flushSync(); await tick();
+    button(t, 'Cancel')!.click(); await settle();
     expect(document.activeElement).toBe(button(t, 'Decline'));
   });
 
@@ -102,7 +104,7 @@ describe('focus (UX P2)', () => {
     await submitEnhancedWithResult(approveForm(t)!, { type: 'success', status: 200, data: { approved: true } }, {
       update: async () => { props.data = data('ADOPTED'); props.form = { approved: true }; },
     });
-    flushSync(); await tick();
+    await settle();
     const notice = t.querySelector<HTMLElement>('[data-testid="automation-outcome"]')!;
     expect(notice.textContent).toContain('Approved.');
     expect(document.activeElement).toBe(notice);

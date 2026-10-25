@@ -89,6 +89,8 @@ export async function loadAutomationApprovals(client: GraphQLClient, appRef: str
 export async function loadAutomationApproval(client: GraphQLClient, triggerKind: ApprovalTriggerKind, triggerRef: string): Promise<Approval> {
   try {
     const r = await client.request<{ automationApproval: Approval }>(AUTOMATION_APPROVAL_QUERY, { triggerKind, triggerRef });
+    // The server answers a refusal as an error, never null; if it ever sends null the page still has nothing to show.
+    if (!r.automationApproval) throw error(404, 'Automation not found');
     return r.automationApproval;
   } catch (e) {
     if (isAccessRefusal(e)) throw error(404, 'Automation not found');
