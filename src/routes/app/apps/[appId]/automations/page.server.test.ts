@@ -6,6 +6,7 @@
  * failure stays a failure.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClientError } from 'graphql-request';
 import { AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
 import { AUTOMATION_APPROVALS_QUERY } from '$lib/server/automation-approval';
 
@@ -67,6 +68,17 @@ describe('list loader', () => {
     const empty = await loadList();
     expect(refused.approvals).toEqual({ kind: 'ok', rows: [], nextCursor: null, omitted: [MANUAL] });
     expect(refused.approvals).toEqual(empty.approvals);
+  });
+
+  it('a refusal with no words of its own (a real ClientError) is the same empty page, and none of its packed request is carried (QA #1301)', async () => {
+    const refusal = new ClientError(
+      { status: 200, errors: [{ message: '', extensions: { code: 'FORBIDDEN' } }] } as never,
+      { query: 'query AutomationApprovals { automationApprovals }', variables: { appRef: 'app-1' } },
+    );
+    request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw refusal; });
+    const r = await loadList();
+    expect(r.approvals).toEqual({ kind: 'ok', rows: [], nextCursor: null, omitted: [MANUAL] });
+    expect(JSON.stringify(r)).not.toContain('AutomationApprovals');
   });
 
   it('an unexpected failure is not an empty list', async () => {
