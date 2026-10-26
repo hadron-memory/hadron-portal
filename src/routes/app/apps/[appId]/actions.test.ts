@@ -912,8 +912,7 @@ describe('deleteApp action', () => {
 // asymmetric, and that asymmetry is what these tests hold up:
 //
 //   name — rejected client-side when blank, never coerced
-//   role — still blank→UNDEFINED, because omitting it inherits the agent's
-//          personaRole while '' would be an explicit-and-invalid role
+//   role — omitted entirely under R222, including stale posted overrides
 
 describe('castWorker action', () => {
   it('casts an installed agent without forwarding a stale role override', async () => {
@@ -941,7 +940,7 @@ describe('castWorker action', () => {
   // This asserted that a blank name reached the mutation as `undefined` —
   // correct while an omitted name walked the register, and the exact behaviour
   // #760 reports as broken now that hadron-server#1050 removed it. The
-  // invariant that survives is the ROLE half; the name half inverts.
+  // name invariant still holds under R222.
   it('rejects a blank name BEFORE the mutation, rather than coercing it', async () => {
     const result = (await runAction('castWorker', {
       agentId: 'agent-1',
@@ -955,8 +954,7 @@ describe('castWorker action', () => {
   });
 
   it('omits role entirely from the schema, mutation and variables', async () => {
-    // Unchanged by #1050: an omitted role inherits the agent's personaRole,
-    // while '' would be an explicit-and-invalid role.
+    // R222: no writable role survives at any layer of this form.
     mockRequest.mockResolvedValueOnce({});
     await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '' });
     const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
