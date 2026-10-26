@@ -9,7 +9,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonLabel, reasonsText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel } from '$lib/tickers/format';
+  import { cadenceText, isKnownReason, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonHelp, reasonLabel, reasonsSearchText, reasonsText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel, unrecognisedReasonText } from '$lib/tickers/format';
   import type { TickerListRow } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -64,7 +64,7 @@
           stateText: stateLabel(tk.enabled),
           cadence: tk.cadenceSeconds,
           quiet: quietHoursSummary(tk.quietHours),
-          reasonsText: reasonsText(tk.reasons),
+          reasonsText: reasonsSearchText(tk.reasons),
           channelsText: channelsText(tk),
           subscriberCount: tk.subscribers.hasNextPage ? Number.MAX_SAFE_INTEGER : tk.subscribers.items.length,
           // A disabled ticker has no next tick; it sorts last, not first.
@@ -215,7 +215,7 @@
                 {#each row.ticker.reasons as reason (reason)}
                   <span class="rounded px-1.5 py-0.5 text-xs {reason === 'EVERY_TICK'
                     ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200'
-                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'}">{reasonLabel(reason)}</span>
+                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'}" title={reasonHelp(reason) ?? undefined}>{reasonLabel(reason)}{#if !isKnownReason(reason)} <span class="text-zinc-600 dark:text-zinc-400">{unrecognisedReasonText()}</span>{/if}</span>
                 {/each}
               {/if}
             </span>

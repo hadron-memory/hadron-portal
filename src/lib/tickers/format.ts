@@ -129,6 +129,11 @@ export function reasonLabel(reason: string): string {
   }
 }
 
+/** True for a reason this build knows; a newer server value is not, and the views say so. */
+export const isKnownReason = (reason: string): boolean => reasonHelp(reason) !== null;
+
+export const unrecognisedReasonText = () => t('tickers.reason.unrecognised', '(unrecognised)');
+
 /**
  * One sentence on what the reason does, or null for a value this build does not know. The limits
  * that still apply stay in the sentence with the claim, never behind a click.
@@ -136,13 +141,13 @@ export function reasonLabel(reason: string): string {
 export function reasonHelp(reason: string): string | null {
   switch (reason) {
     case 'READ_TEAM_CHANNEL': return t('tickers.reason.read-team-channel.help', 'Wakes a subscriber that has relevant unread in this ticker’s channels.');
-    case 'EVERY_TICK': return t('tickers.reason.every-tick.help', 'Wakes subscribers every tick even with no new chat, so it costs one wake per subscriber per tick against the daily budget. The floor, daily budget, pause, quiet hours and dormancy still apply.');
-    case 'LIVE_CHECK': return t('tickers.reason.live-check.help', 'Wakes a subscriber that has not checked its team channel within this ticker’s cadence, whatever is unread. Never for a worker not expected to check.');
+    case 'EVERY_TICK': return t('tickers.reason.every-tick.help', 'Wakes subscribers every tick even with no new chat, so it costs up to one wake per subscriber per tick against the daily budget. A pause or quiet hours can mean no wake.');
+    case 'LIVE_CHECK': return t('tickers.reason.live-check.help', 'Wakes a subscriber that has not checked its team channel within this ticker’s cadence, whatever is unread.');
     default: return null;
   }
 }
 
-export const noReasonsText = () => t('tickers.reasons.none', 'No reasons: never fires');
+export const noReasonsText = () => t('tickers.reasons.none', 'Never fires (no reasons)');
 export const reasonsUnavailableText = () => t('tickers.reasons.unavailable', 'Reasons unavailable');
 
 /** The reasons as the server sent them. Empty never fires; a missing list is unavailable, not empty. */
@@ -152,13 +157,24 @@ export function reasonsText(reasons: unknown): string {
   return reasons.map((r) => reasonLabel(String(r))).join(', ');
 }
 
+/**
+ * What a grid search reaches for the reasons cell: the text the cell shows, plus the
+ * "(unrecognised)" note a well-formed unknown reason renders after its raw name. A list
+ * that is not well formed shows "Reasons unavailable" and no note, so it adds none.
+ */
+export function reasonsSearchText(reasons: unknown): string {
+  const text = reasonsText(reasons);
+  if (!Array.isArray(reasons) || text === reasonsUnavailableText()) return text;
+  return reasons.some((r) => !isKnownReason(String(r))) ? `${text} ${unrecognisedReasonText()}` : text;
+}
+
 export function tickerSearchText(tk: { name: string; urn: string | null; enabled: boolean; relevance: string; reasons?: unknown }): string {
   return [
     tk.name,
     tk.urn ?? '',
     tickerStateLabel(tk.enabled),
     tk.relevance === 'MENTIONS' ? t('app.tickers.relevance.mentions', 'Mentions only') : '',
-    reasonsText(tk.reasons),
+    reasonsSearchText(tk.reasons),
   ].filter(Boolean).join(' ');
 }
 
