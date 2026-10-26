@@ -40,6 +40,10 @@
   const roleLabel = (role: string | null) => role ?? noRole();
   const familyLabel = (family: string | null) => family ?? noFamily();
   const unassigned = () => t('app.tasks.composition.unassigned', 'Unassigned');
+  const retired = () => t('app.tasks.roster.retired', '(retired)');
+  // The (retired) marker is on screen, so the search has to find it (#1317 LOCAL).
+  const coordinatorText = (lane: TeamCompositionLane) =>
+    lane.coordinator ? `${partySearchText(lane.coordinator)}${lane.coordinatorRetired ? ` ${retired()}` : ''}` : unassigned();
   const yesNo = (v: boolean) => (v ? t('app.tasks.composition.yes', 'Yes') : t('app.tasks.composition.no', 'No'));
 
   interface LaneRow {
@@ -65,7 +69,7 @@
   const laneRows = $derived<LaneRow[]>(
     lanes.map((lane) => ({
       lane,
-      coordinator: lane.coordinator ? partySearchText(lane.coordinator) : unassigned(),
+      coordinator: coordinatorText(lane),
       roles: lane.countsByRole.map((c) => `${roleLabel(c.role)} ${c.count}`).join(' '),
       roleFamilies: lane.countsByRoleFamily.map((c) => `${roleLabel(c.role)} ${familyLabel(c.family)} ${c.count}`).join(' '),
     })),
@@ -77,7 +81,7 @@
       lane.workers.map((member) => ({
         lane,
         member,
-        coordinator: lane.coordinator ? partySearchText(lane.coordinator) : unassigned(),
+        coordinator: coordinatorText(lane),
         worker: partySearchText(member.worker),
         role: roleLabel(member.role),
         family: familyLabel(member.family),
@@ -130,10 +134,14 @@
   });
 
   let refreshing = $state(false);
+  let refreshFailed = $state(false);
   async function refresh() {
     refreshing = true;
+    refreshFailed = false;
     try {
       await invalidateAll();
+    } catch {
+      refreshFailed = true;
     } finally {
       refreshing = false;
     }
@@ -150,6 +158,7 @@
 {:else}
   <div class="space-y-6">
     <div class="flex items-center justify-end gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+      {#if refreshFailed}<span role="alert" class="text-red-700 dark:text-red-300">{t('app.tasks.composition.refresh-failed', 'Couldn’t refresh.')}</span>{/if}
       <span>{t('app.tasks.roster.as-of', 'As of {time}', { time: fmtRunTime(composition.value.asOf) })}</span>
       <button
         type="button"
@@ -166,6 +175,7 @@
     {:else}
       <section class="space-y-2" aria-labelledby="composition-lanes">
         <h2 id="composition-lanes" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.composition.lanes', 'Lanes')}</h2>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.composition.lanes.note', 'Each lane is one coordinator’s direct reports, not a rollup. A coordinator’s own row is in the lane of whoever they report to. Unassigned holds workers with no coordinator.')}</p>
         <DataTable
           table={laneTable}
           listKey="app-tasks:composition-lanes"
@@ -180,20 +190,20 @@
               <span class="inline-flex flex-wrap items-center gap-1">
                 {#if row.lane.coordinator}
                   <PartyLabel party={row.lane.coordinator} />
-                  {#if row.lane.coordinatorRetired}<span class="text-xs text-zinc-500">{t('app.tasks.roster.retired', '(retired)')}</span>{/if}
+                  {#if row.lane.coordinatorRetired}<span class="text-xs text-zinc-500 dark:text-zinc-400">{retired()}</span>{/if}
                 {:else}
                   <span class="text-zinc-600 dark:text-zinc-300">{unassigned()}</span>
                 {/if}
               </span>
             {:else if cell.column.id === 'roles'}
               <span class="flex flex-wrap gap-1.5">
-                {#each row.lane.countsByRole as c (c.role ?? '')}
+                {#each row.lane.countsByRole as c (JSON.stringify(c.role))}
                   <span data-count-role={c.role ?? ''} class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">{roleLabel(c.role)} · {c.count}</span>
                 {/each}
               </span>
             {:else}
               <span class="flex flex-wrap gap-1.5">
-                {#each row.lane.countsByRoleFamily as c (`${c.role ?? ''}/${c.family ?? ''}`)}
+                {#each row.lane.countsByRoleFamily as c (JSON.stringify([c.role, c.family]))}
                   <span data-count-role-family="{c.role ?? ''}/{c.family ?? ''}" class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">{roleLabel(c.role)} / {familyLabel(c.family)} · {c.count}</span>
                 {/each}
               </span>
@@ -204,6 +214,7 @@
 
       <section class="space-y-2" aria-labelledby="composition-workers">
         <h2 id="composition-workers" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.composition.workers', 'Workers')}</h2>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.composition.workers.note', 'Workers in lane order, as the server sent them: consecutive rows with the same Reports to are one lane. Bound means a person or agent has taken the worker’s seat; Live session means it is running now.')}</p>
         <DataTable
           table={workerTable}
           listKey="app-tasks:composition-workers"
@@ -220,7 +231,7 @@
               <span class="inline-flex flex-wrap items-center gap-1">
                 {#if row.lane.coordinator}
                   <PartyLabel party={row.lane.coordinator} showUrn={false} />
-                  {#if row.lane.coordinatorRetired}<span class="text-xs text-zinc-500">{t('app.tasks.roster.retired', '(retired)')}</span>{/if}
+                  {#if row.lane.coordinatorRetired}<span class="text-xs text-zinc-500 dark:text-zinc-400">{retired()}</span>{/if}
                 {:else}
                   <span class="text-zinc-600 dark:text-zinc-300">{unassigned()}</span>
                 {/if}
