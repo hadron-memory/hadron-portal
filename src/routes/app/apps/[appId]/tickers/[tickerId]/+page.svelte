@@ -8,7 +8,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsText, reasonsUnavailableText, subscriptionSearchText, windowText } from '$lib/tickers/format';
+  import { cadenceText, isKnownReason, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsText, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -141,7 +141,7 @@
         {:else}
           <ul class="space-y-1">
             {#each tk.reasons as reason (reason)}
-              <li><span class="font-medium">{reasonLabel(reason)}</span>{#if reasonHelp(reason)}: <span class="text-zinc-600 dark:text-zinc-400">{reasonHelp(reason)}</span>{/if}</li>
+              <li><span class="font-medium">{reasonLabel(reason)}</span>{#if !isKnownReason(reason)} <span class="text-zinc-500 dark:text-zinc-400">{unrecognisedReasonText()}</span>{/if}{#if reasonHelp(reason)}: <span class="text-zinc-600 dark:text-zinc-400">{reasonHelp(reason)}</span>{/if}</li>
             {/each}
           </ul>
           {#if tk.reasons.length > 1}<p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.reasons.any-of', 'Any one of these wakes a subscriber.')}</p>{/if}

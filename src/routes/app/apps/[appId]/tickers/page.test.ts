@@ -264,10 +264,11 @@ describe('ticker reasons (portal#1144)', () => {
   it('an unknown reason shows its raw name, and is not turned into a known one', () => {
     const html = list({ tickers: { kind: 'ok', value: [reasoned(['SOMETHING_NEW'])] } });
     expect(html).toContain('SOMETHING_NEW');
+    expect(html).toContain('(unrecognised)');
     expect(html).not.toContain('Team chat');
   });
   it('an empty reason list reads as never firing in the list', () => {
-    expect(list({ tickers: { kind: 'ok', value: [reasoned([])] } })).toContain('No reasons: never fires');
+    expect(list({ tickers: { kind: 'ok', value: [reasoned([])] } })).toContain('Never fires (no reasons)');
   });
   it('the detail page lists "Wakes when" with the every-tick limits in the same item', () => {
     const html = detail({ ticker: reasoned(['EVERY_TICK']) });
@@ -275,7 +276,7 @@ describe('ticker reasons (portal#1144)', () => {
     const item = html.match(/<li[^>]*>(?:(?!<\/li>)[\s\S])*Every tick(?:(?!<\/li>)[\s\S])*<\/li>/)?.[0] ?? '';
     expect(item).toContain('even with no new chat');
     expect(item).toContain('quiet hours');
-    expect(item).toContain('dormancy');
+    expect(item).toContain('pause');
     expectReadOnly(html);
   });
   it('markup in a reason value is escaped in the list and the detail, never rendered', () => {
@@ -292,7 +293,7 @@ describe('ticker reasons (portal#1144)', () => {
       const d = detail({ ticker: reasoned(bad) });
       for (const html of [l, d]) {
         expect(html).toContain('Reasons unavailable');
-        expect(html).not.toContain('never fires');
+        expect(html).not.toMatch(/never fires/i);
       }
     }
   });
@@ -306,10 +307,29 @@ describe('ticker reasons (portal#1144)', () => {
   });
   it('the every-tick sentence names the cost clause next to the limits', () => {
     const html = detail({ ticker: reasoned(['EVERY_TICK']) });
-    expect(html).toContain('costs one wake per subscriber per tick against the daily budget');
+    expect(html).toContain('costs up to one wake per subscriber per tick against the daily budget');
+  });
+  it('the list badges for Live check and Every tick carry a title with what they do; a known reason shows no unrecognised note', () => {
+    const html = list({ tickers: { kind: 'ok', value: [reasoned(['LIVE_CHECK', 'EVERY_TICK'])] } });
+    expect(html).toMatch(/title="Wakes a subscriber that has not checked[^"]*"[^>]*>Live check/);
+    expect(html).toMatch(/title="Wakes subscribers every tick[^"]*"[^>]*>Every tick/);
+    expect(html).not.toContain('(unrecognised)');
+  });
+  it('a list with a non-string element is unavailable in the list and the detail, never badges for its string members', () => {
+    for (const bad of [[null], ['EVERY_TICK', 3]]) {
+      const l = list({ tickers: { kind: 'ok', value: [reasoned(bad)] } });
+      const d = detail({ ticker: reasoned(bad) });
+      for (const html of [l, d]) {
+        expect(html).toContain('Reasons unavailable');
+        expect(html).not.toContain('Every tick');
+        expect(html).not.toContain('(unrecognised)');
+      }
+    }
   });
   it('the detail page shows an unknown reason raw and an empty list as never firing', () => {
-    expect(detail({ ticker: reasoned(['SOMETHING_NEW']) })).toContain('SOMETHING_NEW');
-    expect(detail({ ticker: reasoned([]) })).toContain('No reasons: never fires');
+    const unknown = detail({ ticker: reasoned(['SOMETHING_NEW']) });
+    expect(unknown).toContain('SOMETHING_NEW');
+    expect(unknown).toContain('(unrecognised)');
+    expect(detail({ ticker: reasoned([]) })).toContain('Never fires (no reasons)');
   });
 });
