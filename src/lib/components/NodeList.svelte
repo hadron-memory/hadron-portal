@@ -8,6 +8,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
+  import { nodeListHref } from '$lib/node-list-links';
   import ViewTabs from './table/ViewTabs.svelte';
   import TableFrame from './table/TableFrame.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
@@ -102,23 +103,6 @@
     if (m.model) lines.push(`${t('node-list.model', 'model')} ${m.model}`);
     if (m.source) lines.push(`${t('node-list.source', 'source')} ${m.source}`);
     return lines.join(' · ');
-  }
-
-  function nodeHref(node: MemoryNode): string {
-    if (basePath) return `${basePath}/nodes/${node.id}`;
-    // #260: memory pages are org-less, so the fallback needs only the memory id.
-    const memId = node.memory?.id;
-    if (memId) return `/app/memories/${memId}/nodes/${node.id}`;
-    return '';
-  }
-
-  // portal#1015: a comment hit links back to the DISCUSSION on its target
-  // (hrn:node:hadronmemory.com:specs:cor:dmo:110:08), in the same memory (110:01), not to the comment node.
-  function discussionHref(node: MemoryNode): string {
-    const target = node.comment?.target;
-    if (!target) return '';
-    const base = basePath ? `${basePath}/nodes/${target.id}` : node.memory?.id ? `/app/memories/${node.memory.id}/nodes/${target.id}` : '';
-    return base ? `${base}?tab=discussion` : '';
   }
 
   function nodeUrn(node: MemoryNode): string {
@@ -377,7 +361,7 @@
             {@const n = row.original}
             {@const c = colsOf(n)}
             {@const hit = n.comment ? commentHitView(n.comment) : null}
-            {@const href = hit ? discussionHref(n) || nodeHref(n) : nodeHref(n)}
+            {@const href = nodeListHref(n, basePath)}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <tr
               class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900
