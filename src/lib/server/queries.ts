@@ -4733,6 +4733,32 @@ export const TEAM_ROSTER_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1316 (hadron-server#2061 / #2475): the direct-report lanes and the
+// server's headcounts. Selects exactly the SDL's closed projection: no task,
+// holder or status field, and nothing the page would have to join or recount.
+export const TEAM_COMPOSITION_QUERY = /* GraphQL */ `
+  query TasksTeamComposition($appRef: ID!) {
+    teamComposition(appRef: $appRef) {
+      appId
+      asOf
+      lanes {
+        coordinator { id kind name urn }
+        coordinatorRetired
+        workers {
+          worker { id kind name urn }
+          role
+          family
+          bound
+          liveSession
+          state
+        }
+        countsByRole { role count }
+        countsByRoleFamily { role family count }
+      }
+    }
+  }
+`;
+
 // portal#1168: pause intent ONLY. The input is built by the action and carries
 // exactly one of pausedUntil / clearPause, never `mentions`; the server's gate
 // (the worker, its holder or an App manager) decides who may.
