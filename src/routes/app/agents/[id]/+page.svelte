@@ -749,6 +749,16 @@
     <div class="min-w-0 flex-1">
       <h1 class="text-2xl font-bold text-zinc-900 dark:text-white"><span class="text-zinc-400 font-normal">Agent:</span> {agent.name}</h1>
       <Urn value={agent.urn} type="agent" />
+      <!-- #1335: the server-emitted current URN of a readable source. Null or
+           absent (a non-clone, or a source this viewer cannot read, which the
+           server does not tell apart) renders nothing at all: no placeholder,
+           no lookup. -->
+      {#if agent.clonedFromAgentRef}
+        <p class="mt-2 flex flex-wrap items-center gap-2 text-sm text-zinc-500" data-testid="clone-origin">
+          <span>{t('agent.cloned-from', 'Cloned from')}</span>
+          <Urn value={agent.clonedFromAgentRef} type="agent" linked />
+        </p>
+      {/if}
       {#if agent.description}
         <p class="mt-1 text-sm text-zinc-500">{agent.description}</p>
       {/if}

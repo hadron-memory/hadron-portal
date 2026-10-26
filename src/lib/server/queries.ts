@@ -1713,15 +1713,17 @@ export const CREATE_PERSONAL_AGENT_MUTATION = /* GraphQL */ `
 // and admits PUBLIC agents — so the detail page can resolve BOTH org and
 // user-owned agents through one owner-accessible path (replacing the old
 // organizations()-scan that only found org agents).
+// #1335: clonedFromAgentRef is selected HERE and not in AGENT_FIELDS, which the
+// list and mutation documents spread, so only the detail page asks for it.
 export const AGENT_QUERY = /* GraphQL */ `
   ${AGENT_FIELDS}
   query Agent($ref: ID!) {
-    agent(ref: $ref) { ...AgentFields }
+    agent(ref: $ref) { ...AgentFields clonedFromAgentRef }
   }
 `;
 
 // #1262 — S1 cloneAgent: the new Agent's identity only. The origin
-// (clonedFromAgentRef) is out of this cut.
+// (clonedFromAgentRef) is read by the detail query above (#1335), never here.
 export const CLONE_AGENT_MUTATION = /* GraphQL */ `
   mutation CloneAgent($source: ID!, $target: ID!, $name: String, $slug: String) {
     cloneAgent(source: $source, target: $target, name: $name, slug: $slug) {

@@ -90,6 +90,8 @@ export interface MemorySubscription {
 
 export interface Agent {
   id: string;
+  /** #1335: the source's CURRENT URN; only the detail query selects it (absent elsewhere), null for a non-clone or an unreadable source. */
+  clonedFromAgentRef?: string | null;
   organizationId: string;
   urn: string;
   name: string;
