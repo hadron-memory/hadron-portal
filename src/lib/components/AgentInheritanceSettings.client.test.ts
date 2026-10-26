@@ -196,3 +196,18 @@ it('shows the current parent and resets successful writes to reloaded defaults',
   expect(root.querySelector<HTMLInputElement>('input[name="tasksIndexRef"]')!.value).toBe('');
   expect(root.querySelector('[role="status"]')!.textContent).toBe('Index references saved.');
 });
+
+it.each(['licensed', 'public'])('#1278 picks a granted %s parent through the same Save form', async (id) => {
+  const cross = { id, name: `Granted ${id}`, urn: `hrn:agent:other.example:${id}` };
+  const root = await mount({ ...await props(), candidates: [...candidates, cross], currentBase });
+  changeButton(root).click(); await tick();
+  selectInRow([...root.querySelectorAll('tbody tr')].find(tr => tr.textContent?.includes(cross.name))!).click(); await tick();
+  expect(new window.FormData(baseForm(root), submitter(root, 'set')).get('baseRef')).toBe(cross.urn);
+  expect(submitter(root, 'set').disabled).toBe(false);
+});
+it('#1278 an already-saved cross-org parent renders even outside the candidate pool', async () => {
+  const cross = { id: 'licensed', name: 'Saved licensed parent', urn: 'hrn:agent:other.example:licensed' };
+  const root = await mount({ ...await props(), currentBase: { id: cross.id, agent: cross, error: null } });
+  expect(baseForm(root).textContent).toContain(cross.name);
+  expect(root.querySelector('a[href="/app/u/hrn:agent:other.example:licensed"]')).not.toBeNull();
+});
