@@ -113,7 +113,7 @@ describe('lanes', () => {
       countsByRoleFamily: [{ role: 'engineer', family: 'claude', count: 5 }],
     })]));
     expect(html).toMatch(/data-count-role="engineer"[^>]*>[^<]*7</);
-    expect(html).toMatch(/data-count-role-family="engineer\/claude"[^>]*>[^<]*5</);
+    expect(html).toMatch(/data-count-role-family="\[&quot;engineer&quot;,&quot;claude&quot;\]"[^>]*>[^<]*5</);
   });
 
   it('says when the data was read', () => {
