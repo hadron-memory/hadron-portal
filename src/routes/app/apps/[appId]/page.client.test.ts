@@ -1172,7 +1172,7 @@ describe('Cast role follows the selected Agent (#1319)', () => {
       { id: 'valid', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
     ] });
     data.initialTab = 'staff';
-    data.castWorkerForm.data.agentId = 'roleless';
+    Object.assign(data.castWorkerForm.data, { agentId: 'roleless' });
     const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);

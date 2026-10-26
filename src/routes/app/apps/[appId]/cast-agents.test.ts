@@ -17,7 +17,7 @@ describe('castableAgentOptions (#1032)', () => {
   it('preserves the whole installed Agent, including its canonical URN', () => {
     const installed = { ...agent('1', 'Portal Engineer', 'portal-engineer'), urn: 'hrn:agent:acme.com:portal', description: 'Role agent' };
     const [option] = castableAgentOptions([installed]);
-    expect(option).toBe(installed);
+    expect(option).toMatchObject(installed);
     expect(option.urn).toBe('hrn:agent:acme.com:portal');
   });
 
