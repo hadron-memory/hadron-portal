@@ -119,6 +119,34 @@ describe('org members load()', () => {
     });
     expect((result as { inviteForm: { errors: Record<string, string[]> } }).inviteForm.errors).toEqual({});
   });
+
+  // #1297: Superforms keys a form's client store by its id, and an id defaults to a
+  // hash of the schema's SHAPE. Remove and Impersonate are both { _kind, userId }, so
+  // they got the same id, shared one store, and Impersonate submitted with the Remove
+  // form's `_kind` ("expected impersonateMember"; no request). Every form on this page
+  // needs an id of its own.
+  it('gives every form on the page its own Superforms id', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
+    const { load } = await importMod();
+
+    const result = (await load(loadEv({ userId: 'user-1' }))) as unknown as Record<string, { id: string }>;
+    const names = ['addForm', 'updateForm', 'removeForm', 'inviteForm', 'leaveForm', 'impersonateForm'];
+    const ids = names.map((name) => result[name].id);
+
+    expect(new Set(ids).size, JSON.stringify(Object.fromEntries(names.map((n, i) => [n, ids[i]])))).toBe(names.length);
+  });
+
+  it('the impersonate action answers under the same id its form was loaded with', async () => {
+    mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
+    const { load, actions } = await importMod();
+    const loaded = (await load(loadEv({ userId: 'user-1' }))) as unknown as { impersonateForm: { id: string } };
+
+    const result = (await actions.impersonate(actionEv({ _kind: 'impersonateMember', userId: '' }))) as unknown as {
+      data: { form: { id: string } };
+    };
+
+    expect(result.data.form.id).toBe(loaded.impersonateForm.id);
+  });
 });
 
 describe('org members add/update/remove/leave actions', () => {
