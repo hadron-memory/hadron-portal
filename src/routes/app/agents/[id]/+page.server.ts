@@ -348,6 +348,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   ]);
   return {
     extendedBy, systemMemoryIdentity,
+    extendedAfter: url?.searchParams.get('extendedAfter') ?? null,
     inheritanceManagement, baseCandidates, baseForm, indexRefsForm,
     inheritance,
     agent,

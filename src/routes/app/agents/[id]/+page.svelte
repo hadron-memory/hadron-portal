@@ -873,7 +873,7 @@
         </div>
       </section>
 
-      <AgentExtendedBy agentId={agent.id} result={data.extendedBy ?? { items: [], endCursor: null, hasMore: false, failed: true }} />
+      <AgentExtendedBy agentId={agent.id} requestedAfter={data.extendedAfter ?? null} result={data.extendedBy ?? { items: [], endCursor: null, hasMore: false, failed: true }} />
 
       <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
            The v1 per-agent asset-upload toggle is being replaced by a per-
