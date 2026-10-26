@@ -41,6 +41,13 @@ export const agentRegisterDefaultsSchema = z.object({
   mentionOnly: z.boolean().default(false),
 });
 
+// #1275: whether a worker's host resets its context when its task ends. An
+// unchecked checkbox is absent from the POST, which parses as an explicit false.
+export const agentResetContextSchema = z.object({
+  _kind: z.literal('resetContext').default('resetContext'),
+  resetContextAfterTask: z.boolean().default(false),
+});
+
 export const addAgentMemorySchema = z.object({
   _kind: z.literal('addMemory').default('addMemory'),
   memoryId: z.string().trim().min(1, 'Select a memory.').prefault(''),
@@ -70,6 +77,7 @@ export const deleteAgentSchema = z.object({
 
 export type AgentSettingsSchema = typeof agentSettingsSchema;
 export type AgentRegisterDefaultsSchema = typeof agentRegisterDefaultsSchema;
+export type AgentResetContextSchema = typeof agentResetContextSchema;
 export type AddAgentMemorySchema = typeof addAgentMemorySchema;
 export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;
 export type RemoveAgentMemorySchema = typeof removeAgentMemorySchema;

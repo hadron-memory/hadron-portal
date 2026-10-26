@@ -1753,6 +1753,24 @@ export const UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION = /* GraphQL */ `
   }
 `;
 
+// #1275 (hadron-server#2162): whether a worker's host resets its context when
+// the worker's task ends. Its own read, like registerDefaults: a server that has
+// not deployed the field refuses the whole document at validation, and in the
+// shared AgentFields fragment that would take the Agent page down with it.
+export const AGENT_RESET_CONTEXT_QUERY = /* GraphQL */ `
+  query AgentResetContext($ref: ID!) {
+    agent(ref: $ref) { id resetContextAfterTask }
+  }
+`;
+
+// Sends ONLY resetContextAfterTask (omitted means unchanged on the server), so
+// saving it can't touch any other agent setting.
+export const UPDATE_AGENT_RESET_CONTEXT_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentResetContext($ref: ID!, $resetContextAfterTask: Boolean!) {
+    updateAgent(ref: $ref, resetContextAfterTask: $resetContextAfterTask) { id resetContextAfterTask }
+  }
+`;
+
 export const DELETE_AGENT_MUTATION = /* GraphQL */ `
   mutation DeleteAgent($ref: ID!) { deleteAgent(ref: $ref) }
 `;

@@ -22,6 +22,9 @@ import {
   REMOVE_MEMORY_FROM_AGENT_MUTATION,
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
   AGENT_REGISTER_DEFAULTS_QUERY,
+  AGENT_RESET_CONTEXT_QUERY,
+  UPDATE_AGENT_RESET_CONTEXT_MUTATION,
+  UPDATE_AGENT_MUTATION,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
   APP_ORG_AGENT_GRANTS_QUERY,
   PUBLISH_AGENT_IMPORT_MUTATION,
@@ -114,6 +117,7 @@ function routeMock(opts: {
   apps?: { data?: unknown; error?: unknown };
   ownedApps?: { data?: unknown; error?: unknown };
   registerDefaults?: { data?: unknown; error?: unknown };
+  resetContext?: { data?: unknown; error?: unknown };
   orgAgents?: { data?: unknown; error?: unknown };
   extensions?: { data?: unknown; error?: unknown };
   systemIdentity?: { data?: unknown; error?: unknown };
@@ -173,6 +177,11 @@ function routeMock(opts: {
     if (query === AGENT_REGISTER_DEFAULTS_QUERY) {
       if (opts.registerDefaults?.error !== undefined) throw opts.registerDefaults.error;
       return opts.registerDefaults?.data ?? { agent: { id: 'agent-id-123', registerDefaults: { mentionOnly: false } } };
+    }
+    // #1275: its own read, so a server without the field costs only this control.
+    if (query === AGENT_RESET_CONTEXT_QUERY) {
+      if (opts.resetContext?.error !== undefined) throw opts.resetContext.error;
+      return opts.resetContext?.data ?? { agent: { id: 'agent-id-123', resetContextAfterTask: false } };
     }
     // #1173: the Bundled tab's candidates, a request of its own (a refusal
     // costs the add control, never the page).
@@ -828,6 +837,86 @@ describe('/app/agents/[id] register default (#942)', () => {
     expect((superFormFrom(forbidden)?.message as { text: string }).text).toBe('Only the agent’s owner or an organization admin can change this.');
     mockRequest.mockRejectedValueOnce(gqlError('AGENT_NOT_FOUND', 'AGENT_NOT_FOUND: agent-id-123'));
     const missing = await runRegisterDefaults({ _kind: 'registerDefaults' });
+    expect((superFormFrom(missing)?.message as { text: string }).text).toBe('This agent is not available to you.');
+  });
+});
+
+async function runResetContext(fields: Record<string, string>) {
+  const { actions } = await importMod();
+  return actions.updateResetContext(actionEv(fields));
+}
+
+describe('/app/agents/[id] context reset after a task (#1275)', () => {
+  it('loads the server value and seeds the form with it', async () => {
+    routeMock({
+      agent: { data: { agent: personalAgent } },
+      resetContext: { data: { agent: { id: 'agent-personal', resetContextAfterTask: true } } },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-personal' }))) as {
+      resetContext: unknown;
+      resetContextForm: { data: { resetContextAfterTask: boolean } };
+    };
+    expect(result.resetContext).toEqual({ kind: 'ok', value: true });
+    expect(result.resetContextForm.data.resetContextAfterTask).toBe(true);
+    expect(mockRequest).toHaveBeenCalledWith(AGENT_RESET_CONTEXT_QUERY, { ref: 'agent-personal' });
+  });
+
+  it('a server without the field (validation failure) is "absent": no control, no error', async () => {
+    routeMock({
+      agent: { data: { agent: personalAgent } },
+      resetContext: { error: gqlError('GRAPHQL_VALIDATION_FAILED', 'Cannot query field "resetContextAfterTask" on type "Agent".') },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-personal' }))) as { resetContext: unknown };
+    expect(result.resetContext).toEqual({ kind: 'absent' });
+  });
+
+  it('any other failed read is "failed", never a value of "off"', async () => {
+    routeMock({
+      agent: { data: { agent: personalAgent } },
+      resetContext: { error: new Error('boom') },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-personal' }))) as { resetContext: unknown };
+    expect(result.resetContext).toEqual({ kind: 'failed' });
+  });
+
+  it('sends ONLY resetContextAfterTask, with a checked box as true', async () => {
+    mockRequest.mockResolvedValue({ updateAgent: { id: 'agent-id-123', resetContextAfterTask: true } });
+    const result = await runResetContext({ _kind: 'resetContext', resetContextAfterTask: 'on' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Saved.' });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    const [query, vars] = mockRequest.mock.calls[0];
+    expect(query).toBe(UPDATE_AGENT_RESET_CONTEXT_MUTATION);
+    expect(vars).toEqual({ ref: 'agent-id-123', resetContextAfterTask: true });
+  });
+
+  it('an unchecked box (absent from the POST) clears it with an explicit false', async () => {
+    mockRequest.mockResolvedValue({ updateAgent: { id: 'agent-id-123', resetContextAfterTask: false } });
+    await runResetContext({ _kind: 'resetContext' });
+    expect(mockRequest.mock.calls[0][1]).toEqual({ ref: 'agent-id-123', resetContextAfterTask: false });
+  });
+
+  it('rejects another form\'s discriminator before calling the API', async () => {
+    const result = await runResetContext({ _kind: 'registerDefaults', resetContextAfterTask: 'on' });
+    expect(superFormFrom(result)?.valid).toBe(false);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('the Agent settings save never sends the field, by omission or by default', () => {
+    expect(UPDATE_AGENT_MUTATION).not.toMatch(/resetContextAfterTask/);
+  });
+
+  it('a refusal renders as text, not the server wording', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR', 'Forbidden'));
+    const refused = await runResetContext({ _kind: 'resetContext', resetContextAfterTask: 'on' });
+    const msg = superFormFrom(refused)?.message as { type: string; text: string };
+    expect(msg.type).toBe('error');
+    expect(msg.text).toBe('Not saved. Changing this needs the agent’s owner or an organization admin.');
+    expect(msg.text).not.toContain('Forbidden');
+    mockRequest.mockRejectedValueOnce(gqlError('AGENT_NOT_FOUND', 'AGENT_NOT_FOUND: agent-id-123'));
+    const missing = await runResetContext({ _kind: 'resetContext' });
     expect((superFormFrom(missing)?.message as { text: string }).text).toBe('This agent is not available to you.');
   });
 });

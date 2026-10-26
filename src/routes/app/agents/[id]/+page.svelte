@@ -30,6 +30,7 @@
   import {
     addAgentMemorySchema,
     agentRegisterDefaultsSchema,
+    agentResetContextSchema,
     agentSettingsSchema,
     deleteAgentSchema,
     removeAgentMemorySchema,
@@ -38,12 +39,14 @@
 
   type AgentSettingsForm = Infer<typeof agentSettingsSchema, 'zod4'>;
   type AgentRegisterDefaultsForm = Infer<typeof agentRegisterDefaultsSchema, 'zod4'>;
+  type AgentResetContextForm = Infer<typeof agentResetContextSchema, 'zod4'>;
   type AddAgentMemoryForm = Infer<typeof addAgentMemorySchema, 'zod4'>;
   type UpdateAgentMemoryRoleForm = Infer<typeof updateAgentMemoryRoleSchema, 'zod4'>;
   type RemoveAgentMemoryForm = Infer<typeof removeAgentMemorySchema, 'zod4'>;
   type DeleteAgentForm = Infer<typeof deleteAgentSchema, 'zod4'>;
   type AgentSettingsSuperform = SuperValidated<AgentSettingsForm, App.Superforms.Message, AgentSettingsForm>;
   type AgentRegisterDefaultsSuperform = SuperValidated<AgentRegisterDefaultsForm, App.Superforms.Message, AgentRegisterDefaultsForm>;
+  type AgentResetContextSuperform = SuperValidated<AgentResetContextForm, App.Superforms.Message, AgentResetContextForm>;
   type AddAgentMemorySuperform = SuperValidated<AddAgentMemoryForm, App.Superforms.Message, AddAgentMemoryForm>;
   type UpdateAgentMemoryRoleSuperform = SuperValidated<UpdateAgentMemoryRoleForm, App.Superforms.Message, UpdateAgentMemoryRoleForm>;
   type RemoveAgentMemorySuperform = SuperValidated<RemoveAgentMemoryForm, App.Superforms.Message, RemoveAgentMemoryForm>;
@@ -300,6 +303,50 @@
   const registerDefaultsError = $derived($registerDefaultsMessage?.type === 'error' ? $registerDefaultsMessage.text : null);
   const registerDefaultsSuccess = $derived($registerDefaultsMessage?.type === 'success' ? $registerDefaultsMessage.text : null);
 
+  // #1275: the context-reset switch, written like the register default above
+  // and for the same reasons (#942/#971): the saved value is kept after a save,
+  // a reused component re-seeds on another agent, a clean form follows the
+  // server and an edited one does not, and a refused no-JS submit keeps the
+  // attempted value beside its error.
+  const resetContextSaved = $derived(data.resetContext.kind === 'ok' ? data.resetContext.value : false);
+  const initialResetContextForm = untrack(() => submittedForm<AgentResetContextForm>(form, 'resetContext') as AgentResetContextSuperform | null ?? data.resetContextForm);
+  const {
+    form: resetContextForm,
+    message: resetContextMessage,
+    submitting: resetContextSubmitting,
+    enhance: resetContextEnhance,
+    isTainted: resetContextIsTainted,
+    reset: resetContextReset,
+  } = superForm<AgentResetContextForm, App.Superforms.Message, AgentResetContextForm>(initialResetContextForm, {
+    validators: zod4Client(agentResetContextSchema),
+    validationMethod: 'oninput',
+    clearOnSubmit: 'none',
+    resetForm: false,
+  });
+  let resetContextAgentId = untrack(() => data.agent.id);
+  let resetContextSeeded = false;
+  $effect(() => {
+    const seeded = resetContextSaved;
+    const agentId = data.agent.id;
+    untrack(() => {
+      if (!resetContextSeeded) {
+        resetContextSeeded = true;
+      } else if (agentId !== resetContextAgentId) {
+        resetContextAgentId = agentId;
+        resetContextReset({ data: { resetContextAfterTask: seeded }, newState: { resetContextAfterTask: seeded } });
+      } else if (!resetContextIsTainted()) {
+        resetContextForm.update((current) => ({ ...current, resetContextAfterTask: seeded }), { taint: false });
+      }
+    });
+  });
+  function clearResetContextSaved() {
+    if ($resetContextMessage?.type === 'success') resetContextMessage.set(undefined);
+  }
+  const resetContextError = $derived($resetContextMessage?.type === 'error' ? $resetContextMessage.text : null);
+  const resetContextSuccess = $derived($resetContextMessage?.type === 'success' ? $resetContextMessage.text : null);
+  // Save is offered only for a change, so an unchanged value sends nothing.
+  const resetContextChanged = $derived($resetContextForm.resetContextAfterTask !== resetContextSaved);
+
   const initialAddMemoryForm = untrack(() => submittedForm<AddAgentMemoryForm>(form, 'addMemory') as AddAgentMemorySuperform | null ?? data.addMemoryForm);
   const {
     form: addMemoryForm,
@@ -448,7 +495,7 @@
   // fresh page on Profile; open Settings so its result and the attempted value
   // are visible, as the delete form above does (#971 Codex P2).
   $effect(() => {
-    if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults') || submittedForm<{ _kind: 'setAgentBase' }>(form, 'setAgentBase') || submittedForm<{ _kind: 'setAgentIndexRefs' }>(form, 'setAgentIndexRefs')) activeTab = 'settings';
+    if (submittedForm<AgentRegisterDefaultsForm>(form, 'registerDefaults') || submittedForm<AgentResetContextForm>(form, 'resetContext') || submittedForm<{ _kind: 'setAgentBase' }>(form, 'setAgentBase') || submittedForm<{ _kind: 'setAgentIndexRefs' }>(form, 'setAgentIndexRefs')) activeTab = 'settings';
   });
   // portal#1142 S8: a no-JS pointer result opens Settings too, where it shows.
   $effect(() => {
@@ -1627,6 +1674,39 @@
           </form>
         {/if}
       </section>
+
+      <!-- #1275: whether a worker's host resets its context when its task ends.
+           Saved on its own (only resetContextAfterTask is sent). Not rendered at
+           all while the deployed server has no such field. The server decides who
+           may change it; this page shows its refusal as text. The copy promises
+           nothing about what a reset keeps, and says it is inert on a host that
+           does not support it. -->
+      {#if data.resetContext.kind !== 'absent'}
+        <section class="max-w-lg" aria-labelledby="resetContextHeading">
+          <h2 id="resetContextHeading" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('agent.reset-context.heading', 'Context reset')}</h2>
+          <p class="mb-3 text-sm text-zinc-500">{t('agent.reset-context.help', 'When one of this agent’s workers finishes or cancels a task it started, and has no other started task, its host resets the worker’s context. The worker keeps its session. This takes effect only on hosts that support context reset; on any other host it does nothing. A reset clears what the worker was holding in mind, so keep anything important in its tasks or memories.')}</p>
+          {#if data.resetContext.kind === 'failed'}
+            <p role="alert" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">{t('agent.reset-context.load-failed', 'The current setting could not be loaded. Reload the page to try again.')}</p>
+          {:else}
+            <form method="POST" action="?/updateResetContext" use:resetContextEnhance novalidate
+              class="space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+              <input type="hidden" name="_kind" value={$resetContextForm._kind} />
+              <label class="flex items-start gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                <input type="checkbox" name="resetContextAfterTask" bind:checked={$resetContextForm.resetContextAfterTask} onchange={clearResetContextSaved} class="mt-0.5" />
+                <span>{t('agent.reset-context.label', 'Reset the worker’s context when its task ends')}</span>
+              </label>
+              {#if resetContextError}
+                <p role="alert" class="text-sm text-red-600 dark:text-red-400">{resetContextError}</p>
+              {:else if resetContextSuccess}
+                <p role="status" class="text-sm text-emerald-600 dark:text-emerald-400">{resetContextSuccess}</p>
+              {/if}
+              <button type="submit" disabled={$resetContextSubmitting || !resetContextChanged} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:opacity-50">
+                {$resetContextSubmitting ? t('agent.reset-context.saving', 'Saving…') : t('agent.reset-context.save', 'Save')}
+              </button>
+            </form>
+          {/if}
+        </section>
+      {/if}
 
       <!-- Danger zone -->
       <section class="max-w-lg">
