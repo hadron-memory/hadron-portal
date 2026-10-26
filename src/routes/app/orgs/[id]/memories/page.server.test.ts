@@ -214,8 +214,8 @@ describe('memories-list syncAll action', () => {
       },
     });
     // The real SYNC_MEMORY_MUTATION response carries MemoryFields' syncStatus.
-    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'OK' } });
-    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-3', syncStatus: 'OK' } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: '2026-10-26T01:02:03.000Z' } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-3', syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: '2026-10-26T01:02:03.000Z' } });
 
     const result = await runAction('syncAll', {});
 
@@ -255,7 +255,7 @@ describe('memories-list syncAll action', () => {
         ],
       },
     });
-    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'OK' } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'mem-1', syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: '2026-10-26T01:02:03.000Z' } });
     mockRequest.mockRejectedValueOnce(new Error('nope'));
 
     const result = (await runAction('syncAll', {})) as {
@@ -486,5 +486,16 @@ describe('org memories load() — the org comes from THIS LOADER (#382 → #845)
     // … and pub-2 survives, which proves the filter ran rather than the list
     // being empty.
     expect(result.availableMemories.map((m) => m.id)).toContain('pub-2');
+  });
+});
+
+describe('syncAll stored report', () => {
+  it.each(['partial', 'unknown', 'malformed', 'omitted'])('lists %s as notes, never all clean', async outcome => {
+    const at = '2026-10-26T01:02:03.000Z';
+    mockRequest.mockResolvedValueOnce({ organization: { memories: [{ id: 'm', name: 'Docs', source: 'synthetic' }] } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'OK', lastSyncedAt: at, ...(outcome === 'omitted' ? {} : { lastSyncReport: outcome === 'malformed' ? 'ghs_SECRET' : JSON.stringify({ version: 1, outcome, recordedAt: at, entries: [] }) }) } });
+    const result = await runAction('syncAll') as { form: { message: { type: string; text: string } } };
+    expect(result.form.message.type).toBe('success'); expect(result.form.message.text).toContain('Synced with notes: Docs');
+    expect(result.form.message.text).not.toContain('All memories synced.'); expect(result.form.message.text).not.toContain('ghs_SECRET');
   });
 });
