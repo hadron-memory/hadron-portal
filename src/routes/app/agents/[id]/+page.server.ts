@@ -185,10 +185,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       .catch(() => null),
     loadAgentInheritance(client, agent.id),
     loadInheritanceManagement(client, agent.id, agent.urn, locals.user?.id ?? null, !!locals.impersonation),
-    // #1108: parent-agent picker candidates — same-scope and access-scoped
-    // (org list for an org Agent, the caller's own agents for a personal
-    // one). Null on failure: the picker degrades to a "could not load" note
-    // and never to a fake-empty list.
+    // #1108/#1278: parent-agent candidates include readable active org grants.
+    // A failed grants read drops only that pool; a failed primary read is null
+    // so the picker shows "could not load", not a fake-empty list.
     loadBaseCandidates(client, locals.token, agent.organizationId, agent.id),
     // portal#1142 S8: the Agent's boot-prompt pointer (its own read, so a
     // failure is not a null pointer), and whether to offer its form.
