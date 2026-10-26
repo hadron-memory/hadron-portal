@@ -973,9 +973,18 @@ it('#1170 passes the URL continuation to the authorized reverse read and resolve
   expect(mockRequest).toHaveBeenCalledWith(AGENT_SYSTEM_MEMORY_IDENTITY_QUERY, { ref: 'system' });
   expect(result.extendedBy).toMatchObject({ hasMore: true, items: [], endCursor: 'opaque-next', failed: false });
   expect(result.systemMemoryIdentity).toEqual(memory);
+  expect(result.extendedAfter).toBe('opaque-after');
 });
 it('#1170 never starts reverse enumeration when the base Agent is unreadable', async () => {
   routeMock({ agent: { data: { agent: null } } });
   await expect((await importLoad())(ev())).rejects.toMatchObject({ status: 404 });
   expect(mockRequest).not.toHaveBeenCalledWith(AGENT_EXTENSIONS_QUERY, expect.anything());
+});
+
+it('#1261 returns the raw requested page even when the reverse read fails', async () => {
+  routeMock({ agent: { data: { agent: personalAgent } }, extensions: { error: new Error('expired') } });
+  const event = ev(); event.url.searchParams.set('extendedAfter', 'opaque+/=');
+  const result = await (await importLoad())(event) as any;
+  expect(result.extendedAfter).toBe('opaque+/=');
+  expect(result.extendedBy.failed).toBe(true);
 });
