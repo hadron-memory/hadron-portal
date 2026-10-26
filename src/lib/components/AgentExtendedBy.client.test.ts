@@ -137,3 +137,27 @@ it('a completed Retry does not move focus after its section unmounts', async () 
   try { finish(); await tick(5); expect(document.activeElement).toBe(other); }
   finally { other.remove(); }
 });
+
+it('keeps search when a parent replaces its loader Agent object with the same identity, including Retry', async () => {
+  setStubPage('http://localhost/app/agents/base');
+  const loader = reactiveProps({ agent: { id: 'base' }, after: null as string | null, result: { ...empty, failed: true } });
+  // Match Svelte's parent-generated prop getter, which reads the refreshed object.
+  const props = {
+    get agentId() { return loader.agent.id; },
+    get requestedAfter() { return loader.after; },
+    get result() { return loader.result; },
+  };
+  const m = mountComponent(AgentExtendedBy, props); mounted.push(m); await tick(5);
+  const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search extending Agents on this page"]')!;
+  search.value = 'Ext 1'; search.dispatchEvent(new Event('input', { bubbles: true })); await tick(5);
+  loader.agent = { id: 'base' }; loader.result = { ...loader.result }; await tick(5);
+  expect(search.value).toBe('Ext 1');
+  navigationHooks.onInvalidateAll = () => { loader.agent = { id: 'base' }; loader.result = { ...loader.result }; };
+  m.target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(5);
+  expect(search.value).toBe('Ext 1');
+  loader.after = 'next'; await tick(5);
+  expect(search.value).toBe('');
+  search.value = 'Ext 1'; search.dispatchEvent(new Event('input', { bubbles: true })); await tick(5);
+  loader.agent = { id: 'different' }; await tick(5);
+  expect(search.value).toBe('');
+});

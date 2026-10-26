@@ -42,11 +42,11 @@
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
-  // Reset only page-local state, never the grid arrangement or surrounding forms.
-  // Read both identity scalars; same-page result refreshes retain the search.
+  // Parent prop getters can depend on the whole refreshed loader object.
+  // A derived primitive compares equal on same-page refreshes before the reset runs.
+  const pageIdentity = $derived(JSON.stringify([agentId, requestedAfter]));
   $effect(() => {
-    agentId;
-    requestedAfter;
+    pageIdentity;
     untrack(() => { filter = ''; table.setPageIndex(0); });
   });
 </script>
