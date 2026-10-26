@@ -1,3 +1,4 @@
+import { castWorkerSchema } from './schema';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
@@ -915,7 +916,7 @@ describe('deleteApp action', () => {
 //          personaRole while '' would be an explicit-and-invalid role
 
 describe('castWorker action', () => {
-  it('casts an installed agent under an explicit name and role', async () => {
+  it('casts an installed agent without forwarding a stale role override', async () => {
     mockRequest.mockResolvedValueOnce({});
     const result = await runAction('castWorker', {
       agentId: 'agent-1',
@@ -931,7 +932,6 @@ describe('castWorker action', () => {
         appRef: 'app-1',
         agentRef: 'agent-1',
         name: 'Iris',
-        role: 'backend-engineer',
         promptOverride: undefined,
       },
     ]);
@@ -954,13 +954,15 @@ describe('castWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('still sends a blank ROLE as UNDEFINED, not ""', async () => {
+  it('omits role entirely from the schema, mutation and variables', async () => {
     // Unchanged by #1050: an omitted role inherits the agent's personaRole,
     // while '' would be an explicit-and-invalid role.
     mockRequest.mockResolvedValueOnce({});
     await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '' });
     const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
-    expect(vars.role).toBeUndefined();
+    expect(vars).not.toHaveProperty('role');
+    expect(castWorkerSchema.shape).not.toHaveProperty('role');
+    expect(CAST_WORKER_MUTATION).not.toMatch(/\$role|role:\s*\$role/);
     expect(vars.name).toBe('Iris');
   });
 
@@ -1016,6 +1018,16 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toMatch(/needs a name/i);
     // The dead register vocabulary must not come back with it.
     expect(result.data.form.message.text).not.toMatch(/cast list|register/i);
+  });
+
+  it('translates a stale-client role override refusal', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'WORKER_ROLE_OVERRIDE_REFUSED', extensions: { code: 'WORKER_ROLE_OVERRIDE_REFUSED' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: 'old-role' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toBe('A worker’s role comes from its agent. Reload this page and choose the agent for the role you need.');
   });
 
   it('translates WORKER_AGENT_NOT_INSTALLED', async () => {
