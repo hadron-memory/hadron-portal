@@ -79,7 +79,10 @@ describe('lanes', () => {
     expect(html).toContain('hrn:worker:acme.com:team:c');
     expect(html).toContain('hrn:worker:acme.com:team:w1');
     expect(html).toContain('(retired)');
-    expect(html.match(/\(retired\)/g)).toHaveLength(1);
+    // Cleo is the only retired coordinator: marked on her lane row and on her one worker's Reports to, nowhere else.
+    expect(html.match(/\(retired\)/g)).toHaveLength(2);
+    expect(html).toMatch(/data-lane="c"[\s\S]*?\(retired\)/);
+    expect(html).not.toMatch(/data-lane="z"[^>]*>(?:(?!data-lane=)[\s\S])*?\(retired\)/);
     expect(html).toContain('Unassigned');
     expect(html).not.toMatch(/hrn:worker:acme.com:team:null|hrn:worker:acme.com:team:undefined/);
   });
