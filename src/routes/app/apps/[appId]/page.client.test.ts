@@ -1130,13 +1130,13 @@ describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
 
 describe('Cast role follows the selected Agent (#1319)', () => {
   it('has no role input and updates the read-only role when the Agent changes', async () => {
-    setStubPage('https://example.test/app/apps/a1?tab=worker-agents', { appId: 'a1' });
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
     const data = await pageData();
     Object.assign(data.app, { agents: [
       { id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
       { id: 'agent-b', name: 'QA Engineer', urn: 'hrn:agent:acme.com:qa', personaRole: 'qa-engineer' },
     ] });
-    data.initialTab = 'worker-agents';
+    data.initialTab = 'staff';
     const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     await tick(2);
