@@ -14,6 +14,13 @@ describe('castableAgentOptions (#1032)', () => {
     expect(options.map((a) => a.id)).toEqual(['2']);
   });
 
+  it('preserves the whole installed Agent, including its canonical URN', () => {
+    const installed = { ...agent('1', 'Portal Engineer', 'portal-engineer'), urn: 'hrn:agent:acme.com:portal', description: 'Role agent' };
+    const [option] = castableAgentOptions([installed]);
+    expect(option).toBe(installed);
+    expect(option.urn).toBe('hrn:agent:acme.com:portal');
+  });
+
   it('sorts by name, case-insensitively, regardless of install order', () => {
     const options = castableAgentOptions([
       agent('1', 'UX Designer', 'ux-designer'),

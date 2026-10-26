@@ -1156,7 +1156,33 @@ describe('Cast role follows the selected Agent (#1319)', () => {
       agent.dispatchEvent(new Event('change', { bubbles: true }));
       await tick(2);
       expect(role.textContent).toContain(expected);
+      const expectedUrn = id === 'agent-a' ? 'hrn:agent:acme.com:portal' : id === 'agent-b' ? 'hrn:agent:acme.com:qa' : null;
+      const urnCopies = form.querySelectorAll('button[title="Copy URN"]');
+      expect(urnCopies).toHaveLength(expectedUrn ? 1 : 0);
+      if (expectedUrn) expect(form.querySelector(`span[title="${expectedUrn}"]`)).not.toBeNull();
       expect(new FormData(form).has('role')).toBe(false);
     }
   });
+
+  it.each([null, '', '   '])('shows an explicit no-role state for a restored selected Agent with role %j', async (personaRole) => {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [
+      { id: 'roleless', name: 'Changed Agent', urn: 'hrn:agent:acme.com:changed', personaRole },
+      { id: 'valid', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
+    ] });
+    data.initialTab = 'staff';
+    data.castWorkerForm.data.agentId = 'roleless';
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    await tick(2);
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    expect(form.querySelector('#castRole')?.textContent).toContain('This agent has no role. Choose a different agent.');
+    expect(form.querySelector('#castRole')?.textContent).not.toContain('Select an agent');
+    expect(form.querySelector('[name="role"]')).toBeNull();
+    expect(form.querySelector('span[title="hrn:agent:acme.com:changed"]')).not.toBeNull();
+  });
+
 });
