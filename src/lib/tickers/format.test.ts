@@ -93,6 +93,10 @@ describe('ticker reasons (portal#1144)', () => {
   it('an empty list says the ticker never fires; it is not blank and not a default', () => {
     expect(reasonsText([])).toBe('No reasons: never fires');
   });
+  it('a list with a non-string element is unavailable, not rendered as the text "null"', () => {
+    expect(reasonsText([null])).toBe('Reasons unavailable');
+    expect(reasonsText(['EVERY_TICK', 3])).toBe('Reasons unavailable');
+  });
   it('a missing or malformed list is unavailable, not "never fires"', () => {
     expect(reasonsText(undefined)).toBe('Reasons unavailable');
     expect(reasonsText('EVERY_TICK')).toBe('Reasons unavailable');
@@ -101,7 +105,8 @@ describe('ticker reasons (portal#1144)', () => {
     const help = reasonHelp('EVERY_TICK')!;
     expect(help).toContain('even with no new chat');
     for (const limit of ['floor', 'budget', 'pause', 'quiet hours', 'dormancy']) expect(help).toContain(limit);
-    expect(help).not.toMatch(/unconditional|\bonly\b/i);
+    expect(help).toContain('costs one wake per subscriber per tick');
+    expect(help).not.toMatch(/unconditional|every subscriber is always woken/i);
     expect(help).not.toMatch(/\bAND\b/);
   });
   it('searches by reason label', () => {

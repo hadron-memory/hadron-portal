@@ -136,7 +136,7 @@ export function reasonLabel(reason: string): string {
 export function reasonHelp(reason: string): string | null {
   switch (reason) {
     case 'READ_TEAM_CHANNEL': return t('tickers.reason.read-team-channel.help', 'Wakes a subscriber that has relevant unread in this ticker’s channels.');
-    case 'EVERY_TICK': return t('tickers.reason.every-tick.help', 'Wakes subscribers every tick even with no new chat. The floor, daily budget, pause, quiet hours and dormancy still apply.');
+    case 'EVERY_TICK': return t('tickers.reason.every-tick.help', 'Wakes subscribers every tick even with no new chat, so it costs one wake per subscriber per tick against the daily budget. The floor, daily budget, pause, quiet hours and dormancy still apply.');
     case 'LIVE_CHECK': return t('tickers.reason.live-check.help', 'Wakes a subscriber that has not checked its team channel within this ticker’s cadence, whatever is unread. Never for a worker not expected to check.');
     default: return null;
   }
@@ -147,7 +147,7 @@ export const reasonsUnavailableText = () => t('tickers.reasons.unavailable', 'Re
 
 /** The reasons as the server sent them. Empty never fires; a missing list is unavailable, not empty. */
 export function reasonsText(reasons: unknown): string {
-  if (!Array.isArray(reasons)) return reasonsUnavailableText();
+  if (!Array.isArray(reasons) || !reasons.every((r) => typeof r === 'string')) return reasonsUnavailableText();
   if (reasons.length === 0) return noReasonsText();
   return reasons.map((r) => reasonLabel(String(r))).join(', ');
 }

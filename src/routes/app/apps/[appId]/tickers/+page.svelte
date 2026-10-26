@@ -85,7 +85,7 @@
     { id: 'state', accessorFn: (r) => r.stateText, header: t('app.tickers.col.state', 'State'), size: 84 },
     { id: 'cadence', accessorFn: (r) => r.cadence, header: t('app.tickers.col.every', 'Every'), size: 76 },
     { id: 'quiet', accessorFn: (r) => r.quiet, header: t('app.tickers.col.quiet', 'Quiet hours'), size: 240 },
-    { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Reasons'), size: 200 },
+    { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Wakes when'), size: 200 },
     { id: 'channels', accessorFn: (r) => r.channelsText, header: t('app.tickers.col.counts', 'Counts'), size: 240 },
     { id: 'subscribers', accessorFn: (r) => r.subscriberCount, header: t('app.tickers.col.subscribers', 'Subscribers'), enableGlobalFilter: false, size: 120 },
     { id: 'next', accessorFn: (r) => r.nextMs, header: t('app.tickers.col.next', 'Next tick'), size: 150 },
@@ -207,7 +207,7 @@
             <span class="block max-w-full truncate" title={row.quiet}>{row.quiet}</span>
           {:else if cell.column.id === 'reasons'}
             <span class="flex min-w-0 flex-wrap items-center gap-1">
-              {#if !Array.isArray(row.ticker.reasons)}
+              {#if reasonsText(row.ticker.reasons) === reasonsUnavailableText()}
                 <span class="text-zinc-500 dark:text-zinc-400">{reasonsUnavailableText()}</span>
               {:else if row.ticker.reasons.length === 0}
                 <span class="text-zinc-500 dark:text-zinc-400">{noReasonsText()}</span>

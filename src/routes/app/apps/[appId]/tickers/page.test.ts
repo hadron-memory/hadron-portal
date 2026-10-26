@@ -256,7 +256,7 @@ describe('ticker reasons (portal#1144)', () => {
   const reasoned = (reasons: unknown) => ticker({ reasons });
   it('the list shows a Reasons column with a badge per reason, Every tick explicit', () => {
     const html = list({ tickers: { kind: 'ok', value: [reasoned(['READ_TEAM_CHANNEL']), reasoned(['EVERY_TICK', 'READ_TEAM_CHANNEL'])].map((tk, i) => ({ ...tk, id: `tk-${i}` })) } });
-    expect(html).toContain('Reasons');
+    expect(html).toContain('Wakes when');
     expect(html).toContain('Team chat');
     expect(html).toContain('Every tick');
     expectReadOnly(html);
@@ -277,6 +277,36 @@ describe('ticker reasons (portal#1144)', () => {
     expect(item).toContain('quiet hours');
     expect(item).toContain('dormancy');
     expectReadOnly(html);
+  });
+  it('markup in a reason value is escaped in the list and the detail, never rendered', () => {
+    const list_ = list({ tickers: { kind: 'ok', value: [reasoned(['<b>X</b>'])] } });
+    const detail_ = detail({ ticker: reasoned(['<b>X</b>']) });
+    for (const html of [list_, detail_]) {
+      expect(html).toContain('&lt;b>X&lt;/b>');
+      expect(html).not.toContain('<b>X</b>');
+    }
+  });
+  it('a missing or non-array reasons reads as unavailable in both views, never as never firing', () => {
+    for (const bad of [undefined, 'EVERY_TICK', null]) {
+      const l = list({ tickers: { kind: 'ok', value: [reasoned(bad)] } });
+      const d = detail({ ticker: reasoned(bad) });
+      for (const html of [l, d]) {
+        expect(html).toContain('Reasons unavailable');
+        expect(html).not.toContain('never fires');
+      }
+    }
+  });
+  it('renders Live check, and the any-of note only when there are several reasons', () => {
+    const one = detail({ ticker: reasoned(['LIVE_CHECK']) });
+    expect(one).toContain('Live check');
+    expect(one).toContain('has not checked its team channel');
+    expect(one).not.toContain('Any one of these wakes a subscriber.');
+    const two = detail({ ticker: reasoned(['LIVE_CHECK', 'EVERY_TICK']) });
+    expect(two).toContain('Any one of these wakes a subscriber.');
+  });
+  it('the every-tick sentence names the cost clause next to the limits', () => {
+    const html = detail({ ticker: reasoned(['EVERY_TICK']) });
+    expect(html).toContain('costs one wake per subscriber per tick against the daily budget');
   });
   it('the detail page shows an unknown reason raw and an empty list as never firing', () => {
     expect(detail({ ticker: reasoned(['SOMETHING_NEW']) })).toContain('SOMETHING_NEW');
