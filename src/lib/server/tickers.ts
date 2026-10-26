@@ -26,7 +26,7 @@ import type {
 const TICKER_FIELDS = /* GraphQL */ `
   fragment TickerFields on Ticker {
     id name slug urn enabled cadenceSeconds anchorAt nextTickAt lastTickAt
-    quietHours relevance createdAt updatedAt
+    quietHours relevance reasons createdAt updatedAt
     channels { id name }
     owner { id name urn }
   }

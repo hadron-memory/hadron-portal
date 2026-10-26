@@ -120,6 +120,38 @@ export interface TeamRoster {
   workers: TeamRosterEntry[];
 }
 
+/**
+ * portal#1316 (hadron-server#2061 / #2475) — `teamComposition`: the roster's
+ * workers grouped by their direct `reportsTo` coordinator, with the server's
+ * own headcounts. Lanes arrive ordered by coordinator name, the unassigned
+ * (null-coordinator) lane last; roles and families arrive null-last. The page
+ * keeps that order and recounts nothing.
+ */
+export interface TeamCompositionWorker {
+  worker: AgentTaskParty;
+  role: string | null;
+  family: string | null;
+  /** A session is bound, and a live session is another fact: neither alone is availability or permission. */
+  bound: boolean;
+  liveSession: boolean;
+  state: string;
+}
+
+export interface TeamCompositionLane {
+  /** Null for the single unassigned lane. */
+  coordinator: AgentTaskParty | null;
+  coordinatorRetired: boolean;
+  workers: TeamCompositionWorker[];
+  countsByRole: { role: string | null; count: number }[];
+  countsByRoleFamily: { role: string | null; family: string | null; count: number }[];
+}
+
+export interface TeamComposition {
+  appId: string;
+  asOf: string;
+  lanes: TeamCompositionLane[];
+}
+
 /** An alarm as the Alarms list reads it: `AgentTeamEvent` with `alarmsOnly`. */
 export interface AgentAlarm {
   id: string;

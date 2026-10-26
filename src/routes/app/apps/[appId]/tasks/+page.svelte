@@ -8,6 +8,7 @@
   import TasksReadOnlyNote from '$lib/components/agent-tasks/TasksReadOnlyNote.svelte';
   import NotParticipant from '$lib/components/agent-tasks/NotParticipant.svelte';
   import TasksRoster from '$lib/components/agent-tasks/TasksRoster.svelte';
+  import TasksComposition from '$lib/components/agent-tasks/TasksComposition.svelte';
   import TasksAlarms from '$lib/components/agent-tasks/TasksAlarms.svelte';
   import { TASK_VIEWS, taskViewLabel, type TaskView } from '$lib/agent-tasks/views';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -148,7 +149,7 @@
     <TasksReadOnlyNote view={data.view ?? 'board'} />
   </div>
 
-  <!-- §2: Board · Roster · Alarms, addressed by ?view=. Its own row scrolls on a phone, never the page. -->
+  <!-- §2: Board · Roster · Composition · Alarms, addressed by ?view=. Its own row scrolls on a phone, never the page. -->
   <nav aria-label={t('app.tasks.view.label', 'Task views')} class="-mx-1 flex overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     {#each TASK_VIEWS as v (v)}
       <a
@@ -163,6 +164,8 @@
 
   {#if data.view === 'roster' && data.roster}
     <TasksRoster roster={data.roster} titles={data.titles} {basePath} impersonating={data.impersonating} />
+  {:else if data.view === 'composition' && data.composition}
+    <TasksComposition composition={data.composition} {basePath} impersonating={data.impersonating} />
   {:else if data.view === 'alarms' && data.alarms}
     <TasksAlarms alarms={data.alarms} filter={data.alarmFilter} limit={data.alarmsLimit} titles={data.titles} {basePath} impersonating={data.impersonating} />
   {:else if !board}

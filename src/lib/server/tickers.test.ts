@@ -25,6 +25,13 @@ describe('S7a is read-only', () => {
   });
 });
 
+describe('ticker reasons (portal#1144)', () => {
+  it('the list and the detail read share a fragment that selects reasons', () => {
+    expect(tickers.APP_TICKERS_QUERY).toMatch(/fragment TickerFields on Ticker \{[^}]*\breasons\b/);
+    expect(tickers.TICKER_QUERY).toMatch(/fragment TickerFields on Ticker \{[^}]*\breasons\b/);
+  });
+});
+
 describe('loadTickers', () => {
   it('ok with the rows', async () => {
     request.mockResolvedValueOnce({ tickers: [{ id: 't1' }] });

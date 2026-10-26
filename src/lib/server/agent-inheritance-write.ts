@@ -1,7 +1,8 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlError } from './gqlError';
 import { fetchOwnedAgents } from './personal-agents';
-import { APP_ORG_AGENTS_QUERY } from './queries';
+import { APP_ORG_AGENTS_QUERY, APP_ORG_AGENT_GRANTS_QUERY } from './queries';
+import { mergeInstallableAgents, type OrgAgentPool } from './installable-agents';
 import { t } from '$lib/i18n/t';
 
 export const SELF_AGENT_MANAGE_QUERY = /* GraphQL */ `
@@ -49,15 +50,12 @@ export interface BaseCandidate {
 }
 
 /**
- * #1108: parent-agent picker candidates, already access-scoped by whichever
- * query returns them — an org agent's parents come from the org's
- * member-readable agent list (APP_ORG_AGENTS_QUERY), a personal agent's from
- * the caller's own agents (MY_AGENTS_QUERY, server-side ownedByMe — never an
- * admin-bypass surface). The picker is advisory: setAgentBase eligibility
- * stays authoritative server-side, so this list only needs to avoid OFFERING
- * what the caller cannot even see. Self is filtered (a cycle the server would
- * refuse anyway). Null — not [] — on failure, so the picker says "could not
- * load" instead of pretending there are no candidates.
+ * #1108/#1278: offer org-owned agents and readable agents with an active org
+ * grant, or the caller's own agents for a personal child. Grant reads are
+ * independent: their failure drops only that pool, never owned candidates.
+ * The shared grant filter excludes revoked/expired/unreadable rows and dedupes
+ * owned first. setAgentBase remains the authoritative eligibility gate.
+ * Null means the primary candidate read failed, not an empty legal pool.
  */
 export async function loadBaseCandidates(
   client: GraphQLClient,
@@ -66,9 +64,16 @@ export async function loadBaseCandidates(
   selfId: string,
 ): Promise<BaseCandidate[] | null> {
   try {
-    const agents: BaseCandidate[] = organizationId
-      ? (await client.request<{ organization: { agents: BaseCandidate[] } | null }>(APP_ORG_AGENTS_QUERY, { ref: organizationId })).organization?.agents ?? []
-      : await fetchOwnedAgents(token);
+    let agents: BaseCandidate[];
+    if (organizationId) {
+      const [owned, grants] = await Promise.all([
+        client.request<{ organization: { agents: BaseCandidate[] } | null }>(APP_ORG_AGENTS_QUERY, { ref: organizationId }),
+        client.request<{ organization: Pick<OrgAgentPool, 'agentOrgGrants'> | null }>(APP_ORG_AGENT_GRANTS_QUERY, { ref: organizationId }).catch(() => null),
+      ]);
+      agents = mergeInstallableAgents({ agents: owned.organization?.agents ?? [], agentOrgGrants: grants?.organization?.agentOrgGrants });
+    } else {
+      agents = await fetchOwnedAgents(token);
+    }
     return agents.filter((a) => a.id !== selfId);
   } catch {
     return null;
