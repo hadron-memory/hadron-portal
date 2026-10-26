@@ -45,10 +45,16 @@ try {
     const input = page.locator('input[placeholder="Search nodes..."]');
     await input.waitFor();
     const rows = () => page.$$eval('tbody tr', (trs) => trs.map((r) => r.textContent ?? ''));
-    const search = async (text) => {
+    // Waits for the table to reach the expected row count (bounded), then reads
+    // the settled rows. Every search below changes the count from the previous
+    // state, so a filter that never applies times out as a failed assertion
+    // instead of racing a fixed sleep.
+    const search = async (text, expected) => {
       await input.fill(text);
-      // Let the table re-render the filtered rows before reading them.
-      await page.waitForTimeout(150);
+      await page
+        .waitForFunction((n) => document.querySelectorAll('tbody tr').length === n, expected, { timeout: 5000 })
+        .catch(() => {});
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
     };
     const label = `${name}`;
 
@@ -56,20 +62,20 @@ try {
     if (query.startsWith('hrn:')) assert.ok(await page.$(`tbody [title="${query}"]`), `${label}: the URN is displayed`);
     else assert.ok((await rows())[0].includes(query), `${label}: the row displays "${query}"`);
 
-    await search(query);
+    await search(query, 1);
     let got = await rows();
     assert.equal(got.length, 1, `${label}: the query finds exactly the comment row (got ${got.length})`);
     assert.ok(got[0].includes('row-saffron') && !got[0].includes('control-obsidian'), `${label}: the match is the comment row`);
 
-    await search('absent-tourmaline');
+    await search('absent-tourmaline', 0);
     assert.equal((await rows()).length, 0, `${label}: an absent query finds nothing`);
 
-    await search('control-obsidian');
+    await search('control-obsidian', 1);
     got = await rows();
     assert.equal(got.length, 1, `${label}: the control row is found by its own name`);
     assert.ok(!got[0].includes(query), `${label}: the control row does not contain the query`);
 
-    await search('');
+    await search('', 2);
     assert.equal((await rows()).length, 2, `${label}: an empty search restores both rows`);
     console.log(JSON.stringify({ case: name, query, rows: 'pass' }));
     await page.close();
