@@ -105,6 +105,35 @@ describe('SelectAgent: dialog semantics (#1279)', () => {
     }
   });
 
+  // #1313 — the reverse half of the trap. Shift+Tab from the FIRST control
+  // (the search input) must wrap to the LAST enabled tabbable control inside
+  // this dialog, not walk out to the page behind. A forward-only trap passes
+  // every test above and fails only this one.
+  it('Shift+Tab wraps from the search input to the last control', async () => {
+    const box = mockLayout();
+    try {
+      openModal();
+      await tick(2);
+      const controls = [...dialog()!.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]')]
+        .filter((el) => !el.hasAttribute('disabled') && el.tabIndex >= 0);
+      const last = controls[controls.length - 1];
+      // Guard the oracle: the expectation must be a real control that is not the input itself.
+      expect(last).toBeDefined();
+      expect(last).not.toBe(searchInput());
+      expect(last.textContent?.trim()).toBe('Select');
+      searchInput()!.focus();
+      expect(document.activeElement).toBe(searchInput());
+      const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+      searchInput()!.dispatchEvent(event);
+      flushSync();
+      expect(event.defaultPrevented).toBe(true);
+      expect(document.activeElement).toBe(last);
+      expect(dialog()!.contains(document.activeElement)).toBe(true);
+    } finally {
+      box.mockRestore();
+    }
+  });
+
   it('Escape closes the modal', async () => {
     openModal();
     await tick(2);
