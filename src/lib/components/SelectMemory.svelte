@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { PortalColumnDef } from '$lib/table/features';
   import { untrack } from 'svelte';
+  import { focusTrap } from '$lib/a11y/focus-trap';
+  import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
 
@@ -116,6 +118,11 @@
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('select-memory.title', 'Choose a memory')}
+      tabindex="-1"
+      use:focusTrap
       class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
       style="max-height: 70vh;"
