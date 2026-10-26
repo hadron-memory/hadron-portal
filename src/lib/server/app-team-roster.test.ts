@@ -30,7 +30,7 @@ describe('loadAppTeamRoster (#1168)', () => {
   });
 
   it('carries the holder identity through unchanged (hadron-server#2223)', async () => {
-    const heldBy = { id: 'u1', handle: 'holger', urn: 'hrn:user:holger', name: 'Holger' };
+    const heldBy = { id: 'u1', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder', name: 'Sample Holder' };
     const r = await loadAppTeamRoster(client(() => ({ teamRoster: { workers: [entry('w1', { heldBy, heldAt: '2026-10-11T04:46:36Z' }), entry('w2')] } })), 'app-1');
     if (r.kind !== 'ok') throw new Error('expected ok');
     expect(r.byWorker.w1.heldBy).toEqual(heldBy);
