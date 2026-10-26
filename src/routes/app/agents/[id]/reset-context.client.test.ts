@@ -100,11 +100,11 @@ describe('agent Settings — context reset after a task (#1275)', () => {
     expect(save(root)!.disabled).toBe(true);
   });
 
-  async function afterSuccessfulSave(props: Record<string, unknown>, saved: boolean) {
-    props.data = await data('a', ok(saved));
+  async function afterSuccessfulSave(props: Record<string, unknown>, saved: boolean, agentId = 'a') {
+    props.data = await data(agentId, ok(saved));
     flushSync();
     await tick();
-    const result = await superValidate({ _kind: 'resetContext', resetContextAfterTask: saved }, zod4(agentResetContextSchema));
+    const result = await superValidate({ _kind: 'resetContext', resetContextAfterTask: saved }, zod4(agentResetContextSchema), { id: `resetContext:${agentId}` });
     result.message = { type: 'success', text: 'Saved.' };
     page.update((p) => ({ ...p, status: 200, form: { form: result } }));
     flushSync();
@@ -153,7 +153,7 @@ describe('agent Settings — context reset after a task (#1275)', () => {
   });
 
   it('a refused full-page (no-JS) save re-renders with the attempted value beside the error, on the Settings tab', async () => {
-    const refused = await superValidate({ _kind: 'resetContext', resetContextAfterTask: true }, zod4(agentResetContextSchema));
+    const refused = await superValidate({ _kind: 'resetContext', resetContextAfterTask: true }, zod4(agentResetContextSchema), { id: 'resetContext:a' });
     refused.message = { type: 'error', text: 'Not saved. Changing this needs the agent’s owner or an organization admin.' };
     // Mounted WITHOUT clicking the Settings tab; the stored value is false.
     const m = mountComponent(Page as never, { data: await data('a', ok(false)), form: { form: refused } } as never) as Mounted<Record<string, unknown>>;
@@ -171,5 +171,54 @@ describe('agent Settings — context reset after a task (#1275)', () => {
     flushSync();
     await tick();
     expect(box(root)!.checked).toBe(true);
+  });
+
+  // A save started on agent A can resolve after the page shows agent B. The
+  // form id is agent-specific, so B's form must not take A's result.
+  async function lateResultFor(agentId: string, text: string, type: 'success' | 'error', value: boolean) {
+    const late = await superValidate({ _kind: 'resetContext', resetContextAfterTask: value }, zod4(agentResetContextSchema), { id: `resetContext:${agentId}` });
+    late.message = { type, text };
+    page.update((p) => ({ ...p, status: type === 'success' ? 200 : 400, form: { form: late } }));
+    flushSync();
+    await tick();
+  }
+
+  it('a late SUCCESS for agent A does not change agent B’s box or show Saved', async () => {
+    const props = reactiveProps({ data: await data('a', ok(false)), form: null } as Record<string, unknown>);
+    const root = await mountSettings(props);
+    box(root)!.click();
+    flushSync();
+    props.data = await data('b', ok(false));
+    flushSync();
+    await tick();
+    expect(box(root)!.checked).toBe(false);
+
+    await lateResultFor('a', 'Saved.', 'success', true);
+    expect(box(root)!.checked).toBe(false);
+    expect(root.textContent).not.toContain('Saved.');
+    expect(save(root)!.disabled).toBe(true);
+  });
+
+  it('a late REFUSAL for agent A does not show its error on agent B', async () => {
+    const props = reactiveProps({ data: await data('a', ok(false)), form: null } as Record<string, unknown>);
+    const root = await mountSettings(props);
+    props.data = await data('b', ok(false));
+    flushSync();
+    await tick();
+    await lateResultFor('a', 'Not saved. Late refusal for A.', 'error', true);
+    expect(root.textContent).not.toContain('Late refusal for A.');
+  });
+
+  it('a result for the agent being shown still applies after navigating to it', async () => {
+    const props = reactiveProps({ data: await data('a', ok(false)), form: null } as Record<string, unknown>);
+    const root = await mountSettings(props);
+    props.data = await data('b', ok(false));
+    flushSync();
+    await tick();
+    box(root)!.click();
+    flushSync();
+    await afterSuccessfulSave(props, true, 'b');
+    expect(box(root)!.checked).toBe(true);
+    expect(root.textContent).toContain('Saved.');
   });
 });

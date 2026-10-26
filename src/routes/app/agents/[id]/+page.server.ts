@@ -337,7 +337,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate(
       { resetContextAfterTask: resetContext.kind === 'ok' ? resetContext.value : false },
       agentResetContextFormAdapter,
-      { errors: false },
+      { id: `resetContext:${params.id}`, errors: false },
     ),
     superValidate<AddAgentMemoryForm>(
       { memoryId: '', role: 'read' },
@@ -586,7 +586,7 @@ export const actions: Actions = {
   // The server's updateAgent gate decides who may; the page derives no
   // permission, it renders the refusal as text.
   updateResetContext: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), agentResetContextFormAdapter);
+    const form = await superValidate(await request.formData(), agentResetContextFormAdapter, { id: `resetContext:${params.id}` });
     if (!form.valid) return fail(400, { form });
 
     try {

@@ -309,7 +309,13 @@
   // server and an edited one does not, and a refused no-JS submit keeps the
   // attempted value beside its error.
   const resetContextSaved = $derived(data.resetContext.kind === 'ok' ? data.resetContext.value : false);
-  const initialResetContextForm = untrack(() => submittedForm<AgentResetContextForm>(form, 'resetContext') as AgentResetContextSuperform | null ?? data.resetContextForm);
+  // The form id is agent-specific: Superforms routes a page-store action result
+  // by form id, so a late result for agent A must not match the form once it
+  // shows agent B (same scope check as the boot prompt above).
+  const initialResetContextForm = untrack(() => {
+    const result = submittedForm<AgentResetContextForm>(form, 'resetContext') as AgentResetContextSuperform | null;
+    return result && result.id === data.resetContextForm.id ? result : data.resetContextForm;
+  });
   const {
     form: resetContextForm,
     message: resetContextMessage,
@@ -328,12 +334,13 @@
   $effect(() => {
     const seeded = resetContextSaved;
     const agentId = data.agent.id;
+    const formId = data.resetContextForm.id;
     untrack(() => {
       if (!resetContextSeeded) {
         resetContextSeeded = true;
       } else if (agentId !== resetContextAgentId) {
         resetContextAgentId = agentId;
-        resetContextReset({ data: { resetContextAfterTask: seeded }, newState: { resetContextAfterTask: seeded } });
+        resetContextReset({ id: formId, data: { resetContextAfterTask: seeded }, newState: { resetContextAfterTask: seeded } });
       } else if (!resetContextIsTainted()) {
         resetContextForm.update((current) => ({ ...current, resetContextAfterTask: seeded }), { taint: false });
       }

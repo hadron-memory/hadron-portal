@@ -56,7 +56,7 @@ export async function pageData(
     resetContext,
     resetContextForm: await superValidate(
       { resetContextAfterTask: resetContext.kind === 'ok' ? resetContext.value : false },
-      zod4(agentResetContextSchema), { errors: false },
+      zod4(agentResetContextSchema), { id: `resetContext:${id}`, errors: false },
     ),
     addMemoryForm: await superValidate(zod4(addAgentMemorySchema), { errors: false }),
     updateMemoryRoleForm: await superValidate(zod4(updateAgentMemoryRoleSchema), { errors: false }),
