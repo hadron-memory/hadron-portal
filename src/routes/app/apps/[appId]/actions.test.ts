@@ -901,7 +901,7 @@ describe('deleteApp action', () => {
   });
 });
 
-// ── Casting (#974, hrn:node:hadronmemory.com:specs:cor:dmo:050:11) ──────────────────────────────────────────
+// ── Casting (#974, hrn:node:hadronmemory.com:specs:hrn:node:hadronmemory.com:specs:cor:dmo:050:11) ──────────────────────────────────────────
 //
 // castWorker CASTS an agent that is already installed; it mints nothing.
 //
@@ -950,7 +950,7 @@ describe('castWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  // hadron-server#2481 (R222, cor:dmo:050:11): the role follows the agent and a
+  // hadron-server#2481 (R222, hrn:node:hadronmemory.com:specs:cor:dmo:050:11): the role follows the agent and a
   // cast cannot override it, so the mutation never carries `role` — not even a
   // stale client's value — and the document no longer declares the variable.
   it('never forwards a role, even one a stale client posts', async () => {

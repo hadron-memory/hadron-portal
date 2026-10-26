@@ -184,7 +184,7 @@
   const agentsWithheld = $derived(rosterOf(app.agents).kind === 'withheld');
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
-  // #1319 (R222, cor:dmo:050:11) — a worker's role follows its agent and a cast
+  // #1319 (R222, hrn:node:hadronmemory.com:specs:cor:dmo:050:11) — a worker's role follows its agent and a cast
   // cannot override it, so the form has no role input. The selected agent's
   // persona role is shown read-only instead; casting inherits it.
   const selectedCastAgent = $derived(

@@ -951,7 +951,7 @@ describe('withheld App rosters (portal#1148)', () => {
     expect(panel.textContent).toContain('who can be cast here isn’t known');
     expect(panel.textContent).not.toContain('No agents are installed in this App yet, so there is nothing to cast');
   });
-  // hadron-portal#1319 (R222, cor:dmo:050:11): the cast form has no role input; the
+  // hadron-portal#1319 (R222, hrn:node:hadronmemory.com:specs:cor:dmo:050:11): the cast form has no role input; the
   // selected agent's role is shown read-only.
   it('AI Team tab: the cast form has no role input and shows the selected agent’s role read-only', async () => {
     const panel = await mountTab('staff', { agents: [agent] });

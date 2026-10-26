@@ -86,7 +86,7 @@ export const deleteAppSchema = z.object({
 // exactly what #760 reports.
 //
 // There is no `role` field (#1319): since hadron-server#2481 the role follows
-// the agent (R222, cor:dmo:050:11) and a cast cannot override it. The schema
+// the agent (R222, hrn:node:hadronmemory.com:specs:cor:dmo:050:11) and a cast cannot override it. The schema
 // strips unknown keys, so a stale client that still posts one never reaches the
 // mutation.
 export const castWorkerSchema = z.object({
