@@ -2,9 +2,10 @@ import { afterEach, expect, it } from 'vitest';
 import AgentExtendedBy from './AgentExtendedBy.svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 const mounted: Mounted<any>[] = [];
-afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
+afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); resetNavigationCalls(); });
 async function show(result: { items: Array<{ id: string; name: string; urn: string }>; hasMore: boolean; endCursor: string | null; failed: boolean }, requestedAfter: string | null = null) {
   setStubPage('http://localhost/app/agents/base');
   const m = mountComponent(AgentExtendedBy, { agentId: 'base', result, requestedAfter } as never); mounted.push(m); await tick(5); return m.target;
@@ -65,7 +66,7 @@ it('offers Retry of the failed opaque later page plus first-page recovery', asyn
   const target = await show({ ...empty, failed: true }, 'opaque+/=');
   const links = [...target.querySelectorAll('nav a')];
   expect(links.map(a => a.textContent)).toEqual(['Retry', 'First page']);
-  expect(links[0].getAttribute('href')).toBe('/app/agents/base?extendedAfter=opaque%2B%2F%3D#extended-by');
+  expect(links[0].getAttribute('href')).toBe('/app/agents/base?extendedAfter=opaque%2B%2F%3D');
   expect(links[1].getAttribute('href')).toBe('/app/agents/base#extended-by');
 });
 it('keeps completed first-empty, later-final-empty and incomplete empty scans distinct', async () => {
@@ -105,4 +106,34 @@ it('resets search and local row position only across Agent/requested-page identi
   await type(); props.agentId = 'other'; await tick(5);
   expect(search().value).toBe('');
   expect(size.value).toBe('10');
+});
+
+it.each([null, 'opaque+/='])('Retry actually re-fetches the current failed page and restores section focus (%s)', async (after) => {
+  const target = await show({ ...empty, failed: true }, after);
+  let finish!: () => void;
+  navigationHooks.onInvalidateAll = () => new Promise<void>(resolve => { finish = resolve; });
+  const retry = [...target.querySelectorAll<HTMLAnchorElement>('nav a')].find(a => a.textContent === 'Retry')!;
+  retry.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  await tick(2);
+  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(1);
+  retry.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(1);
+  finish(); await tick(5);
+  expect(document.activeElement).toBe(target.querySelector('#extended-by'));
+});
+it('first-page failure copy only offers the Retry action that is present', async () => {
+  const target = await show({ ...empty, failed: true });
+  expect(target.querySelector('[role=alert]')?.textContent).toBe('Could not load extending Agents. Retry this page.');
+  expect(target.textContent).not.toContain('return to the first page');
+});
+
+it('a completed Retry does not move focus after its section unmounts', async () => {
+  const target = await show({ ...empty, failed: true });
+  let finish!: () => void;
+  navigationHooks.onInvalidateAll = () => new Promise<void>(resolve => { finish = resolve; });
+  target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(2);
+  mounted[mounted.length - 1].unmount();
+  const other = document.createElement('input'); document.body.append(other); other.focus();
+  try { finish(); await tick(5); expect(document.activeElement).toBe(other); }
+  finally { other.remove(); }
 });

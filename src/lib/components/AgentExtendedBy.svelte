@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import DataTable from './table/DataTable.svelte';
   import Urn from './Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -10,7 +11,22 @@
   let { agentId, result, requestedAfter = null }: { agentId: string; result: AgentExtensions; requestedAfter?: string | null } = $props();
   const baseHref = $derived(`/app/agents/${encodeURIComponent(agentId)}`);
   const firstHref = $derived(`${baseHref}#extended-by`);
-  const retryHref = $derived(requestedAfter === null ? firstHref : `${baseHref}?extendedAfter=${encodeURIComponent(requestedAfter)}#extended-by`);
+  const retryHref = $derived(requestedAfter === null ? baseHref : `${baseHref}?extendedAfter=${encodeURIComponent(requestedAfter)}`);
+  let section: HTMLElement;
+  let retrying = $state(false);
+  async function retry(event: MouseEvent) {
+    event.preventDefault();
+    if (retrying) return;
+    retrying = true;
+    try {
+      await invalidateAll();
+    } catch {
+      // Keep the existing failed-read feedback if the route itself cannot reload.
+    } finally {
+      retrying = false;
+      if (section?.isConnected) section.focus();
+    }
+  }
   const columns: PortalColumnDef<AgentIdentity>[] = [
     { accessorKey: 'name', header: t('agent.extended-by.name', 'Name'), size: 220 },
     { accessorKey: 'urn', header: t('agent.extended-by.urn', 'URN'), size: 340 },
@@ -35,11 +51,13 @@
   });
 </script>
 
-<section id="extended-by" tabindex="-1" class="min-w-0 space-y-3" aria-labelledby="extended-by-heading">
+<section bind:this={section} id="extended-by" tabindex="-1" class="min-w-0 space-y-3" aria-labelledby="extended-by-heading">
   <h2 id="extended-by-heading" class="font-semibold">{t('agent.extended-by.heading', 'Extended by')}</h2>
   <p class="text-sm text-zinc-500">{t('agent.extended-by.scope', 'Agents you can read that directly extend this Agent. Search and sorting apply to this server page. Search resets when you change server pages.')}</p>
   {#if result.failed}
-    <p role="alert" class="text-sm text-red-600 dark:text-red-400">{t('agent.extended-by.failed', 'Could not load extending Agents. Retry this page, or return to the first page.')}</p>
+    <p role="alert" class="text-sm text-red-600 dark:text-red-400">{requestedAfter === null
+      ? t('agent.extended-by.failed-first', 'Could not load extending Agents. Retry this page.')
+      : t('agent.extended-by.failed', 'Could not load extending Agents. Retry this page, or return to the first page.')}</p>
   {:else if result.items.length === 0}
     <p class="text-sm text-zinc-500">{result.hasMore
       ? t('agent.extended-by.incomplete', 'No readable Agents on this page. Continue to check for more results.')
@@ -58,7 +76,7 @@
   </DataTable>
   <nav class="flex flex-wrap gap-4 text-sm" aria-label={t('agent.extended-by.paging', 'Extending Agents pages')}>
     {#if result.failed}
-      <a class="text-indigo-600 hover:underline dark:text-indigo-400" href={retryHref} data-sveltekit-reload>{t('agent.extended-by.retry', 'Retry')}</a>
+      <a class="text-indigo-600 hover:underline dark:text-indigo-400" href={retryHref} data-sveltekit-reload onclick={retry} aria-disabled={retrying}>{t('agent.extended-by.retry', 'Retry')}</a>
     {/if}
     {#if requestedAfter !== null}
       <a class="text-indigo-600 hover:underline dark:text-indigo-400" href={firstHref}>{t('agent.extended-by.first', 'First page')}</a>
