@@ -74,6 +74,7 @@ export interface Memory {
   syncError: string | null;
   pendingEdgeCount: number;
   lastSyncedAt: string | null;
+  lastSyncReport?: string | null;
   createdAt: string;
   updatedAt: string;
   subscriptions?: MemorySubscription[];

@@ -348,3 +348,12 @@ describe('stored sync action outcome', () => {
     expect(msg.type).toBe('success'); expect(msg.text).not.toBe('Memory synced.'); expect(msg.text).not.toContain('ghs_SECRET');
   });
 });
+
+it.each(['failed', 'bad-completion', 'never-synced'])('does not turn %s into clean action feedback', async kind => {
+  const lastSyncReport = kind === 'failed' ? JSON.stringify({ version: 1, outcome: 'failed', recordedAt: '2026-10-26T01:02:03.000Z', code: 'SYNC_FAILED', entries: [] }) : null;
+  mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'OK', lastSyncReport, lastSyncedAt: kind === 'bad-completion' ? 'bad' : null, syncError: 'https://user:ghs_SECRET@github.com/a' } });
+  const { actions } = await importMod();
+  const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { type: string; text: string };
+  expect(msg.type).toBe(kind === 'failed' ? 'error' : 'success');
+  expect(msg.text).not.toBe('Memory synced.'); expect(msg.text).not.toContain('ghs_SECRET');
+});

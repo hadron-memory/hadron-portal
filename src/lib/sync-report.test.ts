@@ -20,10 +20,10 @@ describe('stored sync report', () => {
     expect(parseSyncReport(null, 'SYNCING', at).state).not.toBe('clean');
   });
   it.each([
-    '{', 'null', '[]', report({ version: 2 }), report({ outcome: 'new' }), report({ recordedAt: 'bad' }),
+    '{', 'null', '[]', report({ version: 2 }), report({ outcome: 'new' }), report({ outcome: ['partial'] }), report({ recordedAt: 'bad' }),
     report({ recordedAt: '2026-02-30T01:02:03.000Z' }), report({ entries: {} }),
     report({ entries: [entry, { ...entry, kind: 'new' }] }), report({ entries: [{ ...entry, code: 'ghs_SECRET' }] }),
-    report({ entries: [{ ...entry, loc: 1 }] }), report({ entries: [{ ...entry, fromLoc: null }] }),
+    report({ entries: [{ ...entry, loc: 1 }] }), report({ entries: [{ ...entry, loc: 'https://x-access-token:ghs_SECRET@github.com/repo' }] }), report({ entries: [{ ...entry, fromLoc: null }] }),
     report({ outcome: 'failed', code: 'OTHER', entries: [] }), report({ outcome: 'failed', code: 'SYNC_FAILED' }),
   ])('rejects whole malformed/unknown report %s', raw => expect(parseSyncReport(raw, 'OK', at).state).toBe('unavailable'));
   it('projects only approved bounded fields', () => {

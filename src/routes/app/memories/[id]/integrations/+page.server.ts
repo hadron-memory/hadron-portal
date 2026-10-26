@@ -18,6 +18,7 @@ import {
   pushMemoryIntegrationSchema,
   syncMemoryIntegrationSchema,
 } from './schema';
+import { syncOutcomeMessage, type SyncOutcomeFields } from '$lib/sync-report';
 import { gitFailureMessage } from '$lib/sync-error';
 
 const memoryIntegrationFormAdapter = zod4(memoryIntegrationSchema);
@@ -114,19 +115,11 @@ export const actions: Actions = {
     // (hadron-server#1578), so it is classified into fixed copy and never
     // shown ($lib/sync-error).
     try {
-      const res = await gqlClient(locals.token).request<{ syncMemory: { syncStatus?: string | null } | null }>(
-        SYNC_MEMORY_MUTATION,
-        { id: params.id },
+      const res = await gqlClient(locals.token).request<{ syncMemory: SyncOutcomeFields | null }>(
+        SYNC_MEMORY_MUTATION, { id: params.id },
       );
-      if (res.syncMemory?.syncStatus === 'OK') {
-        return message(form, { type: 'success', text: t('integrations.synced', 'Memory synced.') });
-      }
-      return message(form, {
-        type: 'success',
-        text: t('integrations.sync-not-finished', 'The sync didn’t finish (status: {status}). Check the status again shortly.', {
-          status: res.syncMemory?.syncStatus ?? '—',
-        }),
-      });
+      const outcome = syncOutcomeMessage(res.syncMemory);
+      return message(form, outcome, outcome.type === 'error' ? { status: 500 } : undefined);
     } catch (e: unknown) {
       return message(form, { type: 'error', text: gitFailureMessage(extractGqlError(e, ''), 'sync') }, { status: 500 });
     }
