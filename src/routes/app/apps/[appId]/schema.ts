@@ -85,14 +85,11 @@ export const deleteAppSchema = z.object({
 // work — it makes the form recommend a request the server rejects, which is
 // exactly what #760 reports.
 //
-// `role` stays optional and must still reach the mutation as UNDEFINED rather
-// than '': an omitted role inherits the agent's personaRole, while an empty
-// string would be an explicit (invalid) role. That distinction is unchanged.
+// R222: the selected Agent determines the role; casting cannot override it.
 export const castWorkerSchema = z.object({
   _kind: z.literal('castWorker').default('castWorker'),
   agentId: z.string().trim().min(1, 'Select an agent to cast.').prefault(''),
   name: z.string().trim().min(1, 'Give the worker a name — the platform no longer picks one.').prefault(''),
-  role: z.string().trim().optional(),
   promptOverride: z.string().trim().optional(),
 });
 
