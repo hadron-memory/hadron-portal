@@ -251,3 +251,35 @@ describe('expectReadOnly (positive control)', () => {
     expect(() => expectReadOnly(html)).toThrow();
   });
 });
+
+describe('ticker reasons (portal#1144)', () => {
+  const reasoned = (reasons: unknown) => ticker({ reasons });
+  it('the list shows a Reasons column with a badge per reason, Every tick explicit', () => {
+    const html = list({ tickers: { kind: 'ok', value: [reasoned(['READ_TEAM_CHANNEL']), reasoned(['EVERY_TICK', 'READ_TEAM_CHANNEL'])].map((tk, i) => ({ ...tk, id: `tk-${i}` })) } });
+    expect(html).toContain('Reasons');
+    expect(html).toContain('Team chat');
+    expect(html).toContain('Every tick');
+    expectReadOnly(html);
+  });
+  it('an unknown reason shows its raw name, and is not turned into a known one', () => {
+    const html = list({ tickers: { kind: 'ok', value: [reasoned(['SOMETHING_NEW'])] } });
+    expect(html).toContain('SOMETHING_NEW');
+    expect(html).not.toContain('Team chat');
+  });
+  it('an empty reason list reads as never firing in the list', () => {
+    expect(list({ tickers: { kind: 'ok', value: [reasoned([])] } })).toContain('No reasons: never fires');
+  });
+  it('the detail page lists "Wakes when" with the every-tick limits in the same item', () => {
+    const html = detail({ ticker: reasoned(['EVERY_TICK']) });
+    expect(html).toContain('Wakes when');
+    const item = html.match(/<li[^>]*>(?:(?!<\/li>)[\s\S])*Every tick(?:(?!<\/li>)[\s\S])*<\/li>/)?.[0] ?? '';
+    expect(item).toContain('even with no new chat');
+    expect(item).toContain('quiet hours');
+    expect(item).toContain('dormancy');
+    expectReadOnly(html);
+  });
+  it('the detail page shows an unknown reason raw and an empty list as never firing', () => {
+    expect(detail({ ticker: reasoned(['SOMETHING_NEW']) })).toContain('SOMETHING_NEW');
+    expect(detail({ ticker: reasoned([]) })).toContain('No reasons: never fires');
+  });
+});

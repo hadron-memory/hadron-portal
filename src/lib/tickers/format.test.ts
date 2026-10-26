@@ -1,6 +1,6 @@
 /** portal#1099 — how a ticker's cadence, quiet hours and times read. */
 import { describe, expect, it } from 'vitest';
-import { cadenceText, daysText, parseQuietHours, quietHoursSummary, relativeTime, subscriptionSearchText, tickerSearchText, windowText } from './format';
+import { cadenceText, daysText, parseQuietHours, quietHoursSummary, reasonHelp, reasonLabel, reasonsText, relativeTime, subscriptionSearchText, tickerSearchText, windowText } from './format';
 
 describe('cadenceText', () => {
   it('uses the largest unit that divides the cadence', () => {
@@ -73,5 +73,39 @@ describe('search text carries the visible labels', () => {
   it('a subscription’s via grant label, only when it was made through the grant', () => {
     expect(subscriptionSearchText({ name: 'Ada', viaGrant: true })).toContain('via grant');
     expect(subscriptionSearchText({ name: 'Ada', viaGrant: false })).not.toContain('via grant');
+  });
+});
+
+describe('ticker reasons (portal#1144)', () => {
+  it('labels the three server reasons', () => {
+    expect(reasonLabel('READ_TEAM_CHANNEL')).toBe('Team chat');
+    expect(reasonLabel('EVERY_TICK')).toBe('Every tick');
+    expect(reasonLabel('LIVE_CHECK')).toBe('Live check');
+  });
+  it('an unknown future reason keeps its raw name and is never coerced to a known one', () => {
+    expect(reasonLabel('SOMETHING_NEW')).toBe('SOMETHING_NEW');
+    expect(reasonHelp('SOMETHING_NEW')).toBeNull();
+    expect(reasonsText(['SOMETHING_NEW'])).toBe('SOMETHING_NEW');
+  });
+  it('joins reasons as an any-of list in the order the server sent them', () => {
+    expect(reasonsText(['EVERY_TICK', 'READ_TEAM_CHANNEL'])).toBe('Every tick, Team chat');
+  });
+  it('an empty list says the ticker never fires; it is not blank and not a default', () => {
+    expect(reasonsText([])).toBe('No reasons: never fires');
+  });
+  it('a missing or malformed list is unavailable, not "never fires"', () => {
+    expect(reasonsText(undefined)).toBe('Reasons unavailable');
+    expect(reasonsText('EVERY_TICK')).toBe('Reasons unavailable');
+  });
+  it('every-tick help keeps the limits next to the claim and never says unconditional, AND or only', () => {
+    const help = reasonHelp('EVERY_TICK')!;
+    expect(help).toContain('even with no new chat');
+    for (const limit of ['floor', 'budget', 'pause', 'quiet hours', 'dormancy']) expect(help).toContain(limit);
+    expect(help).not.toMatch(/unconditional|\bAND\b|only/i);
+  });
+  it('searches by reason label', () => {
+    const tk = { name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['EVERY_TICK'] };
+    expect(tickerSearchText(tk)).toContain('Every tick');
+    expect(tickerSearchText({ ...tk, reasons: ['READ_TEAM_CHANNEL'] })).not.toContain('Every tick');
   });
 });
