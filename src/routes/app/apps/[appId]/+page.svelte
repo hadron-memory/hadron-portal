@@ -514,7 +514,16 @@
     // share one filter, and the gate this sweep added is file-scoped precisely
     // so a page cannot end up half-converted — which is how the KEY grid above
     // sat broken while this one looked fine.
-    globalFilterFn: makeGlobalFilterFn<Worker>({}),
+    globalFilterFn: makeGlobalFilterFn<Worker>({}, {
+      hold: (worker) => {
+        // Search only identity displayed for a known hold, never a masked or
+        // stale projection whose row does not disclose a holder.
+        const hold = workerHold(worker, data.user?.id);
+        if (hold.kind !== 'self' && hold.kind !== 'other') return '';
+        const holder = rosterEntry(worker.id)?.heldBy;
+        return holder ? `${holder.name ?? holder.handle ?? ''} ${holder.urn ?? ''}` : '';
+      },
+    }),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
   // #1006: the Agents tab. The App's install ROSTER (`App.agents`), not
@@ -2430,11 +2439,14 @@
               {@const holder = rosterEntry(worker.id)?.heldBy ?? null}
               {#if hold.kind === 'self'}
                 <span class="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                  {t('app.staff.held.you', 'Your name — held by you')}
+                  {holder?.name ?? holder?.handle ?? t('app.staff.held.you', 'Your name — held by you')}
                   {#if hold.since}
                     <span class="font-normal text-zinc-500">· {t('app.staff.held.since', 'since')} {formatDate(hold.since)}</span>
                   {/if}
                 </span>
+                {#if holder?.urn}
+                  <div><Urn value={holder.urn} type="user" compact /></div>
+                {/if}
               {:else if hold.kind === 'other'}
                 <span class="text-xs text-zinc-500">
                   {#if holder}

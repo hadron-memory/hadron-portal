@@ -328,6 +328,20 @@ describe('Worker agents tab (#1009)', () => {
     expect(names(target)).toEqual([]);
   });
 
+  it.each([null, undefined])('does not search an undisclosed holder projection (#1168)', async (heldByUserId) => {
+    const target = await mountStaff([worker({ heldByUserId })], {
+      kind: 'ok', byWorker: { w1: entry({ heldBy: {
+        id: 'u9', name: 'Sample Holder', handle: 'sample-holder', urn: 'hrn:user:acme.com:sample-holder',
+      } }) },
+    });
+    expect(columnTexts(target, 'Name held by')[0]).toBe('—');
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    search.value = 'Sample Holder';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(names(target)).toEqual([]);
+  });
+
   it('marks a paused worker from the server’s check status, not from pausedUntil alone', async () => {
     const future = '2099-01-01T00:00:00.000Z';
     const target = await mountStaff(
