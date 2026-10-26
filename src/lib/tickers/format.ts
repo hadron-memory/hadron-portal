@@ -119,12 +119,46 @@ export function tickerStateLabel(enabled: boolean): string {
   return enabled ? t('app.tickers.state.ticking', 'Ticking') : t('app.tickers.state.disabled', 'Disabled');
 }
 
-export function tickerSearchText(tk: { name: string; urn: string | null; enabled: boolean; relevance: string }): string {
+/** The reason's short name; a value this build does not know keeps its raw name. */
+export function reasonLabel(reason: string): string {
+  switch (reason) {
+    case 'READ_TEAM_CHANNEL': return t('tickers.reason.read-team-channel', 'Team chat');
+    case 'EVERY_TICK': return t('tickers.reason.every-tick', 'Every tick');
+    case 'LIVE_CHECK': return t('tickers.reason.live-check', 'Live check');
+    default: return reason;
+  }
+}
+
+/**
+ * One sentence on what the reason does, or null for a value this build does not know. The limits
+ * that still apply stay in the sentence with the claim, never behind a click.
+ */
+export function reasonHelp(reason: string): string | null {
+  switch (reason) {
+    case 'READ_TEAM_CHANNEL': return t('tickers.reason.read-team-channel.help', 'Wakes a subscriber that has relevant unread in this ticker’s channels.');
+    case 'EVERY_TICK': return t('tickers.reason.every-tick.help', 'Wakes subscribers every tick even with no new chat. The floor, daily budget, pause, quiet hours and dormancy still apply.');
+    case 'LIVE_CHECK': return t('tickers.reason.live-check.help', 'Wakes a subscriber that has not checked its team channel within this ticker’s cadence, whatever is unread. Never for a worker not expected to check.');
+    default: return null;
+  }
+}
+
+export const noReasonsText = () => t('tickers.reasons.none', 'No reasons: never fires');
+export const reasonsUnavailableText = () => t('tickers.reasons.unavailable', 'Reasons unavailable');
+
+/** The reasons as the server sent them. Empty never fires; a missing list is unavailable, not empty. */
+export function reasonsText(reasons: unknown): string {
+  if (!Array.isArray(reasons)) return reasonsUnavailableText();
+  if (reasons.length === 0) return noReasonsText();
+  return reasons.map((r) => reasonLabel(String(r))).join(', ');
+}
+
+export function tickerSearchText(tk: { name: string; urn: string | null; enabled: boolean; relevance: string; reasons?: unknown }): string {
   return [
     tk.name,
     tk.urn ?? '',
     tickerStateLabel(tk.enabled),
     tk.relevance === 'MENTIONS' ? t('app.tickers.relevance.mentions', 'Mentions only') : '',
+    reasonsText(tk.reasons),
   ].filter(Boolean).join(' ');
 }
 

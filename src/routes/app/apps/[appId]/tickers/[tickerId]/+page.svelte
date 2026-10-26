@@ -8,7 +8,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, parseQuietHours, subscriptionSearchText, windowText } from '$lib/tickers/format';
+  import { cadenceText, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsUnavailableText, subscriptionSearchText, windowText } from '$lib/tickers/format';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -128,6 +128,23 @@
             {#each quiet.windows as w, i (i)}<li>{windowText(w)}</li>{/each}
           </ul>
           <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.quiet.zone', 'Time zone: {zone}. No ticks inside these windows; a window includes its start and excludes its end. Mentions still make a worker due at once.', { zone: quiet.timezone })}</p>
+        {/if}
+      </dd>
+    </div>
+    <div class="min-w-0 sm:col-span-2">
+      <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('app.ticker.reasons', 'Wakes when')}</dt>
+      <dd class="text-zinc-900 dark:text-white">
+        {#if !Array.isArray(tk.reasons)}
+          {reasonsUnavailableText()}
+        {:else if tk.reasons.length === 0}
+          {noReasonsText()}
+        {:else}
+          <ul class="space-y-1">
+            {#each tk.reasons as reason (reason)}
+              <li><span class="font-medium">{reasonLabel(reason)}</span>{#if reasonHelp(reason)}: <span class="text-zinc-600 dark:text-zinc-400">{reasonHelp(reason)}</span>{/if}</li>
+            {/each}
+          </ul>
+          {#if tk.reasons.length > 1}<p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.reasons.any-of', 'Any one of these wakes a subscriber.')}</p>{/if}
         {/if}
       </dd>
     </div>

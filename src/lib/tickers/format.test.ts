@@ -101,7 +101,8 @@ describe('ticker reasons (portal#1144)', () => {
     const help = reasonHelp('EVERY_TICK')!;
     expect(help).toContain('even with no new chat');
     for (const limit of ['floor', 'budget', 'pause', 'quiet hours', 'dormancy']) expect(help).toContain(limit);
-    expect(help).not.toMatch(/unconditional|\bAND\b|only/i);
+    expect(help).not.toMatch(/unconditional|\bonly\b/i);
+    expect(help).not.toMatch(/\bAND\b/);
   });
   it('searches by reason label', () => {
     const tk = { name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['EVERY_TICK'] };
