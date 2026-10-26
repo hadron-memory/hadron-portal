@@ -184,9 +184,10 @@
   const agentsWithheld = $derived(rosterOf(app.agents).kind === 'withheld');
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
-  // R222: show the selected Agent's role as a fact, never a cast-time input.
+  // R222: role is a fact, never a cast-time input. Preserve a restored
+  // selection's identity even if that Agent no longer has a castable role.
   const selectedCastAgent = $derived(
-    castableAgents.find((a) => a.id === $castWorkerForm.agentId) ?? null,
+    installedAgents.find((a) => a.id === $castWorkerForm.agentId) ?? null,
   );
   let castOpen = $state(false);
 
@@ -2159,7 +2160,11 @@
               {t('app.staff.field.role', 'Role')}
             </p>
             <p id="castRole" class="break-words text-sm text-zinc-900 dark:text-white">
-              {selectedCastAgent?.personaRole ?? t('app.staff.field.role.choose-agent', 'Select an agent to see its role.')}
+              {#if selectedCastAgent}
+                {selectedCastAgent.personaRole?.trim() || t('app.staff.field.role.none', 'This agent has no role. Choose a different agent.')}
+              {:else}
+                {t('app.staff.field.role.choose-agent', 'Select an agent to see its role.')}
+              {/if}
             </p>
           </div>
           <div>

@@ -2,9 +2,11 @@
  * #1032 — which installed agents the "Cast a worker" Agent field offers, and in
  * what order.
  *
- * Only agents that carry a persona role. An agent without one is the App's own
- * team agent (e.g. "Hadron Dev Team"), not a role a worker is cast into.
- * R222 requires a role-bearing Agent; the server enforces the same requirement.
+ * Only Agents that carry a persona role are offered here. This leaves out
+ * roleless Agents such as an App's team definition.
+ * This is the portal's picker policy. At server53e12896 a cast can retain a
+ * null role; changeWorkerAgent has the separate no-role refusal. Do not infer
+ * either server write's rules from the options offered here.
  *
  * Sorted by name, case-insensitively, because the install roster arrives in
  * install order and a larger team's list was unscannable.
