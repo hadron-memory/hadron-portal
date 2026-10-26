@@ -157,13 +157,24 @@ export function reasonsText(reasons: unknown): string {
   return reasons.map((r) => reasonLabel(String(r))).join(', ');
 }
 
+/**
+ * What a grid search reaches for the reasons cell: the text the cell shows, plus the
+ * "(unrecognised)" note a well-formed unknown reason renders after its raw name. A list
+ * that is not well formed shows "Reasons unavailable" and no note, so it adds none.
+ */
+export function reasonsSearchText(reasons: unknown): string {
+  const text = reasonsText(reasons);
+  if (!Array.isArray(reasons) || text === reasonsUnavailableText()) return text;
+  return reasons.some((r) => !isKnownReason(String(r))) ? `${text} ${unrecognisedReasonText()}` : text;
+}
+
 export function tickerSearchText(tk: { name: string; urn: string | null; enabled: boolean; relevance: string; reasons?: unknown }): string {
   return [
     tk.name,
     tk.urn ?? '',
     tickerStateLabel(tk.enabled),
     tk.relevance === 'MENTIONS' ? t('app.tickers.relevance.mentions', 'Mentions only') : '',
-    reasonsText(tk.reasons),
+    reasonsSearchText(tk.reasons),
   ].filter(Boolean).join(' ');
 }
 

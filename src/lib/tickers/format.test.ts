@@ -1,6 +1,6 @@
 /** portal#1099 — how a ticker's cadence, quiet hours and times read. */
 import { describe, expect, it } from 'vitest';
-import { cadenceText, daysText, isKnownReason, noReasonsText, unrecognisedReasonText, parseQuietHours, quietHoursSummary, reasonHelp, reasonLabel, reasonsText, relativeTime, subscriptionSearchText, tickerSearchText, windowText } from './format';
+import { cadenceText, daysText, reasonsSearchText, isKnownReason, noReasonsText, unrecognisedReasonText, parseQuietHours, quietHoursSummary, reasonHelp, reasonLabel, reasonsText, relativeTime, subscriptionSearchText, tickerSearchText, windowText } from './format';
 
 describe('cadenceText', () => {
   it('uses the largest unit that divides the cadence', () => {
@@ -124,6 +124,19 @@ describe('ticker reasons (portal#1144)', () => {
     for (const r of ['READ_TEAM_CHANNEL', 'EVERY_TICK', 'LIVE_CHECK']) expect(isKnownReason(r)).toBe(true);
     expect(isKnownReason('SOMETHING_NEW')).toBe(false);
     expect(unrecognisedReasonText()).toBe('(unrecognised)');
+  });
+  it('search reaches the unrecognised note for a well-formed unknown reason, in both projections', () => {
+    const tk = { name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['SOMETHING_NEW'] };
+    expect(reasonsSearchText(['READ_TEAM_CHANNEL', 'SOMETHING_NEW'])).toBe('Team chat, SOMETHING_NEW (unrecognised)');
+    expect(tickerSearchText(tk)).toContain('SOMETHING_NEW');
+    expect(tickerSearchText(tk)).toContain('(unrecognised)');
+  });
+  it('search adds no unrecognised note for known, empty or malformed reasons', () => {
+    expect(reasonsSearchText(['EVERY_TICK'])).toBe('Every tick');
+    expect(reasonsSearchText([])).toBe('Never fires (no reasons)');
+    expect(reasonsSearchText(['SOMETHING_NEW', 3])).toBe('Reasons unavailable');
+    expect(reasonsSearchText(undefined)).toBe('Reasons unavailable');
+    expect(tickerSearchText({ name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['EVERY_TICK'] })).not.toContain('unrecognised');
   });
   it('searches by reason label', () => {
     const tk = { name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['EVERY_TICK'] };
