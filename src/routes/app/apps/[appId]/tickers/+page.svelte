@@ -9,7 +9,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, noVisibleChannelsText, quietHoursSummary, relativeTime, tickerSearchText, tickerStateLabel } from '$lib/tickers/format';
+  import { cadenceText, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonLabel, reasonsText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel } from '$lib/tickers/format';
   import type { TickerListRow } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -35,6 +35,7 @@
     stateText: string;
     cadence: number;
     quiet: string;
+    reasonsText: string;
     channelsText: string;
     subscriberCount: number;
     nextMs: number;
@@ -63,6 +64,7 @@
           stateText: stateLabel(tk.enabled),
           cadence: tk.cadenceSeconds,
           quiet: quietHoursSummary(tk.quietHours),
+          reasonsText: reasonsText(tk.reasons),
           channelsText: channelsText(tk),
           subscriberCount: tk.subscribers.hasNextPage ? Number.MAX_SAFE_INTEGER : tk.subscribers.items.length,
           // A disabled ticker has no next tick; it sorts last, not first.
@@ -83,6 +85,7 @@
     { id: 'state', accessorFn: (r) => r.stateText, header: t('app.tickers.col.state', 'State'), size: 84 },
     { id: 'cadence', accessorFn: (r) => r.cadence, header: t('app.tickers.col.every', 'Every'), size: 76 },
     { id: 'quiet', accessorFn: (r) => r.quiet, header: t('app.tickers.col.quiet', 'Quiet hours'), size: 240 },
+    { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Wakes when'), size: 200 },
     { id: 'channels', accessorFn: (r) => r.channelsText, header: t('app.tickers.col.counts', 'Counts'), size: 240 },
     { id: 'subscribers', accessorFn: (r) => r.subscriberCount, header: t('app.tickers.col.subscribers', 'Subscribers'), enableGlobalFilter: false, size: 120 },
     { id: 'next', accessorFn: (r) => r.nextMs, header: t('app.tickers.col.next', 'Next tick'), size: 150 },
@@ -202,6 +205,20 @@
             <span class="whitespace-nowrap">{cadenceText(row.ticker.cadenceSeconds)}</span>
           {:else if cell.column.id === 'quiet'}
             <span class="block max-w-full truncate" title={row.quiet}>{row.quiet}</span>
+          {:else if cell.column.id === 'reasons'}
+            <span class="flex min-w-0 flex-wrap items-center gap-1">
+              {#if reasonsText(row.ticker.reasons) === reasonsUnavailableText()}
+                <span class="text-zinc-500 dark:text-zinc-400">{reasonsUnavailableText()}</span>
+              {:else if row.ticker.reasons.length === 0}
+                <span class="text-zinc-500 dark:text-zinc-400">{noReasonsText()}</span>
+              {:else}
+                {#each row.ticker.reasons as reason (reason)}
+                  <span class="rounded px-1.5 py-0.5 text-xs {reason === 'EVERY_TICK'
+                    ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200'
+                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'}">{reasonLabel(reason)}</span>
+                {/each}
+              {/if}
+            </span>
           {:else if cell.column.id === 'channels'}
             <span class="flex min-w-0 flex-wrap items-center gap-1">
               <span class="block max-w-full truncate" title={row.channelsText}>{row.channelsText}</span>
