@@ -951,6 +951,25 @@ describe('withheld App rosters (portal#1148)', () => {
     expect(panel.textContent).toContain('who can be cast here isn’t known');
     expect(panel.textContent).not.toContain('No agents are installed in this App yet, so there is nothing to cast');
   });
+  // hadron-portal#1319 (R222, cor:dmo:050:11): the cast form has no role input; the
+  // selected agent's role is shown read-only.
+  it('AI Team tab: the cast form has no role input and shows the selected agent’s role read-only', async () => {
+    const panel = await mountTab('staff', { agents: [agent] });
+    const toggle = [...panel.querySelectorAll('button[aria-expanded]')].find((b) => /cast/i.test(b.textContent ?? '')) as HTMLButtonElement;
+    toggle.click();
+    await tick(2);
+    expect(panel.querySelector('#castAgentId')).not.toBeNull();
+    expect(panel.querySelector('#castRole')).toBeNull();
+    expect(panel.querySelector('[name="role"]')).toBeNull();
+    const select = panel.querySelector('#castAgentId') as HTMLSelectElement;
+    expect(panel.querySelector('#castRoleReadout')).toBeNull();
+    select.value = 'ag1';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    const readout = panel.querySelector('#castRoleReadout');
+    expect(readout?.textContent).toContain('coordinator');
+    expect(panel.querySelector('[name="role"]')).toBeNull();
+  });
   it('AI Team tab: known-empty control — [] keeps the nothing-to-cast copy', async () => {
     const panel = await mountTab('staff', { agents: [] });
     expect(panel.textContent).toContain('nothing to cast');

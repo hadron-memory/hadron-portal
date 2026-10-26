@@ -85,14 +85,14 @@ export const deleteAppSchema = z.object({
 // work — it makes the form recommend a request the server rejects, which is
 // exactly what #760 reports.
 //
-// `role` stays optional and must still reach the mutation as UNDEFINED rather
-// than '': an omitted role inherits the agent's personaRole, while an empty
-// string would be an explicit (invalid) role. That distinction is unchanged.
+// There is no `role` field (#1319): since hadron-server#2481 the role follows
+// the agent (R222, cor:dmo:050:11) and a cast cannot override it. The schema
+// strips unknown keys, so a stale client that still posts one never reaches the
+// mutation.
 export const castWorkerSchema = z.object({
   _kind: z.literal('castWorker').default('castWorker'),
   agentId: z.string().trim().min(1, 'Select an agent to cast.').prefault(''),
   name: z.string().trim().min(1, 'Give the worker a name — the platform no longer picks one.').prefault(''),
-  role: z.string().trim().optional(),
   promptOverride: z.string().trim().optional(),
 });
 

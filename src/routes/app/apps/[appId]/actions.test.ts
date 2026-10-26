@@ -911,16 +911,14 @@ describe('deleteApp action', () => {
 // asymmetric, and that asymmetry is what these tests hold up:
 //
 //   name — rejected client-side when blank, never coerced
-//   role — still blank→UNDEFINED, because omitting it inherits the agent's
-//          personaRole while '' would be an explicit-and-invalid role
+//   role — not part of the form at all (R222): it follows the agent
 
 describe('castWorker action', () => {
-  it('casts an installed agent under an explicit name and role', async () => {
+  it('casts an installed agent under an explicit name and sends no role', async () => {
     mockRequest.mockResolvedValueOnce({});
     const result = await runAction('castWorker', {
       agentId: 'agent-1',
       name: 'Iris',
-      role: 'backend-engineer',
     });
     expect(result).toMatchObject({
       form: { valid: true, message: { type: 'success', text: 'Worker cast.' } },
@@ -931,7 +929,6 @@ describe('castWorker action', () => {
         appRef: 'app-1',
         agentRef: 'agent-1',
         name: 'Iris',
-        role: 'backend-engineer',
         promptOverride: undefined,
       },
     ]);
@@ -946,7 +943,6 @@ describe('castWorker action', () => {
     const result = (await runAction('castWorker', {
       agentId: 'agent-1',
       name: '',
-      role: '',
     })) as { status: number; data: { form: { errors: { name?: string[] } } } };
     expect(result.status).toBe(400);
     expect(result.data.form.errors.name?.[0]).toMatch(/name/i);
@@ -954,14 +950,30 @@ describe('castWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('still sends a blank ROLE as UNDEFINED, not ""', async () => {
-    // Unchanged by #1050: an omitted role inherits the agent's personaRole,
-    // while '' would be an explicit-and-invalid role.
+  // hadron-server#2481 (R222, cor:dmo:050:11): the role follows the agent and a
+  // cast cannot override it, so the mutation never carries `role` — not even a
+  // stale client's value — and the document no longer declares the variable.
+  it('never forwards a role, even one a stale client posts', async () => {
     mockRequest.mockResolvedValueOnce({});
-    await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '' });
+    await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: 'backend-engineer' });
     const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
-    expect(vars.role).toBeUndefined();
+    expect('role' in vars).toBe(false);
     expect(vars.name).toBe('Iris');
+    expect(CAST_WORKER_MUTATION).not.toMatch(/\$role|role:/);
+  });
+
+  it('translates WORKER_ROLE_OVERRIDE_REFUSED into readable copy', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'override refused', extensions: { code: 'WORKER_ROLE_OVERRIDE_REFUSED' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.data.form.message.type).toBe('error');
+    expect(result.data.form.message.text).not.toContain('override refused');
+    expect(result.data.form.message.text).not.toContain('WORKER_ROLE_OVERRIDE_REFUSED');
+    expect(result.data.form.message.text).toMatch(/role .*agent/i);
   });
 
   it('rejects a missing agent before the mutation', async () => {

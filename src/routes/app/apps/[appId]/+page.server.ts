@@ -395,6 +395,12 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
     'app.staff.error.app-uninstalled',
     'This App has been uninstalled, so nothing can be cast into it.',
   ),
+  // hadron-server#2481 (R222): the role follows the agent. The form no longer
+  // sends one, so this reaches a user only from a stale page or a custom client.
+  WORKER_ROLE_OVERRIDE_REFUSED: () => t(
+    'app.staff.error.role-override',
+    'A worker’s role comes from its agent and cannot be changed when casting. Reload the page, then pick the agent that carries the role you want.',
+  ),
 };
 
 /**
@@ -1077,9 +1083,8 @@ export const actions: Actions = {
   // register, so there is no "let the server choose" path left and the schema
   // rejects a blank one before we get here.
   //
-  // `role` is still optional and still must be sent as UNDEFINED when blank:
-  // an omitted role inherits the agent's personaRole, while '' would be an
-  // explicit (and invalid) role — a different request entirely.
+  // No `role` is sent (#1319): the role follows the agent (R222) and a cast
+  // cannot override it.
   castWorker: async ({ request, params, locals }) => {
     const form = await superValidate<CastWorkerForm>(
       await request.formData(),
@@ -1096,7 +1101,6 @@ export const actions: Actions = {
         // has nothing to express — and leaving it would quietly turn a
         // validation gap into a nameless cast the server refuses.
         name: form.data.name,
-        role: form.data.role || undefined,
         promptOverride: form.data.promptOverride || undefined,
       });
       return message(form, {
