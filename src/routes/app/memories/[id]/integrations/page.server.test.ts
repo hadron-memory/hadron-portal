@@ -4,6 +4,7 @@ import {
   SYNC_MEMORY_MUTATION,
   UPDATE_MEMORY_MUTATION,
 } from '$lib/server/queries';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 const mockRequest = vi.fn();
 const mockRequireNonConsumer = vi.fn();
@@ -145,6 +146,23 @@ describe('memory integrations load()', () => {
     await expect(load(loadEvent(fakeGraph, { isConsumerMode: true, activeOrgId: 'personal-org' })))
       .rejects
       .toMatchObject({ status: 303, location: '/app/orgs/personal-org/' });
+  });
+});
+
+describe('memory integrations form ids (#1320)', () => {
+  it('gives Sync and Push their own Superforms ids (both schemas are _kind-only)', async () => {
+    const { load } = await importMod();
+    expectDistinctFormIds(await load(loadEvent()), 3);
+  });
+
+  it('validates each command action under the id its loader form carries', async () => {
+    const { load, actions } = await importMod();
+    const data = (await load(loadEvent())) as { syncForm: { id: string }; pushForm: { id: string } };
+    mockRequest.mockResolvedValue({ syncMemory: { syncStatus: 'OK' }, pushMemoryToGit: {} });
+    const sync = superFormFrom(await actions.sync(commandEvent({ _kind: 'syncMemory' })));
+    const push = superFormFrom(await actions.pushToGit(commandEvent({ _kind: 'pushMemory' })));
+    expect((sync as { id?: string }).id).toBe(data.syncForm.id);
+    expect((push as { id?: string }).id).toBe(data.pushForm.id);
   });
 });
 

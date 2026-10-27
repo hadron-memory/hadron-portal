@@ -5,6 +5,7 @@
  * "unavailable" state) rather than a false "no subscriptions".
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   ORG_AGENTS_TAB_QUERY,
   ORG_APP_INSTALLS_QUERY,
@@ -104,6 +105,19 @@ async function runUnsubscribe(agentId = 'foreign-agent') {
     request: { formData: async () => fd },
   } as never);
 }
+
+describe('org agents loader — form ids (#1320)', () => {
+  it('gives Subscribe and Unsubscribe their own Superforms ids and validates each action under its id', async () => {
+    route({});
+    const data = await runLoad();
+    expectDistinctFormIds(data, 2);
+    mockRequest.mockResolvedValue({});
+    const sub = (await runSubscribe()) as { form?: { id: string }; data?: { form?: { id: string } } };
+    const unsub = (await runUnsubscribe()) as { form?: { id: string }; data?: { form?: { id: string } } };
+    expect((sub.data?.form ?? sub.form)?.id).toBe((data as unknown as { subscribeForm: { id: string } }).subscribeForm.id);
+    expect((unsub.data?.form ?? unsub.form)?.id).toBe((data as unknown as { unsubscribeForm: { id: string } }).unsubscribeForm.id);
+  });
+});
 
 describe('org agents loader — subscribed grants (#486)', () => {
   it('keeps only grants for agents owned by OTHER orgs', async () => {

@@ -105,17 +105,17 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       githubInstallationFormAdapter,
       { errors: false },
     ),
-    superValidate<UnlinkGithubForm>({}, unlinkGithubFormAdapter, { errors: false }),
-    superValidate<ConnectExchangeForm>({}, connectExchangeFormAdapter, { errors: false }),
+    superValidate<UnlinkGithubForm>({}, unlinkGithubFormAdapter, { errors: false, id: 'unlinkGithub' }),
+    superValidate<ConnectExchangeForm>({}, connectExchangeFormAdapter, { errors: false, id: 'connectExchange' }),
     superValidate<TestExchangeConnectionForm>(
       { connectionId: '' },
       testExchangeConnectionFormAdapter,
-      { errors: false },
+      { errors: false, id: 'testExchangeConnection' },
     ),
     superValidate<DeleteExchangeConnectionForm>(
       { connectionId: '' },
       deleteExchangeConnectionFormAdapter,
-      { errors: false },
+      { errors: false, id: 'deleteExchangeConnection' },
     ),
   ]);
 
@@ -189,6 +189,7 @@ export const actions: Actions = {
     const form = await superValidate<UnlinkGithubForm>(
       await request.formData(),
       unlinkGithubFormAdapter,
+      { id: 'unlinkGithub' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -210,6 +211,7 @@ export const actions: Actions = {
     const form = await superValidate<ConnectExchangeForm>(
       await request.formData(),
       connectExchangeFormAdapter,
+      { id: 'connectExchange' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -254,6 +256,7 @@ export const actions: Actions = {
     const form = await superValidate<DeleteExchangeConnectionForm>(
       await request.formData(),
       deleteExchangeConnectionFormAdapter,
+      { id: 'deleteExchangeConnection' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -273,6 +276,7 @@ export const actions: Actions = {
     const form = await superValidate<TestExchangeConnectionForm>(
       await request.formData(),
       testExchangeConnectionFormAdapter,
+      { id: 'testExchangeConnection' },
     );
     if (!form.valid) return fail(400, { form });
 

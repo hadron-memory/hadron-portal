@@ -5,6 +5,7 @@
  * routing edge with the source's next free index.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -88,6 +89,9 @@ describe('load', () => {
     const result = await runLoad() as {
       edgeForms: Record<string, { data: Record<string, unknown>; errors: Record<string, string[]> }>;
     };
+    // edgeForms holds one form per edge; only the selected edge's is mounted.
+    const { edgeForms, ...mounted } = result as unknown as Record<string, Record<string, unknown>>;
+    expectDistinctFormIds({ ...mounted, edge: Object.values(edgeForms)[0] }, 2);
 
     expect(Object.keys(result.edgeForms)).toEqual(['edge-1', 'edge-2']);
     expect(result.edgeForms['edge-1'].data).toMatchObject({
