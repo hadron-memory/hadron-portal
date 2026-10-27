@@ -819,12 +819,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate(
       { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
       addAppMemberFormAdapter,
-      { errors: false },
+      { errors: false, id: 'addAppMember' },
     ),
     superValidate(
       { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
       ensureAppMemberFormAdapter,
-      { errors: false },
+      { errors: false, id: 'ensureAppMember' },
     ),
     superValidate({ userId: '' }, removeAppMemberFormAdapter, { errors: false }),
   ]);
