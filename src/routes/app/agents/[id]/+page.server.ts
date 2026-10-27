@@ -323,12 +323,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate<AddAgentMemoryForm>(
       { memoryId: '', role: 'read' },
       addAgentMemoryFormAdapter,
-      { errors: false },
+      { errors: false, id: 'addMemory' },
     ),
     superValidate(
       { memoryId: '', role: 'read' },
       updateAgentMemoryRoleFormAdapter,
-      { errors: false },
+      { errors: false, id: 'updateMemoryRole' },
     ),
     superValidate(
       { memoryId: '' },
@@ -606,6 +606,7 @@ export const actions: Actions = {
     const form = await superValidate<AddAgentMemoryForm>(
       await request.formData(),
       addAgentMemoryFormAdapter,
+      { id: 'addMemory' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -649,7 +650,7 @@ export const actions: Actions = {
   },
 
   updateMemoryRole: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), updateAgentMemoryRoleFormAdapter);
+    const form = await superValidate(await request.formData(), updateAgentMemoryRoleFormAdapter, { id: 'updateMemoryRole' });
     if (!form.valid) return fail(400, { form });
 
     try {

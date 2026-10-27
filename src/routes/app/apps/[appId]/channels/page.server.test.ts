@@ -7,6 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   APP_CHANNELS_APP_QUERY,
   APP_CHANNELS_QUERY,
@@ -129,6 +130,7 @@ async function load() {
     agentsWithheld: boolean;
     canManageRegister: boolean | null;
     registerLoadFailed: boolean;
+    [form: string]: unknown;
   };
 }
 
@@ -146,6 +148,24 @@ const msg = (r: Awaited<ReturnType<typeof act>>) => (r.data?.form ?? r.form)?.me
 const sent = (doc: string) => mockRequest.mock.calls.filter(([d]) => d === doc).map(([, v]) => v);
 
 describe('load', () => {
+  it('#1320 gives every form its own Superforms id (Delete shared one with the register Remove form)', async () => {
+    route({ channels: [channel()] });
+    expectDistinctFormIds(await load(), 6);
+  });
+
+  it.each([
+    ['createChannel', 'createForm'],
+    ['renameChannel', 'renameForm'],
+    ['deleteChannel', 'deleteForm'],
+  ] as const)('the %s action answers under the id its form was loaded with', async (action, formName) => {
+    route({ channels: [channel()] });
+    const data = await load();
+    const { actions } = await import('./+page.server');
+    // An empty post fails validation, so no mutation runs and the action returns its form.
+    const result = (await actions[action]({ request: new Request('http://localhost/', { method: 'POST', body: new FormData() }), params: { appId: 'app-1' }, locals: { token: 'tok' } } as never)) as unknown as { data: { form: { id: string } } };
+    expect(result.data.form.id).toBe((data[formName] as { id: string }).id);
+  });
+
   it('lists the App’s Channels, marks the default, and audits write access per host memory', async () => {
     route({ channels: [channel(), channel({ id: 'ch-x', loc: 'chats:x', memory: OTHER })], canWrite: { [OTHER.urn]: false } });
     const data = await load();

@@ -112,9 +112,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     total: data.channels.total,
     defaultChannelId: data.app.defaultChannel?.id ?? null,
     canWrite,
-    createForm: await superValidate(zod4(createChannelSchema), { errors: false }),
-    renameForm: await superValidate(zod4(renameChannelSchema), { errors: false }),
-    deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
+    createForm: await superValidate(zod4(createChannelSchema), { errors: false, id: 'createChannel' }),
+    renameForm: await superValidate(zod4(renameChannelSchema), { errors: false, id: 'renameChannel' }),
+    deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false, id: 'deleteChannel' }),
     ...(await registerForms()),
   };
 };
@@ -222,7 +222,7 @@ export const actions: Actions = {
   ...attendanceActions((params) => params.appId),
 
   createChannel: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(createChannelSchema));
+    const form = await superValidate(await request.formData(), zod4(createChannelSchema), { id: 'createChannel' });
     if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
     try {
@@ -248,7 +248,7 @@ export const actions: Actions = {
   },
 
   renameChannel: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(renameChannelSchema));
+    const form = await superValidate(await request.formData(), zod4(renameChannelSchema), { id: 'renameChannel' });
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(UPDATE_CHANNEL_MUTATION, {
@@ -263,7 +263,7 @@ export const actions: Actions = {
   },
 
   deleteChannel: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(deleteChannelSchema));
+    const form = await superValidate(await request.formData(), zod4(deleteChannelSchema), { id: 'deleteChannel' });
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(DELETE_CHANNEL_MUTATION, { ref: form.data.ref });

@@ -7,6 +7,7 @@
  * lib/register.ts emits.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { ClientError } from 'graphql-request';
 import {
   APP_INSTALLED_AGENTS_QUERY,
@@ -140,6 +141,13 @@ async function act(name: 'addAttendance' | 'editAttendance' | 'removeAttendance'
 }
 const msg = (r: Awaited<ReturnType<typeof act>>) => (r.data?.form ?? r.form)?.message;
 const sent = (doc: string) => mockRequest.mock.calls.filter(([d]) => d === doc).map(([, v]) => v);
+
+describe('load: form ids (#1320)', () => {
+  it('gives the register forms the page mounts their own Superforms ids', async () => {
+    route({});
+    expectDistinctFormIds(await load(), 3);
+  });
+});
 
 describe('load', () => {
   it('lists the org’s Channels by orgId (not an App), paged past 200', async () => {
