@@ -1,4 +1,4 @@
-# Exported from hadron-server c3b4ed1ddeb73056af746a6eb3e0d639c5210c06 (c3b4ed1ddeb73056af746a6eb3e0d639c5210c06, 2026-10-25T23:03:36-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 1b14e34aee0118555d5809f913c0e5a80a0c78d4 (origin/main, 2026-10-27T03:59:06-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -339,6 +339,11 @@ type AgentListedProcess {
 """
 type AgentListedTask {
   """
+  #2421 experimental symptom search: which retriever ranked this task; null on the unfiltered list.
+  """
+  matchedBy: AgentTaskMatchedBy
+
+  """
   The task. A base's task, listed through the Agent, keeps its own URN and carries inheritedFrom.
   """
   node: Node!
@@ -557,6 +562,20 @@ The statuses a task may be CREATED in (#1754, hrn:node:hadronmemory.com:specs:co
 enum AgentTaskCreateStatus {
   BACKLOG
   PENDING
+}
+
+"""
+#2421 experimental symptom search: membership in the hybrid ranking inputs.
+"""
+enum AgentTaskMatchedBy {
+  """Ranked by both retrievers."""
+  BOTH
+
+  """Ranked by the keyword retriever."""
+  KEYWORD
+
+  """Ranked by the vector retriever."""
+  VECTOR
 }
 
 """
@@ -1271,6 +1290,10 @@ type App {
   memberCount: Int!
   members: [AppMember!]!
   name: String!
+
+  """
+  The owning Organization when the caller may read that Organization; an App read alone does not grant it.
+  """
   organization: Organization
   organizationId: String
 
@@ -1553,9 +1576,38 @@ enum AppMemoryKind {
 }
 
 """
+#2484: an App's write grant on one memory under one loc prefix, for the App's userless runs only. It permits node create and update at the prefix and its colon-boundary descendants, checked live at each write; never delete, edges, memory settings or stored files, and nothing for another App's run, a user-backed run, an App key or a worker. A revoked grant stays as a terminal row. hrn:node:hadronmemory.com:specs:cor:agt:010:01
+"""
+type AppMemoryWriteGrant {
+  appId: ID!
+  createdAt: DateTime!
+
+  """The person who set it."""
+  grantedBy: String!
+  id: ID!
+
+  """
+  The granted memory. Null when the grant is on someone's personal or private memory and the caller is not its owner.
+  """
+  memoryUrn: String
+
+  """
+  The loc prefix: the loc itself and its colon-boundary descendants (reports:team-progress does not cover reports:team-progressX).
+  """
+  prefix: String!
+
+  """
+  The register line this grant cites. A citation only, never evidence that the line exists.
+  """
+  registerNodeUrn: String
+  revokedAt: DateTime
+  revokedBy: String
+}
+
+"""
 One headless run — the audit record AND (v1) the activation: policy
 snapshot, live budgets (zeroing halts the run), lifecycle, trigger
-provenance. Spec cor:agt:010:02.
+provenance. Spec hrn:node:hadronmemory.com:specs:cor:agt:010:02.
 """
 type AppRun {
   """
@@ -1600,6 +1652,13 @@ type AppRun {
   render as 'no budget' rather than 'unknown'.
   """
   budgetTokensInitial: Int
+
+  """
+  Priced LLM cost of this run in micro-cents (1e-8 USD), as a string (#2439):
+  the sum of its usage events' cost. Events with no known price add nothing.
+  NULL means UNKNOWN (a run minted before the counter existed), not zero.
+  """
+  costMicroCents: String
   createdAt: DateTime!
   createdBy: String
   curNodeUrn: String
@@ -1618,6 +1677,15 @@ type AppRun {
   entryNodeUrn: String!
   eventData: JSON
   failure: JSON
+
+  """
+  A failed run's cause in plain words (#2439): what happened, who can fix it
+  and where. Null when the run has no failure. Static text derived from the
+  failure and the run's budgets; it names no memory, id or tool, so it
+  discloses nothing the caller does not already read. The raw failure stays
+  available on the failure field.
+  """
+  failureReason: AppRunFailureReason
   finishedAt: DateTime
 
   """
@@ -1690,6 +1758,22 @@ type AppRun {
 
   """On-behalf-of user (cor:agt:010:01). Null = pure App service identity."""
   userId: ID
+}
+
+type AppRunFailureReason {
+  """
+  Stable category: NOT_ADOPTED, MEMORY_UNREADABLE, CHANGED, OVER_BUDGET, POLICY_DENIED, NO_AI_CONFIG, TIMED_OUT, CANCELLED or OTHER.
+  """
+  kind: String!
+
+  """What to do, and where."""
+  nextStep: String!
+
+  """What happened, in plain words."""
+  summary: String!
+
+  """Who can fix it."""
+  whoCanFix: String!
 }
 
 """
@@ -2338,9 +2422,13 @@ type CastWorkerPreview {
   template and no override was given.
   """
   prompt: String
+  reportsToWorkerId: ID
 
-  """The casting's role: explicit, else the agent's personaRole dressing."""
+  """
+  The casting's role: the agent's personaRole (it cannot be overridden, R222).
+  """
   role: String
+  teamPlacement: WorkerTeamPlacement!
 
   """
   #2024 — the tickers this cast would create, each at its effective cadence (the larger of the template's and the App's floor). Non-reserving: nothing is written or held, so a later cast may differ if the App changes. Empty when the Agent declares none.
@@ -2396,7 +2484,14 @@ type Channel {
 
   """The reserved address of the chat root (e.g. chats:team)."""
   loc: String!
-  memory: Memory!
+
+  """
+  #2509: this memory's record, exactly as Query.memory answers it to the
+  caller, or null when the caller may not read that record (or it is
+  deleted). Seeing this channel does not grant its memory's record, so use
+  memoryId for the address.
+  """
+  memory: Memory
 
   """Host memory."""
   memoryId: ID!
@@ -5443,7 +5538,14 @@ on the Memory itself.
 type MemoryMember {
   createdAt: DateTime!
   createdBy: String
-  memory: Memory!
+
+  """
+  #2509: this memory's record, exactly as Query.memory answers it to the
+  caller, or null when the caller may not read that record (or it is
+  deleted). Seeing this membership does not grant its memory's record, so use
+  memoryId for the address.
+  """
+  memory: Memory
   role: MemoryMemberRole!
   updatedAt: DateTime
   updatedBy: String
@@ -5512,7 +5614,14 @@ type MemoryShare {
   createdBy instead.
   """
   grantor: User!
-  memory: Memory!
+
+  """
+  #2509: this memory's record, exactly as Query.memory answers it to the
+  caller, or null when the caller may not read that record (or it is
+  deleted). Seeing this share does not grant its memory's record, so use
+  memoryId for the address.
+  """
+  memory: Memory
   role: MemoryShareRole!
   updatedAt: DateTime
   updatedBy: String
@@ -5577,7 +5686,9 @@ enum MemoryValidationCheck {
   """objectType/properties violate the memory declared schema (#725)."""
   SCHEMA
 
-  """A node with no description, content, or abstract."""
+  """
+  A non-object node with no description, content, or abstract. Object nodes (objectType set) are data-only by design and never sparse (#2516).
+  """
   SPARSE
 
   """The abstract no longer reflects current content (spec 032 FR-011)."""
@@ -5850,6 +5961,18 @@ type Mutation {
   advanceChannelReadState(appRef: ID, attendeeRef: ID!, channelRef: ID!, seq: Int!): ChannelReadState!
 
   """
+  #1178 — allocate the next citation under parentLoc and reserve it as a
+  placeholder, in one transaction: mint-or-refuse, so a client never reads
+  sibling numbers and writes the next. Numbers follow hadron spec new:
+  features in tens (010..990), rules and flows by one (01..99), rule 00 never,
+  after lands strictly above it. A number ever minted is never handed out
+  again (R216) while a row or alias of it remains, and a loc held by a row of
+  any state is skipped. Refuses SPEC_PARENT_NOT_FOUND, SPEC_PARENT_NOT_NUMBERED
+  and SPEC_NUMBER_SPACE_EXHAUSTED; an unreadable memory is not found.
+  """
+  allocateSpecNode(after: Int, memoryRef: ID!, name: String, parentLoc: String!): Node!
+
+  """
   #1641 — amend a writable decision. Memory write access is always required; before any answer, any writer; after one, a decider only. Urgency is a
   decider's to change; lowering the tier is a decider's, before an answer, never when it authorizes.
   Refusals: NODE_WRITE_CONFLICT, DECISION_PART_RENUMBER, DECISION_ANSWER_IMMUTABLE, DECISION_NOT_DECIDER.
@@ -6016,7 +6139,15 @@ type Mutation {
   WORKER_AGENT_NOT_INSTALLED); otherwise role picks the single installed
   agent whose personaRole matches (zero / several candidates:
   WORKER_AGENT_NOT_FOUND / WORKER_AGENT_AMBIGUOUS, never a guess). The
-  casting's role defaults to the agent's personaRole when role is omitted.
+  casting's role is the agent's personaRole and cannot be overridden
+  (hrn:node:hadronmemory.com:specs:cor:dmo:050:11, R222): beside an agentRef,
+  a role that is not that agent's refuses WORKER_ROLE_OVERRIDE_REFUSED.
+  
+  The casting check (#2458) is shared with changeWorkerAgent: the App's
+  holder must be licensed for the agent (AGENT_ORG_GRANT_INACTIVE /
+  AGENT_ORG_GRANT_REQUIRED; a missing same-organization grant is no refusal
+  and a revoked one is) and for every Agent its served boot prompt
+  includes from (BOOT_PROMPT_GRANT_REQUIRED / BOOT_PROMPT_INCLUDE_UNAVAILABLE).
   
   The name (cor:agt:020:02) is REQUIRED since #1050 — one attempt, and
   WORKER_NAME_TAKEN is the answer. There is no register to fall back to: a
@@ -6041,8 +6172,10 @@ type Mutation {
   user-owned App. Pure App-key principals are denied.
   
   Error codes (extensions.code): WORKER_NAME_TAKEN, WORKER_NAME_CONFUSABLE,
-  WORKER_NAME_REQUIRED, WORKER_NAME_RESERVED, WORKER_AGENT_NOT_INSTALLED,
-  WORKER_AGENT_NOT_FOUND, WORKER_AGENT_AMBIGUOUS, APP_UNINSTALLED.
+  WORKER_NAME_REQUIRED, WORKER_NAME_RESERVED, WORKER_NAME_RESERVED_TEAM_PREFIX
+  (a mention token starting team., refused only while TEAM_TAGS_ENABLED),
+  WORKER_AGENT_NOT_INSTALLED, WORKER_AGENT_NOT_FOUND, WORKER_AGENT_AMBIGUOUS,
+  APP_UNINSTALLED.
   
   #1050 also removed WORKER_ROLE_NOT_FOUND from this mutation: it fired only
   because a nameless cast had to find a roles:<role> node to read a register.
@@ -6070,9 +6203,46 @@ type Mutation {
     keep the typed refusal. One rule, one message, both paths.
     """
     name: String
+
+    """
+    S12 explicit no-team choice; omit reportsTo. Both keys conflict, single null/blank/false is invalid. Omission remains UNSET while enforcement is OFF.
+    """
+    noTeam: Boolean
     promptOverride: String
+
+    """
+    S12 head choice: requires staffing and App management; refuses WORKER_REPORTING_CAST_UNAVAILABLE if standby becomes available without cast coverage integration.
+    """
+    reportsTo: ID
     role: String
   ): Worker!
+
+  """
+  #2458 (hrn:node:hadronmemory.com:specs:cor:dmo:050:11, R222): change the
+  agent a worker casts. The role follows the agent and is never typed in.
+  Name, slug, URN, signature, trailer, reporting line and every past record
+  stay; past sessions keep the agent and role they ran under
+  (Session.agentId, Session.role).
+  
+  Who: whoever manages the App, as themselves. A worker session (even one
+  its manager holds), an App key, an impersonation or a run is FORBIDDEN.
+  
+  To what: the same checks as castWorker (WORKER_AGENT_NOT_INSTALLED,
+  AGENT_ORG_GRANT_INACTIVE / _REQUIRED, BOOT_PROMPT_GRANT_REQUIRED /
+  BOOT_PROMPT_INCLUDE_UNAVAILABLE, APP_UNINSTALLED). Also WORKER_RETIRED,
+  WORKER_AGENT_UNCHANGED (it already casts that agent),
+  WORKER_AGENT_HAS_NO_ROLE (the agent has no personaRole to change to) and
+  WORKER_CASTING_STALE (a concurrent change; read again). A refused change
+  changes nothing.
+  
+  A complete change, in one transaction: the worker's own boot-prompt
+  pointer is cleared (it named the old agent's compiled prompt), the old
+  agent's generated tickers end and the new agent's are made, and one
+  `worker.casting` team event records who and the old and new agent and
+  role. It takes effect at the worker's next bind: an open session
+  finishes under the agent and role it was bound with. workerRef and agentRef are ids or URNs.
+  """
+  changeWorkerAgent(agentRef: ID!, workerRef: ID!): Worker!
 
   """
   #2162 — a context reset's protocol (hrn:node:hadronmemory.com:specs:cor:agt:050:27), for the host its
@@ -6450,7 +6620,9 @@ type Mutation {
   Spec 049 Phase 8 — post into ANY Channel by ref (its id, or its address —
   `Channel.chatRootUrn`, #1171): the
   createTeamChatMessage contract (author derivation, mentions, replyToSeq,
-  the body cap, item J) addressed by Channel. createTeamChatMessage is the
+  the body cap, item J) addressed by Channel. While TEAM_TAGS_ENABLED (default
+  off) a post also carries the sender's team tags, and an invalid
+  `@team.<head>.all` target refuses the whole post TEAM_CHAT_TEAM_HEAD_INVALID. createTeamChatMessage is the
   appRef → App.defaultChannel convenience over this — one gate, two entry
   points. A Channel you may not read is CHANNEL_NOT_FOUND; one you may read
   but not post into is FORBIDDEN.
@@ -8304,6 +8476,11 @@ type Mutation {
   """
   revokeAppKeyScope(id: ID!, scope: String!): AppKey!
 
+  """
+  #2484: end a grant; the next write by the App's run is refused. Whoever manages the App may revoke, acting as themselves. The row stays with its end time; revoking a revoked grant changes nothing. hrn:node:hadronmemory.com:specs:cor:agt:010:01
+  """
+  revokeAppMemoryWriteGrant(id: ID!): AppMemoryWriteGrant!
+
   """Revoke a connection grant you created (soft delete). Owner-only."""
   revokeConnectionGrant(ref: ID!): Boolean!
 
@@ -8444,6 +8621,11 @@ type Mutation {
   setAppDeliverySettings(appRef: String!, input: AppDeliverySettingsInput!): AppDeliverySettings!
 
   """
+  #2484: let an App's userless runs create or update a node in one memory under one loc prefix (required; no memory-wide grant). The caller is a person acting as themselves who manages the App and can write the memory. A shared memory must be one the App's own org or team space holds; a personal or private memory only by its owner, who must also manage the App; an encrypted memory is never grantable. Granting the same prefix again returns the live grant. One content-free event is recorded. hrn:node:hadronmemory.com:specs:cor:agt:010:01
+  """
+  setAppMemoryWriteGrant(appRef: String!, memoryRef: String!, prefix: String!, registerNodeUrn: String): AppMemoryWriteGrant!
+
+  """
   #1747 — change an App ticker settings (hrn:node:hadronmemory.com:specs:cor:agt:080:05, :19). Whoever manages the App only.
   Refusals: TICKER_SETTINGS_OUT_OF_RANGE, TICKER_SETTINGS_CONFLICT (a floor above a live ticker cadence),
   DELIVERY_SETTINGS_CONFLICT (the shared cadence floor must keep stuckWindowSeconds greater than busyDelaySeconds + minCadenceSeconds).
@@ -8548,7 +8730,7 @@ type Mutation {
   when one person holds both, or placed under any worker by its own holder
   (interim, pending a ruling). WORKER_REPORTS_TO_FORBIDDEN otherwise. A worker acts through its bound
   session, with a person behind the request. Each change is a
-  `worker.reports-to` team event; setting the current value changes nothing.
+  `worker.reports-to` team event. An explicit clear records NO_TEAM, including a previously UNSET line; repeating the recorded choice changes nothing.
   """
   setWorkerReportsTo(reportsTo: ID, workerRef: ID!): Worker!
 
@@ -9261,8 +9443,8 @@ type Mutation {
   Omitted preserves, null refuses, whitespace-only becomes empty text; other text is raw, max 2000 characters, no NUL.
   A mixed update is atomic. These values reach the next compose/bind via S4.
   
-  The other casting identity fields stay immutable: `name` is permanent by law (hrn:node:hadronmemory.com:specs:cor:agt:020:02)
-  and `role`/`agent` define the casting itself. OMITTING promptOverride
+  `name` is permanent by law (hrn:node:hadronmemory.com:specs:cor:agt:020:02). The agent
+  (and with it the role) is changed by changeWorkerAgent, not here. OMITTING promptOverride
   preserves it; explicit `null` or a blank string CLEARS it, matching the
   nullable column and castWorker's blank-is-absent normalization.
   
@@ -9716,6 +9898,36 @@ input NodeEdgeInput {
   node's memory.
   """
   targetId: String!
+}
+
+"""
+#2517 — one edge a hard delete removed from this node (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). The deleted target's address (targetLoc) and the removed edge's loc, which is derived from it, are shown only when you can read the memory the target lived in. Entries are gated per entry by the memory the source was in when the edge was removed. A derived include edge is not recorded.
+"""
+type NodeEdgeRemoval {
+  createdAt: DateTime!
+
+  """
+  The removed edge's loc; null when the deleted target's memory is not one you can read (the loc is derived from the target's address).
+  """
+  edgeLoc: String
+  edgeName: String
+  id: ID!
+
+  """TARGET_HARD_DELETED: the edge's target was hard-deleted."""
+  reason: String!
+
+  """
+  Who deleted: the same user, app or client id a soft delete stamps as deletedBy; null when unattributed.
+  """
+  removedBy: String
+
+  """Stable id of the deleted target; the row itself is gone."""
+  targetId: ID!
+
+  """
+  The deleted target's loc; null when its memory is not one you can read (a cross-memory edge).
+  """
+  targetLoc: String
 }
 
 """How the rendered payload is encoded. TEXT for MD/JSON; BASE64 for PDF."""
@@ -10759,8 +10971,13 @@ type Query {
   listed task outside the chain's memories is returned only when its own
   memory is readable too. Refused as AGENT_NOT_FOUND otherwise. The MCP tool
   hadron_agent_tasks returns the same list. Accepts the Agent's ID or URN.
+  #2421 experiment: optional symptom ranks only runnable effective-chain tasks
+  with non-empty abstracts; summary vectors and abstract-only lexical matches
+  share hybrid ranking. At most 3 candidates (limit defaults to 3, larger
+  values clamp); empty symptom or non-positive limit is BAD_USER_INPUT.
+  Without symptom the list is unchanged. matchedBy identifies ranking inputs.
   """
-  agentTaskList(ref: ID!): [AgentListedTask!]!
+  agentTaskList(limit: Int, ref: ID!, symptom: String): [AgentListedTask!]!
 
   """
   #1706 — an App's effective stall windows (hrn:node:hadronmemory.com:specs:cor:agt:050:14–:17), and (#1763) its
@@ -10901,6 +11118,11 @@ type Query {
   Accepts the entity's ID or URN.
   """
   appKeys(appRef: ID!): [AppKey!]!
+
+  """
+  #2484: the write grants an App holds for its userless runs, oldest first; revoked rows only with includeRevoked. Only whoever manages the App, acting as themselves, may list them; a grant on a personal or private memory is listed to its owner alone. hrn:node:hadronmemory.com:specs:cor:agt:010:01
+  """
+  appMemoryWriteGrants(appRef: String!, includeRevoked: Boolean = false): [AppMemoryWriteGrant!]!
 
   """
   Nodes in the App's current readable installed-Agent memory scope, with
@@ -11048,7 +11270,8 @@ type Query {
   Dry-run castWorker (#964): run the cast's exact resolution — same
   arguments, same typed refusals (WORKER_AGENT_NOT_FOUND / _AMBIGUOUS /
   _NOT_INSTALLED, WORKER_NAME_REQUIRED, WORKER_NAME_TAKEN,
-  WORKER_NAME_CONFUSABLE, WORKER_NAME_RESERVED, APP_UNINSTALLED),
+  WORKER_NAME_CONFUSABLE, WORKER_NAME_RESERVED, WORKER_NAME_RESERVED_TEAM_PREFIX
+  (only while TEAM_TAGS_ENABLED), APP_UNINSTALLED),
   same MINT gate — up to but not
   including the writes, and return what would be created. A Query, not a
   dryRun flag: casting a name is the one irreversible act in the team
@@ -11058,7 +11281,23 @@ type Query {
   be gone at cast time — by design; the cast's uniqueness constraint
   remains the only allocation primitive.
   """
-  castWorkerPreview(agentRef: ID, appRef: ID!, name: String, promptOverride: String, role: String): CastWorkerPreview!
+  castWorkerPreview(
+    agentRef: ID
+    appRef: ID!
+    name: String
+
+    """
+    S12 explicit no-team choice; omit reportsTo. Both keys conflict, single null/blank/false is invalid. Omission remains UNSET while enforcement is OFF.
+    """
+    noTeam: Boolean
+    promptOverride: String
+
+    """
+    S12 head choice: requires staffing and App management; refuses WORKER_REPORTING_CAST_UNAVAILABLE if standby becomes available without cast coverage integration.
+    """
+    reportsTo: ID
+    role: String
+  ): CastWorkerPreview!
 
   """
   Spec 049 Phase 4 — the uniform single-Channel read. 'ref' is the Channel's
@@ -11098,6 +11337,14 @@ type Query {
     mentionsRef: ID
     offset: Int
     sinceSeq: Int
+
+    """Stable authorized head ID; mutually exclusive with untagged."""
+    teamHeadRef: ID
+
+    """
+    Select no stored head identity (legacy absent or explicit empty). Requires metadata access.
+    """
+    untagged: Boolean
   ): TeamChatMessagesPage!
 
   """
@@ -11822,6 +12069,14 @@ type Query {
   nodeBatch(locPrefix: String, memory: ID, refs: [ID!]): NodeBatchResult!
 
   """
+  #2517 — the audit entries a HARD delete left on this node when it removed edges the node held to the deleted
+  target, newest first (default 20). A separate record, never a NodeRevision: revisions stay snapshots of the node's
+  own fields. A soft delete keeps its edges and records nothing. Same read gate as nodeRevisions; a node you cannot
+  read returns an empty list. hrn:node:hadronmemory.com:specs:cor:dmo:010:04
+  """
+  nodeEdgeRemovals(limit: Int, nodeRef: ID!): [NodeEdgeRemoval!]!
+
+  """
   Render one node to a portable, self-contained file (spec cor:api).
   full: true (default) returns the CANONICAL form — byte-identical to
     "hadron node export <urn>", all sections, round-trippable via
@@ -12364,6 +12619,14 @@ type Query {
     mentionsRef: ID
     offset: Int
     sinceSeq: Int
+
+    """Stable authorized head ID; mutually exclusive with untagged."""
+    teamHeadRef: ID
+
+    """
+    Select no stored head identity (legacy absent or explicit empty). Requires metadata access.
+    """
+    untagged: Boolean
   ): TeamChatMessagesPage!
 
   """
@@ -13714,6 +13977,11 @@ type Session {
   prNumber: Int
   prevSessionId: String
   repo: String
+
+  """
+  #2458 (hrn:node:hadronmemory.com:specs:cor:dmo:050:11): the worker's role when this session was bound; it does not follow a later change of the worker's agent. Null without a worker.
+  """
+  role: String
   startedAt: DateTime!
 
   """
@@ -15021,6 +15289,11 @@ type TeamChatMessage {
   sessionId: ID
 
   """
+  Immutable head identity/display pairs. Null means absent or withheld; [] means known empty.
+  """
+  teamTags: [TeamTagSnapshot!]
+
+  """
   The message node's canonical URN, hrn:node:<memory>:<loc> (#1209), so a
   client can cite a message in a CLI call, an MCP tool or a reply. Composed
   server-side: a message loc carries a random component, so the chat root and
@@ -15292,6 +15565,9 @@ type TeamRosterEntry {
   startedTasks: [ID!]!
   state: TeamRosterState!
 
+  """S12 recorded choice; null means withheld, never UNSET or NO_TEAM."""
+  teamPlacement: WorkerTeamPlacement
+
   """
   Coarse tier from the server model mapping: high, mid or low. Null when unbound, unreported or unmapped; advisory, never authorization.
   """
@@ -15370,6 +15646,11 @@ type TeamRosterTaskSummary {
 enum TeamSpecForm {
   CLIENT_INPUT
   SERVER
+}
+
+type TeamTagSnapshot {
+  headId: ID!
+  label: String!
 }
 
 """
@@ -16319,6 +16600,11 @@ type Worker {
   slug: String!
 
   """
+  S12 placement; null is withheld, UNSET is no recorded choice (including OFF-era casts).
+  """
+  teamPlacement: WorkerTeamPlacement
+
+  """
   #2252 (R189) — the coarse tier of model from the platform's one model-to-tier mapping: high (opus-class),
   mid (sonnet-class), low (haiku-class); null when the model is unmapped (no guessed equivalence for another
   family). Advisory: a coordinator's reading aid, never an authorization or routing input in this slice.
@@ -16516,6 +16802,12 @@ enum WorkerPendingReason {
 
   """A team pause is in force (App.teamPausedAt); the worker can't lift it."""
   TEAM_PAUSED
+}
+
+enum WorkerTeamPlacement {
+  NO_TEAM
+  REPORTS_TO
+  UNSET
 }
 
 """

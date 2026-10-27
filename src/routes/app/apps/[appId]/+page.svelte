@@ -3,7 +3,7 @@
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
-  import { afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+  import { afterNavigate, goto, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -15,6 +15,7 @@
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
   import { createRosterRefreshers, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
+  import { teamChatReadUrl, withTeamFilter, type TeamChatFilter } from '$lib/team-chat-filter';
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating
   // this page's load. The load is a six-query parallel fetch whose failure
@@ -28,9 +29,13 @@
   // one. Measured under #754: one refetch in 20s where three were due, because
   // the 8s clock kept resetting. A prop that changes identity every render is
   // not a callback, it is a dependency.
+  // #1137: every read carries the team filter this page was loaded with
+  // (`data.teamFilter`, from `?team=`), so the filter and the transcript it
+  // produced always travel together. A read that lands after the page moved to
+  // another filter or App is dropped by the thread's generation guard: `data`
+  // changes only together with the transcript props that guard watches.
   const refreshTeamChat = async (sinceSeq?: number) => {
-    const cursor = sinceSeq === undefined ? '' : `?sinceSeq=${sinceSeq}`;
-    const res = await fetch(`/app/apps/${app.id}/team-chat${cursor}`);
+    const res = await fetch(teamChatReadUrl(app.id, { sinceSeq }, data.teamFilter));
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
     const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
     // The initial page can contain workers whose roster lookup failed. Later
@@ -43,12 +48,19 @@
   // null means "the fetch failed, retry on the next scroll", which the thread
   // keeps distinct from an empty page meaning "start of the conversation".
   const loadOlderTeamChat = async (beforeSeq: number) => {
-    const res = await fetch(`/app/apps/${app.id}/team-chat?beforeSeq=${beforeSeq}`);
+    const res = await fetch(teamChatReadUrl(app.id, { beforeSeq }, data.teamFilter));
     if (!res.ok) return null;
     const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
     if (body.loadFailed) return null;
     void refreshRosterFor(body.items);
     return { items: body.items, total: body.total };
+  };
+  // #1137: choosing a filter is a NAVIGATION to `?team=`, not component state:
+  // the loader re-reads the tail under it (server-side), the cursors and loaded
+  // page reset with the new props, and the URL is linkable. `keepFocus` and
+  // `noScroll` leave the composer and its draft alone.
+  const selectTeamFilter = (next: TeamChatFilter) => {
+    void goto(withTeamFilter(new URL(window.location.href), next), { keepFocus: true, noScroll: true });
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
@@ -1900,6 +1912,10 @@
           onRefresh={refreshTeamChat}
           onLoadOlder={loadOlderTeamChat}
           {workerUrns}
+          filter={data.teamFilter}
+          filterInvalid={data.teamFilterInvalid}
+          refusal={data.teamChatRefusal}
+          onSelectTeam={selectTeamFilter}
         />
       </div>
     </div>

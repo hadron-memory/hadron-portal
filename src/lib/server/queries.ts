@@ -2690,8 +2690,29 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
   # is the point: an offset is an index into a list whose length changes under a
   # reader while workers post, so it skips or duplicates mid-scroll. seq is
   # atomic and unique per chat, so the cursor is stable.
-  query TeamChatMessages($appRef: ID!, $sinceSeq: Int, $beforeSeq: Int, $limit: Int, $offset: Int) {
-    teamChatMessages(appRef: $appRef, sinceSeq: $sinceSeq, beforeSeq: $beforeSeq, limit: $limit, offset: $offset) {
+  #
+  # #1137: teamHeadRef / untagged are the S3 team filter (server#2019),
+  # mutually exclusive and applied SERVER-SIDE before paging and total. Both
+  # are omitted for the unfiltered thread. teamTags is the stored head
+  # identity per message — headId is the identity, label display only.
+  query TeamChatMessages(
+    $appRef: ID!
+    $sinceSeq: Int
+    $beforeSeq: Int
+    $limit: Int
+    $offset: Int
+    $teamHeadRef: ID
+    $untagged: Boolean
+  ) {
+    teamChatMessages(
+      appRef: $appRef
+      sinceSeq: $sinceSeq
+      beforeSeq: $beforeSeq
+      limit: $limit
+      offset: $offset
+      teamHeadRef: $teamHeadRef
+      untagged: $untagged
+    ) {
       items {
         nodeId
         seq
@@ -2708,6 +2729,10 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
         # when it cannot be emitted in grammar v2; the thread then shows no
         # message chip.
         urn
+        teamTags {
+          headId
+          label
+        }
       }
       total
     }

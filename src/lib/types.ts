@@ -210,6 +210,19 @@ export interface TeamChatMessage {
    * the thread then shows nothing, never a guessed address.
    */
   urn: string | null;
+  /**
+   * Immutable head identity/display pairs stamped when the message was posted
+   * (S3, server#2019). `label` is a post-time display snapshot, never identity:
+   * chips key and filter by `headId`. `[]` is a known no-team post; NULL is a
+   * historical absence OR a withheld value, indistinguishable by design — render
+   * no chip and make no claim, never "untagged" or "private".
+   */
+  teamTags: TeamTagSnapshot[] | null;
+}
+
+export interface TeamTagSnapshot {
+  headId: string;
+  label: string;
 }
 
 /**

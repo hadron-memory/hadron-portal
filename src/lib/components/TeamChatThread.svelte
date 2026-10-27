@@ -29,6 +29,7 @@
     mergeTranscript,
     scrollTopAfterPrepend,
   } from '$lib/team-chat-refresh';
+  import { NO_TEAM_FILTER, filterKeyOf, type TeamChatFilter } from '$lib/team-chat-filter';
   import type { TeamChatMessage } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
@@ -62,6 +63,10 @@
     pollMs = TEAM_CHAT_POLL_MS,
     workerUrns = null,
     onLoadOlder,
+    filter = NO_TEAM_FILTER,
+    filterInvalid = false,
+    refusal = null,
+    onSelectTeam,
   }: {
     messages?: TeamChatMessage[];
     /** The SERVER's count, which may exceed what was fetched. */
@@ -92,6 +97,20 @@
      *  scroll threshold) and the anchoring. Null on failure, so a transient
      *  error is retried rather than being read as the start of the thread. */
     onLoadOlder?: (beforeSeq: number) => Promise<{ items: TeamChatMessage[]; total: number } | null>;
+    /**
+     * #1137: the team filter the transcript above was read UNDER. It is URL
+     * state owned by the route — this component never filters rows it holds, it
+     * only shows the filter and asks for another one via `onSelectTeam`. A new
+     * filter arrives as new `messages`/`total` props, which is what drops any
+     * read still in flight under the old one.
+     */
+    filter?: TeamChatFilter;
+    /** The `?team=` value was malformed, so NOTHING was read (never the unfiltered thread). */
+    filterInvalid?: boolean;
+    /** The server's typed refusal of the head, shown verbatim; null otherwise. */
+    refusal?: { code: string; message: string } | null;
+    /** Ask for a different filter ('none' clears). Omit and the filter UI is read-only. */
+    onSelectTeam?: (next: TeamChatFilter) => void;
   } = $props();
 
   let messagesEl: HTMLDivElement | null = $state(null);
@@ -166,6 +185,7 @@
   // until the next tick — and the same race across client-side navigation could
   // briefly render the previous App's thread (Codex on #786). The invalidation
   // #754 used had no such window; isolating the read created one.
+  const filterKey = $derived(filterKeyOf(filter));
   let polled = $state<{ items: readonly TeamChatMessage[]; total: number } | null>(null);
   // The server's `sinceSeq` total is cursor-scoped. Keep the unreceived part
   // of the previous page so each subsequent poll adds only genuinely new posts
@@ -178,6 +198,9 @@
     // (hrn:node:hadronmemory.com:hadron-portal:review:no-read-modify-write-state-in-effect).
     messages;
     total;
+    // #1137: a different filter is a different thread, even when the new one
+    // happens to return the same (e.g. both empty) rows.
+    filterKey;
     untrack(() => {
       dataGeneration += 1;
       polled = null;
@@ -216,6 +239,7 @@
   $effect(() => {
     messages;
     total;
+    filterKey;
     untrack(() => {
       olderExhausted = false;
       olderRemainingCount = Math.max(0, total - messages.length);
@@ -287,6 +311,30 @@
   // The page cap is applied server-side, so the loaded transcript may cover
   // only part of the thread. Say so rather than implying it is complete.
   const truncated = $derived(shownTotal > shownMessages.length);
+
+  // #1137: the filter control. Offered only where tags have actually been
+  // OBSERVED — on a loaded row, or because a filter is already on — and never
+  // from a server flag the portal does not read (default-OFF: with tagging off
+  // `teamTags` is null everywhere, and a control promising a result would lie).
+  const tagsObserved = $derived(shownMessages.some((m) => (m.teamTags?.length ?? 0) > 0));
+  const showFilterBar = $derived(!!onSelectTeam && (filter.kind !== 'none' || filterInvalid || tagsObserved));
+  // A head's label is a post-time DISPLAY snapshot: it can collide and go
+  // stale, so it is looked up for display only, never used as identity.
+  const activeTeamLabel = $derived.by(() => {
+    if (filter.kind !== 'team') return null;
+    for (const m of shownMessages) {
+      const hit = m.teamTags?.find((tag) => tag.headId === filter.headRef);
+      if (hit) return hit.label;
+    }
+    return null;
+  });
+  const filtered = $derived(filter.kind !== 'none');
+  // Tags are keyed by `headId`, and two snapshots of one head on a message would
+  // otherwise collide as keyed-each siblings.
+  function uniqueTags(tags: readonly { headId: string; label: string }[]) {
+    const seen = new Set<string>();
+    return tags.filter((tag) => (seen.has(tag.headId) ? false : (seen.add(tag.headId), true)));
+  }
 
   function renderMarkdown(text: string): string {
     // DOMPurify needs a real DOM and cannot run under SSR. Emit nothing until
@@ -582,6 +630,70 @@
 </script>
 
 <div class="flex flex-col {heightClass}">
+  {#if showFilterBar}
+    <!-- #1137: the team filter. Display and request only — the read happens on
+         the server, and nothing here widens what the viewer may see. -->
+    <!-- The rule sits on this wrapper, not on the flex row: this is a filter
+         bar, not a tab strip, and a `flex` + `border-b` element is what the
+         tab-strip gate reads as a rail. -->
+    <div class="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+    <div
+      data-testid="team-chat-filter"
+      class="flex flex-wrap items-center gap-2 px-6 py-2 text-xs"
+    >
+      <span class="font-medium text-zinc-600 dark:text-zinc-300" id="team-chat-filter-label">
+        {t('app.team-chat.filter.label', 'Team')}
+      </span>
+      <div role="group" aria-labelledby="team-chat-filter-label" class="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          aria-pressed={filter.kind === 'none' && !filterInvalid}
+          onclick={() => onSelectTeam?.(NO_TEAM_FILTER)}
+          class="rounded-full border px-2 py-0.5 {filter.kind === 'none' && !filterInvalid
+            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200'
+            : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
+        >
+          {t('app.team-chat.filter.all', 'All messages')}
+        </button>
+        {#if filter.kind === 'team'}
+          <button
+            type="button"
+            aria-pressed="true"
+            data-testid="team-chat-filter-active"
+            onclick={() => onSelectTeam?.(NO_TEAM_FILTER)}
+            title={t('app.team-chat.filter.clear', 'Clear the team filter')}
+            class="rounded-full border border-indigo-500 bg-indigo-50 px-2 py-0.5 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200"
+          >
+            {activeTeamLabel ?? t('app.team-chat.filter.selected-team', 'Selected team')}
+            <span aria-hidden="true">×</span>
+            <span class="sr-only">{t('app.team-chat.filter.clear', 'Clear the team filter')}</span>
+          </button>
+        {/if}
+        <button
+          type="button"
+          aria-pressed={filter.kind === 'untagged'}
+          onclick={() => onSelectTeam?.({ kind: 'untagged' })}
+          class="rounded-full border px-2 py-0.5 {filter.kind === 'untagged'
+            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200'
+            : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
+        >
+          {t('app.team-chat.filter.untagged', 'No team tag recorded')}
+        </button>
+      </div>
+      {#if filter.kind === 'team'}
+        <!-- Count-free on purpose: no exact count of untagged history exists to
+             state, and a guessed one would be a claim about the team. -->
+        <span class="text-zinc-500 dark:text-zinc-400" data-testid="team-chat-filter-note">
+          {t('app.team-chat.filter.note.team', 'Messages posted before team tagging carry no tag and are not shown.')}
+        </span>
+      {:else if filter.kind === 'untagged'}
+        <span class="text-zinc-500 dark:text-zinc-400" data-testid="team-chat-filter-note">
+          {t('app.team-chat.filter.note.untagged', 'Showing messages with no team tag recorded.')}
+        </span>
+      {/if}
+    </div>
+    </div>
+  {/if}
   <div
     bind:this={messagesEl}
     onscroll={onTranscriptScroll}
@@ -602,14 +714,37 @@
       </button>
     {:else if shownMessages.length > 0 && shownOlderRemaining === 0}
       <p class="py-1 text-center text-xs text-zinc-500 dark:text-zinc-400">
-        {t('team-chat.start-of-conversation', 'Start of the conversation')}
+        {filtered
+          ? t('team-chat.start-of-view', 'No earlier messages in this view')
+          : t('team-chat.start-of-conversation', 'Start of the conversation')}
       </p>
     {/if}
-    {#if shownLoadError}
+    {#if filterInvalid}
+      <!-- #1137: a malformed ?team= reads NOTHING. It is not the unfiltered
+           thread and not an empty team. -->
+      <div role="alert" data-testid="team-chat-filter-invalid" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        {t('app.team-chat.filter.invalid', 'That team filter is not valid, so nothing was loaded. Choose All messages to see the chat.')}
+      </div>
+    {:else if shownLoadError && refusal}
+      <!-- The server's own typed, non-oracular refusal, verbatim. No retry
+           without the filter, and no candidate list of other teams. -->
+      <div role="alert" data-testid="team-chat-filter-refused" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        {refusal.message}
+      </div>
+    {:else if shownLoadError}
       <!-- "Couldn't load" and "nothing here" are different statements; the
            empty state below must never be shown for a failed fetch. -->
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
         {t('app.team-chat.load-error', 'Could not load the team chat. This is a loading failure, not an empty chat — reload to try again.')}
+      </div>
+    {:else if shownMessages.length === 0 && filtered}
+      <!-- Filtered and empty reads as THAT, never as a quiet team. -->
+      <div class="flex h-full items-center justify-center text-center">
+        <p data-testid="team-chat-filter-empty" class="text-zinc-500 dark:text-zinc-400">
+          {filter.kind === 'untagged'
+            ? t('app.team-chat.filter.empty.untagged', 'No messages without a team tag recorded.')
+            : t('app.team-chat.filter.empty.team', 'No messages with this team tag.')}
+        </p>
       </div>
     {:else if shownMessages.length === 0}
       <div class="flex h-full items-center justify-center text-center">
@@ -741,6 +876,27 @@
               <time datetime={msg.at} title={isBrowser ? formatAt(msg.at) : undefined} class="text-xs text-zinc-400 dark:text-zinc-500">
                 {row.time}
               </time>
+
+              <!-- #1137: stored team tags. `headId` is the identity (the click
+                   sets the filter to it); `label` is the post-time display
+                   snapshot and is never used to look a worker up or to link.
+                   null (absent or withheld) and [] draw nothing: no chip, and no
+                   "untagged"/"private" claim. -->
+              {#if msg.teamTags && msg.teamTags.length > 0}
+                <span data-testid="team-chat-tags" class="flex flex-wrap items-center gap-1">
+                  {#each uniqueTags(msg.teamTags) as tag (tag.headId)}
+                    <button
+                      type="button"
+                      data-testid="team-chat-tag"
+                      aria-pressed={filter.kind === 'team' && filter.headRef === tag.headId}
+                      disabled={!onSelectTeam}
+                      onclick={() => onSelectTeam?.({ kind: 'team', headRef: tag.headId })}
+                      title={t('app.team-chat.tag.filter', 'Show only messages with this team tag')}
+                      class="rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 enabled:hover:bg-zinc-200 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
+                    >{tag.label}</button>
+                  {/each}
+                </span>
+              {/if}
 
               <!-- min-w-0 + max-w-full on both spans: on a narrow screen the chip
                    (always shown there) wraps to its own line and TRUNCATES — Urn

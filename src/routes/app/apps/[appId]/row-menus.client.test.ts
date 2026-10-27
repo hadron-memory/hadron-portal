@@ -41,7 +41,7 @@ async function pageData(initialTab: 'agents' | 'keys') {
     },
     appKeys: { kind: 'ok', keys: initialTab === 'keys' ? [KEY] : [] },
     org: null, availableAgents: [], staff: [], staffError: false,
-    teamChatMessages: [], teamChatTotal: 0, teamChatError: false,
+    teamChatMessages: [], teamChatTotal: 0, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
     appChats: [], chatsError: false, selectedChatKey: null,
     initialTab, initialChatFullView: false,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,

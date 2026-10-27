@@ -9,6 +9,7 @@ import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCall
 import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
+import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
@@ -35,7 +36,7 @@ function message(seq: number, authorWorkerId: string): TeamChatMessage {
   return {
     nodeId: `m${seq}`, seq, body: `body ${seq}`, at: '2026-09-30T12:00:00.000Z',
     authorUserId: null, authorWorkerId, authorName: seq === 1 ? 'Ada' : 'Dara',
-    sessionId: null, replyToSeq: null, mentions: [], urn: null,
+    sessionId: null, replyToSeq: null, mentions: [], urn: null, teamTags: null,
   };
 }
 
@@ -57,7 +58,7 @@ async function pageData() {
       { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null },
     ],
     staffError: false,
-    teamChatMessages: [message(1, 'w1')], teamChatTotal: 1, teamChatError: false,
+    teamChatMessages: [message(1, 'w1')], teamChatTotal: 1, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
     appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
     selectedChatKey: 'chats:team', initialTab: 'chats', initialChatFullView: false,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
@@ -110,6 +111,61 @@ describe('App team chat roster refresh', () => {
     await tick(3);
     expect(requests.filter((url) => url.endsWith('/team-chat/authors'))).toHaveLength(2);
     expect(m.target.textContent).toContain('acme.com:team:dara');
+  });
+});
+
+describe('App team chat team filter (#1137)', () => {
+  const tagged = (seq: number): TeamChatMessage => ({ ...message(seq, 'w1'), teamTags: [{ headId: 'head-ada', label: 'team.ada' }] });
+
+  it('carries the filter on every poll read, and a chip click navigates to ?team= keeping the other params', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats&team=head-ada', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats&team=head-ada');
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url);
+      if (url.includes('/team-chat/authors')) return { ok: true, json: async () => ({ workers: [], loadFailed: false }) } as Response;
+      return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: false }) } as Response;
+    }));
+    vi.useFakeTimers();
+    const data = { ...(await pageData()), teamChatMessages: [tagged(1)], teamFilter: { kind: 'team', headRef: 'head-ada' } as TeamChatFilter };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await vi.advanceTimersByTimeAsync(8000);
+    await tick(3);
+    expect(requests.filter((u) => u.includes('sinceSeq'))).toEqual(['/app/apps/a1/team-chat?sinceSeq=1&team=head-ada']);
+
+    const untagged = Array.from(m.target.querySelectorAll('[data-testid="team-chat-filter"] button')).find((b) => b.textContent?.includes('No team tag recorded')) as HTMLButtonElement;
+    untagged.click();
+    const call = navigationCalls.findLast((c) => c.fn === 'goto')!;
+    const url = call.args[0] as URL;
+    expect([url.searchParams.get('tab'), url.searchParams.get('team')]).toEqual(['chats', 'untagged']);
+    expect(call.args[1]).toMatchObject({ keepFocus: true, noScroll: true });
+  });
+
+  it('drops a poll that lands after the page moved to another filter', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    let release!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.includes('/team-chat/authors')) return Promise.resolve({ ok: true, json: async () => ({ workers: [], loadFailed: false }) } as Response);
+      return new Promise<Response>((r) => (release = r));
+    }));
+    vi.useFakeTimers();
+    const props = reactiveProps({ data: { ...(await pageData()), teamChatMessages: [tagged(1)], teamFilter: { kind: 'none' } as TeamChatFilter }, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await vi.advanceTimersByTimeAsync(8000);
+    // The loader answers for ?team=head-bo while the unfiltered poll is in flight.
+    props.data = { ...props.data, teamChatMessages: [], teamChatTotal: 0, teamFilter: { kind: 'team', headRef: 'head-bo' } as TeamChatFilter };
+    await tick(3);
+    release({ ok: true, json: async () => ({ items: [message(2, 'w1')], total: 2, loadFailed: false }) } as Response);
+    await vi.advanceTimersByTimeAsync(0);
+    await tick(3);
+    expect(m.target.textContent).not.toContain('body 2');
   });
 });
 

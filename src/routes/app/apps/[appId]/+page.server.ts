@@ -55,7 +55,8 @@ import {
   chatFullViewFromParams,
   resolveSelectedChat,
 } from '$lib/app-chats';
-import { loadTeamChatTail } from '$lib/server/team-chat';
+import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
+import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
 import { loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
 import {
@@ -498,6 +499,16 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // URL state so the page reads it once at init, like `initialTab`; toggling
   // it afterwards is `replaceState`, not a navigation.
   const initialChatFullView = chatFullViewFromParams(url.searchParams);
+  // #1137: the team chat's team filter, `?team=<headRef>` or `?team=untagged`.
+  // Read here with the other URL state and applied by the SERVER on the tail
+  // read below. A malformed value is NOT the unfiltered thread: the chat reads
+  // nothing and says the filter is invalid (`teamFilterInvalid`).
+  const teamParam = parseTeamParam(url.searchParams.get('team'));
+  const teamFilter = teamParam.ok ? teamParam.filter : NO_TEAM_FILTER;
+  // The server's typed refusal of the head, when it gave one. Set from the tail
+  // read's catch so the chat can show the server's own text instead of the
+  // generic load error.
+  let teamChatRefusal: { code: string; message: string } | null = null;
   // #648: canonical org-optional App detail. No requireNonConsumer — this
   // resolves BOTH org-owned apps (member-gated) and user-owned (org-less) apps
   // (owner-gated) through one owner-accessible path, exactly like /app/agents/[id]
@@ -684,7 +695,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // Coerced to null (never an empty page) on failure, for the same reason as
     // the staff fetch above: "couldn't load the team chat" and "the team chat
     // is empty" are different statements (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
-    loadTeamChatTail(client, params.appId).catch((e) => {
+    // #1137: an invalid `?team=` reads nothing at all — never the unfiltered
+    // thread under a filter the reader believes is on.
+    (teamParam.ok ? loadTeamChatTail(client, params.appId, teamFilter) : Promise.resolve(null)).catch((e) => {
+      teamChatRefusal = teamFilter.kind === 'team' ? teamChatRefusalOf(e) : null;
       console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
       return null;
     }),
@@ -883,6 +897,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     teamChatMessages: teamChat?.items ?? [],
     teamChatTotal: teamChat?.total ?? 0,
     teamChatError: teamChat === null,
+    // #1137: what the transcript was read UNDER, so the thread and its poll
+    // carry the same filter, plus why a filtered read produced nothing.
+    teamFilter,
+    teamFilterInvalid: !teamParam.ok,
+    teamChatRefusal,
     // #733: the worklog page, plus the filters that produced it so the tab can
     // render its own controls from the URL rather than keeping a second copy of
     // that state in the component.
