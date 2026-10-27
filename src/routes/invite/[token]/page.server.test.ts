@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { Kind, parse, type SelectionSetNode } from 'graphql';
 import { ACCEPT_INVITATION_MUTATION, INVITATION_QUERY } from '$lib/server/queries';
 
@@ -81,6 +82,7 @@ describe('invite load()', () => {
     const { load } = await importMod();
     const result = await load(loadEvent({ user: { id: 'user-1' }, authToken: 'test-token' }));
 
+    expectDistinctFormIds(result, 2);
     expect(mockRequest).toHaveBeenCalledWith(INVITATION_QUERY, { slug: 'invite-token' });
     expect(result).toMatchObject({ invitation: fakeInvitation, isSignedIn: true, slug: 'invite-token' });
     expect((result as { form: { data: Record<string, string>; errors: Record<string, string[]> } }).form.data).toEqual({
