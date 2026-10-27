@@ -160,14 +160,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     fetchAllItems<AiServiceConfig>(client, AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs', {
       ownerType: 'AGENT', ownerId: agent.id,
     }).catch(() => null),
-    // Apps this agent is installed into (member-scoped, all caller orgs).
+    // Apps this agent is installed into (member-scoped, all caller orgs),
+    // filtered server-side by the AppAgent join (#472).
     // Non-fatal: a failure flags `installedAppsError` instead of reading as none.
-    fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps').catch(appsReadFailed),
+    fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps', { agentId: agent.id }).catch(appsReadFailed),
     // …plus the caller's OWN org-less apps. `apps()` routes on org membership,
     // so a user-owned App is only reachable through filter.ownedByMe (#782) —
     // without this a personal team App showed neither in the Apps tab nor in
     // Bundled agents, though createTeamPersona supports one (#714 review).
-    fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps').catch(appsReadFailed),
+    fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps', { agentId: agent.id }).catch(appsReadFailed),
     // #642: the caller's OWN personal memories, offered as "Add memory" options
     // for a personal agent. Gated on `!agent.organizationId && visibility !== 'PUBLIC'`
     // (org-less, not merely org-unknown: #1339), which

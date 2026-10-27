@@ -608,6 +608,20 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
     return result;
   }
 
+  // #472 / hadron-server#2343: both App reads carry the agent filter, so the load
+  // no longer drains every App the caller can see. Pinned on the variables the
+  // request actually carried (the mock ignores them otherwise), for BOTH documents.
+  it('asks the server for only this agent\'s Apps, on the member read and the org-less read', async () => {
+    await loadBundled({ apps: [], ownedApps: [] });
+    const filtered = (doc: string) =>
+      mockRequest.mock.calls.filter(([q]) => q === doc).map(([, v]) => v);
+    expect(filtered(AGENT_APPS_QUERY)).toEqual([expect.objectContaining({ agentId: 'agent-aaa' })]);
+    expect(filtered(AGENT_OWNED_APPS_QUERY)).toEqual([expect.objectContaining({ agentId: 'agent-aaa' })]);
+    // The filter is declared in the documents themselves, not just sent.
+    expect(AGENT_APPS_QUERY).toContain('filter: { agentId: $agentId }');
+    expect(AGENT_OWNED_APPS_QUERY).toContain('filter: { ownedByMe: true, agentId: $agentId }');
+  });
+
   it('lists the co-installed siblings, excluding the agent itself', async () => {
     const { bundledAgents: bundled } = await loadBundled({
       apps: [{
