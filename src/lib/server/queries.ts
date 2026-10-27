@@ -3948,10 +3948,15 @@ const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
   }
 `;
 
+// #472 / hadron-server#2343: `agentId` narrows the read to Apps whose AppAgent
+// join installs this Agent, so the Agent detail load no longer drains every
+// App the caller can see. The match is the join, not `App.agents`, so an App
+// that WITHHOLDS its roster (#1148) still comes back (agents: null) and the
+// loader keeps counting it; an unreadable/unknown agent answers an empty page.
 export const AGENT_APPS_QUERY = /* GraphQL */ `
   ${AGENT_APP_LITE_FIELDS}
-  query AgentApps($limit: Int, $offset: Int) {
-    apps(limit: $limit, offset: $offset) {
+  query AgentApps($agentId: ID, $limit: Int, $offset: Int) {
+    apps(filter: { agentId: $agentId }, limit: $limit, offset: $offset) {
       items { ...AgentAppLiteFields }
       total
     }
@@ -3966,8 +3971,8 @@ export const AGENT_APPS_QUERY = /* GraphQL */ `
 // user-owned team Apps (PR #714 review, codex P2).
 export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
   ${AGENT_APP_LITE_FIELDS}
-  query AgentOwnedApps($limit: Int, $offset: Int) {
-    apps(filter: { ownedByMe: true }, limit: $limit, offset: $offset) {
+  query AgentOwnedApps($agentId: ID, $limit: Int, $offset: Int) {
+    apps(filter: { ownedByMe: true, agentId: $agentId }, limit: $limit, offset: $offset) {
       items { ...AgentAppLiteFields }
       total
     }
