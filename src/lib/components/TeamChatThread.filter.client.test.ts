@@ -180,3 +180,66 @@ describe('TeamChatThread team filter — reset and stale reads', () => {
     expect(m.target.textContent).not.toContain('body 2');
   });
 });
+
+describe('TeamChatThread team filter — invalid and refused reads (#1137 review)', () => {
+  const REFUSAL = { code: 'TEAM_CHAT_TEAM_HEAD_INVALID', message: 'Team broadcast target is unavailable in this Channel.' };
+
+  it('never polls or pages while the filter is invalid; only the loader state it was given', async () => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    vi.useFakeTimers();
+    const onRefresh = vi.fn(async () => ({ items: [], total: 0, loadFailed: false }));
+    const onLoadOlder = vi.fn(async () => ({ items: [], total: 0 }));
+    const m = await mountThread({
+      messages: [], total: 0, loadError: true, filterInvalid: true, onRefresh, onLoadOlder, pollMs: 100, onSelectTeam: vi.fn(),
+    });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(onLoadOlder).not.toHaveBeenCalled();
+    expect(q(m, 'team-chat-filter-invalid')).not.toBeNull();
+  });
+
+  it('shows a typed refusal from a poll verbatim instead of the empty-result state, and stops polling', async () => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    vi.useFakeTimers();
+    const onRefresh = vi.fn(async () => ({ items: [], total: 0, loadFailed: true, refusal: REFUSAL }));
+    const m = await mountThread({
+      messages: [], total: 0, filter: { kind: 'team', headRef: 'gone' }, onRefresh, pollMs: 100, onSelectTeam: vi.fn(),
+    });
+    expect(q(m, 'team-chat-filter-empty')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(100);
+    await tick(3);
+    expect(q(m, 'team-chat-filter-refused')!.textContent!.trim()).toBe(REFUSAL.message);
+    expect(q(m, 'team-chat-filter-empty')).toBeNull();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows a typed refusal from an older page verbatim', async () => {
+    const onLoadOlder = vi.fn(async () => ({ refusal: REFUSAL }));
+    const m = await mountThread({
+      messages: [message(5, { teamTags: [ADA] })], total: 9, filter: { kind: 'team', headRef: 'head-ada' }, onLoadOlder, onSelectTeam: vi.fn(),
+    });
+    const btn = Array.from(m.target.querySelectorAll('button')).find((b) => /earlier/i.test(b.textContent ?? ''));
+    expect(btn).toBeTruthy();
+    btn!.click();
+    await tick(4);
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+    expect(q(m, 'team-chat-filter-refused')!.textContent!.trim()).toBe(REFUSAL.message);
+  });
+
+  it('clears a live refusal when fresh page data (another filter) arrives', async () => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    vi.useFakeTimers();
+    const onRefresh = vi.fn(async () => ({ items: [], total: 0, loadFailed: true, refusal: REFUSAL }));
+    const props = reactiveProps<Record<string, unknown>>({
+      messages: [], total: 0, filter: { kind: 'team', headRef: 'gone' } as TeamChatFilter, onRefresh, pollMs: 100, onSelectTeam: vi.fn(),
+    });
+    const m = await mountThread(props);
+    await vi.advanceTimersByTimeAsync(100);
+    await tick(3);
+    expect(q(m, 'team-chat-filter-refused')).not.toBeNull();
+    props.filter = { kind: 'none' };
+    await tick(3);
+    expect(q(m, 'team-chat-filter-refused')).toBeNull();
+  });
+});

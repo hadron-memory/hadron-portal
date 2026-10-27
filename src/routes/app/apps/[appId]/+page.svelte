@@ -34,10 +34,14 @@
   // produced always travel together. A read that lands after the page moved to
   // another filter or App is dropped by the thread's generation guard: `data`
   // changes only together with the transcript props that guard watches.
+  // An invalid `?team=` reads NOTHING: the loader stored the unfiltered value
+  // next to `teamFilterInvalid`, so a read here would broaden the request behind
+  // the alert. Leaving it takes an explicit All messages navigation.
   const refreshTeamChat = async (sinceSeq?: number) => {
+    if (data.teamFilterInvalid) return null;
     const res = await fetch(teamChatReadUrl(app.id, { sinceSeq }, data.teamFilter));
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
-    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
     // The initial page can contain workers whose roster lookup failed. Later
     // forward pages may be empty, so keep seeding those bounded first-page
     // authors while the refresher retries its pending IDs.
@@ -48,10 +52,13 @@
   // null means "the fetch failed, retry on the next scroll", which the thread
   // keeps distinct from an empty page meaning "start of the conversation".
   const loadOlderTeamChat = async (beforeSeq: number) => {
+    if (data.teamFilterInvalid) return null;
     const res = await fetch(teamChatReadUrl(app.id, { beforeSeq }, data.teamFilter));
     if (!res.ok) return null;
-    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
-    if (body.loadFailed) return null;
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
+    // A typed head refusal is an answer the thread must show; any other failure
+    // stays null so the next scroll retries.
+    if (body.loadFailed) return body.refusal ? { refusal: body.refusal } : null;
     void refreshRosterFor(body.items);
     return { items: body.items, total: body.total };
   };
@@ -71,7 +78,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AppKey, TeamChatMessage, Worker } from '$lib/types';
+  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';

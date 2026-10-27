@@ -144,6 +144,27 @@ describe('App team chat team filter (#1137)', () => {
     expect(call.args[1]).toMatchObject({ keepFocus: true, noScroll: true });
   });
 
+  it('never reads team-chat while ?team= is malformed (#1137 review)', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats&team=%20bad%20', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats&team=%20bad%20');
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url);
+      if (url.includes('/team-chat/authors')) return { ok: true, json: async () => ({ workers: [], loadFailed: false }) } as Response;
+      return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: false }) } as Response;
+    }));
+    vi.useFakeTimers();
+    const data = { ...(await pageData()), teamChatMessages: [], teamChatTotal: 0, teamChatError: true, teamFilter: { kind: 'none' } as TeamChatFilter, teamFilterInvalid: true };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await vi.advanceTimersByTimeAsync(20000);
+    await tick(3);
+    expect(requests.filter((u) => u.includes('/team-chat?') || u.endsWith('/team-chat'))).toEqual([]);
+    expect(m.target.querySelector('[data-testid="team-chat-filter-invalid"]')).not.toBeNull();
+  });
+
   it('drops a poll that lands after the page moved to another filter', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
     window.history.replaceState({}, '', '/app/apps/a1?tab=chats');

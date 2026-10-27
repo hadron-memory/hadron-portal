@@ -30,7 +30,7 @@
     scrollTopAfterPrepend,
   } from '$lib/team-chat-refresh';
   import { NO_TEAM_FILTER, filterKeyOf, type TeamChatFilter } from '$lib/team-chat-filter';
-  import type { TeamChatMessage } from '$lib/types';
+  import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 
   type PostTeamChatMessageForm = Infer<typeof postTeamChatMessageSchema, 'zod4'>;
   type PostTeamChatMessageSuperform = SuperValidated<
@@ -83,7 +83,7 @@
      *  the data rather than invalidating is the whole point of #785: a tick
      *  must not be able to re-run the page's fatal load paths. Omit to disable
      *  polling entirely. */
-    onRefresh?: (sinceSeq?: number) => Promise<{ items: TeamChatMessage[]; total: number; loadFailed: boolean } | null>;
+    onRefresh?: (sinceSeq?: number) => Promise<{ items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal } | null>;
     /** Poll period in ms; 0 or less disables the timer. */
     pollMs?: number;
     /**
@@ -96,7 +96,7 @@
      *  `onRefresh` — the route owns HOW to read, this component owns WHEN (the
      *  scroll threshold) and the anchoring. Null on failure, so a transient
      *  error is retried rather than being read as the start of the thread. */
-    onLoadOlder?: (beforeSeq: number) => Promise<{ items: TeamChatMessage[]; total: number } | null>;
+    onLoadOlder?: (beforeSeq: number) => Promise<{ items: TeamChatMessage[]; total: number } | { refusal: TeamChatRefusal } | null>;
     /**
      * #1137: the team filter the transcript above was read UNDER. It is URL
      * state owned by the route — this component never filters rows it holds, it
@@ -108,7 +108,7 @@
     /** The `?team=` value was malformed, so NOTHING was read (never the unfiltered thread). */
     filterInvalid?: boolean;
     /** The server's typed refusal of the head, shown verbatim; null otherwise. */
-    refusal?: { code: string; message: string } | null;
+    refusal?: TeamChatRefusal | null;
     /** Ask for a different filter ('none' clears). Omit and the filter UI is read-only. */
     onSelectTeam?: (next: TeamChatFilter) => void;
   } = $props();
@@ -192,6 +192,10 @@
   // to the full-thread count (including posts made while catching up).
   let pendingNewerCount = $state(0);
   let dataGeneration = $state(0);
+  // #1137: the server's typed head refusal as it arrived on a poll or an older
+  // page, after the initial load. It belongs to the generation that read it:
+  // fresh page data (a new filter, App or post) clears it below.
+  let liveRefusal = $state<TeamChatRefusal | null>(null);
   $effect(() => {
     // Depend on BOTH props; do not read `polled` or `dataGeneration` here, or
     // this effect would re-run on its own writes
@@ -205,6 +209,7 @@
       dataGeneration += 1;
       polled = null;
       pendingNewerCount = 0;
+      liveRefusal = null;
     });
   });
   // #793: a plain read, because the accumulation happens at the POLL SITE. The
@@ -253,7 +258,7 @@
   // can make total === page length even though an older message exists. A seq
   // above 1 permits one backward probe; an empty response marks exhaustion.
   const canLoadOlder = $derived(
-    !!onLoadOlder && !olderExhausted && oldestSeq !== null && (shownOlderRemaining > 0 || oldestSeq > 1),
+    !!onLoadOlder && !filterInvalid && !liveRefusal && !olderExhausted && oldestSeq !== null && (shownOlderRemaining > 0 || oldestSeq > 1),
   );
 
   const LOAD_OLDER_THRESHOLD_PX = 400;
@@ -274,6 +279,11 @@
       const page = await onLoadOlder!(cursor);
       if (page === null) return; // failed, not exhausted — retry on the next scroll
       if (untrack(() => dataGeneration) !== startedAt) return; // a different thread now
+      if ('refusal' in page) {
+        // An answer, not a blip: say so and stop reading under this filter.
+        liveRefusal = page.refusal;
+        return;
+      }
       if (page.items.length === 0) {
         olderExhausted = true;
         olderRemainingCount = 0;
@@ -419,7 +429,9 @@
   // The injection itself survived because its second reason is the durable one:
   // it makes the poll drivable in a test with no router and no endpoint.
   $effect(() => {
-    if (!isBrowser || !onRefresh || pollMs <= 0) return;
+    // #1137: an invalid filter reads nothing, and a refused head is not retried
+    // (never unfiltered either): the reader chooses All messages explicitly.
+    if (!isBrowser || !onRefresh || pollMs <= 0 || filterInvalid) return;
     // One refresh at a time. If a refetch outlives the period the timer would
     // stack them, and the slow case is exactly the case where piling on more is
     // worst (Copilot on #784). Under #754 each tick was a full page load, which
@@ -429,7 +441,7 @@
     let inFlight = false;
     const fire = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
-      if (inFlight) return;
+      if (inFlight || untrack(() => liveRefusal)) return;
       inFlight = true;
       // #785: the composer needs no protection here any more. #754 polled by
       // invalidating the page load, which re-synced superForm from a fresh form
@@ -449,7 +461,9 @@
         // failed — the loud-error-over-silent-fallback rule, and
         // `hrn:node:hadronmemory.com:hadron-portal:review:a-fallback-asserts-what-it-was-written-for`: `items: []`
         // means "we could not read", not "there are no messages".
-        if (next && !next.loadFailed && untrack(() => dataGeneration) === startedAt) {
+        if (next?.loadFailed && next.refusal && untrack(() => dataGeneration) === startedAt) {
+          liveRefusal = next.refusal;
+        } else if (next && !next.loadFailed && untrack(() => dataGeneration) === startedAt) {
           // ACCUMULATE against the last displayed page. A forward cursor makes
           // a small poll window continuous even when a hidden tab missed more
           // than 20 posts. `dataGeneration` still clears it on fresh page data.
@@ -725,11 +739,11 @@
       <div role="alert" data-testid="team-chat-filter-invalid" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
         {t('app.team-chat.filter.invalid', 'That team filter is not valid, so nothing was loaded. Choose All messages to see the chat.')}
       </div>
-    {:else if shownLoadError && refusal}
+    {:else if liveRefusal || (shownLoadError && refusal)}
       <!-- The server's own typed, non-oracular refusal, verbatim. No retry
            without the filter, and no candidate list of other teams. -->
       <div role="alert" data-testid="team-chat-filter-refused" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
-        {refusal.message}
+        {(liveRefusal ?? refusal)?.message}
       </div>
     {:else if shownLoadError}
       <!-- "Couldn't load" and "nothing here" are different statements; the

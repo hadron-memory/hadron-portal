@@ -1007,3 +1007,6 @@ export interface RegisterEntry {
   description: string | null;
   createdAt: string;
 }
+
+/** The server's typed refusal of a team head (#1137), shown verbatim. */
+export type TeamChatRefusal = { code: string; message: string };
