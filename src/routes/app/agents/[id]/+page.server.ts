@@ -91,15 +91,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const agent = agentRes.agent;
   if (!agent) throw error(404, 'Agent not found or no longer available');
 
-  // Org chrome only for org-owned agents. A user-owned agent (organizationId
-  // null) belongs to no org — the page renders the org-less variant (org null,
-  // no org name / install / org system-memory picker).
+  // Org chrome only for an org-owned agent whose org the caller belongs to. A
+  // user-owned agent (organizationId null) belongs to no org, and a readable
+  // agent of a FOREIGN org (a cross-org PUBLIC agent, #1339) is not in the
+  // caller's organizations() list: both render without org chrome (org null, no
+  // org name / install / org system-memory picker). Not finding the org is not
+  // a reason to refuse an agent the server already returned — agent(ref:) is the
+  // gate, the list is only chrome — and the foreign org is never looked up.
   let org: Organization | null = null;
   let orgs: Organization[] = [];
   if (agent.organizationId) {
     orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
     org = orgs.find((o) => o.id === agent.organizationId) ?? null;
-    if (!org) throw error(404, 'Agent not found or no longer available');
   }
 
   // 006-asset-upload-redesign FR-013: per-agent asset-upload toggle is
@@ -166,13 +169,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // Bundled agents, though createTeamPersona supports one (#714 review).
     fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps').catch(appsReadFailed),
     // #642: the caller's OWN personal memories, offered as "Add memory" options
-    // for a personal agent. Gated on `!org && visibility !== 'PUBLIC'`, which
+    // for a personal agent. Gated on `!agent.organizationId && visibility !== 'PUBLIC'`
+    // (org-less, not merely org-unknown: #1339), which
     // means the caller OWNS a non-PUBLIC org-less agent: agent(ref:) only returns
     // a non-PUBLIC user-owned agent to its owner (owner-only access), and a PUBLIC
     // agent can't hold owner-only memories anyway (congruence). So this never
     // offers personal memories on someone else's PUBLIC agent, nor on an
     // org-visible agent (review #661). Slim projection; non-fatal.
-    !org && agent.visibility !== 'PUBLIC'
+    !agent.organizationId && agent.visibility !== 'PUBLIC'
       ? fetchOwnedMemoriesLite(locals.token).catch(() => [] as OwnedMemoryLite[])
       : Promise.resolve([] as OwnedMemoryLite[]),
     // #942: the install-row register default. A failure is null, which the

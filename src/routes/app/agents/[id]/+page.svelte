@@ -1089,7 +1089,7 @@
         </h2>
         <!-- #648: a user-owned (org-less) agent installs as a PERSONAL app via
              the org-less create flow (org agents install from the org grid). -->
-        {#if !org}
+        {#if !agent.organizationId}
           <a
             href="/app/apps/new?agent={agent.id}"
             class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white"

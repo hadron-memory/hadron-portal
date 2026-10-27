@@ -363,12 +363,46 @@ describe('/app/agents/[id] loader', () => {
     expect(bodyStr).not.toContain('urn:agent:a');
   });
 
-  it('404 when an org agent’s org is not among the caller’s memberships', async () => {
-    // agent(ref:) returned an org agent, but organizations() (the membership
-    // list) doesn't contain its org — treat as not-available.
+  // #1339: a readable agent whose org the caller is not a member of (a cross-org
+  // PUBLIC agent) renders without org chrome. The server's agent(ref:) gate is
+  // the only authority on whether it is readable; the org list is chrome.
+  it('#1339: a cross-org PUBLIC agent loads with org null instead of 404', async () => {
     routeMock({
-      agent: { data: { agent: agentInB } },
+      agent: { data: { agent: { ...agentInB, visibility: 'PUBLIC' } } },
       myOrgs: { data: { organizations: [orgA] } },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-bbb' }))) as {
+      agent: typeof agentInB;
+      org: unknown;
+      orgSystemMemories: unknown[];
+      personalMemories: unknown[];
+    };
+    expect(result.agent.id).toBe('agent-bbb');
+    expect(result.org).toBeNull();
+    expect(result.orgSystemMemories).toEqual([]);
+    // The foreign org's own surface is never requested on the caller's behalf.
+    expect(mockRequest).not.toHaveBeenCalledWith(ORG_SYSTEM_MEMORIES_QUERY, expect.anything());
+  });
+
+  it('#1339: a foreign-org agent is not mistaken for the caller’s own org-less agent', async () => {
+    // org is null here too, but the agent belongs to an organization, so the
+    // "caller owns it" personal-memory offer must not run.
+    routeMock({
+      agent: { data: { agent: { ...agentInB, visibility: 'ORGANIZATION' } } },
+      myOrgs: { data: { organizations: [orgA] } },
+      personalMems: { data: [{ id: 'pm1', name: 'my notes', urn: 'u', class: 'personal', organizationId: null }] },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-bbb' }))) as { personalMemories: unknown[] };
+    expect(result.personalMemories).toEqual([]);
+    expect(mockRequest).not.toHaveBeenCalledWith(PERSONAL_MEMORIES_LITE_QUERY, expect.anything());
+  });
+
+  it('#1339: an agent the server refuses still 404s, whoever the caller’s orgs are', async () => {
+    routeMock({
+      agent: { data: { agent: null } },
+      myOrgs: { data: { organizations: [orgA, orgB] } },
     });
     const load = await importLoad();
     let thrown: unknown;
