@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   ADD_MEMBER_MUTATION,
   CREATE_USER_INVITATION_MUTATION,
@@ -129,23 +130,28 @@ describe('org members load()', () => {
     mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
     const { load } = await importMod();
 
-    const result = (await load(loadEv({ userId: 'user-1' }))) as unknown as Record<string, { id: string }>;
-    const names = ['addForm', 'updateForm', 'removeForm', 'inviteForm', 'leaveForm', 'impersonateForm'];
-    const ids = names.map((name) => result[name].id);
-
-    expect(new Set(ids).size, JSON.stringify(Object.fromEntries(names.map((n, i) => [n, ids[i]])))).toBe(names.length);
+    expectDistinctFormIds(await load(loadEv({ userId: 'user-1' })), 6);
   });
 
-  it('the impersonate action answers under the same id its form was loaded with', async () => {
+  // #1318 pinned impersonate only. Each action must answer under the id its form was
+  // loaded with, or the result reaches a different form's store (#1320).
+  it.each([
+    ['add', 'addForm'],
+    ['update', 'updateForm'],
+    ['remove', 'removeForm'],
+    ['invite', 'inviteForm'],
+    ['leave', 'leaveForm'],
+    ['impersonate', 'impersonateForm'],
+  ] as const)('the %s action answers under the same id its form was loaded with', async (action, formName) => {
     mockRequest.mockResolvedValueOnce({ organization: fakeOrg });
     const { load, actions } = await importMod();
-    const loaded = (await load(loadEv({ userId: 'user-1' }))) as unknown as { impersonateForm: { id: string } };
+    const loaded = (await load(loadEv({ userId: 'user-1' }))) as unknown as Record<string, { id: string }>;
 
-    const result = (await actions.impersonate(actionEv({ _kind: 'impersonateMember', userId: '' }))) as unknown as {
-      data: { form: { id: string } };
-    };
+    // An empty post fails validation, so no mutation runs and the action returns its form.
+    const result = await actions[action](actionEv({ _kind: '' }));
 
-    expect(result.data.form.id).toBe(loaded.impersonateForm.id);
+    expect(superFormFrom(result)).toBeDefined();
+    expect((superFormFrom(result) as { id: string }).id).toBe(loaded[formName].id);
   });
 });
 

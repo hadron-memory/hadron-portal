@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   CREATE_MEMORY_SUBSCRIPTION_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
@@ -79,6 +80,7 @@ describe('memory subscriptions load()', () => {
     const { load } = await importMod();
     const event = loadEvent();
     const result = await load(event);
+    expectDistinctFormIds(result, 2);
 
     expect(mockRequireNonConsumer).toHaveBeenCalledOnce();
     expect((event.parent as ReturnType<typeof vi.fn>)).toHaveBeenCalledOnce();

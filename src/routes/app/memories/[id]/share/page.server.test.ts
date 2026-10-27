@@ -13,6 +13,7 @@
  *      deletes a different row and reports success.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -71,6 +72,7 @@ describe('share load()', () => {
     const { load } = await importMod();
 
     const res = (await load(loadEv())) as { shares: unknown[] | null; shareMemory: { shareable: boolean } };
+    expectDistinctFormIds(res, 3);
 
     expect(res.shares).toHaveLength(1);
     expect(res.shareMemory.shareable).toBe(true);

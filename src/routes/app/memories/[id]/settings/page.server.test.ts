@@ -30,6 +30,7 @@
  * No component-level test ships in this PR.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -1121,9 +1122,7 @@ describe('memory-settings load: form ids (#841)', () => {
       parent, locals: { token: 't' }, params: { id: 'mem-1' },
     } as unknown as Parameters<typeof mod.load>[0])) as Exclude<Awaited<ReturnType<typeof mod.load>>, void>;
 
-    const ids = [data.form, data.vectorForm, data.marketplaceForm, data.schemaForm, data.deleteForm, data.retryEmbedsForm]
-      .map((f) => (f as { id?: string }).id);
-    expect(new Set(ids).size).toBe(6);
+    expectDistinctFormIds(data, 6);
     // Memory-bound (`…:${params.id}`, stamped from the route param on both
     // sides): distinct from every sibling AND from the same form on another
     // memory, so a late result can only match its own card (Gene's P2-1).
