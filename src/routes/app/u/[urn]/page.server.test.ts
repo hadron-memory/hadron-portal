@@ -633,3 +633,39 @@ describe('ticker URN provider-error mapping (#1213)', () => {
     }
   });
 });
+
+// #1360: action resolution is the server's readable register-entry node.
+describe('action URN links (#1360)', () => {
+  const urn = 'hrn:action:acme.com:team-agent:publish';
+
+  it('redirects a readable action to its register node, preserving deep-link state', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: {
+      kind: 'action', id: 'register-node', memoryId: 'agent-system-memory', organizationId: 'org-1',
+    } });
+    await expect(expectRedirect(urn, '?tab=source')).resolves.toMatchObject({
+      status: 307, location: '/app/memories/agent-system-memory/nodes/register-node?tab=source',
+    });
+    const { RESOLVE_URN_QUERY } = await import('$lib/server/queries');
+    expect(mockRequest).toHaveBeenCalledExactlyOnceWith(RESOLVE_URN_QUERY, { urn });
+  });
+
+  it('treats an action without its required memory id as an incomplete resolution', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: {
+      kind: 'action', id: 'register-node', memoryId: null, organizationId: null,
+    } });
+    await expect(expectError(urn)).resolves.toMatchObject({ status: 500 });
+  });
+
+  it('keeps server-null and concealed action refusals byte-identical', async () => {
+    mockRequest.mockResolvedValueOnce({ resolveUrn: null });
+    const absent = await expectError(urn) as { status: number; body: { message: string } };
+    expect(absent.status).toBe(404);
+    expect(absent.body.message).toContain('No resource found');
+    for (const code of ['NOT_FOUND', 'FORBIDDEN']) {
+      mockRequest.mockRejectedValueOnce(new ClientError({
+        status: 200, errors: [{ message: 'private detail', extensions: { code } }],
+      } as unknown as ClientError['response'], { query: 'query', variables: {} }));
+      await expect(expectError(urn)).resolves.toMatchObject({ status: absent.status, body: absent.body });
+    }
+  });
+});

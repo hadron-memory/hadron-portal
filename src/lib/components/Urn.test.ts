@@ -174,3 +174,13 @@ describe('Urn.svelte — safe inside a <form> (portal#945)', () => {
     for (const b of buttons) expect(b).toContain('type="button"');
   });
 });
+
+describe('action URN display (#1360)', () => {
+  it('shows the action type and preserves the copied resolver link', () => {
+    const value = 'hrn:action:acme.com:team-agent:publish';
+    const { body } = render(Urn, { props: { value, linked: true } });
+    expect(body).toMatch(/>action:</);
+    expect(body).not.toContain('unknown:');
+    expect(body).toContain(`href="/app/u/${value}"`);
+  });
+});
