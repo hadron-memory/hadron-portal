@@ -1,3 +1,4 @@
+import { nodeAdviceHandle } from '$lib/server/node-advice';
 import type { Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { building, dev } from '$app/environment';
@@ -133,4 +134,4 @@ const securityHeaders: Handle = async ({ event, resolve }) => {
 };
 
 // #974: sessionActionGuard reads what authHandle decided, so it runs right after.
-export const handle: Handle = sequence(authHandle, sessionActionGuard, cspAssetStorage, securityHeaders);
+export const handle: Handle = sequence(authHandle, sessionActionGuard, nodeAdviceHandle, cspAssetStorage, securityHeaders);
