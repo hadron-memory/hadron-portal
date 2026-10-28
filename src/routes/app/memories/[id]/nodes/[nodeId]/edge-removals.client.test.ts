@@ -115,7 +115,7 @@ describe('History tab edge-removal audit (portal#1355)', () => {
     const { target } = await mountPage('?tab=history');
     expect(target.textContent).toContain(SECTION);
     expect(target.textContent).toContain('tgt-pk');       // stable id is always shown
-    expect(target.textContent).toContain("isn't readable"); // why no loc appears
+    expect(target.textContent).toContain("can't read"); // why no loc appears
     expect(target.textContent).not.toContain('foo:to-tgt');
   });
 

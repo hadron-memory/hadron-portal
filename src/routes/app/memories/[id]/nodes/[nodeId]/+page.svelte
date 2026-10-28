@@ -3976,7 +3976,7 @@
                   {#if r.edgeLoc}
                     <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.edgeLoc}</code>
                   {:else}
-                    <span class="text-xs italic text-zinc-400 dark:text-zinc-500">{t('node.history.removals.withheld', "not shown (that memory isn't readable from here)")}</span>
+                    <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld-edge', 'Not shown')}</span>
                   {/if}
                 </div>
               {:else if cell.column.id === 'target'}
@@ -3984,10 +3984,10 @@
                   {#if r.targetLoc}
                     <code class="text-xs text-zinc-600 dark:text-zinc-400">{r.targetLoc}</code>
                   {:else}
-                    <span class="text-xs italic text-zinc-400 dark:text-zinc-500">{t('node.history.removals.withheld', "not shown (that memory isn't readable from here)")}</span>
+                    <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld', "Not shown: it was in a memory you can't read.")}</span>
                   {/if}
                   <!-- The stable id is the one handle that outlives the delete. -->
-                  <code class="text-xs text-zinc-400 dark:text-zinc-500">{r.targetId}</code>
+                  <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.targetId}</code>
                 </div>
               {:else if cell.column.id === 'reason'}
                 <span class="text-zinc-600 dark:text-zinc-400" title={r.reason}>{removalReasonText(r)}</span>
