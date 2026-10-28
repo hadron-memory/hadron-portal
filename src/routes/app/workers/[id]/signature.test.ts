@@ -4,6 +4,7 @@
  * is never null; refusals are the server's (FORBIDDEN, BAD_USER_INPUT,
  * WORKER_RETIRED) and the posted draft comes back with them.
  */
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_QUERY } from '$lib/server/queries';
 
@@ -67,6 +68,9 @@ describe('worker signature: query and mutation', () => {
 });
 
 describe('worker signature: load', () => {
+  it('keeps briefing and signature forms distinct in the actual loader', async () => {
+    expectDistinctFormIds(await runLoad(WORKER));
+  });
   it('seeds both templates as stored, with their bases', async () => {
     const data = await runLoad(WORKER);
     expect(data.signatureForm.data).toMatchObject({ signature: SIG, trailer: TRL, signatureBase: SIG, trailerBase: TRL });
