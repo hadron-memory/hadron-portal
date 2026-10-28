@@ -46,7 +46,7 @@ function channel(over: Record<string, unknown> = {}) {
     id: 'ch-team', name: 'Team chat', description: null, kind: 'CHAT', loc: 'chats:team',
     chatRootUrn: 'hrn:node:acme.com:team-shared:chats:team', chatRootNodeId: 'root-1',
     lastSeq: 12, lastMessageAt: '2026-09-26T10:00:00Z', createdAt: '2026-09-01T00:00:00Z',
-    memory: SHARED, ...over,
+    memoryId: 'mem-shared', memory: SHARED, ...over,
   };
 }
 
@@ -178,6 +178,16 @@ describe('load', () => {
       { user: 'u-1', resource: SHARED.urn },
       { user: 'u-1', resource: OTHER.urn },
     ]);
+  });
+
+  it('a concealed host memory (#2509, memory: null) skips the write audit instead of crashing the loader', async () => {
+    route({ channels: [channel(), channel({ id: 'ch-x', loc: 'chats:x', memoryId: 'mem-other', memory: null })] });
+    const data = await load();
+    expect(data.channels.map((c) => c.id)).toEqual(['ch-team', 'ch-x']);
+    // No record means no URN to audit: the concealed host never reaches the
+    // audit map, and its channels' write access stays unknown (null).
+    expect('mem-other' in data.canWrite).toBe(false);
+    expect(sent(SELF_CAN_WRITE_QUERY)).toEqual([{ user: 'u-1', resource: SHARED.urn }]);
   });
 
   it('pages past the 200-per-page cap, so a Channel after the first page is still listed', async () => {

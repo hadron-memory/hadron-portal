@@ -359,6 +359,10 @@ export interface Worker {
   role: string | null;
   /** Per-worker individuality layered over the agent's template prompt. */
   promptOverride: string | null;
+  /** portal#1142 P4: the signature template; null when masked. Only WORKER_QUERY selects it. */
+  signature?: string | null;
+  /** portal#1142 P4: the commit-trailer template; null when masked. */
+  trailer?: string | null;
   /**
    * The RESOLVED boot briefing — the agent's template with {{name}}/{{role}}
    * bound, then `promptOverride` appended. Multi-KB.
@@ -972,7 +976,10 @@ export interface Channel {
   lastSeq: number;
   lastMessageAt: string | null;
   createdAt: string;
-  memory: { id: string; urn: string; name: string };
+  /** The host memory's id — always present; use it for links when `memory` is concealed. */
+  memoryId: string;
+  /** #2509: null when the caller may see the Channel but not its memory's record. */
+  memory: { id: string; urn: string; name: string } | null;
 }
 
 /** #942 — a register row (spec 049): "this attendee takes part in this Channel". Intent, never permission. */

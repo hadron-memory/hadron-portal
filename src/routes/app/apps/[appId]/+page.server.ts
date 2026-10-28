@@ -1,3 +1,4 @@
+import { writeCustomisation } from '$lib/server/install-customisation';
 import { deleteWorkerSchema } from './schema';
 import type { DeleteWorkerResult } from './delete-worker';
 import { fail, error, redirect } from '@sveltejs/kit';
@@ -951,6 +952,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 };
 
 export const actions: Actions = {
+  createCustomisation: async ({ request, params, locals }) =>
+    writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),
+  saveCustomisation: async ({ request, params, locals }) =>
+    writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), false),
   // #1005: the Human Team tab's actions (see member-actions.ts).
   addMember,
   ensureMember,

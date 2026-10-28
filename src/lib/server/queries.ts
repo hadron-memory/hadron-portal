@@ -1012,11 +1012,33 @@ export const UPDATE_WORKER_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1142 P4 (hadron-server#1602 / #2120) — write a worker's signature and
+ * trailer templates. A variable the caller leaves undefined is ABSENT on the
+ * wire, and the server preserves an absent field; it refuses an explicit null,
+ * so this is only ever sent text. Never carries promptOverride: the two are
+ * separate forms, so no single submit mixes them.
+ */
+export const UPDATE_WORKER_SIGNATURE_MUTATION = /* GraphQL */ `
+  mutation UpdateWorkerSignature($workerRef: ID!, $signature: String, $trailer: String) {
+    updateWorker(workerRef: $workerRef, signature: $signature, trailer: $trailer) {
+      id
+      signature
+      trailer
+    }
+  }
+`;
+
 export const WORKER_QUERY = /* GraphQL */ `
   ${WORKER_FIELDS}
   query Worker($ref: ID!) {
     worker(ref: $ref) {
       ...WorkerFields
+      # portal#1142 P4 — the signature and trailer TEMPLATES, masked to null for
+      # a reader who may not see worker internals. Null is "not shown", never
+      # "empty": the empty string is a real, deliverable-as-nothing value.
+      signature
+      trailer
       app { id name urn organizationId }
       # #1010 — the agent's RAW persona template, merged into the fragment's
       # agent selection rather than added to WorkerFields: the fragment also
@@ -4277,7 +4299,10 @@ export const APP_CHANNELS_APP_QUERY = /* GraphQL */ `
   }
 `;
 
-/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200. */
+/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200.
+ *
+ * #2509: `memoryId` survives the host record's concealment — `memory` comes
+ * back null for a caller who may see the Channel but not its memory's record. */
 export const APP_CHANNELS_QUERY = /* GraphQL */ `
   query AppChannels($appRef: ID!, $limit: Int, $offset: Int) {
     channels(filter: { appRef: $appRef }, limit: $limit, offset: $offset) {
@@ -4293,6 +4318,7 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
         lastSeq
         lastMessageAt
         createdAt
+        memoryId
         memory { id urn name }
       }
     }
@@ -4304,7 +4330,9 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
  * #942: one page of an ORGANIZATION's Channels, those whose host memory
  * belongs to it (`channels(orgId:)`), and only those the caller may read.
  * Page it with `fetchAllItems`: the list caps at 200.
- */
+ *
+ * #2509: `memoryId` survives the host record's concealment — `memory` comes
+ * back null for a caller who may see the Channel but not its memory's record. */
 export const ORG_CHANNELS_QUERY = /* GraphQL */ `
   query OrgChannels($orgId: ID!, $limit: Int, $offset: Int) {
     channels(orgId: $orgId, limit: $limit, offset: $offset) {
@@ -4320,6 +4348,7 @@ export const ORG_CHANNELS_QUERY = /* GraphQL */ `
         lastSeq
         lastMessageAt
         createdAt
+        memoryId
         memory { id urn name }
       }
     }
@@ -4878,5 +4907,75 @@ export const APP_PEOPLE_QUERY = /* GraphQL */ `
 export const DELETE_WORKER_MUTATION = /* GraphQL */ `
   mutation DeleteWorker($workerRef: ID!, $confirmNoExternalAttribution: Boolean!) {
     deleteWorker(workerRef: $workerRef, confirmNoExternalAttribution: $confirmNoExternalAttribution)
+  }
+`;
+
+// #1142 P3: reads remain bounded to the selected App + installed Agent.
+export const INSTALL_TARGET_QUERY = /* GraphQL */ `
+  query InstallTarget($ref: ID!) {
+    app(ref: $ref) {
+      id
+      agents {
+        id
+        systemMemoryId
+      }
+    }
+  }
+`;
+export const INSTALL_MEMORY_QUERY = /* GraphQL */ `
+  query InstallMemory($appRef: String!, $agentRef: String!) {
+    installMemory(appRef: $appRef, agentRef: $agentRef) {
+      id
+      urn
+    }
+  }
+`;
+export const INSTALL_NODES_QUERY = /* GraphQL */ `
+  query InstallNodes($memoryRef: ID!, $offset: Int!) {
+    memoryNodes(memoryRef: $memoryRef, limit: 20, offset: $offset) {
+      nodes {
+        id
+        loc
+        name
+      }
+      total
+    }
+  }
+`;
+export const INSTALL_NODE_QUERY = /* GraphQL */ `
+  query InstallNode($memoryRef: ID!, $ref: ID!) {
+    node(memoryRef: $memoryRef, ref: $ref, raw: true) {
+      id
+      urn
+      loc
+      name
+      content
+      revision
+      role
+      isRunnable
+    }
+  }
+`;
+export const ORIGINAL_NODE_QUERY = /* GraphQL */ `
+  query OriginalNode($memoryRef: ID!, $ref: ID!) {
+    node(memoryRef: $memoryRef, ref: $ref, raw: true) {
+      id
+      urn
+      loc
+      name
+      content
+      revision
+      role
+      isRunnable
+    }
+  }
+`;
+export const CREATE_CUSTOMISATION_MUTATION = /* GraphQL */ `
+  mutation CreateCustomisation($input: CreateNodeInput!) {
+    createNode(input: $input) {
+      id
+      loc
+      revision
+    }
   }
 `;
