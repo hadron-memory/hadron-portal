@@ -14,7 +14,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { updateBriefingSchema } from './schema';
+import { updateBriefingSchema, updateSignatureSchema } from './schema';
 import Page from './+page.svelte';
 
 const VIEWER = 'u1';
@@ -34,6 +34,7 @@ async function dataFor(w: ReturnType<typeof worker>, canManageWorkerApp: boolean
     worker: w,
     user: { id: VIEWER },
     briefingForm: await superValidate({ promptOverride: '' }, zod4(updateBriefingSchema), { errors: false }),
+    signatureForm: await superValidate({}, zod4(updateSignatureSchema), { errors: false }),
     initialTab: 'briefing', initialView: null,
     workerSessions: [], sessionsTruncated: false, worklog: [], worklogTotal: 0,
     bootPointer: { ok: true, ref: null, deleted: null },
