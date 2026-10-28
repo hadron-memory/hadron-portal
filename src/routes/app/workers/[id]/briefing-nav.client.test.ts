@@ -18,7 +18,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationGuards, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { updateBriefingSchema } from './schema';
+import { updateBriefingSchema, updateSignatureSchema } from './schema';
 import Page from './+page.svelte';
 
 function worker(id: string, promptOverride: string | null) {
@@ -50,6 +50,9 @@ async function dataFor(w: ReturnType<typeof worker>) {
       zod4(updateBriefingSchema),
       { errors: false },
     ),
+    // portal#1142 P4: the Briefing tab now also mounts the signature section,
+    // which the loader always seeds. A masked worker seeds it empty.
+    signatureForm: await superValidate({}, zod4(updateSignatureSchema), { errors: false }),
     initialTab: 'briefing',
     initialView: 'source',
     workerSessions: [],

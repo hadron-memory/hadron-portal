@@ -1012,11 +1012,33 @@ export const UPDATE_WORKER_MUTATION = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1142 P4 (hadron-server#1602 / #2120) — write a worker's signature and
+ * trailer templates. A variable the caller leaves undefined is ABSENT on the
+ * wire, and the server preserves an absent field; it refuses an explicit null,
+ * so this is only ever sent text. Never carries promptOverride: the two are
+ * separate forms, so no single submit mixes them.
+ */
+export const UPDATE_WORKER_SIGNATURE_MUTATION = /* GraphQL */ `
+  mutation UpdateWorkerSignature($workerRef: ID!, $signature: String, $trailer: String) {
+    updateWorker(workerRef: $workerRef, signature: $signature, trailer: $trailer) {
+      id
+      signature
+      trailer
+    }
+  }
+`;
+
 export const WORKER_QUERY = /* GraphQL */ `
   ${WORKER_FIELDS}
   query Worker($ref: ID!) {
     worker(ref: $ref) {
       ...WorkerFields
+      # portal#1142 P4 — the signature and trailer TEMPLATES, masked to null for
+      # a reader who may not see worker internals. Null is "not shown", never
+      # "empty": the empty string is a real, deliverable-as-nothing value.
+      signature
+      trailer
       app { id name urn organizationId }
       # #1010 — the agent's RAW persona template, merged into the fragment's
       # agent selection rather than added to WorkerFields: the fragment also

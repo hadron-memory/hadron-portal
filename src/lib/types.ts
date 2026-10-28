@@ -359,6 +359,10 @@ export interface Worker {
   role: string | null;
   /** Per-worker individuality layered over the agent's template prompt. */
   promptOverride: string | null;
+  /** portal#1142 P4: the signature template; null when masked. Only WORKER_QUERY selects it. */
+  signature?: string | null;
+  /** portal#1142 P4: the commit-trailer template; null when masked. */
+  trailer?: string | null;
   /**
    * The RESOLVED boot briefing — the agent's template with {{name}}/{{role}}
    * bound, then `promptOverride` appended. Multi-KB.
