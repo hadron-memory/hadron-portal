@@ -30,8 +30,14 @@
     /** The asset exactly as the server now holds it. */
     onchanged: (updated: AssetSummary) => void;
     oncancel: () => void;
+    /**
+     * Asset ids with a switch request out (a reactive set), owned by the caller so it outlives
+     * this panel: a panel closed and reopened for the same asset while its first
+     * request is still out opens busy, and sends nothing until that one answers.
+     */
+    sending?: Set<string>;
   }
-  let { asset, onchanged, oncancel }: Props = $props();
+  let { asset, onchanged, oncancel, sending }: Props = $props();
 
   // What this confirmation would DO, fixed at mount: the panel is for one switch,
   // so a prop re-render mid-request must not flip the question under the reader.
@@ -40,7 +46,10 @@
   const enabling = untrack(() => !asset.publicLinkEnabled);
   const assetId = untrack(() => asset.id);
 
-  let busy = $state(false);
+  let sendingHere = $state(false);
+  // Busy while THIS panel's request is out, or an earlier panel's for the same asset is (reactive, so a
+  // reopened panel frees itself when that earlier request answers or fails).
+  const busy = $derived(sendingHere || (sending?.has(assetId) ?? false));
   let error = $state<string | null>(null);
   let cancelButton = $state<HTMLButtonElement | null>(null);
   // Plain let: read only inside the handler.
@@ -53,9 +62,10 @@
   });
 
   async function confirm() {
-    if (inflight) return;
+    if (inflight || sending?.has(assetId)) return;
     inflight = true;
-    busy = true;
+    sending?.add(assetId);
+    sendingHere = true;
     error = null;
     try {
       const updated = await setAssetPublicLink(assetId, enabling);
@@ -63,8 +73,9 @@
     } catch (err) {
       error = publicLinkErrorMessage(err instanceof AssetUploadError ? err.code : undefined);
     } finally {
+      sending?.delete(assetId);
       inflight = false;
-      busy = false;
+      sendingHere = false;
     }
   }
 

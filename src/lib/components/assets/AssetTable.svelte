@@ -24,6 +24,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import PublicLinkConfirm from '$lib/components/assets/PublicLinkConfirm.svelte';
   import { canSwitchPublicLink } from '$lib/assets/public-link';
   import Urn from '$lib/components/Urn.svelte';
@@ -139,6 +140,8 @@
   // `$state.raw`, so the identity compared is the parent's, not a proxy of it.
   // Plain let: read only inside handlers.
   const linkBases = new Map<string, AssetSummary>();
+  // Requests out, by asset id: outlives the panel (closed and reopened mid-flight must not resend).
+  const sending = new SvelteSet<string>();
   let overrides = $state.raw<Record<string, { base: AssetSummary; asset: AssetSummary }>>({});
 
   const rows = $derived<AssetRow[]>(
@@ -498,6 +501,7 @@
             asset={row}
             onchanged={(updated) => onLinkChanged(row, updated)}
             oncancel={() => (pendingLink = null)}
+            {sending}
           />
         {/key}
       {:else}

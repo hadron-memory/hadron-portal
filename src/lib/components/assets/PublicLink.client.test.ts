@@ -501,4 +501,39 @@ describe('a refetch or navigation while the request is out', () => {
     releases[1]({ status: 200, body: switched(true) });
     await settle();
   });
+
+  it('table: A → open B → reopen A while A is out sends nothing new, and frees when A answers or fails', async () => {
+    const releases: Array<(r: Reply) => void> = [];
+    const f = stubFetch(() => new Promise<Reply>((r) => releases.push(r)));
+    const b = asset({ id: 'asset-2', filename: 'other.md', urn: 'hrn:asset:hadronmemory.com:dev:assets:asset-2' });
+    const { target } = mountTable([asset(), b]);
+    const open = (file: string) => {
+      target.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${file}"]`)!.click();
+      flushSync();
+      [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')]
+        .find((i) => i.textContent?.trim() === 'Turn on public link')!.click();
+      flushSync();
+    };
+    open('notes.md');
+    button(target, 'Turn on')!.click();
+    flushSync();
+    open('other.md');
+    open('notes.md');
+    // A's panel is back, but A's first request is still out: no second send.
+    const again = button(target, 'Turn on')!;
+    expect(again.disabled).toBe(true);
+    again.click();
+    flushSync();
+    expect(f.switchCalls()).toEqual([{ assetId: 'asset-1', enabled: true }]);
+    // A fails: the reopened panel frees itself and may retry once.
+    releases[0]({ status: 404, body: { code: 'NOT_FOUND', message: 'x' } });
+    await settle();
+    const retry = button(target, 'Turn on')!;
+    expect(retry.disabled).toBe(false);
+    retry.click();
+    flushSync();
+    expect(f.switchCalls()).toHaveLength(2);
+    releases[1]({ status: 200, body: switched(true) });
+    await settle();
+  });
 });
