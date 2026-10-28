@@ -139,6 +139,27 @@ describe('History tab edge-removal audit (portal#1355)', () => {
     expect(target.textContent).toContain('Showing the first 100');
   });
 
+  it('previous entries vanish while the replacement promise is pending', async () => {
+    removalRows = [removal()];
+    const m = await mountPage('?tab=history');
+    expect(m.target.textContent).toContain('foo:to-tgt');
+    const data = m.props.data as Record<string, unknown>;
+    m.props.data = { ...data, edgeRemovals: new Promise(() => {}) };
+    await settle();
+    expect(m.target.textContent).not.toContain('foo:to-tgt');
+    expect(m.target.textContent).not.toContain(SECTION);
+  });
+
+  it('a stale failure does not linger while the replacement promise is pending', async () => {
+    removalsFail = true;
+    const m = await mountPage('?tab=history');
+    expect(m.target.textContent).toContain(FAILED);
+    const data = m.props.data as Record<string, unknown>;
+    m.props.data = { ...data, edgeRemovals: new Promise(() => {}) };
+    await settle();
+    expect(m.target.textContent).not.toContain(FAILED);
+  });
+
   it('a late answer for a node the reader left never lands on the current one', async () => {
     removalRows = [removal()];
     const m = await mountPage('?tab=history');

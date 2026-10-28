@@ -1834,6 +1834,11 @@
   let removalsCapped = $state(false);
   $effect(() => {
     const p = data.edgeRemovals; // track the current navigation's promise
+    // Node A's rows or failure must not read as node B's history while B's
+    // promise is pending (portal#1356 BLIND review, P2) — reset the display
+    // synchronously, the way the provenance effect does.
+    removalRows = [];
+    removalsFailed = false;
     removalsLoaded = false;
     removalsCapped = false;
     p.then((res) => {
