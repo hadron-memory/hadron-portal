@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   ROSTER_STATES,
+  rosterTaskIds,
+  taskRefHandle,
   alarmWakeSummary,
   filterAlarms,
   parseAlarmFilter,
@@ -14,7 +16,7 @@ import {
   rosterStateLabel,
   taskRefLabel,
 } from './roster';
-import type { AgentAlarm } from './types';
+import type { AgentAlarm, TaskRefs } from './types';
 
 describe('roster states', () => {
   it('names every state in the SDL, each differently', () => {
@@ -40,9 +42,23 @@ describe('roster states', () => {
   });
 });
 
-it('a task id outside the title read still names a task, never "no task"', () => {
-  expect(taskRefLabel('t1', { t1: 'Ship it' })).toBe('Ship it');
-  expect(taskRefLabel('01a13cc6af2b7da8', {})).toBe('Task 01a13cc6');
+describe('task references (portal#1349)', () => {
+  it('a resolved reference shows its title and carries its handle', () => {
+    const refs = { t1: { id: 't1', handle: 'AT3.405', title: 'Ship it' } };
+    expect(taskRefLabel('t1', refs)).toBe('Ship it');
+    expect(taskRefHandle('t1', refs)).toBe('AT3.405');
+  });
+  it('an unavailable one is neutral: no raw id, no stale title, no invented handle', () => {
+    for (const refs of [{}, { t1: null }] as TaskRefs[]) {
+      expect(taskRefLabel('01a13cc6af2b7da8', refs)).toBe('Task unavailable');
+      expect(taskRefHandle('01a13cc6af2b7da8', refs)).toBeNull();
+    }
+  });
+  it('rosterTaskIds is the deduplicated set the Detail cells can name', () => {
+    const e = (over: object) => ({ startedTasks: [], pendingTasks: [], waitingOn: [], unreactedChildTask: null, ...over });
+    const ids = rosterTaskIds({ workers: [e({ startedTasks: ['a', 'b'] }), e({ pendingTasks: ['b'], waitingOn: ['c'], unreactedChildTask: 'd' })] } as never);
+    expect(ids.sort()).toEqual(['a', 'b', 'c', 'd']);
+  });
 });
 
 const alarm = (id: string, acknowledgedAt: string | null, wakes: AgentAlarm['wakes'] = []): AgentAlarm => ({

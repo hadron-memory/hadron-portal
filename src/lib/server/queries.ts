@@ -4647,6 +4647,7 @@ const AGENT_TASK_PARTY_FIELDS = /* GraphQL */ `
 const AGENT_TASK_ROW_FIELDS = /* GraphQL */ `
   fragment AgentTaskRowFields on AgentTask {
     id
+    handle
     parentTaskId
     title
     status
@@ -4704,7 +4705,7 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
 /** A breadcrumb ancestor: its title and its own parent, nothing else. */
 export const AGENT_TASK_ANCESTOR_QUERY = /* GraphQL */ `
   query AgentTaskAncestor($id: ID!) {
-    agentTask(id: $id) { id title parentTaskId }
+    agentTask(id: $id) { id handle title parentTaskId }
   }
 `;
 
@@ -4818,10 +4819,15 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
   }
 `;
 
-/** The App's open tasks (any depth), read once to put titles on bare task ids. */
-export const AGENT_TASKS_OPEN_TITLES_QUERY = /* GraphQL */ `
-  query AgentTasksOpenTitles($appRef: ID!, $limit: Int) {
-    agentTasks(appRef: $appRef, status: [PENDING, STARTED], limit: $limit) { id title }
+/**
+ * portal#1349: one task reference, read through the server's readable-task gate
+ * (hrn:node:hadronmemory.com:specs:cor:agt:050:21), to put a title and the
+ * immutable handle on a bare id the roster, alarms or AI Team grid carries.
+ * `appId` is selected only so the caller can refuse a task of another App.
+ */
+export const AGENT_TASK_REF_QUERY = /* GraphQL */ `
+  query AgentTaskRef($id: ID!) {
+    agentTask(id: $id) { id appId handle title }
   }
 `;
 
@@ -4850,7 +4856,7 @@ export const AGENT_ALARMS_QUERY = /* GraphQL */ `
 
 export const CREATE_AGENT_TASK_MUTATION = /* GraphQL */ `
   mutation CreateAgentTask($input: CreateAgentTaskInput!) {
-    createAgentTask(input: $input) { id }
+    createAgentTask(input: $input) { id handle }
   }
 `;
 

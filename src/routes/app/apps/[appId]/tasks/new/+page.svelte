@@ -9,6 +9,7 @@
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import { localDateTimeToIso } from '$lib/agent-tasks/start-by';
+  import { taskHref } from '$lib/agent-tasks/handle';
   import type { ActionData, PageData } from './$types';
 
   /**
@@ -30,7 +31,7 @@
   const result = $derived(form as { refusal?: WriteRefusal; values?: Record<string, string | string[]> } | null);
   const created = $derived(
     form && 'created' in form
-      ? (form as { created: { id: string | null }; committedWithError: boolean; warnings: TaskWarning[]; more: number })
+      ? (form as { created: { id: string | null; handle: string | null }; committedWithError: boolean; warnings: TaskWarning[]; more: number })
       : null,
   );
   let createdHeading = $state<HTMLElement | null>(null);
@@ -163,7 +164,7 @@
       </h2>
       <TaskWarnings warnings={created.warnings} more={created.more} />
       {#if created.created.id}
-        <a href="{basePath}/tasks/{encodeURIComponent(created.created.id)}" class="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.new.open-created', 'Open the task')}</a>
+        <a href={taskHref(basePath, { id: created.created.id, handle: created.created.handle })} class="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.new.open-created', 'Open the task')}</a>
       {:else}
         <a href="{basePath}/tasks" class="inline-block text-sm text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.new.find-created', 'Find it in the Tasks list')}</a>
       {/if}

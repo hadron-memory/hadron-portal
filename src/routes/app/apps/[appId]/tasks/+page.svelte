@@ -27,6 +27,8 @@
     type BoardFilter,
   } from '$lib/agent-tasks/status';
   import type { AgentTaskRow } from '$lib/agent-tasks/types';
+  import { taskHref } from '$lib/agent-tasks/handle';
+  import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   import type { PageData } from './$types';
 
   /**
@@ -68,7 +70,7 @@
             statusText: [taskStateLabel(state, task.status), task.waitingOnChildren && task.status === 'STARTED' ? waitingOnSubtasksLabel() : '']
               .filter(Boolean)
               .join(' '),
-            title: [task.title, task.source ?? ''].join(' ').trim(),
+            title: [task.title, task.handle, task.source ?? ''].join(' ').trim(),
             ownerText: partySearchText(task.owner),
             assigneeText: partySearchText(task.assignee),
             startByMs: ms(task.startBy),
@@ -163,11 +165,11 @@
   </nav>
 
   {#if data.view === 'roster' && data.roster}
-    <TasksRoster roster={data.roster} titles={data.titles} {basePath} impersonating={data.impersonating} />
+    <TasksRoster roster={data.roster} refs={data.refs} {basePath} impersonating={data.impersonating} />
   {:else if data.view === 'composition' && data.composition}
     <TasksComposition composition={data.composition} {basePath} impersonating={data.impersonating} />
   {:else if data.view === 'alarms' && data.alarms}
-    <TasksAlarms alarms={data.alarms} filter={data.alarmFilter} limit={data.alarmsLimit} titles={data.titles} {basePath} impersonating={data.impersonating} />
+    <TasksAlarms alarms={data.alarms} filter={data.alarmFilter} limit={data.alarmsLimit} refs={data.refs} {basePath} impersonating={data.impersonating} />
   {:else if !board}
     <!-- The loader always reads the board for the board view; if it ever doesn't, say so rather than show nothing. -->
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
@@ -235,7 +237,10 @@
             <TaskStateChips task={row.task} />
           {:else if cell.column.id === 'title'}
             <div class="flex min-w-0 flex-col">
-              <a href="{basePath}/tasks/{row.task.id}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.task.title}</a>
+              <span class="flex min-w-0 items-center gap-1.5">
+                <a href={taskHref(basePath, row.task)} class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.task.title}</a>
+                <TaskHandle handle={row.task.handle} />
+              </span>
               {#if row.task.source}<TaskSource source={row.task.source} />{/if}
             </div>
           {:else if cell.column.id === 'owner'}
@@ -251,7 +256,7 @@
             {/if}
           {:else if cell.column.id === 'subtasks'}
             <a
-              href="{basePath}/tasks/{row.task.id}#subtasks"
+              href="{taskHref(basePath, row.task)}#subtasks"
               aria-label={t('app.tasks.subtasks-of', 'Subtasks of {title}', { title: row.task.title })}
               class="text-sm text-indigo-600 hover:underline dark:text-indigo-300"
             >{t('app.tasks.subtasks.open', 'View subtasks')}</a>

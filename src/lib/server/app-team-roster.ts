@@ -1,6 +1,7 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { APP_TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { hydrateTaskRefs } from '$lib/server/agent-tasks';
 
 /**
  * portal#1168 (hadron-server#2178) — what the AI Team grid shows beyond the
@@ -21,7 +22,9 @@ export type RosterEntry = {
   worker: { id: string };
   checkStatus: { status: string; pendingReason: string | null } | null;
   pausedUntil: string | null;
-  currentTask: { id: string; title: string; status: string } | null;
+  // `handle` is not on the server's roster summary; it is hydrated (portal#1349)
+  // and null when that read did not resolve it. Never a placeholder.
+  currentTask: { id: string; title: string; status: string; handle?: string | null } | null;
 };
 
 export type TeamRosterRead =
@@ -34,6 +37,11 @@ export async function loadAppTeamRoster(client: GraphQLClient, appRef: string): 
     const r = await client.request<{ teamRoster: { workers: RosterEntry[] } }>(APP_TEAM_ROSTER_QUERY, { appRef });
     const byWorker: Record<string, RosterEntry> = {};
     for (const w of r.teamRoster.workers) byWorker[w.worker.id] = w;
+    // portal#1349: the immutable handle for each current task, through the readable-task gate.
+    const refs = await hydrateTaskRefs(client, appRef, Object.values(byWorker).map((w) => w.currentTask?.id));
+    for (const w of Object.values(byWorker)) {
+      if (w.currentTask) w.currentTask = { ...w.currentTask, handle: refs[w.currentTask.id]?.handle ?? null };
+    }
     return { kind: 'ok', byWorker };
   } catch (e) {
     const code = extractGqlErrorCode(e);

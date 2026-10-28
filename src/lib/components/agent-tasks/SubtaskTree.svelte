@@ -14,7 +14,9 @@
   import { fmtRunTime } from '$lib/flow/runs';
   import { buildSubtaskTree, type SubtaskNode } from '$lib/agent-tasks/tree';
   import type { AgentTaskRow } from '$lib/agent-tasks/types';
+  import { taskHref } from '$lib/agent-tasks/handle';
   import PartyLabel from './PartyLabel.svelte';
+  import TaskHandle from './TaskHandle.svelte';
   import TaskStateChips from './TaskStateChips.svelte';
 
   let { rows, rootId, basePath }: { rows: AgentTaskRow[]; rootId: string; basePath: string } = $props();
@@ -49,7 +51,8 @@
             <span class="w-5 shrink-0" aria-hidden="true"></span>
           {/if}
           <TaskStateChips task={node.task} />
-          <a href="{basePath}/tasks/{node.task.id}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{node.task.title}</a>
+          <a href={taskHref(basePath, node.task)} class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{node.task.title}</a>
+          <TaskHandle handle={node.task.handle} />
           <span class="text-xs text-zinc-500 dark:text-zinc-400"><PartyLabel party={node.task.assignee} showUrn={false} /></span>
           <span class="text-xs whitespace-nowrap text-zinc-500 dark:text-zinc-400">{fmtRunTime(node.task.updatedAt ?? node.task.createdAt)}</span>
         </div>

@@ -10,6 +10,7 @@ import {
   writeFailure,
 } from '$lib/server/agent-task-writes';
 import { t } from '$lib/i18n/t';
+import { parseHandle, taskHref } from '$lib/agent-tasks/handle';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -123,20 +124,23 @@ export const actions: Actions = {
     if (tags.length) input.tags = tags;
     input.closeSessionWhenDone = fd.get('closeSessionWhenDone') === 'on';
 
-    const out = await taskWrite<{ createAgentTask: { id: string } | null }>(client, CREATE_AGENT_TASK_MUTATION, { input }, 'createAgentTask');
+    const out = await taskWrite<{ createAgentTask: { id: string; handle?: string | null } | null }>(client, CREATE_AGENT_TASK_MUTATION, { input }, 'createAgentTask');
     if (out.kind === 'refused') return writeFailure('create', out.refusal, values);
     const id = taskId(out.data?.createAgentTask?.id);
+    // portal#1349: the link carries the immutable handle when the server returned a valid one.
+    const rawHandle = out.data?.createAgentTask?.handle;
+    const handle = typeof rawHandle === 'string' && parseHandle(rawHandle) ? rawHandle : null;
 
     // portal#1214: a create with nothing to show goes to its page, as before.
     if (out.kind === 'ok' && out.warnings.length === 0 && out.more === 0) {
-      if (id) redirect(303, `/app/apps/${app.id}/tasks/${id}?created=1`);
+      if (id) redirect(303, `${taskHref(`/app/apps/${app.id}`, { id, handle })}?created=1`);
       // No usable id and no warning to prove the write: the outcome is unknown.
       if (!out.committed) return writeFailure('create', { kind: 'uncertain' }, values);
     }
     // Warnings, or a committed write whose response errored: shown here, in the
     // same response, in place of the form. Nothing crosses a request.
     return {
-      created: { id },
+      created: { id, handle },
       committedWithError: out.kind === 'committed-error',
       warnings: out.warnings,
       more: out.more,

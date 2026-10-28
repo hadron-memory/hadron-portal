@@ -37,6 +37,8 @@ export interface AgentTaskSessionEndRequest {
 /** A board or tree row. */
 export interface AgentTaskRow {
   id: string;
+  /** The immutable short handle (`AT3.405`), from server#2579. */
+  handle: string;
   parentTaskId: string | null;
   title: string;
   status: AgentTaskStatus;
@@ -180,3 +182,16 @@ export type WriteCandidates = {
   /** The members read FAILED (a reload can fix it): `people` is unknown, not empty, and not withheld. */
   peopleFailed?: boolean;
 };
+
+/**
+ * portal#1349 — what a bare task id resolved to for display: its title and
+ * immutable handle, read through the server's readable-task gate. `null` in a
+ * refs map means unavailable (missing, unreadable, another App, or the read
+ * failed); callers render a neutral label and never a stale title or handle.
+ */
+export interface TaskRefInfo {
+  id: string;
+  handle: string;
+  title: string;
+}
+export type TaskRefs = Record<string, TaskRefInfo | null>;

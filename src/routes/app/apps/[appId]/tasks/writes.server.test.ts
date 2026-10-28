@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import {
   AGENT_TASKS_APP_QUERY,
+  AGENT_TASK_REF_QUERY,
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
   CREATE_AGENT_TASK_MUTATION,
@@ -21,7 +22,16 @@ const request = vi.fn();
 // extensions. By default it answers what `request` would, with no extensions.
 const rawRequest = vi.fn();
 const delegate = async (q: string, v: unknown) => ({ data: await request(q, v), extensions: undefined, status: 200 });
-vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request, rawRequest }) }));
+// portal#1349: a write first resolves the route's task to its canonical id (the App
+// read, then the readable-task gate). That resolution answers here; everything else
+// reaches `request`, so the assertions about mutations are unchanged.
+const resolver = vi.fn(async (_q: string, v: { id: string }) => ({ agentTask: { id: v.id === 'AT3.405' || v.id.endsWith(':AT3.405') ? 'canon-1' : v.id, appId: 'app-1' } }));
+const gated = async (q: string, v?: unknown) => {
+  if (q === AGENT_TASKS_APP_QUERY) return { app };
+  if (q === AGENT_TASK_REF_QUERY) return resolver(q, v as { id: string });
+  return request(q, v);
+};
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: gated, rawRequest }) }));
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const gqlError = (code: string, message: string) => ({ response: { errors: [{ message, extensions: { code } }] } });
@@ -350,7 +360,7 @@ describe('create action: warnings (portal#1214)', () => {
   it('a create with warnings is answered in place, not redirected', async () => {
     rawRequest.mockResolvedValueOnce(answered({ createAgentTask: { id: 't9' } }, [warning('createAgentTask', 'task.create.no-source')]));
     expect(await create()).toEqual({
-      created: { id: 't9' }, committedWithError: false, more: 0,
+      created: { id: 't9', handle: null }, committedWithError: false, more: 0,
       warnings: [{ code: 'task.create.no-source', text: 'text for task.create.no-source' }],
     });
   });
@@ -369,7 +379,7 @@ describe('create action: warnings (portal#1214)', () => {
     rawRequest.mockRejectedValueOnce(committedError([warning('createAgentTask', 'task.create.no-source')]));
     const r = await create();
     expect(r).toEqual({
-      created: { id: null }, committedWithError: true, more: 0,
+      created: { id: null, handle: null }, committedWithError: true, more: 0,
       warnings: [{ code: 'task.create.no-source', text: 'text for task.create.no-source' }],
     });
     expect(JSON.stringify(r)).not.toContain('PRIVATE-SENTINEL');
@@ -392,5 +402,32 @@ describe('create action: warnings (portal#1214)', () => {
     const r = (await create()) as { status: number; data: Record<string, unknown> };
     expect(r.status).toBe(400);
     expect(r.data).toMatchObject({ refusal: { kind: 'refused', code: 'TASK_OWNER_INVALID', message: 'No such owner.' }, values: { title: 'T' } });
+  });
+});
+
+// portal#1349: the identity a write sends is the server's canonical id for THIS App's route.
+describe('task page actions: handle routes', () => {
+  const at = (taskId: string) => ({ ...(event({}) as unknown as Record<string, unknown>), params: { appId: 'app-1', taskId } }) as never;
+
+  it('a write from a handle URL sends the canonical id, never the URL segment', async () => {
+    request.mockResolvedValue({});
+    await (await taskActions()).park(at('AT3.405'));
+    expect(request).toHaveBeenLastCalledWith(PARK_AGENT_TASK_MUTATION, { taskId: 'canon-1' });
+    expect(resolver).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+  });
+
+  it('another App’s qualified handle writes nothing and resolves nothing', async () => {
+    request.mockResolvedValue({});
+    resolver.mockClear();
+    await expect((await taskActions()).cancel(at('hrn:agenttask:acme.com:other:AT3.405'))).rejects.toMatchObject({ status: 404 });
+    expect(resolver).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('a task the server resolves into another App writes nothing', async () => {
+    request.mockResolvedValue({});
+    resolver.mockResolvedValueOnce({ agentTask: { id: 'canon-9', appId: 'app-2' } });
+    await expect((await taskActions()).cancel(at('t1'))).rejects.toMatchObject({ status: 404 });
+    expect(request).not.toHaveBeenCalled();
   });
 });

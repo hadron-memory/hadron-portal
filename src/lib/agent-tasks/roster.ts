@@ -1,5 +1,5 @@
 import { t } from '$lib/i18n/t';
-import type { AgentAlarm, TeamRosterEntry } from './types';
+import type { AgentAlarm, TaskRefs, TeamRoster, TeamRosterEntry } from './types';
 
 /**
  * portal#1052 slice 2 — the Roster's and Alarms list's words
@@ -96,9 +96,19 @@ export function rosterSessionLabel(e: Pick<TeamRosterEntry, 'bound' | 'liveSessi
   return t('app.tasks.roster.session.unbound', 'Unbound');
 }
 
-/** A task id's display: its title when the open-task read had it, else "Task <short id>". */
-export function taskRefLabel(id: string, titles: Record<string, string>): string {
-  return titles[id] ?? t('app.tasks.task-ref', 'Task {id}', { id: id.slice(0, 8) });
+/**
+ * A task reference's display (portal#1349): its title when the hydrating read
+ * resolved it in this App, else a neutral "Task unavailable". Never a stale
+ * title, never the raw id: an unreadable, missing or foreign task all read the same.
+ */
+export function taskRefLabel(id: string, refs: TaskRefs): string {
+  const ref = refs[id];
+  return ref ? ref.title : t('app.tasks.task-ref-unavailable', 'Task unavailable');
+}
+
+/** The handle a resolved reference carries, or null when it is unavailable. */
+export function taskRefHandle(id: string, refs: TaskRefs): string | null {
+  return refs[id]?.handle ?? null;
 }
 
 // ── Alarms (§7, variant A: read-only) ──────────────────────────────────────
@@ -135,4 +145,14 @@ export function alarmWakeSummary(a: Pick<AgentAlarm, 'wakes' | 'acknowledgedAt'>
   const latestWoken = woken.length ? woken[woken.length - 1] : null;
   const next = a.acknowledgedAt ? null : (wakes.find((w) => !w.wokenAt) ?? null);
   return { wakes, latestWoken, next };
+}
+
+/** Every task id a loaded roster's Detail cells can name: the set to hydrate, nothing wider. */
+export function rosterTaskIds(roster: Pick<TeamRoster, 'workers'>): string[] {
+  const ids = new Set<string>();
+  for (const e of roster.workers) {
+    for (const id of [...e.startedTasks, ...e.pendingTasks, ...e.waitingOn]) ids.add(id);
+    if (e.unreactedChildTask) ids.add(e.unreactedChildTask);
+  }
+  return [...ids];
 }

@@ -24,9 +24,11 @@
     alarmWakeSummary,
     filterAlarms,
     taskRefLabel,
+    taskRefHandle,
     type AlarmFilter,
   } from '$lib/agent-tasks/roster';
-  import type { AgentAlarm, TaskRead } from '$lib/agent-tasks/types';
+  import type { AgentAlarm, TaskRead, TaskRefs } from '$lib/agent-tasks/types';
+  import TaskRef from './TaskRef.svelte';
   import CopyCode from './CopyCode.svelte';
   import NotParticipant from './NotParticipant.svelte';
   import PartyLabel from './PartyLabel.svelte';
@@ -35,14 +37,14 @@
     alarms,
     filter,
     limit,
-    titles,
+    refs,
     basePath,
     impersonating = null,
   }: {
     alarms: TaskRead<{ alarms: AgentAlarm[]; capped: boolean }>;
     filter: AlarmFilter;
     limit: number;
-    titles: Record<string, string>;
+    refs: TaskRefs;
     basePath: string;
     impersonating?: string | null;
   } = $props();
@@ -86,7 +88,7 @@
       alarm,
       raisedMs: ms(alarm.createdAt),
       rule: alarmRuleName(alarm.type),
-      task: alarm.taskId ? taskRefLabel(alarm.taskId, titles) : '',
+      task: alarm.taskId ? [taskRefLabel(alarm.taskId, refs), taskRefHandle(alarm.taskId, refs) ?? ''].join(' ').trim() : '',
       concerns: partySearchText(alarm.subjectWorker),
       woke: wokeText(alarm),
       status: statusText(alarm),
@@ -198,7 +200,7 @@
         <span class="font-medium text-red-700 dark:text-red-300">{row.rule}</span>
       {:else if cell.column.id === 'task'}
         {#if a.taskId}
-          <a href="{basePath}/tasks/{a.taskId}" class="block max-w-full truncate text-indigo-600 hover:underline dark:text-indigo-300">{row.task}</a>
+          <TaskRef id={a.taskId} {refs} {basePath} />
         {:else}
           <span class="text-zinc-400">—</span>
         {/if}

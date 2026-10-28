@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { taskHref } from '$lib/agent-tasks/handle';
+  import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
@@ -294,7 +296,7 @@
     // three-valued read the profile's held-workers grid uses: masked is "Not
     // shown to you", never "idle".
     { accessorFn: (row) => workerStatusLabel(row), id: 'status', header: t('app.staff.column.status', 'Status'), size: 150 },
-    { accessorFn: (row) => rosterEntry(row.id)?.currentTask?.title ?? '', id: 'task', header: t('app.staff.column.task', 'Task'), size: 220 },
+    { accessorFn: (row) => [rosterEntry(row.id)?.currentTask?.title, rosterEntry(row.id)?.currentTask?.handle].filter(Boolean).join(' '), id: 'task', header: t('app.staff.column.task', 'Task'), size: 220 },
     { accessorFn: (row) => row.family ?? '', id: 'family', header: t('app.staff.column.family', 'Model family'), size: 130 },
     {
       accessorFn: (row) => {
@@ -2360,7 +2362,10 @@
                 <span class="text-xs text-zinc-500">{t('app.staff.na', 'Not available')}</span>
               {:else if task}
                 <div class="min-w-0 text-xs">
-                  <a href="/app/apps/{app.id}/tasks/{task.id}" class="block truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
+                  <span class="flex min-w-0 items-center gap-1.5">
+                    <a href={taskHref(`/app/apps/${app.id}`, task)} class="min-w-0 truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
+                    <TaskHandle handle={task.handle} />
+                  </span>
                   <span class="text-zinc-500">{TASK_STATUS[task.status]?.() ?? task.status}</span>
                 </div>
               {:else}

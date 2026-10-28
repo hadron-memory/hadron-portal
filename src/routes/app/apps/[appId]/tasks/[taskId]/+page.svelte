@@ -7,6 +7,8 @@
   import TaskHistory from '$lib/components/agent-tasks/TaskHistory.svelte';
   import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
+  import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
+  import { isProjectZero, taskHref } from '$lib/agent-tasks/handle';
   import TaskActionBar from '$lib/components/agent-tasks/TaskActionBar.svelte';
   import { fmtRunTime } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
@@ -20,6 +22,8 @@
   let { data }: { data: PageData } = $props();
 
   const task = $derived(data.task);
+  // portal#1349: AT0 is the server's fixed "No project" row — read-only here, whatever the viewer may do elsewhere.
+  const fixedTask = $derived(isProjectZero(data.task.handle));
   const basePath = $derived(`/app/apps/${data.app.id}`);
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
   const state = $derived(taskDisplayState(task));
@@ -29,7 +33,7 @@
     { label: data.app.name, href: basePath },
     { label: t('app.tasks.crumb.tasks', 'Tasks'), href: `${basePath}/tasks` },
     ...(data.ancestorsTruncated ? [{ label: '…' }] : []),
-    ...data.ancestors.map((a) => ({ label: a.title, href: `${basePath}/tasks/${a.id}` })),
+    ...data.ancestors.map((a) => ({ label: a.title, href: taskHref(basePath, a) })),
     { label: task.title },
   ]);
 
@@ -91,10 +95,15 @@
   <div class="flex flex-wrap items-start justify-between gap-3">
     <div class="min-w-0">
       <h1 class="text-xl font-bold break-words text-zinc-900 dark:text-white">{task.title}</h1>
-      <div class="mt-1"><TaskStateChips {task} /></div>
+      <div class="mt-1 flex flex-wrap items-center gap-2"><TaskHandle handle={task.handle} /><TaskStateChips {task} /></div>
+      {#if fixedTask}
+        <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300" data-testid="project-zero-note">
+          {t('app.tasks.project-zero', 'This is the fixed “No project” task. It can’t be started, assigned, or cancelled.')}
+        </p>
+      {/if}
       <TaskActionBar
         {task}
-        canWrite={data.canWrite}
+        canWrite={data.canWrite && !fixedTask}
         impersonating={data.impersonating}
         candidates={data.candidates}
         {openChildren}
@@ -102,6 +111,7 @@
       />
     </div>
     <div class="flex min-w-0 flex-col items-start gap-1 sm:items-end">
+      <CopyCode value={task.handle} label={t('app.tasks.copy-handle', 'Copy the task handle')} />
       <CopyCode value={task.id} label={t('app.tasks.copy-id', 'Copy the task id')} />
       <CopyCode value="hadron team task get {task.id}" label={t('app.tasks.copy-cli', 'Copy the CLI command that reads this task')} />
     </div>
@@ -134,7 +144,7 @@
       {#if task.parentTaskId}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.parent', 'Parent')}</dt>
         <dd class="min-w-0">
-          <a href="{basePath}/tasks/{task.parentTaskId}" class="text-indigo-600 hover:underline dark:text-indigo-300">
+          <a href={taskHref(basePath, parent && parent.id === task.parentTaskId ? parent : { id: task.parentTaskId })} class="text-indigo-600 hover:underline dark:text-indigo-300">
             {parent && parent.id === task.parentTaskId ? parent.title : t('app.tasks.fact.parent-task', 'Parent task')}
           </a>
         </dd>
