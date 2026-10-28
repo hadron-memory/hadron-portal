@@ -1201,7 +1201,7 @@
         <p role="status" class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
       {/if}
       {#if bundledMayBeIncomplete}
-        <p role="status" class="mb-3 text-xs text-zinc-500">
+        <p role="status" class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
           {t('agent.bundled.withheld', 'This list may be incomplete because some installed agents aren’t visible to you.')}
         </p>
       {/if}

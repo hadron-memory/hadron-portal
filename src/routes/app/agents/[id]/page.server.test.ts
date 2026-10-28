@@ -673,6 +673,11 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
     expect(r.bundledMayBeIncomplete).toBe(false);
   });
 
+  it('known-empty control: an App with a real empty join is not flagged', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [], [])] })) as Flag;
+    expect(r.bundledMayBeIncomplete).toBe(false);
+  });
+
   it('malformed appAgents is unknown, never proof of completeness', async () => {
     for (const bad of [null, undefined]) {
       const r = (await loadBundled({ apps: [app('app-1', bad)] })) as Flag;
@@ -680,7 +685,7 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
     }
   });
 
-  it('exposes no hidden count, id or URN: the payload carries a boolean only', async () => {
+  it('payload carries a boolean only: no legacy count key', async () => {
     const r = (await loadBundled({ apps: [app('app-1', [row('agent-aaa'), hiddenRow, hiddenRow])] })) as Record<string, unknown>;
     expect(r.bundledMayBeIncomplete).toBe(true);
     expect('bundledWithheldApps' in r).toBe(false);
