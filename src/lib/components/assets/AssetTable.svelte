@@ -138,7 +138,7 @@
   // deleted row out keeps the others' objects, so their switch state survives.
   // `$state.raw`, so the identity compared is the parent's, not a proxy of it.
   // Plain let: read only inside handlers.
-  let linkBase: AssetSummary | null = null;
+  const linkBases = new Map<string, AssetSummary>();
   let overrides = $state.raw<Record<string, { base: AssetSummary; asset: AssetSummary }>>({});
 
   const rows = $derived<AssetRow[]>(
@@ -327,7 +327,8 @@
     else if (id === 'copy-link') void copyHotlink(row);
     else if (id === 'public-link') {
       linkNote = null;
-      linkBase = assets.find((a) => a.id === row.id) ?? null;
+      const listed = assets.find((a) => a.id === row.id);
+      if (listed) linkBases.set(row.id, listed);
       pendingLink = row.id;
     } else if (id === 'delete') pendingDelete = row.id;
   }
@@ -336,10 +337,12 @@
     // The base is the object listed when the confirmation OPENED. A refetch that
     // landed while the request was out hands over new objects, and the server's
     // answer is then older than the list: drop it rather than overwrite.
-    const base = linkBase;
+    // Per row: another row's panel may have opened since, and that panel (and its
+    // own base) is not this answer's to close.
+    const base = linkBases.get(row.id);
     const current = assets.find((a) => a.id === row.id);
-    pendingLink = null;
-    linkBase = null;
+    linkBases.delete(row.id);
+    if (pendingLink === row.id) pendingLink = null;
     if (!base || current !== base) return;
     overrides = { ...overrides, [row.id]: { base, asset: updated } };
     linkNote = {

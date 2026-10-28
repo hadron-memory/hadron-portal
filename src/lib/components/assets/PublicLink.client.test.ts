@@ -473,4 +473,32 @@ describe('a refetch or navigation while the request is out', () => {
     expect(m.target.textContent).not.toContain('Public link turned on.');
     expect(m.target.textContent).toContain('Public link is on');
   });
+
+  it('table: row A\'s late answer applies to A and leaves row B\'s open panel and pending request alone', async () => {
+    const releases: Array<(r: Reply) => void> = [];
+    const f = stubFetch(() => new Promise<Reply>((r) => releases.push(r)));
+    const a = asset();
+    const b = asset({ id: 'asset-2', filename: 'other.md', urn: 'hrn:asset:hadronmemory.com:dev:assets:asset-2' });
+    const { target } = mountTable([a, b]);
+    const openRow = (file: string) => {
+      target.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${file}"]`)!.click();
+      flushSync();
+      [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')]
+        .find((i) => i.textContent?.trim() === 'Turn on public link')!.click();
+      flushSync();
+      button(target, 'Turn on')!.click();
+      flushSync();
+    };
+    openRow('notes.md');
+    openRow('other.md');
+    expect(f.switchCalls()).toHaveLength(2);
+    releases[0]({ status: 200, body: switched(true) });
+    await settle();
+    // B's panel survived A's answer, with its request still out: no second send is possible.
+    expect(button(target, 'Turn on')).toBeDefined();
+    expect(button(target, 'Turn on')!.disabled).toBe(true);
+    expect(f.switchCalls()).toHaveLength(2);
+    releases[1]({ status: 200, body: switched(true) });
+    await settle();
+  });
 });
