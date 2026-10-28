@@ -14,6 +14,7 @@ import { captureUnhandledRejections, mountComponent, tick, wait, type Mounted } 
 import type { AssetSummary } from '$lib/api/assetUpload';
 import AssetTable from './AssetTable.svelte';
 import NodeAssetCard from './NodeAssetCard.svelte';
+import Host from '$lib/test/hosts/AssetRefetchHost.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
@@ -406,5 +407,70 @@ describe('node asset card', () => {
     expect(f.switchCalls()).toHaveLength(1);
     release({ status: 200, body: switched(true) });
     await settle();
+  });
+});
+
+describe('a refetch or navigation while the request is out', () => {
+  function mountHost(kind: 'table' | 'card', initial: AssetSummary[]) {
+    const m = mountComponent(Host as never, { kind, initial } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    flushSync();
+    return m;
+  }
+  const setAssets = (m: Mounted<Record<string, unknown>>, next: AssetSummary[]) => {
+    (m.instance.setAssets as (a: AssetSummary[]) => void)(next);
+    flushSync();
+  };
+
+  it('table: a late answer does not overwrite a newer refetch of the row', async () => {
+    let release!: (r: Reply) => void;
+    stubFetch(() => new Promise<Reply>((r) => (release = r)));
+    const m = mountHost('table', [asset()]);
+    pick(m.target, 'Turn on public link');
+    button(m.target, 'Turn on')!.click();
+    flushSync();
+    // The list refetched meanwhile and already says the link is on, with a newer URL.
+    setAssets(m, [asset({ publicLinkEnabled: true, publicUrl: 'https://hadron.example/assets/newer' })]);
+    release({ status: 200, body: switched(true) });
+    await settle();
+    expect(m.target.querySelector('button[aria-label^="Copy public link"]')).toBeNull();
+    expect(m.target.textContent).not.toContain('Public link turned on.');
+  });
+
+  it('card: a late answer for asset A never replaces asset B after navigation', async () => {
+    let release!: (r: Reply) => void;
+    const f = stubFetch(() => new Promise<Reply>((r) => (release = r)));
+    const m = mountHost('card', [asset()]);
+    button(m.target, 'Turn on public link')!.click();
+    flushSync();
+    button(m.target, 'Turn on')!.click();
+    flushSync();
+    setAssets(m, [asset({ id: 'asset-2', filename: 'other.md' })]);
+    // B shows its own fresh state, not A's open confirmation.
+    expect(m.target.textContent).toContain('other.md');
+    expect(m.target.textContent).toContain('Public link is off');
+    expect(button(m.target, 'Turn on')).toBeUndefined();
+    release({ status: 200, body: switched(true) });
+    await settle();
+    expect(m.target.textContent).toContain('other.md');
+    expect(m.target.textContent).not.toContain('notes.md');
+    expect(m.target.textContent).toContain('Public link is off');
+    expect(f.switchCalls()).toEqual([{ assetId: 'asset-1', enabled: true }]);
+  });
+
+  it('card: a late answer does not overwrite a newer refetch of the same asset', async () => {
+    let release!: (r: Reply) => void;
+    stubFetch(() => new Promise<Reply>((r) => (release = r)));
+    const m = mountHost('card', [asset()]);
+    button(m.target, 'Turn on public link')!.click();
+    flushSync();
+    button(m.target, 'Turn on')!.click();
+    flushSync();
+    const newer = asset({ publicLinkEnabled: true, publicUrl: 'https://hadron.example/assets/newer' });
+    setAssets(m, [newer]);
+    release({ status: 200, body: switched(true) });
+    await settle();
+    expect(m.target.textContent).not.toContain('Public link turned on.');
+    expect(m.target.textContent).toContain('Public link is on');
   });
 });

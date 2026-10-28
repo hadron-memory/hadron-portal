@@ -137,6 +137,8 @@
   // the answer drops (the list is newer), while the parent merely filtering a
   // deleted row out keeps the others' objects, so their switch state survives.
   // `$state.raw`, so the identity compared is the parent's, not a proxy of it.
+  // Plain let: read only inside handlers.
+  let linkBase: AssetSummary | null = null;
   let overrides = $state.raw<Record<string, { base: AssetSummary; asset: AssetSummary }>>({});
 
   const rows = $derived<AssetRow[]>(
@@ -325,14 +327,21 @@
     else if (id === 'copy-link') void copyHotlink(row);
     else if (id === 'public-link') {
       linkNote = null;
+      linkBase = assets.find((a) => a.id === row.id) ?? null;
       pendingLink = row.id;
     } else if (id === 'delete') pendingDelete = row.id;
   }
 
   function onLinkChanged(row: AssetRow, updated: AssetSummary) {
-    const base = assets.find((a) => a.id === row.id);
-    if (base) overrides = { ...overrides, [row.id]: { base, asset: updated } };
+    // The base is the object listed when the confirmation OPENED. A refetch that
+    // landed while the request was out hands over new objects, and the server's
+    // answer is then older than the list: drop it rather than overwrite.
+    const base = linkBase;
+    const current = assets.find((a) => a.id === row.id);
     pendingLink = null;
+    linkBase = null;
+    if (!base || current !== base) return;
+    overrides = { ...overrides, [row.id]: { base, asset: updated } };
     linkNote = {
       id: row.id,
       text: !updated.publicLinkEnabled

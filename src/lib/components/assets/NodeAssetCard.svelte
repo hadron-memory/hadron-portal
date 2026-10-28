@@ -33,11 +33,18 @@
   let answer = $state.raw<{ base: AssetSummary; asset: AssetSummary } | null>(null);
   const asset = $derived(answer && answer.base === listed ? answer.asset : listed);
   let confirmingLink = $state(false);
+  // Plain let: read only inside handlers.
+  let linkBase: AssetSummary | null = null;
   let linkNote = $state<string | null>(null);
 
   function onLinkChanged(updated: AssetSummary) {
-    answer = { base: listed, asset: updated };
+    // Applies only to the object the confirmation opened against: a refetch or
+    // another asset arriving mid-request makes this answer older than the card.
+    const base = linkBase;
     confirmingLink = false;
+    linkBase = null;
+    if (!base || base !== listed || updated.id !== listed.id) return;
+    answer = { base, asset: updated };
     linkNote = !updated.publicLinkEnabled
       ? t('assets.public-link.note.off', 'Public link turned off.')
       : updated.publicUrl
@@ -156,6 +163,7 @@
           type="button"
           onclick={() => {
             linkNote = null;
+            linkBase = listed;
             confirmingLink = true;
           }}
           class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"

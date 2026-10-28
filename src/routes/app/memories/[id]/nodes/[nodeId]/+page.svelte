@@ -2790,7 +2790,9 @@
        `node.asset` is null for every ordinary node AND when the pointer dangles
        (the asset was deleted), so this one check covers both. -->
   {#if node.asset}
-    <NodeAssetCard asset={node.asset} />
+    {#key node.asset.id}
+      <NodeAssetCard asset={node.asset} />
+    {/key}
   {/if}
 
   <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
