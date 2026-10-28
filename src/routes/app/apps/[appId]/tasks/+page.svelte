@@ -27,7 +27,8 @@
     type BoardFilter,
   } from '$lib/agent-tasks/status';
   import type { AgentTaskRow } from '$lib/agent-tasks/types';
-  import { taskHref } from '$lib/agent-tasks/handle';
+  import { goto } from '$app/navigation';
+  import { parseHandle, taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   import type { PageData } from './$types';
 
@@ -84,6 +85,14 @@
   );
 
   let globalFilter = $state('');
+  // portal#1349: exactly a handle, no trimming (a trailing space is not one).
+  const exactHandle = $derived(parseHandle(globalFilter) ? globalFilter : null);
+  const exactHandleHref = $derived(exactHandle ? `${basePath}/tasks/${encodeURIComponent(exactHandle)}` : '');
+  function openExactHandleOnEnter(e: KeyboardEvent) {
+    if (e.key !== 'Enter' || !exactHandle || !(e.target instanceof HTMLInputElement)) return;
+    e.preventDefault();
+    void goto(exactHandleHref);
+  }
   const columns: PortalColumnDef<BoardRow>[] = [
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
     { id: 'title', accessorFn: (r) => r.title, header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 320 },
@@ -224,6 +233,17 @@
           {boardEmptyText(data.filter)}
         </div>
       {/if}
+      <!-- portal#1349: the board filter only sees the loaded roots, so an EXACT handle
+           (the only thing that finds a subtask like AT3.405 here) is a real link to
+           that task. The route hands the handle to the server's resolver; an unknown,
+           malformed or foreign one answers there, exactly like an unknown id. -->
+      {#if exactHandle}
+        <p class="mb-2 text-sm" data-testid="open-by-handle">
+          <a href={exactHandleHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.open-handle', 'Open {handle}', { handle: exactHandle })}</a>
+        </p>
+      {/if}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div onkeydown={openExactHandleOnEnter}>
       <DataTable
         {table}
         listKey="app-tasks:board"
@@ -282,6 +302,7 @@
           {/if}
         {/snippet}
       </DataTable>
+      </div>
     {/if}
   {/if}
 </div>

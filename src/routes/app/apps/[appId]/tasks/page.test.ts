@@ -256,3 +256,74 @@ describe('board New task (#1090)', () => {
     expect(board({ impersonating: 'Mike' })).not.toMatch(/href="\/app\/apps\/app-1\/tasks\/new"/);
   });
 });
+
+// portal#1349: the immutable handle beside the title, on every task surface.
+describe('task handles', () => {
+  const H = 'AT3.405';
+
+  it('board: title stays the link text, the handle is a quiet chip, and the link points at the handle', () => {
+    const html = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ id: 'abc', handle: H })] } } });
+    expect(html).toContain(`href="/app/apps/app-1/tasks/${H}"`);
+    expect(html).toContain(`href="/app/apps/app-1/tasks/${H}#subtasks"`);
+    expect(html).toMatch(/data-task-handle[^>]*>AT3\.405<\/code>/);
+    expect(html).toContain('aria-label="Task handle AT3.405"');
+    expect(html).not.toContain('tasks/abc');
+  });
+
+  it('board: a row with no handle links by id and draws no chip — never an invented one', () => {
+    const html = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ id: 'abc' })] } } });
+    expect(html).toContain('href="/app/apps/app-1/tasks/abc"');
+    expect(html).not.toContain('data-task-handle');
+  });
+
+  it('a 64-character, 16-deep handle is truncated in the chip but whole in title and name', () => {
+    const long = 'AT1' + '.1'.repeat(15) + '.12345678901234567890'.slice(0, 0);
+    const html = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ handle: long })] } } });
+    expect(html).toMatch(/data-task-handle/);
+    expect(html).toContain(`title="${long}"`);
+    expect(html).toMatch(/class="[^"]*\btruncate\b[^"]*"[^>]*title="AT1\.1/);
+  });
+
+  it('detail: handle chip by the title, three SEPARATELY labelled copy values (handle, id, CLI), id not the only addressable thing', () => {
+    const html = taskPage({ task: detail({ id: 'abc', handle: H }) });
+    expect(html).toMatch(/data-task-handle[^>]*>AT3\.405<\/code>/);
+    expect(html).toContain('aria-label="Copy the task handle"');
+    expect(html).toContain('aria-label="Copy the task id"');
+    expect(html).toContain('aria-label="Copy the CLI command that reads this task"');
+    expect(html).toMatch(/<code[^>]*>AT3\.405<\/code>/);
+    expect(html).toMatch(/<code[^>]*>abc<\/code>/);
+  });
+
+  it('detail: breadcrumb ancestors and the parent link point at their handles', () => {
+    const html = taskPage({
+      task: detail({ id: 'abc', handle: 'AT3.405', parentTaskId: 'p1' }),
+      ancestors: [{ id: 'r1', handle: 'AT3', title: 'Root' }, { id: 'p1', handle: 'AT3.4', title: 'Parent' }],
+    });
+    expect(html).toContain('href="/app/apps/app-1/tasks/AT3"');
+    expect(html.match(/href="\/app\/apps\/app-1\/tasks\/AT3\.4"/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html).not.toContain('tasks/p1');
+    expect(html).not.toContain('tasks/r1');
+  });
+
+  it('detail: the subtask tree links its rows by handle and shows their chips', () => {
+    const child = detail({ id: 'c1', handle: 'AT3.405.1', parentTaskId: 'abc', title: 'Child' });
+    const html = taskPage({ task: detail({ id: 'abc', handle: H }), tree: { kind: 'ok', value: { rows: [detail({ id: 'abc', handle: H }), child], capped: false } } });
+    expect(html).toContain('href="/app/apps/app-1/tasks/AT3.405.1"');
+    expect(html).toMatch(/data-task-handle[^>]*>AT3\.405\.1<\/code>/);
+  });
+
+  it('AT0 is shown with its handle and title but offers no write control, with a plain explanation', () => {
+    const html = taskPage({ task: detail({ id: 'z0', handle: 'AT0', title: 'No project', status: 'BACKLOG', assignee: null }), canWrite: true });
+    expect(html).toContain('No project');
+    expect(html).toMatch(/data-task-handle[^>]*>AT0<\/code>/);
+    expect(html).toContain('data-testid="project-zero-note"');
+    expect(barButtons(html)).toEqual([]);
+    expect(html).not.toMatch(/<form/);
+  });
+
+  it('a task that is not AT0 keeps its actions for a writer', () => {
+    const html = taskPage({ task: detail({ id: 'abc', handle: 'AT3', status: 'BACKLOG', assignee: null }), canWrite: true });
+    expect(html).not.toContain('project-zero-note');
+    expect(barButtons(html).length).toBeGreaterThan(0);
+  });
+});
