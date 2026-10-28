@@ -536,4 +536,31 @@ describe('a refetch or navigation while the request is out', () => {
     releases[1]({ status: 200, body: switched(true) });
     await settle();
   });
+
+  it('table: A → open B → refetch A → reopen A while A is out keeps A\'s request base, so its old answer still drops', async () => {
+    let release!: (r: Reply) => void;
+    const f = stubFetch(() => new Promise<Reply>((r) => (release = r)));
+    const b = asset({ id: 'asset-2', filename: 'other.md', urn: 'hrn:asset:hadronmemory.com:dev:assets:asset-2' });
+    const m = mountHost('table', [asset(), b]);
+    const open = (file: string) => {
+      m.target.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${file}"]`)!.click();
+      flushSync();
+      [...m.target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')]
+        .find((i) => i.textContent?.trim() === 'Turn on public link')!.click();
+      flushSync();
+    };
+    open('notes.md');
+    button(m.target, 'Turn on')!.click();
+    flushSync();
+    open('other.md');
+    // A newer list arrives (A still OFF), then A's panel is reopened mid-flight.
+    setAssets(m, [asset({ description: 'refetched' }), b]);
+    open('notes.md');
+    expect(f.switchCalls()).toHaveLength(1);
+    release({ status: 200, body: switched(true) });
+    await settle();
+    // The old ON answer is older than the refetched OFF row: it must not apply.
+    expect(m.target.querySelector('button[aria-label^="Copy public link"]')).toBeNull();
+    expect(m.target.textContent).not.toContain('Public link turned on.');
+  });
 });

@@ -331,7 +331,9 @@
     else if (id === 'public-link') {
       linkNote = null;
       const listed = assets.find((a) => a.id === row.id);
-      if (listed) linkBases.set(row.id, listed);
+      // A request already out keeps the base it was made against: a refetch since then
+      // must not make its older answer look current.
+      if (listed && !sending.has(row.id)) linkBases.set(row.id, listed);
       pendingLink = row.id;
     } else if (id === 'delete') pendingDelete = row.id;
   }
