@@ -4868,3 +4868,73 @@ export const DELETE_WORKER_MUTATION = /* GraphQL */ `
     deleteWorker(workerRef: $workerRef, confirmNoExternalAttribution: $confirmNoExternalAttribution)
   }
 `;
+
+// #1142 P3: reads remain bounded to the selected App + installed Agent.
+export const INSTALL_TARGET_QUERY = /* GraphQL */ `
+  query InstallTarget($ref: ID!) {
+    app(ref: $ref) {
+      id
+      agents {
+        id
+        systemMemoryId
+      }
+    }
+  }
+`;
+export const INSTALL_MEMORY_QUERY = /* GraphQL */ `
+  query InstallMemory($appRef: String!, $agentRef: String!) {
+    installMemory(appRef: $appRef, agentRef: $agentRef) {
+      id
+      urn
+    }
+  }
+`;
+export const INSTALL_NODES_QUERY = /* GraphQL */ `
+  query InstallNodes($memoryRef: ID!, $offset: Int!) {
+    memoryNodes(memoryRef: $memoryRef, limit: 20, offset: $offset) {
+      nodes {
+        id
+        loc
+        name
+      }
+      total
+    }
+  }
+`;
+export const INSTALL_NODE_QUERY = /* GraphQL */ `
+  query InstallNode($memoryRef: ID!, $ref: ID!) {
+    node(memoryRef: $memoryRef, ref: $ref, raw: true) {
+      id
+      urn
+      loc
+      name
+      content
+      revision
+      role
+      isRunnable
+    }
+  }
+`;
+export const ORIGINAL_NODE_QUERY = /* GraphQL */ `
+  query OriginalNode($memoryRef: ID!, $ref: ID!) {
+    node(memoryRef: $memoryRef, ref: $ref, raw: true) {
+      id
+      urn
+      loc
+      name
+      content
+      revision
+      role
+      isRunnable
+    }
+  }
+`;
+export const CREATE_CUSTOMISATION_MUTATION = /* GraphQL */ `
+  mutation CreateCustomisation($input: CreateNodeInput!) {
+    createNode(input: $input) {
+      id
+      loc
+      revision
+    }
+  }
+`;

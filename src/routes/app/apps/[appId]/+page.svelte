@@ -9,6 +9,7 @@
   import JSZip from 'jszip';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import InstallCustomisation from '$lib/components/InstallCustomisation.svelte';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { appAgentPointerKey, appRowPointer, pointerResultFor, pointerText, pointerView, type PointerResult } from '$lib/boot-prompt-pointer';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
@@ -525,6 +526,12 @@
     }
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
+  let customisationChoice = $state<{ appRef: string; agentId: string } | null>(null);
+  const customisationAgent = $derived(
+    customisationChoice?.appRef === data.bootPointerAppKey
+      ? installedAgents.find((a) => a.id === customisationChoice?.agentId)
+      : null,
+  );
   const choosePointerRow = (agentId: string | null) => (pointerChoice = { appKey: data.bootPointerAppKey, agentId });
 
   // #1020 + #1142 S8: the agents grid's row actions. Set boot prompt opens
@@ -533,6 +540,7 @@
   // below the table for the picked row.
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
     return [
+      { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
         ? [{
             id: 'set-boot-prompt',
@@ -544,7 +552,9 @@
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
-    if (id === 'set-boot-prompt') {
+    if (id === 'customisation') {
+      customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
+    } else if (id === 'set-boot-prompt') {
       choosePointerRow(pointerAgent?.id === agent.id ? null : agent.id);
     } else if (id === 'unlink') {
       unlinkAgent(agent);
@@ -2525,6 +2535,11 @@
             {/if}
           {/snippet}
         </DataTable>
+        {#if customisationAgent}
+          {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
+            <InstallCustomisation appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} />
+          {/key}
+        {/if}
         {#if pointerAgent}
           <!-- portal#1142 S8: one install's pointer. Re-keyed per row, so a draft
                or result typed for one agent never shows on another. -->
