@@ -45,7 +45,12 @@
   const secondaryButton =
     'inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:bg-zinc-100 disabled:text-zinc-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 dark:disabled:border-zinc-800 dark:disabled:bg-zinc-900 dark:disabled:text-zinc-600';
   const unsaved = $derived(
-    ((loc !== null || creating) && draft.dirty) || (creating && (newLoc !== '' || name !== '')),
+    ((creating ||
+      (loc !== null &&
+        read.replacement.state === 'ok' &&
+        typeof read.replacement.value.content === 'string')) &&
+      draft.dirty) ||
+      (creating && (newLoc !== '' || name !== '')),
   );
   function mayDiscard() {
     return (

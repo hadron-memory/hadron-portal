@@ -310,7 +310,7 @@ describe('UX draft and panel navigation boundaries', () => {
       expect(root.querySelector('textarea')?.value).toBe('unsaved draft');
     },
   );
-  it.each(['loading', 'not-shown', 'failed'])(
+  it.each(['loading', 'not-shown', 'failed', 'masked'])(
     'does not prompt again for an accepted discard when the next replacement is %s',
     async (state) => {
       const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -326,7 +326,7 @@ describe('UX draft and panel navigation boundaries', () => {
       button(root, 'Open').click();
       await tick(4);
       if (state !== 'loading') {
-        resolve(new Response(JSON.stringify({ ...payload(), replacement: { state } })));
+        resolve(new Response(JSON.stringify({ ...payload(), replacement: state === 'masked' ? { state: 'ok', value: { ...node, content: null } } : { state } })));
         await settle();
       }
       expect(root.querySelector('textarea')).toBeNull();
