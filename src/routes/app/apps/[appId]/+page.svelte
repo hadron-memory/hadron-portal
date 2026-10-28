@@ -185,41 +185,11 @@
   const agentsWithheld = $derived(rosterOf(app.agents).kind === 'withheld');
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
-  // #756 — the Role dropdown's options. Distinct, sorted persona roles of the
-  // App's installed agents; `App.agents` already selects personaRole precisely
-  // because casting defaults a worker's role to it, so this needs no new query.
-  //
-  // Derived from the INSTALL ROSTER, not from the existing staff: a role is
-  // castable because an installed agent answers to it, not because somebody has
-  // been cast with it before. Deriving options from fetched rows is the trap
-  // #739 hit twice — an option that exists only outside the fetched page can
-  // never be picked, and one vanishes the moment its rows are filtered away.
-  //
-  // Scoped to the SELECTED agent, not the roster-wide union. Offering every
-  // installed role while the Agent field points at one of them lets a caller
-  // choose agent A with agent B's role — and `castWorker` accepts an explicit
-  // role as a plain label, so it would persist exactly the agent/role mismatch
-  // this control exists to prevent (@codex and @copilot, both, on #766). The
-  // union was my own stated principle violated by my own implementation.
-  //
-  // With no agent chosen yet the list is empty and only "inherit" is offered,
-  // which is the honest state: role follows from the agent, so there is nothing
-  // to pick until one is selected.
+  // R222: role is a fact, never a cast-time input. Preserve a restored
+  // selection's identity even if that Agent no longer has a castable role.
   const selectedCastAgent = $derived(
-    castableAgents.find((a) => a.id === $castWorkerForm.agentId) ?? null,
+    installedAgents.find((a) => a.id === $castWorkerForm.agentId) ?? null,
   );
-  const castableRoles = $derived(
-    selectedCastAgent?.personaRole ? [selectedCastAgent.personaRole] : [],
-  );
-  // Clear a role left over from a previously selected agent, so switching the
-  // Agent field cannot silently carry the old agent's role into the cast.
-  $effect(() => {
-    const allowed = castableRoles;
-    const current = untrack(() => $castWorkerForm.role);
-    if (current && !allowed.includes(current)) {
-      castWorkerForm.update((f) => ({ ...f, role: '' }), { taint: false });
-    }
-  });
   let castOpen = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
@@ -1022,7 +992,7 @@
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
         castWorkerForm.update(
-          (current) => ({ ...current, agentId: '', name: '', role: '', promptOverride: '' }),
+          (current) => ({ ...current, agentId: '', name: '', promptOverride: '' }),
           { taint: false },
         );
         castOpen = false;
@@ -1677,6 +1647,14 @@
     >
       {t('app.tabs.tickers', 'Tickers')}
     </a>
+    <!-- #1299: Automations is a subroute: its reads answer a reader who may not adopt
+         with nothing, and that must never reach this page's loader. -->
+    <a
+      href="/app/apps/{app.id}/automations"
+      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+    >
+      {t('app.tabs.automations', 'Automations')}
+    </a>
   </div>
 
   <!-- ───────────── CHATS TAB (#744) ─────────────
@@ -2145,8 +2123,7 @@
 
       <!-- Cast composer. #760: the NAME is required — hadron-server#1050
            removed the cast-list register, so there is no "leave it blank and
-           the platform picks one" path any more. The role stays optional and
-           still inherits the agent's persona role when blank. -->
+           the platform picks one" path any more. Role follows the selected Agent. -->
       {#if castOpen && castableAgents.length > 0}
         <form
           method="POST"
@@ -2175,6 +2152,9 @@
                 </option>
               {/each}
             </select>
+            {#if selectedCastAgent?.urn}
+              <div class="mt-1 min-w-0"><Urn value={selectedCastAgent.urn} type="agent" /></div>
+            {/if}
             {#if castWorkerAgentError}
               <p id="castAgentIdError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{castWorkerAgentError}</p>
             {:else}
@@ -2206,46 +2186,15 @@
             {/if}
           </div>
           <div>
-            <label for="castRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            <p class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.role', 'Role')}
-            </label>
-            <!-- #756 — a strict <select>. A role is not invented here: it comes
-                 from an installed agent's persona, so casting SELECTS one
-                 rather than typing one. Creating a new role happens earlier in
-                 the flow, by installing an agent that carries it.
-
-                 The schema does permit an arbitrary string — "with an explicit
-                 agentRef, [an unrecognized role] is simply the casting's label"
-                 — but permitting it and wanting it are different questions, and
-                 a worker whose role label disagrees with its backing agent's
-                 persona is the incoherent state, not a feature. Holger's call
-                 on #765; the earlier free-text draft argued from a local
-                 fixture where a worker had been pointed at the wrong agent,
-                 which was bad data rather than evidence.
-
-                 min-w-0 per review:content-sized-control-needs-min-w-0 — a
-                 <select> is sized by its longest <option>, and a role slug can
-                 be long. -->
-            <select
-              id="castRole"
-              name="role"
-              bind:value={$castWorkerForm.role}
-              aria-describedby="castRoleHelp"
-              class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-            >
-              <!-- Blank is a real CHOICE, not a placeholder: #974's ratchet
-                   asserts a blank role reaches the mutation as `undefined`, and
-                   hadron-server#1050 left role inheritance untouched, so this
-                   option is what makes the help text below true — and is why
-                   #756's claim that the help text describes the dead name
-                   register was not acted on. -->
-              <option value="">{t('app.staff.field.role.inherit', '— Inherit from the agent —')}</option>
-              {#each castableRoles as roleOption (roleOption)}
-                <option value={roleOption}>{roleOption}</option>
-              {/each}
-            </select>
-            <p id="castRoleHelp" class="mt-1 text-xs text-zinc-400">
-              {t('app.staff.field.role.help', 'Leave blank to inherit the agent’s persona role — the only other choice is that same role, stated explicitly. To cast a different role, pick a different agent, or install one that carries it.')}
+            </p>
+            <p id="castRole" class="break-words text-sm text-zinc-900 dark:text-white">
+              {#if selectedCastAgent}
+                {selectedCastAgent.personaRole?.trim() || t('app.staff.field.role.none', 'This agent has no role. Choose a different agent.')}
+              {:else}
+                {t('app.staff.field.role.choose-agent', 'Select an agent to see its role.')}
+              {/if}
             </p>
           </div>
           <div>

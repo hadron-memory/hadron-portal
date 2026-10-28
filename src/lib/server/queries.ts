@@ -1121,8 +1121,8 @@ export const WORKERS_QUERY = /* GraphQL */ `
 //
 // #760: `name` is REQUIRED. hadron-server#1050 removed the Team Agent's
 // cast-list register, so omitting it no longer draws the next free name — it is
-// refused with WORKER_NAME_REQUIRED. Omitting `role` still defaults to the
-// agent's personaRole, which that change did not touch.
+// refused with WORKER_NAME_REQUIRED. R222: the role follows the selected
+// Agent; the portal never sends a role override.
 //
 // The argument stays `name: String` (nullable) in the SDL because the refusal
 // is a RUNTIME one, which keeps it typed and mappable rather than a schema
@@ -1130,12 +1130,12 @@ export const WORKERS_QUERY = /* GraphQL */ `
 //
 // Typed refusals: WORKER_NAME_TAKEN, WORKER_NAME_REQUIRED,
 // WORKER_AGENT_NOT_INSTALLED, WORKER_AGENT_NOT_FOUND, WORKER_AGENT_AMBIGUOUS,
-// APP_UNINSTALLED. WORKER_ROLE_NOT_FOUND and the TEAM_AGENT_* codes went with
+// WORKER_ROLE_OVERRIDE_REFUSED, APP_UNINSTALLED. WORKER_ROLE_NOT_FOUND and the TEAM_AGENT_* codes went with
 // the register — they fired only because a nameless cast had to read one.
 export const CAST_WORKER_MUTATION = /* GraphQL */ `
   ${WORKER_FIELDS}
-  mutation CastWorker($appRef: ID!, $agentRef: ID, $role: String, $name: String, $promptOverride: String) {
-    castWorker(appRef: $appRef, agentRef: $agentRef, role: $role, name: $name, promptOverride: $promptOverride) {
+  mutation CastWorker($appRef: ID!, $agentRef: ID, $name: String, $promptOverride: String) {
+    castWorker(appRef: $appRef, agentRef: $agentRef, name: $name, promptOverride: $promptOverride) {
       ...WorkerFields
     }
   }
@@ -4740,6 +4740,32 @@ export const TEAM_ROSTER_QUERY = /* GraphQL */ `
         waitingSince
         unreactedChildTask
         alarms
+      }
+    }
+  }
+`;
+
+// portal#1316 (hadron-server#2061 / #2475): the direct-report lanes and the
+// server's headcounts. Selects exactly the SDL's closed projection: no task,
+// holder or status field, and nothing the page would have to join or recount.
+export const TEAM_COMPOSITION_QUERY = /* GraphQL */ `
+  query TasksTeamComposition($appRef: ID!) {
+    teamComposition(appRef: $appRef) {
+      appId
+      asOf
+      lanes {
+        coordinator { id kind name urn }
+        coordinatorRetired
+        workers {
+          worker { id kind name urn }
+          role
+          family
+          bound
+          liveSession
+          state
+        }
+        countsByRole { role count }
+        countsByRoleFamily { role family count }
       }
     }
   }

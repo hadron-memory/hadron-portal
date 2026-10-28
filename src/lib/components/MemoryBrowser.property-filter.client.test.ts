@@ -352,3 +352,51 @@ describe('#1281 schema declaration changes versus a reload of the same declarati
     expect(draftField(target)).toBe('');
   });
 });
+
+describe('#1293 stable notices and named feedback pins', () => {
+  const statusOf = (target: HTMLElement) => target.querySelector('[data-testid="property-filter-status"]')!;
+  const button = (target: HTMLElement, name: string) => [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === name)!;
+
+  it('keeps the predicate-reset notice while a free-text collection name is typed', () => {
+    const { target, props } = browser();
+    props.memory = { id: 'mem-a', schema: null }; flushSync();
+    pick(target, '#structured-where', '{"path":["title"],"eq":"x"}'); click(target, 'Apply filter');
+    pick(target, '#structured-object-type', 'c');
+    expect(statusOf(target).textContent).toContain('Filter cleared because the collection changed.');
+    pick(target, '#structured-object-type', 'co');
+    expect(statusOf(target).textContent).toContain('Filter cleared because the collection changed.');
+    pick(target, '#structured-object-type', 'collection');
+    expect(statusOf(target).textContent).toContain('Filter cleared because the collection changed.');
+  });
+
+  it('returns Properties Clear focus to the surviving collection control', async () => {
+    vi.useRealTimers(); window.addEventListener('click', flushBeforeWindowClick);
+    const { target } = browser(); filter(target);
+    const clear = button(target, 'Clear'); clear.focus(); clear.click(); flushSync(); await svelteTick();
+    expect(clear.isConnected).toBe(false);
+    await vi.waitFor(() => expect(document.activeElement).toBe(target.querySelector('#structured-object-type')));
+  });
+
+  it('pins Discard feedback, dirty-edit clearing and both non-colour mode cues', () => {
+    const { target } = browser(); filter(target);
+    pick(target, '[data-testid="property-filter-value"]', 'true');
+    expect(statusOf(target).textContent?.trim()).toBe('');
+    click(target, 'Discard changes');
+    expect(statusOf(target).textContent).toContain('Changes discarded. The current filter is unchanged.');
+    for (const label of ['Fields', 'Advanced JSON']) {
+      click(target, label);
+      const active = button(target.querySelector<HTMLElement>('[data-testid="property-filter"]')!, label);
+      expect(active.getAttribute('aria-pressed')).toBe('true');
+      expect(active.classList.contains('aria-pressed:underline')).toBe(true);
+    }
+  });
+
+  it('pins Properties Clear feedback and Clear-all status reset', () => {
+    const { target } = browser(); filter(target);
+    button(target, 'Clear').click(); flushSync();
+    expect(statusOf(target).textContent).toContain('Property filters cleared.');
+    filter(target); button(target, 'Clear all').click(); flushSync();
+    button(target, 'Properties').click(); flushSync();
+    expect(statusOf(target).textContent?.trim()).toBe('');
+  });
+});

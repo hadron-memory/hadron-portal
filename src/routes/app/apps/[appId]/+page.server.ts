@@ -377,6 +377,10 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
     'app.staff.error.agent-ambiguous',
     'Several installed agents match that role. Pick an agent explicitly.',
   ),
+  WORKER_ROLE_OVERRIDE_REFUSED: () => t(
+    'app.staff.error.role-override-refused',
+    'A worker’s role comes from its agent. Reload this page and choose the agent for the role you need.',
+  ),
   // #760: WORKER_NAME_REQUIRED replaced WORKER_REGISTER_EXHAUSTED when
   // hadron-server#1050 removed the cast-list register. The old code can no
   // longer fire — there is no register to exhaust — and the new one had no
@@ -1082,9 +1086,7 @@ export const actions: Actions = {
   // register, so there is no "let the server choose" path left and the schema
   // rejects a blank one before we get here.
   //
-  // `role` is still optional and still must be sent as UNDEFINED when blank:
-  // an omitted role inherits the agent's personaRole, while '' would be an
-  // explicit (and invalid) role — a different request entirely.
+  // R222: role comes from the selected Agent, never from a posted override.
   castWorker: async ({ request, params, locals }) => {
     const form = await superValidate<CastWorkerForm>(
       await request.formData(),
@@ -1101,7 +1103,6 @@ export const actions: Actions = {
         // has nothing to express — and leaving it would quietly turn a
         // validation gap into a nameless cast the server refuses.
         name: form.data.name,
-        role: form.data.role || undefined,
         promptOverride: form.data.promptOverride || undefined,
       });
       return message(form, {

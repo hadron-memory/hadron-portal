@@ -9,11 +9,12 @@ import {
   AGENT_TASKS_BOARD_QUERY,
   AGENT_TASKS_OPEN_TITLES_QUERY,
   APP_PEOPLE_QUERY,
+  TEAM_COMPOSITION_QUERY,
   TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
 import { rosterOf } from '$lib/withheld';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
-import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
+import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TeamComposition, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
 
 /**
  * portal#1052 — the Tasks views' reads.
@@ -154,6 +155,21 @@ export async function loadRoster(client: GraphQLClient, appRef: string): Promise
     return { kind: 'ok', value: r.teamRoster };
   } catch (e) {
     return classify(e, `roster read for ${appRef}`);
+  }
+}
+
+/**
+ * portal#1316 — one `teamComposition` read for the App. The same three
+ * outcomes as the Roster: a refusal (the server's APP_NOT_FOUND) is
+ * `not-participant`, an outage is `failed`, and neither is ever an empty team.
+ * The server's answer is returned untouched.
+ */
+export async function loadComposition(client: GraphQLClient, appRef: string): Promise<TaskRead<TeamComposition>> {
+  try {
+    const r = await client.request<{ teamComposition: TeamComposition }>(TEAM_COMPOSITION_QUERY, { appRef });
+    return { kind: 'ok', value: r.teamComposition };
+  } catch (e) {
+    return classify(e, `composition read for ${appRef}`);
   }
 }
 
