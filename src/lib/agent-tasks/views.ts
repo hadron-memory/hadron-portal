@@ -1,7 +1,7 @@
 import { t } from '$lib/i18n/t';
 
 /** portal#1052 — the Tasks sub-route's views (design §2). An unknown value falls back to the board. */
-export const TASK_VIEWS = ['board', 'roster', 'alarms'] as const;
+export const TASK_VIEWS = ['board', 'roster', 'composition', 'alarms'] as const;
 export type TaskView = (typeof TASK_VIEWS)[number];
 
 export function parseTaskView(raw: string | null): TaskView {
@@ -14,6 +14,8 @@ export function taskViewLabel(v: TaskView): string {
       return t('app.tasks.view.board', 'Board');
     case 'roster':
       return t('app.tasks.view.roster', 'Roster');
+    case 'composition':
+      return t('app.tasks.view.composition', 'Composition');
     case 'alarms':
       return t('app.tasks.view.alarms', 'Alarms');
   }

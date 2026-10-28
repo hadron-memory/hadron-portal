@@ -73,11 +73,11 @@ const flow = {
   stepCount: 3,
 };
 
-async function renderPage(runs: unknown[], status: string | null = null, flows: unknown[] = []) {
+async function renderPage(runs: unknown[], status: string | null = null, flows: unknown[] = [], extra: Record<string, unknown> = {}) {
   const runForm = await superValidate(zod4(runAppFlowSchema));
   return render(Page, {
     props: {
-      data: { app, runs, total: runs.length, page: 1, pageSize: 25, status, flows, runForm } as never,
+      data: { app, runs, total: runs.length, page: 1, pageSize: 25, status, flows, runForm, ...extra } as never,
       form: null,
     },
   }).body;
@@ -133,5 +133,28 @@ describe('runs list (#478)', () => {
   it('hides the Flows section when none are derivable', async () => {
     const body = await renderPage([]);
     expect(body).not.toContain('action="?/run"');
+  });
+
+  it('#1226: says some flows may be missing when the node window came back full', async () => {
+    const body = await renderPage([], null, [flow], { flowsCapped: true, flowsScanned: 500 });
+    expect(body).toContain('Showing the first 500 app nodes');
+    expect(body).toContain('some may be missing');
+  });
+
+  it('#1226: zero derived flows from a FULL window still shows the notice (Chip, browser QA)', async () => {
+    const body = await renderPage([], null, [], { flowsCapped: true, flowsScanned: 500 });
+    expect(body).toContain('Showing the first 500 app nodes');
+    expect(body).not.toContain('action="?/run"');
+  });
+
+  it('#1226: zero flows from a short window shows nothing', async () => {
+    const body = await renderPage([], null, [], { flowsCapped: false, flowsScanned: 3 });
+    expect(body).not.toContain('Showing the first');
+    expect(body).not.toContain('Flows');
+  });
+
+  it('#1226: no cue when the window was not full', async () => {
+    const body = await renderPage([], null, [flow], { flowsCapped: false, flowsScanned: 12 });
+    expect(body).not.toContain('Showing the first');
   });
 });

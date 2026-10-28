@@ -1,6 +1,6 @@
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
-import { fetchAllItems } from '$lib/server/paginate';
+import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import {
   ORGANIZATIONS_QUERY,
   CREATE_REVISION_MUTATION,
@@ -150,15 +150,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       // the system memory (which also overrides the exclusion) and use
       // filter.locPrefix for the `revisions:` prefix. Results are hits[].node.
       const REVISIONS_QUERY = /* GraphQL */ `
-        query Revisions($limit: Int, $memoryIds: [ID!]) {
-          findNodes(filter: { memoryIds: $memoryIds, locPrefix: "revisions:" }, limit: $limit) {
+        query Revisions($limit: Int, $offset: Int, $memoryIds: [ID!]) {
+          findNodes(filter: { memoryIds: $memoryIds, locPrefix: "revisions:" }, limit: $limit, offset: $offset) {
             hits { node { id loc name description data } }
           }
         }
       `;
-      const result = await client.request<{ findNodes: { hits: Array<{ node: { id: string; loc: string; name: string; description: string | null; data: unknown } }> } }>(
+      const result = await drainFindNodes<{ node: { id: string; loc: string; name: string; description: string | null; data: unknown } }>(
+        client,
         REVISIONS_QUERY,
-        { limit: 100, memoryIds: [systemMemoryId] },
+        { memoryIds: [systemMemoryId] },
       );
       const revisions = (result.findNodes?.hits ?? [])
         .map((h) => h.node)

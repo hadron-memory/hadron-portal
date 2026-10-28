@@ -15,6 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
@@ -62,14 +63,16 @@ function serveNode(node: typeof NODE | null) {
   });
 }
 
-async function mountPage() {
-  serveNode(NODE);
+async function mountPage(node = NODE) {
+  serveNode(node);
   const loaded = (await load({
     params: { id: 'mem-A', nodeId: 'leaf-pk' },
     locals: { token: 'tok' },
     url: new URL('http://localhost/app/memories/mem-A/nodes/leaf-pk'),
     parent: vi.fn().mockResolvedValue(PARENT),
   } as never)) as Record<string, unknown>;
+  // #1320: the shared guard, on the real loader's result.
+  expectDistinctFormIds(loaded, 4);
   const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -99,6 +102,19 @@ async function submitWith(target: HTMLElement, props: Record<string, unknown>, a
   for (let i = 0; i < 5; i++) await tick();
   flushSync();
 }
+
+it('#1167 Settings dates match the memory Info format', async () => {
+  // The UI deliberately formats local dates; create a local-calendar fixture.
+  const localDate = new Date(2026, 9, 1, 12).toISOString();
+  const {target} = await mountPage({...NODE, createdAt: localDate, updatedAt: localDate});
+  const settings = [...target.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Settings');
+  expect(settings).toBeDefined();
+  settings!.click();
+  flushSync();
+  await tick();
+  expect(target.textContent).toContain('Oct 1, 2026');
+  expect(target.textContent).not.toContain('10/1/2026');
+});
 
 describe('node page form ids (#995)', () => {
   it("Convert to task's error renders, with Duplicate's form on the page", async () => {

@@ -10,9 +10,11 @@
  *    Agents tab holds it in a TanStack table with an add-agent path.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
@@ -39,7 +41,10 @@ const reader = { id: 'u2', handle: 'rae', githubUsername: 'rae', name: 'Rae Read
 const agentOne = { id: 'ag1', urn: 'hrn:agent:acme.com:scribe', name: 'Scribe', personaRole: 'writer' };
 const agentTwo = { id: 'ag2', urn: 'hrn:agent:acme.com:critic', name: 'Critic', personaRole: 'reviewer' };
 
-async function mountTab(tab: string, over: { app?: Record<string, unknown>; data?: Record<string, unknown> } = {}) {
+/** The last mount's props, reactive, so a test can replay a navigation that reuses the page. */
+let lastProps: Record<string, unknown> = {};
+
+async function mountTab(tab: string, over: { app?: Record<string, unknown>; data?: Record<string, unknown>; form?: unknown } = {}) {
   setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
   window.history.replaceState({}, '', `/app/apps/a1?tab=${tab}`);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm,
@@ -65,13 +70,14 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
     appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
     selectedChatKey: 'chats:team', initialTab: tab, initialChatFullView: false,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
-    currentUserId: 'u1', user: { id: 'u1' },
+    currentUserId: 'u1', user: { id: 'u1' }, bootPointerAppKey: 'a1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm,
     revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm,
     postTeamChatMessageForm, addMemberForm, ensureMemberForm, removeMemberForm,
     ...over.data,
   };
-  const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+  lastProps = reactiveProps<Record<string, unknown>>({ data, form: over.form ?? null });
+  const m = mountComponent(Page as never, lastProps as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
   return m.target;
@@ -160,6 +166,37 @@ describe('Agents tab (#1006)', () => {
     expect(options.some((o) => o?.includes('Scribe'))).toBe(false);
   });
 
+  // portal#1188: a failed subscribed-agents read leaves the owned options and
+  // says the subscribed ones are missing; it must not look like a complete list.
+  it('says the subscribed agents are missing when only their read failed (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: true } });
+    const panel = target.querySelector('#panel-agents')!;
+    expect(panel.textContent).toContain('subscribes to could not be loaded');
+    expect(panel.querySelector('form[action="?/addAgent"]')).not.toBeNull();
+  });
+
+  // portal#1188 READ (George, P2 residual): the warning must not depend on there
+  // being something to pick, or "no other agent to add" reads as a complete list.
+  it('still says the subscribed agents are missing when there is no owned agent to offer (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: true, availableAgents: [] } });
+    expect(target.querySelector('#panel-agents')!.textContent).toContain('subscribes to could not be loaded');
+  });
+
+  it('still says it when every owned agent is already installed (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: true, availableAgents: [agentOne, agentTwo] } });
+    expect(target.querySelector('#panel-agents')!.textContent).toContain('subscribes to could not be loaded');
+  });
+
+  it('control: an empty list after a SUCCESSFUL grants read carries no such warning (#1172)', async () => {
+    const target = await mountTab('agents', { data: { subscribedAgentsError: false, availableAgents: [] } });
+    expect(target.querySelector('#panel-agents')!.textContent).not.toContain('subscribes to could not be loaded');
+  });
+
+  it('says nothing about subscribed agents when their read worked (#1172)', async () => {
+    const target = await mountTab('agents');
+    expect(target.querySelector('#panel-agents')!.textContent).not.toContain('subscribes to could not be loaded');
+  });
+
   it('keeps the canonical install URN, on the primary agent’s row only (P2 from step 5)', async () => {
     const urn = 'hrn:agent:acme.com:team:scribe';
     const target = await mountTab('agents', { app: { installedAgentUrn: urn } });
@@ -176,7 +213,170 @@ describe('Agents tab (#1006)', () => {
 
   it('unlinks the agent of THAT row', async () => {
     const target = await mountTab('agents');
-    const forms = [...target.querySelectorAll<HTMLFormElement>('#panel-agents form[action="?/removeAgent"]')];
-    expect(forms.map((f) => f.querySelector<HTMLInputElement>('input[name="agentId"]')!.value).sort()).toEqual(['ag1', 'ag2']);
+    // #1020: Unlink sits in each row's ⋯ menu; ONE hidden form below the
+    // table is the submit target, filled for whichever row was picked.
+    const hidden = [...target.querySelectorAll<HTMLFormElement>('#panel-agents form[action="?/removeAgent"]')];
+    expect(hidden).toHaveLength(1);
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    // Critic's row (ag2), not Scribe's (ag1).
+    target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Critic"]')!.click();
+    flushSync();
+    [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+      .find((i) => i.textContent?.trim() === 'Unlink')!.click();
+    await tick(2);
+    expect(requestSubmit.mock.contexts[0]).toBe(hidden[0]);
+    expect(hidden[0].querySelector<HTMLInputElement>('input[name="agentId"]')!.value).toBe('ag2');
+  });
+});
+
+// #1043 interim: the primary agent link does not establish the App/viewer's
+// rights on other agents' memories. Do not label them by omission.
+it('App memory filters do not infer read-only access from the primary agent', async () => {
+  const memory = (id: string, name: string) => ({ id, name, urn: `hrn:mem:acme.com:${id}` });
+  const target = await mountTab('memory', {
+    app: { agent: { ...agentOne, memoryItems: [{ id: 'item1', role: 'read-write', memory: memory('roles', 'Roles') }] } },
+    data: { appNodes: ['roles', 'notes'].map((id) => ({ id: `node-${id}`, memoryId: id, memory: memory(id, id === 'roles' ? 'Roles' : 'Eng Notes'), nodeType: 'info', loc: id, name: id, tags: [], outgoingEdges: [], incomingEdges: [] })) },
+  });
+  const memories = [...target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim().startsWith('Memories'));
+  expect(memories).toBeDefined();
+  memories!.click();
+  await tick(2);
+  expect(target.textContent).toContain('Eng Notes');
+  expect(target.textContent).not.toContain('(read-only)');
+});
+
+// portal#1226: a window that came back full is labeled where the reader sees it.
+describe('full-window cues on the App page (#1226)', () => {
+  it('the Memory tab says the first N nodes are shown when the window was full', async () => {
+    const target = await mountTab('memory', { data: { appNodes: [], appNodesCapped: true } });
+    expect(target.textContent).toContain('Showing the first 0 nodes');
+    expect((await mountTab('memory', { data: { appNodes: [], appNodesCapped: false } })).textContent).not.toContain('Showing the first');
+  });
+
+  it('the Chats selector says more chats exist when the root window was full', async () => {
+    const target = await mountTab('chats', { data: { chatsCapped: true, chatRootsShown: 200 } });
+    expect(target.textContent).toContain('Showing the first 200 chats');
+  });
+
+  it('and says nothing when the chat list was complete', async () => {
+    expect((await mountTab('chats', { data: { chatsCapped: false } })).textContent).not.toContain('Showing the first');
+  });
+});
+
+// portal#1142 S8 (hadron-server#2219; Xylon's stamp 6330444824): each install's
+// boot-prompt pointer, joined by agent id, with a per-row panel.
+describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
+  const URN = 'hrn:node:acme.com:team-install:boot';
+  const bootPointers = { ok: true, byAgent: { ag1: { ref: URN, deleted: false } } };
+  const rows = (target: HTMLElement) => [...target.querySelectorAll<HTMLTableRowElement>('#panel-agents tbody tr')];
+  const rowOf = (target: HTMLElement, name: string) => rows(target).find((r) => r.textContent?.includes(name))!;
+  // #1020: Set boot prompt sits in the row's ⋯ menu, next to Unlink.
+  const menuItems = (target: HTMLElement, name: string) => {
+    rowOf(target, name).querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${name}"]`)!.click();
+    flushSync();
+    return [...target.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  };
+  const openFor = async (target: HTMLElement, name: string) => {
+    menuItems(target, name).find((i) => i.textContent?.trim() === 'Set boot prompt…')!.click();
+    await tick(2);
+  };
+
+  it('each row shows its own pointer, and a row with no entry is "Not shown", never another row’s', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true } });
+    expect(rowOf(target, 'Scribe').querySelector(`[title="${URN}"]`)).not.toBeNull();
+    expect(rowOf(target, 'Critic').textContent).toContain('Not shown');
+    expect(rowOf(target, 'Critic').querySelector(`[title="${URN}"]`)).toBeNull();
+  });
+
+  it('a failed read marks every row as unavailable', async () => {
+    const target = await mountTab('agents', { data: { bootPointers: { ok: false }, canManageApp: true } });
+    expect(rowOf(target, 'Scribe').textContent).toContain('Couldn’t load the pointer.');
+    expect(rowOf(target, 'Critic').textContent).toContain('Couldn’t load the pointer.');
+  });
+
+  it('the panel opens for that row, posts that row’s agentRef, and carries the tab', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: null } });
+    await openFor(target, 'Critic');
+    const panel = target.querySelector('#app-agent-pointer-panel')!;
+    expect(panel.textContent).toContain('Boot prompt for Critic in this App');
+    expect(panel.querySelector<HTMLInputElement>('input[name="agentRef"]')!.value).toBe('ag2');
+    expect(panel.querySelector('form')!.getAttribute('action')).toBe('?tab=agents&/setAppAgentBootPrompt');
+    expect(panel.textContent).toContain('Pointers are recorded but not used to start agents yet.');
+  });
+
+  it('a result for one row never shows on another, and a refused draft stays on its own row', async () => {
+    const form = { pointer: { key: 'a1\u0000ag1', nodeRef: 'draft-for-scribe', refusal: { code: 'FORBIDDEN', lead: 'Only this App’s manager can change this pointer.', message: 'No.' } } };
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true }, form });
+    // No-JS reload: the panel reopens on the row the result belongs to.
+    let panel = target.querySelector('#app-agent-pointer-panel')!;
+    expect(panel.textContent).toContain('Scribe');
+    expect(panel.querySelector('[data-testid="boot-pointer-refusal"]')).not.toBeNull();
+    expect(panel.querySelector<HTMLInputElement>('input[name="nodeRef"]')!.value).toBe('draft-for-scribe');
+    await openFor(target, 'Critic');
+    panel = target.querySelector('#app-agent-pointer-panel')!;
+    expect(panel.textContent).toContain('Critic');
+    expect(panel.querySelector('[data-testid="boot-pointer-refusal"]')).toBeNull();
+    expect(panel.querySelector<HTMLInputElement>('input[name="nodeRef"]')!.value).toBe('');
+  });
+
+  // George's P2 on #1246: the page is reused across /apps/A → B, and an agent
+  // installed in both must not carry A's open panel or draft into B.
+  it('navigating to another App closes the panel and drops a draft typed on the first, even for the same agent', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true } });
+    await openFor(target, 'Scribe');
+    const field = () => target.querySelector<HTMLInputElement>('#app-agent-pointer-node-ref');
+    field()!.value = 'draft-for-app-a';
+    field()!.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    expect(field()!.value).toBe('draft-for-app-a');
+
+    const data = lastProps.data as Record<string, unknown>;
+    setStubPage('https://example.test/app/apps/a2?tab=agents', { appId: 'a2' });
+    lastProps.data = { ...data, app: { ...(data.app as Record<string, unknown>), id: 'a2', urn: 'hrn:app:acme.com:other' }, bootPointerAppKey: 'a2' };
+    flushSync();
+    await tick(2);
+    expect(target.querySelector('#app-agent-pointer-panel')).toBeNull();
+    await openFor(target, 'Scribe');
+    expect(field()!.value).toBe('');
+  });
+
+  // Xylon on #1246: a loader refresh for the SAME App and agent keeps the open
+  // panel and what was typed.
+  it('a same-App loader refresh keeps the panel and the draft', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true } });
+    await openFor(target, 'Critic');
+    const field = () => target.querySelector<HTMLInputElement>('#app-agent-pointer-node-ref');
+    field()!.value = 'draft-kept';
+    field()!.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    lastProps.data = { ...(lastProps.data as Record<string, unknown>), bootPointers: { ok: true, byAgent: { ...bootPointers.byAgent, ag2: { ref: URN, deleted: true } } } };
+    flushSync();
+    await tick(2);
+    expect(target.querySelector('#app-agent-pointer-panel')?.textContent).toContain('Critic');
+    expect(field()!.value).toBe('draft-kept');
+    expect(target.querySelector('#app-agent-pointer-panel [data-pointer-state="deleted"]')).not.toBeNull();
+  });
+
+  it('a result written for the same agent in another App is never shown', async () => {
+    const form = { pointer: { key: 'a2\u0000ag1', nodeRef: 'draft-elsewhere', refusal: { code: 'FORBIDDEN', lead: 'l', message: 'm' } } };
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true }, form });
+    expect(target.querySelector('#app-agent-pointer-panel')).toBeNull();
+  });
+
+  it('an explicit canManageApp false offers no Set action, but the column still shows', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: false } });
+    // The ⋯ menu still opens (Unlink remains) but offers no Set boot prompt.
+    expect(menuItems(target, 'Scribe').some((i) => i.textContent?.trim() === 'Set boot prompt…')).toBe(false);
+    expect(rowOf(target, 'Scribe').querySelector(`[title="${URN}"]`)).not.toBeNull();
+  });
+
+  it('the grid’s search finds a row by its pointer', async () => {
+    const target = await mountTab('agents', { data: { bootPointers, canManageApp: true } });
+    const search = target.querySelector<HTMLInputElement>('#panel-agents input[type="text"][aria-label]');
+    expect(search).not.toBeNull();
+    search!.value = 'team-install:boot';
+    search!.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(3);
+    expect(rows(target).map((r) => r.textContent?.includes('Scribe'))).toEqual([true]);
   });
 });

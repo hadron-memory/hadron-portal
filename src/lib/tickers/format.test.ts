@@ -1,6 +1,6 @@
 /** portal#1099 — how a ticker's cadence, quiet hours and times read. */
 import { describe, expect, it } from 'vitest';
-import { cadenceText, daysText, parseQuietHours, quietHoursSummary, relativeTime, subscriptionSearchText, tickerSearchText, windowText } from './format';
+import { cadenceText, daysText, reasonsSearchText, isKnownReason, noReasonsText, unrecognisedReasonText, parseQuietHours, quietHoursSummary, reasonHelp, reasonLabel, reasonsText, relativeTime, subscriptionSearchText, tickerSearchText, windowText } from './format';
 
 describe('cadenceText', () => {
   it('uses the largest unit that divides the cadence', () => {
@@ -73,5 +73,74 @@ describe('search text carries the visible labels', () => {
   it('a subscription’s via grant label, only when it was made through the grant', () => {
     expect(subscriptionSearchText({ name: 'Ada', viaGrant: true })).toContain('via grant');
     expect(subscriptionSearchText({ name: 'Ada', viaGrant: false })).not.toContain('via grant');
+  });
+});
+
+describe('ticker reasons (portal#1144)', () => {
+  it('labels the three server reasons', () => {
+    expect(reasonLabel('READ_TEAM_CHANNEL')).toBe('Team chat');
+    expect(reasonLabel('EVERY_TICK')).toBe('Every tick');
+    expect(reasonLabel('LIVE_CHECK')).toBe('Live check');
+  });
+  it('an unknown future reason keeps its raw name and is never coerced to a known one', () => {
+    expect(reasonLabel('SOMETHING_NEW')).toBe('SOMETHING_NEW');
+    expect(reasonHelp('SOMETHING_NEW')).toBeNull();
+    expect(reasonsText(['SOMETHING_NEW'])).toBe('SOMETHING_NEW');
+  });
+  it('joins reasons as an any-of list in the order the server sent them', () => {
+    expect(reasonsText(['EVERY_TICK', 'READ_TEAM_CHANNEL'])).toBe('Every tick, Team chat');
+  });
+  it('an empty list says the ticker never fires; it is not blank and not a default', () => {
+    expect(reasonsText([])).toBe('Never fires (no reasons)');
+  });
+  it('a list with a non-string element is unavailable, not rendered as the text "null"', () => {
+    expect(reasonsText([null])).toBe('Reasons unavailable');
+    expect(reasonsText(['EVERY_TICK', 3])).toBe('Reasons unavailable');
+  });
+  it('a missing or malformed list is unavailable, not "never fires"', () => {
+    expect(reasonsText(undefined)).toBe('Reasons unavailable');
+    expect(reasonsText('EVERY_TICK')).toBe('Reasons unavailable');
+  });
+  it('every-tick help says up to one wake and keeps the limits next to the claim, in plain words', () => {
+    const help = reasonHelp('EVERY_TICK')!;
+    expect(help).toContain('even with no new chat');
+    expect(help).toContain('costs up to one wake per subscriber per tick');
+    for (const limit of ['daily budget', 'pause', 'quiet hours']) expect(help).toContain(limit);
+    expect(help).toContain('can mean no wake');
+    expect(help).not.toMatch(/floor|dormancy/i);
+    expect(help).not.toMatch(/unconditional|every subscriber is always woken/i);
+    expect(help).not.toMatch(/\bAND\b/);
+  });
+  it('live-check help ends at "whatever is unread", without the unexplained last sentence', () => {
+    const help = reasonHelp('LIVE_CHECK')!;
+    expect(help).toContain('has not checked its team channel within this ticker’s cadence');
+    expect(help.endsWith('whatever is unread.')).toBe(true);
+    expect(help).not.toContain('Never for');
+  });
+  it('the no-reasons text is "Never fires (no reasons)"', () => {
+    expect(noReasonsText()).toBe('Never fires (no reasons)');
+  });
+  it('only the three server reasons are known; the unrecognised note is "(unrecognised)"', () => {
+    for (const r of ['READ_TEAM_CHANNEL', 'EVERY_TICK', 'LIVE_CHECK']) expect(isKnownReason(r)).toBe(true);
+    expect(isKnownReason('SOMETHING_NEW')).toBe(false);
+    expect(unrecognisedReasonText()).toBe('(unrecognised)');
+  });
+  it('search reaches the unrecognised note for a well-formed unknown reason, in both projections', () => {
+    const tk = { name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['SOMETHING_NEW'] };
+    expect(reasonsSearchText(['READ_TEAM_CHANNEL', 'SOMETHING_NEW'])).toBe('Team chat, SOMETHING_NEW (unrecognised)');
+    expect(tickerSearchText(tk)).toContain('SOMETHING_NEW');
+    expect(tickerSearchText(tk)).toContain('(unrecognised)');
+  });
+  it('search adds no unrecognised note for known, empty or malformed reasons', () => {
+    expect(reasonsSearchText(['EVERY_TICK'])).toBe('Every tick');
+    expect(reasonsSearchText([])).toBe('Never fires (no reasons)');
+    expect(reasonsSearchText(['SOMETHING_NEW', 3])).toBe('Reasons unavailable');
+    expect(reasonsSearchText(undefined)).toBe('Reasons unavailable');
+    expect(tickerSearchText({ name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['EVERY_TICK'] })).not.toContain('unrecognised');
+  });
+  it('searches by reason label', () => {
+    const tk = { name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['EVERY_TICK'] };
+    expect(tickerSearchText(tk)).toContain('Every tick');
+    expect(tickerSearchText({ ...tk, reasons: ['READ_TEAM_CHANNEL'] })).not.toContain('Every tick');
   });
 });

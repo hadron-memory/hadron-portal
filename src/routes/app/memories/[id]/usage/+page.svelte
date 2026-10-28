@@ -5,6 +5,7 @@
   // series rendered by the shared UsageActivityChart. Chart data is fetched
   // client-side from ./usage/activity so the browser's time zone reaches the
   // server's day bucketing and window changes swap data without a reload.
+  import CappedNotice from '$lib/components/CappedNotice.svelte';
   import UsageEventsTable from '$lib/components/table/UsageEventsTable.svelte';
   import UsageActivityChart from '$lib/components/UsageActivityChart.svelte';
   import type { UsageEvent } from '$lib/components/table/usageEvent';
@@ -100,14 +101,13 @@
 <svelte:head><title>{g.name} &middot; Usage &middot; Hadron</title></svelte:head>
 
 <section>
-  <!-- #1112: both rows wrap. At 390px the chart pane's Style, Window and
-       Table|Chart controls ran to x≈500 and scrolled the whole page sideways.
-       They are controls, not navigation, so they reflow rather than scroll:
-       the toolbar drops below the heading, and its own controls wrap within
-       it, staying right-aligned (`ml-auto`, `justify-end`) as on desktop. -->
-  <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-    <h2 class="font-semibold text-zinc-900 dark:text-white">{t('usage.heading', 'Usage events')}</h2>
-    <div class="ml-auto flex flex-wrap items-center justify-end gap-3">
+  <!-- #417: no caption — the tab is already labelled "Usage", so an "Usage
+       events" heading repeated it and named nothing new.
+       #1112: at 390px the chart pane's Style, Window and Table|Chart controls
+       ran to x≈500 and scrolled the whole page sideways. They are controls,
+       not navigation, so they reflow rather than scroll: they wrap within this
+       row, staying right-aligned (`justify-end`) as on desktop. -->
+  <div class="mb-4 flex flex-wrap items-center justify-end gap-3">
       {#if pane === 'chart'}
         <label class="flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400" for="usage-style">
           {t('usage.style', 'Style')}
@@ -158,10 +158,12 @@
             : 'text-zinc-500'}"
         >{t('usage.pane-chart', 'Chart')}</button>
       </div>
-    </div>
   </div>
 
   {#if pane === 'table'}
+    {#if data.eventsCapped}
+      <div class="mb-3"><CappedNotice shown={data.events.length} what={t('capped.usage-events', 'usage events')} /></div>
+    {/if}
     <UsageEventsTable events={data.events as UsageEvent[]} listKey="memory:{g.id}:usage" />
   {:else}
     <div class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

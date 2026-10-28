@@ -399,6 +399,11 @@
       </section>
     {/if}
 
+    {#if data.fixturesError}
+      <p role="alert" class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        {t('agent-tester.fixtures.load-failed', 'Could not load this agent’s fixtures, so the list below may be incomplete. Reload to try again.')}
+      </p>
+    {/if}
     <FixtureList
       {fixtures}
       {running}

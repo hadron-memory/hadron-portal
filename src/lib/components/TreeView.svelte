@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import { page } from "$app/stores";
   import type { TreeEntry } from "$lib/types";
+  import { t } from "$lib/i18n/t";
   import { scopeTreeEntriesToSearch, withoutHiddenTreeEntries } from "$lib/graph-utils";
   import { isHiddenNodeType } from "$lib/node-types";
   import { graphState } from "./GraphState.svelte.js";
@@ -321,11 +322,13 @@
         onclick={(e) => handleRowActivate(e, node.entry)}>
         <span class="dot" class:action-dot={node.entry.hasActions}></span>
         {node.entry.name}
+        {#if node.entry.deleted}<span data-testid="node-deleted" class="deleted-badge">{t('node.deleted.badge', 'Deleted')}</span>{/if}
       </a>
     {:else}
       <button class="node-label" class:active class:match={isMatch(node.entry)} onclick={() => toggle(node.entry.id)}>
         <span class="dot" class:virtual-dot={node.entry.isVirtual} class:action-dot={node.entry.hasActions}></span>
         {node.entry.name}
+        {#if node.entry.deleted}<span data-testid="node-deleted" class="deleted-badge">{t('node.deleted.badge', 'Deleted')}</span>{/if}
       </button>
     {/if}
   </div>
@@ -445,6 +448,15 @@
   /* Virtual (synthetic-folder) nodes have no backing node — hollow dot
    * keeps the visual cue that they aren't navigable while still matching
    * the bullet column of real nodes (issue #204). */
+  /* #1161: a server-reported deleted node (Include deleted view). */
+  .deleted-badge {
+    margin-left: 6px;
+    padding: 0 5px;
+    border: 1px solid #f85149;
+    border-radius: 4px;
+    font-size: 10px;
+    color: #f85149;
+  }
   .dot.virtual-dot {
     background: transparent;
     border: 1px solid #58a6ff;

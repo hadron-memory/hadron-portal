@@ -7,9 +7,8 @@
 
   // The grid passes this widget's slice of the combined `dashboardWidgetData`
   // payload (memory-stats => { memoryCount }). Optional at the type level
-  // (server JSON), so default it. A failed dashboard load is handled by the
-  // page-level alert (the page skips the grid entirely on failure), so the
-  // widget doesn't carry its own error state.
+  // (server JSON), so default it. The grid handles pending/failed streamed data before
+  // mounting this widget, so a read failure never becomes a zero count.
   let { memoryCount = 0 }: { memoryCount?: number } = $props();
 </script>
 

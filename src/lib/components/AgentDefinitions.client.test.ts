@@ -1,8 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import AgentDefinitions from './AgentDefinitions.svelte';
+import { ClientError } from 'graphql-request';
+import { GraphQLError } from 'graphql';
+import { loadAgentInheritance } from '$lib/server/agent-inheritance';
 import type { DefinitionEntry } from '$lib/agent-inheritance';
 const mounts: Mounted<Record<string, unknown>>[] = [];
 afterEach(() => { while (mounts.length) mounts.pop()!.unmount(); });
@@ -34,4 +37,19 @@ describe('Agent definition grids', () => {
     props.read = { items: [], error: null }; flushSync(); await tick();
     expect(root.textContent).toContain('No tasks listed.');
   });
+});
+
+it('renders the contributor list refusal as readable feedback, separately from a successful empty list', async () => {
+  const error = new ClientError({ status: 200, body: '{}', headers: new Headers(), errors: [new GraphQLError('AGENT_NOT_FOUND: Agent contributor-agent-id', { extensions: { code: 'AGENT_NOT_FOUND' } })] }, { query: 'query Fixture { __typename }' });
+  const request = vi.fn().mockResolvedValueOnce({ agent: { extendsAgentId: null } }).mockRejectedValueOnce(error).mockResolvedValueOnce({ agentProcessList: [] });
+  const result = await loadAgentInheritance({ request } as never, 'contributor-agent-id');
+  const root = await mount({ agentId: 'contributor-agent-id', read: result.tasks });
+  expect(root.querySelector('[role="alert"]')?.textContent).toBe('Tasks are unavailable. The Agent may be unavailable or you may not have access to its task list.');
+  expect(root.textContent).not.toContain('AGENT_NOT_FOUND');
+  expect(root.textContent).not.toContain('contributor-agent-id');
+  expect(root.textContent).not.toContain('No tasks listed.');
+  expect(root.querySelector('table')).toBeNull();
+  const empty = await mount({ agentId: 'contributor-agent-id', read: result.processes, processes: true });
+  expect(empty.querySelector('[role="alert"]')).toBeNull();
+  expect(empty.textContent).toContain('No processes listed.');
 });

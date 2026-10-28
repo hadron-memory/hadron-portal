@@ -2,7 +2,7 @@
  * portal#1052 — the board's and the task page's loaders.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASKS_OPEN_TITLES_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASKS_OPEN_TITLES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -99,6 +99,7 @@ async function loadDetail() {
 describe('views (slice 2)', () => {
   const answer = async (q: string) => {
     if (q === AGENT_TASKS_APP_QUERY) return { app };
+    if (q === TEAM_COMPOSITION_QUERY) return { teamComposition: { appId: 'app-1', asOf: '2026-10-16T00:00:00Z', lanes: [] } };
     if (q === TEAM_ROSTER_QUERY) return { teamRoster: { asOf: '2026-10-16T00:00:00Z', workers: [] } };
     if (q === AGENT_TASKS_OPEN_TITLES_QUERY) return { agentTasks: [{ id: 't1', title: 'Ship it' }] };
     if (q === AGENT_ALARMS_QUERY) return { agentTeamEvents: [] };
@@ -114,6 +115,38 @@ describe('views (slice 2)', () => {
     expect(r.titles).toEqual({ t1: 'Ship it' });
     expect(r.board).toBeNull();
     expect(request.mock.calls.map((c) => c[0])).not.toContain(AGENT_TASKS_BOARD_QUERY);
+  });
+
+  // portal#1327: composition.test.ts hands `data` straight to the page, so it
+  // cannot see the loader's branch. Pin it here: ?view=composition reads the
+  // composition and nothing else of the views.
+  it('the composition view reads the composition only: no board, roster, alarms or titles', async () => {
+    request.mockImplementation(answer);
+    const r = await loadBoard('?view=composition');
+    expect(r.view).toBe('composition');
+    expect(r.composition).toEqual({ kind: 'ok', value: { appId: 'app-1', asOf: '2026-10-16T00:00:00Z', lanes: [] } });
+    expect(r.board).toBeNull();
+    expect(r.roster).toBeNull();
+    expect(r.alarms).toBeNull();
+    expect(r.titles).toEqual({});
+    expect(request).toHaveBeenCalledWith(TEAM_COMPOSITION_QUERY, { appRef: 'app-1' });
+    const asked = request.mock.calls.map((c) => c[0]);
+    for (const other of [AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY, AGENT_ALARMS_QUERY, AGENT_TASKS_OPEN_TITLES_QUERY]) expect(asked).not.toContain(other);
+  });
+
+  it('a failed composition read reaches the page as failed, not as an empty team or a thrown load', async () => {
+    request.mockImplementation(async (q: string) => {
+      if (q === AGENT_TASKS_APP_QUERY) return { app };
+      throw new Error('ECONNRESET');
+    });
+    const r = await loadBoard('?view=composition');
+    expect(r.composition).toEqual({ kind: 'failed' });
+  });
+
+  it('the other views carry no composition', async () => {
+    request.mockImplementation(answer);
+    expect((await loadBoard('?view=roster')).composition).toBeNull();
+    expect((await loadBoard()).composition).toBeNull();
   });
 
   it('the alarms view reads alarms, defaulting the filter to open', async () => {

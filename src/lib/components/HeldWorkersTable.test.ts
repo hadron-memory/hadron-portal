@@ -24,13 +24,13 @@ describe('heldWorkerState — live, idle, never, or masked', () => {
     expect(heldWorkerStateLabel(w())).toBe('Active now');
   });
 
-  it('says when an idle worker was last driven', () => {
+  it('says when an idle worker last had recorded activity', () => {
     const idle = w({ hasLiveSession: false, lastActiveAt: '2026-09-24T09:00:00Z' });
     expect(heldWorkerState(idle)).toBe('idle');
-    expect(heldWorkerStateLabel(idle)).toContain('Last driven');
+    expect(heldWorkerStateLabel(idle)).toContain('Last recorded activity');
   });
 
-  it('tells never-driven apart from idle', () => {
+  it('tells no-recorded-activity apart from idle', () => {
     expect(heldWorkerState(w({ hasLiveSession: false, lastActiveAt: null }))).toBe('never');
   });
 
@@ -56,7 +56,7 @@ describe('HeldWorkersTable — rendered', () => {
     expect(body).toContain('href="/app/workers/w1"');
     expect(body).toContain('data-testid="held-worker-active"');
     expect(body).toContain('Active now');
-    expect(body).toContain('Last driven');
+    expect(body).toContain('Last recorded activity');
   });
 
   it('shows the App and worker URNs as linked chips, and a dash, never an empty chip, when absent', () => {

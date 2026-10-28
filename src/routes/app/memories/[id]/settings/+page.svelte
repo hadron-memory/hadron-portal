@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { replaceState } from '$app/navigation';
@@ -6,6 +7,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import MarketplaceListingCard from './MarketplaceListingCard.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -38,6 +40,30 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const g = $derived(data.graph);
+
+  // #1255: superforms runs onResult BEFORE its form-id gate, so result
+  // callbacks must fence themselves. A form-bearing ActionResult carries
+  // the memory-bound stamp its action set; one not matching this form's
+  // LIVE id is a late result from before a [id] navigation and must not
+  // write any UI state. The comparison stamp is the live form id store —
+  // exactly what superforms' own gate uses — never one rebuilt from g.id:
+  // the load and actions stamp from params.id, the URL's REF spelling,
+  // which may be a URN
+  // (hrn:node:hadronmemory.com:hadron-portal:review:route-param-may-be-a-ref),
+  // and a rebuilt stamp re-spells a URN-addressed page as its UUID,
+  // swallowing every OWN result (Gil's delta P2 on #1256). Results
+  // without a form object (none of this route's actions produce them)
+  // pass through.
+  function resultIsForForm(result: unknown, stamp: string): boolean {
+    // `unknown`, not a `{ data }` shape: ActionResult's redirect variant has
+    // no data property at all, and every path below treats absence as pass.
+    if (!result || typeof result !== 'object' || !('data' in result)) return true;
+    const data = (result as { data?: unknown }).data;
+    if (!data || typeof data !== 'object' || !('form' in data)) return true;
+    const form = (data as { form?: unknown }).form;
+    if (!form || typeof form !== 'object') return true;
+    return (form as { id?: string }).id === stamp;
+  }
 
   // Agent system memories are owned by their agent and have a stripped-down
   // settings view: no org transfer, no categories, no license, no visibility,
@@ -291,17 +317,43 @@
   const initialVectorForm = untrack(() => submittedForm<VectorIndexSettingsForm>(form, 'updateVectorIndex') as VectorIndexSettingsSuperform | null ?? data.vectorForm);
   const {
     form: vectorForm,
+    formId: vectorFormId,
     errors: vectorErrors,
     message: vectorMessage,
     submitting: vectorSubmitting,
     enhance: vectorEnhance,
   } = superForm<VectorIndexSettingsForm, App.Superforms.Message, VectorIndexSettingsForm>(initialVectorForm, {
+    // A settings save keeps its canonical returned values, not the page's
+    // original defaults (Superforms resets successful forms by default).
+    resetForm: false,
     validators: zod4Client(vectorIndexSettingsSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #1255: a sibling save's invalidateAll replaces page.data while
+    // page.form is still empty, and the page subscription rebinds this form
+    // from that fresh data — discarding an unsaved draft, taint
+    // notwithstanding (the default form id is a hash of the schema's SHAPE,
+    // stable across loads of one schema, so the fresh load form always
+    // matches). 'never' is the ONLY option that opts the form out of that
+    // rebind; own results still apply — 'never' is truthy, so they arrive
+    // through applyAction and the id-matching page.form branch. The
+    // memory-bound id stamped in the load and action (plus the re-stamp on
+    // navigation, below) is the late-result fence, not a sibling-result
+    // fix: different-schema siblings never matched this form anyway.
+    // Reseeding stays with the snapshot gate below: a changed persisted
+    // configuration, or a memory navigation.
+    applyAction: 'never',
+    // #1255: this callback runs BEFORE superforms' id gate (onResult fires
+    // ahead of the formId check in superForm.js), so a late result
+    // submitted on memory A still reaches these writes after a [id]
+    // navigation to memory B — a stale refusal would force B's checkbox on
+    // and open B's disclosure, a stale success would clear B's
+    // confirmation state. The stamped id fences it: a form-bearing result
+    // not stamped for the memory currently shown is not ours to apply.
     onResult: ({ result }) => {
+      if (!resultIsForForm(result, $vectorFormId)) return;
       const needsEncryptedAck =
         result.type === 'failure' &&
         result.data &&
@@ -319,6 +371,11 @@
       }
     },
   });
+  // ── Marketplace listing (#841) — see MarketplaceListingCard.svelte ──
+  // The card's superForm lives in a component keyed by `g.id` (rendered
+  // below), NOT here: this page component is reused on a [id] navigation, so
+  // a form in the page script would carry memory A's stores onto memory B.
+
   // ── Re-drive failed embeddings (#695 / server #882) ─────────────────
   const initialRetryEmbedsForm = untrack(() => submittedForm<RetryFailedEmbeddingsForm>(form, 'retryFailedEmbeddings') as RetryFailedEmbeddingsSuperform | null ?? data.retryEmbedsForm);
   const {
@@ -334,10 +391,10 @@
     // edges per request, `+layout.server.ts`), so a button whose whole result
     // is a count would re-fetch every node in the memory.
     //
-    // Nothing this page renders changes: the re-drive re-stamps
-    // `embeddingFailedAt` on nodes, and the portal displays no embedding state
-    // anywhere (#257's slices 4/6 were never built — see #695's PR body). The
-    // count comes back in the action result, not from the reloaded data.
+    // Nothing this settings page renders changes: the re-drive resets failure
+    // state and re-stamps pending work on nodes. #257 shows those stamps on
+    // node detail, not in this settings page; the memory-wide rollup remains
+    // deferred. The count comes back in the action result, not reloaded data.
     invalidateAll: false,
   });
 
@@ -356,6 +413,7 @@
   const initialSchemaForm = untrack(() => submittedForm<MemorySchemaSettingsForm>(form, 'updateSchema') as MemorySchemaSettingsSuperform | null ?? data.schemaForm);
   const {
     form: schemaForm,
+    formId: schemaFormId,
     errors: schemaErrors,
     message: schemaMessage,
     submitting: schemaSubmitting,
@@ -366,7 +424,20 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #1255: 'never' for the same reason as the vector form above — a
+    // sibling save's invalidateAll rebinds this form from fresh page.data
+    // and discards an unsaved editor draft (default ids are schema shape
+    // hashes, so the fresh load form always matches). resetForm:false so a
+    // save keeps its returned form values instead of resetting to the
+    // pre-save load data; the memory-bound id + navigation re-stamp (the
+    // effect below) is the late-result fence, as in the vector form.
+    applyAction: 'never',
+    resetForm: false,
+    // #1255: same fence as the vector form — onResult precedes the id
+    // gate, so a stale success from memory A must not clear memory B's
+    // clearing-confirmation.
     onResult: ({ result }) => {
+      if (!resultIsForForm(result, $schemaFormId)) return;
       if (result.type === 'success') confirmSchemaClear = false;
     },
   });
@@ -377,11 +448,47 @@
   // invalidateAll reloads `g`) — same pattern as the vector-index resync.
   // The user's in-progress edit is never clobbered mid-edit because `g.*`
   // only changes on navigation/invalidate.
+  // #1255: the MEMORY is tracked too, not just the stored schema — two
+  // memories can share a stored schema (e.g. both null), and a draft must
+  // not outlive its memory: navigating A→B reseeds even when B's stored
+  // schema equals A's (the page.data rebind that used to wipe it is opted
+  // out by 'never'). The vector snapshot gate includes g.id for exactly
+  // this reason; the clearing-confirmation resets on the same move.
+  let schemaResyncMemoryId = untrack(() => g.id);
+  let lastSchemaStored = untrack(() => storedSchemaJson);
   $effect(() => {
+    const memoryId = g.id;
     const next = storedSchemaJson;
-    schemaForm.update((current) => (
-      current.schemaJson === next ? current : { ...current, schemaJson: next }
-    ), { taint: false });
+    const moved = schemaResyncMemoryId !== memoryId;
+    const storedChanged = lastSchemaStored !== next;
+    // Reading g.* tracks the graph object's IDENTITY, so this effect re-runs
+    // on every loader refresh; the VALUE guards keep an unchanged refresh a
+    // no-op, or an unsaved draft would not survive a sibling save (#1255).
+    if (!moved && !storedChanged) return;
+    schemaResyncMemoryId = memoryId;
+    lastSchemaStored = next;
+    schemaForm.update((current) => ({ ...current, schemaJson: next }), { taint: false });
+    if (moved) untrack(() => { confirmSchemaClear = false; });
+  });
+
+  // #1255 late-result fence, id half: same as the vector form — 'never'
+  // keeps the form's id at what it was created for, so it must be
+  // re-stamped or a late own-action result from the previous memory still
+  // matches (the schema resync above reseeds VALUES; it does not touch the
+  // id). Adoption keys on the LOADED STAMP (data.schemaForm.id), not g.id:
+  // the stamp changes not only across memories but across REF SPELLINGS of
+  // the same memory (id→URN, URN→id — g.id unchanged, Gene's scoped delta
+  // P2 on #1256), and it carries the URL's spelling, which cannot be
+  // recovered from the row. Reading data.schemaForm tracks the load
+  // object's identity (replaced on every refresh); the value guard keeps
+  // an unchanged refresh a no-op. Never a rebuilt stamp, never a VALUE
+  // here — a spelling change is not a memory change.
+  let schemaStamp = untrack(() => data.schemaForm.id);
+  $effect(() => {
+    const stamp = data.schemaForm.id;
+    if (stamp === schemaStamp) return;
+    schemaStamp = stamp;
+    untrack(() => schemaFormId.set(stamp));
   });
 
   const schemaFieldError = $derived($schemaErrors.schemaJson?.[0] ?? null);
@@ -431,21 +538,57 @@
   let confirmRevoke = $state(false);
   let viFormEl: HTMLFormElement;
 
-  // Resync local state when the page data changes (after a successful save,
-  // invalidateAll reloads `g`). Mirrors the node-detail editContent pattern —
-  // `g.*` only changes on navigation/invalidate, never mid-edit. The enable
-  // toggle is left alone while the disclosure panel is open so a server
-  // backstop (needsEncryptedAck) can keep the user's enable intent and let
-  // them acknowledge + enable in one flow instead of resyncing back to false.
+  // Only a changed persisted configuration (or memory navigation) reseeds
+  // the draft. Unrelated loader refreshes must not erase an unsaved edit.
+  function vectorSnapshot() {
+    return JSON.stringify([g.id, g.vectorIndexEnabled, g.embeddingSource, g.chunkTokens, g.chunkOverlap, g.forceFixedSize]);
+  }
+  let lastVectorSnapshot = untrack(vectorSnapshot);
+  let vectorMemoryId = untrack(() => g.id);
   $effect(() => {
-    vectorForm.update((current) => ({
-      ...current,
-      vectorIndexEnabled: showDisclosure ? current.vectorIndexEnabled : (g.vectorIndexEnabled ?? false),
+    const snapshot = vectorSnapshot();
+    if (snapshot === lastVectorSnapshot) return;
+    lastVectorSnapshot = snapshot;
+    const moved = vectorMemoryId !== g.id;
+    vectorMemoryId = g.id;
+    const saved = {
+      vectorIndexEnabled: g.vectorIndexEnabled ?? false,
       embeddingSource: g.embeddingSource ?? 'abstract',
       chunkTokens: g.chunkTokens != null ? String(g.chunkTokens) : '',
       chunkOverlap: g.chunkOverlap != null ? String(g.chunkOverlap) : '',
       forceFixedSize: g.forceFixedSize ?? false,
-    }), { taint: false });
+    };
+    untrack(() => {
+      if (moved) { showDisclosure = false; confirmRevoke = false; }
+      vectorForm.update((current) => ({
+        ...current,
+        ...saved,
+        acknowledgeVectorInversionRisk: moved ? false : current.acknowledgeVectorInversionRisk,
+        // The encrypted acknowledgement backstop retains the enable intent.
+        vectorIndexEnabled: showDisclosure ? current.vectorIndexEnabled : saved.vectorIndexEnabled,
+      }), { taint: false });
+    });
+  });
+
+  // #1255 late-result fence, vector half: 'never' also opts this form out
+  // of the page.data rebind that would otherwise refresh the form's id on
+  // navigation — so after moving to another memory the live form would
+  // keep THIS memory's stamp and a late own-action result (this form's
+  // submit completing after the navigation) would still match and land on
+  // the new memory's form. Adoption keys on the LOADED STAMP
+  // (data.vectorForm.id), exactly as the schema re-stamp above: it covers
+  // cross-memory moves AND same-memory ref-spelling changes (id→URN,
+  // URN→id — g.id unchanged, Gene's scoped delta P2 on #1256), adopts the
+  // URL's spelling without rebuilding, and value-guards an unchanged
+  // refresh to a no-op. (The marketplace card gets this for free by
+  // remounting on navigation; these forms live in the page script and do
+  // not remount.)
+  let vectorStamp = untrack(() => data.vectorForm.id);
+  $effect(() => {
+    const stamp = data.vectorForm.id;
+    if (stamp === vectorStamp) return;
+    vectorStamp = stamp;
+    untrack(() => vectorFormId.set(stamp));
   });
 
   const viSourceIncludesChunks = $derived($vectorForm.embeddingSource === 'contentChunks' || $vectorForm.embeddingSource === 'both');
@@ -480,7 +623,7 @@
 
 <svelte:head><title>{g.name} &middot; Settings &middot; Hadron</title></svelte:head>
 
-<div class="space-y-8">
+<fieldset disabled={data.canWriteMemory === false} class="space-y-8">
   {#if settingsActionSuccess && !isEditing}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">{settingsActionSuccess}</div>
   {/if}
@@ -716,14 +859,14 @@
         {/if}
         <div class="flex items-center justify-between px-5 py-3">
           <span class="text-sm text-zinc-500">Created</span>
-          <span class="text-sm text-zinc-900 dark:text-white">{new Date(g.createdAt).toLocaleDateString()}</span>
+          <span class="text-sm text-zinc-900 dark:text-white">{formatPortalDate(g.createdAt)}</span>
         </div>
       </div>
     {/if}
   </section>
 
   <!-- Spec 033 §2/§3: Vector index settings -->
-  <section class="max-w-lg">
+  <section id="vector-index" class="max-w-lg">
     <h2 class="mb-4 font-semibold text-zinc-900 dark:text-white">Vector index</h2>
     <form bind:this={viFormEl} method="POST" action="?/updateVectorIndex" use:vectorEnhance
       class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
@@ -790,7 +933,7 @@
       {/if}
 
       {#if g.vectorIndexEncryptedAckAt}
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">Encrypted-index disclosure accepted on {new Date(g.vectorIndexEncryptedAckAt).toLocaleString()}.</p>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">Encrypted-index disclosure accepted on {formatPortalDateTime(g.vectorIndexEncryptedAckAt)}.</p>
       {/if}
 
       {#if viDirty && !showDisclosure && !confirmRevoke}
@@ -845,6 +988,24 @@
         </div>
       {/if}
     </form>
+
+    <!-- #841: listing is a deliberate second step after visibility, so it is
+         its own card rather than a field on the visibility form. Offered for
+         knowledge memories to callers who can edit (`canWriteMemory`, the
+         layout's server-resolved effective write access). `=== true`, not
+         `!== false`: an absent value must not read as a grant — the card
+         disappears unless the server positively said this caller can write.
+         Deliberately NOT gated on vector-index state, which has nothing to
+         do with the catalogue.
+
+         Keyed by `g.id` so a [id] navigation REMOUNTS the card's form — the
+         page component is reused, and the key is what fences memory A's
+         superForm stores from memory B (Gene's P2-1 on #1244). -->
+    {#if g.class === 'knowledge' && data.canWriteMemory === true}
+      {#key g.id}
+        <MarketplaceListingCard {data} {form} />
+      {/key}
+    {/if}
 
     <!-- #695 (server #882): operator recovery for PERMANENTLY failed embeds.
          A sibling form, not a control inside the one above: nesting forms is
@@ -1004,6 +1165,11 @@
       <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
         {t('memory-transfer.intro', 'Preview the new URN and dependent records before moving this memory. The destination must be an organization you administer or your own user account.')}
       </p>
+      {#if g.class === 'private'}
+        <p class="mb-4 text-sm text-zinc-600 dark:text-zinc-400">
+          {t('memory-transfer.private-hint', 'Transferring changes this memory\'s class to Knowledge or Group in an organization you administer. It does not make a private memory shareable.')}
+        </p>
+      {/if}
       {#if transferError}
         <p role="alert" class="mb-4 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{transferError}</p>
       {/if}
@@ -1139,4 +1305,4 @@
       {/if}
     </section>
   {/if}
-</div>
+</fieldset>

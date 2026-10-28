@@ -1,3 +1,5 @@
+import { deleteWorkerSchema } from './schema';
+import type { DeleteWorkerResult } from './delete-worker';
 import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -6,17 +8,23 @@ import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout'
 import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
+import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
+import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
+import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
 import { extractGqlError } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
+import { mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
 import { t } from '$lib/i18n/t';
 import {
   APP_DETAIL_ORG_QUERY,
   APP_ORG_AGENTS_QUERY,
+  APP_ORG_AGENT_GRANTS_QUERY,
   APP_QUERY,
   APP_MEMBERS_QUERY,
   SELF_CAN_MANAGE_QUERY,
+  SET_APP_AGENT_BOOT_PROMPT_MUTATION,
   MY_AGENTS_QUERY,
   PUBLIC_AGENTS_QUERY,
   UPDATE_APP_MUTATION,
@@ -31,6 +39,8 @@ import {
   WORKERS_QUERY,
   CAST_WORKER_MUTATION,
   RETIRE_WORKER_MUTATION,
+  DELETE_WORKER_MUTATION,
+  SET_WORKER_WAKE_SETTINGS_MUTATION,
   RELEASE_WORKER_MUTATION,
   TEAM_CHAT_MESSAGES_QUERY,
   CREATE_TEAM_CHAT_MESSAGE_MUTATION,
@@ -82,7 +92,13 @@ import {
   revokeAppKeySchema,
   updateAppAgentToolsSchema,
 } from './schema';
+import { isCapped } from '$lib/server/capped';
 import type { ReleaseWorkerMessage } from './schema';
+
+// appNodes and the chat-root read take a limit but have no continuation
+// (hadron-server#2212), so each fetches one window and says when it came back full.
+const APP_NODES_LIMIT = 500;
+const APP_CHAT_ROOTS_LIMIT = 200;
 import { readHoldStale, type HoldStale } from './hold-stale';
 
 type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
@@ -361,6 +377,10 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
     'app.staff.error.agent-ambiguous',
     'Several installed agents match that role. Pick an agent explicitly.',
   ),
+  WORKER_ROLE_OVERRIDE_REFUSED: () => t(
+    'app.staff.error.role-override-refused',
+    'A worker’s role comes from its agent. Reload this page and choose the agent for the role you need.',
+  ),
   // #760: WORKER_NAME_REQUIRED replaced WORKER_REGISTER_EXHAUSTED when
   // hadron-server#1050 removed the cast-list register. The old code can no
   // longer fire — there is no register to exhaust — and the new one had no
@@ -513,8 +533,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // Bounded: a request that HANGS would otherwise hold every tab of the page.
     withTimeout(
       client
-        .request<{ app: { members: AppMember[] } | null }>(APP_MEMBERS_QUERY, { ref: params.appId })
-        .then((r) => r.app?.members ?? null),
+        .request<{ app: { members: AppMember[] | null } | null }>(APP_MEMBERS_QUERY, { ref: params.appId })
+        // portal#1148: `members: null` is WITHHELD (hadron-server#2089), distinct from a
+        // failed fetch (null here) and from a real [] (a known-empty roster).
+        .then((r) => (r.app === null ? null : r.app.members === null ? ('withheld' as const) : r.app.members)),
       OPTIONAL_LIST_TIMEOUT_MS,
       null,
     ).catch((e) => {
@@ -536,6 +558,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   let org: AppOrg | null = null;
   let availableAgents: InstallableAgent[] = [];
   let availableAgentsError = false;
+  let subscribedAgentsError = false;
   if (app.organizationId) {
     // #851: `loadOrgDetail` rather than a bare `.catch(() => ({ organization:
     // null }))`. That catch took no argument, so nothing was classified: a
@@ -560,20 +583,37 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     );
     // #1006: the Agents tab's install picker, asked for on its own so a refusal
     // cannot null the org (see APP_ORG_AGENTS_QUERY).
-    const pool = await withTimeout(
-      client
-        .request<{ organization: { agents: InstallableAgent[] } | null }>(APP_ORG_AGENTS_QUERY, {
-          ref: app.organizationId,
-        })
-        .then((r) => r.organization?.agents ?? null),
-      OPTIONAL_LIST_TIMEOUT_MS,
-      null,
-    ).catch((e) => {
-      console.warn(`[app-agents] installable agents fetch failed for ${params.appId}:`, e);
-      return null;
-    });
-    availableAgents = pool ?? [];
-    availableAgentsError = pool === null;
+    // #1172: the subscribed agents are a request of their own, so a failure of
+    // that resolver costs only them and never the owned picker (portal#1188).
+    const [owned, grants] = await Promise.all([
+      withTimeout(
+        client
+          .request<{ organization: { agents: InstallableAgent[] } | null }>(APP_ORG_AGENTS_QUERY, {
+            ref: app.organizationId,
+          })
+          .then((r) => r.organization?.agents ?? null),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch((e) => {
+        console.warn(`[app-agents] installable agents fetch failed for ${params.appId}:`, e);
+        return null;
+      }),
+      withTimeout(
+        client
+          .request<{ organization: Pick<OrgAgentPool, 'agentOrgGrants'> | null }>(APP_ORG_AGENT_GRANTS_QUERY, {
+            ref: app.organizationId,
+          })
+          .then((r) => r.organization?.agentOrgGrants ?? null),
+        OPTIONAL_LIST_TIMEOUT_MS,
+        null,
+      ).catch((e) => {
+        console.warn(`[app-agents] subscribed agents fetch failed for ${params.appId}:`, e);
+        return null;
+      }),
+    ]);
+    availableAgents = owned ? mergeInstallableAgents({ agents: owned, agentOrgGrants: grants ?? [] }) : [];
+    availableAgentsError = owned === null;
+    subscribedAgentsError = owned !== null && grants === null;
   } else {
     const [mine, publicAgents] = await Promise.all([
       // #782: MY_AGENTS_QUERY is scoped server-side (filter.ownedByMe), so it's
@@ -605,9 +645,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster, bootPointers] = await Promise.all([
     client
-      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: 500 })
+      .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
     app.agentId
       ? client
@@ -672,7 +712,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     client
       .request<{ appNodes: MemoryNode[] }>(APP_CHAT_ROOTS_QUERY, {
         appRef: params.appId,
-        limit: 200,
+        limit: APP_CHAT_ROOTS_LIMIT,
       })
       .then((r) => r.appNodes)
       .catch((e) => {
@@ -703,6 +743,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // manager-only and non-null (hadron-server#2080), so on the App fragment it
     // nulled the whole App (a false 404 here) for every non-manager.
     loadAppKeys(client, app.id),
+    // portal#1168 (hadron-server#2178): the grid's Task and Paused state, one
+    // bulk read in its own classified request so its failure cannot take the page.
+    loadAppTeamRoster(client, app.id),
+    // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
+    readAppPointers(client, app.id),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -774,12 +819,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate(
       { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
       addAppMemberFormAdapter,
-      { errors: false },
+      { errors: false, id: 'addAppMember' },
     ),
     superValidate(
       { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
       ensureAppMemberFormAdapter,
-      { errors: false },
+      { errors: false, id: 'ensureAppMember' },
     ),
     superValidate({ userId: '' }, removeAppMemberFormAdapter, { errors: false }),
   ]);
@@ -822,12 +867,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     org,
     availableAgents,
     availableAgentsError,
+    subscribedAgentsError,
     appNodes: nodesData.appNodes,
+    appNodesCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT),
     chatConfigs,
     appConfigs: configsData ?? [],
     configsError: configsData === null,
     // #974: the App's staff. null = the fetch failed (distinct from []).
     staff,
+    teamRoster,
     staffError: staff === null,
     // #732: the team chat transcript. null = the fetch failed (distinct from
     // an empty chat), and `teamChatTotal` is the SERVER's count, so a
@@ -846,6 +894,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
     chatsError: chatRoots === null,
+    chatRootsShown: chatRoots?.length ?? 0,
+    chatsCapped: chatRoots !== null && isCapped(chatRoots?.length ?? 0, APP_CHAT_ROOTS_LIMIT),
     selectedChatKey: selectedChat?.key ?? null,
     selectedChatMessages: selectedChatMessages?.messages ?? [],
     // #793 (@copilot on PR #797): gate on the KIND. `selectedChatMessages` is
@@ -874,6 +924,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     },
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
+    bootPointers,
+    // The App half of a pointer result's key (the action's own params.appId).
+    bootPointerAppKey: params.appId,
     keyScopes,
     appKeys,
     appSettingsForm,
@@ -888,8 +941,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     releaseWorkerForm,
     postTeamChatMessageForm,
     // #1005: the Human Team tab. null members = the fetch failed.
-    members: membersData ?? [],
+    members: Array.isArray(membersData) ? membersData : [],
     membersError: membersData === null,
+    membersWithheld: membersData === 'withheld',
     addMemberForm,
     ensureMemberForm,
     removeMemberForm,
@@ -901,6 +955,16 @@ export const actions: Actions = {
   addMember,
   ensureMember,
   removeMember,
+
+  // portal#1142 S8 (hadron-server#2219): set or clear one install's pointer.
+  // The App's manager, as themselves; the server decides. Keyed by agent id so
+  // the result shows on that row only.
+  setAppAgentBootPrompt: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const agentRef = String(fd.get('agentRef') ?? '');
+    return pointerAction(fd, 'app', appAgentPointerKey(params.appId, agentRef), (nodeRef) =>
+      gqlClient(locals.token).request(SET_APP_AGENT_BOOT_PROMPT_MUTATION, { appRef: params.appId, agentRef, nodeRef }));
+  },
 
   update: async ({ request, params, locals }) => {
     const form = await superValidate<AppSettingsForm>(
@@ -1017,9 +1081,7 @@ export const actions: Actions = {
   // register, so there is no "let the server choose" path left and the schema
   // rejects a blank one before we get here.
   //
-  // `role` is still optional and still must be sent as UNDEFINED when blank:
-  // an omitted role inherits the agent's personaRole, while '' would be an
-  // explicit (and invalid) role — a different request entirely.
+  // R222: role comes from the selected Agent, never from a posted override.
   castWorker: async ({ request, params, locals }) => {
     const form = await superValidate<CastWorkerForm>(
       await request.formData(),
@@ -1036,7 +1098,6 @@ export const actions: Actions = {
         // has nothing to express — and leaving it would quietly turn a
         // validation gap into a nameless cast the server refuses.
         name: form.data.name,
-        role: form.data.role || undefined,
         promptOverride: form.data.promptOverride || undefined,
       });
       return message(form, {
@@ -1115,6 +1176,80 @@ export const actions: Actions = {
         },
         { status: 500 },
       );
+    }
+  },
+
+  // portal#1168 — Pause / Unpause a worker. PAUSE INTENT ONLY: an explicit
+  // user-selected end time, or clearPause. The portal invents no duration, never
+  // resends `mentions` or any other wake setting, and lets the server's gate
+  // (the worker, its holder or an App manager) decide. A refusal is a fixed
+  // message, never the provider payload, and never success; the page re-reads
+  // the authoritative roster after a success instead of flipping a badge.
+  setWorkerPause: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const workerId = String(fd.get('workerId') ?? '').trim();
+    const mode = String(fd.get('mode') ?? '');
+    const until = String(fd.get('until') ?? '').trim();
+    const bad = (text: string) => fail(400, { pauseResult: { ok: false as const, workerId, message: text } });
+    if (!workerId) return bad(t('app.staff.pause.error.worker', 'Choose a worker.'));
+    let input: { pausedUntil: string } | { clearPause: true };
+    if (mode === 'clear') {
+      input = { clearPause: true };
+    } else if (mode === 'pause') {
+      const ms = Date.parse(until);
+      if (!until || Number.isNaN(ms)) return bad(t('app.staff.pause.error.until', 'Choose when the pause ends.'));
+      if (ms <= Date.now()) return bad(t('app.staff.pause.error.past', 'The pause must end in the future.'));
+      input = { pausedUntil: new Date(ms).toISOString() };
+    } else {
+      return bad(t('app.staff.pause.error.mode', 'Choose Pause or Unpause.'));
+    }
+    try {
+      await gqlClient(locals.token).request(SET_WORKER_WAKE_SETTINGS_MUTATION, { workerRef: workerId, input });
+      return { pauseResult: { ok: true as const, workerId, message: mode === 'clear'
+        ? t('app.staff.unpause.success', 'Pause cleared.')
+        : t('app.staff.pause.success', 'Worker paused.') } };
+    } catch (e: unknown) {
+      // The server's real refusal for this write is WAKE_SETTINGS_FORBIDDEN
+      // (Riana, Charles on #1237); FORBIDDEN is the generic gate code.
+      const code = gqlErrorCode(e);
+      const forbidden = code === 'FORBIDDEN' || code === 'WAKE_SETTINGS_FORBIDDEN';
+      return fail(forbidden ? 403 : 500, { pauseResult: { ok: false as const, workerId, message: forbidden
+        ? t('app.staff.pause.error.forbidden', 'You can’t pause or unpause this worker. Only the worker, its holder or an App manager can.')
+        : t('app.staff.pause.error.failed', 'Could not confirm the change. Check the worker’s status and try again.') } });
+    }
+  },
+
+  // #1023: no local eligibility or App-based authority shortcut. The mutation
+  // resolves the supplied worker and checks its own staffing/reference gates.
+  deleteWorker: async ({ request, locals }) => {
+    const posted = await request.formData();
+    const workerRef = typeof posted.get('workerRef') === 'string' ? String(posted.get('workerRef')) : '';
+    const refuse = (status: number, message: string, code: string | null = null) =>
+      fail(status, { deleteWorkerResult: { ok: false, workerRef, message, code } satisfies DeleteWorkerResult });
+    if (['_kind', 'workerRef', 'confirmation'].some(key => posted.getAll(key).length !== 1)) {
+      return refuse(400, t('app.staff.delete.confirm-required', 'Explicit external-artifact verification is required.'));
+    }
+    const parsed = deleteWorkerSchema.safeParse(Object.fromEntries(posted));
+    if (!parsed.success) return refuse(400, t('app.staff.delete.confirm-required', 'Explicit external-artifact verification is required.'));
+    try {
+      const result = await gqlClient(locals.token).request<{ deleteWorker: boolean }>(DELETE_WORKER_MUTATION, {
+        workerRef: parsed.data.workerRef, confirmNoExternalAttribution: true,
+      });
+      if (result.deleteWorker !== true) return refuse(500, t('app.staff.delete.unconfirmed', 'Deletion was not confirmed. Refresh the roster before trying again.'));
+      return { deleteWorkerResult: { ok: true, workerRef: parsed.data.workerRef,
+        message: t('app.staff.delete.done', 'Worker deleted.') } satisfies DeleteWorkerResult };
+    } catch (e: unknown) {
+      const code = gqlErrorCode(e);
+      // Only GraphQL's own refusal sentence, never the request/extension census
+      // or a transport exception containing query variables, reaches the UI.
+      const errors = (e as { response?: { errors?: { message?: string }[] } } | null)?.response?.errors;
+      const status = code === 'FORBIDDEN' ? 403
+        : code === 'WORKER_NOT_FOUND' ? 404
+        : code === 'WORKER_IN_USE' || code === 'WORKER_EXTERNAL_ATTRIBUTION_UNCONFIRMED' ? 400 : 500;
+      const text = status < 500 && typeof errors?.[0]?.message === 'string'
+        ? errors[0].message
+        : t('app.staff.delete.failed', 'Could not confirm deletion. Refresh the roster and try again.');
+      return refuse(status, text, code);
     }
   },
 

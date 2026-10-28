@@ -32,6 +32,7 @@ const NODE = {
   outgoingEdges: [], incomingEdges: [],
 };
 const PARENT = {
+  canWriteMemory: true,
   graph: { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a', name: 'Mem A', class: 'org', isEncrypted: false, schema: null },
   graphNodes: [{ id: 'leaf-pk', memoryId: 'mem-A', loc: 'foo', name: 'Foo', nodeType: 'info', tags: [] }],
   isConsumerMode: false,
@@ -189,4 +190,63 @@ describe('Properties tab (#1031)', () => {
 
     expect(submittedBag(target)).toEqual({ color: 'green' });
   });
+});
+
+
+describe('reader memory editors (#646)', () => {
+  it('disables storage and source saves while retaining source and tab navigation', async () => {
+    const { target, props } = await mountPage();
+    flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: false }; });
+    await tick();
+    expect(storageForm(target)!.closest('fieldset')!.disabled).toBe(true);
+    expect(target.textContent).toContain('Read only');
+    buttonNamed(target, 'Source')!.click();
+    flushSync();
+    const source = target.querySelector<HTMLTextAreaElement>('textarea#node-properties-source');
+    const textareas = [...target.querySelectorAll<HTMLTextAreaElement>('textarea')];
+    expect(source ?? textareas.find(t => t.readOnly)).toBeTruthy();
+    expect(buttonNamed(target, 'Save')?.disabled).toBe(true);
+    tabNamed(target, 'Content')!.click();
+    flushSync();
+    buttonNamed(target, 'Source')!.click();
+    flushSync();
+    expect([...target.querySelectorAll<HTMLTextAreaElement>('textarea')].some(t => t.readOnly && t.value === 'body')).toBe(true);
+    // Restore the server write decision without replacing the page.
+    flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: true }; });
+    await tick();
+    expect(storageForm(target)!.closest('fieldset')!.disabled).toBe(false);
+  });
+});
+
+it('disables missing-parent creation for a reader and preserves it for a writer (#646 LOCAL P2)', async () => {
+  const { target, props } = await mountPage();
+  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: false, breadcrumb: [
+    { label: 'Missing', path: 'missing', nodeId: null },
+    { label: 'Foo', path: 'missing:foo', nodeId: NODE.id },
+  ] }; });
+  await tick();
+  const create = target.querySelector<HTMLButtonElement>('form[action="?/createParent"] button')!;
+  expect(create).not.toBeNull();
+  expect(create.disabled).toBe(true);
+  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: true }; });
+  await tick();
+  expect(create.disabled).toBe(false);
+});
+
+
+it('keeps reader Settings read-only and restores writer metadata and delete controls', async () => {
+  const { target, props } = await mountPage();
+  props.data = { ...props.data as Record<string, unknown>, canWriteMemory: false };
+  flushSync();
+  tabNamed(target, 'Settings')!.click();
+  flushSync();
+  expect(buttonNamed(target, 'Edit')).toBeUndefined();
+  expect(buttonNamed(target, 'Delete node')).toBeUndefined();
+  expect(target.querySelector('#editName')).toBeNull();
+  props.data = { ...props.data as Record<string, unknown>, canWriteMemory: true };
+  flushSync();
+  expect(buttonNamed(target, 'Delete node')?.disabled).toBe(false);
+  buttonNamed(target, 'Edit')!.click();
+  flushSync();
+  expect(target.querySelector('#editName')).not.toBeNull();
 });

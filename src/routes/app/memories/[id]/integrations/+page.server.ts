@@ -56,12 +56,12 @@ export const load: PageServerLoad = async ({ parent }) => {
     superValidate<SyncMemoryIntegrationForm>(
       {},
       syncMemoryIntegrationFormAdapter,
-      { errors: false },
+      { errors: false, id: 'syncMemory' },
     ),
     superValidate<PushMemoryIntegrationForm>(
       {},
       pushMemoryIntegrationFormAdapter,
-      { errors: false },
+      { errors: false, id: 'pushMemory' },
     ),
   ]);
   return {
@@ -104,6 +104,7 @@ export const actions: Actions = {
     const form = await superValidate<SyncMemoryIntegrationForm>(
       await request.formData(),
       syncMemoryIntegrationFormAdapter,
+      { id: 'syncMemory' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -136,6 +137,7 @@ export const actions: Actions = {
     const form = await superValidate<PushMemoryIntegrationForm>(
       await request.formData(),
       pushMemoryIntegrationFormAdapter,
+      { id: 'pushMemory' },
     );
     if (!form.valid) return fail(400, { form });
 

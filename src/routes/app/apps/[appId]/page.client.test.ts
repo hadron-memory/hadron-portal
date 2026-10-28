@@ -5,8 +5,8 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { navigationCalls, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { submitEnhanced } from '$lib/test/stubs/app-forms';
+import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatMessage } from '$lib/types';
@@ -16,6 +16,7 @@ import {
   addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
   revokeAppKeySchema, updateAppAgentToolsSchema,
+  addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
 } from './schema';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -174,12 +175,12 @@ describe('App team chat full view (#980)', () => {
 });
 
 describe('Worker agents tab (#1009)', () => {
-  async function mountStaff(staff: unknown[]) {
+  async function mountStaff(staff: unknown[], roster: unknown = { kind: 'unavailable' }) {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
     window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
     const data = await pageData();
     const m = mountComponent(Page as never, {
-      data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff },
+      data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff, teamRoster: roster },
       form: null,
     } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
@@ -188,7 +189,7 @@ describe('Worker agents tab (#1009)', () => {
   }
   const worker = (over: Record<string, unknown>) => ({
     id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null,
-    memoryId: 'mem-ada', agent: { id: 'ag-coord', name: 'Coordinator' }, heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
+    memoryId: 'mem-ada', agent: { id: 'ag-coord', name: 'Coordinator', systemMemoryId: 'mem-sys' }, family: 'claude', hasLiveSession: true, heldByUserId: 'u1', heldAt: '2026-10-01T00:00:00.000Z',
     ...over,
   });
   function menuOf(target: HTMLElement, name: string) {
@@ -208,14 +209,17 @@ describe('Worker agents tab (#1009)', () => {
     expect(nameCell.textContent?.replace(/\s+/g, '')).toContain('hrn:worker:acme.com:team:ada');
   });
 
-  it('an active worker you hold: Edit, Open working memory, Open role agent, Release, Retire', async () => {
+  it('an active worker you hold: Edit, Open working memory, Open system memory, Open role agent, Release, Retire', async () => {
     const target = await mountStaff([worker({})]);
     expect(menuOf(target, 'Ada')).toEqual([
       ['Edit', '/app/workers/w1?tab=briefing&view=source'],
       ['Open working memory', '/app/memories/mem-ada'],
+      ['Open system memory', '/app/memories/mem-sys'],
       ['Open role agent', '/app/agents/ag-coord'],
+      ['Pause…', null],
       ['Release', null],
       ['Retire', null],
+      ['Delete verified-unused worker', null],
     ]);
   });
 
@@ -225,7 +229,218 @@ describe('Worker agents tab (#1009)', () => {
       worker({ id: 'w3', name: 'Cy', heldByUserId: null, heldAt: null }),
     ]);
     expect(menuOf(target, 'Bo').map(([l]) => l)).toContain('Force-release');
-    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open role agent', 'Retire']);
+    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open system memory', 'Open role agent', 'Pause…', 'Retire', 'Delete verified-unused worker']);
+  });
+
+  // portal#1168 — the AI Team grid: Status and Model family in, Working memory
+  // and Agent columns out (both stay reachable from the ⋯ menu).
+  it('drops the Working memory and Agent columns, keeping both links in the menu', async () => {
+    const target = await mountStaff([worker({})]);
+    const heads = [...target.querySelectorAll('thead th')].map((th) => th.textContent?.trim() ?? '');
+    expect(heads.some((h) => h.startsWith('Working memory'))).toBe(false);
+    expect(heads.some((h) => h === 'Agent' || h.startsWith('Agent'))).toBe(false);
+    const items = menuOf(target, 'Ada');
+    expect(items).toContainEqual(['Open working memory', '/app/memories/mem-ada']);
+    expect(items).toContainEqual(['Open role agent', '/app/agents/ag-coord']);
+  });
+
+  it('the menu offers the role agent’s system memory only when the server shows it', async () => {
+    const target = await mountStaff([
+      worker({}),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', agent: { id: 'ag-x', name: 'X', systemMemoryId: null } }),
+    ]);
+    expect(menuOf(target, 'Ada')).toContainEqual(['Open system memory', '/app/memories/mem-sys']);
+    expect(menuOf(target, 'Bo').map(([l]) => l)).not.toContain('Open system memory');
+  });
+
+  it('shows a Model family column: the bound family, or a dash when none is shown', async () => {
+    const target = await mountStaff([
+      worker({}),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', family: null }),
+    ]);
+    expect(columnTexts(target, 'Model family')).toEqual(['claude', '—']);
+  });
+
+  it('shows a Status column that keeps masked apart from idle and never', async () => {
+    const target = await mountStaff([
+      worker({ id: 'w1', name: 'Ada', hasLiveSession: true }),
+      worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', hasLiveSession: false, lastActiveAt: '2026-10-14T10:00:00.000Z' }),
+      worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy', hasLiveSession: false, lastActiveAt: null }),
+      worker({ id: 'w4', name: 'Dee', urn: 'hrn:worker:acme.com:team:dee', hasLiveSession: null, lastActiveAt: null }),
+    ]);
+    expect(columnTexts(target, 'Status')).toEqual(['Active now', 'Idle', 'No recorded activity', 'Not shown to you']);
+  });
+
+  // portal#1168 (hadron-server#2178) — Task and Paused, from one bulk roster read.
+  const entry = (over: Record<string, unknown> = {}) => ({
+    checkStatus: { status: 'OK', pendingReason: null }, pausedUntil: null, currentTask: null, ...over,
+  });
+
+  it('shows each worker’s current task, linked, with its status; none is a dash', async () => {
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })],
+      { kind: 'ok', byWorker: {
+        w1: entry({ currentTask: { id: 't9', title: 'Ship the grid', status: 'STARTED' } }),
+        w2: entry(),
+      } },
+    );
+    expect(columnTexts(target, 'Task')[0]).toContain('Ship the grid');
+    expect(columnTexts(target, 'Task')[0]).toContain('Started');
+    expect(target.querySelector('a[href="/app/apps/a1/tasks/t9"]')).not.toBeNull();
+    expect(columnTexts(target, 'Task')[1]).toBe('—');
+  });
+
+  it('marks a paused worker from the server’s check status, not from pausedUntil alone', async () => {
+    const future = '2099-01-01T00:00:00.000Z';
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' }), worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy' })],
+      { kind: 'ok', byWorker: {
+        w1: entry({ checkStatus: { status: 'PENDING', pendingReason: 'PAUSED' }, pausedUntil: future }),
+        // An expired stored timestamp is history: the server says OK, so no badge.
+        w2: entry({ pausedUntil: '2020-01-01T00:00:00.000Z' }),
+        w3: entry({ checkStatus: { status: 'PENDING', pendingReason: 'TEAM_PAUSED' } }),
+      } },
+    );
+    const status = columnTexts(target, 'Status');
+    expect(status[0]).toContain('Paused');
+    expect(status[1]).not.toContain('Paused');
+    expect(status[2]).toContain('Team paused');
+  });
+
+  it('says plainly when the roster could not be read or is withheld, and never shows it as no tasks', async () => {
+    const failed = await mountStaff([worker({})], { kind: 'failed' });
+    expect(failed.textContent).toContain('Task and pause state could not be loaded');
+    // Riana/Glen: a failed or withheld roster must not read as "no task".
+    expect(columnTexts(failed, 'Task')[0]).toBe('Not available');
+    const hidden = await mountStaff([worker({})], { kind: 'hidden' });
+    expect(hidden.textContent).toContain('Task and pause state are not shown to you');
+    expect(columnTexts(hidden, 'Task')[0]).toBe('Not available');
+  });
+
+  // portal#1168 — Pause / Unpause. The portal offers the action and the server's
+  // gate decides; "Unpause" only when the SERVER's check status says paused.
+  const paused = () => ({ kind: 'ok', byWorker: { w1: entry({ checkStatus: { status: 'PENDING', pendingReason: 'PAUSED' }, pausedUntil: '2099-01-01T00:00:00.000Z' }) } });
+
+  it('offers Unpause only for a worker the server says is paused, and never on a team pause', async () => {
+    const target = await mountStaff([worker({})], paused());
+    expect(menuOf(target, 'Ada').map(([l]) => l)).toContain('Unpause');
+    expect(menuOf(target, 'Ada').map(([l]) => l)).not.toContain('Pause…');
+    const teamPaused = await mountStaff([worker({})], { kind: 'ok', byWorker: { w1: entry({ checkStatus: { status: 'PENDING', pendingReason: 'TEAM_PAUSED' } }) } });
+    const labels = menuOf(teamPaused, 'Ada').map(([l]) => l);
+    expect(labels).not.toContain('Unpause');
+  });
+
+  it('offers no pause action on a retired worker', async () => {
+    const target = await mountStaff([worker({ retiredAt: '2026-09-01T00:00:00.000Z' })]);
+    expect(menuOf(target, 'Ada').map(([l]) => l)).not.toContain('Pause…');
+  });
+
+  it('Pause… opens a dialog with an empty end time (no default) and cannot submit until one is chosen', async () => {
+    const target = await mountStaff([worker({})]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const dlg = target.querySelector<HTMLElement>('[role="dialog"][aria-label*="Pause"]');
+    expect(dlg).not.toBeNull();
+    const input = dlg!.querySelector<HTMLInputElement>('input[type="datetime-local"]')!;
+    expect(input.value).toBe('');
+    const submit = dlg!.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    expect(submit.disabled).toBe(true);
+    input.value = '2099-01-01T10:00';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    expect(submit.disabled).toBe(false);
+    const hidden = dlg!.querySelector<HTMLInputElement>('input[name="until"]')!;
+    expect(hidden.value).toBe(new Date('2099-01-01T10:00').toISOString());
+    expect(dlg!.querySelector<HTMLInputElement>('input[name="mode"]')!.value).toBe('pause');
+    expect(dlg!.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w1');
+  });
+
+  it('Unpause submits clear for THAT worker', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountStaff([worker({})], paused());
+    pick(target, 'Ada', 'Unpause');
+    await tick(2);
+    const form = target.querySelector<HTMLFormElement>('form[action="?/setWorkerPause"]')!;
+    expect(requestSubmit).toHaveBeenCalled();
+    expect(form.querySelector<HTMLInputElement>('input[name="workerId"]')!.value).toBe('w1');
+    expect(form.querySelector<HTMLInputElement>('input[name="mode"]')!.value).toBe('clear');
+    requestSubmit.mockRestore();
+  });
+
+  it('a worker the successful roster read did not return is “Not available”, not a quiet dash', async () => {
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })],
+      { kind: 'ok', byWorker: { w1: entry() } },
+    );
+    expect(columnTexts(target, 'Task')).toEqual(['—', 'Not available']);
+    expect(columnTexts(target, 'Status')[1]).toContain('Pause state unknown');
+  });
+
+  it('Unpause cannot be submitted twice while the first is pending', async () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    const target = await mountStaff([worker({})], paused());
+    pick(target, 'Ada', 'Unpause');
+    await tick(2);
+    pick(target, 'Ada', 'Unpause');
+    await tick(2);
+    expect(requestSubmit).toHaveBeenCalledTimes(1);
+    requestSubmit.mockRestore();
+  });
+
+  // Colin P2: a delayed answer for one worker/dialog must not act on another.
+  it('a delayed success for Ada does not close Bo’s fresh dialog or its draft', async () => {
+    const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const adaForm = target.querySelector<HTMLFormElement>('[role="dialog"] form')!;
+    const input = () => target.querySelector<HTMLInputElement>('[role="dialog"] input[type="datetime-local"]')!;
+    input().value = '2099-01-01T10:00';
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const delayed = await submitEnhancedDeferred(adaForm);
+    // Ada's dialog is dismissed and Bo's opened with a draft before the answer lands.
+    target.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')!.click();
+    flushSync();
+    pick(target, 'Bo', 'Pause…');
+    await tick(2);
+    input().value = '2099-02-02T10:00';
+    input().dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    await delayed.finish({ type: 'success', status: 200, data: { pauseResult: { ok: true, workerId: 'w1', message: 'Worker paused.' } } });
+    await tick(2);
+    expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(input().value).toBe('2099-02-02T10:00');
+  });
+
+  it('a delayed refusal for Ada does not appear inside Bo’s fresh dialog', async () => {
+    const target = await mountStaff([worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' })]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const adaForm = target.querySelector<HTMLFormElement>('[role="dialog"] form')!;
+    const delayed = await submitEnhancedDeferred(adaForm);
+    target.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')!.click();
+    flushSync();
+    pick(target, 'Bo', 'Pause…');
+    await tick(2);
+    await delayed.finish({ type: 'failure', status: 403, data: { pauseResult: { ok: false, workerId: 'w1', message: 'You can’t pause or unpause this worker.' } } });
+    await tick(2);
+    expect(target.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
+  });
+
+  it('a delayed answer after the SAME worker’s dialog was reopened is also ignored by the new dialog', async () => {
+    const target = await mountStaff([worker({})]);
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    const first = target.querySelector<HTMLFormElement>('[role="dialog"] form')!;
+    const delayed = await submitEnhancedDeferred(first);
+    target.querySelector<HTMLButtonElement>('[role="dialog"] button[type="button"]')!.click();
+    flushSync();
+    pick(target, 'Ada', 'Pause…');
+    await tick(2);
+    await delayed.finish({ type: 'failure', status: 500, data: { pauseResult: { ok: false, workerId: 'w1', message: 'Could not change the pause.' } } });
+    await tick(2);
+    expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(target.querySelector('[role="dialog"] [role="alert"]')).toBeNull();
   });
 
   // portal#1067 — who each worker reports to, next to last activity.
@@ -299,9 +514,9 @@ describe('Worker agents tab (#1009)', () => {
     expect(names(target)).toEqual(dir === 'ascending' ? ['Bo', 'Ada'] : ['Ada', 'Bo']);
   });
 
-  it('a retired worker keeps only the links: nothing to edit, release or retire', async () => {
+  it('a retired worker keeps the verified-unused repair alongside its links', async () => {
     const target = await mountStaff([worker({ id: 'w4', name: 'Dee', retiredAt: '2026-09-01T00:00:00.000Z' })]);
-    expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open role agent']);
+    expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open system memory', 'Open role agent', 'Delete verified-unused worker']);
   });
 
   // Cody's #1048 QA: the menu CONTENTS were pinned, the DISPATCH was not.
@@ -310,6 +525,113 @@ describe('Worker agents tab (#1009)', () => {
     flushSync();
     [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === label)!.click();
   }
+
+  it('deletes only the chosen row after an authoritative refresh; a refusal preserves both rows', async () => {
+    const oldShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+    const oldClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
+    let m: Mounted<Record<string, unknown>> | undefined;
+    try {
+      setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+      window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+      const data = await pageData();
+      const ada = worker({});
+      const bo = worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', retiredAt: '2026-09-01T00:00:00.000Z' });
+      const props = reactiveProps({ data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff: [ada, bo], teamRoster: { kind: 'unavailable' } }, form: null });
+      m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      await tick(2);
+      pick(m.target, 'Bo', 'Delete verified-unused worker'); await tick();
+      const dialog = m.target.querySelector('dialog')!;
+      expect(dialog.textContent).toContain('Bo');
+      expect(dialog.textContent?.replace(/\s+/g, '')).toContain('hrn:worker:acme.com:team:bo');
+      const form = dialog.querySelector('form')!;
+      expect(new FormData(form).get('workerRef')).toBe('w2');
+      const checkbox = form.querySelector<HTMLInputElement>('input[type=checkbox]')!;
+      checkbox.checked = true; checkbox.dispatchEvent(new Event('change', { bubbles: true })); await tick();
+      const response = (ok: boolean) => ({ type: ok ? 'success' as const : 'failure' as const, status: ok ? 200 : 400,
+        data: { deleteWorkerResult: { ok, workerRef: 'w2', message: 'Retire it instead.', code: 'WORKER_IN_USE' } } });
+      await submitEnhancedWithResult(form, response(false)); await tick();
+      expect(m.target.querySelector('a[href="/app/workers/w1"]')).not.toBeNull();
+      expect(m.target.querySelector('a[href="/app/workers/w2"]')).not.toBeNull();
+      expect(dialog.querySelector('[role=alert]')?.textContent).toBe('Retire it instead.');
+      navigationHooks.onInvalidateAll = async () => {
+        // The old roster remains until the simulated loader response arrives.
+        expect(m!.target.querySelector('a[href="/app/workers/w2"]')).not.toBeNull();
+        props.data = { ...props.data, staff: [ada] }; await tick();
+      };
+      await submitEnhancedWithResult(form, response(true)); await tick();
+      expect(m.target.querySelector('a[href="/app/workers/w1"]')).not.toBeNull();
+      expect(m.target.querySelector('a[href="/app/workers/w2"]')).toBeNull();
+    } finally {
+      m?.unmount();
+      for (const [key, old] of [['showModal', oldShow], ['close', oldClose]] as const) {
+        if (old) Object.defineProperty(HTMLDialogElement.prototype, key, old);
+        else Reflect.deleteProperty(HTMLDialogElement.prototype, key);
+      }
+    }
+  });
+
+  it.each([
+    { name: 'same-App refresh preserves the dialog and pending refusal', changesApp: false },
+    { name: 'a different App closes the dialog and discards its late refusal', changesApp: true },
+  ])('#1272: $name', async ({ changesApp }) => {
+    const oldShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+    const oldClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
+    let m: Mounted<Record<string, unknown>> | undefined;
+    try {
+      setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+      window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+      const data = await pageData();
+      const props = reactiveProps({ data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff: [worker({})], teamRoster: { kind: 'unavailable' } }, form: null });
+      m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      await tick(2);
+      pick(m.target, 'Ada', 'Delete verified-unused worker'); await tick();
+      const dialog = m.target.querySelector('dialog')!;
+      const form = dialog.querySelector('form')!;
+      const checkbox = form.querySelector<HTMLInputElement>('input[type=checkbox]')!;
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true })); await tick();
+      const pending = await submitEnhancedDeferred(form); await tick();
+      expect(dialog.querySelector('[role=status]')?.textContent).toContain('Deleting');
+
+      // SvelteKit replaces the App object on revalidation, even when its ID is unchanged.
+      props.data = { ...props.data, app: { ...props.data.app,
+        ...(changesApp ? { id: 'a2', urn: 'hrn:app:acme.com:other', name: 'Other App' } : {}),
+      } };
+      await tick(2);
+      if (changesApp) {
+        expect(m.target.querySelector('dialog')).toBeNull();
+      } else {
+        expect(m.target.querySelector('dialog')).toBe(dialog);
+        expect(checkbox.checked).toBe(true);
+        expect(dialog.querySelector('[role=status]')?.textContent).toContain('Deleting');
+        expect((await submitEnhanced(form)).cancelled).toBe(true);
+      }
+      await pending.finish({ type: 'failure', status: 400, data: {
+        deleteWorkerResult: { ok: false, workerRef: 'w1', code: 'WORKER_IN_USE', message: 'Retire it instead.' },
+      } });
+      await tick(2);
+      if (changesApp) {
+        expect(m.target.querySelector('dialog')).toBeNull();
+        expect(m.target.textContent).not.toContain('Retire it instead.');
+      } else {
+        expect(m.target.querySelector('dialog')).toBe(dialog);
+        expect(dialog.querySelector('[role=alert]')?.textContent).toBe('Retire it instead.');
+        expect(dialog.querySelector('[role=status]')).toBeNull();
+        expect(new FormData(form).get('workerRef')).toBe('w1');
+      }
+      expect(m.target.querySelector('a[href="/app/workers/w1"]')).not.toBeNull();
+    } finally {
+      m?.unmount();
+      for (const [key, old] of [['showModal', oldShow], ['close', oldClose]] as const) {
+        if (old) Object.defineProperty(HTMLDialogElement.prototype, key, old);
+        else Reflect.deleteProperty(HTMLDialogElement.prototype, key);
+      }
+    }
+  });
 
   it('picking Retire submits the retire form for THAT worker, uncancelled', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -359,9 +681,9 @@ describe('Worker agents tab (#1009)', () => {
     expect(names).toEqual(['Bo']);
   });
 
-  it('a retired worker with no memory and no agent gets no ⋯ at all, not an empty menu', async () => {
+  it('a retired worker without linked objects still offers the server-verified repair', async () => {
     const target = await mountStaff([worker({ id: 'w5', name: 'Eve', retiredAt: '2026-09-01T00:00:00.000Z', memoryId: null, agent: null })]);
-    expect(target.querySelector('button[aria-label="Actions for Eve"]')).toBeNull();
+    expect(menuOf(target, 'Eve').map(([label]) => label)).toEqual(['Delete verified-unused worker']);
   });
 });
 
@@ -592,6 +914,87 @@ describe('App key inventory states (portal#1068)', () => {
   });
 });
 
+// portal#1148 (hadron-server#2089): a roster the server WITHHOLDS (null) is not an empty roster,
+// not a failed fetch, and not "no agent". Each known-empty control keeps its existing copy.
+describe('withheld App rosters (portal#1148)', () => {
+  const agent = { id: 'ag1', urn: 'hrn:agent:acme.com:coordinator', name: 'Coordinator', personaRole: 'coordinator' };
+  async function mountTab(tab: string, appOver: Record<string, unknown>, dataOver: Record<string, unknown> = {}) {
+    setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
+    const data = await pageData();
+    const memberForms = {
+      addMemberForm: await superValidate(zod4(addAppMemberSchema), { errors: false }),
+      ensureMemberForm: await superValidate(zod4(ensureAppMemberSchema), { errors: false }),
+      removeMemberForm: await superValidate(zod4(removeAppMemberSchema), { errors: false }),
+    };
+    const m = mountComponent(Page as never, reactiveProps({
+      data: { ...data, ...memberForms, initialTab: tab, app: { ...data.app, ...appOver }, ...dataOver }, form: null,
+    }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target.querySelector(`#panel-${tab}`)!;
+  }
+  const WITHHELD_AGENTS = 'The agents installed in this App aren’t visible to you.';
+
+  it('Agents tab: null agents says withheld, never "No agents are installed", and offers no add', async () => {
+    const panel = await mountTab('agents', { agents: null });
+    expect(panel.textContent).toContain(WITHHELD_AGENTS);
+    expect(panel.textContent).not.toContain('No agents are installed in this App yet.');
+    expect(panel.querySelector('form[action="?/addAgent"]')).toBeNull();
+  });
+  it('Agents tab: known-empty control — [] keeps "No agents are installed"', async () => {
+    const panel = await mountTab('agents', { agents: [] });
+    expect(panel.textContent).toContain('No agents are installed in this App yet.');
+    expect(panel.textContent).not.toContain(WITHHELD_AGENTS);
+  });
+  it('AI Team tab: null agents never claims there is nothing to cast', async () => {
+    const panel = await mountTab('staff', { agents: null });
+    expect(panel.textContent).toContain('who can be cast here isn’t known');
+    expect(panel.textContent).not.toContain('No agents are installed in this App yet, so there is nothing to cast');
+  });
+  it('AI Team tab: known-empty control — [] keeps the nothing-to-cast copy', async () => {
+    const panel = await mountTab('staff', { agents: [] });
+    expect(panel.textContent).toContain('nothing to cast');
+  });
+
+  it('Human Team: withheld members say so — not "No members yet.", not a failed fetch, no count, no add form', async () => {
+    const panel = await mountTab('members', { agent: { id: 'ag1', name: 'Coordinator', installationPolicy: { maxMembers: 'unlimited', memberRoles: ['member'] } }, agents: [agent] }, { members: [], membersError: false, membersWithheld: true });
+    expect(panel.textContent).toContain('The members of this App aren’t visible to you.');
+    expect(panel.textContent).not.toContain('No members yet.');
+    expect(panel.textContent).not.toContain('could not be loaded');
+    expect(panel.textContent).not.toMatch(/Human Team\s*\(0/);
+    expect(panel.textContent).not.toContain('Add member');
+  });
+  it('Human Team: known-empty control — an authorized owner with [] still sees "No members yet."', async () => {
+    const panel = await mountTab('members', { agents: [agent] }, { members: [], membersError: false, membersWithheld: false });
+    expect(panel.textContent).toContain('No members yet.');
+    expect(panel.textContent).not.toContain('aren’t visible to you');
+  });
+  it('Human Team: a failed fetch stays its own state', async () => {
+    const panel = await mountTab('members', { agents: [agent] }, { members: [], membersError: true, membersWithheld: false });
+    expect(panel.textContent).toContain('could not be loaded');
+    expect(panel.textContent).not.toContain('aren’t visible to you');
+  });
+  it('Human Team: a null agent with a withheld roster does not claim "no Agent linked"', async () => {
+    const panel = await mountTab('members', { agent: null, agentId: null, agents: null }, { members: [], membersError: false, membersWithheld: true });
+    expect(panel.textContent).not.toContain('This App has no Agent linked yet');
+    expect(panel.textContent).toContain('Which Agent is linked to this App isn’t visible to you.');
+  });
+  it('Human Team: known-empty control — a null agent with a real [] roster still says no Agent is linked', async () => {
+    const panel = await mountTab('members', { agent: null, agentId: null, agents: [] }, { members: [], membersError: false, membersWithheld: false });
+    expect(panel.textContent).toContain('This App has no Agent linked yet');
+  });
+
+  it('Chats tab: null agentId + null agents is withheld, not "Link a chatbot agent"', async () => {
+    const panel = await mountTab('chats', { surfaces: ['chat'], agentId: null, agent: null, agents: null }, { chatConfigs: [], selectedChatKey: AGENT_CHAT_KEY });
+    expect(panel.textContent).toContain('isn’t visible to you, so agent chat isn’t available here');
+    expect(panel.textContent).not.toContain('Link a chatbot agent to enable agent chat');
+  });
+  it('Chats tab: known-empty control — null agentId + [] still says link a chatbot agent', async () => {
+    const panel = await mountTab('chats', { surfaces: ['chat'], agentId: null, agent: null, agents: [] }, { chatConfigs: [], selectedChatKey: AGENT_CHAT_KEY });
+    expect(panel.textContent).toContain('Link a chatbot agent to enable agent chat');
+  });
+});
+
 describe('Chats tab, no LLM config (#1007/#1008, Cody on #1034)', () => {
   it('sends the reader to AI Service Configs, where the providers now live', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
@@ -722,4 +1125,64 @@ describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
     await settle();
     expect(requestSubmit).toHaveBeenCalledTimes(1);
   });
+});
+
+
+describe('Cast role follows the selected Agent (#1319)', () => {
+  it('has no role input and updates the read-only role when the Agent changes', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [
+      { id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
+      { id: 'agent-b', name: 'QA Engineer', urn: 'hrn:agent:acme.com:qa', personaRole: 'qa-engineer' },
+    ] });
+    data.initialTab = 'staff';
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const open = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker');
+    expect(open).toBeDefined();
+    open!.click();
+    await tick(2);
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    expect(form).not.toBeNull();
+    expect(form.querySelector('[name="role"]')).toBeNull();
+    expect(new FormData(form).has('role')).toBe(false);
+    const role = form.querySelector('#castRole')!;
+    expect(role.textContent).toContain('Select an agent to see its role.');
+    const agent = form.querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    for (const [id, expected] of [['agent-a', 'portal-engineer'], ['agent-b', 'qa-engineer'], ['', 'Select an agent to see its role.']]) {
+      agent.value = id;
+      agent.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(2);
+      expect(role.textContent).toContain(expected);
+      const expectedUrn = id === 'agent-a' ? 'hrn:agent:acme.com:portal' : id === 'agent-b' ? 'hrn:agent:acme.com:qa' : null;
+      const urnCopies = form.querySelectorAll('button[title="Copy URN"]');
+      expect(urnCopies).toHaveLength(expectedUrn ? 1 : 0);
+      if (expectedUrn) expect(form.querySelector(`span[title="${expectedUrn}"]`)).not.toBeNull();
+      expect(new FormData(form).has('role')).toBe(false);
+    }
+  });
+
+  it.each([null, '', '   '])('shows an explicit no-role state for a restored selected Agent with role %j', async (personaRole) => {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [
+      { id: 'roleless', name: 'Changed Agent', urn: 'hrn:agent:acme.com:changed', personaRole },
+      { id: 'valid', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
+    ] });
+    data.initialTab = 'staff';
+    Object.assign(data.castWorkerForm.data, { agentId: 'roleless' });
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    await tick(2);
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    expect(form.querySelector('#castRole')?.textContent).toContain('This agent has no role. Choose a different agent.');
+    expect(form.querySelector('#castRole')?.textContent).not.toContain('Select an agent');
+    expect(form.querySelector('[name="role"]')).toBeNull();
+    expect(form.querySelector('span[title="hrn:agent:acme.com:changed"]')).not.toBeNull();
+  });
+
 });

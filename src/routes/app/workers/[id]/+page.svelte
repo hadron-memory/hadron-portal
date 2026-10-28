@@ -15,6 +15,8 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { updateBriefingSchema, type UpdateBriefingForm } from './schema';
   import { t } from '$lib/i18n/t';
+  import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
+  import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
   import { isHeld, workerHold } from '$lib/worker-hold';
   import { reportsToOf } from '$lib/worker-reports-to';
   import type { PageData } from './$types';
@@ -512,6 +514,23 @@
 
   {#if activeTab === 'briefing'}
     <div id="panel-briefing" role="tabpanel" aria-labelledby="tab-briefing" tabindex="0" class="space-y-4 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+      <!-- portal#1142 S8: the worker's boot-prompt pointer (hadron-server#2219).
+           Offered by the worker's APP manager audit only, outside every hold
+           affordance: holding the worker grants nothing here (R23). -->
+      <section class="max-w-lg rounded-lg border border-zinc-200 p-4 dark:border-zinc-800" aria-labelledby="worker-boot-pointer-title">
+        <h2 id="worker-boot-pointer-title" class="mb-2 font-semibold text-zinc-900 dark:text-white">{t('boot-pointer.worker.heading', 'Boot prompt pointer')}</h2>
+        <!-- Re-keyed per worker: the page component is reused across /workers/A → B
+             (#251), and a draft typed for A must never post to B (George, #1246). -->
+        {#key data.worker.id}
+        <BootPromptPointer
+          read={data.bootPointer}
+          canManage={data.canManageWorkerApp}
+          action={showSource ? '?tab=briefing&view=source&/setBootPrompt' : '?tab=briefing&/setBootPrompt'}
+          result={pointerResultFor((form as { pointer?: PointerResult } | null)?.pointer, data.bootPointerKey)}
+          idPrefix="worker-boot-pointer"
+        />
+        {/key}
+      </section>
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">
           <h2 class="font-semibold text-zinc-900 dark:text-white">

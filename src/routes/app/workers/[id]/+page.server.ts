@@ -5,13 +5,8 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
-import {
-  TEAM_WORK_ITEMS_QUERY,
-  UPDATE_WORKER_MUTATION,
-  UPDATE_WORKER_SIGNATURE_MUTATION,
-  WORKER_QUERY,
-  WORKER_SESSIONS_QUERY,
-} from '$lib/server/queries';
+import { SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_MUTATION, UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import { loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
@@ -142,9 +137,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // classified on its own (ok / not-participant / failed) and never throws, so
   // neither can blank the rest of the page. The App's settings only supply the
   // wake-rate floor line; without a readable App there is nothing to ask.
-  const [wake, wakeAppSettings] = await Promise.all([
+  const [wake, wakeAppSettings, bootPointer, canManageWorkerApp] = await Promise.all([
     loadWakeSettings(client, worker.id),
     worker.app?.id ? loadAppTickerSettings(client, worker.app.id) : Promise.resolve(null),
+    // portal#1142 S8: the worker's boot-prompt pointer, and whether to offer
+    // its form. The setter belongs to the worker's APP manager (R23): holding
+    // the worker grants nothing, so nothing here reads who holds it.
+    readPointer(
+      () => client.request<{ worker: { bootPromptRef: string | null; bootPromptTargetDeleted: boolean | null } | null }>(WORKER_BOOT_POINTER_QUERY, { ref: worker.id }),
+      (r) => r.worker,
+      `worker ${worker.id}`,
+    ),
+    selfCanManage(client, locals.user?.id, worker.app?.urn),
   ]);
 
   // #1010: seeded with the worker's CURRENT override, so the Source view opens
@@ -184,10 +188,20 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     wake,
     wakeAppSettings,
     wakeLoadedAt: new Date().toISOString(),
+    bootPointer,
+    canManageWorkerApp,
+    // The key a pointer result carries (the action's own params.id).
+    bootPointerKey: params.id,
   };
 };
 
 export const actions: Actions = {
+  // portal#1142 S8 (hadron-server#2219): set or clear the worker's pointer.
+  // The worker's App manager, as themselves; the server decides.
+  setBootPrompt: async ({ request, params, locals }) =>
+    pointerAction(await request.formData(), 'app', params.id, (nodeRef) =>
+      gqlClient(locals.token).request(SET_WORKER_BOOT_PROMPT_MUTATION, { workerRef: params.id, nodeRef })),
+
   /**
    * portal#1142 P4 (hadron-server#1602 / #2120) — save the signature and/or
    * trailer TEMPLATE. Only a field the page showed AND the reader changed is

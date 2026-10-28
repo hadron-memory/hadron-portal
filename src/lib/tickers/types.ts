@@ -16,6 +16,13 @@ export interface TickerChannel {
   name: string;
 }
 
+/**
+ * Why a ticker fires (server `TickerReason`, hrn:node:hadronmemory.com:specs:cor:agt:080:01). Closed
+ * and any-of on the server, but typed open here: a value this build does not know renders as its raw
+ * name instead of being dropped or turned into a known one.
+ */
+export type TickerReasonName = 'READ_TEAM_CHANNEL' | 'EVERY_TICK' | 'LIVE_CHECK';
+
 export interface Ticker {
   id: string;
   name: string;
@@ -29,6 +36,8 @@ export interface Ticker {
   /** Raw JSON: `{ timezone, windows: [{ days, from, to }] }`, or null. Parse with `parseQuietHours`. */
   quietHours: unknown;
   relevance: 'ALL' | 'MENTIONS';
+  /** Why it fires; any one is enough. Empty never fires (the server refuses to store it). */
+  reasons: (TickerReasonName | (string & {}))[];
   /** Empty means every channel the subscriber watches. */
   channels: TickerChannel[];
   owner: ActorRef | null;

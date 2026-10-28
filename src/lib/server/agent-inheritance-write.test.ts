@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { baseVariables, indexVariables, loadInheritanceManagement, SELF_AGENT_MANAGE_QUERY } from './agent-inheritance-write';
 describe('Agent inheritance writes', () => {
   it('makes clearing the base explicit', () => {
@@ -42,4 +42,56 @@ it('keeps manager controls available when an index identity cannot render', asyn
   expect(result.error).toBeNull();
   expect(result.tasksNode).toBeNull();
   expect(result.refs?.tasksIndexRef).toBe('tasks-id');
+});
+const fetchOwnedAgents = vi.fn();
+vi.mock('$lib/server/personal-agents', () => ({ fetchOwnedAgents: (...a: unknown[]) => fetchOwnedAgents(...a) }));
+import { loadBaseCandidates } from './agent-inheritance-write';
+import { APP_ORG_AGENTS_QUERY, APP_ORG_AGENT_GRANTS_QUERY } from './queries';
+describe('Parent-agent picker candidates', () => {
+  const self = { id: 'child', name: 'Child', urn: 'hrn:agent:example.com:child' };
+  beforeEach(() => { fetchOwnedAgents.mockReset(); });
+  it('offers the organization agents for an org agent, minus itself', async () => {
+    const request = vi.fn().mockResolvedValue({ organization: { agents: [self, { id: 'org-b', name: 'Org Peer', urn: 'hrn:agent:example.com:org-b' }] } });
+    const result = await loadBaseCandidates({ request } as never, 'token', 'org-1', 'child');
+    expect(request).toHaveBeenCalledWith(APP_ORG_AGENTS_QUERY, { ref: 'org-1' });
+    expect(result?.map((a) => a.id)).toEqual(['org-b']);
+  });
+  it('offers the caller-owned agents for a personal agent, minus itself', async () => {
+    const request = vi.fn();
+    fetchOwnedAgents.mockResolvedValueOnce([self, { id: 'own-b', name: 'Own Peer', urn: 'hrn:agent:example.com:own-b' }]);
+    const result = await loadBaseCandidates({ request } as never, 'token', null, 'child');
+    expect(request).not.toHaveBeenCalled();
+    expect(result?.map((a) => a.id)).toEqual(['own-b']);
+  });
+  it('returns null — not an empty list — when the candidate read fails', async () => {
+    const request = vi.fn().mockRejectedValue(new Error('offline'));
+    await expect(loadBaseCandidates({ request } as never, 'token', 'org-1', 'child')).resolves.toBeNull();
+    fetchOwnedAgents.mockRejectedValueOnce(new Error('offline'));
+    await expect(loadBaseCandidates({ request } as never, 'token', null, 'child')).resolves.toBeNull();
+  });
+});
+
+describe('#1278 licensed and subscribed parent candidates', () => {
+  const agent = (id: string) => ({ id, name: id, urn: `hrn:agent:example.com:${id}` });
+  const grant = (id: string, over = {}) => ({ isActive: true, revokedAt: null, expiresAt: null, agent: agent(id), ...over });
+  const client = (grants: unknown[], failGrants = false) => ({ request: vi.fn(async (query: string) => {
+    if (query === APP_ORG_AGENTS_QUERY) return { organization: { agents: [agent('child'), agent('owned')] } };
+    if (query === APP_ORG_AGENT_GRANTS_QUERY) {
+      if (failGrants) throw new Error('grants unavailable');
+      return { organization: { agentOrgGrants: grants } };
+    }
+    throw new Error('unexpected query');
+  }) });
+  it('adds active licensed cross-org and subscribed PUBLIC agents, dedupes and excludes self', async () => {
+    const c = client([grant('licensed'), grant('public'), grant('licensed'), grant('owned'), grant('child')]);
+    expect((await loadBaseCandidates(c as never, 'token', 'org-1', 'child'))?.map(a => a.id)).toEqual(['owned', 'licensed', 'public']);
+    expect(c.request).toHaveBeenCalledWith(APP_ORG_AGENT_GRANTS_QUERY, { ref: 'org-1' });
+  });
+  it('does not offer inactive, revoked, expired or unreadable grants', async () => {
+    const c = client([grant('inactive', { isActive: false }), grant('revoked', { revokedAt: '2020-01-01T00:00:00Z' }), grant('expired', { expiresAt: '2020-01-01T00:00:00Z' }), grant('hidden', { agent: null }), grant('live', { expiresAt: '2099-01-01T00:00:00Z' })]);
+    expect((await loadBaseCandidates(c as never, 'token', 'org-1', 'child'))?.map(a => a.id)).toEqual(['owned', 'live']);
+  });
+  it('a failed grant read leaves owned candidates available', async () => {
+    expect((await loadBaseCandidates(client([], true) as never, 'token', 'org-1', 'child'))?.map(a => a.id)).toEqual(['owned']);
+  });
 });

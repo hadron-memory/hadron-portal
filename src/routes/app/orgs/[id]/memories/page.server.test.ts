@@ -7,6 +7,7 @@
  * `gqlClient` and routes by query identity, as in the sibling loader tests.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   DELETE_MEMORY_MUTATION,
   DELETE_MEMORY_SUBSCRIPTION_MUTATION,
@@ -146,6 +147,7 @@ describe('memories-list load() — initialTab (#556)', () => {
       syncAllForm: { data: { _kind: string } };
       unsubscribeForm: { data: { memoryId: string } };
     };
+    expectDistinctFormIds(result, 4);
     expect(result.subscribeForm.data).toMatchObject({ memoryId: '', role: 'READER' });
     expect(result.deleteForm.data.id).toBe('');
     expect(result.syncAllForm.data._kind).toBe('syncMemories');

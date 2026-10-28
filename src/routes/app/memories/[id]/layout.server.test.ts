@@ -12,6 +12,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MEMORY_BY_ID_QUERY,
+  SELF_CAN_WRITE_QUERY,
   MEMORY_NODES_QUERY,
   MEMORY_EDGES_QUERY,
   MEMORY_USAGE_SUMMARY_QUERY,
@@ -179,5 +180,31 @@ describe('memory-detail layout — slim graph fetch (#447)', () => {
     expect(data.nodesFailed).toBe(true);
     expect(data.nodesTotal).toBeNull();
     expect(data.graphNodes).toHaveLength(0);
+  });
+});
+
+
+describe('reader-shared memory controls (#646)', () => {
+  it.each([false, true])('carries the server write decision %s for the current user and memory URN', async (canWrite) => {
+    routeMock({});
+    const normal = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation((q, v) => q === SELF_CAN_WRITE_QUERY
+      ? Promise.resolve({ effectiveAccess: { canWrite } }) : normal(q, v));
+    const event = ev();
+    event.locals.user = { id: 'reader-user' } as any;
+    const data = await (await importLoad())(event) as any;
+    expect(mockRequest).toHaveBeenCalledWith(SELF_CAN_WRITE_QUERY, { user: 'reader-user', resource: 'org::mem' });
+    expect(data.canWriteMemory).toBe(canWrite);
+  });
+  it('keeps the memory readable but offers no writes when the access check fails', async () => {
+    routeMock({});
+    const normal = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation((q, v) => q === SELF_CAN_WRITE_QUERY
+      ? Promise.reject(new Error('access service unavailable')) : normal(q, v));
+    const event = ev();
+    event.locals.user = { id: 'reader-user' } as any;
+    const data = await (await importLoad())(event) as any;
+    expect(data.graph.id).toBe('mem-1');
+    expect(data.canWriteMemory).toBe(false);
   });
 });
