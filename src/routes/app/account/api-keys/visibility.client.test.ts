@@ -3,7 +3,7 @@ import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick } from '$lib/test/mountComponent';
-import { submitEnhanced, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import Page from './+page.svelte';
 import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
@@ -49,4 +49,32 @@ it('submits the picked id and explicit boolean, blocks duplicate submits while p
   await deferred.finish({type:'failure',status:500,data:{visibility:{type:'error',text:'KEY_ACTIVE',id:'revoked'}}}); await tick(2);
   expect(root.querySelector('[role="alert"]')?.textContent).toContain('KEY_ACTIVE');
   expect(root.querySelector('[data-key-id="revoked"]')).not.toBeNull();
+});
+
+it.each([
+  ['revoked', 'success', true],
+  ['hidden', 'success', true],
+  ['revoked', 'failure', false],
+] as const)('refreshes the list after %s %s only when the write succeeds', async (id, type, invalidateAll) => {
+  const root = await mount();
+  const form = root.querySelector<HTMLFormElement>(`[data-key-id="${id}"] form`)!;
+  const update = vi.fn().mockResolvedValue(undefined);
+  expect(await submitEnhancedWithResult(form, {
+    type,
+    status: type === 'success' ? 200 : 500,
+    data: { visibility: { type: type === 'success' ? 'success' : 'error', text: 'Server response', id } },
+  }, { update })).toEqual({ cancelled: false });
+  expect(update).toHaveBeenCalledExactlyOnceWith({ reset: false, invalidateAll });
+});
+
+it.each([true, false])('retains the selected includeHidden=%s slice in the native revoke form', async (includeHidden) => {
+  const root = await mount(undefined, includeHidden);
+  (await menu(root, 'active'))[0].click();
+  await tick(2);
+  const form = root.querySelector<HTMLFormElement>('[data-testid="revoke-confirm"] form')!;
+  expect(form).not.toBeNull();
+  const action = new URL(form.action);
+  expect(action.searchParams.has('/revoke')).toBe(true);
+  expect(action.searchParams.get('includeHidden')).toBe(includeHidden ? 'true' : null);
+  expect(new FormData(form).get('id')).toBe('active');
 });
