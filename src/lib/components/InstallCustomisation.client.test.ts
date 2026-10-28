@@ -310,6 +310,36 @@ describe('UX draft and panel navigation boundaries', () => {
       expect(root.querySelector('textarea')?.value).toBe('unsaved draft');
     },
   );
+  it.each(['loading', 'not-shown', 'failed'])(
+    'does not prompt again for an accepted discard when the next replacement is %s',
+    async (state) => {
+      const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+      const m = mountComponent(Panel, { appRef: 'app-a', agent, canManage: true, onClose: vi.fn() });
+      mounted.push(m);
+      await settle();
+      const root = m.target;
+      button(root, 'Open').click();
+      await settle();
+      await edit(root, 'already discarded draft');
+      let resolve!: (response: Response) => void;
+      vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>((r) => { resolve = r; }));
+      button(root, 'Open').click();
+      await tick(4);
+      if (state !== 'loading') {
+        resolve(new Response(JSON.stringify({ ...payload(), replacement: { state } })));
+        await settle();
+      }
+      expect(root.querySelector('textarea')).toBeNull();
+      expect(confirm).toHaveBeenCalledOnce();
+      button(root, 'Close').click();
+      await tick(4);
+      expect(confirm).toHaveBeenCalledOnce();
+      if (state === 'loading') {
+        resolve(new Response(JSON.stringify({ ...payload(), replacement: { state: 'not-shown' } })));
+        await settle();
+      }
+    },
+  );
   it('allows navigation after an explicit discard confirmation', async () => {
     vi.stubGlobal(
       'fetch',
