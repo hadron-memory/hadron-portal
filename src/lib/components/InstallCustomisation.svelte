@@ -16,10 +16,12 @@
     appRef,
     agent,
     canManage,
+    onClose,
   }: {
     appRef: string;
     agent: { id: string; name: string; urn?: string | null };
     canManage: boolean | null;
+    onClose?: () => void;
   } = $props();
   let read = $state<CustomisationRead>({
     list: { state: 'loading' },
@@ -39,8 +41,37 @@
   let sequence = 0;
   let pendingSave = 0;
   let alive = true;
+  let heading = $state<HTMLHeadingElement>();
+  const secondaryButton =
+    'inline-flex items-center justify-center rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-sm font-medium text-zinc-800 hover:bg-zinc-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:border-zinc-200 disabled:bg-zinc-100 disabled:text-zinc-400 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700 dark:disabled:border-zinc-800 dark:disabled:bg-zinc-900 dark:disabled:text-zinc-600';
+  const unsaved = $derived(
+    ((loc !== null || creating) && draft.dirty) || (creating && (newLoc !== '' || name !== '')),
+  );
+  function mayDiscard() {
+    return (
+      !busy &&
+      (!unsaved ||
+        window.confirm(
+          t(
+            'customisation.discard-confirm',
+            'Discard unsaved customisation changes?',
+          ),
+        ))
+    );
+  }
+  function openPage(nextOffset: number, nextLoc: string | null) {
+    if (!mayDiscard()) return;
+    feedback = '';
+    void load(nextOffset, nextLoc, true);
+  }
+  function close() {
+    if (mayDiscard()) onClose?.();
+  }
+
   const rows = $derived(read.list.state === 'ok' ? read.list.value.nodes : []);
-  const columns: PortalColumnDef<Pick<InstallNode, 'id' | 'urn' | 'loc' | 'name'>>[] = [
+  const columns: PortalColumnDef<
+    Pick<InstallNode, 'id' | 'urn' | 'loc' | 'name'>
+  >[] = [
     {
       id: 'name',
       accessorFn: (row) => `${row.name} ${row.loc} ${row.urn ?? ''}`,
@@ -106,14 +137,21 @@
         };
     }
   }
+  export function reveal() {
+    if (!alive || !heading?.isConnected) return;
+    heading.focus();
+    heading.scrollIntoView?.({ block: 'nearest' });
+  }
   onMount(() => {
     void load();
+    reveal();
   });
   onDestroy(() => {
     alive = false;
     sequence++;
   });
   function start() {
+    if (!mayDiscard()) return;
     sequence++;
     pendingSave++;
     busy = false;
@@ -186,12 +224,15 @@
   }
 </script>
 <section aria-label={t('customisation.title','Customisation')} class="mt-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-  <h3 class="text-lg font-semibold text-zinc-900 dark:text-white">{t('customisation.title-for','Customisation for {name}',{name:agent.name})}</h3>
+  <div class="flex items-start justify-between gap-3">
+  <h3 bind:this={heading} tabindex="-1" class="min-w-0 text-lg font-semibold text-zinc-900 dark:text-white">{t('customisation.title-for','Customisation for {name}',{name:agent.name})}</h3>
+  {#if onClose}<button type="button" class={secondaryButton} disabled={busy} onclick={close}>{t('customisation.close','Close')}</button>{/if}
+  </div>
   {#if agent.urn}<div class="mt-1"><Urn value={agent.urn} compact /></div>{/if}
   <p class="mt-3 text-sm text-zinc-500">{t('customisation.not-served','Customisations are recorded but not used to start agents yet.')}</p>
   <p class="text-sm text-zinc-500">{t('customisation.compile-only','Replacements apply when compiling for this App. Ordinary node reads are unchanged.')}</p>
   {#if read.list.state==='loading'}<p role="status">{t('customisation.loading','Loading…')}</p>
-  {:else if read.list.state==='failed'}<p role="alert">{t('customisation.load-failed','Couldn’t load customisations.')}</p><button type="button" onclick={()=>load()}>{t('customisation.retry','Retry')}</button>
+  {:else if read.list.state==='failed'}<p role="alert">{t('customisation.load-failed','Couldn’t load customisations.')}</p><button type="button" class={secondaryButton} disabled={busy} onclick={()=>openPage(offset,loc)}>{t('customisation.retry','Retry')}</button>
   {:else if read.list.state==='not-shown'}<p>{t('customisation.not-shown','Not shown')}</p>
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
@@ -200,20 +241,20 @@
         <div class="min-w-0 whitespace-normal break-words font-medium">{cell.row.original.name}</div>
         <div class="mt-1 whitespace-normal break-all font-mono text-xs text-zinc-500">{cell.row.original.loc}</div>
         {#if cell.row.original.urn}<div class="mt-1 min-w-0"><Urn value={cell.row.original.urn} compact /></div>{/if}
-        <button type="button" class="mt-2 text-indigo-600 dark:text-indigo-400" onclick={()=>{feedback='';void load(offset,cell.row.original.loc,true);}}>{t('customisation.open','Open')}</button>
+        <button type="button" class={`mt-2 ${secondaryButton}`} disabled={busy} onclick={()=>openPage(offset,cell.row.original.loc)}>{t('customisation.open','Open')}</button>
       {/snippet}
     </DataTable>
-    <div class="mt-2 flex flex-wrap gap-3"><button type="button" disabled={offset===0} onclick={()=>load(Math.max(0,offset-20),null)}>{t('customisation.previous','Previous')}</button><button type="button" disabled={offset+20>=read.list.value.total} onclick={()=>load(offset+20,null)}>{t('customisation.next','Next')}</button><span>{t('customisation.total','{total} customisations',{total:String(read.list.value.total)})}</span></div>
+    <div class="mt-2 flex flex-wrap gap-3"><button type="button" class={secondaryButton} disabled={busy||offset===0} title={offset===0?t('customisation.first-page','Already on the first page'):undefined} onclick={()=>openPage(Math.max(0,offset-20),null)}>{t('customisation.previous','Previous')}</button><button type="button" class={secondaryButton} disabled={busy||offset+20>=read.list.value.total} title={offset+20>=read.list.value.total?t('customisation.last-page','No more customisations'):undefined} onclick={()=>openPage(offset+20,null)}>{t('customisation.next','Next')}</button><span>{t('customisation.total','{total} customisations',{total:String(read.list.value.total)})}</span></div>
   {/if}
-  {#if canManage!==false}<button type="button" class="mt-3 text-sm text-indigo-600 dark:text-indigo-400" onclick={start}>{t('customisation.start','Start customising')}</button>{/if}
+  {#if canManage!==false}<button type="button" class={`mt-3 ${secondaryButton}`} disabled={busy} onclick={start}>{t('customisation.start','Start customising')}</button>{/if}
   {#if loc||creating}
     <div class="mt-4 grid gap-4 md:grid-cols-2">
-      <div class="min-w-0"><h4 class="font-medium">{t('customisation.original','Original')}</h4>
+      <div class="min-w-0"><h4 class="font-semibold text-zinc-900 dark:text-zinc-100">{t('customisation.original','Original')}</h4>
       {#if read.original.state==='ok'&&typeof read.original.value.content==='string'&&!creating}<pre class="mt-2 whitespace-pre-wrap break-words text-sm">{read.original.value.content}</pre>
       {:else if read.original.state==='loading'&&!creating}<p role="status">{t('customisation.loading','Loading…')}</p>
       {:else if read.original.state==='failed'&&!creating}<p role="alert">{t('customisation.original-failed','Couldn’t load the original.')}</p>
       {:else}<p class="text-sm text-zinc-500">{t('customisation.original-hidden','Original not shown')}</p>{#if loc&&!loc.startsWith('boot:')&&loc!=='boot'}<p class="text-sm text-zinc-500">{t('customisation.base-hint','An inherited base may hold this loc, or your access may not show it.')}</p>{/if}{/if}</div>
-      <div class="min-w-0"><h4 class="font-medium">{t('customisation.replacement','Replacement')}</h4>
+      <div class="min-w-0"><h4 class="font-semibold text-zinc-900 dark:text-zinc-100">{t('customisation.replacement','Replacement')}</h4>
         {#if creating||(read.replacement.state==='ok'&&typeof read.replacement.value.content==='string')}
           {#if canManage!==false}
           <form method="POST" action={`?/`+(creating?'createCustomisation':'saveCustomisation')} onsubmit={save}>
@@ -226,7 +267,7 @@
         {:else if read.replacement.state==='loading'}<p role="status">{t('customisation.loading','Loading…')}</p>
         {:else if read.replacement.state==='failed'}<p role="alert">{t('customisation.node-failed','Couldn’t load this replacement.')}</p>
         {:else}<p>{t('customisation.not-shown','Not shown')}</p>{/if}
-        <button type="button" disabled={busy} onclick={()=>{feedback='';void load(offset,loc,true);}} class="mt-2 text-sm text-indigo-600 dark:text-indigo-400">{t('customisation.reload','Reload')}</button>
+        <button type="button" disabled={busy} onclick={()=>openPage(offset,loc)} class={`mt-2 ${secondaryButton}`}>{t('customisation.reload-discard','Reload and discard draft')}</button>
         {#if feedback}<p role={failed?'alert':'status'} class="mt-2 text-sm">{feedback}</p>{/if}
       </div>
     </div>

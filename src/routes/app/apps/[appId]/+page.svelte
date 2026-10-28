@@ -526,6 +526,7 @@
     }
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
+  let customisationPanel = $state<{ reveal: () => void }>();
   let customisationChoice = $state<{ appRef: string; agentId: string } | null>(null);
   const customisationAgent = $derived(
     customisationChoice?.appRef === data.bootPointerAppKey
@@ -554,6 +555,10 @@
   function onAgentAction(id: string, agent: InstalledAgent) {
     if (id === 'customisation') {
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
+      const appKey = data.bootPointerAppKey;
+      void tick().then(() => {
+        if (appKey === data.bootPointerAppKey && customisationAgent?.id === agent.id) customisationPanel?.reveal();
+      });
     } else if (id === 'set-boot-prompt') {
       choosePointerRow(pointerAgent?.id === agent.id ? null : agent.id);
     } else if (id === 'unlink') {
@@ -2537,7 +2542,12 @@
         </DataTable>
         {#if customisationAgent}
           {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
-            <InstallCustomisation appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} />
+            <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} onClose={async () => {
+              const label = t('app.agents.actions.label', 'Actions for {name}', { name: customisationAgent.name });
+              customisationChoice = null;
+              await tick();
+              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+            }} />
           {/key}
         {/if}
         {#if pointerAgent}
