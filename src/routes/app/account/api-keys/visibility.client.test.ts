@@ -23,6 +23,8 @@ it('keeps Show hidden keys discoverable with an empty default list', async () =>
   const root = await mount([], false);
   expect(root.querySelector('input[name="includeHidden"]')).not.toBeNull();
   expect(root.textContent).toContain('Show hidden keys');
+  expect(root.textContent).toContain('If you have hidden keys');
+  expect(root.textContent).not.toContain('keys you have hidden');
   expect(root.textContent).not.toContain('Delete');
 });
 it('offers Hide only on revoked visible keys, Unhide on hidden rows, and marks hidden state', async () => {
