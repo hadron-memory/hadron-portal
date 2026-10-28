@@ -25,12 +25,13 @@ async function mountBundled(extra: Record<string, unknown>) {
 
 describe('agent Bundled agents tab: withheld Apps', () => {
   it('shows the tab with the incomplete-list note even when no bundled agent is known', async () => {
-    const { root, tab } = await mountBundled({ bundledWithheldApps: 2 });
+    const { root, tab } = await mountBundled({ bundledMayBeIncomplete: true });
     expect(tab).toBeDefined();
-    expect(root.textContent).toContain('The agents installed in 2 App(s) aren’t visible to you, so this list may be incomplete.');
+    expect(root.textContent).not.toMatch(/\d+ App/);
+    expect(root.textContent).toContain('This list may be incomplete because some installed agents aren’t visible to you.');
   });
   it('known-empty control: nothing bundled and nothing withheld keeps the tab away', async () => {
-    const { tab } = await mountBundled({ bundledWithheldApps: 0 });
+    const { tab } = await mountBundled({ bundledMayBeIncomplete: false });
     expect(tab).toBeUndefined();
   });
 });

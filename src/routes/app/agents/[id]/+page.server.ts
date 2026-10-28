@@ -124,7 +124,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     name: string;
     urn: string;
     organizationId: string;
-    agentId: string | null;
+    // The install join. A row whose `agent` is null is an install withheld from
+    // the caller (#1350); `agents` silently drops it.
+    appAgents?: Array<{ agent: { id: string } | null }> | null;
     agents?: Array<{
       id: string;
       name: string;
@@ -204,8 +206,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     selfCanManage(client, locals.user?.id, agent.urn),
   ]);
 
-  // An agent can be installed into several apps (as the primary agentId or via
-  // the AppAgent join), and an app can host several agents — match on both.
+  // An agent can be installed into several apps, and an app can host several
+  // agents — match on the AppAgent join (`appAgents`) or the readable roster.
   const agentId = agent.id;
   // The two app lists can overlap for a platform admin, so de-dupe by app id
   // before anything counts or lists them.
@@ -214,7 +216,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     if (!appsById.has(a.id)) appsById.set(a.id, a);
   }
   const appsWithThisAgent = [...appsById.values()]
-    .filter((a) => a.agentId === agentId || (a.agents ?? []).some((x) => x.id === agentId));
+    .filter((a) =>
+      (a.appAgents ?? []).some((r) => r.agent?.id === agentId) ||
+      (a.agents ?? []).some((x) => x.id === agentId));
   const installedApps = appsWithThisAgent
     .map((a) => ({ id: a.id, name: a.name, urn: a.urn, orgId: a.organizationId }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -233,14 +237,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     id: string; name: string; urn: string; description: string | null;
     personaRole: string | null; via: string;
   }>();
-  // portal#1148 (hadron-server#2089): an App whose `agents` is null WITHHOLDS its roster, and the
-  // server withholds `agentId` with it — so such an App can be absent from `appsWithThisAgent`
-  // (the link-based filter above needs a visible link). Whether it installs this agent, and what
-  // its siblings are, is UNKNOWN, not "none": counted from ALL the Apps, before that filter, so
-  // the tab can say its list may be incomplete (George, LOCAL on #1150).
-  const bundledWithheldApps = [...appsById.values()].filter(
-    (a) => a.agents === null && (a.agentId === null || a.agentId === agentId),
-  ).length;
+  // portal#1350: an install the caller cannot read comes back as an `appAgents` row whose
+  // `agent` is null (`App.agents` drops it and `App.agentId` is masked, so neither can say so).
+  // Such an install means this list may be incomplete: hidden siblings, or a hidden App that
+  // installs this Agent. Read across ALL the Apps (deduplicated above), before the link filter.
+  // A missing/non-array `appAgents` is unknown, never proof of completeness. Boolean only:
+  // no hidden count, name, URN or id reaches the page.
+  const bundledMayBeIncomplete = [...appsById.values()].some(
+    (a) => !Array.isArray(a.appAgents) || a.appAgents.some((r) => !r || r.agent == null),
+  );
   for (const app of appsWithThisAgent) {
     for (const sibling of app.agents ?? []) {
       if (sibling.id === agentId || bundledById.has(sibling.id)) continue;
@@ -365,7 +370,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     bundleCandidates,
     bundleCandidatesError,
     nextImportPosition,
-    bundledWithheldApps,
+    bundledMayBeIncomplete,
     allOrgs: orgs,
     orgSystemMemories,
     // Empty for an org agent; the caller's own memories for a user-owned agent (#642).

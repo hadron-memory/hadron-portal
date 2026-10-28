@@ -3943,16 +3943,19 @@ const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
     name
     urn
     organizationId
-    agentId
     agents { id name urn description personaRole }
+    appAgents { agent { id } }
   }
 `;
 
 // #472 / hadron-server#2343: `agentId` narrows the read to Apps whose AppAgent
 // join installs this Agent, so the Agent detail load no longer drains every
 // App the caller can see. The match is the join, not `App.agents`, so an App
-// that WITHHOLDS its roster (#1148) still comes back (agents: null) and the
-// loader keeps counting it; an unreadable/unknown agent answers an empty page.
+// that hides an installed Agent from the caller still comes back, and the
+// loader reads that from `appAgents { agent { id } }` (#1350): a join row whose
+// `agent` is null is an install the caller cannot see. `App.agents` and
+// `App.agentId` drop/mask such rows, so neither can carry that signal.
+// An unreadable/unknown agent answers an empty page.
 export const AGENT_APPS_QUERY = /* GraphQL */ `
   ${AGENT_APP_LITE_FIELDS}
   query AgentApps($agentId: ID, $limit: Int, $offset: Int) {
