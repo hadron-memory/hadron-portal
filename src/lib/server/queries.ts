@@ -1532,6 +1532,27 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1355 (server#2562, #2517): the audit entries a HARD delete left on
+// this node when it removed edges the node held to the deleted target
+// (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). A separate record from NodeRevision — revisions stay
+// snapshots of the node's own fields — read through the same gate as
+// nodeRevisions. edgeLoc/targetLoc come back null when the deleted target's
+// memory is not one the viewer can read.
+export const NODE_EDGE_REMOVALS_QUERY = /* GraphQL */ `
+  query NodeEdgeRemovals($nodeRef: ID!, $limit: Int) {
+    nodeEdgeRemovals(nodeRef: $nodeRef, limit: $limit) {
+      id
+      edgeLoc
+      edgeName
+      targetId
+      targetLoc
+      reason
+      removedBy
+      createdAt
+    }
+  }
+`;
+
 // #529: a single revision's full snapshot (incl. content) for the read-only
 // "Display" view. Access-gated server-side; null when unreadable/missing.
 export const NODE_REVISION_QUERY = /* GraphQL */ `
