@@ -16,6 +16,19 @@
 import { t } from './t';
 
 export const apiKeysStrings = {
+  showHidden: (): string => t('api-keys.visibility.show', 'Show hidden keys'),
+  hide: (): string => t('api-keys.visibility.hide', 'Hide'),
+  unhide: (): string => t('api-keys.visibility.unhide', 'Unhide'),
+  hidden: (): string => t('api-keys.visibility.hidden', 'Hidden'),
+  apply: (): string => t('api-keys.visibility.apply', 'Apply'),
+  saving: (): string => t('api-keys.visibility.saving', 'Saving…'),
+  visibilityHelp: (): string => t('api-keys.visibility.help', 'Hide revoked keys from this list. You can show and unhide them later.'),
+  noVisibleKeys: (): string => t('api-keys.visibility.empty', 'No keys in this view. Show hidden keys to find revoked keys you have hidden.'),
+  invalidVisibility: (): string => t('api-keys.visibility.invalid', 'Choose a key and a valid Hide or Unhide action.'),
+  visibilityFailed: (): string => t('api-keys.visibility.failed', 'Could not change key visibility. Try again.'),
+  visibilitySuccess: (hidden: boolean): string => hidden
+    ? t('api-keys.visibility.hidden-success', 'API key hidden from the default list.')
+    : t('api-keys.visibility.unhidden-success', 'API key restored to the default list.'),
   /** Page-header heading. */
   pageHeading: (): string => t('api-keys.page.heading', 'API keys'),
 

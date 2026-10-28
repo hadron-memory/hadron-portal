@@ -37,8 +37,9 @@ it('submits the picked id and explicit boolean, blocks duplicate submits while p
   const root = await mount();
   const submit = vi.spyOn(HTMLFormElement.prototype,'requestSubmit').mockImplementation(()=>{});
   (await menu(root,'revoked'))[0].click(); await tick(3);
-  const form = root.querySelector<HTMLFormElement>('form[action="?/visibility"]')!;
+  const form = root.querySelector<HTMLFormElement>('form[action^="?/visibility"]')!;
   expect(submit.mock.contexts[0]).toBe(form);
+  expect(new URL(form.action).searchParams.get('includeHidden')).toBe('true');
   expect(new FormData(form).get('id')).toBe('revoked');
   expect(new FormData(form).get('hidden')).toBe('true');
   const deferred = await submitEnhancedDeferred(form); flushSync();

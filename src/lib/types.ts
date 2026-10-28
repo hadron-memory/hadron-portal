@@ -908,6 +908,7 @@ export interface AiServiceConfig {
 // ---------------------------------------------------------------------------
 
 export interface UserApiKey {
+  hiddenAt: string | null;
   id: string;
   keyPreview: string;
   label: string | null;

@@ -1,7 +1,7 @@
 /**
  * Spec 025-oauth-for-mcp US2 / T051 — /app/account/api-keys page server.
  *
- * Wraps the three Phase 1 GraphQL ops shipped in hadron-server:
+ * Uses the user-key GraphQL operations shipped in hadron-server:
  *   - Query `myUserApiKeys` — list every active + revoked key the caller
  *     owns. Returned newest-first by the resolver (PR #145 D6).
  *   - Mutation `createUserApiKey(label)` — mint one. Returns the raw
@@ -11,6 +11,8 @@
  *   - Mutation `revokeUserApiKey(id)` — flip `revokedAt`. Idempotent +
  *     race-safe; cross-user calls collapse to NOT_FOUND (no id-enumeration
  *     channel; see PR #145 review).
+ *   - Mutation `setUserApiKeyHidden(id, hidden)` — reversible list visibility
+ *     for a revoked own key; no deletion or token-validity change.
  *
  * Route home note: tasks.md T050 / T051 specified `/app/api-keys/` as the
  * URL; we landed at `/app/account/api-keys/` instead because user-scoped
@@ -23,21 +25,23 @@ import { fail } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
 import {
   MY_USER_API_KEYS_QUERY,
   CREATE_USER_API_KEY_MUTATION,
   REVOKE_USER_API_KEY_MUTATION,
+  SET_USER_API_KEY_HIDDEN_MUTATION,
 } from '$lib/server/queries';
 import type { UserApiKey, UserApiKeyCreateResult } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
+import { createUserApiKeySchema, revokeUserApiKeySchema, keyVisibilitySchema } from './schema';
 
 const createUserApiKeyFormAdapter = zod4(createUserApiKeySchema);
 const revokeUserApiKeyFormAdapter = zod4(revokeUserApiKeySchema);
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
+  const includeHidden = url?.searchParams.get('includeHidden') === 'true';
   const form = await superValidate({}, createUserApiKeyFormAdapter, { errors: false });
   const revokeForm = await superValidate({}, revokeUserApiKeyFormAdapter, { errors: false });
   // Auth gate: locals.token is set by the +layout.server.ts auth flow;
@@ -46,19 +50,20 @@ export const load: PageServerLoad = async ({ locals }) => {
   // an empty list rather than blow up — the page renders the "no keys"
   // empty state, and the actions below 401 cleanly.
   if (!locals.token) {
-    return { keys: [] as UserApiKey[], form, revokeForm };
+    return { keys: [] as UserApiKey[], includeHidden, form, revokeForm };
   }
   try {
     const data = await gqlClient(locals.token).request<{
       myUserApiKeys: UserApiKey[];
-    }>(MY_USER_API_KEYS_QUERY);
-    return { keys: data.myUserApiKeys, form, revokeForm };
+    }>(MY_USER_API_KEYS_QUERY, { includeHidden });
+    return { keys: data.myUserApiKeys, includeHidden, form, revokeForm };
   } catch (e) {
     // Same posture as other portal loaders: surface a friendly empty
     // state on transient failure rather than crashing the page. The
     // user can retry; nothing destructive happens.
     return {
       keys: [] as UserApiKey[],
+      includeHidden,
       form,
       revokeForm,
       loadError: extractGqlError(e, 'Could not load your API keys.'),
@@ -67,6 +72,26 @@ export const load: PageServerLoad = async ({ locals }) => {
 };
 
 export const actions: Actions = {
+  visibility: async ({ request, locals }) => {
+    const values = await request.formData();
+    const parsed = keyVisibilitySchema.safeParse({ id: values.get('id'), hidden: values.get('hidden') });
+    if (!locals.token) return fail(401, { visibility: { type: 'error' as const, text: i18n.notSignedIn() } });
+    if (!parsed.success) return fail(400, { visibility: { type: 'error' as const, text: i18n.invalidVisibility() } });
+    const { id, hidden } = parsed.data;
+    try {
+      await gqlClient(locals.token).request<{ setUserApiKeyHidden: Pick<UserApiKey, 'id' | 'hiddenAt'> }>(
+        SET_USER_API_KEY_HIDDEN_MUTATION, { id, hidden },
+      );
+      return { visibility: { type: 'success' as const, id, text: i18n.visibilitySuccess(hidden) } };
+    } catch (e) {
+      // Render only the server's plain refusal, never transport/request diagnostics.
+      const errors = (e as { response?: { errors?: { message?: string }[] } } | null)?.response?.errors;
+      const code = extractGqlErrorCode(e);
+      const refused = code !== null && ['BAD_USER_INPUT', 'NOT_FOUND', 'FORBIDDEN', 'UNAUTHENTICATED', 'SESSION_EXPIRED'].includes(code);
+      const text = refused && errors?.[0]?.message ? errors[0].message : i18n.visibilityFailed();
+      return fail(500, { visibility: { type: 'error' as const, id, text } });
+    }
+  },
   /**
    * Mint a new user-scoped API key. Surfaces the raw key EXACTLY ONCE
    * via the action return value; the +page.svelte form handler reads
