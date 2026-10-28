@@ -5,6 +5,7 @@ const mounted: ReturnType<typeof mountComponent>[] = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 const agent = {
   id: 'ag-a',
@@ -284,5 +285,36 @@ describe('special loc guidance', () => {
     await settle();
     expect(root.textContent).toContain('Original not shown');
     expect(root.textContent).not.toContain('An inherited base');
+  });
+});
+
+describe('UX draft and panel navigation boundaries',()=>{
+  it.each(['Open','Next','Previous','Start customising'])('keeps a dirty draft when %s discard is declined',async(action)=>{
+    const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+    const root=await panel();
+    if(action==='Previous'){button(root,'Next').click();await settle();}
+    button(root,'Open').click();await settle();await edit(root,'unsaved draft');
+    const count=vi.mocked(fetch).mock.calls.length;
+    button(root,action).click();await settle();
+    expect(confirm).toHaveBeenCalledOnce();expect(vi.mocked(fetch)).toHaveBeenCalledTimes(count);
+    expect(root.querySelector('textarea')?.value).toBe('unsaved draft');
+  });
+  it('allows navigation after an explicit discard confirmation',async()=>{
+    const confirm=vi.spyOn(window,'confirm').mockReturnValue(true);
+    const root=await panel();button(root,'Open').click();await settle();await edit(root,'unsaved draft');
+    button(root,'Next').click();await settle();expect(confirm).toHaveBeenCalledOnce();expect(root.querySelector('textarea')).toBeNull();
+  });
+  it('focuses and reveals the panel heading when opened',async()=>{
+    const scroll=vi.fn();const prior=Object.getOwnPropertyDescriptor(HTMLElement.prototype,'scrollIntoView');
+    Object.defineProperty(HTMLElement.prototype,'scrollIntoView',{configurable:true,value:scroll});
+    try{const root=await panel();expect(document.activeElement).toBe(root.querySelector('h3'));expect(scroll).toHaveBeenCalled();}
+    finally{if(prior)Object.defineProperty(HTMLElement.prototype,'scrollIntoView',prior);else delete (HTMLElement.prototype as any).scrollIntoView;}
+  });
+  it('confirms a dirty Close and closes only after acceptance',async()=>{
+    const close=vi.fn();const confirm=vi.spyOn(window,'confirm').mockReturnValue(false);
+    const m=mountComponent(Panel,{appRef:'app-a',agent,canManage:true,onClose:close});mounted.push(m);await settle();
+    button(m.target,'Open').click();await settle();await edit(m.target,'unsaved draft');
+    button(m.target,'Close').click();await settle();expect(close).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);button(m.target,'Close').click();await settle();expect(close).toHaveBeenCalledOnce();
   });
 });
