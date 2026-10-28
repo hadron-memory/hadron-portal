@@ -13,7 +13,7 @@ import { composeAgentTaskUrnV2, parseUrnV2 } from '$lib/urn/parse-urn';
  * still decides what is one.
  */
 
-/** cor:urn:010:01 — a handle is a URN leaf, at most 64 characters. */
+/** hrn:node:hadronmemory.com:specs:cor:urn:010:01 — a handle is a URN leaf, at most 64 characters. */
 export const MAX_HANDLE_LENGTH = 64;
 export const MAX_HANDLE_DEPTH = 16;
 const MAX_NUMBER = 9223372036854775807n;
