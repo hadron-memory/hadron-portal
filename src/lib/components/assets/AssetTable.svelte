@@ -24,6 +24,8 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
+  import PublicLinkConfirm from '$lib/components/assets/PublicLinkConfirm.svelte';
+  import { canSwitchPublicLink } from '$lib/assets/public-link';
   import Urn from '$lib/components/Urn.svelte';
   import { memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
   import { downloadAriaLabel, downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
@@ -83,6 +85,10 @@
     uploadedAt: string;
     uploader: string;
     publicUrl: string | null;
+    /** #1131: the server's switch signals; see $lib/assets/public-link. */
+    publicLinkEnabled: boolean;
+    canManagePublicLink: boolean;
+    publicLinkAvailable: boolean;
     description: string | null;
   }
 
@@ -121,8 +127,22 @@
     return uploaderNames[asset.uploadedBy] ?? asset.uploadedBy;
   }
 
+  // #1131: the server's answer to a public-link switch, by asset id. A row reads
+  // the answer in place of the listed asset, so the flag, capability AND
+  // `publicUrl` (and the thumbnail source that follows it) all move together on
+  // the server's word.
+  //
+  // Each answer remembers the LISTED object it was made against and only applies
+  // while that same object is still listed: a refetch hands over new objects and
+  // the answer drops (the list is newer), while the parent merely filtering a
+  // deleted row out keeps the others' objects, so their switch state survives.
+  // `$state.raw`, so the identity compared is the parent's, not a proxy of it.
+  let overrides = $state.raw<Record<string, { base: AssetSummary; asset: AssetSummary }>>({});
+
   const rows = $derived<AssetRow[]>(
-    assets.map((a) => {
+    assets.map((listed) => {
+      const answer = overrides[listed.id];
+      const a = answer && answer.base === listed ? answer.asset : listed;
       const parsed = new Date(a.uploadedAt);
       // Parse once per row: this ran twice before, for `memory` and `memoryUrn`
       // (PR #705 review, Copilot).
@@ -151,6 +171,9 @@
         uploadedAt: a.uploadedAt,
         uploader: uploaderLabel(a),
         publicUrl: a.publicUrl,
+        publicLinkEnabled: a.publicLinkEnabled,
+        canManagePublicLink: a.canManagePublicLink,
+        publicLinkAvailable: a.publicLinkAvailable,
         description: a.description,
       };
     }),
@@ -161,6 +184,9 @@
   let error = $state<string | null>(null);
   let copied = $state<string | null>(null);
   let pendingDelete = $state<string | null>(null);
+  let pendingLink = $state<string | null>(null);
+  /** Last switch outcome, shown beside the row's actions. */
+  let linkNote = $state<{ id: string; text: string } | null>(null);
 
   // `t()` resolves once, so a plain const is right here — a $derived would imply
   // runtime language switching the i18n boundary doesn't do, and rebuilding the
@@ -267,6 +293,23 @@
             ariaLabel: t('assets.copy-link.aria', 'Copy public link to {file}', { file: row.filename }),
           }]
         : []),
+      // #1131: present only when the SERVER says this reader may switch it and the
+      // deployment serves links; the label carries the current state.
+      ...(canSwitchPublicLink(row)
+        ? [row.publicLinkEnabled
+            ? {
+                id: 'public-link',
+                label: t('assets.public-link.turn-off', 'Turn off public link'),
+                title: t('assets.public-link.turn-off.title', 'Public link is on — anyone with it can download this file. Turn it off to stop the link working.'),
+                ariaLabel: t('assets.public-link.turn-off.aria', 'Turn off the public link for {file}', { file: row.filename }),
+              }
+            : {
+                id: 'public-link',
+                label: t('assets.public-link.turn-on', 'Turn on public link'),
+                title: t('assets.public-link.turn-on.title', 'Public link is off — turn it on to let anyone with the link download this file, no sign-in required'),
+                ariaLabel: t('assets.public-link.turn-on.aria', 'Turn on the public link for {file}', { file: row.filename }),
+              }]
+        : []),
       {
         id: 'delete',
         label: t('assets.delete', 'Delete'),
@@ -280,7 +323,24 @@
   function onAssetAction(id: string, row: AssetRow) {
     if (id === 'download') void download(row);
     else if (id === 'copy-link') void copyHotlink(row);
-    else if (id === 'delete') pendingDelete = row.id;
+    else if (id === 'public-link') {
+      linkNote = null;
+      pendingLink = row.id;
+    } else if (id === 'delete') pendingDelete = row.id;
+  }
+
+  function onLinkChanged(row: AssetRow, updated: AssetSummary) {
+    const base = assets.find((a) => a.id === row.id);
+    if (base) overrides = { ...overrides, [row.id]: { base, asset: updated } };
+    pendingLink = null;
+    linkNote = {
+      id: row.id,
+      text: !updated.publicLinkEnabled
+        ? t('assets.public-link.note.off', 'Public link turned off.')
+        : updated.publicUrl
+          ? t('assets.public-link.note.on', 'Public link turned on.')
+          : t('assets.public-link.note.on-no-url', 'Public link turned on, but the server has no link to show for it yet.'),
+    };
   }
 
   async function download(row: AssetRow) {
@@ -417,6 +477,17 @@
             class="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
           >{t('assets.delete.cancel', 'Cancel')}</button>
         </div>
+      {:else if pendingLink === row.id}
+        <!-- #1131: the switch's confirmation, in place like the delete confirm.
+             Keyed on the row so a row that re-renders as another asset can never
+             carry this panel's question over to it. -->
+        {#key row.id}
+          <PublicLinkConfirm
+            asset={row}
+            onchanged={(updated) => onLinkChanged(row, updated)}
+            oncancel={() => (pendingLink = null)}
+          />
+        {/key}
       {:else}
         <!-- #1020: Download, Copy public link and Delete live in the row's ⋯
              menu. Delete still expands the inline confirm above, in place. -->
@@ -430,6 +501,8 @@
           />
           {#if copied === row.id}
             <span role="status" class="text-xs text-emerald-600 dark:text-emerald-400">{t('assets.copied', 'Copied')}</span>
+          {:else if linkNote?.id === row.id}
+            <span role="status" class="text-xs text-emerald-600 dark:text-emerald-400">{linkNote.text}</span>
           {/if}
         </div>
       {/if}
