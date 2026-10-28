@@ -30,7 +30,7 @@ function channel(over: Record<string, unknown> = {}) {
   return {
     id: 'ch-team', name: 'Team chat', description: null, kind: 'CHAT', loc: 'chats:team',
     chatRootUrn: 'hrn:node:acme.com:team-shared:chats:team', chatRootNodeId: 'root-1',
-    lastSeq: 12, lastMessageAt: null, createdAt: '2026-09-01T00:00:00Z', memory: SHARED, ...over,
+    lastSeq: 12, lastMessageAt: null, createdAt: '2026-09-01T00:00:00Z', memoryId: 'mem-shared', memory: SHARED, ...over,
   };
 }
 
@@ -59,6 +59,16 @@ async function html(channels: unknown[]) {
 describe('Channels page', () => {
   it('a Channel with a flat address shows it as a URN chip', async () => {
     expect(await html([channel()])).toContain('hrn:node:acme.com:team-shared:chats:team');
+  });
+
+  it('renders a Channel whose host memory record is concealed (#2509): no crash, link by memoryId, host withheld', async () => {
+    const body = await html([channel({ id: 'ch-x', name: 'Release', loc: 'chats:x', memoryId: 'mem-other', memory: null })]);
+    // The channel itself is still listed…
+    expect(body).toContain('Release');
+    // …its chat root stays reachable through the non-null memoryId…
+    expect(body).toContain('href="/app/memories/mem-other/nodes/root-1"');
+    // …and the concealed host renders as withheld prose, never an empty URN chip.
+    expect(body).toContain('Memory not shown');
   });
 
   it('with no chatRootUrn it shows the id, never the memory-relative loc', async () => {

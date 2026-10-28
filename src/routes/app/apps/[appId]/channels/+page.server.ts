@@ -81,7 +81,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   if (!data.app) throw error(404, 'App not found');
 
   // Keyed by memory id (what the page looks up); audited by URN.
-  const hosts = new Map<string, string>(data.channels.items.map((c) => [c.memory.id, c.memory.urn]));
+  // #2509: a concealed host memory (`memory: null`) has no record to audit —
+  // its channels skip the map, so their write access stays unknown (null) and
+  // the server's write gate still decides any submit.
+  const hosts = new Map<string, string>(
+    data.channels.items.flatMap((c) => (c.memory ? [[c.memory.id, c.memory.urn] as const] : [])),
+  );
   if (data.app.sharedMemory) hosts.set(data.app.sharedMemory.id, data.app.sharedMemory.urn);
   const canWrite: Record<string, boolean | null> = {};
   await Promise.all(

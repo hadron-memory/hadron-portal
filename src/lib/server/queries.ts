@@ -4287,7 +4287,10 @@ export const APP_CHANNELS_APP_QUERY = /* GraphQL */ `
   }
 `;
 
-/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200. */
+/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200.
+ *
+ * #2509: `memoryId` survives the host record's concealment — `memory` comes
+ * back null for a caller who may see the Channel but not its memory's record. */
 export const APP_CHANNELS_QUERY = /* GraphQL */ `
   query AppChannels($appRef: ID!, $limit: Int, $offset: Int) {
     channels(filter: { appRef: $appRef }, limit: $limit, offset: $offset) {
@@ -4303,6 +4306,7 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
         lastSeq
         lastMessageAt
         createdAt
+        memoryId
         memory { id urn name }
       }
     }
@@ -4314,7 +4318,9 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
  * #942: one page of an ORGANIZATION's Channels, those whose host memory
  * belongs to it (`channels(orgId:)`), and only those the caller may read.
  * Page it with `fetchAllItems`: the list caps at 200.
- */
+ *
+ * #2509: `memoryId` survives the host record's concealment — `memory` comes
+ * back null for a caller who may see the Channel but not its memory's record. */
 export const ORG_CHANNELS_QUERY = /* GraphQL */ `
   query OrgChannels($orgId: ID!, $limit: Int, $offset: Int) {
     channels(orgId: $orgId, limit: $limit, offset: $offset) {
@@ -4330,6 +4336,7 @@ export const ORG_CHANNELS_QUERY = /* GraphQL */ `
         lastSeq
         lastMessageAt
         createdAt
+        memoryId
         memory { id urn name }
       }
     }

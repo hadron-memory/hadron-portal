@@ -975,7 +975,10 @@ export interface Channel {
   lastSeq: number;
   lastMessageAt: string | null;
   createdAt: string;
-  memory: { id: string; urn: string; name: string };
+  /** The host memory's id — always present; use it for links when `memory` is concealed. */
+  memoryId: string;
+  /** #2509: null when the caller may see the Channel but not its memory's record. */
+  memory: { id: string; urn: string; name: string } | null;
 }
 
 /** #942 — a register row (spec 049): "this attendee takes part in this Channel". Intent, never permission. */
