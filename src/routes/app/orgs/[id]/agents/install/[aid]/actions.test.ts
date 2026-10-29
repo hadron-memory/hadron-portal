@@ -153,20 +153,21 @@ describe('install agent action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('maps duplicate app URNs to a Superforms field error', async () => {
+  it('does not invent a collision refusal from untyped GraphQL prose', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'An app with this URN already exists' }] },
     });
 
     const result = await runInstall(baseFields);
 
-    expect(result).toMatchObject({ status: 409 });
-    expect(fieldError(result, 'urn')).toBe(installStrings.errorUrnCollision());
+    expect(result).toMatchObject({ status: 500 });
+    expect(fieldError(result, 'urn')).toBeUndefined();
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 
   it('maps a missing agent response to a typed form message', async () => {
     mockRequest.mockRejectedValueOnce({
-      response: { errors: [{ message: 'Agent not found' }] },
+      response: { errors: [{ message: 'Agent not found', extensions: { code: 'AGENT_NOT_FOUND' } }] },
     });
 
     const result = await runInstall(baseFields);
@@ -178,3 +179,12 @@ describe('install agent action', () => {
     });
   });
 });
+
+it.each(['BAD_USER_INPUT', 'UNAUTHENTICATED', 'FORBIDDEN', 'ORGANIZATION_MISMATCH', 'INSTALL_MEMORIES_REMAIN'])(
+  'preserves createApp %s as an intentional 400 install refusal', async (code) => {
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Intentional install refusal.', extensions: { code } }] } });
+    const result = await runInstall(baseFields);
+    expect(result).toMatchObject({ status: 400 });
+    expect(JSON.stringify(result)).toContain('Intentional install refusal.');
+  },
+);

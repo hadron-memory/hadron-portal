@@ -3,6 +3,7 @@
  * node ids, read through the server's batched `nodeBatch` (cap 200 refs) and
  * trimmed to the six fields the table shows, never content.
  */
+import { parse, visit } from 'graphql';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRequest = vi.fn();
@@ -51,6 +52,7 @@ describe('/api/nodes/columns (#1174)', () => {
     expect(await res.json()).toEqual({
       rows: [{
         id: 'a', role: 'spec', updatedAt: '2026-10-20T10:00:00Z', revision: 7, approval: 'APPROVED', signature: 'CURRENT',
+        user: null,
         agent: { id: 'a1', name: 'Portal Engineer', urn: 'hrn:agent:x:y' },
         worker: { id: 'w1', name: 'Gil', urn: 'hrn:worker:x:y:gil' },
       }],
@@ -92,5 +94,34 @@ describe('/api/nodes/columns (#1174)', () => {
     const res = await POST(ev({ refs: ['a'] }));
     expect(res.status).toBe(500);
     expect(JSON.stringify(await res.json())).not.toContain('secret');
+  });
+});
+
+// The human comes from the last-authored-edit field, never content authorship.
+describe('human Changed by attribution (#1174, server #2189)', () => {
+  it('selects only handle and URN in both signing variants', () => {
+    for (const document of [NODE_COLUMNS_QUERY, NODE_COLUMNS_NO_SIGNING_QUERY]) {
+      let fields: string[] | undefined;
+      visit(parse(document), { Field(n) {
+        if (n.name.value === 'updatedByUser') fields = n.selectionSet?.selections.map((f: any) => f.name.value);
+      } });
+      expect(fields).toEqual(['handle', 'urn']);
+      expect(document).not.toContain('authorship');
+    }
+  });
+
+  it.each([true, false])('projects the human without private fields, signing=%s', async (signing) => {
+    offersSigning.mockResolvedValue(signing);
+    mockRequest.mockResolvedValue({ nodeBatch: { nodes: [{ ...node('a'), updatedByUser: { handle: 'rae', urn: 'hrn:user:acme.com:rae', email: 'PRIVATE-EMAIL', name: 'PRIVATE-NAME' } }], unavailable: [], omitted: [] } });
+    const body = await (await POST(ev({ refs: ['a'] }))).json();
+    expect(body.rows[0].user).toEqual({ handle: 'rae', urn: 'hrn:user:acme.com:rae' });
+    expect(JSON.stringify(body)).not.toMatch(/PRIVATE-EMAIL|PRIVATE-NAME/);
+  });
+
+  it('preserves null human attribution without substituting content authorship', async () => {
+    mockRequest.mockResolvedValue({ nodeBatch: { nodes: [{ ...node('a'), updatedByUser: null, authorship: { human: { handle: 'wrong-content-author' } } }], unavailable: [], omitted: [] } });
+    const body = await (await POST(ev({ refs: ['a'] }))).json();
+    expect(body.rows[0].user).toBeNull();
+    expect(JSON.stringify(body)).not.toContain('wrong-content-author');
   });
 });

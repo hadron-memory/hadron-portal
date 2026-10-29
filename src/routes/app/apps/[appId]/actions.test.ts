@@ -1,3 +1,4 @@
+import { castWorkerSchema } from './schema';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { APP_KEY_IMPERSONATION_READ_ONLY, APP_KEY_MANAGERS_ONLY } from '$lib/server/app-key-refusal';
@@ -50,7 +51,7 @@ function baseApp(over: Record<string, unknown> = {}) {
     appType: 'CHATBOT',
     role: 'ADMIN',
     description: null,
-    systemPrompt: null,
+
     createUserPermission: 'DENY',
     identifyUserMethod: 'USER_ID',
     sessionTimeoutSeconds: 3600,
@@ -105,7 +106,7 @@ const validSettings = {
   appType: 'CHATBOT',
   role: 'ADMIN',
   description: 'A demo',
-  systemPrompt: 'Be useful',
+
   createUserPermission: 'IMPLICIT',
   identifyUserMethod: 'SECRET',
   sessionTimeoutSeconds: '3600',
@@ -130,7 +131,7 @@ describe('load', () => {
             appType: 'CHATBOT',
             role: 'ADMIN',
             description: null,
-            systemPrompt: null,
+
             createUserPermission: 'DENY',
             identifyUserMethod: 'USER_ID',
             sessionTimeoutSeconds: 3600,
@@ -437,7 +438,7 @@ describe('load', () => {
 describe('update action', () => {
   it('updates app settings from a validated Superform and returns a typed success', async () => {
     mockRequest.mockResolvedValueOnce({});
-    const result = await runAction('update', validSettings);
+    const result = await runAction('update', { ...validSettings, systemPrompt: 'stale must not be forwarded' });
     expect(result).toMatchObject({
       form: {
         valid: true,
@@ -454,7 +455,7 @@ describe('update action', () => {
         appType: 'CHATBOT',
         role: 'ADMIN',
         description: 'A demo',
-        systemPrompt: 'Be useful',
+
         createUserPermission: 'IMPLICIT',
         identifyUserMethod: 'SECRET',
         sessionTimeoutSeconds: 3600,
@@ -468,11 +469,11 @@ describe('update action', () => {
     await runAction('update', {
       ...validSettings,
       description: '',
-      systemPrompt: '',
+
     });
     expect(mockRequest.mock.calls[0][1]).toMatchObject({
       description: null,
-      systemPrompt: null,
+
     });
   });
 
@@ -779,7 +780,7 @@ describe('updateAgentTools action', () => {
     expect(result.data.form.message.text).toBe(AGENT_TOOLS_IMPERSONATION_READ_ONLY());
   });
 
-  it('an unknown GraphQL code stays a 500 with the server’s message', async () => {
+  it('an unknown GraphQL code stays a 500 with generic copy', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'db down', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
     });
@@ -788,7 +789,7 @@ describe('updateAgentTools action', () => {
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message.text).toBe('db down');
+    expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 });
 
@@ -914,16 +915,16 @@ describe('deleteApp action', () => {
 // asymmetric, and that asymmetry is what these tests hold up:
 //
 //   name — rejected client-side when blank, never coerced
-//   role — still blank→UNDEFINED, because omitting it inherits the agent's
-//          personaRole while '' would be an explicit-and-invalid role
+//   role — omitted entirely under R222, including stale posted overrides
 
 describe('castWorker action', () => {
-  it('casts an installed agent under an explicit name and role', async () => {
+  it('casts an installed agent without forwarding a stale role override', async () => {
     mockRequest.mockResolvedValueOnce({});
     const result = await runAction('castWorker', {
       agentId: 'agent-1',
       name: 'Iris',
       role: 'backend-engineer',
+      promptOverride: 'stale must not be forwarded',
     });
     expect(result).toMatchObject({
       form: { valid: true, message: { type: 'success', text: 'Worker cast.' } },
@@ -934,8 +935,7 @@ describe('castWorker action', () => {
         appRef: 'app-1',
         agentRef: 'agent-1',
         name: 'Iris',
-        role: 'backend-engineer',
-        promptOverride: undefined,
+
       },
     ]);
   });
@@ -944,7 +944,7 @@ describe('castWorker action', () => {
   // This asserted that a blank name reached the mutation as `undefined` —
   // correct while an omitted name walked the register, and the exact behaviour
   // #760 reports as broken now that hadron-server#1050 removed it. The
-  // invariant that survives is the ROLE half; the name half inverts.
+  // name invariant still holds under R222.
   it('rejects a blank name BEFORE the mutation, rather than coercing it', async () => {
     const result = (await runAction('castWorker', {
       agentId: 'agent-1',
@@ -957,13 +957,14 @@ describe('castWorker action', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('still sends a blank ROLE as UNDEFINED, not ""', async () => {
-    // Unchanged by #1050: an omitted role inherits the agent's personaRole,
-    // while '' would be an explicit-and-invalid role.
+  it('omits role entirely from the schema, mutation and variables', async () => {
+    // R222: no writable role survives at any layer of this form.
     mockRequest.mockResolvedValueOnce({});
     await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '' });
     const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
-    expect(vars.role).toBeUndefined();
+    expect(vars).not.toHaveProperty('role');
+    expect(castWorkerSchema.shape).not.toHaveProperty('role');
+    expect(CAST_WORKER_MUTATION).not.toMatch(/\$role|role:\s*\$role/);
     expect(vars.name).toBe('Iris');
   });
 
@@ -1021,6 +1022,16 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).not.toMatch(/cast list|register/i);
   });
 
+  it('translates a stale-client role override refusal', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'WORKER_ROLE_OVERRIDE_REFUSED', extensions: { code: 'WORKER_ROLE_OVERRIDE_REFUSED' } }] },
+    });
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: 'old-role' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toBe('A worker’s role comes from its agent. Reload this page and choose the agent for the role you need.');
+  });
+
   it('translates WORKER_AGENT_NOT_INSTALLED', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ extensions: { code: 'WORKER_AGENT_NOT_INSTALLED' } }] },
@@ -1046,7 +1057,7 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toContain('contributor access');
   });
 
-  it('falls back to the server message for an UNKNOWN code', async () => {
+  it('uses generic copy for an UNKNOWN code', async () => {
     // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — only known codes get friendly
     // copy; an internal error must not be relabelled as a user mistake.
     mockRequest.mockRejectedValueOnce({
@@ -1056,7 +1067,7 @@ describe('castWorker action', () => {
     const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
       data: { form: { message: { text: string } } };
     };
-    expect(result.data.form.message.text).toBe('boom');
+    expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 
   it('falls back to the server message for a payload-less transport failure', async () => {
@@ -1331,7 +1342,7 @@ describe('releaseWorker action', () => {
     const result = await releaseAgainst({}, { id: 'user-1' });
     expect(result.status).toBe(500);
     const message = messageOf(result);
-    expect(message.text).toBe('hold is stale');
+    expect(message.text).toBe('Something went wrong on our side.');
     expect(message).not.toHaveProperty('staleHold');
   });
 
@@ -1446,13 +1457,13 @@ describe('postTeamChatMessage action (#732)', () => {
   // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — an unknown code (or a transport
   // failure with no GraphQL payload) must fall through to the server's own
   // message rather than being relabelled as a user mistake.
-  it('falls through to the server message for an unmapped code', async () => {
+  it('uses generic copy for an unmapped code', async () => {
     mockRequest.mockRejectedValueOnce(gqlError('SOME_NEW_CODE'));
     const result = (await runAction('postTeamChatMessage', {
       _kind: 'postTeamChatMessage',
       body: 'hi',
     })) as { data: { form: { message: { text: string } } } };
-    expect(result.data.form.message.text).toContain('raw server message');
+    expect(result.data.form.message.text).toContain('Something went wrong on our side.');
   });
 });
 

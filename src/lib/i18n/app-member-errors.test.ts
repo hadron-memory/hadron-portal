@@ -36,9 +36,9 @@ describe('translateAppMemberError', () => {
     expect(translateAppMemberError(gqlError('OrphanAppError'), 'fallback')).toMatch(/Agent linked/i);
   });
 
-  it('falls back to the GraphQL error message for unknown codes', () => {
+  it('uses generic copy for unknown GraphQL codes', () => {
     const err = gqlError('SomeFutureError', 'specific server message');
-    expect(translateAppMemberError(err, 'generic fallback')).toBe('specific server message');
+    expect(translateAppMemberError(err, 'generic fallback')).toBe('Something went wrong on our side.');
   });
 
   it('uses the caller fallback when the input has no message at all', () => {

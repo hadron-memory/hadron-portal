@@ -5,7 +5,7 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page, setStubPage } from '$lib/test/stubs/app-stores';
-import { navigationCalls, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
@@ -13,7 +13,7 @@ import type { TeamChatMessage } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
 import {
-  addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
+  createAppMemorySchema, addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
   revokeAppKeySchema, updateAppAgentToolsSchema,
   addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
@@ -219,6 +219,7 @@ describe('Worker agents tab (#1009)', () => {
       ['Pause…', null],
       ['Release', null],
       ['Retire', null],
+      ['Delete verified-unused worker', null],
     ]);
   });
 
@@ -228,7 +229,7 @@ describe('Worker agents tab (#1009)', () => {
       worker({ id: 'w3', name: 'Cy', heldByUserId: null, heldAt: null }),
     ]);
     expect(menuOf(target, 'Bo').map(([l]) => l)).toContain('Force-release');
-    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open system memory', 'Open role agent', 'Pause…', 'Retire']);
+    expect(menuOf(target, 'Cy').map(([l]) => l)).toEqual(['Edit', 'Open working memory', 'Open system memory', 'Open role agent', 'Pause…', 'Retire', 'Delete verified-unused worker']);
   });
 
   // portal#1168 — the AI Team grid: Status and Model family in, Working memory
@@ -513,9 +514,9 @@ describe('Worker agents tab (#1009)', () => {
     expect(names(target)).toEqual(dir === 'ascending' ? ['Bo', 'Ada'] : ['Ada', 'Bo']);
   });
 
-  it('a retired worker keeps only the links: nothing to edit, release or retire', async () => {
+  it('a retired worker keeps the verified-unused repair alongside its links', async () => {
     const target = await mountStaff([worker({ id: 'w4', name: 'Dee', retiredAt: '2026-09-01T00:00:00.000Z' })]);
-    expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open system memory', 'Open role agent']);
+    expect(menuOf(target, 'Dee').map(([l]) => l)).toEqual(['Open working memory', 'Open system memory', 'Open role agent', 'Delete verified-unused worker']);
   });
 
   // Cody's #1048 QA: the menu CONTENTS were pinned, the DISPATCH was not.
@@ -524,6 +525,113 @@ describe('Worker agents tab (#1009)', () => {
     flushSync();
     [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === label)!.click();
   }
+
+  it('deletes only the chosen row after an authoritative refresh; a refusal preserves both rows', async () => {
+    const oldShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+    const oldClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
+    let m: Mounted<Record<string, unknown>> | undefined;
+    try {
+      setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+      window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+      const data = await pageData();
+      const ada = worker({});
+      const bo = worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo', retiredAt: '2026-09-01T00:00:00.000Z' });
+      const props = reactiveProps({ data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff: [ada, bo], teamRoster: { kind: 'unavailable' } }, form: null });
+      m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      await tick(2);
+      pick(m.target, 'Bo', 'Delete verified-unused worker'); await tick();
+      const dialog = m.target.querySelector('dialog')!;
+      expect(dialog.textContent).toContain('Bo');
+      expect(dialog.textContent?.replace(/\s+/g, '')).toContain('hrn:worker:acme.com:team:bo');
+      const form = dialog.querySelector('form')!;
+      expect(new FormData(form).get('workerRef')).toBe('w2');
+      const checkbox = form.querySelector<HTMLInputElement>('input[type=checkbox]')!;
+      checkbox.checked = true; checkbox.dispatchEvent(new Event('change', { bubbles: true })); await tick();
+      const response = (ok: boolean) => ({ type: ok ? 'success' as const : 'failure' as const, status: ok ? 200 : 400,
+        data: { deleteWorkerResult: { ok, workerRef: 'w2', message: 'Retire it instead.', code: 'WORKER_IN_USE' } } });
+      await submitEnhancedWithResult(form, response(false)); await tick();
+      expect(m.target.querySelector('a[href="/app/workers/w1"]')).not.toBeNull();
+      expect(m.target.querySelector('a[href="/app/workers/w2"]')).not.toBeNull();
+      expect(dialog.querySelector('[role=alert]')?.textContent).toBe('Retire it instead.');
+      navigationHooks.onInvalidateAll = async () => {
+        // The old roster remains until the simulated loader response arrives.
+        expect(m!.target.querySelector('a[href="/app/workers/w2"]')).not.toBeNull();
+        props.data = { ...props.data, staff: [ada] }; await tick();
+      };
+      await submitEnhancedWithResult(form, response(true)); await tick();
+      expect(m.target.querySelector('a[href="/app/workers/w1"]')).not.toBeNull();
+      expect(m.target.querySelector('a[href="/app/workers/w2"]')).toBeNull();
+    } finally {
+      m?.unmount();
+      for (const [key, old] of [['showModal', oldShow], ['close', oldClose]] as const) {
+        if (old) Object.defineProperty(HTMLDialogElement.prototype, key, old);
+        else Reflect.deleteProperty(HTMLDialogElement.prototype, key);
+      }
+    }
+  });
+
+  it.each([
+    { name: 'same-App refresh preserves the dialog and pending refusal', changesApp: false },
+    { name: 'a different App closes the dialog and discards its late refusal', changesApp: true },
+  ])('#1272: $name', async ({ changesApp }) => {
+    const oldShow = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'showModal');
+    const oldClose = Object.getOwnPropertyDescriptor(HTMLDialogElement.prototype, 'close');
+    Object.defineProperty(HTMLDialogElement.prototype, 'showModal', { configurable: true, value() { this.open = true; } });
+    Object.defineProperty(HTMLDialogElement.prototype, 'close', { configurable: true, value() { this.open = false; } });
+    let m: Mounted<Record<string, unknown>> | undefined;
+    try {
+      setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+      window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+      const data = await pageData();
+      const props = reactiveProps({ data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff: [worker({})], teamRoster: { kind: 'unavailable' } }, form: null });
+      m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      await tick(2);
+      pick(m.target, 'Ada', 'Delete verified-unused worker'); await tick();
+      const dialog = m.target.querySelector('dialog')!;
+      const form = dialog.querySelector('form')!;
+      const checkbox = form.querySelector<HTMLInputElement>('input[type=checkbox]')!;
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true })); await tick();
+      const pending = await submitEnhancedDeferred(form); await tick();
+      expect(dialog.querySelector('[role=status]')?.textContent).toContain('Deleting');
+
+      // SvelteKit replaces the App object on revalidation, even when its ID is unchanged.
+      props.data = { ...props.data, app: { ...props.data.app,
+        ...(changesApp ? { id: 'a2', urn: 'hrn:app:acme.com:other', name: 'Other App' } : {}),
+      } };
+      await tick(2);
+      if (changesApp) {
+        expect(m.target.querySelector('dialog')).toBeNull();
+      } else {
+        expect(m.target.querySelector('dialog')).toBe(dialog);
+        expect(checkbox.checked).toBe(true);
+        expect(dialog.querySelector('[role=status]')?.textContent).toContain('Deleting');
+        expect((await submitEnhanced(form)).cancelled).toBe(true);
+      }
+      await pending.finish({ type: 'failure', status: 400, data: {
+        deleteWorkerResult: { ok: false, workerRef: 'w1', code: 'WORKER_IN_USE', message: 'Retire it instead.' },
+      } });
+      await tick(2);
+      if (changesApp) {
+        expect(m.target.querySelector('dialog')).toBeNull();
+        expect(m.target.textContent).not.toContain('Retire it instead.');
+      } else {
+        expect(m.target.querySelector('dialog')).toBe(dialog);
+        expect(dialog.querySelector('[role=alert]')?.textContent).toBe('Retire it instead.');
+        expect(dialog.querySelector('[role=status]')).toBeNull();
+        expect(new FormData(form).get('workerRef')).toBe('w1');
+      }
+      expect(m.target.querySelector('a[href="/app/workers/w1"]')).not.toBeNull();
+    } finally {
+      m?.unmount();
+      for (const [key, old] of [['showModal', oldShow], ['close', oldClose]] as const) {
+        if (old) Object.defineProperty(HTMLDialogElement.prototype, key, old);
+        else Reflect.deleteProperty(HTMLDialogElement.prototype, key);
+      }
+    }
+  });
 
   it('picking Retire submits the retire form for THAT worker, uncancelled', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -573,9 +681,9 @@ describe('Worker agents tab (#1009)', () => {
     expect(names).toEqual(['Bo']);
   });
 
-  it('a retired worker with no memory and no agent gets no ⋯ at all, not an empty menu', async () => {
+  it('a retired worker without linked objects still offers the server-verified repair', async () => {
     const target = await mountStaff([worker({ id: 'w5', name: 'Eve', retiredAt: '2026-09-01T00:00:00.000Z', memoryId: null, agent: null })]);
-    expect(target.querySelector('button[aria-label="Actions for Eve"]')).toBeNull();
+    expect(menuOf(target, 'Eve').map(([label]) => label)).toEqual(['Delete verified-unused worker']);
   });
 });
 
@@ -1169,4 +1277,82 @@ it.each([true, false])('keeps a pending Channel post mounted through tab changes
   expect(restored.value).toBe(success ? '' : 'pending post');
   if (!success) expect((await submitEnhanced(restored.closest('form')!)).cancelled).toBe(false);
 
+});
+
+describe('Cast role follows the selected Agent (#1319)', () => {
+  it('has no role input and updates the read-only role when the Agent changes', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [
+      { id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
+      { id: 'agent-b', name: 'QA Engineer', urn: 'hrn:agent:acme.com:qa', personaRole: 'qa-engineer' },
+    ] });
+    data.initialTab = 'staff';
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const open = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker');
+    expect(open).toBeDefined();
+    open!.click();
+    await tick(2);
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    expect(form).not.toBeNull();
+    expect(form.querySelector('[name="role"]')).toBeNull();
+    expect(new FormData(form).has('role')).toBe(false);
+    const role = form.querySelector('#castRole')!;
+    expect(role.textContent).toContain('Select an agent to see its role.');
+    const agent = form.querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    for (const [id, expected] of [['agent-a', 'portal-engineer'], ['agent-b', 'qa-engineer'], ['', 'Select an agent to see its role.']]) {
+      agent.value = id;
+      agent.dispatchEvent(new Event('change', { bubbles: true }));
+      await tick(2);
+      expect(role.textContent).toContain(expected);
+      const expectedUrn = id === 'agent-a' ? 'hrn:agent:acme.com:portal' : id === 'agent-b' ? 'hrn:agent:acme.com:qa' : null;
+      const urnCopies = form.querySelectorAll('button[title="Copy URN"]');
+      expect(urnCopies).toHaveLength(expectedUrn ? 1 : 0);
+      if (expectedUrn) expect(form.querySelector(`span[title="${expectedUrn}"]`)).not.toBeNull();
+      expect(new FormData(form).has('role')).toBe(false);
+    }
+  });
+
+  it.each([null, '', '   '])('shows an explicit no-role state for a restored selected Agent with role %j', async (personaRole) => {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [
+      { id: 'roleless', name: 'Changed Agent', urn: 'hrn:agent:acme.com:changed', personaRole },
+      { id: 'valid', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
+    ] });
+    data.initialTab = 'staff';
+    Object.assign(data.castWorkerForm.data, { agentId: 'roleless' });
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    await tick(2);
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    expect(form.querySelector('#castRole')?.textContent).toContain('This agent has no role. Choose a different agent.');
+    expect(form.querySelector('#castRole')?.textContent).not.toContain('Select an agent');
+    expect(form.querySelector('[name="role"]')).toBeNull();
+    expect(form.querySelector('span[title="hrn:agent:acme.com:changed"]')).not.toBeNull();
+  });
+
+});
+
+describe('creating a new App memory (#487)', () => {
+  async function memoryPage(role: string, installed = true) {
+    const data = await pageData();
+    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members:[{role,user:{id:'u1'}}] }, app: {...data.app, organizationId:'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',description:'Shared notes'}] };
+  }
+  it.each(['OWNER','ADMIN'])('offers creation for an org %s with an installed Agent', async role => {
+    setStubPage('http://localhost/app/apps/a1?tab=memory', {appId:'a1'});
+    const m=mountComponent(Page as never,{data:await memoryPage(role),form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
+    expect(m.target.textContent).toContain('Project notes');
+    expect(m.target.querySelector('[title="hrn:mem:acme.com:notes"]')).not.toBeNull();
+    expect(m.target.querySelector('select[name=memoryClass],input[name=memoryRef]')).toBeNull();
+  });
+  it.each(['CONTRIBUTOR','READER'])('hides creation from org %s even if App.role says OWNER',async role=>{
+    const data=await memoryPage(role);const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
 });

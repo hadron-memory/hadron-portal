@@ -8,6 +8,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
+  import { nodeListHref } from '$lib/node-list-links';
   import ViewTabs from './table/ViewTabs.svelte';
   import TableFrame from './table/TableFrame.svelte';
   import ColumnToggle from './table/ColumnToggle.svelte';
@@ -102,23 +103,6 @@
     if (m.model) lines.push(`${t('node-list.model', 'model')} ${m.model}`);
     if (m.source) lines.push(`${t('node-list.source', 'source')} ${m.source}`);
     return lines.join(' · ');
-  }
-
-  function nodeHref(node: MemoryNode): string {
-    if (basePath) return `${basePath}/nodes/${node.id}`;
-    // #260: memory pages are org-less, so the fallback needs only the memory id.
-    const memId = node.memory?.id;
-    if (memId) return `/app/memories/${memId}/nodes/${node.id}`;
-    return '';
-  }
-
-  // portal#1015: a comment hit links back to the DISCUSSION on its target
-  // (hrn:node:hadronmemory.com:specs:cor:dmo:110:08), in the same memory (110:01), not to the comment node.
-  function discussionHref(node: MemoryNode): string {
-    const target = node.comment?.target;
-    if (!target) return '';
-    const base = basePath ? `${basePath}/nodes/${target.id}` : node.memory?.id ? `/app/memories/${node.memory.id}/nodes/${target.id}` : '';
-    return base ? `${base}?tab=discussion` : '';
   }
 
   function nodeUrn(node: MemoryNode): string {
@@ -311,6 +295,9 @@
     <p class="text-sm text-zinc-500">No nodes.</p>
   {:else}
     {#if showColumns}
+      <p class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+        {t('node-list.last-changed-explanation', 'Last changed is when the node was last updated. Revisions show when snapshots were saved; these times can differ.')}
+      </p>
       <!-- portal#1174: the extra columns arrive after the list; say so, and say when a batch failed, rather than leaving blanks unexplained. Always mounted so a screen reader announces a change. -->
       <p role="status" data-testid="node-columns-status" class="mb-2 min-h-4 text-xs text-zinc-500 dark:text-zinc-400">
         {#if columnsLoading > 0}{t('node-list.columns-loading', 'Loading details…')}{/if}
@@ -374,7 +361,7 @@
             {@const n = row.original}
             {@const c = colsOf(n)}
             {@const hit = n.comment ? commentHitView(n.comment) : null}
-            {@const href = hit ? discussionHref(n) || nodeHref(n) : nodeHref(n)}
+            {@const href = nodeListHref(n, basePath)}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <tr
               class="bg-white hover:bg-zinc-50 dark:bg-zinc-950 dark:hover:bg-zinc-900
@@ -497,6 +484,12 @@
                 {:else if cell.column.id === 'changedBy'}
                   {@const by = changedByView(c)}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs dark:border-zinc-800">
+                    {#if by.user}
+                      <div data-testid="changed-by-user" class="min-w-0">
+                        <div class="truncate text-zinc-700 dark:text-zinc-300">{by.user.handle ? `@${by.user.handle}` : t('node-list.changed-by.user', 'User')}</div>
+                        {#if by.user.urn}<Urn value={by.user.urn} type="user" size={8} />{/if}
+                      </div>
+                    {/if}
                     {#if by.worker}
                       <div data-testid="changed-by-worker" class="min-w-0">
                         <div class="truncate text-zinc-700 dark:text-zinc-300">{by.worker.name}</div>
@@ -509,7 +502,7 @@
                         {#if by.agent.urn}<Urn value={by.agent.urn} type="agent" linked size={8} />{/if}
                       </div>
                     {/if}
-                    {#if c && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
+                    {#if c && !by.user && !by.worker && !by.agent}<span class="text-zinc-400">—</span>{/if}
                   </td>
                 {:else if cell.column.id === 'revision'}
                   <td class="border-r last:border-r-0 border-zinc-200 px-4 py-2.5 text-xs tabular-nums text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
@@ -536,10 +529,14 @@
     </div>
 
     {#if !orderable}
-      <!-- Footer: page size (left of Prev/Next) + pagination; always visible -->
-      <div class="flex items-center justify-between gap-3">
+      <!-- Footer: page size (left of Prev/Next) + pagination; always visible.
+           Both rows wrap (#1270): this is the same footer DataTable carries —
+           the select is sized by its longest option label and cannot shrink
+           beside Previous/Next, so a no-wrap footer pushed the document wide
+           on a 390px phone. -->
+      <div data-testid="table-footer" class="flex flex-wrap items-center justify-between gap-3">
         <span class="text-sm text-zinc-500">{pageCount > 1 ? `Page ${pageIndex + 1} of ${pageCount}` : ''}</span>
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <select value={pageSize} onchange={(e) => changePageSize(Number((e.target as HTMLSelectElement).value))}
             aria-label="Nodes per page"
             class="rounded-lg border border-zinc-300 !bg-zinc-100 px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:!bg-zinc-800 dark:text-white">

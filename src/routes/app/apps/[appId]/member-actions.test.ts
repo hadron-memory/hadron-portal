@@ -268,7 +268,7 @@ describe('app members ensure/remove actions', () => {
     const result = await runRemove({ userId: 'user-existing' });
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'nope' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });
 

@@ -84,14 +84,11 @@ export const AGENT_FIELDS = /* GraphQL */ `
     urn
     name
     description
-    systemPrompt
+
     systemMemoryId
     visibility
     type
     surfaces
-    # #1241: systemPrompt is shared by chat and Worker briefing. The server
-    # binds name/role placeholders for each Worker; the named individual is
-    # the Worker, not this reusable role Agent.
     personaRole
     properties
     # 036-ai-service-config: hasAiApiKey is the server shim for "the agent's
@@ -131,7 +128,7 @@ export const APP_FIELDS = /* GraphQL */ `
     appType
     role
     description
-    systemPrompt
+
     agentTools
     expiresAt
     # App-original fields
@@ -146,7 +143,7 @@ export const APP_FIELDS = /* GraphQL */ `
       urn
       name
       description
-      systemPrompt
+
       surfaces
       memoryItems {
         id
@@ -954,7 +951,7 @@ const WORKER_FIELDS = /* GraphQL */ `
     # consumer must tolerate its absence rather than assume a URN exists.
     urn
     role
-    promptOverride
+
     memoryId
     retiredAt
     # #1050 — who HOLDS this name, and since when. A hold belongs to a person
@@ -962,7 +959,7 @@ const WORKER_FIELDS = /* GraphQL */ `
     # release frees it (hrn:node:hadronmemory.com:specs:cor:agt:020:09).
     #
     # WORKING-STATE fields: behind the worker read gate and MASKED TO NULL ON
-    # DENY, exactly like promptOverride and memoryId above, and unlike
+    # DENY, exactly like prompt and memoryId above, and unlike
     # name/role/urn. Null therefore means "nobody holds it" OR "you may not
     # see" — the renderer must not collapse the two.
     #
@@ -990,25 +987,18 @@ const WORKER_FIELDS = /* GraphQL */ `
 // same defect hadron-cli#459 is open about on `worker list --json`. #737 covers
 // showing it behind an explicit expand.
 /**
- * #1010 — amend a worker's promptOverride, the per-worker individuality layered
- * over the role agent's shared template.
- *
- * `promptOverride` REPLACES the whole override; it is not appended. The trap
- * this repo must not build is a "save the boot briefing" control: the composed
- * briefing is bound-template + override + a derived register block, so writing
- * it back folds the shared template into the override and prepends it again on
- * every render, compounding each save. Only the override is writable, and
- * `updateWorker` takes only the override — the server offers no way to write
- * the composed prompt at all.
- *
- * Refuses WORKER_RETIRED for a retired casting (which takes no new bindings, so
- * an override could never be delivered) and requires staffing access.
+ * portal#1142 P4 (hadron-server#1602 / #2120) — write a worker's signature and
+ * trailer templates. A variable the caller leaves undefined is ABSENT on the
+ * wire, and the server preserves an absent field; it refuses an explicit null,
+ * so this is only ever sent text. Never changes the boot prompt: the two are
+ * separate forms, so no single submit mixes them.
  */
-export const UPDATE_WORKER_MUTATION = /* GraphQL */ `
-  mutation UpdateWorker($workerRef: ID!, $promptOverride: String) {
-    updateWorker(workerRef: $workerRef, promptOverride: $promptOverride) {
+export const UPDATE_WORKER_SIGNATURE_MUTATION = /* GraphQL */ `
+  mutation UpdateWorkerSignature($workerRef: ID!, $signature: String, $trailer: String) {
+    updateWorker(workerRef: $workerRef, signature: $signature, trailer: $trailer) {
       id
-      promptOverride
+      signature
+      trailer
     }
   }
 `;
@@ -1018,26 +1008,12 @@ export const WORKER_QUERY = /* GraphQL */ `
   query Worker($ref: ID!) {
     worker(ref: $ref) {
       ...WorkerFields
+      # portal#1142 P4 — the signature and trailer TEMPLATES, masked to null for
+      # a reader who may not see worker internals. Null is "not shown", never
+      # "empty": the empty string is a real, deliverable-as-nothing value.
+      signature
+      trailer
       app { id name urn organizationId }
-      # #1010 — the agent's RAW persona template, merged into the fragment's
-      # agent selection rather than added to WorkerFields: the fragment also
-      # feeds the Staff roster, and a template per row is the hadron-cli#459
-      # mistake in miniature. Selected here for the Briefing tab's Source view,
-      # which shows the inherited half read-only beside the editable override.
-      # (NB no backticks in this file's GraphQL comments — one terminates the
-      # template literal, portal#715. The gate caught exactly that here.)
-      #
-      # NOT derivable from the composed prompt by subtraction: resolvers.worker.ts
-      # builds it as bound-template + override + a DERIVED register block
-      # (spec 049 Phase 6) evaluated per reader, so the composed string does not
-      # end with the override and slicing it would mis-cut.
-      #
-      # Nullable twice over: the agent may carry no template, AND this goes
-      # through the AGENT read gate while the composed prompt sits behind the
-      # worker's own (maySeeWorkerInternals) — so a caller who can read the
-      # briefing may still get null here. Render that as "not visible to you",
-      # never as "no template".
-      agent { systemPrompt }
       # portal#1067 (hadron-server#1726) — who this worker reports to. Masked on
       # deny like heldByUserId (reportsToRetired answers false), so a null
       # renders as no line, never as "reports to nobody". The nested target is
@@ -1122,8 +1098,8 @@ export const WORKERS_QUERY = /* GraphQL */ `
 //
 // #760: `name` is REQUIRED. hadron-server#1050 removed the Team Agent's
 // cast-list register, so omitting it no longer draws the next free name — it is
-// refused with WORKER_NAME_REQUIRED. Omitting `role` still defaults to the
-// agent's personaRole, which that change did not touch.
+// refused with WORKER_NAME_REQUIRED. R222: the role follows the selected
+// Agent; the portal never sends a role override.
 //
 // The argument stays `name: String` (nullable) in the SDL because the refusal
 // is a RUNTIME one, which keeps it typed and mappable rather than a schema
@@ -1131,12 +1107,12 @@ export const WORKERS_QUERY = /* GraphQL */ `
 //
 // Typed refusals: WORKER_NAME_TAKEN, WORKER_NAME_REQUIRED,
 // WORKER_AGENT_NOT_INSTALLED, WORKER_AGENT_NOT_FOUND, WORKER_AGENT_AMBIGUOUS,
-// APP_UNINSTALLED. WORKER_ROLE_NOT_FOUND and the TEAM_AGENT_* codes went with
+// WORKER_ROLE_OVERRIDE_REFUSED, APP_UNINSTALLED. WORKER_ROLE_NOT_FOUND and the TEAM_AGENT_* codes went with
 // the register — they fired only because a nameless cast had to read one.
 export const CAST_WORKER_MUTATION = /* GraphQL */ `
   ${WORKER_FIELDS}
-  mutation CastWorker($appRef: ID!, $agentRef: ID, $role: String, $name: String, $promptOverride: String) {
-    castWorker(appRef: $appRef, agentRef: $agentRef, role: $role, name: $name, promptOverride: $promptOverride) {
+  mutation CastWorker($appRef: ID!, $agentRef: ID, $name: String) {
+    castWorker(appRef: $appRef, agentRef: $agentRef, name: $name) {
       ...WorkerFields
     }
   }
@@ -1694,8 +1670,8 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 
 export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
-    createAgent(orgId: $orgId, name: $name, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
+  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemMemoryId: String, $visibility: AgentVisibility) {
+    createAgent(orgId: $orgId, name: $name, description: $description, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
   }
 `;
 
@@ -1721,10 +1697,20 @@ export const AGENT_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1262 — S1 cloneAgent: the new Agent's identity only. The origin
+// (clonedFromAgentRef) is out of this cut.
+export const CLONE_AGENT_MUTATION = /* GraphQL */ `
+  mutation CloneAgent($source: ID!, $target: ID!, $name: String, $slug: String) {
+    cloneAgent(source: $source, target: $target, name: $name, slug: $slug) {
+      id urn name organizationId visibility
+    }
+  }
+`;
+
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String) {
-    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole) { ...AgentFields }
+  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String) {
+    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole) { ...AgentFields }
   }
 `;
 
@@ -1834,7 +1820,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
   mutation UpdateApp(
     $ref: ID!, $name: String, $urn: String, $appType: AppType,
     $role: AppMembershipRole,
-    $description: String, $systemPrompt: String, $agentTools: [String!],
+    $description: String, $agentTools: [String!],
     $aiProvider: String, $aiModel: String, $aiApiKey: String,
     $expiresAt: String,
     $createUserPermission: CreateUserPermission,
@@ -1843,7 +1829,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
   ) {
     updateApp(
       ref: $ref, name: $name, urn: $urn, appType: $appType, role: $role,
-      description: $description, systemPrompt: $systemPrompt,
+      description: $description
       agentTools: $agentTools,
       aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey,
       expiresAt: $expiresAt,
@@ -2401,7 +2387,7 @@ export const APP_NODES_QUERY = /* GraphQL */ `
 // Deliberately does NOT select `worker { ... }`: this page already knows whose
 // sessions these are, and Session.worker runs a WIDER read gate than the worker
 // query itself. Selecting working-state through it (heldByUserId, memoryId,
-// promptOverride) would let a former App member read current staffing off a
+// prompt) would let a former App member read current staffing off a
 // historical session. Keep this selection worker-free.
 //
 // `sessions` returns a BARE [Session!]! — no page envelope and no total, unlike
@@ -2871,8 +2857,8 @@ export const NODE_COLUMNS_QUERY = /* GraphQL */ `
         revision
         approvalStatus { state }
         signatureStatus { state }
-        # hadron-server #1610: the Agent and Worker behind the last authored
-        # edit. A user half ("Changed by (user)") waits on hadron-server#2176.
+        # Last authored-edit attribution; the user projection landed in #2189.
+        updatedByUser { handle urn }
         updatedByAgent { id name urn }
         updatedByWorker { id name urn }
       }
@@ -2898,6 +2884,7 @@ export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
         updatedAt
         revision
         approvalStatus { state }
+        updatedByUser { handle urn }
         updatedByAgent { id name urn }
         updatedByWorker { id name urn }
       }
@@ -3181,6 +3168,10 @@ export const NODE_BY_ID_QUERY = /* GraphQL */ `
   query NodeById($ref: ID!) {
     node(ref: $ref, raw: true) {
       ...NodeFields
+      # #257: embedding state is detail-only; do not grow list/search payloads.
+      embeddingPendingAt
+      embeddingFailedAt
+      embeddingError
       # #518: properties is detail-only — kept OUT of the shared NodeFields
       # fragment so it doesn't bloat search/list payloads (NODE_FIND_QUERY
       # spreads the same fragment; PR #523 review, codex).
@@ -3929,15 +3920,23 @@ const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
     name
     urn
     organizationId
-    agentId
     agents { id name urn description personaRole }
+    appAgents { agent { id } }
   }
 `;
 
+// #472 / hadron-server#2343: `agentId` narrows the read to Apps whose AppAgent
+// join installs this Agent, so the Agent detail load no longer drains every
+// App the caller can see. The match is the join, not `App.agents`, so an App
+// that hides an installed Agent from the caller still comes back, and the
+// loader reads that from `appAgents { agent { id } }` (#1350): a join row whose
+// `agent` is null is an install the caller cannot see. `App.agents` and
+// `App.agentId` drop/mask such rows, so neither can carry that signal.
+// An unreadable/unknown agent answers an empty page.
 export const AGENT_APPS_QUERY = /* GraphQL */ `
   ${AGENT_APP_LITE_FIELDS}
-  query AgentApps($limit: Int, $offset: Int) {
-    apps(limit: $limit, offset: $offset) {
+  query AgentApps($agentId: ID, $limit: Int, $offset: Int) {
+    apps(filter: { agentId: $agentId }, limit: $limit, offset: $offset) {
       items { ...AgentAppLiteFields }
       total
     }
@@ -3952,8 +3951,8 @@ export const AGENT_APPS_QUERY = /* GraphQL */ `
 // user-owned team Apps (PR #714 review, codex P2).
 export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
   ${AGENT_APP_LITE_FIELDS}
-  query AgentOwnedApps($limit: Int, $offset: Int) {
-    apps(filter: { ownedByMe: true }, limit: $limit, offset: $offset) {
+  query AgentOwnedApps($agentId: ID, $limit: Int, $offset: Int) {
+    apps(filter: { ownedByMe: true, agentId: $agentId }, limit: $limit, offset: $offset) {
       items { ...AgentAppLiteFields }
       total
     }
@@ -3972,14 +3971,15 @@ export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
 // ---------------------------------------------------------------------------
 
 export const MY_USER_API_KEYS_QUERY = /* GraphQL */ `
-  query MyUserApiKeys {
-    myUserApiKeys {
+  query MyUserApiKeys($includeHidden: Boolean = false) {
+    myUserApiKeys(includeHidden: $includeHidden) {
       id
       keyPreview
       label
       createdAt
       lastUsedAt
       revokedAt
+      hiddenAt
       issuedVia
     }
   }
@@ -3995,6 +3995,7 @@ export const CREATE_USER_API_KEY_MUTATION = /* GraphQL */ `
         createdAt
         lastUsedAt
         revokedAt
+        hiddenAt
         issuedVia
       }
       rawKey
@@ -4011,7 +4012,17 @@ export const REVOKE_USER_API_KEY_MUTATION = /* GraphQL */ `
       createdAt
       lastUsedAt
       revokedAt
+      hiddenAt
       issuedVia
+    }
+  }
+`;
+
+export const SET_USER_API_KEY_HIDDEN_MUTATION = /* GraphQL */ `
+  mutation SetUserApiKeyHidden($id: ID!, $hidden: Boolean!) {
+    setUserApiKeyHidden(id: $id, hidden: $hidden) {
+      id
+      hiddenAt
     }
   }
 `;
@@ -4246,7 +4257,10 @@ export const APP_CHANNELS_APP_QUERY = /* GraphQL */ `
   }
 `;
 
-/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200. */
+/** #942: one page of an App's Channels. Page it with `fetchAllItems`: the list caps at 200.
+ *
+ * #2509: `memoryId` survives the host record's concealment — `memory` comes
+ * back null for a caller who may see the Channel but not its memory's record. */
 export const APP_CHANNELS_QUERY = /* GraphQL */ `
   query AppChannels($appRef: ID!, $limit: Int, $offset: Int) {
     channels(filter: { appRef: $appRef }, limit: $limit, offset: $offset) {
@@ -4262,6 +4276,7 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
         lastSeq
         lastMessageAt
         createdAt
+        memoryId
         memory { id urn name }
       }
     }
@@ -4273,7 +4288,9 @@ export const APP_CHANNELS_QUERY = /* GraphQL */ `
  * #942: one page of an ORGANIZATION's Channels, those whose host memory
  * belongs to it (`channels(orgId:)`), and only those the caller may read.
  * Page it with `fetchAllItems`: the list caps at 200.
- */
+ *
+ * #2509: `memoryId` survives the host record's concealment — `memory` comes
+ * back null for a caller who may see the Channel but not its memory's record. */
 export const ORG_CHANNELS_QUERY = /* GraphQL */ `
   query OrgChannels($orgId: ID!, $limit: Int, $offset: Int) {
     channels(orgId: $orgId, limit: $limit, offset: $offset) {
@@ -4289,6 +4306,7 @@ export const ORG_CHANNELS_QUERY = /* GraphQL */ `
         lastSeq
         lastMessageAt
         createdAt
+        memoryId
         memory { id urn name }
       }
     }
@@ -4420,6 +4438,44 @@ export const SELF_CAN_MANAGE_QUERY = /* GraphQL */ `
 export const AGENT_BOOT_POINTER_QUERY = /* GraphQL */ `
   query AgentBootPointer($ref: ID!) {
     agent(ref: $ref) { id bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+// portal#1378 — what "Start a source" reads server-side, never from the page: the Agent's system memory and pointer.
+export const AGENT_BOOT_START_QUERY = /* GraphQL */ `
+  query AgentBootStart($ref: ID!) {
+    agent(ref: $ref) { id systemMemoryId bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+// portal#1377 S1 — the two nodes behind an Agent's Boot prompt tab. raw: true
+// (#485): the source is an editor, so include tags must round-trip unexpanded.
+// The compiled node is read for its approval (the status line) and, when the source
+// itself can't be read, its text (R1 c: a reader sees the compiled prompt read-only).
+export const BOOT_SOURCE_QUERY = /* GraphQL */ `
+  query BootSource($ref: ID!, $memoryRef: ID!) {
+    node(ref: $ref, memoryRef: $memoryRef, raw: true) { id urn revision content }
+  }
+`;
+
+export const BOOT_COMPILED_QUERY = /* GraphQL */ `
+  query BootCompiled($ref: ID!) {
+    node(ref: $ref, raw: true) {
+      id urn revision content
+      approvalStatus { state approval { revision } }
+      lintWarnings(first: 50) { items { kind position text targetUrn pinnedRevision newerRevision workerField } total nextCursor }
+    }
+  }
+`;
+
+// portal#1377 S2 — setPointer is omitted, so the server default (true) applies:
+// the compiled loc is fixed, so the pointer keeps naming the same node.
+export const COMPILE_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
+  mutation CompileAgentBootPrompt($agentRef: String!) {
+    compileAgentBootPrompt(agentRef: $agentRef) {
+      revNo contentHash pointerSet
+      node { id urn revision lintWarnings(first: 50) { items { kind position text targetUrn pinnedRevision newerRevision workerField } total nextCursor } }
+    }
   }
 `;
 
@@ -4598,12 +4654,15 @@ const AGENT_TASK_PARTY_FIELDS = /* GraphQL */ `
 
 const AGENT_TASK_ROW_FIELDS = /* GraphQL */ `
   fragment AgentTaskRowFields on AgentTask {
+    handle
     id
     parentTaskId
     title
     status
     queued
     waitingOnChildren
+    priority
+    blocked
     source
     owner { id kind name urn }
     assignee { id kind name urn }
@@ -4623,8 +4682,8 @@ export const AGENT_TASKS_APP_QUERY = /* GraphQL */ `
 
 export const AGENT_TASKS_BOARD_QUERY = /* GraphQL */ `
   ${AGENT_TASK_ROW_FIELDS}
-  query AgentTasksBoard($appRef: ID!, $status: [AgentTaskStatus!], $queued: Boolean, $limit: Int) {
-    agentTasks(appRef: $appRef, rootsOnly: true, status: $status, queued: $queued, limit: $limit) {
+  query AgentTasksBoard($appRef: ID!, $status: [AgentTaskStatus!], $queued: Boolean, $limit: Int, $text: String) {
+    agentTasks(appRef: $appRef, rootsOnly: true, status: $status, queued: $queued, limit: $limit, text: $text) {
       ...AgentTaskRowFields
     }
   }
@@ -4714,6 +4773,32 @@ export const TEAM_ROSTER_QUERY = /* GraphQL */ `
         waitingSince
         unreactedChildTask
         alarms
+      }
+    }
+  }
+`;
+
+// portal#1316 (hadron-server#2061 / #2475): the direct-report lanes and the
+// server's headcounts. Selects exactly the SDL's closed projection: no task,
+// holder or status field, and nothing the page would have to join or recount.
+export const TEAM_COMPOSITION_QUERY = /* GraphQL */ `
+  query TasksTeamComposition($appRef: ID!) {
+    teamComposition(appRef: $appRef) {
+      appId
+      asOf
+      lanes {
+        coordinator { id kind name urn }
+        coordinatorRetired
+        workers {
+          worker { id kind name urn }
+          role
+          family
+          bound
+          liveSession
+          state
+        }
+        countsByRole { role count }
+        countsByRoleFamily { role family count }
       }
     }
   }
@@ -4817,6 +4902,119 @@ export const APP_PEOPLE_QUERY = /* GraphQL */ `
   }
 `;
 
+// #1023: only the server may authorize a verified-unused casting repair.
+export const DELETE_WORKER_MUTATION = /* GraphQL */ `
+  mutation DeleteWorker($workerRef: ID!, $confirmNoExternalAttribution: Boolean!) {
+    deleteWorker(workerRef: $workerRef, confirmNoExternalAttribution: $confirmNoExternalAttribution)
+  }
+`;
+
+// #1142 P3: reads remain bounded to the selected App + installed Agent.
+export const INSTALL_TARGET_QUERY = /* GraphQL */ `
+  query InstallTarget($ref: ID!) {
+    app(ref: $ref) {
+      id
+      agents {
+        id
+        systemMemoryId
+      }
+    }
+  }
+`;
+export const INSTALL_MEMORY_QUERY = /* GraphQL */ `
+  query InstallMemory($appRef: String!, $agentRef: String!) {
+    installMemory(appRef: $appRef, agentRef: $agentRef) {
+      id
+      urn
+    }
+  }
+`;
+export const INSTALL_NODES_QUERY = /* GraphQL */ `
+  query InstallNodes($memoryRef: ID!, $offset: Int!) {
+    memoryNodes(memoryRef: $memoryRef, limit: 20, offset: $offset) {
+      nodes {
+        id
+        loc
+        name
+      }
+      total
+    }
+  }
+`;
+export const INSTALL_NODE_QUERY = /* GraphQL */ `
+  query InstallNode($memoryRef: ID!, $ref: ID!) {
+    node(memoryRef: $memoryRef, ref: $ref, raw: true) {
+      id
+      urn
+      loc
+      name
+      content
+      revision
+      role
+      isRunnable
+    }
+  }
+`;
+export const ORIGINAL_NODE_QUERY = /* GraphQL */ `
+  query OriginalNode($memoryRef: ID!, $ref: ID!) {
+    node(memoryRef: $memoryRef, ref: $ref, raw: true) {
+      id
+      urn
+      loc
+      name
+      content
+      revision
+      role
+      isRunnable
+    }
+  }
+`;
+export const CREATE_CUSTOMISATION_MUTATION = /* GraphQL */ `
+  mutation CreateCustomisation($input: CreateNodeInput!) {
+    createNode(input: $input) {
+      id
+      loc
+      revision
+    }
+  }
+`;
+
+// #1352: server#2644 merged wire; each edit retains the shared taskWrite semantics.
+export const SET_AGENT_TASK_PRIORITY_MUTATION = /* GraphQL */ `
+  mutation SetAgentTaskPriority($taskRef: ID!, $priority: Int!) {
+    setAgentTaskPriority(taskRef: $taskRef, priority: $priority) { id }
+  }
+`;
+export const ADD_AGENT_TASK_BLOCKER_MUTATION = /* GraphQL */ `
+  mutation AddAgentTaskBlocker($taskRef: ID!, $blockerTaskRef: ID!) {
+    addAgentTaskBlocker(taskRef: $taskRef, blockerTaskRef: $blockerTaskRef) { id }
+  }
+`;
+export const REMOVE_AGENT_TASK_BLOCKER_MUTATION = /* GraphQL */ `
+  mutation RemoveAgentTaskBlocker($taskRef: ID!, $blockerTaskRef: ID!) {
+    removeAgentTaskBlocker(taskRef: $taskRef, blockerTaskRef: $blockerTaskRef) { id }
+  }
+`;
+
+export const TASK_PICKER_QUERY = /* GraphQL */ `
+  query TaskPicker($appRef: ID!, $offset: Int!) {
+    agentTasks(appRef: $appRef, status: [BACKLOG, PENDING, STARTED], limit: 200, offset: $offset) {
+      id appId title handle status
+    }
+  }
+`;
+export const TASK_PICKER_EXACT_QUERY = /* GraphQL */ `
+  query TaskPickerExact($id: ID!) { agentTask(id: $id) { id appId title handle status } }
+`;
+export const TASK_DEPENDENCIES_QUERY = /* GraphQL */ `
+  query TaskDependencies($id: ID!, $offset: Int!) {
+    agentTask(id: $id) {
+      id appId
+      blockedBy(limit: 200, offset: $offset) { items { id appId title handle status } hasMore }
+      blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore }
+    }
+  }
+`;
 
 // #1033: arbitrary registered Channels use the same envelope and stable seq cursors.
 export const CHANNEL_MESSAGES_QUERY = /* GraphQL */ `

@@ -1,16 +1,21 @@
+import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
-import { loadInheritanceManagement, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
+import { loadInheritanceManagement, loadBaseCandidates, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
 import { loadAgentInheritance } from '$lib/server/agent-inheritance';
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
+import { compileRefusalStatus, compileRefusalText } from '$lib/boot-compile';
+import { approvalRefusalStatus, approveRefusalText } from '$lib/node-approval';
+import { BOOT_SOURCE_LOC, readBootSource, readCompiled, readServedRevision } from '$lib/server/boot-source';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions, gqlErrorBody } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import { grantedAgents, type InstallableAgent, type OrgAgentPool } from '$lib/server/installable-agents';
 import { withTimeout, OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
@@ -22,6 +27,9 @@ import {
   AGENT_APPS_QUERY,
   AGENT_OWNED_APPS_QUERY,
   UPDATE_AGENT_MUTATION,
+  NODE_DATA_READ_QUERY,
+  COMPILE_AGENT_BOOT_PROMPT_MUTATION,
+  APPROVE_NODE_MUTATION,
   DELETE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
@@ -29,6 +37,8 @@ import {
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
   AGENT_BOOT_POINTER_QUERY,
+  AGENT_BOOT_START_QUERY,
+  CREATE_NODE_MUTATION,
   SET_AGENT_BOOT_PROMPT_MUTATION,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
   APP_ORG_AGENT_GRANTS_QUERY,
@@ -37,6 +47,10 @@ import {
 import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
+  bootSourceSchema,
+  bootStartSchema,
+  bootCompileSchema,
+  bootApproveSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
   agentSettingsSchema,
@@ -71,7 +85,7 @@ function urnSlug(urn: string): string {
   return idx >= 0 ? urn.slice(idx + 1) : urn;
 }
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
 
   // #636: resolve the agent through the owner-accessible find-one so BOTH org
@@ -83,21 +97,24 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // (network/GraphQL) becomes a 500, distinct from a legitimate not-found.
   const agentRes = await client
     .request<{ agent: Agent | null }>(AGENT_QUERY, { ref: params.id })
-    .catch(() => {
-      throw error(500, 'Failed to load agent');
+    .catch((e: unknown) => {
+      throw error(500, gqlErrorBody(e, 'Failed to load agent'));
     });
   const agent = agentRes.agent;
   if (!agent) throw error(404, 'Agent not found or no longer available');
 
-  // Org chrome only for org-owned agents. A user-owned agent (organizationId
-  // null) belongs to no org — the page renders the org-less variant (org null,
-  // no org name / install / org system-memory picker).
+  // Org chrome only for an org-owned agent whose org the caller belongs to. A
+  // user-owned agent (organizationId null) belongs to no org, and a readable
+  // agent of a FOREIGN org (a cross-org PUBLIC agent, #1339) is not in the
+  // caller's organizations() list: both render without org chrome (org null, no
+  // org name / install / org system-memory picker). Not finding the org is not
+  // a reason to refuse an agent the server already returned — agent(ref:) is the
+  // gate, the list is only chrome — and the foreign org is never looked up.
   let org: Organization | null = null;
   let orgs: Organization[] = [];
   if (agent.organizationId) {
     orgs = await fetchAllItems<Organization>(client, ORGANIZATIONS_QUERY, 'organizations');
     org = orgs.find((o) => o.id === agent.organizationId) ?? null;
-    if (!org) throw error(404, 'Agent not found or no longer available');
   }
 
   // 006-asset-upload-redesign FR-013: per-agent asset-upload toggle is
@@ -119,7 +136,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     name: string;
     urn: string;
     organizationId: string;
-    agentId: string | null;
+    // The install join. A row whose `agent` is null is an install withheld from
+    // the caller (#1350); `agents` silently drops it.
+    appAgents?: Array<{ agent: { id: string } | null }> | null;
     agents?: Array<{
       id: string;
       name: string;
@@ -129,7 +148,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     }>;
   };
 
-  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, bootPointer, canManageAgent] = await Promise.all([
+  // A failed Apps read is not an empty list: the Apps tab says it could not load.
+  let installedAppsError = false;
+  const appsReadFailed = () => {
+    installedAppsError = true;
+    return [] as AgentAppLite[];
+  };
+
+  const [nodesResult, sysMemResult, configsResult, orgAppsResult, ownedAppsResult, personalMemsResult, registerDefaultsResult, inheritance, inheritanceManagement, baseCandidates, bootPointer, canManageAgent] = await Promise.all([
     allMemoryIds.length > 0
       ? drainFindNodes<{ node: MemoryNode }>(
           client, GRAPH_NODES_QUERY, { memoryIds: allMemoryIds },
@@ -148,22 +174,24 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     fetchAllItems<AiServiceConfig>(client, AI_SERVICE_CONFIGS_QUERY, 'aiServiceConfigs', {
       ownerType: 'AGENT', ownerId: agent.id,
     }).catch(() => null),
-    // Apps this agent is installed into (member-scoped, all caller orgs).
-    // Non-fatal: on failure the Apps tab just shows none.
-    fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
+    // Apps this agent is installed into (member-scoped, all caller orgs),
+    // filtered server-side by the AppAgent join (#472).
+    // Non-fatal: a failure flags `installedAppsError` instead of reading as none.
+    fetchAllItems<AgentAppLite>(client, AGENT_APPS_QUERY, 'apps', { agentId: agent.id }).catch(appsReadFailed),
     // …plus the caller's OWN org-less apps. `apps()` routes on org membership,
     // so a user-owned App is only reachable through filter.ownedByMe (#782) —
     // without this a personal team App showed neither in the Apps tab nor in
     // Bundled agents, though createTeamPersona supports one (#714 review).
-    fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps').catch(() => [] as AgentAppLite[]),
+    fetchAllItems<AgentAppLite>(client, AGENT_OWNED_APPS_QUERY, 'apps', { agentId: agent.id }).catch(appsReadFailed),
     // #642: the caller's OWN personal memories, offered as "Add memory" options
-    // for a personal agent. Gated on `!org && visibility !== 'PUBLIC'`, which
+    // for a personal agent. Gated on `!agent.organizationId && visibility !== 'PUBLIC'`
+    // (org-less, not merely org-unknown: #1339), which
     // means the caller OWNS a non-PUBLIC org-less agent: agent(ref:) only returns
     // a non-PUBLIC user-owned agent to its owner (owner-only access), and a PUBLIC
     // agent can't hold owner-only memories anyway (congruence). So this never
     // offers personal memories on someone else's PUBLIC agent, nor on an
     // org-visible agent (review #661). Slim projection; non-fatal.
-    !org && agent.visibility !== 'PUBLIC'
+    !agent.organizationId && agent.visibility !== 'PUBLIC'
       ? fetchOwnedMemoriesLite(locals.token).catch(() => [] as OwnedMemoryLite[])
       : Promise.resolve([] as OwnedMemoryLite[]),
     // #942: the install-row register default. A failure is null, which the
@@ -176,6 +204,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       .catch(() => null),
     loadAgentInheritance(client, agent.id),
     loadInheritanceManagement(client, agent.id, agent.urn, locals.user?.id ?? null, !!locals.impersonation),
+    // #1108/#1278: parent-agent candidates include readable active org grants.
+    // A failed grants read drops only that pool; a failed primary read is null
+    // so the picker shows "could not load", not a fake-empty list.
+    loadBaseCandidates(client, locals.token, agent.organizationId, agent.id),
     // portal#1142 S8: the Agent's boot-prompt pointer (its own read, so a
     // failure is not a null pointer), and whether to offer its form.
     readPointer(
@@ -186,8 +218,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     selfCanManage(client, locals.user?.id, agent.urn),
   ]);
 
-  // An agent can be installed into several apps (as the primary agentId or via
-  // the AppAgent join), and an app can host several agents — match on both.
+  // An agent can be installed into several apps, and an app can host several
+  // agents — match on the AppAgent join (`appAgents`) or the readable roster.
   const agentId = agent.id;
   // The two app lists can overlap for a platform admin, so de-dupe by app id
   // before anything counts or lists them.
@@ -196,7 +228,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     if (!appsById.has(a.id)) appsById.set(a.id, a);
   }
   const appsWithThisAgent = [...appsById.values()]
-    .filter((a) => a.agentId === agentId || (a.agents ?? []).some((x) => x.id === agentId));
+    .filter((a) =>
+      (a.appAgents ?? []).some((r) => r.agent?.id === agentId) ||
+      (a.agents ?? []).some((x) => x.id === agentId));
   const installedApps = appsWithThisAgent
     .map((a) => ({ id: a.id, name: a.name, urn: a.urn, orgId: a.organizationId }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -215,14 +249,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     id: string; name: string; urn: string; description: string | null;
     personaRole: string | null; via: string;
   }>();
-  // portal#1148 (hadron-server#2089): an App whose `agents` is null WITHHOLDS its roster, and the
-  // server withholds `agentId` with it — so such an App can be absent from `appsWithThisAgent`
-  // (the link-based filter above needs a visible link). Whether it installs this agent, and what
-  // its siblings are, is UNKNOWN, not "none": counted from ALL the Apps, before that filter, so
-  // the tab can say its list may be incomplete (George, LOCAL on #1150).
-  const bundledWithheldApps = [...appsById.values()].filter(
-    (a) => a.agents === null && (a.agentId === null || a.agentId === agentId),
-  ).length;
+  // portal#1350: an install the caller cannot read comes back as an `appAgents` row whose
+  // `agent` is null (`App.agents` drops it and `App.agentId` is masked, so neither can say so).
+  // Such an install means this list may be incomplete: hidden siblings, or a hidden App that
+  // installs this Agent. Read across ALL the Apps (deduplicated above), before the link filter.
+  // A missing/non-array `appAgents` is unknown, never proof of completeness. Boolean only:
+  // no hidden count, name, URN or id reaches the page.
+  const bundledMayBeIncomplete = [...appsById.values()].some(
+    (a) => !Array.isArray(a.appAgents) || a.appAgents.some((r) => !r || r.agent == null),
+  );
   for (const app of appsWithThisAgent) {
     for (const sibling of app.agents ?? []) {
       if (sibling.id === agentId || bundledById.has(sibling.id)) continue;
@@ -292,7 +327,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
       description: agent.description ?? '',
-      systemPrompt: agent.systemPrompt ?? '',
+
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
       personaRole: agent.personaRole ?? '',
@@ -305,12 +340,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     superValidate<AddAgentMemoryForm>(
       { memoryId: '', role: 'read' },
       addAgentMemoryFormAdapter,
-      { errors: false },
+      { errors: false, id: 'addMemory' },
     ),
     superValidate(
       { memoryId: '', role: 'read' },
       updateAgentMemoryRoleFormAdapter,
-      { errors: false },
+      { errors: false, id: 'updateMemoryRole' },
     ),
     superValidate(
       { memoryId: '' },
@@ -328,19 +363,28 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     superValidate({ _kind: 'setAgentBase', operation: 'set', baseRef: '' }, zod4(agentBaseSchema), { id: 'agentBase', errors: false }),
     superValidate({ _kind: 'setAgentIndexRefs', tasksOperation: 'keep', tasksIndexRef: '', processesOperation: 'keep', processesIndexRef: '' }, zod4(agentIndexRefsSchema), { id: 'agentIndexRefs', errors: false }),
   ]);
+  const [extendedBy, systemMemoryIdentity] = await Promise.all([
+    loadAgentExtensions(client, agent.id, url?.searchParams.get('extendedAfter') ?? null),
+    loadSystemMemoryIdentity(client, systemMemoryId),
+  ]);
+  // portal#1377: after the pointer read, because it decides which editor to offer.
+  const bootSource = await readBootSource(client, bootPointer, systemMemoryId);
   return {
-    inheritanceManagement, baseForm, indexRefsForm,
+    extendedBy, systemMemoryIdentity,
+    extendedAfter: url?.searchParams.get('extendedAfter') ?? null,
+    inheritanceManagement, baseCandidates, baseForm, indexRefsForm,
     inheritance,
     agent,
     org,
     agentNodes,
     agentNodesError,
     installedApps,
+    installedAppsError,
     bundledAgents,
     bundleCandidates,
     bundleCandidatesError,
     nextImportPosition,
-    bundledWithheldApps,
+    bundledMayBeIncomplete,
     allOrgs: orgs,
     orgSystemMemories,
     // Empty for an org agent; the caller's own memories for a user-owned agent (#642).
@@ -349,6 +393,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
     form,
+
+    bootSource,
+    bootStartForm: await superValidate({}, zod4(bootStartSchema), { id: `bootStart:${params.id}`, errors: false }),
+    bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${params.id}`, errors: false }),
+    bootApproveForm: await superValidate(
+      { nodeId: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.id : '', revision: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.revision : 1 },
+      zod4(bootApproveSchema), { id: `bootApprove:${params.id}`, errors: false },
+    ),
+    bootSourceForm: await superValidate(
+      { nodeId: bootSource.mode === 'source' ? bootSource.node.id : '', content: bootSource.mode === 'source' ? bootSource.node.content : '', expectedRevision: bootSource.mode === 'source' ? bootSource.node.revision : 1 },
+      zod4(bootSourceSchema), { id: `bootSource:${params.id}`, errors: false },
+    ),
     registerDefaults: registerDefaultsResult,
     registerDefaultsForm,
     bootPointer,
@@ -371,7 +427,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(SET_AGENT_BASE_MUTATION, baseVariables(params.id, form.data));
       return message(form, { type: 'success', text: t('agent.inheritance.base-saved', 'Base Agent saved.') });
     } catch (e) {
-      return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.base-save-failed', 'Could not update the base Agent.')) }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.base-save-failed', 'Could not update the base Agent.'), ['AGENT_BASE_CYCLE', 'AGENT_BASE_CHAIN_TOO_LONG', 'AGENT_ORG_GRANT_REQUIRED', 'FORBIDDEN']) }, { status: 500 });
     }
   },
   setIndexRefs: async ({ request, params, locals }) => {
@@ -384,6 +440,116 @@ export const actions: Actions = {
       return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.indexes-save-failed', 'Could not update index references.')) }, { status: 500 });
     }
   },
+  // portal#1377 S1: with a boot-prompt pointer set, the tab edits the Agent's
+  // `boot:source` node, not compiled prompt text. Refusals map by code to fixed
+  // copy: a ClientError's message carries the request variables (the prompt).
+  saveBootSource: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootSourceSchema), { id: `bootSource:${params.id}`, strict: true });
+    if (!form.valid) return fail(400, { form });
+    const input = { id: form.data.nodeId, content: form.data.content.replace(/\r\n/g, '\n'), expectedRevision: form.data.expectedRevision };
+    try {
+      const client = gqlClient(locals.token);
+      // A fresh read of the governance signals picks the write door (server #1201).
+      const prior = (await client.request<{ node: { role?: string | null; isRunnable?: boolean | null } | null }>(NODE_DATA_READ_QUERY, { ref: input.id })).node;
+      await client.request(nodeUpdateDocument(prior, input), { input });
+      // The shared node fragment carries no revision; the page shows the new one after the reload.
+      return message(form, { type: 'success', text: t('agent.boot.source-saved', 'Source saved. Workers get nothing new until it is compiled and approved.') });
+    } catch (e) {
+      const code = extractGqlErrorCode(e);
+      const text = code === 'NODE_WRITE_CONFLICT'
+        ? t('agent.boot.source-conflict', 'Someone changed the source since you opened it. Your draft is kept here: copy it before you reload, because a reload shows their version.')
+        : code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED'
+          ? t('agent.boot.source-worker-refused', 'Boot prompts are edited by their manager signed in as themselves, not through a worker session.')
+          : code === 'INCLUDE_TARGET_UNAVAILABLE'
+            // Fixed copy: the server's message and tag name the target, which this reader may not be allowed to know.
+            ? t('agent.boot.source-include-unavailable', 'An include in the source points at something that doesn’t exist or that you can’t read. Your draft is kept.')
+          : code === 'FORBIDDEN'
+            ? t('agent.boot.source-forbidden', 'Only whoever manages this Agent can change its boot prompt.')
+            : t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.');
+      return message(form, { type: 'error', text }, { status: code === 'NODE_WRITE_CONFLICT' ? 409 : code === 'INCLUDE_TARGET_UNAVAILABLE' ? 422 : code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED' ? 403 : 500 });
+    }
+  },
+
+  // portal#1378: "Start a source" for an Agent whose pointer is set but whose
+  // `boot:source` is gone (case 1) or that has no pointer at all (case 2). The seed is
+  // the current compiled text, read HERE from the pointer: never a page field, and never
+  // the legacy `Agent.systemPrompt` (Holger, D3). A pointer-less Agent starts empty. The
+  // server alone decides who may write the source (hrn:node:hadronmemory.com:specs:cor:agt:040:11); copy is fixed so
+  // neither a refusal's prose nor the seed is echoed.
+  startBootSource: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootStartSchema), { id: `bootStart:${params.id}`, strict: true });
+    if (!form.valid) return fail(400, { form });
+    const failed = (text: string, status: 403 | 409 | 500 | 502) => message(form, { type: 'error', text }, { status });
+    const client = gqlClient(locals.token);
+    // Set just before the write: a failure after it may have committed, so it cannot promise "nothing changed".
+    let attempted = false;
+    try {
+      const agent = (await client.request<{ agent: { systemMemoryId: string | null; bootPromptRef: string | null } | null }>(AGENT_BOOT_START_QUERY, { ref: params.id })).agent;
+      if (!agent?.systemMemoryId) return failed(t('boot.start.failed', 'Could not start a source. Nothing changed; try again.'), 500);
+      let seed = '';
+      if (agent.bootPromptRef) {
+        const compiled = await readCompiled(client, agent.bootPromptRef);
+        // Never start an empty source over a compiled prompt that exists but could not be read.
+        if (!compiled) return failed(t('boot.start.seed-unreadable', 'Could not read the current prompt to start from. Nothing changed; try again.'), 502);
+        seed = compiled.content;
+      }
+      attempted = true;
+      await client.request(CREATE_NODE_MUTATION, {
+        input: { memoryId: agent.systemMemoryId, loc: BOOT_SOURCE_LOC, name: 'Boot prompt source', role: 'boot-prompt', content: seed },
+      });
+      return message(form, {
+        type: 'success',
+        text: agent.bootPromptRef
+          ? t('boot.start.done-seeded', 'Source started from the current prompt. Workers get nothing new until it is compiled and approved.')
+          : t('boot.start.done-empty', 'Source started. Workers are served it once a compiled revision is approved.'),
+      });
+    } catch (e) {
+      const code = extractGqlErrorCode(e);
+      if (code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') {
+        return failed(code === 'FORBIDDEN'
+          ? t('boot.start.forbidden', 'Only whoever manages this Agent can start its boot prompt source.')
+          : t('boot.start.worker-refused', 'Boot prompts are started by their manager signed in as themselves, not through a worker session.'), 403);
+      }
+      // createNode is create-only: a live node at the loc is refused, never overwritten.
+      if (code === 'NodeLocConflictError') {
+        return failed(t('boot.start.exists', 'This Agent already has a source. Reload the page to edit it.'), 409);
+      }
+      if (attempted) return failed(t('boot.start.uncertain', 'Could not confirm the source was started. Reload the page to check before trying again.'), 500);
+      return failed(t('boot.start.failed', 'Could not start a source. Nothing changed; try again.'), 500);
+    }
+  },
+
+  // portal#1377 S2: "Update the prompt workers get". The compile never approves;
+  // the server writes a new unapproved compiled revision and the manager approves it.
+  compileBootPrompt: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootCompileSchema), { id: `bootCompile:${params.id}`, strict: true });
+    if (!form.valid) return fail(400, { form });
+    const client = gqlClient(locals.token);
+    try {
+      const r = await client.request<{ compileAgentBootPrompt: { revNo: number } }>(COMPILE_AGENT_BOOT_PROMPT_MUTATION, { agentRef: params.id });
+      return message(form, { type: 'success', text: t('boot.compile.done', 'Built revision {n}.', { n: r.compileAgentBootPrompt.revNo }) });
+    } catch (e) {
+      const code = extractGqlErrorCode(e);
+      const served = await readServedRevision(client, params.id);
+      return message(form, { type: 'error', text: compileRefusalText(code, extractGqlErrorExtensions(e)?.position, served) }, { status: compileRefusalStatus(code) });
+    }
+  },
+  // Approve exactly the revision the manager read (hidden field), never "latest".
+  approveBootPrompt: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootApproveSchema), { id: `bootApprove:${params.id}`, strict: true });
+    if (!form.valid) return fail(400, { form });
+    try {
+      await gqlClient(locals.token).request(APPROVE_NODE_MUTATION, { nodeRef: form.data.nodeId, revision: form.data.revision });
+      return message(form, { type: 'success', text: t('boot.approve.done', 'Revision {n} approved. Workers bound from now on get it.', { n: form.data.revision }) });
+    } catch (e) {
+      const code = extractGqlErrorCode(e);
+      const text = code === 'REVISION_MISMATCH'
+        ? t('boot.approve.mismatch', 'Someone updated the prompt after you opened it, so nothing was approved. The page has reloaded with the newest revision.')
+        : approveRefusalText(code);
+      return message(form, { type: 'error', text }, { status: approvalRefusalStatus(code) });
+    }
+  },
+
   update: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), agentSettingsFormAdapter);
     if (!form.valid) return fail(400, { form });
@@ -391,7 +557,7 @@ export const actions: Actions = {
     const name = form.data.name || undefined;
     const urnSlug = form.data.urnSlug || undefined;
     const description = form.data.description || null;
-    const systemPrompt = form.data.systemPrompt || null;
+
     // '' → OMIT, never null (#488): updateAgent forbids unsetting/changing a
     // system memory, so an explicit null THROWS when one is attached — and
     // the form's select can degrade to "— None —" whenever the current
@@ -405,7 +571,7 @@ export const actions: Actions = {
     const { personaRole } = form.data;
     try {
       await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
-        ref: params.id, name, urn: urnSlug, description, systemPrompt, systemMemoryId, visibility,
+        ref: params.id, name, urn: urnSlug, description, systemMemoryId, visibility,
         personaRole,
       });
 
@@ -423,7 +589,6 @@ export const actions: Actions = {
         const NODE_Q = /* GraphQL */ `query NodeExists($ref: ID!, $memoryRef: ID!) { node(ref: $ref, memoryRef: $memoryRef) { id } }`;
         const client = gqlClient(locals.token);
         const agentDisplayName = name ?? 'Agent';
-
         // Check if conversations parent exists; create scaffold if missing
         const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { ref: 'conversations', memoryRef: systemMemoryId }).catch(() => ({ node: null }));
 
@@ -463,7 +628,7 @@ export const actions: Actions = {
 
           await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
-            content: `You are ${agentDisplayName}.${systemPrompt ? ' ' + systemPrompt : ''}\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
+            content: `You are ${agentDisplayName}.\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
           }}).catch(() => {});
 
           // partials
@@ -559,6 +724,7 @@ export const actions: Actions = {
     const form = await superValidate<AddAgentMemoryForm>(
       await request.formData(),
       addAgentMemoryFormAdapter,
+      { id: 'addMemory' },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -597,12 +763,12 @@ export const actions: Actions = {
       });
       return { bundleAdded: true };
     } catch (e: unknown) {
-      return fail(500, { bundleError: extractGqlError(e, 'Failed to bundle the agent') });
+      return fail(500, { bundleError: extractGqlError(e, 'Failed to bundle the agent', ['SelfImportError', 'MultiLevelImportError', 'MissingGrantError', 'PositionConflictError']) });
     }
   },
 
   updateMemoryRole: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), updateAgentMemoryRoleFormAdapter);
+    const form = await superValidate(await request.formData(), updateAgentMemoryRoleFormAdapter, { id: 'updateMemoryRole' });
     if (!form.valid) return fail(400, { form });
 
     try {

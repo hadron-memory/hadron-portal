@@ -79,6 +79,7 @@ function renderAt(path: string, isConsumerMode = false) {
         activeOrgId: org.id,
         activeOrg: org,
         navOrgs: [org],
+        nodeAdvice: [],
         impersonation: null,
         isConsumerMode,
         org,

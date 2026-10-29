@@ -1,5 +1,9 @@
 <script lang="ts">
+  import BootPromptSource from './BootPromptSource.svelte';
+  import StartBootSource from './StartBootSource.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
+  import AgentExtendedBy from '$lib/components/AgentExtendedBy.svelte';
+  import type { NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import AgentDefinitions from '$lib/components/AgentDefinitions.svelte';
   import { tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -15,13 +19,14 @@
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
+  import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
+  import { eligibleCloneTargets, showCloneEntry } from '$lib/agents/clone';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
-  import { installStrings } from '$lib/i18n/install-strings';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
-  import type { MemoryNode } from '$lib/types';
+  import type { MemoryNode, OrgSummary } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import {
     addAgentMemorySchema,
@@ -75,6 +80,9 @@
     (data as { installedApps?: Array<{ id: string; name: string; urn: string; orgId: string }> })
       .installedApps ?? [],
   );
+  // The loader reads the Apps list in two calls; a failed call is not an empty
+  // list, so it travels as its own flag.
+  const installedAppsError = $derived(!!(data as { installedAppsError?: boolean }).installedAppsError);
   const writableMemoryIds = $derived((agent.memoryItems ?? []).filter((m) => m.role === 'read-write').map((m) => m.memory.id));
   // #713: agents bundled with this one — co-installed siblings plus AgentImport
   // edges, assembled server-side (see the loader for why siblings are the source
@@ -90,7 +98,7 @@
   const nextImportPosition = $derived((data as { nextImportPosition?: number }).nextImportPosition ?? 1);
   const bundleResult = $derived(form as { bundleError?: string; bundleAdded?: boolean } | null);
   let bundling = $state(false);
-  const bundledWithheldApps = $derived((data as { bundledWithheldApps?: number }).bundledWithheldApps ?? 0);
+  const bundledMayBeIncomplete = $derived((data as { bundledMayBeIncomplete?: boolean }).bundledMayBeIncomplete ?? false);
   const bundledAgents = $derived(
     (data as { bundledAgents?: BundledAgentRow[] }).bundledAgents ?? [],
   );
@@ -103,7 +111,7 @@
   // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
   // AI Providers were split out of the old Settings tab; the old "Memory"
   // node browser is now "Nodes"; Settings keeps the danger zone.
-  type TabId = 'tasks' | 'processes' | 'profile' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
+  type TabId = 'tasks' | 'processes' | 'profile' | 'boot' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
   let activeTab = $state<TabId>('profile');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
@@ -188,6 +196,7 @@
   // the /test tester.
   const tabs = $derived<{ id: TabId; label: string }[]>([
     { id: 'profile', label: 'Profile' },
+    { id: 'boot', label: t('agent.boot.tab', 'Boot prompt') },
     { id: 'tasks', label: t('agent.tasks.tab', 'Tasks') },
     { id: 'processes', label: t('agent.processes.tab', 'Processes') },
     { id: 'memories', label: 'Memories' },
@@ -195,7 +204,7 @@
     // #713: only for an agent that actually bundles others (a Team Agent and
     // its personas) — an always-empty tab on every ordinary agent is noise,
     // same reasoning as Chatbot Control below.
-    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
+    ...(bundledAgents.length > 0 || bundledMayBeIncomplete || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },
@@ -380,7 +389,7 @@
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
       description: agent.description ?? '',
-      systemPrompt: agent.systemPrompt ?? '',
+
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
       personaRole: agent.personaRole ?? '',
@@ -445,6 +454,28 @@
   // portal#1142 S8: a no-JS pointer result opens Settings too, where it shows.
   $effect(() => {
     if ((form as { pointer?: PointerResult } | null)?.pointer) activeTab = 'settings';
+  });
+
+  // A delayed action from another route instance must not seed this editor
+  // or reopen it. Superforms also uses this route-specific id to isolate stores.
+  const bootSourceSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootSource') as typeof data.bootSourceForm | null;
+    return result?.id === data.bootSourceForm?.id ? result : null;
+  });
+  const bootStartSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootStart') as typeof data.bootStartForm | null;
+    return result?.id === data.bootStartForm?.id ? result : null;
+  });
+  const bootCompileSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootCompile') as typeof data.bootCompileForm | null;
+    return result?.id === data.bootCompileForm?.id ? result : null;
+  });
+  const bootApproveSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootApprove') as typeof data.bootApproveForm | null;
+    return result?.id === data.bootApproveForm?.id ? result : null;
+  });
+  $effect(() => {
+    if (bootSourceSubmission || bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -525,6 +556,20 @@
   );
   // The memory chosen in the "Add memory" picker — used to label the picker button.
   const selectedAddMemory = $derived(allMemories.find((m) => m.id === $addMemoryForm.memoryId));
+
+  const profileActions = $derived.by(() => {
+    const actions: NodeMenuAction[] = [];
+    // Keep the existing org-only install route/audience.
+    if (org) actions.push({ id: 'install', label: t('agent.actions.install', 'Install into app'), href: `/app/orgs/${encodeURIComponent(org.id)}/agents/install/${encodeURIComponent(agent.id)}` });
+    // #1262: clone into an organization the caller administers. The eligible-org
+    // list is a hint; the server's ADMIN gate on the target is authoritative.
+    if (showCloneEntry({ visibility: agent.visibility, canManage: !!data.canManageAgent, eligibleCount: eligibleCloneTargets(navOrgs, data.currentUserId).length })) {
+      actions.push({ id: 'clone', label: t('agent.actions.clone', 'Clone to organization'), href: `/app/agents/${encodeURIComponent(agent.id)}/clone` });
+    }
+    if (agent.systemMemoryId) actions.push({ id: 'conversations', label: t('agent.actions.conversations', 'Conversation editor'), href: `/app/agents/${encodeURIComponent(agent.id)}/conversations` });
+    if (data.systemMemoryIdentity?.urn) actions.push({ id: 'system-memory', label: t('agent.actions.system-memory', 'Open system memory'), href: `/app/memories/${encodeURIComponent(data.systemMemoryIdentity.id)}` });
+    return actions;
+  });
 
   // ── Memories tab grid (#371 follow-up) ────────────────────────────────
   // The attached-memories list migrated from a hand-rolled card list to the
@@ -615,6 +660,91 @@
     globalFilterFn: 'includesString',
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
+
+  // ── Apps tab grid (#472) ──────────────────────────────────────────────
+  // The installed-Apps list on the shared TanStack DataTable. Rows come from
+  // the loader's member-scoped `installedApps`; org names come from the
+  // layout's already-authorized member orgs (`navOrgs`), never a new fetch.
+  // The table pages the rows already loaded; the loader is not server-paged.
+  interface AgentAppRow {
+    id: string;
+    name: string;
+    urn: string;
+    orgId: string | null;
+    /** Null for a personal (org-less) App, or an org this user is not a member of. */
+    orgName: string | null;
+  }
+
+  const navOrgs = $derived((data as { navOrgs?: OrgSummary[] }).navOrgs ?? []);
+  const appRows = $derived.by<AgentAppRow[]>(() => {
+    const names = new Map(navOrgs.map((o) => [o.id, o.name]));
+    return installedApps.map((a) => ({
+      id: a.id,
+      name: a.name,
+      urn: a.urn,
+      orgId: a.orgId || null,
+      orgName: a.orgId ? (names.get(a.orgId) ?? null) : null,
+    }));
+  });
+  // Only orgs that own at least one of this agent's Apps can narrow the list.
+  const appOrgOptions = $derived(navOrgs.filter((o) => appRows.some((a) => a.orgId === o.id)));
+  let appOrgPick = $state<string | null>(null);
+  // A pick whose org left the data (reload, another agent) is no filter at all.
+  const appOrgFilter = $derived(appOrgPick && appOrgOptions.some((o) => o.id === appOrgPick) ? appOrgPick : null);
+  const appOrgFilterName = $derived(appOrgOptions.find((o) => o.id === appOrgFilter)?.name ?? null);
+  const visibleAppRows = $derived(appOrgFilter ? appRows.filter((a) => a.orgId === appOrgFilter) : appRows);
+  let appsFilter = $state('');
+  let appOrgPickerOpen = $state(false);
+
+  function appOrgLabel(a: AgentAppRow): string {
+    if (a.orgName) return a.orgName;
+    return a.orgId
+      ? t('agent.apps.org-unavailable', 'Organization not visible to you')
+      : t('agent.apps.org-personal', 'Personal');
+  }
+
+  const appColumns: PortalColumnDef<AgentAppRow>[] = [
+    { accessorKey: 'name', header: 'Name', enableHiding: false, size: 240 }, // identity column
+    { accessorKey: 'urn', header: 'URN', size: 340 },
+    { accessorFn: (a) => appOrgLabel(a), id: 'org', header: 'Organization', size: 200 },
+  ];
+
+  const appsTable = createSvelteTable<AgentAppRow>({
+    get data() {
+      return visibleAppRows;
+    },
+    columns: appColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return appsFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      appsFilter = typeof u === 'function' ? u(appsFilter) : u;
+    },
+    globalFilterFn: 'includesString',
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
+
+  function pickAppOrg(o: OrgSummary | null) {
+    appOrgPick = o?.id ?? null;
+    appsTable.resetPageIndex();
+  }
+
+  // The page component is reused across /app/agents/[id] navigations; a filter
+  // chosen on one agent must not carry to the next. Reads agent.id; the reset
+  // itself is untracked (the table's reset reads and writes its own state).
+  $effect(() => {
+    void agent.id;
+    untrack(() => {
+      appOrgPick = null;
+      appsFilter = '';
+      appsTable.resetPageIndex();
+    });
+  });
 </script>
 
 <svelte:head><title>{agent.name} · Hadron</title></svelte:head>
@@ -639,19 +769,8 @@
         <p class="mt-1 text-xs text-zinc-400">Organization: {org.name}</p>
       {/if}
     </div>
-    <!-- 009-install-agent-flow T013: Install action surfaces here as the
-         primary call-to-action for the Agent detail page. Soft-deleted
-         Agents don't reach this page (the load redirect would 404 first),
-         so no client-side gate needed. Install is an org-only flow — a
-         user-owned (org-less) agent has no org install surface (#636). -->
-    {#if org}
-      <a
-        href="/app/orgs/{org.id}/agents/install/{agent.id}"
-        class="shrink-0 rounded-lg px-4 py-2 text-sm font-semibold text-white"
-        style="background: #fb8500;"
-      >
-        {installStrings.buttonLabel()}
-      </a>
+    {#if profileActions.length > 0}
+      <NodeActionsMenu label={t('agent.actions.label', 'Agent actions')} actions={profileActions} />
     {/if}
   </div>
 
@@ -702,6 +821,38 @@
   {#if activeTab === 'processes' && data.inheritance}
     <AgentDefinitions agentId={agent.id} read={data.inheritance.processes} processes />
   {/if}
+  {#if data.bootSource}
+    <div hidden={activeTab !== 'boot'}>
+      {#if data.bootSource.mode === 'legacy'}
+        <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.no-source', 'This Agent has no boot prompt source yet.')}</p>
+        {#if data.bootSource.canStart}
+          {#key data.bootStartForm.id}<StartBootSource seeded={false} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
+        {/if}
+      {:else if data.bootSource.mode === 'source'}
+        <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
+        {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
+          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
+        {/key}
+      {:else if data.bootSource.mode === 'compiled-only'}
+        <section data-boot-compiled-only>
+          <p role="status" class="mb-2 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.compiled-only', 'You can’t see this Agent’s source, so this is the compiled prompt, read-only.')}</p>
+          <p class="mb-3 text-xs"><Urn value={data.bootSource.compiled.urn} type="node" /> <span class="text-zinc-500 dark:text-zinc-400">{t('agent.boot.source-revision', 'revision {n}', { n: data.bootSource.compiled.revision })}</span></p>
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex: a scrollable text region must be reachable by keyboard (WCAG 2.1.1) -->
+          <pre tabindex="0" aria-label={t('agent.boot.compiled-text-label', 'Compiled prompt text')} class="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{data.bootSource.compiled.content}</pre>
+        </section>
+      {:else if data.bootSource.mode === 'source-missing'}
+        {#if data.bootSource.canStart}
+          {#key data.bootStartForm.id}<StartBootSource seeded={true} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
+        {:else}
+          <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
+        {/if}
+      {:else if data.bootSource.mode === 'source-unreadable'}
+        <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-unreadable', 'You can’t see this Agent’s boot prompt.')}</p>
+      {:else}
+        <p role="alert" class="text-sm text-red-600 dark:text-red-400">{t('agent.boot.unknown', 'The boot prompt could not be loaded. Reload the page to try again.')}</p>
+      {/if}
+    </div>
+  {/if}
   {#if activeTab === 'profile'}
     {#if data.inheritance}
       <section class="mb-6 min-w-0 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-label={t('agent.base.label', 'base Agent')}>
@@ -733,12 +884,6 @@
               <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
             </div>
           {/if}
-          {#if agent.systemPrompt}
-            <div class="px-5 py-3">
-              <span class="text-sm text-zinc-500">System Prompt</span>
-              <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
-            </div>
-          {/if}
           <!-- #974: persona DRESSING on a reusable role-actor. Not an identity —
                the named individual is a Worker cast into an App. -->
           {#if agent.personaRole}
@@ -747,14 +892,10 @@
               <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
             </div>
           {/if}
-          {#if agent.systemMemoryId}
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Agent system memory</span>
-              <a href="/app/memories/{agent.systemMemoryId}" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">{systemMemory?.name ?? 'System memory'} →</a>
-            </div>
-            <div class="flex items-center justify-between px-5 py-3">
-              <span class="text-sm text-zinc-500">Conversations</span>
-              <a href="/app/agents/{agent.id}/conversations" class="text-sm font-medium text-indigo-500 hover:underline dark:text-indigo-400">Conversation Editor →</a>
+          {#if data.systemMemoryIdentity?.urn}
+            <div class="space-y-1 px-5 py-3">
+              <span class="text-sm text-zinc-500">{t('agent.system-memory.label', 'Agent system memory')}</span>
+              <div><Urn value={data.systemMemoryIdentity.urn} type="memory" linked label={t('agent.system-memory.label', 'Agent system memory')} /></div>
             </div>
           {/if}
           {#if org}
@@ -769,6 +910,8 @@
           </div>
         </div>
       </section>
+
+      <AgentExtendedBy agentId={agent.id} requestedAfter={data.extendedAfter ?? null} result={data.extendedBy ?? { items: [], endCursor: null, hasMore: false, failed: true }} />
 
       <!-- Capabilities — removed per FR-013 (spec 006-asset-upload-redesign).
            The v1 per-agent asset-upload toggle is being replaced by a per-
@@ -984,7 +1127,7 @@
         </h2>
         <!-- #648: a user-owned (org-less) agent installs as a PERSONAL app via
              the org-less create flow (org agents install from the org grid). -->
-        {#if !org}
+        {#if !agent.organizationId}
           <a
             href="/app/apps/new?agent={agent.id}"
             class="rounded-lg px-3 py-1.5 text-xs font-semibold text-white"
@@ -992,16 +1135,49 @@
           >Install as app</a>
         {/if}
       </div>
+      {#if installedAppsError}
+        <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">
+          {installedApps.length > 0
+            ? t('agent.apps.error-partial', 'Part of the Apps list could not be loaded, so this list may be incomplete. Reload to try again.')
+            : t('agent.apps.error', 'The Apps list could not be loaded. Reload to try again.')}
+        </p>
+      {/if}
       {#if installedApps.length > 0}
-        <ul class="divide-y divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-          {#each installedApps as app (app.id)}
-            <li class="flex items-center gap-2 px-3 py-2">
-              <a href="/app/apps/{app.id}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{app.name}</a>
-              <Urn value={app.urn} type="app" size={10} />
-            </li>
-          {/each}
-        </ul>
-      {:else}
+        <div class="mb-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onclick={() => (appOrgPickerOpen = true)}
+            aria-haspopup="dialog"
+            class="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >{t('agent.apps.org-filter', 'Organization')}: {appOrgFilterName ?? t('agent.apps.org-all', 'All organizations')}</button>
+          {#if appOrgFilter}
+            <button
+              type="button"
+              onclick={() => pickAppOrg(null)}
+              class="rounded-lg px-2 py-1.5 text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-300"
+            >{t('agent.apps.org-clear', 'Clear')}</button>
+          {/if}
+        </div>
+        <SelectOrg orgs={appOrgOptions} bind:open={appOrgPickerOpen} onselect={pickAppOrg} />
+        <DataTable
+          table={appsTable}
+          listKey="agent:apps"
+          searchPlaceholder="Search apps..."
+          searchAriaLabel="Search apps"
+          bind:globalFilter={appsFilter}
+          maxHeight="max(200px, calc(100vh - 20rem))"
+        >
+          {#snippet cell(cell, a)}
+            {#if cell.column.id === 'name'}
+              <a href="/app/apps/{a.id}" class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{a.name}</a>
+            {:else if cell.column.id === 'urn'}
+              <Urn value={a.urn} type="app" size={10} />
+            {:else if cell.column.id === 'org'}
+              <span class="truncate {a.orgName ? '' : 'text-zinc-500'}">{appOrgLabel(a)}</span>
+            {/if}
+          {/snippet}
+        </DataTable>
+      {:else if !installedAppsError}
         <p class="text-sm text-zinc-500">This agent isn't installed into any apps yet.</p>
       {/if}
     </section>
@@ -1062,9 +1238,9 @@
       {:else if bundleResult?.bundleAdded}
         <p role="status" class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
       {/if}
-      {#if bundledWithheldApps > 0}
-        <p role="status" class="mb-3 text-xs text-zinc-500">
-          {t('agent.bundled.withheld', 'The agents installed in {count} App(s) aren’t visible to you, so this list may be incomplete.', { count: String(bundledWithheldApps) })}
+      {#if bundledMayBeIncomplete}
+        <p role="status" class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+          {t('agent.bundled.withheld', 'This list may be incomplete because some installed agents aren’t visible to you.')}
         </p>
       {/if}
       <!-- 24rem offset tuned to this page's chrome (breadcrumb + header + tab
@@ -1294,7 +1470,7 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   {#if activeTab === 'settings'}
     {#if data.inheritanceManagement}
-      <AgentInheritanceSettings management={data.inheritanceManagement} currentBase={data.inheritance.base} baseForm={data.baseForm} indexRefsForm={data.indexRefsForm} actionData={form} />
+      <AgentInheritanceSettings management={data.inheritanceManagement} currentBase={data.inheritance.base} candidates={data.baseCandidates} baseForm={data.baseForm} indexRefsForm={data.indexRefsForm} actionData={form} />
     {/if}
     <div class="space-y-8">
       <!-- Agent settings (editable). #352 follow-up: the editable agent form
@@ -1344,11 +1520,6 @@
               <textarea id="editDescription" name="description" rows="3" placeholder="What this agent is for" bind:value={$agentSettingsForm.description} class={inputClass}></textarea>
             </div>
             <div>
-              <label for="editSystemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="editSystemPrompt" name="systemPrompt" rows="4" placeholder={t('agent.system-prompt.placeholder', 'Instructions shared by chats and workers')} bind:value={$agentSettingsForm.systemPrompt} class={inputClass}></textarea>
-              <p class="mt-1 text-xs text-zinc-400">{t('agent.system-prompt.help', 'Shared by agent chats and workers cast from this agent. In a worker briefing, {{name}} and {{role}} are filled in; each worker can add a prompt override.')}</p>
-            </div>
-            <div>
               <label for="editVisibility" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>
               <select id="editVisibility" name="visibility" bind:value={$agentSettingsForm.visibility} class="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">
                 <option value="PERSONAL">Personal</option>
@@ -1391,7 +1562,7 @@
               </div>
             {/if}
             <!-- The role belongs to the reusable Agent; the shared template
-                 now lives in systemPrompt (#1241). -->
+                 now lives in compiled boot prompt (#1241). -->
             <div>
               <label for="editPersonaRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('agent.persona.role', 'Persona role')}</label>
               <input id="editPersonaRole" name="personaRole" type="text" placeholder="backend-engineer" bind:value={$agentSettingsForm.personaRole}
@@ -1413,12 +1584,6 @@
               <div class="px-5 py-3">
                 <span class="text-sm text-zinc-500">Description</span>
                 <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.description}</p>
-              </div>
-            {/if}
-            {#if agent.systemPrompt}
-              <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">System Prompt</span>
-                <p class="mt-1 text-sm text-zinc-900 dark:text-white whitespace-pre-wrap">{agent.systemPrompt}</p>
               </div>
             {/if}
             {#if agent.personaRole}

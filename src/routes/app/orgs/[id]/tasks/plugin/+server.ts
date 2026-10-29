@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import JSZip from 'jszip';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { pluginVersion } from '$lib/server/plugin-version';
 import { orgTaskMemoryIds } from '$lib/server/org-task-memories';
 import {
@@ -60,6 +60,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
   // #1075: EXPORT takes its memories as a persisted scope, not a list. Make one
   // for this download and delete it when the plans are back.
+  // #1077 item 2 (ruling C): a crash between createScope and deleteScope leaves
+  // an inert, empty, org-owned task-export-<uuid> scope — scopes only narrow
+  // reads (hrn:node:hadronmemory.com:specs:cor:acl:120), so the orphan is
+  // accepted; revisit only if a read-only count of task-export-% scopes shows
+  // accumulation.
   let scopeId: string;
   try {
     const created = await client.request<{ createScope: { id: string } }>(CREATE_SCOPE_MUTATION, {
@@ -72,7 +77,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     });
     scopeId = created.createScope.id;
   } catch (err) {
-    console.error('[org tasks] createScope failed:', err);
+    // The provider's role gate decides; never infer access from org data.
+    if (extractGqlErrorCode(err) === 'FORBIDDEN') {
+      return json({ code: 'scope-forbidden' }, { status: 403 });
+    }
+    console.error('[org tasks] createScope failed');
     return json(
       { code: 'plan-failed', detail: extractGqlError(err, 'The export scope could not be created') },
       { status: 502 },
@@ -92,9 +101,13 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     ]);
   } finally {
     // Best-effort: a leaked scope is housekeeping, not the user's download.
-    await client.request(DELETE_SCOPE_MUTATION, { ref: scopeId }).catch((err: unknown) => {
-      console.error('[org tasks] deleteScope failed:', err);
-    });
+    try {
+      const result = await client.request<{ deleteScope: boolean }>(DELETE_SCOPE_MUTATION, { ref: scopeId });
+      if (!result.deleteScope) console.error('[org tasks] deleteScope failed');
+    } catch {
+      // A ClientError can include tokens, variables and scope contents.
+      console.error('[org tasks] deleteScope failed');
+    }
   }
   if (exportPlan.status === 'rejected') {
     console.error('[org tasks] skillPlan EXPORT failed:', exportPlan.reason);

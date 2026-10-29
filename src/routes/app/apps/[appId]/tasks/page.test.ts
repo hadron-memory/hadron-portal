@@ -42,7 +42,7 @@ function expectBoardWrites(html: string) {
   // Uma's P3-3: New task is on the board, so the note says so.
   expect(html).toContain('Create a task with New task; direct it from its page, the CLI or MCP.');
   expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\/new"[^>]*>\s*New task/);
-  expect(html).not.toMatch(/<form/);
+  expect(html).toMatch(/<form[^>]*method="GET"/);
   expect(html).not.toMatch(/\bPark\b/);
   expect(html).not.toMatch(/<button[^>]*>\s*(Assign|Reassign|Cancel|Ready|Make ready|Acknowledge)/i);
 }
@@ -86,7 +86,7 @@ describe('board', () => {
   ])('an empty %s filter says so, above a grid that stays mounted', (filter, text) => {
     const html = board({ filter });
     expect(html).toContain(text);
-    expect(html).toContain('Search tasks…');
+    expect(html).toContain('Search title and description');
   });
 
   it('marks the current filter, with Backlog as its own link', () => {
@@ -101,7 +101,7 @@ describe('board', () => {
 
   it('a full page says there may be more', () => {
     const html = board({ board: { kind: 'ok', value: { capped: true, tasks: [task()] } } });
-    expect(html).toContain('Showing the newest 200 tasks. There may be more');
+    expect(html).toContain('There may be more; narrow the search.');
   });
 
   it('a failed read is an alert, never an empty list', () => {
@@ -141,7 +141,7 @@ describe('task page', () => {
     expect(html).toContain('hadron team task get t1');
     expect(html).toContain('No subtasks');
     expect(html).toContain('You can change a task you own, or any task if you manage the App.');
-    expect(html).not.toMatch(/<form/);
+    expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((match) => match[1])).toEqual(['?/priority']);
     expect(html).not.toMatch(/\bPark\b/);
   });
 
