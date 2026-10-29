@@ -56,7 +56,7 @@ describe('board GET search (#1400)', () => {
     const schema = buildSchema(readFileSync('schema/schema.graphql', 'utf8'));
     // Legal AgentTask rows; the description-only match is older than 205 roots.
     const roots = Array.from({ length: 206 }, (_, i) => ({
-      id: `t${i}`, title: `Task ${i}`, description: i === 205 ? 'Hidden NeEdLe %_\\' : '',
+      id: `t${i}`, handle: `AT0.${i + 1}`, priority: 1, blocked: false, title: `Task ${i}`, description: i === 205 ? 'Hidden NeEdLe %_\\' : '',
       status: 'FINISHED', parentTaskId: null, queued: false,
       waitingOnChildren: false, source: null, owner: { id: 'u1', kind: 'USER', name: 'Test', urn: null }, assignee: null, startBy: null,
       createdAt: '2026-10-29T00:00:00Z', updatedAt: null, tags: [],
