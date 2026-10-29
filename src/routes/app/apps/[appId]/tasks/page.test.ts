@@ -6,6 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
+import { parseHandle } from '$lib/agent-tasks/handle';
 
 // The node lane has no $app/* (only the client lane aliases navigation).
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
@@ -276,12 +277,16 @@ describe('task handles', () => {
     expect(html).not.toContain('data-task-handle');
   });
 
-  it('a 64-character, 16-deep handle is truncated in the chip but whole in title and name', () => {
-    const long = 'AT1' + '.1'.repeat(15) + '.12345678901234567890'.slice(0, 0);
+  it('a 64-character, 16-deep handle gets truncation styling in the chip but is whole in title and name', () => {
+    // The server's bounds (64 characters, 16 segments); a layout test would need a browser.
+    const long = 'AT' + [...Array(15).fill('100'), '10'].join('.');
+    expect(long).toHaveLength(64);
+    expect(long.slice(2).split('.')).toHaveLength(16);
+    expect(parseHandle(long)?.handle).toBe(long);
     const html = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ handle: long })] } } });
     expect(html).toMatch(/data-task-handle/);
     expect(html).toContain(`title="${long}"`);
-    expect(html).toMatch(/class="[^"]*\btruncate\b[^"]*"[^>]*title="AT1\.1/);
+    expect(html).toMatch(new RegExp(`class="[^"]*\\btruncate\\b[^"]*"[^>]*title="${long.replaceAll('.', '\\.')}"`));
   });
 
   it('detail: handle chip by the title, three SEPARATELY labelled copy values (handle, id, CLI), id not the only addressable thing', () => {

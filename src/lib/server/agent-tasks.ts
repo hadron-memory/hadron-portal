@@ -183,18 +183,29 @@ export async function loadComposition(client: GraphQLClient, appRef: string): Pr
  * names inside THIS App, for a write. The App is read first (a non-participant
  * gets the App's 404), the segment is qualified with that App by
  * `resolveSegment`, and the server's resolver answers; a task that is missing,
- * unreadable or another App's is the same 404. The raw segment is never a
- * mutation identity.
+ * unreadable (answered null or refused) or another App's is the same 404. A
+ * transport failure or unknown fault is thrown as is. The raw segment is never
+ * a mutation identity.
  */
 export async function canonicalTaskId(client: GraphQLClient, appId: string, segment: string): Promise<string> {
   const app = await loadTasksApp(client, appId);
   if (!app) throw error(404, 'App not found');
   const seg = resolveSegment(segment, app.urn);
   if (seg.kind === 'unknown') throw error(404, 'Task not found, or you can’t see it');
-  const r = await client.request<{ agentTask: { id: string; appId: string } | null }>(AGENT_TASK_REF_QUERY, { id: seg.ref });
+  let r: { agentTask: { id: string; appId: string } | null };
+  try {
+    r = await client.request(AGENT_TASK_REF_QUERY, { id: seg.ref });
+  } catch (e) {
+    // A refusal is the same 404 as a null answer; any other failure is the caller's to classify.
+    if (TASK_REF_REFUSALS.has(extractGqlErrorCode(e) ?? '')) throw error(404, 'Task not found, or you can’t see it');
+    throw e;
+  }
   if (!r.agentTask || r.agentTask.appId !== app.id) throw error(404, 'Task not found, or you can’t see it');
   return r.agentTask.id;
 }
+
+/** The resolution read's answers that mean "not one you can see": never told apart (portal#1349). */
+const TASK_REF_REFUSALS = new Set(['FORBIDDEN', 'NOT_FOUND', 'TASK_NOT_FOUND', 'APP_NOT_FOUND']);
 
 /** Bounded concurrency for reference hydration: a finite page of ids, never a flood. */
 export const HYDRATE_CONCURRENCY = 6;

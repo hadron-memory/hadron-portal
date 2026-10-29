@@ -4653,7 +4653,6 @@ const AGENT_TASK_PARTY_FIELDS = /* GraphQL */ `
 
 const AGENT_TASK_ROW_FIELDS = /* GraphQL */ `
   fragment AgentTaskRowFields on AgentTask {
-    handle
     id
     handle
     parentTaskId

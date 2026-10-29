@@ -1,6 +1,6 @@
 import { taskDependencies } from '$lib/server/task-planning';
 import { readTaskPriority } from '$lib/agent-tasks/planning';
-import { error, redirect } from '@sveltejs/kit';
+import { error, redirect, isHttpError } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
   AGENT_TASK_DETAIL_QUERY,
@@ -104,7 +104,14 @@ async function write(
   if ('invalid' in built) return writeFailure(action, { kind: 'invalid', ...built.invalid }, values);
   // The mutation identity is the canonical id the server resolved for THIS App's
   // route, never the raw URL segment (portal#1349).
-  const taskId = await canonicalTaskId(gqlClient(locals.token), params.appId, params.taskId);
+  let taskId: string;
+  try {
+    taskId = await canonicalTaskId(gqlClient(locals.token), params.appId, params.taskId);
+  } catch (e) {
+    // The neutral 404 stands; a failed resolution read is the uncertain line, like any write fault.
+    if (isHttpError(e)) throw e;
+    return writeFailure(action, { kind: 'uncertain' }, values);
+  }
   const planning = action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
   const vars: Record<string, unknown> = { ...(planning ? { taskRef: taskId } : { taskId }), ...built.vars };
   // portal#1214: a write whose response can carry warnings keeps them.

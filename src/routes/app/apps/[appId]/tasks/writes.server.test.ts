@@ -432,6 +432,28 @@ describe('task page actions: handle routes', () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  // Dorian's BLIND P2: the resolution read can refuse or fail, not only answer null.
+  it.each(['FORBIDDEN', 'NOT_FOUND', 'TASK_NOT_FOUND', 'APP_NOT_FOUND'])('a %s refusal resolving the task is the same neutral 404 and writes nothing', async (code) => {
+    request.mockResolvedValue({});
+    resolver.mockRejectedValueOnce(gqlError(code, 'Forbidden'));
+    await expect((await taskActions()).cancel(at('AT3.405'))).rejects.toMatchObject({ status: 404, body: { message: 'Task not found, or you can’t see it' } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a transport failure', new TypeError('fetch failed')],
+    ['an unknown server fault', gqlError('INTERNAL_SERVER_ERROR', 'secret sql')],
+  ])('%s resolving the task is the uncertain write failure, with the values, and writes nothing', async (_label, failure) => {
+    request.mockResolvedValue({});
+    resolver.mockRejectedValueOnce(failure);
+    const fd = new FormData();
+    fd.append('priority', '2');
+    const e = { ...(at('AT3.405') as unknown as Record<string, unknown>), request: { formData: async () => fd } } as never;
+    expect(await (await taskActions()).priority(e)).toMatchObject({ status: 502, data: { refusal: { kind: 'uncertain' }, values: { priority: '2' } } });
+    expect(rawRequest).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it('a task the server resolves into another App writes nothing', async () => {
     request.mockResolvedValue({});
     resolver.mockResolvedValueOnce({ agentTask: { id: 'canon-9', appId: 'app-2' } });

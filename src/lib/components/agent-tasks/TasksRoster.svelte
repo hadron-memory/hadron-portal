@@ -35,7 +35,7 @@
     impersonating = null,
   }: { roster: TaskRead<TeamRoster>; refs: TaskRefs; basePath: string; impersonating?: string | null } = $props();
 
-  /** The tasks a state's Detail cell names, so search reaches their titles too. */
+  /** The tasks a state's Detail cell names, so search reaches their titles and handles too. */
   function detailTasks(e: TeamRosterEntry): string[] {
     switch (e.state) {
       case 'ASSIGNED_NOT_STARTED':
@@ -106,7 +106,8 @@
           worker: partySearchText(entry.worker),
           role: entry.role ?? '',
           state: rosterStateLabel(entry.state),
-          detail: [detailText(entry), ...detailTasks(entry).map((id) => taskRefLabel(id, refs))].join(' '),
+          // Titles and handles both, like the Alarms and AI Team grid (Dorian's P3 on #1375).
+          detail: [detailText(entry), ...detailTasks(entry).flatMap((id) => [taskRefLabel(id, refs), taskRefHandle(id, refs) ?? ''])].join(' ').trim(),
           family: entry.family ?? '',
           session: rosterSessionLabel(entry),
           lastActiveMs: ms(entry.lastActiveAt),
