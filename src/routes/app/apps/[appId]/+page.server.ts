@@ -15,7 +15,7 @@ import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
 import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, gqlErrorBody } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
 import { t } from '$lib/i18n/t';
@@ -514,13 +514,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         // present. A non-critical NULLABLE field erroring (e.g. installedAgentUrn,
         // whose composeInstalledAgentUrn throws on a malformed app/agent urn)
         // must not 404 the whole page — salvage the app from the partial
-        // response so it stays viewable/editable. A genuinely missing app (no
-        // data) still falls through to the 404 below. Only a GraphQL error
+        // response so it stays viewable/editable. Only a clean absence or the existing explicit
+        // absence/refusal codes fall through to the 404 below. A null App
+        // accompanied by a generic/unknown fault remains a 500. Only a GraphQL error
         // carries `response`; rethrow transport/network errors so they surface
         // as a 500, not a misleading 404.
         if (e && typeof e === 'object' && 'response' in e) {
           const partial = (e as { response?: { data?: { app?: App | null } } }).response?.data;
-          return { app: partial?.app ?? null };
+          if (partial?.app) return { app: partial.app };
+          const code = extractGqlErrorCode(e);
+          if (code !== 'FORBIDDEN' && code !== 'NOT_FOUND' && code !== 'APP_NOT_FOUND') throw error(500, gqlErrorBody(e, t('app.load-failed', 'Could not load App.')));
+          return { app: null };
         }
         throw e;
       }),

@@ -209,7 +209,7 @@ describe('org agents subscribe action (#649)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns the server GraphQL message when subscription fails', async () => {
+  it('returns generic copy when an uncoded subscription fault occurs', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'Only PUBLIC agents can be subscribed to.' }] },
     });
@@ -218,7 +218,7 @@ describe('org agents subscribe action (#649)', () => {
       status: 500,
       data: {
         form: {
-          message: { type: 'error', text: 'Only PUBLIC agents can be subscribed to.' },
+          message: { type: 'error', text: 'Something went wrong on our side.' },
         },
       },
     });
@@ -270,14 +270,14 @@ describe('org agents unsubscribe action (#651)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns the server GraphQL message when revocation fails', async () => {
+  it('returns generic copy when an uncoded revocation fault occurs', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'AgentOrgGrant not found.' }] },
     });
 
     await expect(runUnsubscribe()).resolves.toMatchObject({
       status: 500,
-      data: { form: { message: { type: 'error', text: 'AgentOrgGrant not found.' } } },
+      data: { form: { message: { type: 'error', text: 'Something went wrong on our side.' } } },
     });
   });
 });

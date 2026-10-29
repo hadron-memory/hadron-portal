@@ -12,7 +12,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError } from '$lib/server/gqlError';
+import { classifyGqlError, extractGqlErrorCode, gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
 import {
   MY_AGENTS_QUERY,
   PUBLIC_AGENTS_QUERY,
@@ -156,11 +156,11 @@ export const actions: Actions = {
       createdId = res.createApp.id;
     } catch (e) {
       const msg = extractGqlError(e, 'Failed to create app.');
-      if (/already exists/i.test(msg)) {
+      if (/already exists/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'urn', 'An app with that URN already exists.', { status: 409 });
       }
       // Handle-less account / agent-not-found / other → surface as a form error.
-      return message(form, { type: 'error', text: msg }, { status: 400 });
+      return message(form, { type: 'error', text: msg }, { status: classifyGqlError(e).kind === 'transport' || extractGqlErrorCode(e) === 'BAD_USER_INPUT' ? 400 : 500 });
     }
 
     redirect(303, `/app/apps/${createdId}`);

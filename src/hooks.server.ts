@@ -1,5 +1,6 @@
 import { nodeAdviceHandle } from '$lib/server/node-advice';
-import type { Handle } from '@sveltejs/kit';
+import { gqlErrorBody, internalErrorText } from '$lib/server/gqlError';
+import type { HandleServerError, Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { building, dev } from '$app/environment';
 import { env as publicEnv } from '$env/dynamic/public';
@@ -135,3 +136,5 @@ const securityHeaders: Handle = async ({ event, resolve }) => {
 
 // #974: sessionActionGuard reads what authHandle decided, so it runs right after.
 export const handle: Handle = sequence(authHandle, sessionActionGuard, nodeAdviceHandle, cspAssetStorage, securityHeaders);
+
+export const handleError: HandleServerError = ({ error }) => gqlErrorBody(error, internalErrorText());

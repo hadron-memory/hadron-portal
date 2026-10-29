@@ -20,7 +20,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { classifyGqlError, gqlErrorTextForBranching, extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATIONS_QUERY,
@@ -231,13 +231,13 @@ export const actions: Actions = {
       createdApp = result.createApp;
     } catch (e) {
       const msg = extractGqlError(e, 'Install failed.');
-      if (/already exists/i.test(msg)) {
+      if (/already exists/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'urn', installStrings.errorUrnCollision(), { status: 409 });
       }
-      if (/Agent not found|deleted/i.test(msg)) {
+      if (extractGqlErrorCode(e) === 'AGENT_NOT_FOUND' || /Agent not found|deleted/i.test(gqlErrorTextForBranching(e))) {
         return message(form, { type: 'error', text: installStrings.errorAgentNotFound() }, { status: 404 });
       }
-      return message(form, { type: 'error', text: msg }, { status: 400 });
+      return message(form, { type: 'error', text: msg }, { status: classifyGqlError(e).kind === 'transport' || extractGqlErrorCode(e) === 'BAD_USER_INPUT' ? 400 : 500 });
     }
 
     // #648: the App detail is the canonical org-optional /app/apps/[appId].

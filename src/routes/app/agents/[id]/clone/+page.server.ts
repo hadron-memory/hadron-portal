@@ -10,7 +10,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlErrorCode, gqlErrorBody } from '$lib/server/gqlError';
 import { AGENT_PUBLIC_QUERY, CLONE_AGENT_MUTATION } from '$lib/server/queries';
 import { eligibleCloneTargets } from '$lib/agents/clone';
 import { cloneRefusal } from '$lib/server/clone-refusal';
@@ -30,7 +30,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
         // anything else (transport, internal) stays a distinguishable 500.
         const code = extractGqlErrorCode(err);
         if (code && ['NOT_FOUND', 'AGENT_NOT_FOUND', 'FORBIDDEN', 'PERMISSION_DENIED'].includes(code)) return { agent: null };
-        throw error(500, 'Failed to load agent');
+        throw error(500, gqlErrorBody(err, 'Failed to load agent'));
       }),
     parent() as Promise<{ user?: { id: string } | null; navOrgs?: Organization[] }>,
   ]);

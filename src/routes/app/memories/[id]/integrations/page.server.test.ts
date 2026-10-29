@@ -226,7 +226,7 @@ describe('memory integrations update action', () => {
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({
       type: 'error',
-      text: 'Only owners can update integrations',
+      text: 'Something went wrong on our side.',
     });
   });
 

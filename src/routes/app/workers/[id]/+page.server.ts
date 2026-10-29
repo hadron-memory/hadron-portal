@@ -245,7 +245,7 @@ export const actions: Actions = {
         );
       }
       if (code === 'BAD_USER_INPUT' || code === 'WORKER_RETIRED') {
-        return message(form, { type: 'error', text: extractGqlError(e, '') }, { status: 400 });
+        return message(form, { type: 'error', text: extractGqlError(e, '', ["BAD_USER_INPUT","WORKER_RETIRED"]) }, { status: 400 });
       }
       return message(
         form,
@@ -298,7 +298,7 @@ export const actions: Actions = {
                 'worker.briefing.error.forbidden',
                 'You don’t have permission to amend this worker. Editing a casting needs contributor access to the App’s organization, or a non-reader role in the App.',
               )
-            : extractGqlError(e, 'Failed to save the override');
+            : extractGqlError(e, 'Failed to save the override', ["BAD_USER_INPUT","WORKER_RETIRED"]);
       // @copilot on #857: only KNOWN client-error codes get a 4xx. The previous
       // `: 400` swept transport failures and unrecognised codes in with them,
       // labelling an outage as bad input — the same defect this repo just spent

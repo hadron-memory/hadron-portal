@@ -30,7 +30,7 @@ describe('portal#1132 public error envelope', () => {
     expect(extractGqlError({response:null},'Save failed')).toBe('Save failed');
   });
   it('a ClientError without GraphQL errors never renders its query-bearing constructor text',()=>{
-    const e=new ClientError({status:503,headers:new Headers()}, {query:secret,variables:{token:'secret'}});
+    const e=new ClientError({status:503,headers:new Headers(),body:'Service unavailable'}, {query:secret,variables:{token:'secret'}});
     expect(extractGqlError(e,'Save failed')).toBe('Save failed');
   });
 });

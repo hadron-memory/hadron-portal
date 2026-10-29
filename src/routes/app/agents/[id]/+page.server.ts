@@ -15,7 +15,7 @@ import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prom
 import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
-import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions, gqlErrorBody } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import { grantedAgents, type InstallableAgent, type OrgAgentPool } from '$lib/server/installable-agents';
 import { withTimeout, OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
@@ -98,8 +98,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // (network/GraphQL) becomes a 500, distinct from a legitimate not-found.
   const agentRes = await client
     .request<{ agent: Agent | null }>(AGENT_QUERY, { ref: params.id })
-    .catch(() => {
-      throw error(500, 'Failed to load agent');
+    .catch((e: unknown) => {
+      throw error(500, gqlErrorBody(e, 'Failed to load agent'));
     });
   const agent = agentRes.agent;
   if (!agent) throw error(404, 'Agent not found or no longer available');
@@ -428,7 +428,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(SET_AGENT_BASE_MUTATION, baseVariables(params.id, form.data));
       return message(form, { type: 'success', text: t('agent.inheritance.base-saved', 'Base Agent saved.') });
     } catch (e) {
-      return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.base-save-failed', 'Could not update the base Agent.')) }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.base-save-failed', 'Could not update the base Agent.'), ['AGENT_BASE_CYCLE', 'AGENT_BASE_CHAIN_TOO_LONG', 'AGENT_ORG_GRANT_REQUIRED', 'FORBIDDEN']) }, { status: 500 });
     }
   },
   setIndexRefs: async ({ request, params, locals }) => {

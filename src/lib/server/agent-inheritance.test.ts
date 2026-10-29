@@ -38,7 +38,7 @@ describe('definition-list refusal copy', () => {
   it.each(['INTERNAL_SERVER_ERROR', 'NEW_UNKNOWN_CODE'])('keeps %s a failure instead of misclassifying it as a refusal or an empty list', async code => {
     const request = vi.fn().mockResolvedValueOnce({ agent: { extendsAgentId: null } }).mockRejectedValueOnce(refusal(code)).mockResolvedValueOnce({ agentProcessList: [] });
     const result = await loadAgentInheritance({ request } as never, 'child');
-    expect(result.tasks).toEqual({ items: null, error: 'AGENT_NOT_FOUND: Agent secret-agent-id' });
+    expect(result.tasks).toEqual({ items: null, error: 'Something went wrong on our side.' });
     expect(result.processes).toEqual({ items: [], error: null });
   });
 });
@@ -48,5 +48,6 @@ it('keeps a payload-less transport error as a failure', async () => {
   const request = vi.fn().mockResolvedValueOnce({ agent: { extendsAgentId: null } }).mockRejectedValueOnce(error).mockResolvedValueOnce({ agentProcessList: [] });
   const result = await loadAgentInheritance({ request } as never, 'child');
   expect(result.tasks.items).toBeNull();
-  expect(result.tasks.error).toBe(error.message);
+  expect(result.tasks.error).toBe('Could not load definitions');
+  expect(result.tasks.error).not.toContain('query Fixture');
 });
