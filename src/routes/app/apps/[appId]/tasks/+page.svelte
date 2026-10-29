@@ -87,7 +87,7 @@
   const columns: PortalColumnDef<BoardRow>[] = [
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
     { id: 'title', accessorFn: (r) => r.title, header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 320 },
-    { id: 'priority', accessorFn: (r) => r.priority, header: t('app.tasks.priority', 'Priority'), size: 110, sortDescFirst: false, sortingFn: 'basic', sortUndefined: 'last' },
+    { id: 'priority', accessorFn: (r) => r.priority, header: t('app.tasks.priority', 'Priority'), size: 110, sortDescFirst: false, sortFn: 'basic', sortUndefined: 'last' },
     { id: 'owner', accessorFn: (r) => r.ownerText, header: t('app.tasks.col.owner', 'Owner'), size: 200 },
     { id: 'assignee', accessorFn: (r) => r.assigneeText, header: t('app.tasks.col.assignee', 'Assignee'), size: 200 },
     { id: 'subtasks', accessorFn: () => '', header: t('app.tasks.col.subtasks', 'Subtasks'), enableSorting: false, enableGlobalFilter: false, size: 120 },
