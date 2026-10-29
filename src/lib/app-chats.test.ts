@@ -201,3 +201,12 @@ describe('registered Channels (#1033)', () => {
     expect(resolveSelectedChat(list, 'one').selected?.channelId).toBe('one');
   });
 });
+
+
+it('keeps registered Channels usable in the selector when their host memory record is concealed', () => {
+  const channels = [{ id: 'private-channel', name: 'Room', loc: 'chats:room', chatRootUrn: null, memoryId: 'm1', memory: null }];
+  const list = withRegisteredChannels(buildAppChatList([root('chats:room', 'Room', 'm1')], { hasAgentChat: false }), channels);
+  expect(list.filter(c => c.key === 'chats:room')).toHaveLength(0);
+  expect(resolveSelectedChat(list, 'private-channel').selected?.channelId).toBe('private-channel');
+  expect(resolveSelectedChat(list, 'private-channel').selected?.memoryId).toBe('m1');
+});
