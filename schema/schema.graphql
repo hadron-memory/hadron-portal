@@ -1,4 +1,4 @@
-# Exported from hadron-server 1bb7a3212ae2e091d5847f537c6d3afdb2e1b4e9 (1bb7a3212, 2026-10-29T07:31:18-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 1bb7a3212ae2e091d5847f537c6d3afdb2e1b4e9 (1bb7a3212ae2e091d5847f537c6d3afdb2e1b4e9, 2026-10-29T07:31:18-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
