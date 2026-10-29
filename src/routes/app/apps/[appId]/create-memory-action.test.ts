@@ -17,6 +17,7 @@ it('creates a NEW memory on the route App without agent, class or existing-memor
   expect(request.mock.calls[0][0]).toContain('createAppMemory');
   expect(request.mock.calls[0][1]).toEqual({ appRef: 'route-app', name: valid.name, description: valid.description });
   expect((result as any).form.message.type).toBe('success');
+  expect((result as any).form.message.created).toEqual({ id:'m1',urn:'hrn:mem:acme.com:project-notes',name:'Project notes' });
 });
 it.each([{...valid,name:'  '},{...valid,_kind:'deleteApp'}])('rejects invalid fields without mutating', async fields => {
   const result = await submit(fields);
