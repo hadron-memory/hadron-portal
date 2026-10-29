@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { APPROVE_NODE_MUTATION, COMPILE_AGENT_BOOT_PROMPT_MUTATION, NODE_DATA_READ_QUERY, UPDATE_AGENT_MUTATION, UPDATE_NODE_MUTATION } from '$lib/server/queries';
+import { AGENT_BOOT_START_QUERY, APPROVE_NODE_MUTATION, CREATE_NODE_MUTATION, COMPILE_AGENT_BOOT_PROMPT_MUTATION, NODE_DATA_READ_QUERY, UPDATE_AGENT_MUTATION, UPDATE_NODE_MUTATION } from '$lib/server/queries';
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
 beforeEach(() => { request.mockReset(); request.mockResolvedValue({}); });
@@ -86,5 +86,66 @@ describe('portal#1377 S2 compile and approve actions', () => {
     expect(r.status).toBe(status);
     expect(r.data!.form.message.text).toContain(copy);
     expect(r.data!.form.message.text).not.toContain('server prose');
+  });
+});
+
+describe('portal#1378 startBootSource', () => {
+  async function startSource() {
+    const { actions } = await import('./+page.server');
+    const fd = new FormData();
+    fd.set('_kind', 'bootStart');
+    return actions.startBootSource!({ request: { formData: async () => fd }, params: { id: 'agent-1' }, locals: { token: 'tok' } } as never) as Promise<{ status?: number; form?: { message: { type: string; text: string } }; data?: { form: { message: { type: string; text: string } } } }>;
+  }
+  const refusal = (code: string) => Object.assign(new Error('private upstream detail {{secret}}'), { response: { errors: [{ message: 'server prose', extensions: { code } }] } });
+  const text = (r: Awaited<ReturnType<typeof startSource>>) => (r.form ?? r.data!.form).message.text;
+  const compiledNode = { node: { id: 'c1', urn: 'cu', revision: 4, content: 'COMPILED {{worker.name}}', approvalStatus: { state: 'APPROVED', approval: { revision: 4 } }, lintWarnings: null } };
+
+  it('case 1 seeds the source from the compiled text read server-side, at the fixed loc and role', async () => {
+    request.mockResolvedValueOnce({ agent: { systemMemoryId: 'sys-1', bootPromptRef: 'hrn:node:ada:sys:boot:compiled' } }).mockResolvedValueOnce(compiledNode).mockResolvedValueOnce({ createNode: { id: 'n1' } });
+    const r = await startSource();
+    expect(request).toHaveBeenNthCalledWith(1, AGENT_BOOT_START_QUERY, { ref: 'agent-1' });
+    expect(request).toHaveBeenNthCalledWith(3, CREATE_NODE_MUTATION, { input: { memoryId: 'sys-1', loc: 'boot:source', name: 'Boot prompt source', role: 'boot-prompt', content: 'COMPILED {{worker.name}}' } });
+    expect(text(r)).toContain('compiled and approved');
+  });
+  it('case 2 starts EMPTY and never reads or copies the legacy systemPrompt', async () => {
+    request.mockResolvedValueOnce({ agent: { systemMemoryId: 'sys-1', bootPromptRef: null } }).mockResolvedValueOnce({ createNode: { id: 'n1' } });
+    const r = await startSource();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request).toHaveBeenNthCalledWith(2, CREATE_NODE_MUTATION, { input: { memoryId: 'sys-1', loc: 'boot:source', name: 'Boot prompt source', role: 'boot-prompt', content: '' } });
+    expect(JSON.stringify(request.mock.calls)).not.toContain('systemPrompt');
+    expect(text(r)).toContain('served it once a compiled revision is approved');
+  });
+  it('an unreadable compiled prompt never starts an empty source over it', async () => {
+    request.mockResolvedValueOnce({ agent: { systemMemoryId: 'sys-1', bootPromptRef: 'r' } }).mockRejectedValueOnce(new Error('boom'));
+    const r = await startSource();
+    expect(request).not.toHaveBeenCalledWith(CREATE_NODE_MUTATION, expect.anything());
+    expect(r.status).toBe(502);
+    expect(text(r)).toContain('Nothing changed');
+  });
+  it('a failure after the write was attempted never promises that nothing changed', async () => {
+    request.mockResolvedValueOnce({ agent: { systemMemoryId: 'sys-1', bootPromptRef: null } }).mockRejectedValueOnce(new Error('lost response'));
+    const r = await startSource();
+    expect(r.status).toBe(500);
+    expect(text(r)).toContain('Reload the page to check');
+    expect(text(r)).not.toContain('Nothing changed');
+  });
+  it('an Agent without a system memory writes nothing', async () => {
+    request.mockResolvedValueOnce({ agent: { systemMemoryId: null, bootPromptRef: null } });
+    const r = await startSource();
+    expect(request).not.toHaveBeenCalledWith(CREATE_NODE_MUTATION, expect.anything());
+    expect(r.status).toBe(500);
+  });
+  it.each([
+    ['FORBIDDEN', 403, 'Only whoever manages this Agent'],
+    ['BOOT_PROMPT_WORKER_SESSION_REFUSED', 403, 'not through a worker session'],
+    ['NodeLocConflictError', 409, 'already has a source'],
+    ['SOMETHING_ELSE', 500, 'Could not confirm the source was started'],
+  ])('%s maps to fixed copy and never echoes server prose or the seed', async (code, status, copy) => {
+    request.mockResolvedValueOnce({ agent: { systemMemoryId: 'sys-1', bootPromptRef: null } }).mockRejectedValueOnce(refusal(code));
+    const r = await startSource();
+    expect(r.status).toBe(status);
+    expect(text(r)).toContain(copy);
+    expect(text(r)).not.toContain('private upstream detail');
+    expect(text(r)).not.toContain('server prose');
   });
 });

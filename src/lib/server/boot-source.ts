@@ -15,8 +15,24 @@ export const BOOT_SOURCE_LOC = 'boot:source';
  */
 export type BootSourceView =
   | { mode: 'unknown' }
-  | { mode: 'legacy' }
-  | { mode: 'source-missing' }
+  | {
+      /**
+       * No pointer, no source: the legacy editor. portal#1378 case 2: `canStart`
+       * only when the source read succeeded and found none (a refused or failed
+       * read may hide an existing one, so it offers nothing).
+       */
+      mode: 'legacy';
+      canStart: boolean;
+    }
+  | {
+      /**
+       * Pointer set, no `boot:source` (portal#1378 case 1). `compiled` is the seed
+       * a started source would get; null when it could not be read.
+       */
+      mode: 'source-missing';
+      compiled: CompiledView | null;
+      canStart: boolean;
+    }
   | { mode: 'source-unreadable' }
   | {
       /** R1 (c): the source is withheld, the compiled prompt is readable. Read-only, no writes. */
@@ -28,6 +44,8 @@ export type BootSourceView =
       node: { id: string; urn: string; revision: number; content: string };
       /** The compiled node; null when it could not be read, which says nothing about approval or serving. */
       compiled: CompiledView | null;
+      /** portal#1378: the Agent has a source but no pointer yet (no compile has run), so nothing is served. */
+      noPointer?: true;
     };
 
 export interface LintItem {
@@ -47,7 +65,7 @@ export interface CompiledView {
 type SourceNode = { id: string; urn: string; revision: number; content: string | null } | null;
 type CompiledNode = { id: string; urn: string; revision: number; content: string | null; approvalStatus: NodeApprovalStatus | null; lintWarnings: LintView | null } | null;
 
-async function readCompiled(client: Pick<GraphQLClient, 'request'>, ref: string): Promise<CompiledView | null> {
+export async function readCompiled(client: Pick<GraphQLClient, 'request'>, ref: string): Promise<CompiledView | null> {
   try {
     const c = (await client.request<{ node: CompiledNode }>(BOOT_COMPILED_QUERY, { ref })).node;
     if (!c) return null;
@@ -69,13 +87,16 @@ export async function readBootSource(
   systemMemoryId: string | null | undefined,
 ): Promise<BootSourceView> {
   if (!pointer.ok) return { mode: 'unknown' };
-  if (!pointer.ref) return { mode: 'legacy' };
-  if (!systemMemoryId) return { mode: 'source-missing' };
+  if (!systemMemoryId) {
+    return pointer.ref ? { mode: 'source-missing', compiled: null, canStart: false } : { mode: 'legacy', canStart: false };
+  }
   let node: SourceNode;
   try {
     node = (await client.request<{ node: SourceNode }>(BOOT_SOURCE_QUERY, { ref: BOOT_SOURCE_LOC, memoryRef: systemMemoryId })).node;
   } catch (e) {
     const code = extractGqlErrorCode(e);
+    // No pointer: the legacy editor stays, and a failed read offers no Start (the source may exist).
+    if (!pointer.ref) return { mode: 'legacy', canStart: false };
     // The real server conceals a source in a memory the caller can't read as
     // MEMORY_NOT_FOUND, the code a missing memory gets (a scoped node read answers
     // alike for both, so existence is never disclosed), and FORBIDDEN elsewhere.
@@ -89,7 +110,13 @@ export async function readBootSource(
     console.warn('[boot-source] source read failed:', code);
     return { mode: 'unknown' };
   }
-  if (!node) return { mode: 'source-missing' };
+  if (!pointer.ref) {
+    // portal#1378: a source started for a pointer-less Agent is edited here until its first compile sets the pointer.
+    return node
+      ? { mode: 'source', node: { id: node.id, urn: node.urn, revision: node.revision, content: node.content ?? '' }, compiled: null, noPointer: true }
+      : { mode: 'legacy', canStart: true };
+  }
+  if (!node) return { mode: 'source-missing', compiled: await readCompiled(client, pointer.ref), canStart: true };
   const compiled = await readCompiled(client, pointer.ref);
   return { mode: 'source', node: { id: node.id, urn: node.urn, revision: node.revision, content: node.content ?? '' }, compiled };
 }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import BootPromptSource from './BootPromptSource.svelte';
+  import StartBootSource from './StartBootSource.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
   import AgentExtendedBy from '$lib/components/AgentExtendedBy.svelte';
   import type { NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -97,7 +98,7 @@
   const nextImportPosition = $derived((data as { nextImportPosition?: number }).nextImportPosition ?? 1);
   const bundleResult = $derived(form as { bundleError?: string; bundleAdded?: boolean } | null);
   let bundling = $state(false);
-  const bundledWithheldApps = $derived((data as { bundledWithheldApps?: number }).bundledWithheldApps ?? 0);
+  const bundledMayBeIncomplete = $derived((data as { bundledMayBeIncomplete?: boolean }).bundledMayBeIncomplete ?? false);
   const bundledAgents = $derived(
     (data as { bundledAgents?: BundledAgentRow[] }).bundledAgents ?? [],
   );
@@ -203,7 +204,7 @@
     // #713: only for an agent that actually bundles others (a Team Agent and
     // its personas) — an always-empty tab on every ordinary agent is noise,
     // same reasoning as Chatbot Control below.
-    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
+    ...(bundledAgents.length > 0 || bundledMayBeIncomplete || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },
@@ -461,6 +462,10 @@
     const result = submittedForm(form, 'bootSource') as typeof data.bootSourceForm | null;
     return result?.id === data.bootSourceForm?.id ? result : null;
   });
+  const bootStartSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootStart') as typeof data.bootStartForm | null;
+    return result?.id === data.bootStartForm?.id ? result : null;
+  });
   const bootCompileSubmission = $derived.by(() => {
     const result = submittedForm(form, 'bootCompile') as typeof data.bootCompileForm | null;
     return result?.id === data.bootCompileForm?.id ? result : null;
@@ -470,7 +475,7 @@
     return result?.id === data.bootApproveForm?.id ? result : null;
   });
   $effect(() => {
-    if (bootSourceSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
+    if (bootSourceSubmission || bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -819,11 +824,14 @@
   {#if data.bootSource}
     <div hidden={activeTab !== 'boot'}>
       {#if data.bootSource.mode === 'legacy'}
-        <p class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.no-source', 'This Agent has no boot prompt source yet.')}</p>
+        <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.no-source', 'This Agent has no boot prompt source yet.')}</p>
+        {#if data.bootSource.canStart}
+          {#key data.bootStartForm.id}<StartBootSource seeded={false} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
+        {/if}
       {:else if data.bootSource.mode === 'source'}
         <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
         {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
-          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
+          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'compiled-only'}
         <section data-boot-compiled-only>
@@ -833,7 +841,11 @@
           <pre tabindex="0" aria-label={t('agent.boot.compiled-text-label', 'Compiled prompt text')} class="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{data.bootSource.compiled.content}</pre>
         </section>
       {:else if data.bootSource.mode === 'source-missing'}
-        <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
+        {#if data.bootSource.canStart}
+          {#key data.bootStartForm.id}<StartBootSource seeded={true} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
+        {:else}
+          <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
+        {/if}
       {:else if data.bootSource.mode === 'source-unreadable'}
         <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-unreadable', 'You can’t see this Agent’s boot prompt.')}</p>
       {:else}
@@ -1226,9 +1238,9 @@
       {:else if bundleResult?.bundleAdded}
         <p role="status" class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
       {/if}
-      {#if bundledWithheldApps > 0}
-        <p role="status" class="mb-3 text-xs text-zinc-500">
-          {t('agent.bundled.withheld', 'The agents installed in {count} App(s) aren’t visible to you, so this list may be incomplete.', { count: String(bundledWithheldApps) })}
+      {#if bundledMayBeIncomplete}
+        <p role="status" class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+          {t('agent.bundled.withheld', 'This list may be incomplete because some installed agents aren’t visible to you.')}
         </p>
       {/if}
       <!-- 24rem offset tuned to this page's chrome (breadcrumb + header + tab

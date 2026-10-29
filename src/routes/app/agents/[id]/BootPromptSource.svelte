@@ -12,11 +12,11 @@
   type SourceForm = SuperValidated<Source, App.Superforms.Message>;
   type CompileForm = SuperValidated<Infer<typeof bootCompileSchema, 'zod4'>, App.Superforms.Message>;
   type ApproveForm = SuperValidated<Infer<typeof bootApproveSchema, 'zod4'>, App.Superforms.Message>;
-  let { urn, revision, compiled, initial, compileInitial, approveInitial, submitted, compileSubmitted, approveSubmitted, canManage = null }: {
+  let { urn, revision, compiled, initial, compileInitial, approveInitial, submitted, compileSubmitted, approveSubmitted, canManage = null, noPointer = false }: {
     urn: string; revision: number; compiled: CompiledView | null;
     initial: SourceForm; compileInitial: CompileForm; approveInitial: ApproveForm;
     submitted?: SourceForm | null; compileSubmitted?: CompileForm | null; approveSubmitted?: ApproveForm | null;
-    canManage?: boolean | null;
+    canManage?: boolean | null; noPointer?: boolean;
   } = $props();
   const approvedRevision = $derived(compiled?.approvedRevision ?? null);
   // A refused save keeps its draft and the revision it was written against. A saved
@@ -50,7 +50,9 @@
 <section data-boot-prompt-source>
   <p class="mb-1 text-sm text-zinc-700 dark:text-zinc-300">{t('agent.boot.source-lead', 'This is the source of the boot prompt. Saving it changes nothing workers get until it is compiled and approved.')}</p>
   <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-    {#if compiled === null}
+    {#if compiled === null && noPointer}
+      {t('agent.boot.not-compiled-line', 'This source has not been compiled yet, so workers are not served it.')}
+    {:else if compiled === null}
       {t('agent.boot.approval-unknown', 'Couldn’t load the approval status of the compiled prompt.')}
     {:else if compiled.approvedRevision !== null}
       {t('agent.boot.approved-line', 'Workers get revision {m}, the approved compiled prompt.', { m: compiled.approvedRevision })}

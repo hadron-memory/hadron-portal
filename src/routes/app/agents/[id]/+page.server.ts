@@ -10,7 +10,7 @@ import { gqlClient } from '$lib/server/api';
 import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import { compileRefusalStatus, compileRefusalText } from '$lib/boot-compile';
 import { approvalRefusalStatus, approveRefusalText } from '$lib/node-approval';
-import { readBootSource, readServedRevision } from '$lib/server/boot-source';
+import { BOOT_SOURCE_LOC, readBootSource, readCompiled, readServedRevision } from '$lib/server/boot-source';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
@@ -37,6 +37,8 @@ import {
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
   AGENT_BOOT_POINTER_QUERY,
+  AGENT_BOOT_START_QUERY,
+  CREATE_NODE_MUTATION,
   SET_AGENT_BOOT_PROMPT_MUTATION,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
   APP_ORG_AGENT_GRANTS_QUERY,
@@ -46,6 +48,7 @@ import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$
 import type { Actions, PageServerLoad } from './$types';
 import {
   bootSourceSchema,
+  bootStartSchema,
   bootCompileSchema,
   bootApproveSchema,
   addAgentMemorySchema,
@@ -133,7 +136,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     name: string;
     urn: string;
     organizationId: string;
-    agentId: string | null;
+    // The install join. A row whose `agent` is null is an install withheld from
+    // the caller (#1350); `agents` silently drops it.
+    appAgents?: Array<{ agent: { id: string } | null }> | null;
     agents?: Array<{
       id: string;
       name: string;
@@ -213,8 +218,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     selfCanManage(client, locals.user?.id, agent.urn),
   ]);
 
-  // An agent can be installed into several apps (as the primary agentId or via
-  // the AppAgent join), and an app can host several agents — match on both.
+  // An agent can be installed into several apps, and an app can host several
+  // agents — match on the AppAgent join (`appAgents`) or the readable roster.
   const agentId = agent.id;
   // The two app lists can overlap for a platform admin, so de-dupe by app id
   // before anything counts or lists them.
@@ -223,7 +228,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     if (!appsById.has(a.id)) appsById.set(a.id, a);
   }
   const appsWithThisAgent = [...appsById.values()]
-    .filter((a) => a.agentId === agentId || (a.agents ?? []).some((x) => x.id === agentId));
+    .filter((a) =>
+      (a.appAgents ?? []).some((r) => r.agent?.id === agentId) ||
+      (a.agents ?? []).some((x) => x.id === agentId));
   const installedApps = appsWithThisAgent
     .map((a) => ({ id: a.id, name: a.name, urn: a.urn, orgId: a.organizationId }))
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -242,14 +249,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     id: string; name: string; urn: string; description: string | null;
     personaRole: string | null; via: string;
   }>();
-  // portal#1148 (hadron-server#2089): an App whose `agents` is null WITHHOLDS its roster, and the
-  // server withholds `agentId` with it — so such an App can be absent from `appsWithThisAgent`
-  // (the link-based filter above needs a visible link). Whether it installs this agent, and what
-  // its siblings are, is UNKNOWN, not "none": counted from ALL the Apps, before that filter, so
-  // the tab can say its list may be incomplete (George, LOCAL on #1150).
-  const bundledWithheldApps = [...appsById.values()].filter(
-    (a) => a.agents === null && (a.agentId === null || a.agentId === agentId),
-  ).length;
+  // portal#1350: an install the caller cannot read comes back as an `appAgents` row whose
+  // `agent` is null (`App.agents` drops it and `App.agentId` is masked, so neither can say so).
+  // Such an install means this list may be incomplete: hidden siblings, or a hidden App that
+  // installs this Agent. Read across ALL the Apps (deduplicated above), before the link filter.
+  // A missing/non-array `appAgents` is unknown, never proof of completeness. Boolean only:
+  // no hidden count, name, URN or id reaches the page.
+  const bundledMayBeIncomplete = [...appsById.values()].some(
+    (a) => !Array.isArray(a.appAgents) || a.appAgents.some((r) => !r || r.agent == null),
+  );
   for (const app of appsWithThisAgent) {
     for (const sibling of app.agents ?? []) {
       if (sibling.id === agentId || bundledById.has(sibling.id)) continue;
@@ -376,7 +384,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     bundleCandidates,
     bundleCandidatesError,
     nextImportPosition,
-    bundledWithheldApps,
+    bundledMayBeIncomplete,
     allOrgs: orgs,
     orgSystemMemories,
     // Empty for an org agent; the caller's own memories for a user-owned agent (#642).
@@ -387,6 +395,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     form,
 
     bootSource,
+    bootStartForm: await superValidate({}, zod4(bootStartSchema), { id: `bootStart:${params.id}`, errors: false }),
     bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${params.id}`, errors: false }),
     bootApproveForm: await superValidate(
       { nodeId: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.id : '', revision: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.revision : 1 },
@@ -458,6 +467,55 @@ export const actions: Actions = {
             ? t('agent.boot.source-forbidden', 'Only whoever manages this Agent can change its boot prompt.')
             : t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.');
       return message(form, { type: 'error', text }, { status: code === 'NODE_WRITE_CONFLICT' ? 409 : code === 'INCLUDE_TARGET_UNAVAILABLE' ? 422 : code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED' ? 403 : 500 });
+    }
+  },
+
+  // portal#1378: "Start a source" for an Agent whose pointer is set but whose
+  // `boot:source` is gone (case 1) or that has no pointer at all (case 2). The seed is
+  // the current compiled text, read HERE from the pointer: never a page field, and never
+  // the legacy `Agent.systemPrompt` (Holger, D3). A pointer-less Agent starts empty. The
+  // server alone decides who may write the source (hrn:node:hadronmemory.com:specs:cor:agt:040:11); copy is fixed so
+  // neither a refusal's prose nor the seed is echoed.
+  startBootSource: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootStartSchema), { id: `bootStart:${params.id}`, strict: true });
+    if (!form.valid) return fail(400, { form });
+    const failed = (text: string, status: 403 | 409 | 500 | 502) => message(form, { type: 'error', text }, { status });
+    const client = gqlClient(locals.token);
+    // Set just before the write: a failure after it may have committed, so it cannot promise "nothing changed".
+    let attempted = false;
+    try {
+      const agent = (await client.request<{ agent: { systemMemoryId: string | null; bootPromptRef: string | null } | null }>(AGENT_BOOT_START_QUERY, { ref: params.id })).agent;
+      if (!agent?.systemMemoryId) return failed(t('boot.start.failed', 'Could not start a source. Nothing changed; try again.'), 500);
+      let seed = '';
+      if (agent.bootPromptRef) {
+        const compiled = await readCompiled(client, agent.bootPromptRef);
+        // Never start an empty source over a compiled prompt that exists but could not be read.
+        if (!compiled) return failed(t('boot.start.seed-unreadable', 'Could not read the current prompt to start from. Nothing changed; try again.'), 502);
+        seed = compiled.content;
+      }
+      attempted = true;
+      await client.request(CREATE_NODE_MUTATION, {
+        input: { memoryId: agent.systemMemoryId, loc: BOOT_SOURCE_LOC, name: 'Boot prompt source', role: 'boot-prompt', content: seed },
+      });
+      return message(form, {
+        type: 'success',
+        text: agent.bootPromptRef
+          ? t('boot.start.done-seeded', 'Source started from the current prompt. Workers get nothing new until it is compiled and approved.')
+          : t('boot.start.done-empty', 'Source started. Workers are served it once a compiled revision is approved.'),
+      });
+    } catch (e) {
+      const code = extractGqlErrorCode(e);
+      if (code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') {
+        return failed(code === 'FORBIDDEN'
+          ? t('boot.start.forbidden', 'Only whoever manages this Agent can start its boot prompt source.')
+          : t('boot.start.worker-refused', 'Boot prompts are started by their manager signed in as themselves, not through a worker session.'), 403);
+      }
+      // createNode is create-only: a live node at the loc is refused, never overwritten.
+      if (code === 'NodeLocConflictError') {
+        return failed(t('boot.start.exists', 'This Agent already has a source. Reload the page to edit it.'), 409);
+      }
+      if (attempted) return failed(t('boot.start.uncertain', 'Could not confirm the source was started. Reload the page to check before trying again.'), 500);
+      return failed(t('boot.start.failed', 'Could not start a source. Nothing changed; try again.'), 500);
     }
   },
 
