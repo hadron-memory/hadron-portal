@@ -58,12 +58,13 @@ describe('portal#1377 S1 saveBootSource', () => {
   it('says workers still wait for compile and approval after a save', async () => {
     request.mockResolvedValueOnce({ node: null }).mockResolvedValueOnce({ updateNode: { revision: 4 } });
     const r = await saveSource('x') as { form: { message: { text: string } } };
-    expect(r.form.message.text).toContain('revision 4');
+    expect(r.form.message.text).not.toMatch(/\(revision/);
     expect(r.form.message.text).toContain('compiled and approved');
   });
   it.each([
     ['NODE_WRITE_CONFLICT', 409, 'Your draft is kept'],
     ['BOOT_PROMPT_WORKER_SESSION_REFUSED', 403, 'not through a worker session'],
+    ['INCLUDE_TARGET_UNAVAILABLE', 422, 'doesn’t exist or that you can’t read'],
     ['FORBIDDEN', 403, 'Only whoever manages this Agent'],
     ['SOMETHING_ELSE', 500, 'Your draft is kept'],
   ])('%s maps to fixed copy and keeps the draft', async (code, status, copy) => {
