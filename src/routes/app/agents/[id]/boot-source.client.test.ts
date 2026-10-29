@@ -38,10 +38,10 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
     mounted?.unmount();
     expect((await open(source(null))).textContent).toContain('No compiled revision is approved yet');
   });
-  it('without a pointer, keeps the legacy editor and labels it', async () => {
+  it('without a pointer, offers no retired prompt editor', async () => {
     const root = await open({ mode: 'legacy' });
-    expect(root.textContent).toContain('legacy prompt field');
-    expect(root.querySelector('[data-boot-prompt]')).not.toBeNull();
+    expect(root.textContent).toContain('no boot prompt source yet');
+    expect(root.querySelector('[data-boot-prompt]')).toBeNull();
     expect(root.querySelector('[data-boot-prompt-source]')).toBeNull();
   });
   it('a failed pointer or source read renders no editor and never falls back to the legacy field', async () => {

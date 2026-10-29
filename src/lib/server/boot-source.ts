@@ -10,7 +10,7 @@ export const BOOT_SOURCE_LOC = 'boot:source';
 /**
  * portal#1377 S1: which editor the Boot prompt tab offers. The loader decides;
  * the component only renders. A failed read is never `legacy`: falling back
- * to the `systemPrompt` field would silently reintroduce the wrong-text bug,
+ * to the `compiled boot prompt` field would silently reintroduce the wrong-text bug,
  * because workers are no longer served that field once a pointer is set.
  */
 export type BootSourceView =

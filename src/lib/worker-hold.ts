@@ -15,7 +15,7 @@
  * ── The three-valued trap ────────────────────────────────────────────────────
  *
  * `Worker.heldByUserId` is a WORKING-STATE field: behind the worker read gate
- * and **masked to null on deny**, like `promptOverride` and `memoryId` and
+ * and **masked to null on deny**, like `boot-prompt state` and `memoryId` and
  * unlike `name`/`role`/`urn`. So a null carries two meanings that the wire
  * cannot separate:
  *

@@ -10,10 +10,6 @@
   import DOMPurify from 'dompurify';
   import { onMount, tick, untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
-  import { superForm } from 'sveltekit-superforms/client';
-  import { submittedForm } from '$lib/forms/submitted-form';
-  import { zod4Client } from 'sveltekit-superforms/adapters';
-  import { updateBriefingSchema, type UpdateBriefingForm } from './schema';
   import { t } from '$lib/i18n/t';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
@@ -54,39 +50,10 @@
     { id: 'wake', label: t('worker.tabs.wake', 'Wake-ups') },
   ];
 
-  // ── Boot briefing (#1010) ──────────────────────────────────────────
-  //
-  // Rendered shows the COMPOSED briefing; Source edits the OVERRIDE. They are
-  // deliberately not two views of one string, which is the one place this tab
-  // departs from the node Content tab it otherwise mirrors — and the reason is
-  // that the briefing is DERIVED and unwritable:
-  //
-  //   prompt = boundTemplate + promptOverride + derivedRegisterBlock
-  //
-  // `updateWorker` takes only `promptOverride`; the server exposes no way to
-  // write the composed prompt. Offering a Source view that edited the whole
-  // briefing would let a reader save the template back into the override, and
-  // it would then be prepended again on every render, compounding with each
-  // save. So Source shows the inherited half read-only beside the editable
-  // half, and says which is which.
-  // URL-addressable, like `?tab=` above (@codex on #857). As pure client state
-  // the Source editor was unreachable with JavaScript off — which also made the
-  // non-enhanced POST handling this page just gained unreachable, so that fix
-  // would have been theatre. Seeding from the loader means the server can
-  // render the editor, the form posts without JS, and a Source view is
-  // linkable. The toggle buttons still only flip local state: switching views
-  // is not a navigation and must not push history.
+  // The served briefing is read-only; edits belong to source nodes.
   let showSource = $state(untrack(() => data.initialView === 'source'));
   let isBrowser = $state(false);
-  onMount(() => {
-    isBrowser = true;
-  });
-
-  // `worker` and `retired` are declared further down with the profile bindings.
-  /** The agent's RAW template. Null when the agent has none, OR when the agent
-   *  read gate denies it — the composed prompt sits behind the worker gate, so
-   *  the two can disagree and the panel distinguishes them. */
-  const inheritedTemplate = $derived(data.worker.agent?.systemPrompt ?? null);
+  onMount(() => { isBrowser = true; });
 
   function renderMarkdown(text: string): string {
     // DOMPurify needs a real DOM and cannot run under SSR, so emit nothing
@@ -97,52 +64,6 @@
     return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
   }
   const renderedBriefing = $derived(data.worker.prompt ? renderMarkdown(data.worker.prompt) : '');
-
-  const {
-    form: briefingData,
-    message: briefingMessage,
-    submitting: briefingSubmitting,
-    enhance: briefingEnhance,
-  } = superForm(
-    // @copilot on #857: prefer the SUBMITTED form when the action returned one.
-    // Without this a non-enhanced POST — JS off, or an SSR response after a
-    // refusal — discards the server's message AND the text the reader just
-    // typed, handing them back the stored value as if nothing had happened.
-    // Same shape the App page uses for its post form.
-    //
-    // untrack: superForm takes the INITIAL form and owns the store from then
-    // on, so a top-level read is intentional. `briefingDirty` below reads
-    // `data` reactively, which is what keeps the button honest after a save
-    // invalidates, and `afterNavigate` re-seeds on a worker change.
-    untrack(
-      () =>
-        (submittedForm<UpdateBriefingForm>(form, 'updateBriefing') as typeof data.briefingForm | null) ??
-        data.briefingForm,
-    ),
-    {
-    validators: zod4Client(updateBriefingSchema),
-    // The whole override is one field with no cross-field rules, so validating
-    // per keystroke only flickers; the submit is the meaningful moment.
-    validationMethod: 'submit-only',
-    resetForm: false,
-    invalidateAll: true,
-    // @codex on #857: `afterNavigate` re-seeds the editor, and by the time it
-    // runs the navigation cannot be cancelled — so without this a click on any
-    // link silently discards a multi-KB draft. Superforms' own guard runs on
-    // `beforeNavigate`, which is the only moment the reader still has a choice.
-    taintedMessage: t(
-      'worker.briefing.override.discard',
-      'You have unsaved changes to this worker’s override. Leave the page and lose them?',
-    ),
-  },
-  );
-
-  // Unsaved-edit guard: comparing against the SERVER's value, not a snapshot
-  // taken at mount, so a successful save (which invalidates and re-seeds)
-  // clears the flag instead of leaving it armed forever.
-  const briefingDirty = $derived(
-    ($briefingData.promptOverride ?? '') !== (data.worker.promptOverride ?? ''),
-  );
 
   // The ARIA tab pattern, taken from src/routes/app/memories/+page.svelte
   // rather than from the App detail page's strip — which is plain buttons with
@@ -178,26 +99,6 @@
   // this still does not couple the buttons to the URL.
   afterNavigate(() => {
     activeTab = (data.initialTab as WorkerTabId | null) ?? 'profile';
-    // #1010 / @codex on #857 — the SAME reuse trap, one field further in.
-    //
-    // The Superforms store is seeded ONCE from the initial `data`, so walking
-    // /app/workers/A → /app/workers/B left it holding A's override. Against
-    // B's stored value that reads as dirty, which ENABLES Save — and the form
-    // posts to `?/updateBriefing` on B's route, writing A's individuality onto
-    // B. One worker's text silently becoming another's is the worst outcome
-    // this page could have, and nothing about it looks wrong on screen.
-    //
-    // Reset here rather than keying on worker.id, for the reason the comment
-    // above gives: a navigation is the honest signal, and a same-worker
-    // query-only navigation should re-seed too (the loader re-read the worker,
-    // so the stored override may have changed under an open editor).
-    $briefingData.promptOverride = data.worker.promptOverride ?? '';
-    // @codex on #857: clear the RESULT too, not just the value. A save or a
-    // refusal on worker A leaves "Override saved" (or a permission error) in
-    // the store; reusing the instance for worker B would show B's editor under
-    // A's verdict — a banner asserting something about a worker it never
-    // touched, which is worse than no banner at all.
-    $briefingMessage = undefined;
     showSource = data.initialView === 'source';
   });
 
@@ -598,133 +499,7 @@
           </p>
         {/if}
       {:else}
-        <!-- ── SOURCE: the two halves, separated, because only one is writable.
-             This is the one place the tab departs from a node's Content tab,
-             and deliberately: the briefing is DERIVED (bound template +
-             override + a register block the server evaluates per reader), so
-             there is no single source string to edit. -->
-        <section class="space-y-2">
-          <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 class="text-sm font-medium text-zinc-900 dark:text-white">
-              {t('worker.briefing.inherited.title', 'Inherited from the role agent')}
-            </h3>
-            {#if data.worker.agent}
-              <a
-                href="/app/agents/{data.worker.agent.id}"
-                class="text-xs text-indigo-500 hover:underline dark:text-indigo-400"
-              >{t('worker.briefing.inherited.edit', 'Edit on the agent →')}</a>
-            {/if}
-          </div>
-          <p class="text-xs text-zinc-500">
-            {t(
-              'worker.briefing.inherited.description',
-              'Shared by every worker cast from this agent, so it is not editable here — the placeholders are bound to this worker’s name and role when the briefing renders.',
-            )}
-          </p>
-          {#if inheritedTemplate}
-            <pre
-              class="max-h-72 overflow-auto rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 font-mono text-xs whitespace-pre-wrap break-words text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">{inheritedTemplate}</pre>
-          {:else}
-            <p class="rounded-lg border border-dashed border-zinc-300 px-4 py-3 text-xs text-zinc-500 dark:border-zinc-700">
-              <!-- @codex on #857: this said "hidden" or "no template" by
-                   branching on `worker.prompt`, and that predicate cannot tell
-                   them apart. The composed prompt is non-null whenever an
-                   OVERRIDE exists even with no template at all, so an agent
-                   that genuinely carries none was reported as one being
-                   withheld; and a prompt masked by the worker gate would read
-                   as "no template", which is a false statement about the agent.
-                   Nothing in this payload distinguishes the two cases, so the
-                   copy names both instead of picking one — the same posture as
-                   the team chat's `unattributed` author, where the honest
-                   rendering of a record that cannot say is to say so. -->
-              {t(
-                'worker.briefing.inherited.unavailable',
-                'No template is shown here — either this role agent carries none, or reading it needs access to the agent itself, which is a different permission from reading this worker. The agent page says which.',
-              )}
-            </p>
-          {/if}
-        </section>
-
-        <!-- The action carries tab+view, not just the action name (@codex and
-               @copilot on #857). A bare `?/updateBriefing` REPLACES the query
-               string, so a JS-off submit from ?tab=briefing&view=source lands
-               back on Profile/Rendered — and a validation or server failure
-               then leaves the preserved text and the error message in a panel
-               the same reader can no longer see. SvelteKit identifies the
-               action by the `/`-prefixed key, so the other params ride along
-               untouched. Harmless when enhanced: the params already match. -->
-          <form
-            method="POST"
-            action="?tab=briefing&view=source&/updateBriefing"
-            use:briefingEnhance
-            class="space-y-2"
-            novalidate
-          >
-          <input type="hidden" name="_kind" value="updateBriefing" />
-          <div class="flex flex-wrap items-baseline justify-between gap-2">
-            <label for="promptOverride" class="text-sm font-medium text-zinc-900 dark:text-white">
-              {t('worker.briefing.override.title', 'This worker’s override')}
-            </label>
-            {#if briefingDirty}
-              <span class="text-xs text-amber-600 dark:text-amber-400">
-                {t('worker.briefing.override.unsaved', 'Unsaved changes')}
-              </span>
-            {/if}
-          </div>
-          <p class="text-xs text-zinc-500">
-            {t(
-              'worker.briefing.override.description',
-              'Individuality layered over the shared template — what is true of THIS casting and not of every casting of the role. Saving REPLACES the whole override; emptying it clears it. It reaches the worker at its next bind.',
-            )}
-          </p>
-          <textarea
-            id="promptOverride"
-            name="promptOverride"
-            bind:value={$briefingData.promptOverride}
-            disabled={retired}
-            rows="14"
-            spellcheck="false"
-            class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 font-mono text-xs text-zinc-900 disabled:cursor-not-allowed disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-          ></textarea>
-
-          {#if retired}
-            <!-- A fact the payload carries, so the control is disabled rather
-                 than left to fail: updateWorker refuses WORKER_RETIRED. The
-                 STAFFING permission is NOT pre-derived the same way — the
-                 server's refusal is the authority there, and a hidden control
-                 is a worse answer than a refused one. -->
-            <p class="text-xs text-zinc-500">
-              {t(
-                'worker.briefing.override.retired',
-                'This worker is retired — it takes no new session bindings, so an override could never be delivered.',
-              )}
-            </p>
-          {:else}
-            <div class="flex items-center gap-3">
-              <button
-                type="submit"
-                disabled={$briefingSubmitting || !briefingDirty}
-                class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {$briefingSubmitting
-                  ? t('worker.briefing.override.saving', 'Saving…')
-                  : t('worker.briefing.override.save', 'Save override')}
-              </button>
-            </div>
-          {/if}
-
-          {#if $briefingMessage}
-            <!-- role per outcome, per
-                 hrn:node:hadronmemory.com:hadron-portal:review:superforms-banner-a11y-roles:
-                 an error is assertive, a success is polite. -->
-            <p
-              role={$briefingMessage.type === 'error' ? 'alert' : 'status'}
-              class="rounded-lg border px-3 py-2 text-sm {$briefingMessage.type === 'error'
-                ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
-                : 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'}"
-            >{$briefingMessage.text}</p>
-          {/if}
-        </form>
+        <pre class="whitespace-pre-wrap break-words rounded-lg border border-zinc-200 bg-white p-4 font-mono text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">{data.worker.prompt ?? t('worker.briefing.not-shown', 'No briefing is shown.')}</pre>
       {/if}
 
       <!-- portal#1142 P4. Keyed on the worker: SvelteKit reuses this page across

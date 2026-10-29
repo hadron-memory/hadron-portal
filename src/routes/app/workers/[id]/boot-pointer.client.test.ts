@@ -14,7 +14,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { updateBriefingSchema, updateSignatureSchema } from './schema';
+import { updateSignatureSchema } from './schema';
 import Page from './+page.svelte';
 
 const VIEWER = 'u1';
@@ -22,9 +22,9 @@ const VIEWER = 'u1';
 function worker(id: string, heldByUserId: string | null) {
   return {
     id, appId: 'app-1', agentId: 'agent-1', name: `Worker ${id}`, slug: id, urn: `hrn:worker:a.com:team:${id}`,
-    role: 'engineer', promptOverride: null, prompt: 'P', memoryId: null, retiredAt: null,
+    role: 'engineer', prompt: 'P', memoryId: null, retiredAt: null,
     heldByUserId, heldAt: heldByUserId ? '2026-10-21T00:00:00Z' : null, createdAt: '1789430400000',
-    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:a.com:engineer', systemPrompt: null },
+    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:a.com:engineer', },
     app: { id: 'app-1', name: 'Team', urn: 'hrn:app:a.com:team', organizationId: 'org-1' },
   };
 }
@@ -33,7 +33,7 @@ async function dataFor(w: ReturnType<typeof worker>, canManageWorkerApp: boolean
   return {
     worker: w,
     user: { id: VIEWER },
-    briefingForm: await superValidate({ promptOverride: '' }, zod4(updateBriefingSchema), { errors: false }),
+
     signatureForm: await superValidate({}, zod4(updateSignatureSchema), { errors: false }),
     initialTab: 'briefing', initialView: null,
     workerSessions: [], sessionsTruncated: false, worklog: [], worklogTotal: 0,

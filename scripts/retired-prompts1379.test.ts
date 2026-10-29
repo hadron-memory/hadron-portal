@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { buildASTSchema, parse, visit } from 'graphql';
 import { expect, it } from 'vitest';
+// @ts-expect-error — plain .mjs helper has no declaration file.
 import { collectPortalDocuments, findInvalid } from './validate-graphql.mjs';
 
 it('#1379 all portal operations validate after retired prompt fields and arguments are removed', () => {

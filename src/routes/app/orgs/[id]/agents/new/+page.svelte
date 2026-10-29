@@ -113,13 +113,6 @@
         class={inputClass}></textarea>
     </div>
 
-    <div>
-      <label for="systemPrompt" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt <span class="text-zinc-500">(optional)</span></label>
-      <textarea id="systemPrompt" name="systemPrompt" rows="4" placeholder="Instructions for the LLM when using this agent"
-        bind:value={$formData.systemPrompt}
-        class={inputClass}></textarea>
-      <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each agent chat. Used to define the agent's behavior and personality.</p>
-    </div>
 
     <div>
       <label for="visibility" class="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Visibility</label>

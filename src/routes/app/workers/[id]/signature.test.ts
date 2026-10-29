@@ -68,8 +68,10 @@ describe('worker signature: query and mutation', () => {
 });
 
 describe('worker signature: load', () => {
-  it('keeps briefing and signature forms distinct in the actual loader', async () => {
-    expectDistinctFormIds(await runLoad(WORKER));
+  it('returns the signature form without the retired briefing editor', async () => {
+    const data = await runLoad(WORKER);
+    expect(data).toHaveProperty('signatureForm');
+    expect(data).not.toHaveProperty('briefingForm');
   });
   it('seeds both templates as stored, with their bases', async () => {
     const data = await runLoad(WORKER);
