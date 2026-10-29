@@ -1186,3 +1186,22 @@ describe('Cast role follows the selected Agent (#1319)', () => {
   });
 
 });
+
+describe('creating a new App memory (#487)', () => {
+  async function memoryPage(role: string, installed = true) {
+    const data = await pageData();
+    return { ...data, initialTab: 'memory', currentUserId: 'u1', org: { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members:[{role,user:{id:'u1'}}] }, app: {...data.app, organizationId:'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',description:'Shared notes'}] };
+  }
+  it.each(['OWNER','ADMIN'])('offers creation for an org %s with an installed Agent', async role => {
+    setStubPage('http://localhost/app/apps/a1?tab=memory', {appId:'a1'});
+    const m=mountComponent(Page as never,{data:await memoryPage(role),form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
+    expect(m.target.textContent).toContain('Project notes');
+    expect(m.target.textContent).toContain('hrn:mem:acme.com:notes');
+    expect(m.target.querySelector('select[name=memoryClass],input[name=memoryRef]')).toBeNull();
+  });
+  it.each(['CONTRIBUTOR','READER'])('hides creation from org %s even if App.role says OWNER',async role=>{
+    const data=await memoryPage(role);const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
+});
