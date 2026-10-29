@@ -1453,7 +1453,7 @@ export const actions: Actions = {
         await client.request(nodeUpdateDocument(node, input), { input });
       }
     } catch (e: unknown) {
-      return fail(500, { error: e instanceof Error ? e.message : 'Reorder failed' });
+      return fail(500, { error: extractGqlError(e, 'Reorder failed', NODE_WRITE_REFUSALS) });
     }
   },
 };

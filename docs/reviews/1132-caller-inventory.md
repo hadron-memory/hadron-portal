@@ -1,20 +1,20 @@
 # Portal #1132 caller and error-sink inventory
 
-Original base: portal main3981e206; carried through merged main2333c054 (retired prompt removal). Contract: hrn:node:hadronmemory.com:specs:cor:api:260:01; runtime provider pinned c47c20093a72d5bb6d156b0290499495ad1f7470. This is a client migration, not a new server refusal-code vocabulary.
+Original base: portal main 3981e206 (includes merged #1389); subsequently merged main 2333c054. Contract: hrn:node:hadronmemory.com:specs:cor:api:260:01; runtime provider pinned c47c20093a72d5bb6d156b0290499495ad1f7470. This is a client migration, not a new server refusal-code vocabulary.
 
 ## Routing and controls
 
-All direct reader calls below use the existing server import path, which re-exports the one client-safe public classifier. INTERNAL_SERVER_ERROR discards prose, displays only fixed localized copy and a validated actual extensions.requestId. Unknown coded GraphQL faults discard prose and carry no id. Existing framework/access codes retain intentional text; caller-owned known refusal maps run first; surfaces that deliberately preserve an intentional typed message opt in with their own existing exact code set. No request header is used to invent an id.
+All direct reader calls below use the existing server import path, which re-exports the one client-safe public classifier. INTERNAL_SERVER_ERROR discards prose, displays only fixed localized copy and a validated actual extensions.requestId. Unknown coded GraphQL faults discard prose and carry no id. Caller-owned known refusal maps run first; surfaces that deliberately preserve an intentional typed message opt in with their own existing exact code set. No request header is used to invent an id.
 
-Genuine transport Error handling stays separate. A payload-less graphql-request ClientError uses the caller fallback, because its constructor embeds the query/variables. Unhandled loader errors use the same bounded App.Error body; explicit Agent/clone 500 boundaries preserve it. ErrorPage displays validated ids only for 5xx, as selectable escaped body text, outside title/URL. App partial success remains salvageable, but missing data after a fault is 500, not a concealed 404.
+Standard GraphQL validation/parse and framework/access refusal codes deliberately retain their intentional text. Genuine transport Error handling stays separate. A payload-less graphql-request ClientError uses the caller fallback, because its constructor embeds the query/variables. Unhandled loader errors use the same bounded App.Error body; explicit Agent/clone 500 boundaries preserve it. ErrorPage displays validated ids only for 5xx, as selectable escaped body text, outside title/URL. App partial success remains salvageable, but missing data after a fault is 500, not a concealed 404.
 
-Message-dependent branches audited: account BAD_USER_INPUT email uses its known typed text; access-check NOT_FOUND preserves its existing user/resource hint; personal/org Agent URN collision recognizes landed AGENT_URN_TAKEN; memory/App collision prose is inspected only on genuine legacy plain-Error transport paths: the provider already formats its plain collision Errors as generic faults; typed Agent collision and install AGENT_NOT_FOUND retain code branches; chatbot field selection inspects only branch text; agent-chat legacy scope routing remains separate. Generic and unknown coded faults never trigger those text branches.
+Message-dependent branches audited: account BAD_USER_INPUT email uses its known typed text; access-check NOT_FOUND preserves its existing user/resource hint; personal/org Agent URN collision recognizes landed AGENT_URN_TAKEN; old memory/App collision and install missing-Agent text is inspected separately from reader copy; chatbot field selection inspects only branch text; agent-chat legacy scope routing remains separate. Generic and unknown coded faults never trigger those text branches.
 
 Additional direct/default sinks: edgeWriteFailure's ClientError-message bypass removed; include refusal text retains only INCLUDE_REFUSAL_CODES; pointer/customisation known-code maps retain intentional text while unknown fallback uses classifier; Agent tester readiness no longer reflects generic/unknown text; app-member/create-node translator defaults and edge-condition fallback use the same classifier. Existing server-only logging is not shipped to clients. Existing asset/automation/API-key/delete-worker typed branches are explicit code maps; their raw text is used only after their known-code guards, and unknowns already use fixed fallback. No telemetry added.
 
 ## Direct helper calls
 
-AST calls: 143; modules: 68. This follows the helper name and excludes tests; it is supplemented by the bypass/control audit above, not claimed as an exhaustive search for every error value in the repository.
+AST calls: 151; modules: 73. This follows the helper name and excludes tests; it is supplemented by the bypass/control audit above, not claimed as an exhaustive search for every error value in the repository.
 
 - src/lib/edge-conditions/error-messages.ts:25 — extractGqlError(err, fallback)
 - src/lib/i18n/app-member-errors.ts:67 — extractGqlError(e, fallback)
@@ -52,6 +52,8 @@ AST calls: 143; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/agents/[id]/+page.server.ts:766 — extractGqlError(e, 'Failed to bundle the agent', ['SelfImportError', 'MultiLevelImportError', 'MissingGrantError', 'PositionConflictError'])
 - src/routes/app/agents/[id]/+page.server.ts:782 — extractGqlError(e, 'Failed to update memory role')
 - src/routes/app/agents/[id]/+page.server.ts:797 — extractGqlError(e, 'Failed to remove memory')
+- src/routes/app/agents/[id]/conversations/+page.server.ts:674 — extractGqlError(e, 'Failed to save position', ['NODE_WRITE_CONFLICT'])
+- src/routes/app/agents/[id]/conversations/+page.server.ts:686 — extractGqlError(e, 'Failed to delete edge')
 - src/routes/app/agents/[id]/test/+page.server.ts:111 — extractGqlError(e, '', ['NoAiConfigAvailableError', 'FORBIDDEN', 'UNAUTHENTICATED', 'GRAPHQL_VALIDATION_FAILED'])
 - src/routes/app/agents/new/+page.server.ts:47 — extractGqlError(e, 'Failed to create agent', ["AGENT_URN_TAKEN"])
 - src/routes/app/apps/[appId]/+page.server.ts:1016 — extractGqlError(e, 'Failed to update app')
@@ -75,6 +77,7 @@ AST calls: 143; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/dashboard/+page.server.ts:140 — extractGqlError(e, 'Failed to save your dashboard.')
 - src/routes/app/dashboard/widget-presets/+server.ts:45 — extractGqlError(e, 'Failed to save the preset.')
 - src/routes/app/dashboard/widget-presets/+server.ts:60 — extractGqlError(e, 'Failed to delete the preset.')
+- src/routes/app/github/install/callback/+page.server.ts:32 — extractGqlError(e, fallback)
 - src/routes/app/marketplace/+page.server.ts:166 — extractGqlError( e, t('marketplace.adopt.error', 'Failed to add this memory to your agent'), )
 - src/routes/app/memories/+page.server.ts:68 — extractGqlError(e, 'Failed to remove the shared memory. Please try again.')
 - src/routes/app/memories/[id]/clone/+server.ts:35 — extractGqlError(e, 'Invalid clone target.', ["BAD_USER_INPUT"])
@@ -101,6 +104,7 @@ AST calls: 143; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts:1244 — extractGqlError(e, 'Failed to move node', NODE_WRITE_REFUSALS)
 - src/routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts:1296 — extractGqlError(e, 'Failed to convert node to a task', NODE_WRITE_REFUSALS)
 - src/routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts:1397 — extractGqlError(e, 'Failed to update edges', NODE_WRITE_REFUSALS)
+- src/routes/app/memories/[id]/nodes/[nodeId]/+page.server.ts:1456 — extractGqlError(e, 'Reorder failed', NODE_WRITE_REFUSALS)
 - src/routes/app/memories/[id]/nodes/[nodeId]/chat/+page.server.ts:178 — extractGqlError(error, 'Failed to send message')
 - src/routes/app/memories/[id]/nodes/[nodeId]/deleted/+page.server.ts:35 — extractGqlError(e, 'Failed to restore', ["CONFLICT"])
 - src/routes/app/memories/[id]/nodes/[nodeId]/edges/[edgeId]/+page.server.ts:183 — extractGqlError(e, fallback)
@@ -112,6 +116,7 @@ AST calls: 143; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/memories/[id]/nodes/[nodeId]/skill/+server.ts:67 — extractGqlError(e, 'The export plan failed')
 - src/routes/app/memories/[id]/nodes/[nodeId]/storage-action.ts:133 — extractGqlError(e, 'Failed to save', ["BAD_USER_INPUT"])
 - src/routes/app/memories/[id]/nodes/[nodeId]/storage-action.ts:139 — extractGqlError(e, 'Failed to save', ["BAD_USER_INPUT"])
+- src/routes/app/memories/[id]/settings/+page.server.ts:308 — extractGqlError(e, 'Failed to update')
 - src/routes/app/memories/[id]/settings/+page.server.ts:349 — extractGqlError(e, t('memory-settings.marketplace.failed', 'Failed to update marketplace listing.'), ["BAD_USER_INPUT"])
 - src/routes/app/memories/[id]/settings/+page.server.ts:373 — extractGqlError(e, t('memory-transfer.preview-failed', 'Could not preview ownership transfer.'), ["BAD_USER_INPUT"])
 - src/routes/app/memories/[id]/settings/+page.server.ts:408 — extractGqlError(e, t('memory-transfer.apply-failed', 'Could not transfer ownership.'), ["BAD_USER_INPUT"])
@@ -157,9 +162,16 @@ AST calls: 143; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/orgs/[id]/tasks/plugin/+server.ts:86 — extractGqlError(err, 'The export scope could not be created')
 - src/routes/app/orgs/[id]/tasks/plugin/+server.ts:115 — extractGqlError(exportPlan.reason, 'The export plan failed')
 - src/routes/app/orgs/[id]/tasks/plugin/+server.ts:133 — extractGqlError(otherPlan.reason, 'The other host could not be checked')
+- src/routes/app/orgs/new/+page.server.ts:43 — extractGqlError(e, 'Failed to create organization')
+- src/routes/app/u/resolve/+server.ts:64 — extractGqlError(err, 'resolve failed')
 - src/routes/app/user/[id]/+page.server.ts:57 — extractGqlError(e, 'The workers could not be loaded')
 - src/routes/app/workers/[id]/+page.server.ts:238 — extractGqlError(e, '', ["BAD_USER_INPUT","WORKER_RETIRED"])
+- src/routes/invite/[token]/+page.server.ts:51 — extractGqlError(e, 'Failed to accept invitation')
 
 ## Review fix audit
 
 The provider publishAgentImport resolver explicitly emits SelfImportError, MultiLevelImportError, MissingGrantError and PositionConflictError. Those four codes retain intentional text at the bundle mutation; IMPORT_DEPTH is an old invented test code, not a provider code. Known createApp refusals retain the previous400 status (install AGENT_NOT_FOUND remains404); generic/unknown faults remain500. App read UNAUTHENTICATED/BAD_USER_INPUT retain prior concealed404 alongside existing absence/refusal codes. The portal handleError hook logs unexpected exceptions server-side before returning safe copy; event URLs/cookies/forms are not added. See PR review response for exact provider source links. No generic fault is parsed as a collision.
+
+## Raw-message bypass audit
+
+The helper-name inventory is supplemented by a source sweep of route-handler message extraction. LOCAL found seven raw catches in six route files; the follow-up sweep found the same pattern in the URN resolver JSON endpoint. All eight now use the shared classifier, preserving existing statuses, known refusals and genuine plain transport errors. GitHub callback internal faults retain App.Error metadata. Red commit d6fc66bd adds 24 real-handler assertions (eight sinks times internal, unknown and payload-less ClientError); all 24 failed on diagnostic leakage before these fixes and pass after. Remaining raw-message hits are guarded local validation/parse errors or deliberate known-code branches, rather than unguarded gqlClient rendering.

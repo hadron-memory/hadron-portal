@@ -305,7 +305,7 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update' }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update') }, { status: 500 });
     }
   },
 
