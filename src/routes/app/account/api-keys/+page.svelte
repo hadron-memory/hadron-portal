@@ -26,6 +26,7 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import RawKeyReveal from '$lib/components/RawKeyReveal.svelte';
   import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
+  import ApiKeyVisibilityAction from '$lib/components/ApiKeyVisibilityAction.svelte';
   import { t } from '$lib/i18n/t';
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -41,6 +42,14 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const keys = $derived(data.keys);
+  let visibilityNotice = $state<{type:'success'|'error';text:string} | null>(null);
+  let hiddenToggle: HTMLInputElement;
+  const visibilityFeedback = $derived(visibilityNotice ?? (form && 'visibility' in form ? form.visibility : null));
+  function showVisibilityResult(notice: {type:'success'|'error';text:string}) {
+    visibilityNotice = notice;
+    // The row can disappear on success; keep keyboard focus on the persistent toggle.
+    if (notice.type === 'success') hiddenToggle?.focus();
+  }
   const loadError = $derived('loadError' in data ? data.loadError : undefined);
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
@@ -175,7 +184,7 @@
     { accessorKey: 'label', header: i18n.columnLabel(), enableHiding: false, size: 200 }, // identity column
     { accessorKey: 'keyPreview', header: i18n.columnKey(), size: 90 },
     {
-      accessorFn: (row) => (row.revokedAt !== null ? i18n.statusRevoked() : i18n.statusActive()),
+      accessorFn: (row) => (row.revokedAt !== null ? (row.hiddenAt ? `${i18n.statusRevoked()} · ${i18n.hidden()}` : i18n.statusRevoked()) : i18n.statusActive()),
       id: 'status',
       header: i18n.columnStatus(),
       size: 100,
@@ -255,7 +264,7 @@
          `max-w-xs` (~20rem) per the issue's "trim to half size" ask —
          the help sentence still fits comfortably on the row beneath
          because it spans the full form width. -->
-    <form method="POST" action="?/create" use:createEnhance class="space-y-1" novalidate>
+    <form method="POST" action={data.includeHidden ? '?/create&includeHidden=true' : '?/create'} use:createEnhance class="space-y-1" novalidate>
       <input type="hidden" name="_kind" value={$createFormData._kind} />
       <div class="flex items-end gap-2">
         <div class="max-w-xs flex-1">
@@ -297,8 +306,24 @@
 
   <!-- Key list (TanStack table, same chrome as /app/usage/sessions). -->
   <section class="space-y-4">
+    <form method="GET" class="space-y-1">
+      <label class="inline-flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+        <input type="checkbox" name="includeHidden" value="true" checked={data.includeHidden}
+          bind:this={hiddenToggle} aria-describedby="key-visibility-help"
+          onchange={(event) => event.currentTarget.form?.requestSubmit()} />
+        {i18n.showHidden()}
+      </label>
+      <noscript><button type="submit">{i18n.apply()}</button></noscript>
+      <p id="key-visibility-help" class="text-xs text-zinc-500 dark:text-zinc-400">{i18n.visibilityHelp()}</p>
+    </form>
+    {#if visibilityFeedback}
+      <p role={visibilityFeedback.type === 'error' ? 'alert' : 'status'}
+        class={visibilityFeedback.type === 'error'
+          ? 'text-sm text-red-700 dark:text-red-300'
+          : 'text-sm text-green-700 dark:text-green-300'}>{visibilityFeedback.text}</p>
+    {/if}
     {#if keys.length === 0}
-      <p class="text-sm text-zinc-500 dark:text-zinc-400">{i18n.emptyState()}</p>
+      <p class="text-sm text-zinc-500 dark:text-zinc-400">{data.includeHidden ? i18n.emptyState() : i18n.noVisibleKeys()}</p>
     {:else}
       <DataTable
         {table}
@@ -307,7 +332,6 @@
         searchAriaLabel={i18n.searchPlaceholder()}
         bind:globalFilter
         maxHeight="max(200px, calc(100vh - 23rem))"
-        rowClass={(key) => (key.revokedAt !== null ? 'opacity-50' : '')}
         rowAttrs={(key) => ({ 'data-testid': 'api-key-row', 'data-key-id': key.id })}
       >
         {#snippet cell(cell, key)}
@@ -317,7 +341,7 @@
           {:else if cell.column.id === 'status'}
             {#if isRevoked}
               <span class="inline-block rounded bg-zinc-200 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" data-testid="status-revoked">
-                {i18n.statusRevoked()}
+                {i18n.statusRevoked()}{#if key.hiddenAt} · {i18n.hidden()}{/if}
               </span>
             {:else}
               <span class="inline-block rounded bg-green-100 px-2 py-0.5 text-xs text-green-800 dark:bg-green-900 dark:text-green-200" data-testid="status-active">
@@ -334,6 +358,8 @@
                 fixed
                 compact
               />
+            {:else}
+              <ApiKeyVisibilityAction id={key.id} preview={key.keyPreview} hidden={!!key.hiddenAt} includeHidden={data.includeHidden} onresult={showVisibilityResult} />
             {/if}
           {:else}
             {@const f = fmt[cell.column.id]}
@@ -364,7 +390,7 @@
       </p>
       <form
         method="POST"
-        action="?/revoke"
+        action={data.includeHidden ? '?/revoke&includeHidden=true' : '?/revoke'}
         use:revokeEnhance
         class="flex justify-end gap-2"
         novalidate
