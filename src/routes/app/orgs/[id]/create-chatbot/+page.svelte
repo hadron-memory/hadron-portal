@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n/t';
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -28,8 +29,8 @@
   });
 
   // Wizard state
-  let step = $state(untrack(() => form?.form ? 4 : 1));
-  const totalSteps = 4;
+  let step = $state(untrack(() => form?.form ? 3 : 1));
+  const totalSteps = 3;
 
   let slugEdited = $state(false);
   let knowledgeSlugEdited = $state(false);
@@ -51,12 +52,11 @@
 
   function canProceed(): boolean {
     if (step === 1) return $formData.agentName.trim().length > 0 && $formData.agentSlug.trim().length > 0 && !agentNameError && !agentSlugError;
-    if (step === 2) return true; // system prompt is optional
-    if (step === 3) return $formData.systemMemorySlug.trim().length > 0 && (!$formData.includeKnowledge || ($formData.knowledgeMemoryName.trim().length > 0 && $formData.knowledgeMemorySlug.trim().length > 0));
+    if (step === 2) return $formData.systemMemorySlug.trim().length > 0 && (!$formData.includeKnowledge || ($formData.knowledgeMemoryName.trim().length > 0 && $formData.knowledgeMemorySlug.trim().length > 0));
     return true;
   }
 
-  const stepLabels = ['Agent', 'System Prompt', 'Memories', 'Review'];
+  const stepLabels = ['Agent', 'Memories', 'Review'];
 
   function updateForm(updates: Partial<typeof $formData>) {
     formData.update((current) => ({ ...current, ...updates }), { taint: false });
@@ -124,7 +124,6 @@
     <input type="hidden" name="agentName" value={$formData.agentName} />
     <input type="hidden" name="agentSlug" value={$formData.agentSlug} />
     <input type="hidden" name="agentDescription" value={$formData.agentDescription} />
-    <input type="hidden" name="systemPrompt" value={$formData.systemPrompt} />
     <input type="hidden" name="visibility" value={$formData.visibility} />
     <input type="hidden" name="includeKnowledge" value={$formData.includeKnowledge ? 'true' : 'false'} />
     <input type="hidden" name="knowledgeMemoryName" value={$formData.knowledgeMemoryName} />
@@ -182,20 +181,8 @@
         </div>
       {/if}
 
-      <!-- Step 2: System prompt -->
+      <!-- Memories -->
       {#if step === 2}
-        <h2 class="mb-4 text-lg font-semibold text-zinc-900 dark:text-white">System prompt</h2>
-        <p class="mb-4 text-sm text-zinc-500">Define your agent's personality and behavior. This is sent to the LLM at the start of every conversation.</p>
-        <div>
-          <textarea id="systemPrompt" rows="8"
-            placeholder="You are {$formData.agentName || 'an AI assistant'}, a helpful mentor for entrepreneurs. Be warm, encouraging, and practical. Ask clarifying questions before giving advice."
-            bind:value={$formData.systemPrompt} class={inputClass}></textarea>
-          <p class="mt-2 text-xs text-zinc-400">Tip: describe the agent's role, tone, and any rules it should follow. Stage-specific instructions go in the conversation prompts (created after this wizard).</p>
-        </div>
-      {/if}
-
-      <!-- Step 3: Memories -->
-      {#if step === 3}
         <h2 class="mb-4 text-lg font-semibold text-zinc-900 dark:text-white">Set up memories</h2>
         <p class="mb-4 text-sm text-zinc-500">Memories store your agent's configuration and data. You can customize their names and URNs.</p>
         <div class="space-y-5">
@@ -279,9 +266,10 @@
         </div>
       {/if}
 
-      <!-- Step 4: Review -->
-      {#if step === 4}
+      <!-- Step 3: Review -->
+      {#if step === 3}
         <h2 class="mb-4 text-lg font-semibold text-zinc-900 dark:text-white">Review & create</h2>
+        <p class="mb-4 text-sm text-zinc-500 dark:text-zinc-400">{t('chatbot.boot-next-step', 'After creating the chatbot, open its Agent’s Boot prompt tab to write a source, then compile and approve it.')}</p>
         <div class="space-y-3 text-sm">
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
             <h3 class="font-medium text-zinc-900 dark:text-white">Agent</h3>
@@ -290,12 +278,6 @@
             <p class="mt-1 text-xs text-zinc-400">Visibility: {$formData.visibility}</p>
           </div>
 
-          {#if $formData.systemPrompt}
-            <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
-              <h3 class="font-medium text-zinc-900 dark:text-white">System Prompt</h3>
-              <p class="mt-1 whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">{$formData.systemPrompt}</p>
-            </div>
-          {/if}
 
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
             <h3 class="font-medium text-zinc-900 dark:text-white">Memories</h3>
