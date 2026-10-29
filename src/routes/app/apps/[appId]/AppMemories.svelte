@@ -9,14 +9,17 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { t } from '$lib/i18n/t';
   import { submittedForm, failedSubmission } from '$lib/forms/submitted-form';
-  import type { AppMemoryRow } from './app-memories';
+  import type { AppMemoryMessage, AppMemoryRow } from './app-memories';
   import { createAppMemorySchema } from './schema';
   type Fields = Infer<typeof createAppMemorySchema, 'zod4'>;
   let { memories, canCreate, initial, result }: {
     memories: AppMemoryRow[] | null; canCreate: boolean;
-    initial: SuperValidated<Fields, App.Superforms.Message>; result: unknown;
+    initial: SuperValidated<Fields, AppMemoryMessage>; result: unknown;
   } = $props();
-  const { form, errors, message, submitting, enhance } = superForm(untrack(() => failedSubmission<Fields>(result, 'createAppMemory') ?? { ...initial, message: submittedForm<Fields>(result, 'createAppMemory')?.message }), {
+  const { form, errors, message, submitting, enhance } = superForm(untrack(() => {
+    const submitted = submittedForm<Fields>(result, 'createAppMemory') as SuperValidated<Fields, AppMemoryMessage> | null;
+    return (failedSubmission<Fields>(result, 'createAppMemory') as SuperValidated<Fields, AppMemoryMessage> | null) ?? { ...initial, message: submitted?.message };
+  }), {
     validators: zod4Client(createAppMemorySchema), invalidateAll: 'force', resetForm: true,
   });
   let search = $state('');
@@ -52,7 +55,15 @@
       </div>
       <button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-amber-600 disabled:opacity-50">{$submitting ? t('app.memory.creating', 'Creating...') : t('app.memory.create', 'Create memory')}</button>
       </fieldset>
-      {#if $message}<p role={$message.type === 'error' ? 'alert' : 'status'} class="text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
+      {#if $message}
+        <div role={$message.type === 'error' ? 'alert' : 'status'} class="text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">
+          <p>{$message.text}</p>
+          {#if $message.type === 'success' && $message.created}
+            <a href="/app/memories/{encodeURIComponent($message.created.id)}" class="mt-1 inline-block font-medium text-indigo-600 hover:underline dark:text-indigo-300">{$message.created.name}</a>
+            <div class="mt-1"><Urn value={$message.created.urn} type="memory" size={10} /></div>
+          {/if}
+        </div>
+      {/if}
     </form>
   {/if}
   {#if memories === null}

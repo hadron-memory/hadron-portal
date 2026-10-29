@@ -1,3 +1,4 @@
+import type { Infer } from 'sveltekit-superforms';
 import { fail } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -7,6 +8,9 @@ import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout'
 import { fetchAllItems } from '$lib/server/paginate';
 import { t } from '$lib/i18n/t';
 import { createAppMemorySchema } from './schema';
+
+export interface CreatedAppMemory { id: string; urn: string; name: string }
+export type AppMemoryMessage = App.Superforms.Message & { created?: CreatedAppMemory };
 
 export interface AppMemoryRow { id: string; urn: string; name: string; description: string | null; appId: string | null }
 export const CREATE_APP_MEMORY_MUTATION = /* GraphQL */ `
@@ -38,11 +42,11 @@ export function canCreateAppMemory(org: { members?: { role: string; user: { id: 
 }
 
 export async function createMemory({ request, params, locals }: { request: Request; params: { appId: string }; locals: { token?: string | null } }) {
-  const form = await superValidate(await request.formData(), zod4(createAppMemorySchema), { id: `createAppMemory:${params.appId}` });
+  const form = await superValidate<Infer<typeof createAppMemorySchema, 'zod4'>, AppMemoryMessage>(await request.formData(), zod4(createAppMemorySchema), { id: `createAppMemory:${params.appId}` });
   if (!form.valid) return fail(400, { form });
   try {
-    await gqlClient(locals.token).request(CREATE_APP_MEMORY_MUTATION, { appRef: params.appId, name: form.data.name, description: form.data.description });
-    return message(form, { type: 'success', text: t('app.memory.created', 'Memory created.') });
+    const { createAppMemory: created } = await gqlClient(locals.token).request<{ createAppMemory: CreatedAppMemory }>(CREATE_APP_MEMORY_MUTATION, { appRef: params.appId, name: form.data.name, description: form.data.description });
+    return message(form, { type: 'success', text: t('app.memory.created', 'Memory created.'), created });
   } catch (e: unknown) {
     // Only known codes select fixed copy; no raw GraphQL or transport text.
     const code = extractGqlErrorCode(e);
