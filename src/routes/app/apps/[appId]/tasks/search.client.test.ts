@@ -73,6 +73,16 @@ describe('task board native search', () => {
     expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
     expect(m.target.textContent).toContain('Task 0');
   });
+  it('clamps to the last remaining page rather than discarding a valid range', async () => {
+    const m = await mount(); button(m, 'Next').click(); await tick(2);
+    button(m, 'Next').click(); await tick(2);
+    expect(m.target.textContent).toContain('Page 3 of 3');
+    const next = data(); next.board.value.tasks = next.board.value.tasks.slice(0, 25);
+    (m.instance.navigate as (next: unknown) => void)(next); await tick(3);
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(5);
+    expect(m.target.textContent).toContain('Page 2 of 2');
+    expect(m.target.textContent).toContain('Task 20');
+  });
   it('does not apply a legacy saved local filter over server description matches', async () => {
     const saved = await localStorageViewStore.create('app-tasks:board', 'Legacy', { globalFilter: 'unmatchable-title' } as never);
     await localStorageViewStore.setDefault('app-tasks:board', saved.id);

@@ -128,6 +128,17 @@
     untrack(() => table.resetPageIndex());
   });
 
+  // Preserve a valid position on refresh, but never strand rows beyond a
+  // shrunken last page. Only the derived bound triggers this write; the
+  // current index read stays untracked so paging cannot subscribe itself.
+  const lastPage = $derived(Math.max(0, Math.ceil(rows.length / table.atoms.pagination.get().pageSize) - 1));
+  $effect(() => {
+    const last = lastPage;
+    untrack(() => {
+      if (table.atoms.pagination.get().pageIndex > last) table.setPageIndex(last);
+    });
+  });
+
   function submitSearch(event: SubmitEvent) {
     const form = event.currentTarget as HTMLFormElement;
     const input = form.elements.namedItem('text') as HTMLInputElement;
