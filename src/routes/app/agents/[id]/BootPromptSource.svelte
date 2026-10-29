@@ -19,7 +19,10 @@
     canManage?: boolean | null;
   } = $props();
   const approvedRevision = $derived(compiled?.approvedRevision ?? null);
-  const seed = untrack(() => submitted ?? initial);
+  // A refused save keeps its draft and the revision it was written against. A saved
+  // one is seeded from the refreshed loader data: the posted form still carries the
+  // revision before the save, so the next save would conflict with the user's own.
+  const seed = untrack(() => (submitted && submitted.message?.type === 'error' ? submitted : submitted ? { ...initial, message: submitted.message } : initial));
   const { form, errors, message, submitting, enhance, reset } = superForm(seed, {
     taintedMessage: t('agent.boot.unsaved', 'Discard your unsaved boot prompt?'),
     validators: zod4Client(bootSourceSchema), resetForm: false, clearOnSubmit: 'none', invalidateAll: 'force',
@@ -40,8 +43,10 @@
 <section data-boot-prompt-source>
   <p class="mb-1 text-sm text-zinc-700 dark:text-zinc-300">{t('agent.boot.source-lead', 'This is the source of the boot prompt. Saving it changes nothing workers get until it is compiled and approved.')}</p>
   <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
-    {#if approvedRevision !== null}
-      {t('agent.boot.approved-line', 'Workers get the approved compiled revision, revision {m}.', { m: approvedRevision })}
+    {#if compiled === null}
+      {t('agent.boot.approval-unknown', 'Couldn’t load the approval status of the compiled prompt.')}
+    {:else if compiled.approvedRevision !== null}
+      {t('agent.boot.approved-line', 'Workers get revision {m}, the approved compiled prompt.', { m: compiled.approvedRevision })}
     {:else}
       {t('agent.boot.not-approved-line', 'No compiled revision is approved yet, so workers are not served this prompt.')}
     {/if}
@@ -56,7 +61,7 @@
     {#if canManage !== false}
       <div class="flex justify-end gap-2">
         <button type="button" disabled={$submitting} onclick={() => reset({ data: { ...$form, content: stored } })} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700">{t('agent.boot.cancel', 'Cancel')}</button>
-        <button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{$submitting ? t('agent.boot.saving', 'Saving...') : t('agent.boot.save', 'Save')}</button>
+        <button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50">{$submitting ? t('agent.boot.saving', 'Saving...') : t('agent.boot.save', 'Save')}</button>
       </div>
     {/if}
   </form>
@@ -81,7 +86,8 @@
         {/if}
       </p>
       <p class="text-xs"><Urn value={compiled.urn} type="node" /></p>
-      <pre data-boot-compiled class="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{compiled.content}</pre>
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex: a scrollable text region must be reachable by keyboard (WCAG 2.1.1) -->
+      <pre data-boot-compiled tabindex="0" aria-label={t('boot.approve.text-label', 'Compiled prompt text')} class="max-h-96 overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{compiled.content}</pre>
       {#if compiled.lint}
         <div data-boot-lint>
           <p class="text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('boot.lint.title', 'Warnings ({total})', { total: compiled.lint.total })}</p>
@@ -96,7 +102,7 @@
           <input type="hidden" name="_kind" value="bootApprove" />
           <input type="hidden" name="nodeId" value={$approveForm.nodeId} />
           <input type="hidden" name="revision" value={$approveForm.revision} />
-          <button type="submit" disabled={$approveSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{$approveSubmitting ? t('boot.approve.running', 'Approving...') : t('boot.approve.button', 'Approve')}</button>
+          <button type="submit" disabled={$approveSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50">{$approveSubmitting ? t('boot.approve.running', 'Approving...') : t('boot.approve.button', 'Approve')}</button>
         </form>
       {/if}
     </section>

@@ -62,7 +62,7 @@ describe('portal#1377 S1 saveBootSource', () => {
     expect(r.form.message.text).toContain('compiled and approved');
   });
   it.each([
-    ['NODE_WRITE_CONFLICT', 409, 'Your draft is kept'],
+    ['NODE_WRITE_CONFLICT', 409, 'copy it before you reload'],
     ['BOOT_PROMPT_WORKER_SESSION_REFUSED', 403, 'not through a worker session'],
     ['INCLUDE_TARGET_UNAVAILABLE', 422, 'doesn’t exist or that you can’t read'],
     ['FORBIDDEN', 403, 'Only whoever manages this Agent'],

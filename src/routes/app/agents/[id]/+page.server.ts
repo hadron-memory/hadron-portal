@@ -466,7 +466,7 @@ export const actions: Actions = {
     } catch (e) {
       const code = extractGqlErrorCode(e);
       const text = code === 'NODE_WRITE_CONFLICT'
-        ? t('agent.boot.source-conflict', 'Someone changed the source since you opened it. Your draft is kept; reload to see their version.')
+        ? t('agent.boot.source-conflict', 'Someone changed the source since you opened it. Your draft is kept here: copy it before you reload, because a reload shows their version.')
         : code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED'
           ? t('agent.boot.source-worker-refused', 'Boot prompts are edited by their manager signed in as themselves, not through a worker session.')
           : code === 'INCLUDE_TARGET_UNAVAILABLE'

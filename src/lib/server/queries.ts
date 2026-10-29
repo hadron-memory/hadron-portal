@@ -4473,7 +4473,8 @@ export const AGENT_BOOT_POINTER_QUERY = /* GraphQL */ `
 
 // portal#1377 S1 — the two nodes behind an Agent's Boot prompt tab. raw: true
 // (#485): the source is an editor, so include tags must round-trip unexpanded.
-// The compiled node is read only for its revision and approval, for the status line.
+// The compiled node is read for its approval (the status line) and, when the source
+// itself can't be read, its text (R1 c: a reader sees the compiled prompt read-only).
 export const BOOT_SOURCE_QUERY = /* GraphQL */ `
   query BootSource($ref: ID!, $memoryRef: ID!) {
     node(ref: $ref, memoryRef: $memoryRef, raw: true) { id urn revision content }
