@@ -192,3 +192,70 @@ describe('GET /app/apps/[appId]/team-chat — total is bounded by the cursor', (
     expect(status).toBe(200);
   });
 });
+
+// #1137. The team filter is a server-side read argument carried on EVERY path
+// (tail, older, newer), validated here like a cursor, and never applied to a
+// page the portal already holds.
+describe('GET /app/apps/[appId]/team-chat — team filter (#1137)', () => {
+  const ok = () => mockRequest.mockResolvedValue({ teamChatMessages: { items: [], total: 0 } });
+
+  it('passes ?team=<head> to the server on the tail, older and newer reads', async () => {
+    ok();
+    await get('app-1', '?team=h1');
+    await get('app-1', '?team=h1&beforeSeq=40');
+    await get('app-1', '?team=h1&sinceSeq=40');
+    expect(mockRequest.mock.calls.map((c) => c[1])).toEqual([
+      { appRef: 'app-1', beforeSeq: 2147483647, limit: 20, teamHeadRef: 'h1' },
+      { appRef: 'app-1', beforeSeq: 40, limit: 20, teamHeadRef: 'h1' },
+      { appRef: 'app-1', sinceSeq: 40, limit: 20, teamHeadRef: 'h1' },
+    ]);
+  });
+
+  it('passes ?team=untagged as the explicit untagged argument, never as a head', async () => {
+    ok();
+    await get('app-1', '?team=untagged');
+    expect(mockRequest.mock.calls[0][1]).toEqual({
+      appRef: 'app-1', beforeSeq: 2147483647, limit: 20, untagged: true,
+    });
+  });
+
+  it('sends no filter argument at all when the parameter is absent (a default-OFF server must not see one)', async () => {
+    ok();
+    await get();
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('teamHeadRef');
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('untagged');
+  });
+
+  it('refuses a malformed ?team= with a 400, and reads nothing (no fallback to unfiltered)', async () => {
+    const { status, body } = await get('app-1', '?team=a%20b');
+    expect(status).toBe(400);
+    expect(body).toMatchObject({ items: [], total: 0, loadFailed: true, reason: 'bad-team' });
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the server’s typed head refusal verbatim, with no items and no unfiltered retry', async () => {
+    const refusal = Object.assign(new Error('Team broadcast target is unavailable in this Channel.'), {
+      response: {
+        errors: [
+          { message: 'Team broadcast target is unavailable in this Channel.', extensions: { code: 'TEAM_CHAT_TEAM_HEAD_INVALID' } },
+        ],
+      },
+    });
+    mockRequest.mockRejectedValue(refusal);
+    const { status, body } = await get('app-1', '?team=gone');
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      items: [],
+      loadFailed: true,
+      refusal: { code: 'TEAM_CHAT_TEAM_HEAD_INVALID', message: 'Team broadcast target is unavailable in this Channel.' },
+    });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an ordinary failure a degraded tick: no refusal is invented', async () => {
+    mockRequest.mockRejectedValue(new Error('boom'));
+    const { body } = await get('app-1', '?team=h1');
+    expect(body.loadFailed).toBe(true);
+    expect(body).not.toHaveProperty('refusal');
+  });
+});
