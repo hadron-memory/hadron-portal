@@ -1,7 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
-beforeEach(() => request.mockReset());
+beforeEach(() => { request.mockReset(); });
 async function submit(fields: Record<string, string>) {
   const { actions } = await import('./+page.server');
   expect(typeof actions.createMemory).toBe('function');
