@@ -74,3 +74,26 @@ export type AddAgentMemorySchema = typeof addAgentMemorySchema;
 export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;
 export type RemoveAgentMemorySchema = typeof removeAgentMemorySchema;
 export type DeleteAgentSchema = typeof deleteAgentSchema;
+
+// #999: a separate form prevents unrelated metadata saves from overwriting it.
+export const bootPromptSchema = z.object({
+  _kind: z.literal('bootPrompt').default('bootPrompt'),
+  systemPrompt: z.string(),
+});
+
+// portal#1377: the pointed-at Agent's `boot:source` node. `expectedRevision` is
+// the revision the manager opened, so a concurrent edit is refused, not overwritten.
+export const bootSourceSchema = z.object({
+  _kind: z.literal('bootSource').default('bootSource'),
+  nodeId: z.string().min(1),
+  content: z.string(),
+  expectedRevision: z.coerce.number().int().min(1),
+});
+
+// portal#1377 S2: compile carries nothing but its kind; approve pins the revision the manager read.
+export const bootCompileSchema = z.object({ _kind: z.literal('bootCompile').default('bootCompile') });
+export const bootApproveSchema = z.object({
+  _kind: z.literal('bootApprove').default('bootApprove'),
+  nodeId: z.string().min(1),
+  revision: z.coerce.number().int().min(1),
+});

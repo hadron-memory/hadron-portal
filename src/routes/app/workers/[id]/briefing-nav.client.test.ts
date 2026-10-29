@@ -18,7 +18,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationGuards, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { updateBriefingSchema } from './schema';
+import { updateBriefingSchema, updateSignatureSchema } from './schema';
 import Page from './+page.svelte';
 
 function worker(id: string, promptOverride: string | null) {
@@ -50,6 +50,9 @@ async function dataFor(w: ReturnType<typeof worker>) {
       zod4(updateBriefingSchema),
       { errors: false },
     ),
+    // portal#1142 P4: the Briefing tab now also mounts the signature section,
+    // which the loader always seeds. A masked worker seeds it empty.
+    signatureForm: await superValidate({}, zod4(updateSignatureSchema), { errors: false }),
     initialTab: 'briefing',
     initialView: 'source',
     workerSessions: [],
@@ -102,7 +105,8 @@ describe('#1010 — the no-JS path keeps its view (@codex/@copilot on #857)', ()
     const mounted = mountComponent(Page as never, { data: await dataFor(worker('w-a', 'X')) } as never);
     try {
       openSource(mounted.target);
-      const action = mounted.target.querySelector('form[method="POST"]')?.getAttribute('action') ?? '';
+      // portal#1142 S8 added a pointer form above this one; pick the briefing form itself.
+      const action = mounted.target.querySelector('form[method="POST"][action*="/updateBriefing"]')?.getAttribute('action') ?? '';
       // A bare `?/updateBriefing` replaces the query string, so a JS-off submit
       // lands on Profile/Rendered — and a failure leaves the preserved text and
       // the error in a panel that reader can no longer see.

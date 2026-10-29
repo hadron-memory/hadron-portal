@@ -36,8 +36,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mountBrowser() {
-  const props = reactiveProps<Record<string, unknown>>({ nodes: NODES, basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0 });
+function mountBrowser(overrides: Record<string, unknown> = {}) {
+  const props = reactiveProps<Record<string, unknown>>({ nodes: NODES, basePath: '/app/memories/mem-1', forcedView: 'nodes', refreshKey: 0, ...overrides });
   const m = mountComponent(MemoryBrowser as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   return m;
@@ -113,5 +113,76 @@ describe('MemoryBrowser content scope (portal#1015)', () => {
     pick(target, 'CONTENT');
     expect(await searchBodies()).toEqual([]);
     expect(target.querySelector('[data-testid="comment-hit"]')).toBeNull();
+  });
+});
+
+
+// #1058 pins existing outcomes; sensitivity is proved by deliberate mutations,
+// not by presenting green-on-main coverage as a behavior fix.
+describe('#1058 scoped search outcomes', () => {
+  const commentRows = (target: HTMLElement) => target.querySelectorAll('[data-testid="comment-hit"]');
+  const contentRow = (target: HTMLElement) => [...target.querySelectorAll('tbody tr')].find(r => r.querySelector('a')?.textContent?.trim() === 'Alpha');
+  const assertRequest = (bodies: any[], scope: string) => {
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies.at(-1).memoryIds).toEqual(['mem-1']);
+    expect(bodies.at(-1).filter.contentScope).toBe(scope);
+  };
+
+  it.each(['COMMENTS', 'ALL'])('%s empty results replace loaded content and prior hits', async scope => {
+    const m = mountBrowser(); expect(contentRow(m.target)).toBeTruthy();
+    pick(m.target, scope); await searchBodies();
+    expect(commentRows(m.target)).toHaveLength(1);
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ nodes: [], total: 0 })));
+    m.props.refreshKey = 1; flushSync();
+    assertRequest(await searchBodies(), scope);
+    expect(commentRows(m.target)).toHaveLength(0);
+    expect(contentRow(m.target)).toBeUndefined();
+    expect(m.target.textContent).toContain('No nodes.');
+  });
+
+  it.each(['COMMENTS', 'ALL'])('%s displays a server refusal and removes stale rows', async scope => {
+    const m = mountBrowser(); pick(m.target, scope); await searchBodies();
+    expect(commentRows(m.target)).toHaveLength(1);
+    fetchMock.mockImplementation(async () => new Response(JSON.stringify({ error: 'unique-safe-fixture-refusal' }), { status: 503 }));
+    m.props.refreshKey = 1; flushSync();
+    assertRequest(await searchBodies(), scope);
+    expect(m.target.textContent).toContain('unique-safe-fixture-refusal');
+    expect(commentRows(m.target)).toHaveLength(0);
+    expect(contentRow(m.target)).toBeUndefined();
+  });
+
+  it.each(['COMMENTS', 'ALL'])('%s displays fetch failure and removes stale rows', async scope => {
+    const m = mountBrowser(); pick(m.target, scope); await searchBodies();
+    fetchMock.mockRejectedValue(new Error('unique-safe-fixture-network'));
+    m.props.refreshKey = 1; flushSync();
+    assertRequest(await searchBodies(), scope);
+    expect(m.target.textContent).toContain('unique-safe-fixture-network');
+    expect(commentRows(m.target)).toHaveLength(0);
+    expect(contentRow(m.target)).toBeUndefined();
+  });
+
+  it.each(['COMMENTS', 'ALL'])('Clear all resets %s to CONTENT and stops scoped requests', async scope => {
+    const m = mountBrowser(); pick(m.target, scope); await searchBodies();
+    const clear = [...m.target.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.trim() === 'Clear all')!;
+    expect(clear).toBeTruthy(); fetchMock.mockClear(); clear.click(); flushSync();
+    expect(m.target.querySelector<HTMLSelectElement>('[data-testid="scope-filter"]')!.value).toBe('CONTENT');
+    expect(await searchBodies()).toEqual([]);
+    expect(commentRows(m.target)).toHaveLength(0);
+    expect(contentRow(m.target)).toBeTruthy();
+  });
+
+  it('ALL overrides forced Graph and a persisted Tree pane with comment-table results', async () => {
+    window.localStorage.setItem('hadron:memoryBrowser:nodesPane', 'tree');
+    const m = mountBrowser({ forcedView: 'graph' });
+    expect(m.target.querySelector('.graph-wrapper')).not.toBeNull();
+    pick(m.target, 'ALL');
+    assertRequest(await searchBodies(), 'ALL');
+    expect(commentRows(m.target)).toHaveLength(1);
+    expect(m.target.querySelector('tbody a[href="/app/memories/mem-1/nodes/n1?tab=discussion"]')?.textContent).toBe('Needs a source');
+    expect(m.target.querySelector('[aria-label="Browser view"]')).toBeNull();
+    expect(m.target.querySelector('[aria-label="Nodes layout"]')).toBeNull();
+    expect(m.target.querySelector('.graph-wrapper')).toBeNull();
+    expect(m.target.querySelector('.tree-row')).toBeNull();
+    window.localStorage.clear();
   });
 });

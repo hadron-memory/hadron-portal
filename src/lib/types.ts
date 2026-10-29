@@ -32,6 +32,9 @@ export interface Memory {
   // null for owner-only (personal/private) and the app/system classes. The old
   // PERSONAL/PRIVATE values are removed (privacy is now the class, not visibility).
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'GROUP' | null;
+  // #841 / hrn:node:hadronmemory.com:specs:cor:acl:080:04 — the marketplace catalogue flag: a memory shows in
+  // the marketplace when it is listed AND publicly accessible.
+  listedOnMarketplace?: boolean | null;
   // Spec 005-agent-subscription introduced the four-way memory class
   // typology. Spec 013-soft-delete-memory reads `class` and `userId` to
   // gate the detail-page Danger-zone affordance: personal-class memories
@@ -297,16 +300,20 @@ export interface App {
   // the App has no agent attached.
   installedAgentUrn?: string | null;
   surfaces: string[];
-  memberCount: number;
+  /**
+   * portal#1148: `null` = WITHHELD (an owner-role member of a user-owned App, hadron-server#2089),
+   * never 0. Same for `members` and `agents` below. See lib/withheld.ts.
+   */
+  memberCount: number | null;
   trainingMode: boolean;
-  members?: AppMember[];
+  members?: AppMember[] | null;
   /**
    * The App's install ROSTER — every Agent installed via the AppAgent join.
    * These are reusable ROLE-ACTORS, i.e. which agents are available to cast;
    * the App's STAFF are its {@link Worker}s (the named castings). Do not read
    * this list as "who works here".
    */
-  agents: Array<{ id: string; urn: string; name: string; personaRole?: string | null }>;
+  agents: Array<{ id: string; urn: string; name: string; personaRole?: string | null }> | null;
   createdAt: string;
   updatedAt: string | null;
 }
@@ -352,6 +359,10 @@ export interface Worker {
   role: string | null;
   /** Per-worker individuality layered over the agent's template prompt. */
   promptOverride: string | null;
+  /** portal#1142 P4: the signature template; null when masked. Only WORKER_QUERY selects it. */
+  signature?: string | null;
+  /** portal#1142 P4: the commit-trailer template; null when masked. */
+  trailer?: string | null;
   /**
    * The RESOLVED boot briefing — the agent's template with {{name}}/{{role}}
    * bound, then `promptOverride` appended. Multi-KB.
@@ -382,6 +393,9 @@ export interface Worker {
      * caller can legitimately have one and not the other.
      */
     systemPrompt?: string | null;
+    /** portal#1168 — the role agent's system memory, selected by the roster
+     *  only. Null when the agent has none or the read is withheld. */
+    systemMemoryId?: string | null;
   } | null;
   /**
    * Retirement instant — a retired worker stops authoring and takes no new
@@ -421,6 +435,11 @@ export interface Worker {
   /** hadron-cli#487 — when this worker was last driven. Null when never bound,
    *  and masked to null on deny. Selected by the roster only. */
   lastActiveAt?: string | null;
+  /** portal#1168 — the model family of the worker's newest open session, and
+   *  whether one is live. Both are working-state fields masked to null on deny,
+   *  so null is "none" OR "not shown to you". Selected by the roster only. */
+  family?: string | null;
+  hasLiveSession?: boolean | null;
   createdAt: string;
 }
 
@@ -606,6 +625,10 @@ export interface NodeRevision {
   // revLabel is the edit reason/label.
   editedByInfo?: string | null;
   editedByUser?: { handle: string | null; urn: string | null } | null;
+  // #1171 (server #1610): the Worker and Agent behind the edit. Null on
+  // revisions captured before #1610 or with no agent behind them.
+  editedByWorker?: { id: string; name: string; urn: string | null } | null;
+  editedByAgent?: { id: string; name: string; urn: string | null } | null;
   revLabel?: string | null;
   // #620: node fields the edit changed, e.g. ["abstract","tags"]; empty on
   // legacy rows captured before the column existed.
@@ -628,6 +651,19 @@ export interface MemoryNode {
    * All scope (`Node.asComment`). Absent for content.
    */
   comment?: import('$lib/comments').CommentHit;
+  /**
+   * portal#1175: this node AS a comment, on the node-detail read only
+   * (`Node.asComment`): its target and whether the viewer is its author. Null
+   * for content, and absent where the detail read was not used.
+   */
+  asComment?: {
+    id: string;
+    deleted: boolean;
+    viewerIsAuthor: boolean;
+    /** The comment's write counter, the precondition editComment takes. */
+    revSeq: number;
+    target: { id: string; name: string; nodeType: string; urn: string };
+  } | null;
   // #588 (server #725): collection discriminator (which domain object this
   // node is, e.g. "competitor"). Null for an ordinary node; orthogonal to
   // nodeType.
@@ -637,6 +673,10 @@ export interface MemoryNode {
   alias: string | null;
   description: string | null;
   abstract: string | null;
+  /** #257: optional because only the node-detail query selects embedding state. */
+  embeddingPendingAt?: string | null;
+  embeddingFailedAt?: string | null;
+  embeddingError?: string | null;
   content: string | null;
   tokens: number | null;
   tags: string[];
@@ -753,6 +793,8 @@ export interface TreeEntry {
   nodeType: string;
   hasActions: boolean;
   isVirtual: boolean;
+  /** #1161: the server reported this node deleted (recoveryNodes). Absent = no claim. */
+  deleted?: boolean;
 }
 
 export interface TopicNode {
@@ -933,7 +975,10 @@ export interface Channel {
   lastSeq: number;
   lastMessageAt: string | null;
   createdAt: string;
-  memory: { id: string; urn: string; name: string };
+  /** The host memory's id — always present; use it for links when `memory` is concealed. */
+  memoryId: string;
+  /** #2509: null when the caller may see the Channel but not its memory's record. */
+  memory: { id: string; urn: string; name: string } | null;
 }
 
 /** #942 — a register row (spec 049): "this attendee takes part in this Channel". Intent, never permission. */

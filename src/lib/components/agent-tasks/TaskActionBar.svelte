@@ -6,7 +6,7 @@
     inferred: every non-impersonating participant sees them, and the server's
     typed refusal answers anyone who may not (hrn:node:hadronmemory.com:specs:cor:agt:050:09). One static line
     says where the right comes from.
-  - Park is held pending a ruling: never offered.
+  - Park (portal#1143) is offered for a PENDING task with no assignee only.
   - Each action opens an inline panel under the bar (not a modal): focus moves
     to it, Escape closes it and returns focus to its toggle. Nothing updates
     optimistically: a success reloads the page's data and says what happened
@@ -28,6 +28,8 @@
   import type { AgentTaskDetail, WriteCandidates } from '$lib/agent-tasks/types';
   import PartyPicker from './PartyPicker.svelte';
   import WriteRefusalAlert from './WriteRefusal.svelte';
+  import TaskWarnings from './TaskWarnings.svelte';
+  import { warningsBelow, type TaskWarning } from '$lib/agent-tasks/warnings';
 
   let {
     task,
@@ -49,7 +51,14 @@
   let open = $state<TaskAction | null>(null);
   let submitting = $state(false);
   let refusal = $state<{ action: TaskAction; refusal: WriteRefusal; inPanel: boolean } | null>(null);
-  let status = $state<string | null>(null);
+  /**
+   * The last successful write's result line and, portal#1214, the warnings its
+   * response carried. Tagged with the task it was about: the page reuses this
+   * bar across tasks, so a result shows only while that task is the one in view
+   * (Gene's P2 on #1216), and survives the same task's own reload.
+   */
+  let status = $state<{ taskId: string; text: string; caution: boolean; warnings: TaskWarning[]; more: number } | null>(null);
+  const shown = $derived(status && status.taskId === task.id ? status : null);
   let values = $state<Record<string, string>>({});
   let assignee = $state('');
 
@@ -70,8 +79,8 @@
     assignee = '';
     values = {};
     await tick();
-    // Cancel and Make ready focus their safe choice; Assign focuses its heading.
-    (a === 'cancel' || a === 'ready' ? defaultButton : panelHeading)?.focus();
+    // Cancel, Park and Make ready focus their safe choice; Assign focuses its heading.
+    (a === 'cancel' || a === 'ready' || a === 'park' ? defaultButton : panelHeading)?.focus();
   }
 
   async function closePanel() {
@@ -101,6 +110,8 @@
     switch (a) {
       case 'ready':
         return t('app.tasks.write.done.ready', 'Made ready: it’s now queued.');
+      case 'park':
+        return t('app.tasks.write.done.park', 'Parked: it’s back in the backlog.');
       case 'cancel':
         return t('app.tasks.write.done.cancel', 'Cancelled.');
       case 'assign':
@@ -116,16 +127,28 @@
 
   function submitter(a: TaskAction) {
     return ({ formData }: { formData: FormData }) => {
+      const forTask = task.id;
       submitting = true;
       values = Object.fromEntries([...formData.entries()].map(([k, v]) => [k, String(v)]));
       return async ({ result }: { result: { type: string; data?: Record<string, unknown> } }) => {
         submitting = false;
         if (result.type === 'success') {
-          const text = successText(a, formData);
+          const d = result.data ?? {};
+          // A committed write whose response also errored: saved, said with a fixed line, never the error itself.
+          const caution = d.committedWithError === true;
+          const text = caution
+            ? t('app.tasks.write.done.committed-error', 'Saved, but the server’s response also reported an error. Reload to check the task.')
+            : successText(a, formData);
+          const warnings = Array.isArray(d.warnings) ? (d.warnings as TaskWarning[]) : [];
+          const more = typeof d.more === 'number' ? d.more : 0;
           await invalidateAll();
+          // The reader moved to another task while this one was saving: its result isn't theirs to see.
+          if (task.id !== forTask) return;
           open = null;
           refusal = null;
-          status = text;
+          // Uma's P2 on #1216: the focused line says the warnings are there, so a screen reader hears it.
+          const below = warningsBelow(warnings.length + more);
+          status = { taskId: forTask, text: below ? `${text} ${below}` : text, caution, warnings, more };
           await tick();
           statusLine?.focus();
           return;
@@ -162,11 +185,12 @@
 {/snippet}
 
 <div class="mt-3 space-y-2">
-  {#if created && !status}
+  {#if created && !shown}
     <p bind:this={createdLine} tabindex="-1" role="status" class="text-sm font-medium text-green-700 dark:text-green-300">{t('app.tasks.write.done.created', 'Task created.')}</p>
   {/if}
-  {#if status}
-    <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
+  {#if shown}
+    <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium {shown.caution ? 'text-amber-800 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}">{shown.text}</p>
+    <TaskWarnings warnings={shown.warnings} more={shown.more} />
   {/if}
 
   <!-- Uma's P3-1 on #1135: a stale-view refusal (e.g. TASK_ENDED) renders here, outside the
@@ -217,6 +241,8 @@
           other={values.assigneeOther ?? ''}
           workers={candidates.workers}
           people={candidates.people}
+          peopleWithheld={candidates.peopleWithheld ?? false}
+          peopleFailed={candidates.peopleFailed ?? false}
           exclude={reassigning ? currentAssignee : null}
           required
         />
@@ -262,12 +288,33 @@
           {t('app.tasks.write.ready.title', 'Make “{title}” ready?', { title: task.title })}
         </h3>
         <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('app.tasks.write.ready.body', 'It becomes pending and joins the queue, where Hadron can match it to a worker.')}</p>
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.ready.no-park', 'To put it back in the backlog, use the CLI or MCP for now.')}</p>
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.ready.no-park', 'Until someone is assigned, you can put it back in the backlog with Park.')}</p>
         {@render refusalFor('ready', true)}
         <div class="flex flex-wrap items-center gap-3">
           <button type="button" bind:this={defaultButton} onclick={closePanel} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.tasks.write.ready.no', 'Not yet')}</button>
           <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
             {submitting ? t('app.tasks.write.readying', 'Making ready…') : t('app.tasks.write.ready.submit', 'Make ready')}
+          </button>
+        </div>
+      </form>
+    {:else if open === 'park'}
+      <form
+        id="task-panel-park"
+        aria-labelledby="task-panel-park-title"
+        method="POST"
+        action="?/park"
+        use:enhance={submitter('park')}
+        class="w-full space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <h3 id="task-panel-park-title" bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
+          {t('app.tasks.write.park.title', 'Park “{title}”?', { title: task.title })}
+        </h3>
+        <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('app.tasks.write.park.body', 'It goes back to the backlog and leaves the queue. You can make it ready again later.')}</p>
+        {@render refusalFor('park', true)}
+        <div class="flex flex-wrap items-center gap-3">
+          <button type="button" bind:this={defaultButton} onclick={closePanel} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.tasks.write.park.no', 'Not yet')}</button>
+          <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+            {submitting ? t('app.tasks.write.parking', 'Parking…') : t('app.tasks.write.park.submit', 'Park task')}
           </button>
         </div>
       </form>

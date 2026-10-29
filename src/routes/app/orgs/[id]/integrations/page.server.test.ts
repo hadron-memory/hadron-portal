@@ -4,6 +4,7 @@
  * to be covered on the org-detail loader lives here now.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   ORG_INTEGRATIONS_TAB_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
@@ -127,6 +128,14 @@ function routeMock(opts: { aiConfigs?: { data?: unknown; error?: unknown }; org?
     throw new Error('Unexpected query passed to mockRequest');
   });
 }
+
+describe('Integrations form ids (#1320)', () => {
+  it('gives every form the loader returns its own Superforms id', async () => {
+    routeMock({ aiConfigs: { data: { aiServiceConfigs: fakeAiConfigs } }, org: fakeConfiguredOrg });
+    const load = await importLoad();
+    expectDistinctFormIds(await load(ev()), 6);
+  });
+});
 
 describe('Integrations load()', () => {
   it('happy path → returns org data, configs, and seeded GitHub Superforms', async () => {

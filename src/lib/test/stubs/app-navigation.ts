@@ -17,8 +17,16 @@ export interface NavigationCall {
 
 export const navigationCalls: NavigationCall[] = [];
 
+/**
+ * portal#1216: runs inside `invalidateAll`, so a test can change what the page
+ * shows while a reload is in flight (a reader navigating away mid-write).
+ * Cleared by `resetNavigationCalls`.
+ */
+export const navigationHooks: { onInvalidateAll?: () => void | Promise<void> } = {};
+
 export function resetNavigationCalls(): void {
   navigationCalls.length = 0;
+  navigationHooks.onInvalidateAll = undefined;
 }
 
 export function replaceState(...args: unknown[]): void {
@@ -47,11 +55,12 @@ export function holdInvalidateAll(): () => void {
   };
 }
 
-export function invalidateAll(): Promise<void> {
+export async function invalidateAll(): Promise<void> {
   navigationCalls.push({ fn: 'invalidateAll', args: [] });
+  await navigationHooks.onInvalidateAll?.();
   const held = heldInvalidate;
   heldInvalidate = null;
-  return held ?? Promise.resolve();
+  await held;
 }
 
 // #668: `sveltekit-superforms` registers a tainted-form guard through these on

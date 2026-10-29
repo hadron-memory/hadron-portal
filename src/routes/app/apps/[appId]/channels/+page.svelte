@@ -125,10 +125,14 @@
       // memory-relative, so the id is the address there: the server accepts it
       // on every channelRef.
       address: c.chatRootUrn ?? c.id,
-      host: c.memory.name,
+      // #2509: seeing a Channel does not grant its host memory's record, so
+      // memory may be null — the host cell then renders the withheld note.
+      host: c.memory?.name ?? '',
       lastMessage: when(c.lastMessageAt),
       isDefault: c.id === data.defaultChannelId,
-      canWrite: data.canWrite[c.memory.id] ?? null,
+      // A concealed host never entered the loader's audit map, so the lookup
+      // misses and lands on null: write access unknown, the gate decides.
+      canWrite: data.canWrite[c.memoryId] ?? null,
     })),
   );
 
@@ -145,7 +149,7 @@
     },
     { accessorKey: 'address', header: t('app.channels.col.address', 'Address'), size: 300 },
     // The cell shows the memory's name and its URN chip; search finds either.
-    { accessorFn: (r) => `${r.host} ${r.channel.memory.urn}`, id: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
+    { accessorFn: (r) => `${r.host} ${r.channel.memory?.urn ?? ''}`, id: 'host', header: t('app.channels.col.host', 'Lives in memory'), size: 220 },
     {
       accessorKey: 'lastMessage',
       id: 'lastMessage',
@@ -327,7 +331,7 @@
             </form>
           {:else}
             <div class="min-w-0">
-              <a href="/app/memories/{row.channel.memory.id}/nodes/{row.channel.chatRootNodeId}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
+              <a href="/app/memories/{row.channel.memoryId}/nodes/{row.channel.chatRootNodeId}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
               {#if row.isDefault}
                 <span class="ml-1 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300">{t('app.channels.default', 'Team chat')}</span>
               {/if}
@@ -343,7 +347,13 @@
         {:else if cell.column.id === 'host'}
           <div class="min-w-0">
             <div class="truncate">{row.host}</div>
-            <Urn value={row.channel.memory.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
+            {#if row.channel.memory}
+              <Urn value={row.channel.memory.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
+            {:else}
+              <!-- #2509: the record is concealed, not empty — render it as
+                   absent (never an empty chip), with the reason on hover. -->
+              <span class="text-xs text-zinc-500 dark:text-zinc-400" title={t('app.channels.host-hidden-title', 'Seeing this channel doesn’t grant its memory’s record.')}>{t('app.channels.host-hidden', 'Memory not shown')}</span>
+            {/if}
           </div>
         {:else if cell.column.id === 'actions'}
           {#if row.canWrite === false}
@@ -441,6 +451,11 @@
       </p>
     </div>
 
+    {#if data.agentsWithheld}
+      <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+        {t('app.channels.agents-withheld', 'The agents installed in this App aren’t visible to you, so they aren’t offered below. This is not an empty list.')}
+      </p>
+    {/if}
     <RegisterPanel
       rows={[...data.appRows, ...data.orgRows]}
       ownerType="APP"

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -82,6 +83,7 @@ describe('Exchange inbox load()', () => {
       replyForm: { data: { _kind: string; messageId: string; body: string } };
       moveForm: { data: { _kind: string; messageId: string; folderId: string } };
     };
+    expectDistinctFormIds(result, 2);
 
     expect(result.connection).toEqual(fakeConnection);
     expect(result.messages).toEqual(fakeMessages);

@@ -5,6 +5,7 @@ import {
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
+  PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
 import { loadAncestors, loadHistory, loadTasksApp, loadTree, loadWriteCandidates } from '$lib/server/agent-tasks';
@@ -13,6 +14,7 @@ import {
   formValues,
   impersonationRefusal,
   parsePartyChoice,
+  taskWrite,
   writeFailure,
 } from '$lib/server/agent-task-writes';
 import { t } from '$lib/i18n/t';
@@ -50,7 +52,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     loadTree(client, task.id),
     loadHistory(client, app.id, task.id),
     loadAncestors(client, task.parentTaskId),
-    canWrite ? loadWriteCandidates(client, app.id) : Promise.resolve({ workers: [], people: [], roles: [], families: [] }),
+    canWrite ? loadWriteCandidates(client, app.id) : Promise.resolve({ workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] }),
   ]);
 
   return {
@@ -63,7 +65,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     ancestorsTruncated: crumbs.truncated,
     canWrite,
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
-    candidates: { workers: candidates.workers, people: candidates.people },
+    candidates: { workers: candidates.workers, people: candidates.people, peopleWithheld: candidates.peopleWithheld, peopleFailed: candidates.peopleFailed },
     // tasks/new redirects here with ?created=1 (design §6).
     created: url.searchParams.get('created') === '1',
   };
@@ -73,23 +75,30 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * portal#1090 — the task page's writes (design §3, §4). Each calls its own
  * existing mutation; who may is the server's rule
  * (hrn:node:hadronmemory.com:specs:cor:agt:050:09), answered by its typed
- * refusal, which goes back verbatim with the reader's values. Park is held
- * pending a ruling: there is no park action.
+ * refusal, which goes back verbatim with the reader's values. Park (portal#1143)
+ * is offered on state alone; the same refusal answers anyone outside its audience.
  */
-type TaskWrite = 'ready' | 'assign' | 'reassign' | 'cancel';
+type TaskWrite = 'ready' | 'assign' | 'reassign' | 'park' | 'cancel';
 
 async function write(
   action: TaskWrite,
   { request, params, locals }: Parameters<Actions[string]>[0],
-  build: (fd: FormData) => { doc: string; vars: Record<string, unknown> } | { invalid: { field: string; message: string } },
+  build: (fd: FormData) => { doc: string; vars: Record<string, unknown>; path?: string } | { invalid: { field: string; message: string } },
 ) {
   const fd = await request.formData();
   const values = formValues(fd);
   if (locals.impersonation) return writeFailure(action, impersonationRefusal(), values);
   const built = build(fd);
   if ('invalid' in built) return writeFailure(action, { kind: 'invalid', ...built.invalid }, values);
+  const vars = { taskId: params.taskId, ...built.vars };
+  // portal#1214: a write whose response can carry warnings keeps them.
+  if (built.path) {
+    const out = await taskWrite(gqlClient(locals.token), built.doc, vars, built.path);
+    if (out.kind === 'refused') return writeFailure(action, out.refusal, values);
+    return { action, ok: true as const, committedWithError: out.kind === 'committed-error', warnings: out.warnings, more: out.more };
+  }
   try {
-    await gqlClient(locals.token).request(built.doc, { taskId: params.taskId, ...built.vars });
+    await gqlClient(locals.token).request(built.doc, vars);
     return { action, ok: true as const };
   } catch (e) {
     return writeFailure(action, classifyWriteError(e), values);
@@ -97,7 +106,7 @@ async function write(
 }
 
 /** Assign and reassign: the picked party, and closeSessionWhenDone only when the reader changed it. */
-function assignment(doc: string) {
+function assignment(doc: string, path: string) {
   return (fd: FormData) => {
     const assignee = parsePartyChoice(String(fd.get('assignee') ?? ''), String(fd.get('assigneeOther') ?? ''));
     if (!assignee) {
@@ -109,13 +118,14 @@ function assignment(doc: string) {
     if (was === 'true' || was === 'false') {
       if (now !== (was === 'true')) vars.closeSessionWhenDone = now;
     }
-    return { doc, vars };
+    return { doc, vars, path };
   };
 }
 
 export const actions: Actions = {
   ready: (event) => write('ready', event, () => ({ doc: MAKE_AGENT_TASK_READY_MUTATION, vars: {} })),
-  assign: (event) => write('assign', event, assignment(ASSIGN_AGENT_TASK_MUTATION)),
-  reassign: (event) => write('reassign', event, assignment(REASSIGN_AGENT_TASK_MUTATION)),
+  assign: (event) => write('assign', event, assignment(ASSIGN_AGENT_TASK_MUTATION, 'assignAgentTask')),
+  reassign: (event) => write('reassign', event, assignment(REASSIGN_AGENT_TASK_MUTATION, 'reassignAgentTask')),
+  park: (event) => write('park', event, () => ({ doc: PARK_AGENT_TASK_MUTATION, vars: {} })),
   cancel: (event) => write('cancel', event, () => ({ doc: CANCEL_AGENT_TASK_MUTATION, vars: {} })),
 };

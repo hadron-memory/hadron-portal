@@ -2,26 +2,34 @@
  * portal#1090 — the task page's write actions and the create page's action.
  * Each calls the existing mutation and surfaces its typed refusal (design §5);
  * authority stays the server's (hrn:node:hadronmemory.com:specs:cor:agt:050:09). Impersonation writes nothing.
- * Park is held: there is no park action.
+ * portal#1143: Park (an unassigned PENDING task back to the backlog) is one more write on the same path.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClientError } from 'graphql-request';
 import {
   AGENT_TASKS_APP_QUERY,
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
   CREATE_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
+  PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
 
 const request = vi.fn();
-vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
+// portal#1214: create, assign and reassign go through rawRequest to keep
+// extensions. By default it answers what `request` would, with no extensions.
+const rawRequest = vi.fn();
+const delegate = async (q: string, v: unknown) => ({ data: await request(q, v), extensions: undefined, status: 200 });
+vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request, rawRequest }) }));
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const gqlError = (code: string, message: string) => ({ response: { errors: [{ message, extensions: { code } }] } });
 
 beforeEach(() => {
   request.mockReset();
+  rawRequest.mockReset();
+  rawRequest.mockImplementation(delegate);
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
@@ -40,8 +48,40 @@ async function taskActions() {
 }
 
 describe('task page actions', () => {
-  it('there is no park action', async () => {
-    expect(Object.keys(await taskActions()).sort()).toEqual(['assign', 'cancel', 'ready', 'reassign']);
+  it('the page has exactly these write actions', async () => {
+    expect(Object.keys(await taskActions()).sort()).toEqual(['assign', 'cancel', 'park', 'ready', 'reassign']);
+  });
+
+  // portal#1143
+  it('park calls parkAgentTask with the route’s task id', async () => {
+    request.mockResolvedValue({});
+    expect(await (await taskActions()).park(event({}))).toEqual({ action: 'park', ok: true });
+    expect(request).toHaveBeenLastCalledWith(PARK_AGENT_TASK_MUTATION, { taskId: 't1' });
+    expect(PARK_AGENT_TASK_MUTATION).toContain('parkAgentTask(taskId: $taskId) { id }');
+  });
+
+  it.each([
+    ['TASK_NOT_OWNER', 403],
+    ['TASK_ENDED', 409],
+    ['TASK_INVALID_TRANSITION', 409],
+  ])('park surfaces %s as a %i refusal with the server’s sentence', async (code, status) => {
+    request.mockRejectedValueOnce(gqlError(code, `server says ${code}`));
+    const r = (await (await taskActions()).park(event({}))) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(status);
+    expect(r.data).toMatchObject({ action: 'park', refusal: { kind: 'refused', code, message: `server says ${code}` } });
+  });
+
+  it('park with an unknown failure is uncertain, never the raw text', async () => {
+    request.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR', 'prisma stack'));
+    const r = (await (await taskActions()).park(event({}))) as { data: Record<string, unknown> };
+    expect(r.data).toMatchObject({ action: 'park', refusal: { kind: 'uncertain' } });
+    expect(JSON.stringify(r.data)).not.toContain('prisma');
+  });
+
+  it('park in an impersonation session writes nothing', async () => {
+    const r = (await (await taskActions()).park(event({}, { sessionId: 's', actorUserId: 'a', orgId: 'o', expiresAt: 0 }))) as { status: number };
+    expect(r.status).toBe(403);
+    expect(request).not.toHaveBeenCalled();
   });
 
   it('make ready, assign, reassign and cancel each call their own mutation', async () => {
@@ -209,5 +249,148 @@ describe('create action (tasks/new)', () => {
     const r = (await create({ title: 'T', start: 'now' }, { sessionId: 's', actorUserId: 'a', orgId: 'o', expiresAt: 0 })) as { status: number };
     expect(r.status).toBe(403);
     expect(request.mock.calls.some((c) => c[0] === CREATE_AGENT_TASK_MUTATION)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// portal#1214 — the warnings a write's response carries (hadron-server#2198).
+// ---------------------------------------------------------------------------
+
+const PRIVATE = 'PRIVATE-SENTINEL prisma stack at /srv/app';
+const URN = 'hrn:node:hadronmemory.com:hadron-dev-team-roles:tasks:find-a-source';
+const warning = (path: string, code = 'task.assign.assignee-busy', extra: Record<string, unknown> = {}) => ({
+  path, code, text: `text for ${code}`, ...extra,
+});
+/** A success answer with extensions, as graphql-request's rawRequest returns it. */
+const answered = (data: unknown, warnings: unknown[]) => ({ data, extensions: { warnings }, status: 200 });
+/**
+ * A response whose write committed but whose envelope also errored. With one
+ * root field per request, the only legal shape is an error WITHOUT a path:
+ * the server drops warnings for any path that errored (taskWarningsPlugin).
+ */
+const committedError = (warnings: unknown[], data: unknown = null) =>
+  new ClientError(
+    { data, errors: [{ message: PRIVATE, extensions: { code: 'INTERNAL_SERVER_ERROR' } }] as never, extensions: { warnings }, status: 200, headers: new Headers(), body: PRIVATE },
+    { query: 'mutation' },
+  );
+
+describe('task page actions: warnings (portal#1214)', () => {
+  it.each([
+    ['assign', 'assignAgentTask', ASSIGN_AGENT_TASK_MUTATION],
+    ['reassign', 'reassignAgentTask', REASSIGN_AGENT_TASK_MUTATION],
+  ])('%s returns its own path’s warnings, verbatim and in order', async (action, path, doc) => {
+    rawRequest.mockResolvedValueOnce(answered({ [path]: { id: 't1' } }, [
+      warning(path, 'task.assign.assignee-unavailable', { register: { state: 'mapped', taskLoc: 'tasks:find-a-source', taskUrn: URN } }),
+      warning('someOtherKey'),
+      warning(path, 'task.future.code', { register: { state: 'unmapped' } }),
+    ]));
+    const r = await (await taskActions())[action](event({ assignee: 'worker:w1' }));
+    expect(rawRequest).toHaveBeenLastCalledWith(doc, { taskId: 't1', assignee: { worker: 'w1' } });
+    expect(r).toEqual({
+      action, ok: true, committedWithError: false, more: 0,
+      warnings: [
+        { code: 'task.assign.assignee-unavailable', text: 'text for task.assign.assignee-unavailable', register: { state: 'mapped', taskLoc: 'tasks:find-a-source', taskUrn: URN } },
+        { code: 'task.future.code', text: 'text for task.future.code', register: { state: 'unmapped' } },
+      ],
+    });
+  });
+
+  it('assign with no extensions is a plain success with no warnings', async () => {
+    request.mockResolvedValueOnce({ assignAgentTask: { id: 't1' } });
+    expect(await (await taskActions()).assign(event({ assignee: 'worker:w1' }))).toEqual({ action: 'assign', ok: true, committedWithError: false, warnings: [], more: 0 });
+  });
+
+  it('a committed write whose response errored is saved, never refused, and leaks no error text', async () => {
+    rawRequest.mockRejectedValueOnce(committedError([warning('assignAgentTask')]));
+    const r = await (await taskActions()).assign(event({ assignee: 'worker:w1' }));
+    expect(r).toEqual({
+      action: 'assign', ok: true, committedWithError: true, more: 0,
+      warnings: [{ code: 'task.assign.assignee-busy', text: 'text for task.assign.assignee-busy' }],
+    });
+    expect(JSON.stringify(r)).not.toContain('PRIVATE-SENTINEL');
+  });
+
+  it('a malformed warning still proves the commit: shown as saved with nothing listed', async () => {
+    rawRequest.mockRejectedValueOnce(committedError([{ path: 'reassignAgentTask', code: 9 }]));
+    expect(await (await taskActions()).reassign(event({ assignee: 'worker:w1' }))).toMatchObject({ ok: true, committedWithError: true, warnings: [] });
+  });
+
+  it('an error without this path’s warning is today’s refusal, byte for byte', async () => {
+    rawRequest.mockRejectedValueOnce(committedError([warning('someOtherKey')]));
+    const r = (await (await taskActions()).assign(event({ assignee: 'worker:w1' }))) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(502);
+    expect(r.data).toEqual({ action: 'assign', refusal: { kind: 'uncertain' }, values: { assignee: 'worker:w1' } });
+    expect(JSON.stringify(r.data)).not.toContain('PRIVATE-SENTINEL');
+
+    rawRequest.mockRejectedValueOnce(gqlError('TASK_NOT_OWNER', 'You don’t own this task.'));
+    const typed = (await (await taskActions()).assign(event({ assignee: 'worker:w1' }))) as { status: number; data: Record<string, unknown> };
+    expect(typed.status).toBe(403);
+    expect(typed.data).toMatchObject({ refusal: { kind: 'refused', code: 'TASK_NOT_OWNER', message: 'You don’t own this task.' } });
+  });
+
+  it('make ready, park and cancel are untouched: no rawRequest, no warnings field', async () => {
+    request.mockResolvedValue({});
+    const a = await taskActions();
+    expect(await a.ready(event({}))).toEqual({ action: 'ready', ok: true });
+    expect(await a.park(event({}))).toEqual({ action: 'park', ok: true });
+    expect(await a.cancel(event({}))).toEqual({ action: 'cancel', ok: true });
+    expect(rawRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('create action: warnings (portal#1214)', () => {
+  async function create(fields: Record<string, string | string[]> = { title: 'T', start: 'now', owner: 'me', assignee: 'nobody' }) {
+    const { actions } = await import('./new/+page.server');
+    return actions.default(event(fields)) as Promise<unknown>;
+  }
+  beforeEach(() => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { createAgentTask: { id: 't9' } }));
+  });
+
+  it('a create with warnings is answered in place, not redirected', async () => {
+    rawRequest.mockResolvedValueOnce(answered({ createAgentTask: { id: 't9' } }, [warning('createAgentTask', 'task.create.no-source')]));
+    expect(await create()).toEqual({
+      created: { id: 't9' }, committedWithError: false, more: 0,
+      warnings: [{ code: 'task.create.no-source', text: 'text for task.create.no-source' }],
+    });
+  });
+
+  it('a create whose only warnings are another path’s still redirects', async () => {
+    rawRequest.mockResolvedValueOnce(answered({ createAgentTask: { id: 't9' } }, [warning('assignAgentTask')]));
+    await expect(create()).rejects.toMatchObject({ status: 303, location: '/app/apps/app-1/tasks/t9?created=1' });
+  });
+
+  it('a create whose warnings are all malformed redirects: nothing to show, and the id proves it landed', async () => {
+    rawRequest.mockResolvedValueOnce(answered({ createAgentTask: { id: 't9' } }, [{ path: 'createAgentTask', text: 'no code' }]));
+    await expect(create()).rejects.toMatchObject({ status: 303 });
+  });
+
+  it('a committed create whose response errored has no id: it links to the list and leaks nothing', async () => {
+    rawRequest.mockRejectedValueOnce(committedError([warning('createAgentTask', 'task.create.no-source')]));
+    const r = await create();
+    expect(r).toEqual({
+      created: { id: null }, committedWithError: true, more: 0,
+      warnings: [{ code: 'task.create.no-source', text: 'text for task.create.no-source' }],
+    });
+    expect(JSON.stringify(r)).not.toContain('PRIVATE-SENTINEL');
+  });
+
+  it('a returned id that isn’t a plain id is never linked', async () => {
+    rawRequest.mockResolvedValueOnce(answered({ createAgentTask: { id: '../../evil?x=1' } }, [warning('createAgentTask', 'task.create.no-source')]));
+    expect(await create()).toMatchObject({ created: { id: null } });
+  });
+
+  it('no usable id and no warning to prove it is the fixed uncertainty line, not a crash', async () => {
+    rawRequest.mockResolvedValueOnce(answered({ createAgentTask: null }, []));
+    const r = (await create()) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(502);
+    expect(r.data).toMatchObject({ refusal: { kind: 'uncertain' } });
+  });
+
+  it('a refused create is today’s refusal, with the values', async () => {
+    rawRequest.mockRejectedValueOnce(gqlError('TASK_OWNER_INVALID', 'No such owner.'));
+    const r = (await create()) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(400);
+    expect(r.data).toMatchObject({ refusal: { kind: 'refused', code: 'TASK_OWNER_INVALID', message: 'No such owner.' }, values: { title: 'T' } });
   });
 });

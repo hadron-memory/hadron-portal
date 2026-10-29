@@ -1,4 +1,5 @@
 <script lang="ts">
+  import NodeAdvice from '$lib/components/NodeAdvice.svelte';
   import type { LayoutData } from './$types';
   import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
@@ -6,6 +7,13 @@
   import ImpersonationBanner from '$lib/components/ImpersonationBanner.svelte';
   import { buildNavItems } from '$lib/nav';
   let { data, children }: { data: LayoutData; children: import('svelte').Snippet } = $props();
+
+  // Nodes/Graph share the persistent memory browser. Keep that sibling outlet
+  // while preserving #339 teardown for every other route/depth transition.
+  const outletKey = $derived(
+    $page.route.id === '/app/memories/[id]/nodes' || $page.route.id === '/app/memories/[id]/graph'
+      ? '/app/memories/[id]/browse' : $page.route.id,
+  );
 
   // Spec 014: top-level nav is keyed to the active organization. Consumer
   // (individual) users get a trimmed list, and #628 points their "Memories" at
@@ -167,13 +175,16 @@
 
   <!-- Content -->
   <div class="min-w-0 flex-1">
+    <NodeAdvice advice={data.nodeAdvice ?? []} />
     <!-- #339: key the outlet on the route id. Svelte 5 / Kit 2 don't tear down
          the previous page in this {@render children()} outlet when the child
          layout DEPTH changes (e.g. /app/orgs/[id]/members — a direct child —
          navigating to /app/account/*, which adds the account layout): the two
          pages stack. Keying on route.id forces teardown on each route change
-         while still reusing the page across param-only navs (same route.id). -->
-    {#key $page.route.id}
+         while still reusing the page across param-only navs (same route.id).
+         #1277: Nodes/Graph are same-depth siblings with one persistent browser;
+         their shared key keeps filters across that pair only. -->
+    {#key outletKey}
       {@render children()}
     {/key}
   </div>

@@ -5,6 +5,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { MERGE_NODES_MUTATION } from '$lib/server/queries';
 import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { commentMergeRefusal } from '$lib/comments';
 import { t } from '$lib/i18n/t';
 import type { MemoryNode } from '$lib/types';
@@ -95,6 +96,10 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('commands.merge-node.success', 'Node merged.') }),
       };
     } catch (e) {
+      // portal#1142 S2b: an include refusal merged nothing; say so, without
+      // offering the kept selections as a draft.
+      const include = includeRefusalOf(e);
+      if (include) return message(form, { type: 'error', text: includeRefusalText(include, 'merge') }, { status: 400 });
       const code = extractGqlErrorCode(e);
       // hadron-server#1682: threads that can't follow the merge get fixed copy.
       const commentRefusal = commentMergeRefusal(code, extractGqlErrorExtensions(e), 'node');

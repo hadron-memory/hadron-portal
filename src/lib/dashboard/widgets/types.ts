@@ -68,3 +68,9 @@ export interface WidgetPlacement {
   /** Widget-instance settings (#788); shape is widget-defined. */
   config?: Record<string, unknown> | null;
 }
+
+/** Settled widget read: failures never masquerade as zero counts. */
+export interface WidgetDataResult {
+  data: WidgetDataMap;
+  loadFailed: boolean;
+}

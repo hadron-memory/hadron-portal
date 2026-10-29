@@ -3,7 +3,7 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { fetchAllItems } from '$lib/server/paginate';
+import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { requireNonConsumer } from '$lib/server/guards';
 import { ORGANIZATIONS_QUERY, CREATE_EDGE_MUTATION, UPDATE_EDGE_MUTATION, DELETE_EDGE_MUTATION } from '$lib/server/queries';
 import { userFacingErrorMessage } from '$lib/edge-conditions/error-messages';
@@ -63,15 +63,16 @@ const conversationGoalsFormAdapter = zod4(conversationGoalsSchema);
 const conversationPromptFormAdapter = zod4(conversationPromptSchema);
 const conversationStageExtractionFormAdapter = zod4(conversationStageExtractionSchema);
 
-// hrn:node:hadronmemory.com:specs:cor:api:090 — scope to the agent's system memory. findNodes hides
-// class:'system' memories on a broad (no-memoryIds) call, so the system-memory
-// nodes only come back when we name the memory in the filter (which also
-// overrides the exclusion). Results are under `hits[].node`.
+// hrn:node:hadronmemory.com:specs:cor:api:090:02: naming the system memory
+// bypasses the memory-class exclusion, but not the independent node-type
+// default. Read both the default non-system nodes and explicit system nodes
+// (#874): the editor writes system nodes, while directly authored conversations
+// can use other types accepted by the runtime. Results are under hits[].node.
 // Edge condition/priority/data feed the canvas rule annotations and the
 // routing-rule side panel.
-const GRAPH_NODES_QUERY = /* GraphQL */ `
-  query Nodes($limit: Int, $memoryIds: [ID!]) {
-    findNodes(filter: { memoryIds: $memoryIds }, limit: $limit) {
+const CONVERSATION_NODES_QUERY = /* GraphQL */ `
+  query ConversationNodes($limit: Int, $offset: Int, $memoryIds: [ID!], $nodeType: String) {
+    findNodes(filter: { memoryIds: $memoryIds, nodeType: $nodeType }, limit: $limit, offset: $offset) {
       hits {
         node {
           id memoryId nodeType loc name description content tags seq data
@@ -132,13 +133,18 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   const systemMemoryId = (agent as any).systemMemoryId as string | null;
   if (!systemMemoryId) throw error(400, 'Agent has no system memory');
 
-  // Load system memory nodes (scoped to the agent's system memory).
-  const nodesData = await client.request<{ findNodes: { hits: Array<{ node: MemoryNode }> } }>(
-    GRAPH_NODES_QUERY, { limit: 500, memoryIds: [systemMemoryId] },
-  );
-  const systemNodes = (nodesData.findNodes?.hits ?? [])
-    .map((h) => h.node)
-    .filter((n) => n.memoryId === systemMemoryId);
+  // Preserve directly authored nodes while including the editor's system type.
+  // Either read failing must fail the loader rather than show a partial canvas.
+  const [defaultNodes, typedNodes] = await Promise.all([
+    drainFindNodes<{ node: MemoryNode }>(client, CONVERSATION_NODES_QUERY, { memoryIds: [systemMemoryId] }),
+    drainFindNodes<{ node: MemoryNode }>(client, CONVERSATION_NODES_QUERY, { memoryIds: [systemMemoryId], nodeType: 'system' }),
+  ]);
+  const systemNodes = Array.from(new Map(
+    [...(defaultNodes.findNodes?.hits ?? []), ...(typedNodes.findNodes?.hits ?? [])]
+      .map((h) => h.node)
+      .filter((n) => n.memoryId === systemMemoryId)
+      .map((n) => [n.id, n]),
+  ).values());
 
   // Prompts feed the stage panel's editor and the shared-partials section;
   // the canvas view-model derives everything else from systemNodes client-side.

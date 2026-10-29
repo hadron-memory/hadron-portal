@@ -469,7 +469,7 @@
           ...(m.section === 'org' ? [{ id: 'delete', label: t('org-memories.action.delete', 'Delete'), danger: true }] : []),
         ]}
         onselect={(id) => { if (id === 'delete') deleteMemory(m); }}
-        label={`${t('org-memories.actions.label', 'Actions for')} ${m.name}`}
+        label={t('org-memories.actions.label', 'Actions for {name}', { name: m.name })}
         disabled={$deleteSubmitting}
         fixed
         compact
@@ -571,7 +571,7 @@
                     <NodeActionsMenu
                       actions={[{ id: 'unsubscribe', label: t('org-memories.action.unsubscribe', 'Unsubscribe'), danger: true }]}
                       onselect={(id) => { if (id === 'unsubscribe') unsubscribeMemory(s.memory); }}
-                      label={`${t('org-memories.actions.label', 'Actions for')} ${s.memory.name}`}
+                      label={t('org-memories.actions.label', 'Actions for {name}', { name: s.memory.name })}
                       disabled={$unsubscribeSubmitting}
                       fixed
                       compact

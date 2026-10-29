@@ -5,6 +5,8 @@
  * merges data.position without clobbering the node's other data keys.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
+import { parse, visit, Kind } from 'graphql';
 import {
   UPDATE_NODE_MUTATION,
   UPDATE_REVIEW_NODE_MUTATION,
@@ -17,7 +19,8 @@ const mockFetchAllItems = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
 }));
-vi.mock('$lib/server/paginate', () => ({
+vi.mock('$lib/server/paginate', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/server/paginate')>()),
   fetchAllItems: mockFetchAllItems,
 }));
 vi.mock('$lib/server/guards', () => ({
@@ -736,7 +739,7 @@ describe('load', () => {
     mockFetchAllItems.mockResolvedValueOnce([
       { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
     ]);
-    mockRequest.mockResolvedValueOnce({
+    mockRequest.mockImplementation(async (_doc: string, v?: { offset?: number }) => (v?.offset ? { findNodes: { hits: [] } } : {
       findNodes: {
         hits: [
           {
@@ -807,7 +810,7 @@ describe('load', () => {
           },
         ],
       },
-    });
+    }));
 
     const result = (await runLoad()) as {
       addConversationForm: { data: { _kind: string; systemMemoryId: string; name: string } };
@@ -818,6 +821,16 @@ describe('load', () => {
       conversationGoalForms: Record<string, { data: { _kind: string; systemMemoryId: string; convLoc: string; goalDescriptionsText: string; goalSignalsText: string } }>;
       stageExtractionForms: Record<string, { data: { _kind: string; systemMemoryId: string; stageLoc: string; extractionSpec: string } }>;
     };
+    // edgeForms / stageExtractionForms / promptForms hold one form per row, but
+    // the page mounts only the SELECTED (or editing) row's form, so each record
+    // counts once.
+    const { edgeForms, stageExtractionForms, promptForms, ...mounted } = result as Record<string, Record<string, unknown>>;
+    expectDistinctFormIds({
+      ...mounted,
+      edge: Object.values(edgeForms)[0],
+      stage: Object.values(stageExtractionForms ?? {})[0],
+      prompt: Object.values(promptForms ?? {})[0],
+    }, 5);
 
     expect(result.addConversationForm.data).toMatchObject({ _kind: 'addConversation', systemMemoryId: 'mem-1', name: '' });
     expect(result.addEdgeForm.data).toMatchObject({
@@ -897,7 +910,7 @@ describe('load', () => {
     mockFetchAllItems.mockResolvedValueOnce([
       { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
     ]);
-    mockRequest.mockResolvedValueOnce({
+    mockRequest.mockImplementation(async (_doc: string, v?: { offset?: number }) => (v?.offset ? { findNodes: { hits: [] } } : {
       findNodes: {
         hits: [
           {
@@ -913,7 +926,7 @@ describe('load', () => {
           },
         ],
       },
-    });
+    }));
 
     const result = (await runLoad()) as { edgeForms: Record<string, unknown> };
 
@@ -924,7 +937,7 @@ describe('load', () => {
     mockFetchAllItems.mockResolvedValueOnce([
       { id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] },
     ]);
-    mockRequest.mockResolvedValueOnce({
+    mockRequest.mockImplementation(async (_doc: string, v?: { offset?: number }) => (v?.offset ? { findNodes: { hits: [] } } : {
       findNodes: {
         hits: [
           {
@@ -949,7 +962,7 @@ describe('load', () => {
           },
         ],
       },
-    });
+    }));
 
     const result = (await runLoad()) as { edgeForms: Record<string, unknown> };
 
@@ -1168,5 +1181,73 @@ describe('the kind door, across every routed write', () => {
     const callSites = src.match(/client\.request\(nodeUpdateDocument\(/g) ?? [];
     expect(callSites).toHaveLength(6);
     expect(routed).toHaveLength(5);
+  });
+});
+
+// #874: memory scope and node type are independent server filters. Model the
+// documented default with mixed system/info nodes, not an unconditional mock.
+describe('system conversation retrieval (#874)', () => {
+  const nodes = [
+    { id: 'conv', memoryId: 'mem-1', nodeType: 'system', loc: 'conversations:setup', name: 'Setup', data: { stageOrder: ['start'] }, outgoingEdges: [] },
+    { id: 'stage', memoryId: 'mem-1', nodeType: 'system', loc: 'conversations:setup:start', name: 'Start', data: { promptRef: 'prompts:setup:start' }, outgoingEdges: [] },
+    { id: 'prompt', memoryId: 'mem-1', nodeType: 'system', loc: 'prompts:setup:start', name: 'Prompt', content: 'Hello', outgoingEdges: [] },
+    { id: 'info', memoryId: 'mem-1', nodeType: 'info', loc: 'notes', name: 'Notes', outgoingEdges: [] },
+  ];
+  function serve(rows: Array<Record<string, unknown>> = nodes) {
+    mockFetchAllItems.mockResolvedValue([{ id: 'org-1', agents: [{ id: 'agent-1', systemMemoryId: 'mem-1' }] }]);
+    mockRequest.mockImplementation(async (document: string, vars: Record<string, unknown>) => {
+      expect(vars.memoryIds).toEqual(['mem-1']);
+      let requested: string | undefined;
+      visit(parse(document), { ObjectField(arg) {
+        if (arg.name.value === 'nodeType') {
+          if (arg.value.kind === Kind.STRING) requested = arg.value.value;
+          if (arg.value.kind === Kind.VARIABLE) requested = vars[arg.value.name.value] as string | undefined;
+        }
+      } });
+      const visible = rows.filter(n => requested ? n.nodeType === requested : n.nodeType !== 'system');
+      return { findNodes: { hits: (vars.offset as number) > 0 ? [] : visible.map(node => ({ node })) } };
+    });
+  }
+  it('retrieves existing conversations, stages and prompts from a mixed-type system memory', async () => {
+    serve();
+    const result = await runLoad() as any;
+    expect(result.systemNodes.map((n: {id: string}) => n.id)).toEqual(['info', 'conv', 'stage', 'prompt']);
+    expect(result.prompts.map((n: {id: string}) => n.id)).toEqual(['prompt']);
+    expect(result.addStageForms.conv).toBeDefined();
+    expect(result.promptForms['prompts:setup:start'].data.content).toBe('Hello');
+  });
+  it('retains directly authored non-system conversations, stages and prompts alongside system nodes', async () => {
+    const direct = [
+      { id: 'direct', memoryId: 'mem-1', nodeType: 'info', loc: 'conversations:direct', name: 'Direct', data: {}, outgoingEdges: [] },
+      { id: 'direct-stage', memoryId: 'mem-1', nodeType: 'info', loc: 'conversations:direct:start', name: 'Start', data: { promptRef: 'prompts:direct:start' }, outgoingEdges: [] },
+      { id: 'direct-prompt', memoryId: 'mem-1', nodeType: 'info', loc: 'prompts:direct:start', name: 'Prompt', content: 'Direct prompt', outgoingEdges: [] },
+    ];
+    serve([...nodes, ...direct]);
+    const result = await runLoad() as any;
+    expect(result.systemNodes.map((n: { id: string }) => n.id)).toEqual(expect.arrayContaining(['conv', 'stage', 'prompt', 'direct', 'direct-stage', 'direct-prompt']));
+    expect(result.addStageForms.direct).toBeDefined();
+    expect(result.promptForms['prompts:direct:start'].data.content).toBe('Direct prompt');
+  });
+  it('deduplicates overlapping responses and excludes nodes outside the scoped memory', async () => {
+    serve();
+    mockRequest.mockImplementation(async (_doc: string, v?: { offset?: number }) => (v?.offset ? { findNodes: { hits: [] } } : { findNodes: { hits: [...nodes, { ...nodes[0], id: 'foreign', memoryId: 'mem-other' }].map(node => ({ node })) } }));
+    const result = await runLoad() as any;
+    expect(result.systemNodes.map((n: { id: string }) => n.id)).toEqual(['conv', 'stage', 'prompt', 'info']);
+  });
+  it.each([undefined, 'system'])('fails instead of showing a partial canvas when the %s read fails', async (failedType) => {
+    serve();
+    const normalRead = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation((document: string, vars: Record<string, unknown>) => {
+      if (vars.nodeType === failedType) throw new Error('Nodes unavailable');
+      return normalRead(document, vars);
+    });
+    await expect(runLoad()).rejects.toThrow('Nodes unavailable');
+  });
+  it('keeps a genuinely empty system memory empty without inventing a read failure', async () => {
+    serve([]);
+    const result = await runLoad() as any;
+    expect(result.systemNodes).toEqual([]);
+    expect(result.prompts).toEqual([]);
+    expect(result.addStageForms).toEqual({});
   });
 });

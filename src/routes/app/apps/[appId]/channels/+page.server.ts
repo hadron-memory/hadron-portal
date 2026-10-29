@@ -81,7 +81,12 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   if (!data.app) throw error(404, 'App not found');
 
   // Keyed by memory id (what the page looks up); audited by URN.
-  const hosts = new Map<string, string>(data.channels.items.map((c) => [c.memory.id, c.memory.urn]));
+  // #2509: a concealed host memory (`memory: null`) has no record to audit —
+  // its channels skip the map, so their write access stays unknown (null) and
+  // the server's write gate still decides any submit.
+  const hosts = new Map<string, string>(
+    data.channels.items.flatMap((c) => (c.memory ? [[c.memory.id, c.memory.urn] as const] : [])),
+  );
   if (data.app.sharedMemory) hosts.set(data.app.sharedMemory.id, data.app.sharedMemory.urn);
   const canWrite: Record<string, boolean | null> = {};
   await Promise.all(
@@ -112,9 +117,9 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     total: data.channels.total,
     defaultChannelId: data.app.defaultChannel?.id ?? null,
     canWrite,
-    createForm: await superValidate(zod4(createChannelSchema), { errors: false }),
-    renameForm: await superValidate(zod4(renameChannelSchema), { errors: false }),
-    deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false }),
+    createForm: await superValidate(zod4(createChannelSchema), { errors: false, id: 'createChannel' }),
+    renameForm: await superValidate(zod4(renameChannelSchema), { errors: false, id: 'renameChannel' }),
+    deleteForm: await superValidate(zod4(deleteChannelSchema), { errors: false, id: 'deleteChannel' }),
     ...(await registerForms()),
   };
 };
@@ -174,15 +179,17 @@ async function loadRegister(
             })
         : Promise.resolve(null),
     ]);
+    // portal#1148: a WITHHELD install roster (null) is not "no installed agents".
+    const installedAgents = readableInstalledAgents(installed.app?.appAgents);
     const attendees: Attendee[] = [
       ...workers.map((w) => ({ id: w.id, name: w.name, urn: w.urn, kind: 'worker' as const, role: w.role, retired: !!w.retiredAt })),
-      ...readableInstalledAgents(installed.app?.appAgents).map((a) => ({ id: a.id, name: a.name, urn: a.urn, kind: 'agent' as const })),
+      ...(installedAgents.kind === 'ok' ? installedAgents.agents : []).map((a) => ({ id: a.id, name: a.name, urn: a.urn, kind: 'agent' as const })),
     ];
     // The org's rows span every App it owns. Only those naming one of THIS
     // App's Channels belong on this page; a row for another App's Channel
     // would otherwise show here, often as "a channel you can't read".
     const ownOrgRows = orgRows.filter((r) => channelIds.has(r.channelId));
-    return { appRows, orgRows: ownOrgRows, attendees, canManageRegister: manage as boolean | null, registerLoadFailed: false };
+    return { appRows, orgRows: ownOrgRows, attendees, canManageRegister: manage as boolean | null, registerLoadFailed: false, agentsWithheld: installedAgents.kind === 'withheld' };
   } catch (e) {
     console.warn(`[app-channels] register read failed for app ${app.id}:`, e);
     return {
@@ -191,6 +198,7 @@ async function loadRegister(
       attendees: [] as Attendee[],
       canManageRegister: null as boolean | null,
       registerLoadFailed: true,
+      agentsWithheld: false,
     };
   }
 }
@@ -219,7 +227,7 @@ export const actions: Actions = {
   ...attendanceActions((params) => params.appId),
 
   createChannel: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(createChannelSchema));
+    const form = await superValidate(await request.formData(), zod4(createChannelSchema), { id: 'createChannel' });
     if (!form.valid) return fail(400, { form });
     const client = gqlClient(locals.token);
     try {
@@ -245,7 +253,7 @@ export const actions: Actions = {
   },
 
   renameChannel: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(renameChannelSchema));
+    const form = await superValidate(await request.formData(), zod4(renameChannelSchema), { id: 'renameChannel' });
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(UPDATE_CHANNEL_MUTATION, {
@@ -260,7 +268,7 @@ export const actions: Actions = {
   },
 
   deleteChannel: async ({ request, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(deleteChannelSchema));
+    const form = await superValidate(await request.formData(), zod4(deleteChannelSchema), { id: 'deleteChannel' });
     if (!form.valid) return fail(400, { form });
     try {
       await gqlClient(locals.token).request(DELETE_CHANNEL_MUTATION, { ref: form.data.ref });

@@ -26,7 +26,7 @@ import type {
 const TICKER_FIELDS = /* GraphQL */ `
   fragment TickerFields on Ticker {
     id name slug urn enabled cadenceSeconds anchorAt nextTickAt lastTickAt
-    quietHours relevance createdAt updatedAt
+    quietHours relevance reasons createdAt updatedAt
     channels { id name }
     owner { id name urn }
   }
@@ -139,10 +139,15 @@ export async function loadAppTickerSettings(client: GraphQLClient, appRef: strin
 /**
  * One ticker, or null when it doesn't exist or the reader can't reach it: the
  * server answers both with null (TICKER_NOT_FOUND is swallowed there), so a
- * foreign ticker and a missing one are indistinguishable by design.
+ * foreign ticker and a missing one are indistinguishable by design. The
+ * ticker's `app` is null under the same rule when the reader can't read the
+ * App directly (#1209) — callers treat that as not-found, never dereference it.
  */
-export async function loadTicker(client: GraphQLClient, ref: string): Promise<(Ticker & { app: { id: string } }) | null> {
-  const r = await client.request<{ ticker: (Ticker & { app: { id: string } }) | null }>(TICKER_QUERY, { ref });
+export async function loadTicker(
+  client: GraphQLClient,
+  ref: string,
+): Promise<(Ticker & { app: { id: string } | null }) | null> {
+  const r = await client.request<{ ticker: (Ticker & { app: { id: string } | null }) | null }>(TICKER_QUERY, { ref });
   return r.ticker;
 }
 

@@ -11,6 +11,7 @@
  * value control + call-signature assertion (mutation variables, etc.).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 // Mock the GraphQL client BEFORE importing the module under test.
 // Vitest hoists vi.mock to the top of the file; the factory runs lazily.
@@ -60,6 +61,12 @@ function fieldError(result: unknown, field: string): string | undefined {
 // ── load() ──────────────────────────────────────────────────────────
 
 describe('load /app/account/api-keys', () => {
+  it('#1320 gives the create and revoke forms their own Superforms ids', async () => {
+    mockRequest.mockResolvedValueOnce({ myUserApiKeys: [] });
+    const { load } = await importMod();
+    expectDistinctFormIds(await load(loadEvent('tok')), 2);
+  });
+
   it('returns { keys } from the GraphQL response', async () => {
     const sampleKeys = [
       {

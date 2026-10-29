@@ -7,7 +7,7 @@
 <script lang="ts">
   import { t } from '$lib/i18n/t';
 
-  let { view = 'board' }: { view?: 'board' | 'roster' | 'alarms' } = $props();
+  let { view = 'board' }: { view?: 'board' | 'roster' | 'composition' | 'alarms' } = $props();
 </script>
 
 <p class="mt-1 text-sm text-zinc-500 dark:text-zinc-400" data-testid="tasks-read-only">

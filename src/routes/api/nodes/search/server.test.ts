@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
+import { RECOVERY_NODES_QUERY } from '$lib/server/queries';
 import { POST } from './+server';
 
 beforeEach(() => {
@@ -87,17 +88,17 @@ describe('/api/nodes/search (#429)', () => {
     expect(nodes).toEqual([{ id: 'a', openThreads: 2 }, { id: 'b', openThreads: 0 }, { id: 'c' }]);
   });
 
-  it('maps a fuzzy query to vector mode + chunk granularity (#430)', async () => {
+  it('maps fuzzy to node vectors so abstract-only indexes remain searchable (#1158)', async () => {
     mockRequest.mockResolvedValue(findNodesResult(1));
     await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));
     expect(mockRequest.mock.calls[0][1]).toMatchObject({
       query: 'foo',
       mode: 'vector',
-      granularity: 'chunk',
+      granularity: 'node',
     });
   });
 
-  it('#430: falls back to hybrid when the memory has no vector index', async () => {
+  it('#1162: falls back explicitly to keyword when the memory has no vector index', async () => {
     mockRequest
       .mockResolvedValueOnce({
         findNodes: { hits: [], passages: [], total: 0, reason: 'no_vector_index', degraded: null },
@@ -105,8 +106,8 @@ describe('/api/nodes/search (#429)', () => {
       .mockResolvedValueOnce(findNodesResult(2));
     const res = await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }));
     expect(mockRequest).toHaveBeenCalledTimes(2);
-    expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'vector', granularity: 'chunk' });
-    expect(mockRequest.mock.calls[1][1]).toMatchObject({ mode: 'hybrid', granularity: null });
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ mode: 'vector', granularity: 'node' });
+    expect(mockRequest.mock.calls[1][1]).toMatchObject({ mode: 'keyword', granularity: null });
     expect((await res.json()).nodes).toHaveLength(2);
   });
 
@@ -209,9 +210,61 @@ describe('/api/nodes/search (#429)', () => {
   it('#433: includeDeleted is forwarded and drives a filter-only fetch (no query)', async () => {
     mockRequest.mockResolvedValue(findNodesResult(3, 3));
     const res = await POST(ev({ memoryIds: ['m1'], filter: { includeDeleted: true } }));
-    expect(mockRequest).toHaveBeenCalledTimes(1); // includeDeleted counts as a filter
+    // includeDeleted counts as a filter (one findNodes) and asks the server which rows are deleted (#1161)
+    expect(mockRequest).toHaveBeenCalledTimes(2);
     expect(mockRequest.mock.calls[0][1]).toMatchObject({ query: null, includeDeleted: true });
     expect((await res.json()).nodes).toHaveLength(3);
+  });
+
+  describe('#1161: deleted rows are marked from the server, never inferred', () => {
+    const page = (ids: string[], total: number) => ({ recoveryNodes: { items: ids.map((id) => ({ id })), total } });
+
+    it('returns the ids recoveryNodes reports for each searched memory', async () => {
+      mockRequest.mockImplementation(async (q: string) =>
+        q === RECOVERY_NODES_QUERY ? page(['n1', 'n2'], 2) : findNodesResult(3, 3));
+      const body = await (await POST(ev({ memoryIds: ['m1'], filter: { includeDeleted: true } }))).json();
+      expect(mockRequest).toHaveBeenCalledWith(RECOVERY_NODES_QUERY, { memoryRef: 'm1', limit: 200, offset: 0 });
+      expect(body.deletedIds).toEqual(['n1', 'n2']);
+    });
+
+    it('pages through recoveryNodes until every deleted id is read', async () => {
+      const first = Array.from({ length: 200 }, (_, i) => `a${i}`);
+      mockRequest.mockImplementation(async (q: string, v: { offset?: number }) =>
+        q === RECOVERY_NODES_QUERY ? (v.offset === 0 ? page(first, 203) : page(['b0', 'b1', 'b2'], 203)) : findNodesResult(1, 1));
+      const body = await (await POST(ev({ memoryIds: ['m1'], filter: { includeDeleted: true } }))).json();
+      expect(body.deletedIds).toHaveLength(203);
+      expect(mockRequest).toHaveBeenCalledWith(RECOVERY_NODES_QUERY, { memoryRef: 'm1', limit: 200, offset: 200 });
+    });
+
+    it('reads every page of EACH memory: a later memory is not cut short by an earlier one\'s count (#1242 READ)', async () => {
+      const a = Array.from({ length: 200 }, (_, i) => `a${i}`);
+      const b1 = Array.from({ length: 200 }, (_, i) => `b${i}`);
+      mockRequest.mockImplementation(async (q: string, v: { memoryRef?: string; offset?: number }) => {
+        if (q !== RECOVERY_NODES_QUERY) return findNodesResult(1, 1);
+        if (v.memoryRef === 'mA') return page(a, 200);
+        return v.offset === 0 ? page(b1, 201) : page(['b200'], 201);
+      });
+      const body = await (await POST(ev({ memoryIds: ['mA', 'mB'], filter: { includeDeleted: true } }))).json();
+      expect(body.deletedIds).toHaveLength(401);
+      expect(body.deletedIds).toContain('b200');
+    });
+
+    it('does not ask when Include deleted is off', async () => {
+      mockRequest.mockResolvedValue(findNodesResult(1));
+      const body = await (await POST(ev({ query: 'foo', mode: 'exact', memoryIds: ['m1'], filter: { includeDeleted: false } }))).json();
+      expect(mockRequest.mock.calls.some(([q]) => q === RECOVERY_NODES_QUERY)).toBe(false);
+      expect(body.deletedIds).toBeUndefined();
+    });
+
+    it('keeps the node list and marks nothing when the recovery read fails (a non-writer)', async () => {
+      mockRequest.mockImplementation(async (q: string) => {
+        if (q === RECOVERY_NODES_QUERY) throw new Error('FORBIDDEN');
+        return findNodesResult(2, 2);
+      });
+      const body = await (await POST(ev({ memoryIds: ['m1'], filter: { includeDeleted: true } }))).json();
+      expect(body.nodes).toHaveLength(2);
+      expect(body.deletedIds).toBeUndefined();
+    });
   });
 
   it('#433: includeDeleted omitted/false sends null (server default excludes deleted)', async () => {
@@ -406,4 +459,66 @@ describe('/api/nodes/search content scope (portal#1015)', () => {
     expect(body.nodes[1].openThreads).toBe(2);
     expect(body.total).toBe(2);
   });
+});
+
+
+describe('semantic search regressions (#1158/#1162)', () => {
+  it('returns abstract-only vector hits in server rank order', async () => {
+    mockRequest.mockImplementation(async (_query, vars) => ({ findNodes: {
+      hits: vars.granularity === 'chunk' ? [] : [
+        { node: { id: 'abstract-best' }, score: 0.9 },
+        { node: { id: 'abstract-next' }, score: 0.6 },
+      ], passages: [], total: null, reason: null, degraded: null,
+    } }));
+    const res = await POST(ev({ query: 'invented information', mode: 'fuzzy', memoryIds: ['m1'] }));
+    expect((await res.json()).nodes.map((n: {id: string}) => n.id)).toEqual(['abstract-best', 'abstract-next']);
+  });
+
+  it('explains an actual lexical fallback without raw comma-separated codes', async () => {
+    mockRequest.mockResolvedValueOnce({ findNodes: { hits: [], passages: [], total: 0, reason: 'no_vector_index', degraded: 'no_vector_index,scope_narrowed' } })
+      .mockResolvedValueOnce({ findNodes: { hits: [{node: {id: 'lexical'}}], passages: [], total: 1, reason: null, degraded: 'and_relaxed_to_or' } });
+    const body = await (await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }))).json();
+    expect(body.note).toContain('Showing keyword matches instead');
+    expect(body.note).not.toContain('no_vector_index');
+    expect(body.note).toContain('any search term');
+    expect(body.reason).toBe('no_vector_index');
+    expect(body.degraded).toEqual(['no_vector_index', 'scope_narrowed', 'and_relaxed_to_or']);
+  });
+
+  it('does not claim keyword matches when the fallback is empty', async () => {
+    mockRequest.mockResolvedValueOnce({ findNodes: { hits: [], passages: [], total: 0, reason: 'embedding_unavailable', degraded: null } })
+      .mockResolvedValueOnce(findNodesResult(0));
+    const body = await (await POST(ev({ query: 'foo', mode: 'fuzzy', memoryIds: ['m1'] }))).json();
+    expect(body.note).toContain('No keyword matches found');
+    expect(body.note).not.toContain('Showing keyword matches');
+  });
+});
+
+it('#1158: optional passages cannot replace node ranking or introduce another node', async () => {
+  mockRequest.mockResolvedValueOnce({ findNodes: { hits: [{node: {id: 'abstract'}, score: 0.9}, {node: {id: 'content'}, score: 0.8}], passages: [], total: null, reason: null, degraded: null } })
+    .mockResolvedValueOnce({findNodes: {hits: [], passages: [{parentNodeId: 'content', text: 'matching passage', score: 0.8}, {parentNodeId: 'outside', text: 'outside result window', score: 1}], total: null, reason: null, degraded: null}});
+  const body = await (await POST(ev({query: 'facts', mode: 'fuzzy', memoryIds: ['m1']}))).json();
+  expect(body.nodes.map((n: {id: string}) => n.id)).toEqual(['abstract', 'content']);
+  expect(body.snippets).toEqual({content: 'matching passage'});
+  expect(mockRequest.mock.calls[1][1]).toMatchObject({granularity: 'chunk', memoryIds: ['m1'], limit: 500});
+});
+
+it('#1158: a failed optional passage request preserves successful nodes', async () => {
+  mockRequest.mockResolvedValueOnce(findNodesResult(1)).mockRejectedValueOnce(new Error('unavailable'));
+  const res = await POST(ev({query: 'facts', mode: 'fuzzy', memoryIds: ['m1']}));
+  const body = await res.json();
+  expect(res.status).toBe(200);
+  expect(body.nodes).toHaveLength(1);
+  expect(body.note).toContain('Matching passages are unavailable');
+});
+
+it('#1207 LOCAL P3: transient embedding recovery must not make a keyword-labelled fallback semantic', async () => {
+  mockRequest.mockImplementation(async (_doc, vars) => ({findNodes: vars.mode === 'vector'
+    ? {hits: [], passages: [], total: 0, reason: 'embedding_unavailable', degraded: null}
+    : {hits: [{node: {id: vars.mode === 'hybrid' ? 'recovered-semantic-hit' : 'keyword-hit'}}], passages: [], total: 1, reason: null, degraded: null}
+  }));
+  const body = await (await POST(ev({query: 'facts', mode: 'fuzzy', memoryIds: ['m1']}))).json();
+  expect(body.nodes.map((n: {id: string}) => n.id)).toEqual(['keyword-hit']);
+  expect(mockRequest.mock.calls[1][1]).toMatchObject({mode: 'keyword', granularity: null});
+  expect(body.note).toContain('Showing keyword matches instead');
 });
