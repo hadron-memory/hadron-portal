@@ -23,13 +23,14 @@ beforeEach(() => {
 describe('Agent page loader', () => {
   it('#1320 gives every form its own Superforms id', async () => {
     const data = await load({ params: { id: 'ag-1' }, locals: { token: 'tok', user: { id: 'user-1' } }, url: new URL('http://localhost/app/agents/ag-1') } as never);
-    expectDistinctFormIds(data, 8);
-    expect(formIdsOf(data).map((f) => f.key)).toEqual(expect.arrayContaining(['addMemoryForm', 'updateMemoryRoleForm']));
+    expectDistinctFormIds(data, 9);
+    expect(formIdsOf(data).map((f) => f.key)).toEqual(expect.arrayContaining(['addMemoryForm', 'updateMemoryRoleForm', 'memberRolesForm']));
   });
 
   it.each([
     ['addMemory', 'addMemoryForm'],
     ['updateMemoryRole', 'updateMemoryRoleForm'],
+    ['updateMemberRoles', 'memberRolesForm'],
   ] as const)('the %s action answers under the id its form was loaded with', async (action, formName) => {
     const data = await load({ params: { id: 'ag-1' }, locals: { token: 'tok', user: { id: 'user-1' } }, url: new URL('http://localhost/app/agents/ag-1') } as never);
     // An empty post fails validation, so no mutation runs and the action returns its form.
