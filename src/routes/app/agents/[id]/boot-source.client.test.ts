@@ -284,3 +284,66 @@ describe('portal#1378 Start a source', () => {
   });
 });
 
+
+async function agentSourceData(id: string, content: string) {
+  const data = await pageData(id, null, { systemPrompt: 'RETIRED' });
+  const node = { id: `source-${id}`, urn: `hrn:node:${id}:sys:boot:source`, revision: 3, content };
+  return { ...data, bootSource: { mode: 'source' as const, node, compiled: compiledLite(2) },
+    bootSourceForm: await superValidate({ nodeId: node.id, content, expectedRevision: 3 }, zod4(bootSourceSchema), { id: `bootSource:${id}`, errors: false }) };
+}
+
+it('reseeds the source editor when navigating between Agents', async () => {
+  const { reactiveProps } = await import('$lib/test/reactiveProps.svelte');
+  const props = reactiveProps({ data: await agentSourceData('a', 'Agent A source'), form: null } as Record<string, unknown>);
+  mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  await tick(5);
+  const root = mounted.target;
+  [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Boot prompt')!.click();
+  await tick();
+  area(root)!.value = 'draft A'; area(root)!.dispatchEvent(new Event('input', { bubbles: true }));
+  await tick();
+  props.data = await agentSourceData('b', 'Agent B source');
+  await tick(5);
+  expect(area(root)?.value).toBe('Agent B source');
+  expect(root.querySelector<HTMLInputElement>('input[name=nodeId]')?.value).toBe('source-b');
+});
+
+it('isolates a delayed old Agent source save from the new editor and feedback', async () => {
+  const { reactiveProps } = await import('$lib/test/reactiveProps.svelte');
+  const { submitEnhancedDeferred } = await import('$lib/test/stubs/app-forms');
+  const { setStubPage, resetStubPage } = await import('$lib/test/stubs/app-stores');
+  setStubPage('http://localhost/app/agents/a');
+  try {
+    const a = await agentSourceData('a', 'Agent A source');
+    const props = reactiveProps({ data: a, form: null } as Record<string, unknown>);
+    mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    await tick(5);
+    const root = mounted.target;
+    [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Boot prompt')!.click();
+    await tick();
+    area(root)!.value = 'Late A'; area(root)!.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    const pending = await submitEnhancedDeferred(root.querySelector<HTMLFormElement>('[data-boot-prompt-source] form')!);
+    props.data = await agentSourceData('b', 'Agent B source');
+    setStubPage('http://localhost/app/agents/b');
+    await tick(5);
+    const result = { type: 'success' as const, status: 200, data: { form: {
+      ...a.bootSourceForm, posted: true, valid: true,
+      data: { _kind: 'bootSource', nodeId: 'source-a', content: 'Late A', expectedRevision: 3 },
+      message: { type: 'success', text: 'Old Agent source saved.' },
+    } } };
+    await pending.finish(result);
+    props.form = result.data;
+    await tick(5);
+    // A later loader refresh remounts B while Kit still holds A's action data.
+    // Its feedback must not be used as the seed of B's refreshed source form.
+    const refreshedB = await agentSourceData('b', 'Agent B source');
+    refreshedB.bootSource.node.revision = 4;
+    refreshedB.bootSourceForm.data.expectedRevision = 4;
+    props.data = refreshedB;
+    await tick(5);
+    expect(area(root)?.value).toBe('Agent B source');
+    expect(root.querySelector<HTMLInputElement>('input[name=nodeId]')?.value).toBe('source-b');
+    expect(root.textContent).not.toContain('Old Agent source saved.');
+  } finally { resetStubPage(); }
+});
