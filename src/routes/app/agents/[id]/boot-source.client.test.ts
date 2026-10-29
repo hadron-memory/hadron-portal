@@ -5,7 +5,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import type { BootSourceView } from '$lib/server/boot-source';
 import Page from './+page.svelte';
 import { pageData } from './page-fixture';
-import { bootApproveSchema, bootSourceSchema } from './schema';
+import { bootApproveSchema, bootSourceSchema, bootStartSchema } from './schema';
 
 let mounted: Mounted<Record<string, unknown>> | null = null;
 afterEach(() => { mounted?.unmount(); mounted = null; });
@@ -15,7 +15,8 @@ async function open(bootSource: BootSourceView, canManageAgent: boolean | null =
   const data = await pageData('a', { mentionOnly: false }, { systemPrompt: 'LEGACY FIELD TEXT' });
   const src = bootSource.mode === 'source' ? bootSource.node : null;
   const bootSourceForm = await superValidate({ nodeId: src?.id ?? '', content: src?.content ?? '', expectedRevision: src?.revision ?? 1 }, zod4(bootSourceSchema), { id: 'bootSource:a', errors: false });
-  mounted = mountComponent(Page as never, { data: { ...data, canManageAgent, bootSource, bootSourceForm }, form: actionForm } as never) as Mounted<Record<string, unknown>>;
+  const bootStartForm = await superValidate({}, zod4(bootStartSchema), { id: 'bootStart:a', errors: false });
+  mounted = mountComponent(Page as never, { data: { ...data, canManageAgent, bootSource, bootSourceForm, bootStartForm }, form: actionForm } as never) as Mounted<Record<string, unknown>>;
   await tick();
   [...mounted.target.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Boot prompt')!.click();
   await tick();
@@ -39,7 +40,7 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
     expect((await open(source(null))).textContent).toContain('No compiled revision is approved yet');
   });
   it('without a pointer, keeps the legacy editor and labels it', async () => {
-    const root = await open({ mode: 'legacy' });
+    const root = await open({ mode: 'legacy', canStart: false });
     expect(root.textContent).toContain('legacy prompt field');
     expect(root.querySelector('[data-boot-prompt]')).not.toBeNull();
     expect(root.querySelector('[data-boot-prompt-source]')).toBeNull();
@@ -50,8 +51,8 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
     expect(root.textContent).not.toContain('LEGACY FIELD TEXT');
     expect(root.querySelector('[role=alert]')?.textContent).toContain('could not be loaded');
   });
-  it.each(['source-missing', 'source-unreadable'] as const)('%s renders no editor', async (mode) => {
-    const root = await open({ mode });
+  it.each([{ mode: 'source-missing', compiled: null, canStart: false }, { mode: 'source-unreadable' }] as BootSourceView[])('$mode renders no editor', async (view) => {
+    const root = await open(view);
     expect(root.querySelector('textarea[name=content], textarea[name=systemPrompt]')?.closest('[data-boot-prompt-source], [data-boot-prompt]')).toBeFalsy();
   });
   it('a non-manager gets a read-only source and no Save', async () => {
@@ -228,3 +229,48 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
     } finally { resetStubPage(); }
   });
 });
+
+describe('portal#1378 Start a source', () => {
+  const start = (root: HTMLElement) => root.querySelector<HTMLElement>('[data-boot-start]');
+  const startButton = (root: HTMLElement) => [...(start(root)?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((b) => b.textContent?.trim() === 'Start a source');
+  it('case 1 (pointer set, source gone) offers Start, which posts straight to startBootSource with no mode and no seed field', async () => {
+    const root = await open({ mode: 'source-missing', compiled: compiledLite(2), canStart: true });
+    expect(start(root)?.textContent).toContain('no source to edit');
+    expect(startButton(root)?.type).toBe('submit');
+    const form = start(root)!.querySelector('form')!;
+    expect(form.getAttribute('action')).toBe('?/startBootSource');
+    expect([...form.querySelectorAll('input')].map((i) => i.name)).toEqual(['_kind']);
+    expect(root.querySelector('textarea[name=content], textarea[name=systemPrompt]')).toBeNull();
+  });
+  it('case 2 (no pointer) keeps the legacy editor, and Start first asks, naming the consequence', async () => {
+    const root = await open({ mode: 'legacy', canStart: true });
+    expect(root.querySelector('[data-boot-prompt]')).not.toBeNull();
+    expect(start(root)?.querySelector('[data-boot-start-confirm]')).toBeNull();
+    expect(startButton(root)?.type).toBe('button');
+    startButton(root)!.click();
+    await tick();
+    expect(start(root)?.querySelector('[data-boot-start-confirm]')?.textContent).toContain('workers are served it');
+    expect(startButton(root)?.type).toBe('submit');
+    [...start(root)!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Cancel')!.click();
+    await tick();
+    expect(start(root)?.querySelector('[data-boot-start-confirm]')).toBeNull();
+  });
+  it('a non-manager is not offered the action', async () => {
+    for (const view of [{ mode: 'legacy', canStart: true }, { mode: 'source-missing', compiled: null, canStart: true }] as BootSourceView[]) {
+      const root = await open(view, false);
+      expect(start(root)).not.toBeNull();
+      expect(start(root)?.querySelector('form')).toBeNull();
+      mounted?.unmount();
+    }
+  });
+  it('no Start when the loader could not tell the source is absent', async () => {
+    expect(start(await open({ mode: 'legacy', canStart: false }))).toBeNull();
+  });
+  it('a started source for a pointer-less Agent says it has not been compiled, not that its approval is unknown', async () => {
+    const root = await open({ mode: 'source', node: { id: 'n1', urn: 'hrn:node:ada:sys:boot:source', revision: 1, content: '' }, compiled: null, noPointer: true });
+    expect(root.textContent).toContain('has not been compiled yet');
+    expect(root.textContent).not.toContain('Couldn’t load the approval status');
+    expect(start(root)).toBeNull();
+  });
+});
+

@@ -4471,6 +4471,13 @@ export const AGENT_BOOT_POINTER_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1378 — what "Start a source" reads server-side, never from the page: the Agent's system memory and pointer.
+export const AGENT_BOOT_START_QUERY = /* GraphQL */ `
+  query AgentBootStart($ref: ID!) {
+    agent(ref: $ref) { id systemMemoryId bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
 // portal#1377 S1 — the two nodes behind an Agent's Boot prompt tab. raw: true
 // (#485): the source is an editor, so include tags must round-trip unexpanded.
 // The compiled node is read for its approval (the status line) and, when the source

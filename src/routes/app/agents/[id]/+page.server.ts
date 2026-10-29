@@ -10,7 +10,7 @@ import { gqlClient } from '$lib/server/api';
 import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
 import { compileRefusalStatus, compileRefusalText } from '$lib/boot-compile';
 import { approvalRefusalStatus, approveRefusalText } from '$lib/node-approval';
-import { readBootSource, readServedRevision } from '$lib/server/boot-source';
+import { BOOT_SOURCE_LOC, readBootSource, readCompiled, readServedRevision } from '$lib/server/boot-source';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
@@ -37,6 +37,8 @@ import {
   AI_SERVICE_CONFIGS_QUERY,
   AGENT_REGISTER_DEFAULTS_QUERY,
   AGENT_BOOT_POINTER_QUERY,
+  AGENT_BOOT_START_QUERY,
+  CREATE_NODE_MUTATION,
   SET_AGENT_BOOT_PROMPT_MUTATION,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
   APP_ORG_AGENT_GRANTS_QUERY,
@@ -47,6 +49,7 @@ import type { Actions, PageServerLoad } from './$types';
 import {
   bootPromptSchema,
   bootSourceSchema,
+  bootStartSchema,
   bootCompileSchema,
   bootApproveSchema,
   addAgentMemorySchema,
@@ -388,6 +391,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     form,
     bootPromptForm: await superValidate({ systemPrompt: agent.systemPrompt ?? '' }, zod4(bootPromptSchema), { id: `bootPrompt:${params.id}`, errors: false }),
     bootSource,
+    bootStartForm: await superValidate({}, zod4(bootStartSchema), { id: `bootStart:${params.id}`, errors: false }),
     bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${params.id}`, errors: false }),
     bootApproveForm: await superValidate(
       { nodeId: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.id : '', revision: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.revision : 1 },
@@ -476,6 +480,51 @@ export const actions: Actions = {
             ? t('agent.boot.source-forbidden', 'Only whoever manages this Agent can change its boot prompt.')
             : t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.');
       return message(form, { type: 'error', text }, { status: code === 'NODE_WRITE_CONFLICT' ? 409 : code === 'INCLUDE_TARGET_UNAVAILABLE' ? 422 : code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED' ? 403 : 500 });
+    }
+  },
+
+  // portal#1378: "Start a source" for an Agent whose pointer is set but whose
+  // `boot:source` is gone (case 1) or that has no pointer at all (case 2). The seed is
+  // the current compiled text, read HERE from the pointer: never a page field, and never
+  // the legacy `Agent.systemPrompt` (Holger, D3). A pointer-less Agent starts empty. The
+  // server alone decides who may write the source (hrn:node:hadronmemory.com:specs:cor:agt:040:11); copy is fixed so
+  // neither a refusal's prose nor the seed is echoed.
+  startBootSource: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootStartSchema), { id: `bootStart:${params.id}`, strict: true });
+    if (!form.valid) return fail(400, { form });
+    const failed = (text: string, status: 403 | 409 | 500 | 502) => message(form, { type: 'error', text }, { status });
+    const client = gqlClient(locals.token);
+    try {
+      const agent = (await client.request<{ agent: { systemMemoryId: string | null; bootPromptRef: string | null } | null }>(AGENT_BOOT_START_QUERY, { ref: params.id })).agent;
+      if (!agent?.systemMemoryId) return failed(t('boot.start.failed', 'Could not start a source. Nothing changed; try again.'), 500);
+      let seed = '';
+      if (agent.bootPromptRef) {
+        const compiled = await readCompiled(client, agent.bootPromptRef);
+        // Never start an empty source over a compiled prompt that exists but could not be read.
+        if (!compiled) return failed(t('boot.start.seed-unreadable', 'Could not read the current prompt to start from. Nothing changed; try again.'), 502);
+        seed = compiled.content;
+      }
+      await client.request(CREATE_NODE_MUTATION, {
+        input: { memoryId: agent.systemMemoryId, loc: BOOT_SOURCE_LOC, name: 'Boot prompt source', role: 'boot-prompt', content: seed },
+      });
+      return message(form, {
+        type: 'success',
+        text: agent.bootPromptRef
+          ? t('boot.start.done-seeded', 'Source started from the current prompt. Workers get nothing new until it is compiled and approved.')
+          : t('boot.start.done-empty', 'Source started. Workers are served it once a compiled revision is approved.'),
+      });
+    } catch (e) {
+      const code = extractGqlErrorCode(e);
+      if (code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED') {
+        return failed(code === 'FORBIDDEN'
+          ? t('boot.start.forbidden', 'Only whoever manages this Agent can start its boot prompt source.')
+          : t('boot.start.worker-refused', 'Boot prompts are started by their manager signed in as themselves, not through a worker session.'), 403);
+      }
+      // createNode is create-only: a live node at the loc is refused, never overwritten.
+      if (code === 'NodeLocConflictError') {
+        return failed(t('boot.start.exists', 'This Agent already has a source. Reload the page to edit it.'), 409);
+      }
+      return failed(t('boot.start.failed', 'Could not start a source. Nothing changed; try again.'), 500);
     }
   },
 
