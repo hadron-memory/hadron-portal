@@ -18,14 +18,35 @@ export type BootSourceView =
   | { mode: 'source-missing' }
   | { mode: 'source-unreadable' }
   | {
+      /** R1 (c): the source is withheld, the compiled prompt is readable. Read-only, no writes. */
+      mode: 'compiled-only';
+      compiled: CompiledLite;
+    }
+  | {
       mode: 'source';
       node: { id: string; urn: string; revision: number; content: string };
-      /** The compiled node's approved revision; null when none is approved or it could not be read. */
-      approvedRevision: number | null;
+      /** The compiled node; null when it could not be read, which says nothing about approval or serving. */
+      compiled: CompiledLite | null;
     };
 
+export interface CompiledLite {
+  urn: string; revision: number; content: string;
+  /** The newest approved revision; null only when the read succeeded and none is approved. */
+  approvedRevision: number | null;
+}
+
 type SourceNode = { id: string; urn: string; revision: number; content: string | null } | null;
-type CompiledNode = { approvalStatus: { approval: { revision: number } | null } | null } | null;
+type CompiledNode = { urn: string; revision: number; content: string | null; approvalStatus: { approval: { revision: number } | null } | null } | null;
+
+async function readCompiled(client: Pick<GraphQLClient, 'request'>, ref: string): Promise<CompiledLite | null> {
+  try {
+    const c = (await client.request<{ node: CompiledNode }>(BOOT_COMPILED_QUERY, { ref })).node;
+    if (!c) return null;
+    return { urn: c.urn, revision: c.revision, content: c.content ?? '', approvedRevision: c.approvalStatus?.approval?.revision ?? null };
+  } catch {
+    return null;
+  }
+}
 
 export async function readBootSource(
   client: Pick<GraphQLClient, 'request'>,
@@ -40,17 +61,14 @@ export async function readBootSource(
     node = (await client.request<{ node: SourceNode }>(BOOT_SOURCE_QUERY, { ref: BOOT_SOURCE_LOC, memoryRef: systemMemoryId })).node;
   } catch (e) {
     const code = extractGqlErrorCode(e);
-    if (code === 'FORBIDDEN') return { mode: 'source-unreadable' };
+    if (code === 'FORBIDDEN') {
+      const compiled = await readCompiled(client, pointer.ref);
+      return compiled ? { mode: 'compiled-only', compiled } : { mode: 'source-unreadable' };
+    }
     console.warn('[boot-source] source read failed:', code);
     return { mode: 'unknown' };
   }
   if (!node) return { mode: 'source-missing' };
-  let approvedRevision: number | null = null;
-  try {
-    const compiled = (await client.request<{ node: CompiledNode }>(BOOT_COMPILED_QUERY, { ref: pointer.ref })).node;
-    approvedRevision = compiled?.approvalStatus?.approval?.revision ?? null;
-  } catch {
-    // The status line only loses the revision number; the editor still works.
-  }
-  return { mode: 'source', node: { id: node.id, urn: node.urn, revision: node.revision, content: node.content ?? '' }, approvedRevision };
+  const compiled = await readCompiled(client, pointer.ref);
+  return { mode: 'source', node: { id: node.id, urn: node.urn, revision: node.revision, content: node.content ?? '' }, compiled };
 }
