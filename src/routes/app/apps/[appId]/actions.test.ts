@@ -48,7 +48,7 @@ function baseApp(over: Record<string, unknown> = {}) {
     appType: 'CHATBOT',
     role: 'ADMIN',
     description: null,
-    systemPrompt: null,
+
     createUserPermission: 'DENY',
     identifyUserMethod: 'USER_ID',
     sessionTimeoutSeconds: 3600,
@@ -103,7 +103,7 @@ const validSettings = {
   appType: 'CHATBOT',
   role: 'ADMIN',
   description: 'A demo',
-  systemPrompt: 'Be useful',
+
   createUserPermission: 'IMPLICIT',
   identifyUserMethod: 'SECRET',
   sessionTimeoutSeconds: '3600',
@@ -128,7 +128,7 @@ describe('load', () => {
             appType: 'CHATBOT',
             role: 'ADMIN',
             description: null,
-            systemPrompt: null,
+
             createUserPermission: 'DENY',
             identifyUserMethod: 'USER_ID',
             sessionTimeoutSeconds: 3600,
@@ -435,7 +435,7 @@ describe('load', () => {
 describe('update action', () => {
   it('updates app settings from a validated Superform and returns a typed success', async () => {
     mockRequest.mockResolvedValueOnce({});
-    const result = await runAction('update', validSettings);
+    const result = await runAction('update', { ...validSettings, systemPrompt: 'stale must not be forwarded' });
     expect(result).toMatchObject({
       form: {
         valid: true,
@@ -452,7 +452,7 @@ describe('update action', () => {
         appType: 'CHATBOT',
         role: 'ADMIN',
         description: 'A demo',
-        systemPrompt: 'Be useful',
+
         createUserPermission: 'IMPLICIT',
         identifyUserMethod: 'SECRET',
         sessionTimeoutSeconds: 3600,
@@ -466,11 +466,11 @@ describe('update action', () => {
     await runAction('update', {
       ...validSettings,
       description: '',
-      systemPrompt: '',
+
     });
     expect(mockRequest.mock.calls[0][1]).toMatchObject({
       description: null,
-      systemPrompt: null,
+
     });
   });
 
@@ -921,6 +921,7 @@ describe('castWorker action', () => {
       agentId: 'agent-1',
       name: 'Iris',
       role: 'backend-engineer',
+      promptOverride: 'stale must not be forwarded',
     });
     expect(result).toMatchObject({
       form: { valid: true, message: { type: 'success', text: 'Worker cast.' } },
@@ -931,7 +932,7 @@ describe('castWorker action', () => {
         appRef: 'app-1',
         agentRef: 'agent-1',
         name: 'Iris',
-        promptOverride: undefined,
+
       },
     ]);
   });

@@ -70,7 +70,7 @@ const baseFields = {
   agentName: 'Juno',
   agentSlug: 'juno',
   agentDescription: 'Helpful assistant',
-  systemPrompt: 'Be helpful.',
+
   visibility: 'PERSONAL',
   includeKnowledge: 'true',
   knowledgeMemoryName: 'Juno Knowledge',
@@ -99,7 +99,7 @@ describe('create chatbot action', () => {
       orgId: 'org-1',
       name: 'juno',
       description: 'Helpful assistant',
-      systemPrompt: 'Be helpful.',
+
       systemMemoryId: 'memory-1',
       visibility: 'PERSONAL',
     });

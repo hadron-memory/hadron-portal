@@ -1,6 +1,6 @@
 # Portal #1132 caller and error-sink inventory
 
-Base: portal main 3981e206 (includes merged #1389). Contract: hrn:node:hadronmemory.com:specs:cor:api:260:01; runtime provider pinned c47c20093a72d5bb6d156b0290499495ad1f7470. This is a client migration, not a new server refusal-code vocabulary.
+Original base: portal main3981e206; carried through merged main2333c054 (retired prompt removal). Contract: hrn:node:hadronmemory.com:specs:cor:api:260:01; runtime provider pinned c47c20093a72d5bb6d156b0290499495ad1f7470. This is a client migration, not a new server refusal-code vocabulary.
 
 ## Routing and controls
 
@@ -8,13 +8,13 @@ All direct reader calls below use the existing server import path, which re-expo
 
 Genuine transport Error handling stays separate. A payload-less graphql-request ClientError uses the caller fallback, because its constructor embeds the query/variables. Unhandled loader errors use the same bounded App.Error body; explicit Agent/clone 500 boundaries preserve it. ErrorPage displays validated ids only for 5xx, as selectable escaped body text, outside title/URL. App partial success remains salvageable, but missing data after a fault is 500, not a concealed 404.
 
-Message-dependent branches audited: account BAD_USER_INPUT email uses its known typed text; access-check NOT_FOUND preserves its existing user/resource hint; personal/org Agent URN collision recognizes landed AGENT_URN_TAKEN; memory/App collision prose is inspected only on genuine legacy plain-Error transport paths: the provider throws plain Error for these collisions and formats them as generic faults, so real GraphQL collisions cannot be recovered by this client; typed Agent collisions and install AGENT_NOT_FOUND still branch by code; chatbot field selection inspects only branch text; agent-chat legacy scope routing remains separate. Generic and unknown coded faults never trigger those text branches.
+Message-dependent branches audited: account BAD_USER_INPUT email uses its known typed text; access-check NOT_FOUND preserves its existing user/resource hint; personal/org Agent URN collision recognizes landed AGENT_URN_TAKEN; memory/App collision prose is inspected only on genuine legacy plain-Error transport paths: the provider already formats its plain collision Errors as generic faults; typed Agent collision and install AGENT_NOT_FOUND retain code branches; chatbot field selection inspects only branch text; agent-chat legacy scope routing remains separate. Generic and unknown coded faults never trigger those text branches.
 
 Additional direct/default sinks: edgeWriteFailure's ClientError-message bypass removed; include refusal text retains only INCLUDE_REFUSAL_CODES; pointer/customisation known-code maps retain intentional text while unknown fallback uses classifier; Agent tester readiness no longer reflects generic/unknown text; app-member/create-node translator defaults and edge-condition fallback use the same classifier. Existing server-only logging is not shipped to clients. Existing asset/automation/API-key/delete-worker typed branches are explicit code maps; their raw text is used only after their known-code guards, and unknowns already use fixed fallback. No telemetry added.
 
 ## Direct helper calls
 
-AST calls: 144; modules: 68. This follows the helper name and excludes tests; it is supplemented by the bypass/control audit above, not claimed as an exhaustive search for every error value in the repository.
+AST calls: 143; modules: 68. This follows the helper name and excludes tests; it is supplemented by the bypass/control audit above, not claimed as an exhaustive search for every error value in the repository.
 
 - src/lib/edge-conditions/error-messages.ts:25 — extractGqlError(err, fallback)
 - src/lib/i18n/app-member-errors.ts:67 — extractGqlError(e, fallback)
@@ -44,14 +44,14 @@ AST calls: 144; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/account/api-keys/+page.server.ts:122 — extractGqlError(e, 'Could not mint API key.')
 - src/routes/app/account/api-keys/+page.server.ts:150 — extractGqlError(e, 'Could not revoke API key.')
 - src/routes/app/account/invite/+page.server.ts:39 — extractGqlError(e, 'Failed to send invitation')
-- src/routes/app/agents/[id]/+page.server.ts:431 — extractGqlError(e, t('agent.inheritance.base-save-failed', 'Could not update the base Agent.'), ['AGENT_BASE_CYCLE', 'AGENT_BASE_CHAIN_TOO_LONG', 'AGENT_ORG_GRANT_REQUIRED', 'FORBIDDEN'])
-- src/routes/app/agents/[id]/+page.server.ts:441 — extractGqlError(e, t('agent.inheritance.indexes-save-failed', 'Could not update index references.'))
-- src/routes/app/agents/[id]/+page.server.ts:672 — extractGqlError(e, 'Failed to update agent')
-- src/routes/app/agents/[id]/+page.server.ts:740 — extractGqlError(e, 'Failed to delete agent')
-- src/routes/app/agents/[id]/+page.server.ts:764 — extractGqlError(e, 'Failed to add memory')
-- src/routes/app/agents/[id]/+page.server.ts:789 — extractGqlError(e, 'Failed to bundle the agent', ['SelfImportError', 'MultiLevelImportError', 'MissingGrantError', 'PositionConflictError'])
-- src/routes/app/agents/[id]/+page.server.ts:805 — extractGqlError(e, 'Failed to update memory role')
-- src/routes/app/agents/[id]/+page.server.ts:820 — extractGqlError(e, 'Failed to remove memory')
+- src/routes/app/agents/[id]/+page.server.ts:430 — extractGqlError(e, t('agent.inheritance.base-save-failed', 'Could not update the base Agent.'), ['AGENT_BASE_CYCLE', 'AGENT_BASE_CHAIN_TOO_LONG', 'AGENT_ORG_GRANT_REQUIRED', 'FORBIDDEN'])
+- src/routes/app/agents/[id]/+page.server.ts:440 — extractGqlError(e, t('agent.inheritance.indexes-save-failed', 'Could not update index references.'))
+- src/routes/app/agents/[id]/+page.server.ts:649 — extractGqlError(e, 'Failed to update agent')
+- src/routes/app/agents/[id]/+page.server.ts:717 — extractGqlError(e, 'Failed to delete agent')
+- src/routes/app/agents/[id]/+page.server.ts:741 — extractGqlError(e, 'Failed to add memory')
+- src/routes/app/agents/[id]/+page.server.ts:766 — extractGqlError(e, 'Failed to bundle the agent', ['SelfImportError', 'MultiLevelImportError', 'MissingGrantError', 'PositionConflictError'])
+- src/routes/app/agents/[id]/+page.server.ts:782 — extractGqlError(e, 'Failed to update memory role')
+- src/routes/app/agents/[id]/+page.server.ts:797 — extractGqlError(e, 'Failed to remove memory')
 - src/routes/app/agents/[id]/test/+page.server.ts:111 — extractGqlError(e, '', ['NoAiConfigAvailableError', 'FORBIDDEN', 'UNAUTHENTICATED', 'GRAPHQL_VALIDATION_FAILED'])
 - src/routes/app/agents/new/+page.server.ts:47 — extractGqlError(e, 'Failed to create agent', ["AGENT_URN_TAKEN"])
 - src/routes/app/apps/[appId]/+page.server.ts:1016 — extractGqlError(e, 'Failed to update app')
@@ -131,7 +131,7 @@ AST calls: 144; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/orgs/[id]/agents/install/[aid]/+page.server.ts:236 — extractGqlError(e, 'Install failed.', CREATE_APP_REFUSALS)
 - src/routes/app/orgs/[id]/agents/new/+page.server.ts:49 — extractGqlError(e, 'Failed to create agent', ["AGENT_URN_TAKEN"])
 - src/routes/app/orgs/[id]/apps/+page.server.ts:74 — extractGqlError(e, 'Failed to delete app')
-- src/routes/app/orgs/[id]/create-chatbot/+page.server.ts:210 — extractGqlError(e, 'Failed to create chatbot agent', ["AGENT_URN_TAKEN"])
+- src/routes/app/orgs/[id]/create-chatbot/+page.server.ts:209 — extractGqlError(e, 'Failed to create chatbot agent', ["AGENT_URN_TAKEN"])
 - src/routes/app/orgs/[id]/exchange/[connectionId]/+page.server.ts:88 — extractGqlError(e, 'Failed to load emails')
 - src/routes/app/orgs/[id]/exchange/[connectionId]/+page.server.ts:135 — extractGqlError(e, 'Failed to send reply')
 - src/routes/app/orgs/[id]/exchange/[connectionId]/+page.server.ts:161 — extractGqlError(e, 'Failed to move email')
@@ -158,8 +158,7 @@ AST calls: 144; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/orgs/[id]/tasks/plugin/+server.ts:115 — extractGqlError(exportPlan.reason, 'The export plan failed')
 - src/routes/app/orgs/[id]/tasks/plugin/+server.ts:133 — extractGqlError(otherPlan.reason, 'The other host could not be checked')
 - src/routes/app/user/[id]/+page.server.ts:57 — extractGqlError(e, 'The workers could not be loaded')
-- src/routes/app/workers/[id]/+page.server.ts:248 — extractGqlError(e, '', ["BAD_USER_INPUT","WORKER_RETIRED"])
-- src/routes/app/workers/[id]/+page.server.ts:301 — extractGqlError(e, 'Failed to save the override', ["BAD_USER_INPUT","WORKER_RETIRED"])
+- src/routes/app/workers/[id]/+page.server.ts:238 — extractGqlError(e, '', ["BAD_USER_INPUT","WORKER_RETIRED"])
 
 ## Review fix audit
 

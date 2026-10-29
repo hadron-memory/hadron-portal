@@ -47,7 +47,6 @@ import {
 import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
-  bootPromptSchema,
   bootSourceSchema,
   bootStartSchema,
   bootCompileSchema,
@@ -328,7 +327,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
       description: agent.description ?? '',
-      systemPrompt: agent.systemPrompt ?? '',
+
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
       personaRole: agent.personaRole ?? '',
@@ -394,7 +393,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     configsError: configsResult === null,
     currentUserId: locals.user?.id ?? null,
     form,
-    bootPromptForm: await superValidate({ systemPrompt: agent.systemPrompt ?? '' }, zod4(bootPromptSchema), { id: `bootPrompt:${params.id}`, errors: false }),
+
     bootSource,
     bootStartForm: await superValidate({}, zod4(bootStartSchema), { id: `bootStart:${params.id}`, errors: false }),
     bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${params.id}`, errors: false }),
@@ -441,25 +440,8 @@ export const actions: Actions = {
       return message(form, { type: 'error', text: extractGqlError(e, t('agent.inheritance.indexes-save-failed', 'Could not update index references.')) }, { status: 500 });
     }
   },
-  updateBootPrompt: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), zod4(bootPromptSchema), { id: `bootPrompt:${params.id}`, strict: true });
-    if (!form.valid) return fail(400, { form });
-    // Browser multipart encoding expands textarea LF to CRLF. Restore LF
-    // without trimming source whitespace or interpreting template placeholders.
-    const systemPrompt = form.data.systemPrompt.replace(/\r\n/g, '\n');
-    try {
-      await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
-        ref: params.id, systemPrompt: systemPrompt === '' ? null : systemPrompt,
-      });
-      return message(form, { type: 'success', text: t('agent.boot.saved', 'Boot prompt saved.') });
-    } catch {
-      // Raw ClientError may include private request variables (the prompt).
-      return message(form, { type: 'error', text: t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.') }, { status: 500 });
-    }
-  },
-
   // portal#1377 S1: with a boot-prompt pointer set, the tab edits the Agent's
-  // `boot:source` node, not `Agent.systemPrompt`. Refusals map by code to fixed
+  // `boot:source` node, not compiled prompt text. Refusals map by code to fixed
   // copy: a ClientError's message carries the request variables (the prompt).
   saveBootSource: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), zod4(bootSourceSchema), { id: `bootSource:${params.id}`, strict: true });
@@ -607,11 +589,6 @@ export const actions: Actions = {
         const NODE_Q = /* GraphQL */ `query NodeExists($ref: ID!, $memoryRef: ID!) { node(ref: $ref, memoryRef: $memoryRef) { id } }`;
         const client = gqlClient(locals.token);
         const agentDisplayName = name ?? 'Agent';
-        // Read the current prompt for the first-attach scaffold; metadata does
-        // not carry or rewrite the separately edited prompt (#999).
-        const currentAgent = await client.request<{ agent: Pick<Agent, 'systemPrompt'> | null }>(AGENT_QUERY, { ref: params.id });
-        const systemPrompt = currentAgent.agent?.systemPrompt ?? null;
-
         // Check if conversations parent exists; create scaffold if missing
         const hasConversations = await client.request<{ node: { id: string } | null }>(NODE_Q, { ref: 'conversations', memoryRef: systemMemoryId }).catch(() => ({ node: null }));
 
@@ -651,7 +628,7 @@ export const actions: Actions = {
 
           await client.request(CREATE, { input: {
             memoryId: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
-            content: `You are ${agentDisplayName}.${systemPrompt ? ' ' + systemPrompt : ''}\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
+            content: `You are ${agentDisplayName}.\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
           }}).catch(() => {});
 
           // partials

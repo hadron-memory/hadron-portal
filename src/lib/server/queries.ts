@@ -84,14 +84,11 @@ export const AGENT_FIELDS = /* GraphQL */ `
     urn
     name
     description
-    systemPrompt
+
     systemMemoryId
     visibility
     type
     surfaces
-    # #1241: systemPrompt is shared by chat and Worker briefing. The server
-    # binds name/role placeholders for each Worker; the named individual is
-    # the Worker, not this reusable role Agent.
     personaRole
     properties
     # 036-ai-service-config: hasAiApiKey is the server shim for "the agent's
@@ -131,7 +128,7 @@ export const APP_FIELDS = /* GraphQL */ `
     appType
     role
     description
-    systemPrompt
+
     agentTools
     expiresAt
     # App-original fields
@@ -146,7 +143,7 @@ export const APP_FIELDS = /* GraphQL */ `
       urn
       name
       description
-      systemPrompt
+
       surfaces
       memoryItems {
         id
@@ -953,7 +950,7 @@ const WORKER_FIELDS = /* GraphQL */ `
     # consumer must tolerate its absence rather than assume a URN exists.
     urn
     role
-    promptOverride
+
     memoryId
     retiredAt
     # #1050 — who HOLDS this name, and since when. A hold belongs to a person
@@ -961,7 +958,7 @@ const WORKER_FIELDS = /* GraphQL */ `
     # release frees it (hrn:node:hadronmemory.com:specs:cor:agt:020:09).
     #
     # WORKING-STATE fields: behind the worker read gate and MASKED TO NULL ON
-    # DENY, exactly like promptOverride and memoryId above, and unlike
+    # DENY, exactly like prompt and memoryId above, and unlike
     # name/role/urn. Null therefore means "nobody holds it" OR "you may not
     # see" — the renderer must not collapse the two.
     #
@@ -989,34 +986,10 @@ const WORKER_FIELDS = /* GraphQL */ `
 // same defect hadron-cli#459 is open about on `worker list --json`. #737 covers
 // showing it behind an explicit expand.
 /**
- * #1010 — amend a worker's promptOverride, the per-worker individuality layered
- * over the role agent's shared template.
- *
- * `promptOverride` REPLACES the whole override; it is not appended. The trap
- * this repo must not build is a "save the boot briefing" control: the composed
- * briefing is bound-template + override + a derived register block, so writing
- * it back folds the shared template into the override and prepends it again on
- * every render, compounding each save. Only the override is writable, and
- * `updateWorker` takes only the override — the server offers no way to write
- * the composed prompt at all.
- *
- * Refuses WORKER_RETIRED for a retired casting (which takes no new bindings, so
- * an override could never be delivered) and requires staffing access.
- */
-export const UPDATE_WORKER_MUTATION = /* GraphQL */ `
-  mutation UpdateWorker($workerRef: ID!, $promptOverride: String) {
-    updateWorker(workerRef: $workerRef, promptOverride: $promptOverride) {
-      id
-      promptOverride
-    }
-  }
-`;
-
-/**
  * portal#1142 P4 (hadron-server#1602 / #2120) — write a worker's signature and
  * trailer templates. A variable the caller leaves undefined is ABSENT on the
  * wire, and the server preserves an absent field; it refuses an explicit null,
- * so this is only ever sent text. Never carries promptOverride: the two are
+ * so this is only ever sent text. Never changes the boot prompt: the two are
  * separate forms, so no single submit mixes them.
  */
 export const UPDATE_WORKER_SIGNATURE_MUTATION = /* GraphQL */ `
@@ -1040,25 +1013,6 @@ export const WORKER_QUERY = /* GraphQL */ `
       signature
       trailer
       app { id name urn organizationId }
-      # #1010 — the agent's RAW persona template, merged into the fragment's
-      # agent selection rather than added to WorkerFields: the fragment also
-      # feeds the Staff roster, and a template per row is the hadron-cli#459
-      # mistake in miniature. Selected here for the Briefing tab's Source view,
-      # which shows the inherited half read-only beside the editable override.
-      # (NB no backticks in this file's GraphQL comments — one terminates the
-      # template literal, portal#715. The gate caught exactly that here.)
-      #
-      # NOT derivable from the composed prompt by subtraction: resolvers.worker.ts
-      # builds it as bound-template + override + a DERIVED register block
-      # (spec 049 Phase 6) evaluated per reader, so the composed string does not
-      # end with the override and slicing it would mis-cut.
-      #
-      # Nullable twice over: the agent may carry no template, AND this goes
-      # through the AGENT read gate while the composed prompt sits behind the
-      # worker's own (maySeeWorkerInternals) — so a caller who can read the
-      # briefing may still get null here. Render that as "not visible to you",
-      # never as "no template".
-      agent { systemPrompt }
       # portal#1067 (hadron-server#1726) — who this worker reports to. Masked on
       # deny like heldByUserId (reportsToRetired answers false), so a null
       # renders as no line, never as "reports to nobody". The nested target is
@@ -1156,8 +1110,8 @@ export const WORKERS_QUERY = /* GraphQL */ `
 // the register — they fired only because a nameless cast had to read one.
 export const CAST_WORKER_MUTATION = /* GraphQL */ `
   ${WORKER_FIELDS}
-  mutation CastWorker($appRef: ID!, $agentRef: ID, $name: String, $promptOverride: String) {
-    castWorker(appRef: $appRef, agentRef: $agentRef, name: $name, promptOverride: $promptOverride) {
+  mutation CastWorker($appRef: ID!, $agentRef: ID, $name: String) {
+    castWorker(appRef: $appRef, agentRef: $agentRef, name: $name) {
       ...WorkerFields
     }
   }
@@ -1715,8 +1669,8 @@ export const DELETE_MEMORY_SUBSCRIPTION_MUTATION = /* GraphQL */ `
 
 export const CREATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility) {
-    createAgent(orgId: $orgId, name: $name, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
+  mutation CreateAgent($orgId: ID!, $name: String!, $description: String, $systemMemoryId: String, $visibility: AgentVisibility) {
+    createAgent(orgId: $orgId, name: $name, description: $description, systemMemoryId: $systemMemoryId, visibility: $visibility) { ...AgentFields }
   }
 `;
 
@@ -1754,8 +1708,8 @@ export const CLONE_AGENT_MUTATION = /* GraphQL */ `
 
 export const UPDATE_AGENT_MUTATION = /* GraphQL */ `
   ${AGENT_FIELDS}
-  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemPrompt: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String) {
-    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemPrompt: $systemPrompt, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole) { ...AgentFields }
+  mutation UpdateAgent($ref: ID!, $name: String, $urn: String, $description: String, $systemMemoryId: String, $visibility: AgentVisibility, $personaRole: String) {
+    updateAgent(ref: $ref, name: $name, urn: $urn, description: $description, systemMemoryId: $systemMemoryId, visibility: $visibility, personaRole: $personaRole) { ...AgentFields }
   }
 `;
 
@@ -1865,7 +1819,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
   mutation UpdateApp(
     $ref: ID!, $name: String, $urn: String, $appType: AppType,
     $role: AppMembershipRole,
-    $description: String, $systemPrompt: String, $agentTools: [String!],
+    $description: String, $agentTools: [String!],
     $aiProvider: String, $aiModel: String, $aiApiKey: String,
     $expiresAt: String,
     $createUserPermission: CreateUserPermission,
@@ -1874,7 +1828,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
   ) {
     updateApp(
       ref: $ref, name: $name, urn: $urn, appType: $appType, role: $role,
-      description: $description, systemPrompt: $systemPrompt,
+      description: $description
       agentTools: $agentTools,
       aiProvider: $aiProvider, aiModel: $aiModel, aiApiKey: $aiApiKey,
       expiresAt: $expiresAt,
@@ -2432,7 +2386,7 @@ export const APP_NODES_QUERY = /* GraphQL */ `
 // Deliberately does NOT select `worker { ... }`: this page already knows whose
 // sessions these are, and Session.worker runs a WIDER read gate than the worker
 // query itself. Selecting working-state through it (heldByUserId, memoryId,
-// promptOverride) would let a former App member read current staffing off a
+// prompt) would let a former App member read current staffing off a
 // historical session. Keep this selection worker-free.
 //
 // `sessions` returns a BARE [Session!]! — no page envelope and no total, unlike

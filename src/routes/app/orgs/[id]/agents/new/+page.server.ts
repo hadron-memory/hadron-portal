@@ -32,11 +32,11 @@ export const actions: Actions = {
     const name = form.data.slug;
     const displayName = form.data.displayName;
     const description = form.data.description || null;
-    const systemPrompt = form.data.systemPrompt || null;
+
     const visibility = form.data.visibility;
     try {
       const result = await gqlClient(locals.token).request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
-        orgId: params.id, name, description, systemPrompt, visibility,
+        orgId: params.id, name, description, visibility,
       });
       if (displayName && displayName !== name) {
         await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {

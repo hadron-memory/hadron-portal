@@ -326,8 +326,7 @@
     { id: 'actions', header: t('app.staff.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
   // #1009: a worker row's actions, as ⋯ menu items.
-  // - Edit opens the worker page's briefing editor: `updateWorker` takes only
-  //   `promptOverride`, so a worker's ROLE is not editable anywhere yet.
+  // - Edit opens the worker page for its prompt pointer and signature templates.
   // - Release / Force-release only when a hold is actually KNOWN (#756/#1050):
   //   `none` is not "unheld" — the field is masked to null on a denied read.
   // - Retire (danger) only for an active worker; a retired one keeps its
@@ -979,7 +978,7 @@
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
         castWorkerForm.update(
-          (current) => ({ ...current, agentId: '', name: '', promptOverride: '' }),
+          (current) => ({ ...current, agentId: '', name: '' }),
           { taint: false },
         );
         castOpen = false;
@@ -1190,7 +1189,7 @@
         appType: app.appType,
         role: app.role,
         description: app.description ?? '',
-        systemPrompt: app.systemPrompt ?? '',
+
         createUserPermission: app.createUserPermission,
         identifyUserMethod: app.identifyUserMethod,
         sessionTimeoutSeconds: String(app.sessionTimeoutSeconds),
@@ -2184,22 +2183,6 @@
               {/if}
             </p>
           </div>
-          <div>
-            <label for="castPromptOverride" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('app.staff.field.prompt-override', 'Prompt override')}
-            </label>
-            <textarea
-              id="castPromptOverride"
-              name="promptOverride"
-              rows="3"
-              bind:value={$castWorkerForm.promptOverride}
-              aria-describedby="castPromptOverrideHelp"
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-            ></textarea>
-            <p id="castPromptOverrideHelp" class="mt-1 text-xs text-zinc-400">
-              {t('app.staff.field.prompt-override.help', 'Optional. Appended to the agent’s prompt template as this worker’s own paragraph.')}
-            </p>
-          </div>
           <div class="flex gap-3">
             <button
               type="submit"
@@ -2832,13 +2815,6 @@
             <div>
               <label for="description" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
               <input id="description" type="text" name="description" bind:value={$appSettingsForm.description} placeholder="What this app is for" class={inputClass} />
-            </div>
-            <div>
-              <label for="systemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="systemPrompt" name="systemPrompt" rows="4" bind:value={$appSettingsForm.systemPrompt}
-                placeholder="Instructions for the LLM when using this app"
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"></textarea>
-              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each agent chat.</p>
             </div>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
