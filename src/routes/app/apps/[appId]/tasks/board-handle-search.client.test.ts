@@ -25,12 +25,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mountBoard(text = '') {
+function mountBoard(text = '', tasks = [row('t1', 'AT3', 'Ship it')]) {
   const m = mountComponent(Board as never, {
     data: {
       app, view: 'board', filter: 'active', text, alarmFilter: 'open', boardLimit: 200, alarmsLimit: 2000,
       loadedAt: '2026-10-16T01:00:00Z', impersonating: null, roster: null, alarms: null, composition: null, refs: {},
-      board: { kind: 'ok', value: { capped: false, tasks: [row('t1', 'AT3', 'Ship it')] } },
+      board: { kind: 'ok', value: { capped: false, tasks } },
     },
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -71,12 +71,32 @@ describe('board search: an exact handle', () => {
     expect(gotos()).toEqual(['/app/apps/app-1/tasks/AT3.405']);
   });
 
-  it.each(['AT3.', 'AT3..4', 'AT3.405 ', ' AT3', 'ship it', 'AT03', 'AT3.0'])('%j is only a search: no link, and the submit goes to the server', async (text) => {
+  // Uma's P2: a handle pasted with surrounding space (a terminal or chat copy) is still one.
+  it.each([['AT3.405 ', 'AT3.405'], [' AT3', 'AT3'], ['\tAT3.405\n', 'AT3.405']])('%j is trimmed to %j and opens it', async (text, handle) => {
+    const m = mountBoard();
+    await type(m, text);
+    expect(openLink(m)?.getAttribute('href')).toBe(`/app/apps/app-1/tasks/${handle}`);
+    expect(await submit(m)).toBe(true);
+    expect(gotos()).toEqual([`/app/apps/app-1/tasks/${handle}`]);
+  });
+
+  it.each(['AT3.', 'AT3..4', 'ship it', 'AT03', 'AT3.0'])('%j is only a search: no link, and the submit goes to the server', async (text) => {
     const m = mountBoard();
     await type(m, text);
     expect(openLink(m)).toBeNull();
     expect(await submit(m)).toBe(false);
     expect(gotos()).toEqual([]);
+  });
+
+  it.each(['AT3.', 'at3.4x'])('a no-match search for %j, shaped like part of a handle, says handles open only when complete', (text) => {
+    const m = mountBoard(text, []);
+    expect(m.target.textContent).toContain('Handles open only when complete, for example AT3.405.');
+  });
+
+  it('a no-match search for ordinary text gets the plain empty line', () => {
+    const m = mountBoard('ship it', []);
+    expect(m.target.textContent).toContain('No matching tasks.');
+    expect(m.target.textContent).not.toContain('Handles open only when complete');
   });
 
   it('a search that landed with a handle as its text (no JavaScript) still offers the link', () => {

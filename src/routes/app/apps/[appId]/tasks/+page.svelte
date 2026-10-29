@@ -72,7 +72,7 @@
             statusText: [taskStateLabel(state, task.status), task.blocked === true ? t('app.tasks.blocked', 'Blocked') : '', task.waitingOnChildren && task.status === 'STARTED' ? waitingOnSubtasksLabel() : '']
               .filter(Boolean)
               .join(' '),
-            title: [task.title, task.handle, task.source ?? ''].join(' ').trim(),
+            title: [task.title, task.source ?? ''].join(' ').trim(),
             ownerText: partySearchText(task.owner),
             assigneeText: partySearchText(task.assignee),
             startByMs: ms(task.startBy),
@@ -88,8 +88,11 @@
   // portal#1349: the search box's live value, until the next server slice resets it.
   let typed = $state<string | null>(null);
   const searchValue = $derived(typed ?? data.text ?? '');
-  // Exactly a handle, no trimming (a trailing space is not one).
-  const exactHandle = $derived(parseHandle(searchValue) ? searchValue : null);
+  // A whole handle once trimmed: a pasted "AT3.405 " is still one (Uma's P2).
+  const exactHandle = $derived(parseHandle(searchValue.trim()) ? searchValue.trim() : null);
+  // Starts like a handle but is not a whole one ("AT3." or "AT3.4x"): the search
+  // cannot match handles (#1401 searches titles and descriptions), so say so.
+  const looksLikePartialHandle = (text: string) => /^AT\d/i.test(text) && !parseHandle(text);
   const exactHandleHref = $derived(exactHandle ? `${basePath}/tasks/${encodeURIComponent(exactHandle)}` : '');
   const columns: PortalColumnDef<BoardRow>[] = [
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
@@ -155,12 +158,12 @@
     const form = event.currentTarget as HTMLFormElement;
     const input = form.elements.namedItem('text') as HTMLInputElement;
     // portal#1349: an exact handle opens that task; the title search would never find it.
+    input.value = input.value.trim();
     if (parseHandle(input.value)) {
       event.preventDefault();
       void goto(`${basePath}/tasks/${encodeURIComponent(input.value)}`);
       return;
     }
-    input.value = input.value.trim();
     input.setCustomValidity(input.value.length > TASK_SEARCH_MAX
       ? t('app.tasks.search.bounds', 'Search text is 1 to 200 characters.') : '');
     if (!input.reportValidity()) { event.preventDefault(); return; }
@@ -297,7 +300,11 @@
       {/if}
       {#if rows.length === 0}
         <div role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty={data.filter}>
-          {data.text ? t('app.tasks.search.empty', 'No matching tasks.') : boardEmptyText(data.filter)}
+          {#if data.text && looksLikePartialHandle(data.text)}
+            {t('app.tasks.search.partial-handle', 'No matching tasks. Handles open only when complete, for example AT3.405.')}
+          {:else}
+            {data.text ? t('app.tasks.search.empty', 'No matching tasks.') : boardEmptyText(data.filter)}
+          {/if}
         </div>
       {/if}
       <DataTable
