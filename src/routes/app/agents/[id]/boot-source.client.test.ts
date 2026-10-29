@@ -81,6 +81,11 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
     expect(panel.textContent).toContain('2 more');
     expect([...panel.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Approve')).toBe(true);
   });
+  it('says so when a newer compiled revision has the same text as the approved one', async () => {
+    const root = await open(source(2, { revision: 4, pending: false }));
+    expect(root.querySelector('[data-boot-unchanged]')?.textContent).toContain('Revision 4 has the same text as revision 2');
+    expect(root.querySelector('[data-boot-approve]')).toBeNull();
+  });
   it('shows no Approve panel or lint when nothing is pending', async () => {
     const root = await open(source());
     expect(root.querySelector('[data-boot-approve]')).toBeNull();

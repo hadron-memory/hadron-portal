@@ -487,7 +487,7 @@ export const actions: Actions = {
     const client = gqlClient(locals.token);
     try {
       const r = await client.request<{ compileAgentBootPrompt: { revNo: number } }>(COMPILE_AGENT_BOOT_PROMPT_MUTATION, { agentRef: params.id });
-      return message(form, { type: 'success', text: t('boot.compile.done', 'Revision {n} is ready but not approved. Review it below, then approve it.', { n: r.compileAgentBootPrompt.revNo }) });
+      return message(form, { type: 'success', text: t('boot.compile.done', 'Built revision {n}.', { n: r.compileAgentBootPrompt.revNo }) });
     } catch (e) {
       const code = extractGqlErrorCode(e);
       const served = await readServedRevision(client, params.id);

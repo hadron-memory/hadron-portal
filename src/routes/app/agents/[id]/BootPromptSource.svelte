@@ -68,6 +68,9 @@
     </form>
   {/if}
   {#if $compileMessage}<p role={$compileMessage.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$compileMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$compileMessage.text}</p>{/if}
+  {#if compiled && !compiled.pending && approvedRevision !== null && compiled.revision > approvedRevision}
+    <p data-boot-unchanged class="mt-3 text-sm text-zinc-600 dark:text-zinc-400">{t('boot.compile.same-text', 'Revision {n} has the same text as revision {m}, so there is nothing to approve.', { n: compiled.revision, m: approvedRevision })}</p>
+  {/if}
   {#if compiled?.pending}
     <section data-boot-approve class="mt-6 space-y-3 rounded-lg border border-amber-300 p-4 dark:border-amber-700">
       <p class="text-sm font-medium text-zinc-900 dark:text-zinc-100">

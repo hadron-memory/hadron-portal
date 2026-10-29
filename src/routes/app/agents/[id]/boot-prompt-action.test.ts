@@ -86,11 +86,11 @@ describe('portal#1377 S2 compile and approve actions', () => {
     for (const [k, v] of Object.entries(fields)) fd.set(k, v);
     return actions[name]!({ request: { formData: async () => fd }, params: { id: 'agent-1' }, locals: { token: 'tok' } } as never) as Promise<{ status?: number; form?: { message: { text: string } }; data?: { form: { message: { text: string } } } }>;
   }
-  it('compile sends only the agent ref (server default setPointer) and says the revision is not approved', async () => {
+  it('compile sends only the agent ref (server default setPointer) and claims nothing about approval', async () => {
     request.mockResolvedValueOnce({ compileAgentBootPrompt: { revNo: 6 } });
     const r = await run('compileBootPrompt', { _kind: 'bootCompile' });
     expect(request).toHaveBeenCalledWith(COMPILE_AGENT_BOOT_PROMPT_MUTATION, { agentRef: 'agent-1' });
-    expect(r.form!.message.text).toContain('Revision 6 is ready but not approved');
+    expect(r.form!.message.text).toBe('Built revision 6.');
   });
   it('a refused compile maps by code, names the position, never echoes server prose, and says nothing changed', async () => {
     request.mockRejectedValueOnce(refusal('BOOT_PROMPT_INCLUDE_BROKEN', { position: 12 }));
