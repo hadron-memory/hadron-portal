@@ -1,4 +1,4 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { ALARMS_LIMIT, BOARD_LIMIT, loadAlarms, loadBoard, loadComposition, loadOpenTaskTitles, loadRoster, loadTasksApp } from '$lib/server/agent-tasks';
 import { parseBoardFilter } from '$lib/agent-tasks/status';
@@ -19,6 +19,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
   const view = parseTaskView(url.searchParams.get('view'));
+  const text = (url.searchParams.get('text') ?? '').trim();
   const filter = parseBoardFilter(url.searchParams.get('status'));
   const alarmFilter = parseAlarmFilter(url.searchParams.get('alarms'));
 
@@ -27,11 +28,19 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
 
+  // Canonicalize crafted blank GETs too (including with JavaScript disabled).
+  if (view === 'board' && url.searchParams.has('text') && !text) {
+    const canonical = new URL(url);
+    canonical.searchParams.delete('text');
+    throw redirect(303, canonical.pathname + canonical.search);
+  }
+
   const base = {
     app,
     view,
     filter,
     alarmFilter,
+    text,
     boardLimit: BOARD_LIMIT,
     alarmsLimit: ALARMS_LIMIT,
     loadedAt: new Date().toISOString(),
@@ -50,6 +59,6 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     const [alarms, titles] = await Promise.all([loadAlarms(client, app.id), loadOpenTaskTitles(client, app.id)]);
     return { ...base, board: null, roster: null, composition: null, alarms, titles };
   }
-  const board = await loadBoard(client, app.id, filter);
+  const board = await loadBoard(client, app.id, filter, text);
   return { ...base, board, roster: null, composition: null, alarms: null, titles: {} as Record<string, string> };
 };

@@ -26,9 +26,8 @@ describe('board GET search (#1400)', () => {
     expect(request).toHaveBeenCalledTimes(2);
   });
   it('omits blank text entirely', async () => {
-    const r = await board(' \t\n ');
-    expect(r.text).toBe('');
-    expect(request.mock.calls[1][1]).not.toHaveProperty('text');
+    await expect(board(' \t\n ', '&status=ended')).rejects.toMatchObject({ status: 303, location: '/app/apps/app-1/tasks?status=ended' });
+    expect(request).toHaveBeenCalledTimes(1);
   });
   it.each(['a'.repeat(200), '😀'.repeat(100), ' '+ 'a'.repeat(200)+' '])('accepts the 200 UTF-16-unit boundary after trimming', async (text) => {
     await board(text);
@@ -71,7 +70,10 @@ describe('board GET search (#1400)', () => {
     expect(result.data?.agentTasks).toEqual([expect.objectContaining({ id: 't205' })]);
     expect((await run(AGENT_TASKS_BOARD_QUERY, '%_\\')).data?.agentTasks).toHaveLength(1);
     expect((await run(AGENT_TASKS_BOARD_QUERY, 'needle', ['STARTED'])).data?.agentTasks).toEqual([]);
-    const mutant = AGENT_TASKS_BOARD_QUERY.replace(/text:\s*\$text\s*,?/, '');
-    expect((await run(mutant, 'needle')).data).not.toEqual(result.data);
+    const mutant = AGENT_TASKS_BOARD_QUERY.replace(/,\s*\$text:\s*String/, '').replace(/,\s*text:\s*\$text/, '');
+    const unfiltered = await run(mutant, 'needle');
+    expect(unfiltered.errors).toBeUndefined();
+    expect(unfiltered.data?.agentTasks).toHaveLength(200);
+    expect(unfiltered.data).not.toEqual(result.data);
   });
 });
