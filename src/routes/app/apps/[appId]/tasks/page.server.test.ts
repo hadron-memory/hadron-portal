@@ -34,6 +34,81 @@ describe('board loader', () => {
     expect(request).toHaveBeenLastCalledWith(AGENT_TASKS_BOARD_QUERY, expect.objectContaining({ queued: true }));
   });
 
+  // portal#1400: the board's text search is the URL's `text`, sent to the server before its cap.
+  describe('text search', () => {
+    const boardArgs = () => request.mock.calls.find((c) => c[0] === AGENT_TASKS_BOARD_QUERY)?.[1] as Record<string, unknown>;
+    beforeEach(() => {
+      request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    });
+
+    it('sends the trimmed text beside the status filter, and returns it for the field', async () => {
+      const r = await loadBoard('?status=ended&text=%20deploy%20');
+      expect(boardArgs()).toMatchObject({ status: ['FINISHED', 'CANCELLED'], text: 'deploy' });
+      expect(r.text).toBe('deploy');
+    });
+
+    it('blank text is omitted: no text key is sent and the field is empty', async () => {
+      const r = await loadBoard('?text=%20%20');
+      expect(Object.keys(boardArgs())).not.toContain('text');
+      expect(r.text).toBe('');
+    });
+
+    it('sends percent, underscore and backslash exactly as typed, once', async () => {
+      await loadBoard(`?text=${encodeURIComponent('50%_\\done')}`);
+      expect(boardArgs().text).toBe('50%_\\done');
+    });
+
+    it('accepts 200 code units, and an astral pair that makes 201 reaches the server whole (never truncated)', async () => {
+      const ok = '😀'.repeat(100);
+      await loadBoard(`?text=${encodeURIComponent(ok)}`);
+      expect(boardArgs().text).toBe(ok);
+      request.mockClear();
+      const over = 'a'.repeat(199) + '😀';
+      expect(over).toHaveLength(201);
+      await loadBoard(`?text=${encodeURIComponent(over)}`);
+      expect(boardArgs().text).toBe(over);
+    });
+
+    it('an overlong text the server refuses is bad-text, not no matches and not a failure', async () => {
+      request.mockImplementation(async (q: string) => {
+        if (q === AGENT_TASKS_APP_QUERY) return { app };
+        throw gqlError('BAD_USER_INPUT');
+      });
+      const r = await loadBoard(`?text=${'a'.repeat(201)}`);
+      expect(r.board).toEqual({ kind: 'bad-text' });
+      expect(r.text).toBe('a'.repeat(201));
+    });
+
+    it('APP_NOT_FOUND and a read failure stay distinct from no matches while searching', async () => {
+      request.mockImplementation(async (q: string) => {
+        if (q === AGENT_TASKS_APP_QUERY) return { app };
+        throw gqlError('APP_NOT_FOUND');
+      });
+      expect((await loadBoard('?text=x')).board).toEqual({ kind: 'not-participant' });
+      request.mockImplementation(async (q: string) => {
+        if (q === AGENT_TASKS_APP_QUERY) return { app };
+        throw new Error('boom');
+      });
+      expect((await loadBoard('?text=x')).board).toEqual({ kind: 'failed' });
+      request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+      expect((await loadBoard('?text=x')).board).toMatchObject({ kind: 'ok', value: { tasks: [] } });
+    });
+
+    it('other views never send text', async () => {
+      request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : q === AGENT_TASKS_OPEN_TITLES_QUERY ? { agentTasks: [] } : { teamRoster: { items: [] } }));
+      await loadBoard('?view=roster&text=x');
+      expect(request.mock.calls.filter((c) => c[0] === AGENT_TASKS_BOARD_QUERY)).toHaveLength(0);
+    });
+
+    it('each load is its own read: a second search does not reuse the first’s result', async () => {
+      request.mockImplementation(async (q: string, v: { text?: string }) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [{ id: `for-${v.text ?? 'none'}` }] }));
+      const a = (await loadBoard('?text=one')).board as { value: { tasks: { id: string }[] } };
+      const b = (await loadBoard('?text=two')).board as { value: { tasks: { id: string }[] } };
+      expect(a.value.tasks[0].id).toBe('for-one');
+      expect(b.value.tasks[0].id).toBe('for-two');
+    });
+  });
+
   it('a missing App is a 404', async () => {
     request.mockResolvedValueOnce({ app: null });
     await expect(loadBoard()).rejects.toMatchObject({ status: 404 });

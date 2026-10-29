@@ -32,6 +32,37 @@ describe('loadBoard', () => {
     expect(await loadBoard(client, 'app-1', 'all')).toMatchObject({ kind: 'ok', value: { capped: false } });
   });
 
+  // portal#1400: the text operand has to reach the actual document, not just the variables.
+  it('declares and uses the text operand in the document', () => {
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('$text: String');
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('text: $text');
+  });
+
+  it('sends the text once, as typed, beside the filter and the cap', async () => {
+    request.mockResolvedValueOnce({ agentTasks: [] });
+    await loadBoard(client, 'app-1', 'backlog', '50%_\\x');
+    expect(request).toHaveBeenCalledWith(AGENT_TASKS_BOARD_QUERY, { appRef: 'app-1', status: ['BACKLOG'], limit: BOARD_LIMIT, text: '50%_\\x' });
+  });
+
+  it('sends no text key for none, empty or blank', async () => {
+    for (const text of [undefined, null, '', '   ']) {
+      request.mockReset();
+      request.mockResolvedValueOnce({ agentTasks: [] });
+      await loadBoard(client, 'app-1', 'all', text);
+      expect(Object.keys(request.mock.calls[0][1])).not.toContain('text');
+    }
+  });
+
+  it('BAD_USER_INPUT is its own outcome, never an empty board and never a generic failure', async () => {
+    request.mockRejectedValueOnce(gqlError('BAD_USER_INPUT'));
+    expect(await loadBoard(client, 'app-1', 'all', 'a'.repeat(201))).toEqual({ kind: 'bad-text' });
+  });
+
+  it('a BAD_USER_INPUT without text is still a failure (the guidance is about the text)', async () => {
+    request.mockRejectedValueOnce(gqlError('BAD_USER_INPUT'));
+    expect(await loadBoard(client, 'app-1', 'all')).toEqual({ kind: 'failed' });
+  });
+
   it('APP_NOT_FOUND means the viewer doesn’t take part', async () => {
     request.mockRejectedValueOnce(gqlError('APP_NOT_FOUND'));
     expect(await loadBoard(client, 'app-1', 'active')).toEqual({ kind: 'not-participant' });

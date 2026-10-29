@@ -42,7 +42,8 @@ function expectBoardWrites(html: string) {
   // Uma's P3-3: New task is on the board, so the note says so.
   expect(html).toContain('Create a task with New task; direct it from its page, the CLI or MCP.');
   expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\/new"[^>]*>\s*New task/);
-  expect(html).not.toMatch(/<form/);
+  // portal#1400: the one form on the board is the GET search; no write form (no POST) renders.
+  expect(html).not.toMatch(/<form[^>]*method="post"/i);
   expect(html).not.toMatch(/\bPark\b/);
   expect(html).not.toMatch(/<button[^>]*>\s*(Assign|Reassign|Cancel|Ready|Make ready|Acknowledge)/i);
 }
@@ -52,6 +53,85 @@ function barButtons(html: string): string[] {
   const bar = html.match(/data-testid="task-actions"[\s\S]*?<\/div>/)?.[0] ?? '';
   return [...bar.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map((m) => m[1].trim());
 }
+
+/** portal#1400 — the board's server-side text search, the one filter on the board. */
+describe('board text search', () => {
+  const form = (html: string) => html.match(/<form[^>]*data-testid="board-search"[\s\S]*?<\/form>/)?.[0] ?? '';
+
+  it('is a plain GET form on the board’s own path, labelled for what it searches, with Submit and Clear', () => {
+    const f = form(board());
+    expect(f).toMatch(/<form[^>]*method="get"/i);
+    expect(f).toMatch(/action="\/app\/apps\/app-1\/tasks"/);
+    expect(f).toContain('Search title and description');
+    expect(f).toMatch(/<input[^>]*name="text"/);
+    expect(f).toMatch(/<button[^>]*type="submit"[^>]*>\s*Search\s*<\/button>/);
+    expect(f).toMatch(/<a[^>]*href="\/app\/apps\/app-1\/tasks"[^>]*>\s*Clear\s*<\/a>/);
+  });
+
+  it('caps the field at 200 code units and fills it with the current search', () => {
+    const f = form(board({ text: 'deploy' }));
+    expect(f).toMatch(/maxlength="200"/);
+    expect(f).toMatch(/value="deploy"/);
+  });
+
+  it('carries the status filter through the form, and Clear keeps it but drops the text', () => {
+    const f = form(board({ filter: 'ended', text: 'x' }));
+    expect(f).toMatch(/<input[^>]*type="hidden"[^>]*name="status"[^>]*value="ended"|<input[^>]*name="status"[^>]*type="hidden"[^>]*value="ended"/);
+    expect(f).toMatch(/<a[^>]*href="\/app\/apps\/app-1\/tasks\?status=ended"[^>]*>\s*Clear/);
+    expect(form(board({ filter: 'active' }))).not.toMatch(/name="status"/);
+  });
+
+  it('the status chips keep the text, so a status change stays a search', () => {
+    const html = board({ text: 'a b' });
+    expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\?status=queued&(amp;)?text=a%20b"/);
+    expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks\?text=a%20b"[^>]*>\s*Active/);
+  });
+
+  it('there is no second, local filter: the table’s own search box is gone', () => {
+    const html = board();
+    expect(html).not.toContain('Search tasks…');
+    expect((html.match(/<input[^>]*type="(text|search)"/g) ?? []).length).toBe(1);
+  });
+
+  it('says how many tasks are shown, and never calls that a total', () => {
+    const three = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ id: 'a' }), task({ id: 'b' }), task({ id: 'c' })] } } });
+    expect(three).toMatch(/data-testid="board-count"[^>]*>\s*3 tasks shown/);
+    expect(three).not.toMatch(/may be more/);
+    expect(three).not.toMatch(/total/i);
+    const one = board({ board: { kind: 'ok', value: { capped: false, tasks: [task()] } } });
+    expect(one).toMatch(/1 task shown/);
+  });
+
+  it('a full read says there may be more and to narrow the search; still no total', () => {
+    const full = board({ text: 'x', board: { kind: 'ok', value: { capped: true, tasks: Array.from({ length: 200 }, (_, i) => task({ id: `t${i}`, title: `T${i}` })) } } });
+    expect(full).toMatch(/200 tasks shown/);
+    expect(full).toMatch(/There may be more; narrow the search/);
+    expect(full).not.toMatch(/total/i);
+  });
+
+  it('no matches while searching is its own message, naming the search; the form stays', () => {
+    const html = board({ text: 'zzz' });
+    expect(html).toMatch(/No tasks match “zzz”/);
+    expect(form(html)).not.toBe('');
+    expect(html).not.toContain('No active tasks.');
+  });
+
+  it('a refused overlong search shows fixed guidance, not no-matches, and keeps the field', () => {
+    const html = board({ text: 'a'.repeat(201), board: { kind: 'bad-text' } });
+    expect(html).toMatch(/role="alert"[^>]*>[\s\S]*Search text is 1 to 200 characters/);
+    expect(html).not.toMatch(/No tasks match/);
+    expect(html).not.toMatch(/No active tasks/);
+    expect(form(html)).not.toBe('');
+  });
+
+  it('a read failure and a concealed App stay distinct from no matches', () => {
+    expect(board({ text: 'x', board: { kind: 'failed' } })).toContain('Couldn’t load tasks.');
+    expect(board({ text: 'x', board: { kind: 'failed' } })).not.toMatch(/No tasks match/);
+    const hidden = board({ text: 'x', board: { kind: 'not-participant' } });
+    expect(hidden).not.toMatch(/No tasks match/);
+    expect(hidden).not.toContain('data-testid="board-search"');
+  });
+});
 
 describe('board', () => {
   it('renders backlog, queued and pending as three different states', () => {
