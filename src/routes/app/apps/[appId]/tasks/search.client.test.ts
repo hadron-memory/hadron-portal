@@ -65,6 +65,14 @@ describe('task board native search', () => {
     (m.instance.navigate as (next: unknown) => void)(data({ loadedAt: '2026-10-29T01:00:00Z' })); await tick(3);
     expect(m.target.textContent).toContain('Page 2 of 3');
   });
+  it('keeps the current page reachable when a same-slice refresh shrinks to one page', async () => {
+    const m = await mount(); button(m, 'Next').click(); await tick(2);
+    expect(m.target.textContent).toContain('Page 2 of 3');
+    const next = data(); next.board.value.tasks = next.board.value.tasks.slice(0, 2);
+    (m.instance.navigate as (next: unknown) => void)(next); await tick(3);
+    expect(m.target.querySelectorAll('tbody tr')).toHaveLength(2);
+    expect(m.target.textContent).toContain('Task 0');
+  });
   it('does not apply a legacy saved local filter over server description matches', async () => {
     const saved = await localStorageViewStore.create('app-tasks:board', 'Legacy', { globalFilter: 'unmatchable-title' } as never);
     await localStorageViewStore.setDefault('app-tasks:board', saved.id);
