@@ -130,13 +130,13 @@ export async function updateStorage({ request, params, locals }: RequestEvent<{ 
   try {
     assertNodeUpdateDoor(currentNode, input);
   } catch (e: unknown) {
-    return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save') }, { status: 500 });
+    return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save', ["BAD_USER_INPUT"]) }, { status: 500 });
   }
 
   try {
     await client.request(nodeUpdateDocument(currentNode, input), { input });
   } catch (e: unknown) {
-    const text = extractGqlError(e, 'Failed to save');
+    const text = extractGqlError(e, 'Failed to save', ["BAD_USER_INPUT"]);
     // #588: a memory-schema violation (undeclared collection, missing
     // required field, wrong type, unknown key under strict) — surface the
     // server's verdict verbatim on the properties field.

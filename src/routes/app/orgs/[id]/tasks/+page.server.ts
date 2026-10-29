@@ -127,7 +127,7 @@ export const actions: Actions = {
     try {
       ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_PROPERTIES_READ_QUERY, { ref: nodeId }));
     } catch (e: unknown) {
-      return exportFail(500, nodeId, 'failed', extractGqlError(e, 'Failed to read the node'));
+      return exportFail(500, nodeId, 'failed', extractGqlError(e, 'Failed to read the node', ["BAD_USER_INPUT"]));
     }
     // The page acts on ITS rows: a node outside this org's memories is not one,
     // whatever the caller may write elsewhere. Reported as not-found, the same
@@ -167,7 +167,7 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
       if (e instanceof NoNodeDoorError) return exportFail(409, nodeId, 'no-door', e.message);
-      const text = extractGqlError(e, 'Failed to save');
+      const text = extractGqlError(e, 'Failed to save', ["BAD_USER_INPUT"]);
       // #588 / server#1286: a memory-schema verdict — a strict collection, or
       // one declaring `exports` as a scalar field, refuses the declaration.
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return exportFail(400, nodeId, 'rejected', text);

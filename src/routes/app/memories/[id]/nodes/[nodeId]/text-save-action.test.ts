@@ -219,14 +219,14 @@ describe.each([
     }
   });
 
-  it('reports any other failure as `failed` with the server\'s words', async () => {
+  it('reports an internal failure as `failed` with generic copy', async () => {
     mockRequest.mockImplementation(async (query: unknown) => {
       if (query === NODE_BY_ID_QUERY) return { node: { ...stored, role: null, isRunnable: null } };
       throw gqlError('INTERNAL_SERVER_ERROR', 'database unavailable');
     });
     const out = (await save(action, { [field]: 'x', expectedRevision: '1' })) as { status: number; data: Record<string, unknown> };
     expect(out.status).toBe(500);
-    expect(out.data).toEqual({ [`${field}Failed`]: { code: 'failed', detail: 'database unavailable' } });
+    expect(out.data).toEqual({ [`${field}Failed`]: { code: 'failed', detail: 'Something went wrong on our side.' } });
   });
 
   it('a node that is gone is `not-found`', async () => {

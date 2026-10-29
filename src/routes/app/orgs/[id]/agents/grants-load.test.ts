@@ -5,6 +5,7 @@
  * "unavailable" state) rather than a false "no subscriptions".
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import {
   ORG_AGENTS_TAB_QUERY,
   ORG_APP_INSTALLS_QUERY,
@@ -105,6 +106,19 @@ async function runUnsubscribe(agentId = 'foreign-agent') {
   } as never);
 }
 
+describe('org agents loader — form ids (#1320)', () => {
+  it('gives Subscribe and Unsubscribe their own Superforms ids and validates each action under its id', async () => {
+    route({});
+    const data = await runLoad();
+    expectDistinctFormIds(data, 2);
+    mockRequest.mockResolvedValue({});
+    const sub = (await runSubscribe()) as { form?: { id: string }; data?: { form?: { id: string } } };
+    const unsub = (await runUnsubscribe()) as { form?: { id: string }; data?: { form?: { id: string } } };
+    expect((sub.data?.form ?? sub.form)?.id).toBe((data as unknown as { subscribeForm: { id: string } }).subscribeForm.id);
+    expect((unsub.data?.form ?? unsub.form)?.id).toBe((data as unknown as { unsubscribeForm: { id: string } }).unsubscribeForm.id);
+  });
+});
+
 describe('org agents loader — subscribed grants (#486)', () => {
   it('keeps only grants for agents owned by OTHER orgs', async () => {
     route({
@@ -195,7 +209,7 @@ describe('org agents subscribe action (#649)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns the server GraphQL message when subscription fails', async () => {
+  it('returns generic copy when an uncoded subscription fault occurs', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'Only PUBLIC agents can be subscribed to.' }] },
     });
@@ -204,7 +218,7 @@ describe('org agents subscribe action (#649)', () => {
       status: 500,
       data: {
         form: {
-          message: { type: 'error', text: 'Only PUBLIC agents can be subscribed to.' },
+          message: { type: 'error', text: 'Something went wrong on our side.' },
         },
       },
     });
@@ -256,14 +270,14 @@ describe('org agents unsubscribe action (#651)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns the server GraphQL message when revocation fails', async () => {
+  it('returns generic copy when an uncoded revocation fault occurs', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'AgentOrgGrant not found.' }] },
     });
 
     await expect(runUnsubscribe()).resolves.toMatchObject({
       status: 500,
-      data: { form: { message: { type: 'error', text: 'AgentOrgGrant not found.' } } },
+      data: { form: { message: { type: 'error', text: 'Something went wrong on our side.' } } },
     });
   });
 });

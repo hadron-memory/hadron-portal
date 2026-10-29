@@ -1,3 +1,4 @@
+import { extractGqlError } from '$lib/gql-error';
 /**
  * Spec 011-create-node-on-portal — i18n strings + typed-error mapping for
  * the node-creation form.
@@ -131,9 +132,8 @@ export function createNodeErrorCode(e: unknown): string | null {
 
 /**
  * Translate a thrown create-node error to a friendly user-facing string.
- * Falls back to the GraphQL error message when the code is unrecognised,
- * and finally to a generic message when the input doesn't look like a
- * GraphQL error at all.
+ * Unknown GraphQL faults use the shared safe envelope. BAD_USER_INPUT is
+ * the existing schema-verdict contract; its intentional field text is kept.
  *
  * Recognized codes:
  *  - `NodeLocConflictError` — a node with this loc already exists.
@@ -165,13 +165,11 @@ export function translateCreateNodeError(e: unknown): string {
         'create-node.error.memory-not-found',
         'This memory isn’t available to you. It may have been deleted, or your access changed. Try refreshing the page.',
       );
+    case 'FORBIDDEN':
     case 'Forbidden':
       return createNodeStrings.noWriteAccess();
     default: {
-      const errs = (e as GqlErrorLike)?.response?.errors;
-      if (errs?.[0]?.message) return errs[0].message;
-      if (e instanceof Error) return e.message;
-      return createNodeStrings.genericError();
+      return extractGqlError(e, createNodeStrings.genericError(), ['BAD_USER_INPUT']);
     }
   }
 }
@@ -187,6 +185,7 @@ export function createNodeErrorStatus(e: unknown): CreateNodeErrorStatus {
       return 400;
     case 'MemoryNotFoundError':
       return 404;
+    case 'FORBIDDEN':
     case 'Forbidden':
       return 403;
     default:

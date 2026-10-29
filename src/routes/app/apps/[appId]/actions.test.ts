@@ -48,7 +48,7 @@ function baseApp(over: Record<string, unknown> = {}) {
     appType: 'CHATBOT',
     role: 'ADMIN',
     description: null,
-    systemPrompt: null,
+
     createUserPermission: 'DENY',
     identifyUserMethod: 'USER_ID',
     sessionTimeoutSeconds: 3600,
@@ -103,7 +103,7 @@ const validSettings = {
   appType: 'CHATBOT',
   role: 'ADMIN',
   description: 'A demo',
-  systemPrompt: 'Be useful',
+
   createUserPermission: 'IMPLICIT',
   identifyUserMethod: 'SECRET',
   sessionTimeoutSeconds: '3600',
@@ -128,7 +128,7 @@ describe('load', () => {
             appType: 'CHATBOT',
             role: 'ADMIN',
             description: null,
-            systemPrompt: null,
+
             createUserPermission: 'DENY',
             identifyUserMethod: 'USER_ID',
             sessionTimeoutSeconds: 3600,
@@ -506,7 +506,7 @@ describe('load', () => {
 describe('update action', () => {
   it('updates app settings from a validated Superform and returns a typed success', async () => {
     mockRequest.mockResolvedValueOnce({});
-    const result = await runAction('update', validSettings);
+    const result = await runAction('update', { ...validSettings, systemPrompt: 'stale must not be forwarded' });
     expect(result).toMatchObject({
       form: {
         valid: true,
@@ -523,7 +523,7 @@ describe('update action', () => {
         appType: 'CHATBOT',
         role: 'ADMIN',
         description: 'A demo',
-        systemPrompt: 'Be useful',
+
         createUserPermission: 'IMPLICIT',
         identifyUserMethod: 'SECRET',
         sessionTimeoutSeconds: 3600,
@@ -537,11 +537,11 @@ describe('update action', () => {
     await runAction('update', {
       ...validSettings,
       description: '',
-      systemPrompt: '',
+
     });
     expect(mockRequest.mock.calls[0][1]).toMatchObject({
       description: null,
-      systemPrompt: null,
+
     });
   });
 
@@ -848,7 +848,7 @@ describe('updateAgentTools action', () => {
     expect(result.data.form.message.text).toBe(AGENT_TOOLS_IMPERSONATION_READ_ONLY());
   });
 
-  it('an unknown GraphQL code stays a 500 with the server’s message', async () => {
+  it('an unknown GraphQL code stays a 500 with generic copy', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'db down', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
     });
@@ -857,7 +857,7 @@ describe('updateAgentTools action', () => {
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message.text).toBe('db down');
+    expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 });
 
@@ -992,6 +992,7 @@ describe('castWorker action', () => {
       agentId: 'agent-1',
       name: 'Iris',
       role: 'backend-engineer',
+      promptOverride: 'stale must not be forwarded',
     });
     expect(result).toMatchObject({
       form: { valid: true, message: { type: 'success', text: 'Worker cast.' } },
@@ -1002,7 +1003,7 @@ describe('castWorker action', () => {
         appRef: 'app-1',
         agentRef: 'agent-1',
         name: 'Iris',
-        promptOverride: undefined,
+
       },
     ]);
   });
@@ -1124,7 +1125,7 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toContain('contributor access');
   });
 
-  it('falls back to the server message for an UNKNOWN code', async () => {
+  it('uses generic copy for an UNKNOWN code', async () => {
     // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — only known codes get friendly
     // copy; an internal error must not be relabelled as a user mistake.
     mockRequest.mockRejectedValueOnce({
@@ -1134,7 +1135,7 @@ describe('castWorker action', () => {
     const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
       data: { form: { message: { text: string } } };
     };
-    expect(result.data.form.message.text).toBe('boom');
+    expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 
   it('falls back to the server message for a payload-less transport failure', async () => {
@@ -1409,7 +1410,7 @@ describe('releaseWorker action', () => {
     const result = await releaseAgainst({}, { id: 'user-1' });
     expect(result.status).toBe(500);
     const message = messageOf(result);
-    expect(message.text).toBe('hold is stale');
+    expect(message.text).toBe('Something went wrong on our side.');
     expect(message).not.toHaveProperty('staleHold');
   });
 
@@ -1524,13 +1525,13 @@ describe('postTeamChatMessage action (#732)', () => {
   // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — an unknown code (or a transport
   // failure with no GraphQL payload) must fall through to the server's own
   // message rather than being relabelled as a user mistake.
-  it('falls through to the server message for an unmapped code', async () => {
+  it('uses generic copy for an unmapped code', async () => {
     mockRequest.mockRejectedValueOnce(gqlError('SOME_NEW_CODE'));
     const result = (await runAction('postTeamChatMessage', {
       _kind: 'postTeamChatMessage',
       body: 'hi',
     })) as { data: { form: { message: { text: string } } } };
-    expect(result.data.form.message.text).toContain('raw server message');
+    expect(result.data.form.message.text).toContain('Something went wrong on our side.');
   });
 });
 

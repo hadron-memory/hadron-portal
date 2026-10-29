@@ -6,7 +6,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
-import { TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_MUTATION, WORKERS_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import { parse, visit } from 'graphql';
+import { TEAM_WORK_ITEMS_QUERY, WORKERS_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -434,135 +435,6 @@ describe('worker page tabs (#758)', () => {
   });
 });
 
-/**
- * #1010 — the Briefing tab edits the OVERRIDE, and that distinction is the
- * feature rather than an implementation detail.
- *
- * `Worker.prompt` is derived — bound template + override + a register block the
- * server evaluates per reader — and `updateWorker` takes only `promptOverride`.
- * A control that saved the composed briefing would fold the shared template
- * into the override and prepend it again on every render, compounding with each
- * save. These pin the two halves of not doing that: what is SENT, and what is
- * SEEDED.
- */
-describe('#1010 — the briefing editor writes the override', () => {
-  const WITH_OVERRIDE = { ...WORKER, promptOverride: 'Dara-specific text.', prompt: 'BOUND TEMPLATE\n\nDara-specific text.' };
-
-  function actionEv(promptOverride: string, id = 'w-1') {
-    const fd = new FormData();
-    fd.set('_kind', 'updateBriefing');
-    fd.set('promptOverride', promptOverride);
-    return {
-      params: { id },
-      locals: { user: { id: 'u1' }, token: 'tok' },
-      request: { formData: async () => fd },
-    } as never;
-  }
-
-  async function runAction(promptOverride: string, id = 'w-1') {
-    const { actions } = await import('./+page.server');
-    return actions.updateBriefing(actionEv(promptOverride, id));
-  }
-
-  it('seeds the editor with the stored override, not with the composed briefing', async () => {
-    // The seed is what a reader edits and saves back. Seeding it with `prompt`
-    // is the whole defect this design avoids — the first save would store the
-    // template inside the override.
-    mockRequest.mockResolvedValueOnce({ worker: WITH_OVERRIDE });
-    const data = (await runLoad()) as unknown as { briefingForm: { data: { promptOverride: string } } };
-    expect(data.briefingForm.data.promptOverride).toBe('Dara-specific text.');
-    expect(data.briefingForm.data.promptOverride).not.toContain('BOUND TEMPLATE');
-  });
-
-  it('seeds an empty string when the worker has no override', async () => {
-    mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, promptOverride: null } });
-    const data = (await runLoad()) as unknown as { briefingForm: { data: { promptOverride: string } } };
-    expect(data.briefingForm.data.promptOverride).toBe('');
-  });
-
-  it('sends promptOverride to updateWorker, and nothing else', async () => {
-    mockRequest.mockResolvedValueOnce({ updateWorker: { id: 'w-1', promptOverride: 'new text' } });
-    await runAction('new text');
-    expect(mockRequest).toHaveBeenCalledWith(UPDATE_WORKER_MUTATION, {
-      workerRef: 'w-1',
-      promptOverride: 'new text',
-    });
-  });
-
-  it('sends an EMPTY STRING to clear, never null', async () => {
-    // The mutation null-clears by PRESENCE: `null` means "leave it untouched".
-    // Sending null for an emptied textarea would silently discard the edit and
-    // hand the reader their old text back on the next load.
-    mockRequest.mockResolvedValueOnce({ updateWorker: { id: 'w-1', promptOverride: null } });
-    await runAction('');
-    const [, vars] = mockRequest.mock.calls[0] as [string, { promptOverride: unknown }];
-    expect(vars.promptOverride).toBe('');
-    expect(vars.promptOverride).not.toBeNull();
-  });
-
-  it('reports WORKER_RETIRED in the server\'s own terms', async () => {
-    mockRequest.mockRejectedValueOnce(
-      Object.assign(new Error('retired'), {
-        response: { errors: [{ message: 'retired', extensions: { code: 'WORKER_RETIRED' } }] },
-      }),
-    );
-    const res = (await runAction('x')) as { data?: { form?: { message?: { type: string; text: string } } } };
-    const msg = res?.data?.form?.message;
-    expect(msg?.type).toBe('error');
-    expect(msg?.text).toMatch(/retired/i);
-  });
-
-  it('does NOT label an outage a client error', async () => {
-    // @copilot on #857. A transport failure carries no GraphQL payload, so
-    // there is no code to recognise — and the previous mapping swept it in
-    // with the 4xx refusals, telling monitoring and retry logic that a server
-    // fault was bad input. The same defect #843 and #851 removed from two
-    // other surfaces.
-    mockRequest.mockRejectedValueOnce(new Error('fetch failed'));
-    const res = (await runAction('x')) as { status?: number };
-    expect(res?.status).toBe(500);
-  });
-
-  it('does NOT label an unrecognised GraphQL code a client error either', async () => {
-    mockRequest.mockRejectedValueOnce(
-      Object.assign(new Error('boom'), {
-        response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
-      }),
-    );
-    const res = (await runAction('x')) as { status?: number };
-    expect(res?.status).toBe(500);
-  });
-
-  it('keeps the typed override on screen when the save fails', async () => {
-    // 500 rather than a rethrow, on purpose: a rethrow renders the error page
-    // and discards what the reader typed. For a multi-KB briefing that is a
-    // worse outcome than the status code was worth, so the form comes back
-    // carrying their text.
-    mockRequest.mockRejectedValueOnce(new Error('fetch failed'));
-    const res = (await runAction('TEXT THE READER TYPED')) as {
-      data?: { form?: { data?: { promptOverride?: string } } };
-    };
-    expect(res?.data?.form?.data?.promptOverride).toBe('TEXT THE READER TYPED');
-  });
-
-  it('reports a staffing refusal as 403 with an actionable message', async () => {
-    // The portal deliberately does NOT pre-derive staffing access to hide the
-    // editor — the App page's own note explains why a hidden control is worse
-    // than a refused one — so the refusal has to say what access is needed.
-    mockRequest.mockRejectedValueOnce(
-      Object.assign(new Error('Forbidden'), {
-        response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
-      }),
-    );
-    const res = (await runAction('x')) as {
-      status?: number;
-      data?: { form?: { message?: { type: string; text: string } } };
-    };
-    expect(res?.status).toBe(403);
-    expect(res?.data?.form?.message?.text).toMatch(/permission/i);
-  });
-});
-
 describe('#1010 — the briefing view is URL-addressable (@codex on #857)', () => {
   it('accepts each real view id', async () => {
     for (const view of ['rendered', 'source']) {
@@ -591,16 +463,14 @@ describe('#1010 — the briefing view is URL-addressable (@codex on #857)', () =
   });
 });
 
-describe('#1010/#1241 — WORKER_QUERY carries the inherited template', () => {
-  it('selects the agent\'s systemPrompt, for the Source view\'s read-only half', () => {
-    expect(WORKER_QUERY).toMatch(/agent\s*\{\s*systemPrompt\s*\}/);
-  });
-
-  it('keeps systemPrompt OFF the roster fragment', () => {
-    // Same rule as `prompt`: select it where it is rendered, never on a list.
-    // WorkerFields feeds the Staff roster, and a multi-KB template per row is
-    // hadron-cli#459 in miniature.
-    expect(WORKERS_QUERY).not.toMatch(/systemPrompt/);
+describe('#1379 retired prompt contract', () => {
+  it('does not select legacy prompt fields on detail or roster', () => {
+    for (const query of [WORKER_QUERY, WORKERS_QUERY]) {
+      const fields: string[] = [];
+      visit(parse(query), { Field: node => { fields.push(node.name.value); } });
+      expect(fields).not.toContain('systemPrompt');
+      expect(fields).not.toContain('promptOverride');
+    }
   });
 });
 

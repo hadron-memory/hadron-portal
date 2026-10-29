@@ -2,7 +2,7 @@ import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlErrorCode, gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   CREATE_MEMORY_MUTATION,
@@ -38,7 +38,7 @@ export const actions: Actions = {
     const agentName = form.data.agentName;
     const agentSlug = form.data.agentSlug;
     const agentDescription = form.data.agentDescription || null;
-    const systemPrompt = form.data.systemPrompt || null;
+
     // Spec 035: the form's visibility drives the AGENT (AgentVisibility:
     // PUBLIC | ORGANIZATION | PERSONAL). The memories it creates take
     // MemoryVisibility (no PERSONAL), so map PERSONAL -> ORGANIZATION for the
@@ -98,7 +98,6 @@ export const actions: Actions = {
         orgId: params.id,
         name: agentSlug || agentName,
         description: agentDescription,
-        systemPrompt,
         systemMemoryId,
         visibility,
       });
@@ -167,7 +166,7 @@ export const actions: Actions = {
 
       await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
-        content: `You are ${agentName}.${systemPrompt ? ' ' + systemPrompt : ''}\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
+        content: `You are ${agentName}.\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
       }});
 
       // partials
@@ -207,11 +206,11 @@ export const actions: Actions = {
       redirect(303, `/app/agents/${agentId}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      const msg = extractGqlError(e, 'Failed to create chatbot agent');
-      if (/agent with URN/i.test(msg)) return setError(form, 'agentSlug', msg, { status: 409 });
-      if (/memory with URN/i.test(msg)) {
-        if (msg.includes(systemMemorySlug)) return setError(form, 'systemMemorySlug', msg, { status: 409 });
-        if (knowledgeMemorySlug && msg.includes(knowledgeMemorySlug)) {
+      const msg = extractGqlError(e, 'Failed to create chatbot agent', ["AGENT_URN_TAKEN"]);
+      if (extractGqlErrorCode(e) === 'AGENT_URN_TAKEN' || /agent with URN/i.test(gqlErrorTextForBranching(e, ['AGENT_URN_TAKEN']))) return setError(form, 'agentSlug', msg, { status: 409 });
+      if (/memory with URN/i.test(gqlErrorTextForBranching(e))) {
+        if (gqlErrorTextForBranching(e).includes(systemMemorySlug)) return setError(form, 'systemMemorySlug', msg, { status: 409 });
+        if (knowledgeMemorySlug && gqlErrorTextForBranching(e).includes(knowledgeMemorySlug)) {
           return setError(form, 'knowledgeMemorySlug', msg, { status: 409 });
         }
         return message(form, { type: 'error', text: msg }, { status: 409 });

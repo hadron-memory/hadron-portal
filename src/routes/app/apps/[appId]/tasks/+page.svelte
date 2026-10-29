@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+  import { TASK_SEARCH_MAX, taskBoardHref } from '$lib/agent-tasks/search';
   import { invalidateAll } from '$app/navigation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -12,7 +14,6 @@
   import TasksAlarms from '$lib/components/agent-tasks/TasksAlarms.svelte';
   import { TASK_VIEWS, taskViewLabel, type TaskView } from '$lib/agent-tasks/views';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
-  import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
@@ -46,6 +47,7 @@
     /** Everything the Status cell shows, so search reaches the words, never the enum. */
     statusText: string;
     title: string;
+    priority: number | undefined;
     ownerText: string;
     assigneeText: string;
     startByMs: number;
@@ -56,8 +58,6 @@
   }
 
   const ms = (s: string | null | undefined) => parseApiDate(s)?.getTime() ?? 0;
-  /** A date column's rendered text from its epoch accessor; 0 is "no date". */
-  const fmtMs = (v: unknown) => (typeof v === 'number' && v > 0 ? fmtRunTime(String(v)) : '');
 
   const rows = $derived<BoardRow[]>(
     board?.kind === 'ok'
@@ -65,7 +65,8 @@
           const state = taskDisplayState(task);
           return {
             task,
-            statusText: [taskStateLabel(state, task.status), task.waitingOnChildren && task.status === 'STARTED' ? waitingOnSubtasksLabel() : '']
+            priority: task.priority ?? undefined,
+            statusText: [taskStateLabel(state, task.status), task.blocked === true ? t('app.tasks.blocked', 'Blocked') : '', task.waitingOnChildren && task.status === 'STARTED' ? waitingOnSubtasksLabel() : '']
               .filter(Boolean)
               .join(' '),
             title: [task.title, task.source ?? ''].join(' ').trim(),
@@ -81,10 +82,10 @@
       : [],
   );
 
-  let globalFilter = $state('');
   const columns: PortalColumnDef<BoardRow>[] = [
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
     { id: 'title', accessorFn: (r) => r.title, header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 320 },
+    { id: 'priority', accessorFn: (r) => r.priority, header: t('app.tasks.priority', 'Priority'), size: 110, sortDescFirst: false, sortFn: 'basic', sortUndefined: 'last' },
     { id: 'owner', accessorFn: (r) => r.ownerText, header: t('app.tasks.col.owner', 'Owner'), size: 200 },
     { id: 'assignee', accessorFn: (r) => r.assigneeText, header: t('app.tasks.col.assignee', 'Assignee'), size: 200 },
     { id: 'subtasks', accessorFn: () => '', header: t('app.tasks.col.subtasks', 'Subtasks'), enableSorting: false, enableGlobalFilter: false, size: 120 },
@@ -100,10 +101,10 @@
     enableMultiSort: false,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
-    state: { get globalFilter() { return globalFilter; } },
-    onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
-    // Dates sort by instant but search by what the cell shows (#820).
-    globalFilterFn: makeGlobalFilterFn<BoardRow>({ startBy: fmtMs, updated: fmtMs, created: fmtMs }),
+    // The server owns title/description search; even legacy saved filters must not hide its matches.
+    manualFiltering: true,
+    autoResetPageIndex: false,
+    enableGlobalFilter: false,
     initialState: {
       pagination: { pageIndex: 0, pageSize: 20 },
       sorting: [{ id: 'updated', desc: true }],
@@ -112,11 +113,41 @@
   });
 
   function viewHref(v: TaskView): string {
-    return v === 'board' ? `${basePath}/tasks` : `${basePath}/tasks?view=${v}`;
+    return taskBoardHref(basePath, data.filter, data.text ?? '', v);
   }
 
   function filterHref(f: BoardFilter): string {
-    return f === 'active' ? `${basePath}/tasks` : `${basePath}/tasks?status=${f}`;
+    return taskBoardHref(basePath, f, data.text ?? '');
+  }
+
+  // A route can be reused on navigation. Reset position for each server slice,
+  // without subscribing to the table state that the reset itself writes.
+  const boardSlice = $derived(JSON.stringify([data.app.id, data.filter, data.text ?? '']));
+  $effect(() => {
+    void boardSlice;
+    untrack(() => table.resetPageIndex());
+  });
+
+  // Preserve a valid position on refresh, but never strand rows beyond a
+  // shrunken last page. Only the derived bound triggers this write; the
+  // current index read stays untracked so paging cannot subscribe itself.
+  const lastPage = $derived(Math.max(0, Math.ceil(rows.length / table.atoms.pagination.get().pageSize) - 1));
+  $effect(() => {
+    const last = lastPage;
+    untrack(() => {
+      if (table.atoms.pagination.get().pageIndex > last) table.setPageIndex(last);
+    });
+  });
+
+  function submitSearch(event: SubmitEvent) {
+    const form = event.currentTarget as HTMLFormElement;
+    const input = form.elements.namedItem('text') as HTMLInputElement;
+    input.value = input.value.trim();
+    input.setCustomValidity(input.value.length > TASK_SEARCH_MAX
+      ? t('app.tasks.search.bounds', 'Search text is 1 to 200 characters.') : '');
+    if (!input.reportValidity()) { event.preventDefault(); return; }
+    // Blank native GETs are canonicalized by the loader; keep the input usable
+    // when a browser restores this document from its back/forward cache.
   }
 
   const overdue = (task: AgentTaskRow) =>
@@ -154,6 +185,7 @@
     {#each TASK_VIEWS as v (v)}
       <a
         href={viewHref(v)}
+        data-sveltekit-reload
         aria-current={data.view === v ? 'page' : undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium {data.view === v
           ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
@@ -181,6 +213,7 @@
         {#each BOARD_FILTERS as f (f)}
           <a
             href={filterHref(f)}
+            data-sveltekit-reload
             aria-current={data.filter === f ? 'page' : undefined}
             class="rounded-full px-2.5 py-1 text-xs font-medium {data.filter === f
               ? 'bg-indigo-600 text-white'
@@ -206,28 +239,46 @@
       </div>
     </div>
 
-    {#if board.kind === 'failed'}
+    <form method="GET" action="{basePath}/tasks" data-sveltekit-reload onsubmit={submitSearch} class="flex min-w-0 flex-wrap items-end gap-2" aria-label={t('app.tasks.search.form', 'Search tasks')}>
+      <input type="hidden" name="status" value={data.filter} />
+      <input type="hidden" name="view" value="board" />
+      <div class="min-w-0 flex-1 basis-60">
+        <label for="task-board-search" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.tasks.search.scope', 'Search title and description')}</label>
+        <input id="task-board-search" name="text" type="search" value={data.text ?? ''}
+          oninput={(event) => event.currentTarget.setCustomValidity('')}
+          aria-describedby="task-search-guidance"
+          class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
+      </div>
+      <button type="submit" class="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500">{t('app.tasks.search.submit', 'Search')}</button>
+      <a href={taskBoardHref(basePath, data.filter, '')} data-sveltekit-reload class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">{t('app.tasks.search.clear', 'Clear')}</a>
+      <p id="task-search-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.limit', 'Up to 200 characters after trimming. Searches titles and descriptions in this App.')}</p>
+    </form>
+
+    {#if board.kind === 'invalid-search'}
+      <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('app.tasks.search.bounds', 'Search text is 1 to 200 characters.')}</p>
+    {:else if board.kind === 'failed'}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         {t('app.tasks.load-failed', 'Couldn’t load tasks.')}
         <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.tasks.retry', 'Try again')}</button>
       </div>
     {:else}
+      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.shown', '{n} tasks shown', { n: rows.length })}</p>
       {#if board.value.capped}
         <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-          {t('app.tasks.capped', 'Showing the newest {n} tasks. There may be more; narrow the filter to see them.', { n: data.boardLimit })}
+          {t('app.tasks.search.capped', 'There may be more; narrow the search.')}
         </div>
       {/if}
       {#if rows.length === 0}
         <div role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty={data.filter}>
-          {boardEmptyText(data.filter)}
+          {data.text ? t('app.tasks.search.empty', 'No matching tasks.') : boardEmptyText(data.filter)}
         </div>
       {/if}
       <DataTable
         {table}
         listKey="app-tasks:board"
-        searchPlaceholder={t('app.tasks.search', 'Search tasks…')}
-        searchAriaLabel={t('app.tasks.search', 'Search tasks…')}
-        bind:globalFilter
+        searchPlaceholder=""
+        searchAriaLabel=""
+        showSearch={false}
         maxHeight="max(240px, calc(100vh - 22rem))"
       >
         {#snippet cell(cell, row)}
@@ -238,6 +289,8 @@
               <a href="{basePath}/tasks/{row.task.id}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.task.title}</a>
               {#if row.task.source}<TaskSource source={row.task.source} />{/if}
             </div>
+          {:else if cell.column.id === 'priority'}
+            {row.priority ?? '—'}
           {:else if cell.column.id === 'owner'}
             <PartyLabel party={row.task.owner} />
           {:else if cell.column.id === 'assignee'}

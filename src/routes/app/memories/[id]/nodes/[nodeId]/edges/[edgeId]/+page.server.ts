@@ -1,5 +1,4 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { ClientError } from 'graphql-request';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -170,7 +169,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 /**
  * portal#1142 P0a: an edge derived from an include tag (hadron-server#2040) is
  * refused with INCLUDE_EDGE_DERIVED, shown with the server's words and the way
- * forward. Any other GraphQL failure shows the server's first error message
+ * forward. Any other GraphQL failure uses the shared safe envelope
  * rather than graphql-request's raw ClientError text, which carries the query
  * and variables (the #468 rule `extractGqlError` exists for).
  */
@@ -181,8 +180,7 @@ function edgeWriteFailure<F extends Parameters<typeof message>[0]>(form: F, e: u
   // graphql-request's own text, which embeds the query and variables: never
   // show it, use the fallback (Gene's blind P2 on #1155). A plain Error keeps
   // its message, as before.
-  const serverMessage = e instanceof ClientError ? e.response?.errors?.[0]?.message : undefined;
-  const text = e instanceof ClientError ? (serverMessage || fallback) : extractGqlError(e, fallback);
+  const text = extractGqlError(e, fallback);
   return message(form, { type: 'error', text }, { status: 500 });
 }
 

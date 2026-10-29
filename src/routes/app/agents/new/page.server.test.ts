@@ -79,7 +79,7 @@ describe('personal (org-less) create-agent action (#636)', () => {
 
   it('maps a duplicate-URN rejection onto the slug field (409)', async () => {
     mockRequest.mockRejectedValueOnce({
-      response: { errors: [{ message: 'An agent with URN "ada:my-assistant" already exists' }] },
+      response: { errors: [{ message: 'An agent with URN "ada:my-assistant" already exists', extensions: { code: 'AGENT_URN_TAKEN' } }] },
       message: 'An agent with URN "ada:my-assistant" already exists',
     });
     const result = await runCreate({ displayName: 'My assistant', slug: 'my-assistant' });

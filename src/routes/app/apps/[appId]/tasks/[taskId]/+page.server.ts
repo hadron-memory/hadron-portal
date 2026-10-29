@@ -1,7 +1,12 @@
+import { taskDependencies } from '$lib/server/task-planning';
+import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
   AGENT_TASK_DETAIL_QUERY,
+  SET_AGENT_TASK_PRIORITY_MUTATION,
+  ADD_AGENT_TASK_BLOCKER_MUTATION,
+  REMOVE_AGENT_TASK_BLOCKER_MUTATION,
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
@@ -58,6 +63,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   return {
     app,
     task,
+    dependencies: await taskDependencies(client, app.id, task.id),
     // The tree's first row is the task itself; the view shows what is below it.
     tree,
     history,
@@ -78,7 +84,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * refusal, which goes back verbatim with the reader's values. Park (portal#1143)
  * is offered on state alone; the same refusal answers anyone outside its audience.
  */
-type TaskWrite = 'ready' | 'assign' | 'reassign' | 'park' | 'cancel';
+type TaskWrite = 'ready' | 'assign' | 'reassign' | 'park' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker';
 
 async function write(
   action: TaskWrite,
@@ -90,7 +96,8 @@ async function write(
   if (locals.impersonation) return writeFailure(action, impersonationRefusal(), values);
   const built = build(fd);
   if ('invalid' in built) return writeFailure(action, { kind: 'invalid', ...built.invalid }, values);
-  const vars = { taskId: params.taskId, ...built.vars };
+  const planning = action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
+  const vars: Record<string, unknown> = { ...(planning ? { taskRef: params.taskId } : { taskId: params.taskId }), ...built.vars };
   // portal#1214: a write whose response can carry warnings keeps them.
   if (built.path) {
     const out = await taskWrite(gqlClient(locals.token), built.doc, vars, built.path);
@@ -122,7 +129,23 @@ function assignment(doc: string, path: string) {
   };
 }
 
+function blockerEdit(doc: string, path: string) {
+  return (fd: FormData) => {
+    const ref = String(fd.get('blockerTaskRef') ?? '').trim();
+    if (!ref) return { invalid: { field: 'blockerTaskRef', message: t('app.tasks.blocker.required', 'Choose a task.') } };
+    return { doc, path, vars: { blockerTaskRef: ref } };
+  };
+}
+
 export const actions: Actions = {
+  priority: (event) => write('priority', event, (fd) => {
+    const priority = readTaskPriority(fd.get('priority'));
+    if (typeof priority === 'object') return { invalid: priority };
+    if (priority === undefined) return { invalid: { field: 'priority', message: t('app.tasks.priority.required', 'Choose a priority.') } };
+    return { doc: SET_AGENT_TASK_PRIORITY_MUTATION, path: 'setAgentTaskPriority', vars: { priority } };
+  }),
+  addBlocker: (event) => write('addBlocker', event, blockerEdit(ADD_AGENT_TASK_BLOCKER_MUTATION, 'addAgentTaskBlocker')),
+  removeBlocker: (event) => write('removeBlocker', event, blockerEdit(REMOVE_AGENT_TASK_BLOCKER_MUTATION, 'removeAgentTaskBlocker')),
   ready: (event) => write('ready', event, () => ({ doc: MAKE_AGENT_TASK_READY_MUTATION, vars: {} })),
   assign: (event) => write('assign', event, assignment(ASSIGN_AGENT_TASK_MUTATION, 'assignAgentTask')),
   reassign: (event) => write('reassign', event, assignment(REASSIGN_AGENT_TASK_MUTATION, 'reassignAgentTask')),

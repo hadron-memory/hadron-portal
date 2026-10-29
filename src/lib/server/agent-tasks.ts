@@ -49,15 +49,18 @@ export async function loadBoard(
   client: GraphQLClient,
   appRef: string,
   filter: BoardFilter,
-): Promise<TaskRead<{ tasks: AgentTaskRow[]; capped: boolean }>> {
+  text = '',
+): Promise<TaskRead<{ tasks: AgentTaskRow[]; capped: boolean }> | { kind: 'invalid-search' }> {
   try {
     const r = await client.request<{ agentTasks: AgentTaskRow[] }>(AGENT_TASKS_BOARD_QUERY, {
       appRef,
       ...boardFilterArgs(filter),
+      ...(text.trim() ? { text: text.trim() } : {}),
       limit: BOARD_LIMIT,
     });
     return { kind: 'ok', value: { tasks: r.agentTasks, capped: r.agentTasks.length >= BOARD_LIMIT } };
   } catch (e) {
+    if (text.trim() && extractGqlErrorCode(e) === 'BAD_USER_INPUT') return { kind: 'invalid-search' };
     return classify(e, `board read for ${appRef}`);
   }
 }

@@ -1,3 +1,4 @@
+import { extractGqlError } from '$lib/server/gqlError';
 import { fail, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -47,7 +48,7 @@ export const actions: Actions = {
     try {
       await gqlClient(locals.token).request(ACCEPT_INVITATION_MUTATION, { slug: params.token });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to accept invitation' }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to accept invitation') }, { status: 500 });
     }
 
     redirect(303, '/app/dashboard');

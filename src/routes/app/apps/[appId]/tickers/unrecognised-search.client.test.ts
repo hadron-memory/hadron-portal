@@ -18,6 +18,7 @@ afterEach(() => {
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 480, dailyWakeBudgetDerived: true } };
+const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false } };
 
 const ticker = (name: string, reasons: unknown) => ({
   id: `id-${name}`, name, slug: name, urn: `hrn:ticker:acme.com:team:${name}`,
@@ -37,7 +38,7 @@ function mountPage() {
         ticker('known', ['EVERY_TICK']),
         ticker('broken', ['SOMETHING_NEW', 3]),
       ] },
-      settings, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null,
+      settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null,
     },
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
