@@ -61,7 +61,13 @@ export async function readBootSource(
     node = (await client.request<{ node: SourceNode }>(BOOT_SOURCE_QUERY, { ref: BOOT_SOURCE_LOC, memoryRef: systemMemoryId })).node;
   } catch (e) {
     const code = extractGqlErrorCode(e);
-    if (code === 'FORBIDDEN') {
+    // The real server conceals a source in a memory the caller can't read as
+    // MEMORY_NOT_FOUND, the code a missing memory gets (a scoped node read answers
+    // alike for both, so existence is never disclosed), and FORBIDDEN elsewhere.
+    // Both are the withheld case: the reader may still see the compiled prompt (R1 c).
+    // Neither is inferred to mean "missing". A real outage carries another code
+    // and stays unknown.
+    if (code === 'FORBIDDEN' || code === 'MEMORY_NOT_FOUND') {
       const compiled = await readCompiled(client, pointer.ref);
       return compiled ? { mode: 'compiled-only', compiled } : { mode: 'source-unreadable' };
     }

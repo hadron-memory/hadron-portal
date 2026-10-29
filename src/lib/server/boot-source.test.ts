@@ -42,4 +42,17 @@ describe('readBootSource', () => {
     expect(await readBootSource(c, { ok: true, ref: 'r', deleted: false }, 'sys')).toEqual({ mode: 'source-unreadable' });
   });
   it('requests the compiled text', () => { expect(BOOT_COMPILED_QUERY).toContain('content'); });
+  it.each(['MEMORY_NOT_FOUND', 'FORBIDDEN'])('the real concealed refusal %s of the source falls back to the readable compiled node', async (code) => {
+    const c = client((q) => { if (q === BOOT_SOURCE_QUERY) throw gqlErr(code); return { node: { urn: 'cu', revision: 4, content: 'served text', approvalStatus: { approval: { revision: 3 } } } }; });
+    expect(await readBootSource(c, { ok: true, ref: 'r', deleted: false }, 'sys')).toMatchObject({ mode: 'compiled-only', compiled: { content: 'served text' } });
+  });
+  it('MEMORY_NOT_FOUND with an unreadable compiled node is the neutral cannot-see notice, not unknown and not an inferred missing memory', async () => {
+    const c = client((q) => { throw gqlErr(q === BOOT_SOURCE_QUERY ? 'MEMORY_NOT_FOUND' : 'NODE_NOT_FOUND'); });
+    expect(await readBootSource(c, { ok: true, ref: 'r', deleted: false }, 'sys')).toEqual({ mode: 'source-unreadable' });
+  });
+  it('a real outage of the source read stays unknown and never tries the fallback', async () => {
+    const c = client(() => { throw gqlErr('INTERNAL_SERVER_ERROR'); });
+    expect(await readBootSource(c, { ok: true, ref: 'r', deleted: false }, 'sys')).toEqual({ mode: 'unknown' });
+    expect((c as { request: ReturnType<typeof vi.fn> }).request).toHaveBeenCalledTimes(1);
+  });
 });
