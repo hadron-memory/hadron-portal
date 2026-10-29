@@ -138,6 +138,9 @@ export const APP_FIELDS = /* GraphQL */ `
     anonymousTtlDays
     # 008-agent-installation: direct FK + new App-level fields.
     agentId
+    # #1405 (R211): the roles the App offers, the union over its installed
+    # Agents, primary first. The members panel reads this, not agent.installationPolicy.
+    availableMemberRoles
     agent {
       id
       urn

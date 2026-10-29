@@ -824,14 +824,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { errors: false },
     ),
     // #1005: userId is empty until the operator picks someone via the search
-    // modal; the role starts at the linked Agent's first member role.
+    // modal; the role starts at the first role the App offers (App.availableMemberRoles).
     superValidate(
-      { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
+      { userId: '', role: appData.app.availableMemberRoles?.[0] ?? '' },
       addAppMemberFormAdapter,
       { errors: false, id: 'addAppMember' },
     ),
     superValidate(
-      { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
+      { userId: '', role: appData.app.availableMemberRoles?.[0] ?? '' },
       ensureAppMemberFormAdapter,
       { errors: false, id: 'ensureAppMember' },
     ),

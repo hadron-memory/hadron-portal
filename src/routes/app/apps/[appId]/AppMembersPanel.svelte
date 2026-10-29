@@ -48,10 +48,12 @@
     addForm.update((current) => ({ ...current, userId: user.id }), { taint: false });
   }
 
-  // Roles offered by the linked Agent's installation policy. The server
-  // validates against this same list (InvalidRoleError if the role isn't
-  // present), so the dropdown is the canonical source of truth.
-  const memberRoles = $derived<string[]>(app.agent?.installationPolicy?.memberRoles ?? []);
+  // Roles the App offers: the server's union over every installed Agent,
+  // primary first (R211, cor:dmo:050:04). The server validates against this
+  // same list, so the dropdown is the canonical source of truth. Not the
+  // deprecated single `app.agent` policy: on a multi-Agent App that list is
+  // incomplete (#1405). `maxMembers` below keeps its existing read.
+  const memberRoles = $derived<string[]>(app.availableMemberRoles ?? []);
   const maxMembers = $derived<string>(app.agent?.installationPolicy?.maxMembers ?? 'unlimited');
   const memberLimit = $derived<number | null>(
     maxMembers === 'unlimited' ? null : Number.parseInt(maxMembers, 10),
@@ -260,7 +262,7 @@
   <!-- Add member — on-demand user search (#653): no longer gated on a
        bulk-loaded user list, so a personal-app owner / non-admin can add the
        first member. -->
-  {#if app.agent && memberRoles.length > 0 && !membersWithheld}
+  {#if app.agent && !membersWithheld}
     <section>
       <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">Add member</h2>
       {#if atLimit}
@@ -271,6 +273,11 @@
         <form method="POST" action="?/addMember" use:addEnhance class="flex flex-wrap items-start gap-3" novalidate>
           <input type="hidden" name="_kind" value="addAppMember" />
           <input type="hidden" name="userId" bind:value={$addForm.userId} />
+          {#if memberRoles.length === 0}
+            <p role="status" class="basis-full text-sm text-amber-600 dark:text-amber-400">
+              {t('app-members.add.no-roles', 'This App offers no member roles yet.')}
+            </p>
+          {/if}
           {#if addActionError}
             <div class="basis-full rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{addActionError}</div>
           {/if}
@@ -308,7 +315,7 @@
               <p id="addRoleError" class="mt-1 text-xs text-red-600 dark:text-red-400">{addRoleError}</p>
             {/if}
           </div>
-          <button type="submit" disabled={$addSubmitting || !selectedUser || !$addForm.role} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="submit" disabled={$addSubmitting || memberRoles.length === 0 || !selectedUser || !$addForm.role} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
             {$addSubmitting ? 'Adding...' : 'Add member'}
           </button>
         </form>
