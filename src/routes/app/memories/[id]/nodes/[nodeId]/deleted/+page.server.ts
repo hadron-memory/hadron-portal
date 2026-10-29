@@ -32,7 +32,7 @@ export const actions: Actions = {
     } catch (e: unknown) {
       // The server's own refusal says what to do first (e.g. restore a deleted
       // ancestor), so it is shown as-is rather than paraphrased.
-      return fail(409, { error: extractGqlError(e, 'Failed to restore') });
+      return fail(409, { error: extractGqlError(e, 'Failed to restore', ["CONFLICT"]) });
     }
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   },

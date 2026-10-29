@@ -1,5 +1,5 @@
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { classifyGqlError, extractGqlError, gqlErrorTextForBranching } from '$lib/server/gqlError';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
 import { publicChatError } from '$lib/server/llm/chatError.js';
@@ -106,7 +106,6 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     conversationName = startResult.startChat.conversationName;
     stageName = startResult.startChat.stageName;
   } catch (e) {
-    const msg = extractGqlError(e, 'Failed to start chat');
     // Spec 017 FR-006 / SC-005 — distinguish ChatScopeError sub-codes so
     // the portal can render an actionable message per failure mode.
     //
@@ -119,7 +118,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     const code = getGqlErrorCode(e);
     if (
       code === 'SHARED_CHAT_REQUIRES_APP_CONTEXT' ||
-      msg.toLowerCase().includes('not a member of any app')
+      gqlErrorTextForBranching(e).toLowerCase().includes('not a member of any app')
     ) {
       return new Response(
         JSON.stringify({
@@ -131,7 +130,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     }
     if (
       code === 'SHARED_CHAT_NOT_AVAILABLE_FOR_APP_SESSIONS' ||
-      msg.toLowerCase().includes('not available for mcp app-key sessions')
+      gqlErrorTextForBranching(e).toLowerCase().includes('not available for mcp app-key sessions')
     ) {
       // Practically unreachable via the portal (/api/agent-chat/start is
       // JWT-only), but kept so MCP-App-key callers via this endpoint get
@@ -144,7 +143,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       );
     }
-    return new Response(JSON.stringify({ error: publicChatError(e).message }), {
+    return new Response(JSON.stringify({ error: classifyGqlError(e).kind === 'internal' ? extractGqlError(e, '') : publicChatError(e).message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     });

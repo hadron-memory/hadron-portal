@@ -85,7 +85,7 @@ export const actions: Actions = {
       await gqlClient(locals.token).request(UPDATE_MY_PROFILE_MUTATION, { name, handle, email });
       return message(form, { type: 'success', text: accountProfileStrings.updated() });
     } catch (e: unknown) {
-      const text = extractGqlError(e, accountProfileStrings.updateFailed());
+      const text = extractGqlError(e, accountProfileStrings.updateFailed(), ['BAD_USER_INPUT', 'FORBIDDEN']);
       // hadron-server#1801: a changed address is refused (BAD_USER_INPUT, nothing
       // written). The page keeps the field read-only, so this only arrives from a
       // stale or hand-built form; say so on the field rather than in a banner.

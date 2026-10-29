@@ -305,7 +305,7 @@ export const actions: Actions = {
       });
       return message(form, { type: 'success', text: 'Changes saved.' });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: e instanceof Error ? e.message : 'Failed to update' }, { status: 500 });
+      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update') }, { status: 500 });
     }
   },
 
@@ -346,7 +346,7 @@ export const actions: Actions = {
       // and variables into ClientError.message (#468's leak class).
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, t('memory-settings.marketplace.failed', 'Failed to update marketplace listing.')) },
+        { type: 'error', text: extractGqlError(e, t('memory-settings.marketplace.failed', 'Failed to update marketplace listing.'), ["BAD_USER_INPUT"]) },
         { status: 500 },
       );
     }
@@ -370,7 +370,7 @@ export const actions: Actions = {
       );
       return { _kind: 'previewTransfer' as const, transferSelection: selection, transferPreview: response.transferMemoryOwnership };
     } catch (e: unknown) {
-      return fail(400, { _kind: 'previewTransfer' as const, transferSelection: selection, transferError: extractGqlError(e, t('memory-transfer.preview-failed', 'Could not preview ownership transfer.')) });
+      return fail(400, { _kind: 'previewTransfer' as const, transferSelection: selection, transferError: extractGqlError(e, t('memory-transfer.preview-failed', 'Could not preview ownership transfer.'), ["BAD_USER_INPUT"]) });
     }
   },
 
@@ -405,7 +405,7 @@ export const actions: Actions = {
         transferSelection: selection,
         transferError: stale
           ? t('memory-transfer.stale', 'The destination URN changed since this preview. Preview again before applying.')
-          : extractGqlError(e, t('memory-transfer.apply-failed', 'Could not transfer ownership.')),
+          : extractGqlError(e, t('memory-transfer.apply-failed', 'Could not transfer ownership.'), ["BAD_USER_INPUT"]),
       });
     }
     redirect(303, `/app/memories/${encodeURIComponent(params.id)}/settings?transferred=1`);
@@ -471,7 +471,7 @@ export const actions: Actions = {
       }
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to update vector index') },
+        { type: 'error', text: extractGqlError(e, 'Failed to update vector index', ["BAD_USER_INPUT"]) },
         { status: 500 },
       );
     }
@@ -526,7 +526,7 @@ export const actions: Actions = {
           // hrn:node:hadronmemory.com:hadron-portal:review:diagnostic-message-must-not-guarantee forbids.
           text: extractGqlError(
             e,
-            t('memory-settings.retry-embeds.failed', 'Failed to re-drive embeddings'),
+            t('memory-settings.retry-embeds.failed', 'Failed to re-drive embeddings'), ["BAD_USER_INPUT"],
           ),
         },
         { status: 500 },
@@ -562,7 +562,7 @@ export const actions: Actions = {
         text: schema ? 'Schema saved.' : 'Schema removed.',
       });
     } catch (e: unknown) {
-      const text = extractGqlError(e, 'Failed to update schema');
+      const text = extractGqlError(e, 'Failed to update schema', ["BAD_USER_INPUT"]);
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
         return setError(form, 'schemaJson', text, { status: 400 });
       }
@@ -592,7 +592,7 @@ export const actions: Actions = {
       if (isRedirect(e)) throw e;
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to delete memory') },
+        { type: 'error', text: extractGqlError(e, 'Failed to delete memory', ["BAD_USER_INPUT"]) },
         { status: 500 },
       );
     }

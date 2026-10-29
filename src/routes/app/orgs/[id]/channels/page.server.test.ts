@@ -338,11 +338,11 @@ describe('org-owned register writes', () => {
     expect(sent(CREATE_REGISTER_ENTRY_MUTATION)[0]).toMatchObject({ input: { ownerRef: 'org-1', attendeeRef: null } });
   });
 
-  it('a READER’s refused write shows the server’s words and changes nothing', async () => {
+  it('an uncoded READER write fault uses generic copy and changes nothing', async () => {
     route({ create: refusal('Forbidden', 'INTERNAL_SERVER_ERROR') });
     const r = await act('addAttendance', { _kind: 'addAttendance', channelId: 'ch-1', attendee: '', role: 'BOTH', description: '' });
     expect(r.status).toBe(400);
-    expect(msg(r)).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(msg(r)).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 
   it('a revoked or foreign Channel/attendee is "not available", never "does not exist"', async () => {

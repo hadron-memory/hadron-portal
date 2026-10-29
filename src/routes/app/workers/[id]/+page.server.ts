@@ -235,7 +235,7 @@ export const actions: Actions = {
         );
       }
       if (code === 'BAD_USER_INPUT' || code === 'WORKER_RETIRED') {
-        return message(form, { type: 'error', text: extractGqlError(e, '') }, { status: 400 });
+        return message(form, { type: 'error', text: extractGqlError(e, '', ["BAD_USER_INPUT","WORKER_RETIRED"]) }, { status: 400 });
       }
       return message(
         form,
