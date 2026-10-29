@@ -219,7 +219,7 @@ describe('account deleteAccount action', () => {
     const actions = await importActions();
     const { ev, cookies } = deleteActionEv({ fields: { confirm: 'DELETE' } });
     const result = await actions.deleteAccount(ev);
-    expect(result).toMatchObject({ status: 500, data: { deleteError: 'boom' } });
+    expect(result).toMatchObject({ status: 500, data: { deleteError: 'Something went wrong on our side.' } });
     expect(cookies.delete).not.toHaveBeenCalled();
   });
 });

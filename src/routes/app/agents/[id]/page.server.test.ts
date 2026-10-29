@@ -1028,7 +1028,7 @@ describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns the server’s refusal sentence and does not report success', async () => {
+  it('returns generic copy for an unknown bundle code and does not report success', async () => {
     mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Imports are one level deep.', extensions: { code: 'IMPORT_DEPTH' } }] } });
     const { actions } = await importMod();
     const r = (await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never)) as {
@@ -1036,7 +1036,7 @@ describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
     };
     expect(r.status).toBe(500);
     expect(r.data?.bundleAdded).toBeUndefined();
-    expect(r.data?.bundleError).toContain('one level deep');
+    expect(r.data?.bundleError).toContain('Something went wrong on our side.');
   });
 });
 
@@ -1065,3 +1065,12 @@ it('#1261 returns the raw requested page even when the reverse read fails', asyn
   expect(result.extendedAfter).toBe('opaque+/=');
   expect(result.extendedBy.failed).toBe(true);
 });
+
+it.each(['SelfImportError', 'MultiLevelImportError', 'MissingGrantError', 'PositionConflictError'])(
+  'preserves the landed publishAgentImport %s refusal', async (code) => {
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Intentional bundle refusal.', extensions: { code } }] } });
+    const { actions } = await importMod();
+    const result = await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never);
+    expect(result).toMatchObject({ status: 500, data: { bundleError: 'Intentional bundle refusal.' } });
+  },
+);

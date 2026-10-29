@@ -1,5 +1,7 @@
+import { ClientError } from 'graphql-request';
 import { nodeAdviceHandle } from '$lib/server/node-advice';
-import type { Handle } from '@sveltejs/kit';
+import { classifyGqlError, gqlErrorBody, internalErrorText } from '$lib/server/gqlError';
+import type { HandleServerError, Handle } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { building, dev } from '$app/environment';
 import { env as publicEnv } from '$env/dynamic/public';
@@ -135,3 +137,23 @@ const securityHeaders: Handle = async ({ event, resolve }) => {
 
 // #974: sessionActionGuard reads what authHandle decided, so it runs right after.
 export const handle: Handle = sequence(authHandle, sessionActionGuard, nodeAdviceHandle, cspAssetStorage, securityHeaders);
+
+export const handleError: HandleServerError = ({ error, status, message }) => {
+  // Defining this hook replaces SvelteKit's default error logger. Keep the
+  // original exception server-side; never attach request URLs, cookies or form data.
+  const failure = classifyGqlError(error);
+  if (error instanceof ClientError || failure.kind !== 'transport') {
+    // ClientError.message and .stack also embed query/variables. Log neither.
+    console.error('[portal] unexpected GraphQL error', {
+      status,
+      code: failure.kind === 'transport' ? null : failure.code,
+      ...(failure.kind === 'internal' && failure.requestId ? { requestId: failure.requestId } : {}),
+    });
+  } else {
+    const details = error instanceof Error
+      ? { name: error.name, message: error.message, stack: error.stack }
+      : { type: typeof error };
+    console.error('[portal] unexpected request error', { status, error: details });
+  }
+  return status < 500 ? { message } : gqlErrorBody(error, internalErrorText());
+};

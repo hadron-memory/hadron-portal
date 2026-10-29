@@ -1,8 +1,9 @@
 /**
- * portal#1349 — the board's search box and an EXACT handle. The filter only sees
- * the loaded roots, so a valid handle offers a real link to that task (the
- * route resolves it on the server); anything else filters as before and
- * offers nothing. A server render never types, so this lives in the client lane.
+ * portal#1349 — the board's search box and an EXACT handle. The search reads
+ * titles and descriptions, so a valid handle offers a real link to that task
+ * (the route resolves it on the server) and submitting it opens the task;
+ * anything else searches as before and offers nothing. A server render never
+ * types, so this lives in the client lane.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
@@ -24,10 +25,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mountBoard() {
+function mountBoard(text = '') {
   const m = mountComponent(Board as never, {
     data: {
-      app, view: 'board', filter: 'active', alarmFilter: 'open', boardLimit: 200, alarmsLimit: 2000,
+      app, view: 'board', filter: 'active', text, alarmFilter: 'open', boardLimit: 200, alarmsLimit: 2000,
       loadedAt: '2026-10-16T01:00:00Z', impersonating: null, roster: null, alarms: null, composition: null, refs: {},
       board: { kind: 'ok', value: { capped: false, tasks: [row('t1', 'AT3', 'Ship it')] } },
     },
@@ -38,12 +39,20 @@ function mountBoard() {
 }
 
 async function type(m: Mounted<Record<string, unknown>>, text: string) {
-  const input = m.target.querySelector<HTMLInputElement>('input[type="text"]')!;
+  const input = m.target.querySelector<HTMLInputElement>('#task-board-search')!;
   input.value = text;
   input.dispatchEvent(new Event('input', { bubbles: true }));
   await tick(2);
   return input;
 }
+/** Submits the search form the way Enter does; true when the page took the submit over. */
+async function submit(m: Mounted<Record<string, unknown>>) {
+  const e = new Event('submit', { bubbles: true, cancelable: true });
+  m.target.querySelector<HTMLFormElement>('form[aria-label="Search tasks"]')!.dispatchEvent(e);
+  await tick(1);
+  return e.defaultPrevented;
+}
+const gotos = () => navigationCalls.filter((c) => c.fn === 'goto').map((c) => c.args[0]);
 const openLink = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLAnchorElement>('[data-testid="open-by-handle"] a');
 
 describe('board search: an exact handle', () => {
@@ -55,29 +64,24 @@ describe('board search: an exact handle', () => {
     expect(openLink(m)?.textContent).toContain('Open AT3.405');
   });
 
-  it('the handle is also a searchable field of a loaded row', async () => {
+  it('submitting it opens the task instead of searching; the destination is the same link', async () => {
     const m = mountBoard();
-    await type(m, 'AT3');
-    expect(m.target.textContent).toContain('Ship it');
-    await type(m, 'zzz');
-    expect(m.target.textContent).not.toContain('Ship it');
+    await type(m, 'AT3.405');
+    expect(await submit(m)).toBe(true);
+    expect(gotos()).toEqual(['/app/apps/app-1/tasks/AT3.405']);
   });
 
-  it('Enter in the box opens it; the destination is the same link', async () => {
+  it.each(['AT3.', 'AT3..4', 'AT3.405 ', ' AT3', 'ship it', 'AT03', 'AT3.0'])('%j is only a search: no link, and the submit goes to the server', async (text) => {
     const m = mountBoard();
-    const input = await type(m, 'AT3.405');
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-    await tick(1);
-    expect(navigationCalls.filter((c) => c.fn === 'goto').map((c) => c.args[0])).toEqual(['/app/apps/app-1/tasks/AT3.405']);
-  });
-
-  it.each(['AT3.', 'AT3..4', 'AT3.405 ', ' AT3', 'ship it', 'AT03', 'AT3.0'])('%j is only a filter: no link, no navigation on Enter', async (text) => {
-    const m = mountBoard();
-    const input = await type(m, text);
+    await type(m, text);
     expect(openLink(m)).toBeNull();
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-    await tick(1);
-    expect(navigationCalls.filter((c) => c.fn === 'goto')).toEqual([]);
+    expect(await submit(m)).toBe(false);
+    expect(gotos()).toEqual([]);
+  });
+
+  it('a search that landed with a handle as its text (no JavaScript) still offers the link', () => {
+    const m = mountBoard('AT3.405');
+    expect(openLink(m)?.getAttribute('href')).toBe('/app/apps/app-1/tasks/AT3.405');
   });
 
   it('a qualified handle of another App is still just forwarded: the route answers it as unknown, the portal decides nothing', async () => {

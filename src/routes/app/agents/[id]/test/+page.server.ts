@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { AI_CONFIG_READINESS_QUERY, FIXTURE_NODES_QUERY } from '$lib/server/queries';
-import { extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, gqlErrorTextForBranching } from '$lib/server/gqlError';
 import {
   EFFECTIVE_ENDPOINT_UNSUPPORTED,
   isMissingEffectiveEndpoint,
@@ -95,7 +95,7 @@ async function llmReadiness(client: ReturnType<typeof gqlClient>, agentId: strin
     // graphql-request packs the request into it (the #468 leak), so it gets
     // the page's generic copy instead (@copilot on #932).
     const detail = serverErrorMessage(e);
-    if (detail !== null && isMissingEffectiveEndpoint(detail)) return { status: 'unavailable', detail: EFFECTIVE_ENDPOINT_UNSUPPORTED };
+    if (detail !== null && isMissingEffectiveEndpoint(gqlErrorTextForBranching(e, ['GRAPHQL_VALIDATION_FAILED']))) return { status: 'unavailable', detail: EFFECTIVE_ENDPOINT_UNSUPPORTED };
     if (extractGqlErrorCode(e) === 'NoAiConfigAvailableError') return { status: 'not-configured', detail };
     // A refusal the server gave (a non-admin's Forbidden) is an expected
     // answer, not an outage; only a failure to get one is logged.
@@ -108,5 +108,5 @@ async function llmReadiness(client: ReturnType<typeof gqlClient>, agentId: strin
 function serverErrorMessage(e: unknown): string | null {
   const errors = (e as { response?: { errors?: Array<{ message?: unknown }> } } | null)?.response?.errors;
   const message = errors?.[0]?.message;
-  return typeof message === 'string' && message !== '' ? message : null;
+  return typeof message === 'string' && message !== '' ? extractGqlError(e, '', ['NoAiConfigAvailableError', 'FORBIDDEN', 'UNAUTHENTICATED', 'GRAPHQL_VALIDATION_FAILED']) : null;
 }

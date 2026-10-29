@@ -310,10 +310,10 @@ describe('createChannel', () => {
     expect(msg(r)).toMatchObject({ type: 'error', text: expect.stringContaining('overlaps an existing channel') });
   });
 
-  it('an untyped Forbidden is the server’s own words, not a guess', async () => {
+  it('an untyped Forbidden remains a generic fault', async () => {
     route({ create: refusal('Forbidden', 'INTERNAL_SERVER_ERROR') });
     const r = await act('createChannel', { _kind: 'createChannel', name: 'N', slug: 'ok', description: '' });
-    expect(msg(r)).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(msg(r)).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 
   it('an App with no readable shared memory gets an explanation that doesn’t claim it’s missing, and no create', async () => {
@@ -484,10 +484,10 @@ describe('attendance actions', () => {
     expect(sent(UPDATE_REGISTER_ENTRY_MUTATION)).toEqual([{ ref: 're-1', input: { role: 'POST', mentionOnly: false, description: '' } }]);
   });
 
-  it('remove sends the row; a refusal on a row the caller can’t manage is the server’s words, and nothing else is written', async () => {
+  it('remove sends the row and suppresses an untyped fault without further writes', async () => {
     route({ reg: { del: refusal('Forbidden', 'INTERNAL_SERVER_ERROR') } });
     const r = await act('removeAttendance', { _kind: 'removeAttendance', ref: 're-org' });
-    expect(msg(r)).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(msg(r)).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
     expect(sent(DELETE_REGISTER_ENTRY_MUTATION)).toEqual([{ ref: 're-org' }]);
     expect(mockRequest.mock.calls.filter(([d]) => /mutation/.test(d as string))).toHaveLength(1);
   });

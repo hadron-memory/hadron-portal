@@ -101,13 +101,13 @@ describe('load /app/account/api-keys', () => {
     expect((result as { loadError: string }).loadError).toMatch(/upstream down/);
   });
 
-  it('extracts the first GraphQL errors[0].message when present', async () => {
+  it('suppresses uncoded GraphQL prose when present', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'UNAUTHENTICATED' }] },
     });
     const { load } = await importMod();
     const result = await load(loadEvent('jwt-token'));
-    expect((result as { loadError: string }).loadError).toBe('UNAUTHENTICATED');
+    expect((result as { loadError: string }).loadError).toBe('Something went wrong on our side.');
   });
 });
 
@@ -183,7 +183,7 @@ describe('actions.create (mint)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns 500 fail + extracted GraphQL message on upstream failure', async () => {
+  it('returns 500 fail with generic copy for an uncoded upstream failure', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'rate limit exceeded' }] },
     });
@@ -192,7 +192,7 @@ describe('actions.create (mint)', () => {
       actionEvent('jwt-token', { label: 'cli' }),
     )) as { status: number };
     expect(result.status).toBe(500);
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'rate limit exceeded' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });
 
@@ -249,7 +249,7 @@ describe('actions.revoke', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns 500 fail with extracted error on upstream NOT_FOUND (cross-user revoke)', async () => {
+  it('returns 500 fail with generic copy for uncoded NOT_FOUND prose', async () => {
     // The server collapses cross-user revoke to NOT_FOUND (id-enumeration
     // mitigation, PR #145). The portal surfaces it as a 500 with the
     // extracted GraphQL message — same shape as any other upstream error,
@@ -262,6 +262,6 @@ describe('actions.revoke', () => {
       actionEvent('jwt-token', { id: 'uak_belongs_to_other_user' }),
     )) as { status: number };
     expect(result.status).toBe(500);
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'NOT_FOUND' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });
