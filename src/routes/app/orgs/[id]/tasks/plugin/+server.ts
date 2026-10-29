@@ -62,8 +62,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // for this download and delete it when the plans are back.
   // #1077 item 2 (ruling C): a crash between createScope and deleteScope leaves
   // an inert, empty, org-owned task-export-<uuid> scope — scopes only narrow
-  // reads (cor:acl:120), so the orphan is accepted; revisit only if a read-only
-  // count of task-export-% scopes shows accumulation.
+  // reads (hrn:node:hadronmemory.com:specs:cor:acl:120), so the orphan is
+  // accepted; revisit only if a read-only count of task-export-% scopes shows
+  // accumulation.
   let scopeId: string;
   try {
     const created = await client.request<{ createScope: { id: string } }>(CREATE_SCOPE_MUTATION, {
