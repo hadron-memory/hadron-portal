@@ -154,6 +154,13 @@ describe('portal#1378 startBootSource', () => {
     expect(r.status).toBe(502);
     expect(text(r)).toContain('Nothing changed');
   });
+  it('a failure after the write was attempted never promises that nothing changed', async () => {
+    request.mockResolvedValueOnce({ agent: { systemMemoryId: 'sys-1', bootPromptRef: null } }).mockRejectedValueOnce(new Error('lost response'));
+    const r = await startSource();
+    expect(r.status).toBe(500);
+    expect(text(r)).toContain('Reload the page to check');
+    expect(text(r)).not.toContain('Nothing changed');
+  });
   it('an Agent without a system memory writes nothing', async () => {
     request.mockResolvedValueOnce({ agent: { systemMemoryId: null, bootPromptRef: null } });
     const r = await startSource();
@@ -164,7 +171,7 @@ describe('portal#1378 startBootSource', () => {
     ['FORBIDDEN', 403, 'Only whoever manages this Agent'],
     ['BOOT_PROMPT_WORKER_SESSION_REFUSED', 403, 'not through a worker session'],
     ['NodeLocConflictError', 409, 'already has a source'],
-    ['SOMETHING_ELSE', 500, 'Nothing changed'],
+    ['SOMETHING_ELSE', 500, 'Could not confirm the source was started'],
   ])('%s maps to fixed copy and never echoes server prose or the seed', async (code, status, copy) => {
     request.mockResolvedValueOnce({ agent: { systemMemoryId: 'sys-1', bootPromptRef: null } }).mockRejectedValueOnce(refusal(code));
     const r = await startSource();

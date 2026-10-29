@@ -249,7 +249,8 @@ describe('portal#1378 Start a source', () => {
     expect(startButton(root)?.type).toBe('button');
     startButton(root)!.click();
     await tick();
-    expect(start(root)?.querySelector('[data-boot-start-confirm]')?.textContent).toContain('workers are served it');
+    expect(start(root)?.querySelector('[data-boot-start-confirm]')?.textContent).toContain('workers can be served it');
+    expect(start(root)?.querySelector('[data-boot-start-confirm]')?.textContent).not.toMatch(/legacy/i);
     expect(startButton(root)?.type).toBe('submit');
     [...start(root)!.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Cancel')!.click();
     await tick();
@@ -262,6 +263,14 @@ describe('portal#1378 Start a source', () => {
       expect(start(root)?.querySelector('form')).toBeNull();
       mounted?.unmount();
     }
+  });
+  it('both Start mounts are keyed on the form identity, so one Agent\'s refusal never shows under the next Agent', async () => {
+    const { readFileSync } = await import('node:fs');
+    const page = readFileSync('src/routes/app/agents/[id]/+page.svelte', 'utf8');
+    const mounts = page.match(/<StartBootSource /g) ?? [];
+    const keyed = page.match(/\{#key data\.bootStartForm\.id\}<StartBootSource [^]*?\/>\{\/key\}/g) ?? [];
+    expect(mounts.length).toBe(2);
+    expect(keyed.length).toBe(2);
   });
   it('no Start when the loader could not tell the source is absent', async () => {
     expect(start(await open({ mode: 'legacy', canStart: false }))).toBeNull();

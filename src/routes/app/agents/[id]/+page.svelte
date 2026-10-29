@@ -831,7 +831,7 @@
       {#if data.bootSource.mode === 'legacy'}
         <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">{t('agent.boot.legacy-note', 'This is the legacy prompt field. Set a boot prompt pointer in Settings to serve a compiled prompt instead.')}</p>
         {#if data.bootSource.canStart}
-          <StartBootSource seeded={false} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />
+          {#key data.bootStartForm.id}<StartBootSource seeded={false} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
         {/if}
         {#key data.bootPromptForm.id}
           <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
@@ -850,7 +850,7 @@
         </section>
       {:else if data.bootSource.mode === 'source-missing'}
         {#if data.bootSource.canStart}
-          <StartBootSource seeded={true} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />
+          {#key data.bootStartForm.id}<StartBootSource seeded={true} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
         {:else}
           <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
         {/if}

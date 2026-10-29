@@ -494,6 +494,8 @@ export const actions: Actions = {
     if (!form.valid) return fail(400, { form });
     const failed = (text: string, status: 403 | 409 | 500 | 502) => message(form, { type: 'error', text }, { status });
     const client = gqlClient(locals.token);
+    // Set just before the write: a failure after it may have committed, so it cannot promise "nothing changed".
+    let attempted = false;
     try {
       const agent = (await client.request<{ agent: { systemMemoryId: string | null; bootPromptRef: string | null } | null }>(AGENT_BOOT_START_QUERY, { ref: params.id })).agent;
       if (!agent?.systemMemoryId) return failed(t('boot.start.failed', 'Could not start a source. Nothing changed; try again.'), 500);
@@ -504,6 +506,7 @@ export const actions: Actions = {
         if (!compiled) return failed(t('boot.start.seed-unreadable', 'Could not read the current prompt to start from. Nothing changed; try again.'), 502);
         seed = compiled.content;
       }
+      attempted = true;
       await client.request(CREATE_NODE_MUTATION, {
         input: { memoryId: agent.systemMemoryId, loc: BOOT_SOURCE_LOC, name: 'Boot prompt source', role: 'boot-prompt', content: seed },
       });
@@ -524,6 +527,7 @@ export const actions: Actions = {
       if (code === 'NodeLocConflictError') {
         return failed(t('boot.start.exists', 'This Agent already has a source. Reload the page to edit it.'), 409);
       }
+      if (attempted) return failed(t('boot.start.uncertain', 'Could not confirm the source was started. Reload the page to check before trying again.'), 500);
       return failed(t('boot.start.failed', 'Could not start a source. Nothing changed; try again.'), 500);
     }
   },

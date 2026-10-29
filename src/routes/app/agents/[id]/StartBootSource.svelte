@@ -25,7 +25,7 @@
     <form method="POST" action="?/startBootSource" use:enhance class="mt-3 space-y-3">
       <input type="hidden" name="_kind" value="bootStart" />
       {#if confirming && !seeded}
-        <p data-boot-start-confirm role="status" class="text-sm text-zinc-700 dark:text-zinc-300">{t('boot.start.confirm', 'Once a compiled revision is approved, workers are served it instead of the legacy prompt field. Nothing changes until you compile and approve.')}</p>
+        <p data-boot-start-confirm role="status" class="text-sm text-zinc-700 dark:text-zinc-300">{t('boot.start.confirm', 'Once you compile and approve a revision, workers can be served it. Nothing changes until you do.')}</p>
       {/if}
       <div class="flex gap-2">
         {#if seeded || confirming}
