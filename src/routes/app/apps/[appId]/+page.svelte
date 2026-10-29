@@ -56,6 +56,7 @@
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import AppMemories from './AppMemories.svelte';
   import AppMembersPanel from './AppMembersPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -672,6 +673,7 @@
     ) {
       return 'members';
     }
+    if (submittedForm(result, 'createAppMemory')) return 'memory';
     if (submittedForm<DeleteAppForm>(result, 'deleteApp')) {
       return 'settings';
     }
@@ -2641,6 +2643,11 @@
 
   {#if activeTab === 'memory'}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    {#if data.createMemoryForm}
+      {#key app.id}
+        <AppMemories memories={data.appMemories ?? null} canCreate={data.canCreateMemory === true} initial={data.createMemoryForm} result={form} />
+      {/key}
+    {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's
          rights across this App. Omit the partial writable set so the browser
          makes no read-only claim from omission; server writes stay authoritative.

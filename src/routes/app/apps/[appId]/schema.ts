@@ -1,3 +1,4 @@
+import { t } from '$lib/i18n/t';
 import { z } from 'zod';
 
 const agentToolsField = z.preprocess(
@@ -192,4 +193,12 @@ export const deleteWorkerSchema = z.object({
   _kind: z.literal('deleteWorker'),
   workerRef: z.string().trim().min(1, 'Worker is required.'),
   confirmation: z.literal('verified-no-external-attribution'),
+});
+
+// #487: only a NEW memory, born on this App. No caller-controlled App,
+// Agent, class, or existing-memory reference is part of this form.
+export const createAppMemorySchema = z.object({
+  _kind: z.literal('createAppMemory').default('createAppMemory'),
+  name: z.string().trim().min(1, t('app.memory.name-required', 'Give the memory a name.')).prefault(''),
+  description: z.string().trim().prefault(''),
 });

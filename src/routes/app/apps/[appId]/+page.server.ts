@@ -1,3 +1,4 @@
+import { createMemory, readAppMemories, canCreateAppMemory } from './app-memories';
 import { writeCustomisation } from '$lib/server/install-customisation';
 import { deleteWorkerSchema } from './schema';
 import type { DeleteWorkerResult } from './delete-worker';
@@ -81,6 +82,7 @@ import { loadAppKeyScopes } from '$lib/server/tickers';
 import { loadAppKeys } from '$lib/server/app-keys';
 import type { Actions, PageServerLoad } from './$types';
 import {
+  createAppMemorySchema,
   addAgentSchema,
   appSettingsSchema,
   castWorkerSchema,
@@ -863,7 +865,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
           })
       : null;
 
+  const [appMemories, createMemoryForm] = await Promise.all([
+    readAppMemories(client, app.organizationId, app.id),
+    superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
+  ]);
+
   return {
+    appMemories,
+    createMemoryForm,
+    canCreateMemory: canCreateAppMemory(org, locals.user?.id ?? null),
     app,
     org,
     availableAgents,
@@ -952,6 +962,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 };
 
 export const actions: Actions = {
+  createMemory,
   createCustomisation: async ({ request, params, locals }) =>
     writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),
   saveCustomisation: async ({ request, params, locals }) =>
