@@ -102,3 +102,17 @@ export interface WorkerWakeSettings {
  * anything else, never rendered as an empty list.
  */
 export type TickerRead<T> = { kind: 'ok'; value: T } | { kind: 'not-participant' } | { kind: 'failed' };
+
+/**
+ * portal#1141 slice A — the App's delivery settings (hadron-server S9,
+ * `appDeliverySettings`). `standbyEnabled` is the stored switch and
+ * `standbyEffective` is the server's word on whether it does anything; the
+ * portal shows both as read and never sends the switch.
+ */
+export interface AppDeliverySettings {
+  batchWindowSeconds: number;
+  busyDelaySeconds: number;
+  stuckWindowSeconds: number;
+  standbyEnabled: boolean;
+  standbyEffective: boolean;
+}

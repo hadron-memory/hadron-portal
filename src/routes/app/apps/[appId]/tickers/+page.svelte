@@ -5,6 +5,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
   import TickerSettingsPanel from '$lib/components/tickers/TickerSettingsPanel.svelte';
+  import DeliverySettingsPanel from '$lib/components/tickers/DeliverySettingsPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -17,7 +18,8 @@
   /**
    * portal#1099 — the App's tickers (design §3.1), READ-ONLY: S7a (Holger via
    * Vera, team chat #11540). No Create, Edit, Subscribe or Delete control is
-   * rendered; those are S7b and not in v1.
+   * rendered; those are S7b and not in v1. The one write is the Delivery
+   * section below the settings (portal#1141 slice A, hadron-server S9).
    */
   let { data }: { data: PageData } = $props();
 
@@ -252,5 +254,6 @@
     {/if}
 
     <TickerSettingsPanel settings={data.settings} />
+    <DeliverySettingsPanel appId={data.app.id} settings={data.delivery} impersonating={data.impersonating} />
   {/if}
 </div>
