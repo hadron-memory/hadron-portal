@@ -96,6 +96,7 @@ import {
   updateAppAgentToolsSchema,
 } from './schema';
 import { isCapped } from '$lib/server/capped';
+import { loadLiveStops } from '$lib/server/stop-signals';
 import type { ReleaseWorkerMessage } from './schema';
 
 // appNodes and the chat-root read take a limit but have no continuation
@@ -654,7 +655,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster, bootPointers] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster, bootPointers, liveStops] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -757,6 +758,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     loadAppTeamRoster(client, app.id),
     // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
     readAppPointers(client, app.id),
+    // portal#1139: the stops in effect, for the banner, in its OWN classified request
+    // (never throws): a stop read that fails must not take the App page with it.
+    loadLiveStops(client, app.id),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -942,6 +946,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
     bootPointers,
+    liveStops,
     // The App half of a pointer result's key (the action's own params.appId).
     bootPointerAppKey: params.appId,
     keyScopes,
