@@ -829,7 +829,8 @@
           <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'source'}
-        {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}:${data.bootSource.compiled?.revision ?? 0}`}
+        <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
+        {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
           <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'compiled-only'}

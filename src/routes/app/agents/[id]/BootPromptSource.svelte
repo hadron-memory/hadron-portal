@@ -36,8 +36,11 @@
     // A revision that moved on under the manager: the page reloads with the newest one.
     onResult: ({ result }) => { if (result.type === 'failure' && result.status === 409) void invalidateAll(); },
   });
+  // Approve's node id and revision are read from the displayed compiled view, never from
+  // the form store: the store is seeded once, so it would keep the revision from before a
+  // reload and the panel would show one revision while Approve submitted another.
   const compileMessage = compile.message, compileSubmitting = compile.submitting, compileEnhance = compile.enhance;
-  const approveForm = approve.form, approveMessage = approve.message, approveSubmitting = approve.submitting, approveEnhance = approve.enhance;
+  const approveMessage = approve.message, approveSubmitting = approve.submitting, approveEnhance = approve.enhance;
 </script>
 
 <section data-boot-prompt-source>
@@ -68,8 +71,8 @@
   {#if canManage !== false}
     <form method="POST" action="?/compileBootPrompt" use:compileEnhance class="mt-6 flex items-center gap-3">
       <input type="hidden" name="_kind" value="bootCompile" />
-      <button type="submit" disabled={$compileSubmitting || dirty} class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900">{$compileSubmitting ? t('boot.compile.running', 'Building...') : t('boot.compile.button', 'Update the prompt workers get')}</button>
-      {#if dirty}<span class="text-xs text-zinc-500 dark:text-zinc-400">{t('boot.compile.save-first', 'Save your changes first.')}</span>{/if}
+      <button type="submit" disabled={$compileSubmitting || dirty} aria-describedby={dirty ? 'bootSaveFirst' : undefined} class="rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900">{$compileSubmitting ? t('boot.compile.running', 'Building...') : t('boot.compile.button', 'Update the prompt workers get')}</button>
+      {#if dirty}<span id="bootSaveFirst" class="text-xs text-zinc-500 dark:text-zinc-400">{t('boot.compile.save-first', 'Save your changes first.')}</span>{/if}
     </form>
   {/if}
   {#if $compileMessage}<p role={$compileMessage.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$compileMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$compileMessage.text}</p>{/if}
@@ -92,7 +95,7 @@
         <div data-boot-lint>
           <p class="text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('boot.lint.title', 'Warnings ({total})', { total: compiled.lint.total })}</p>
           <ul class="mt-1 list-disc pl-5 text-xs text-zinc-700 dark:text-zinc-300">
-            {#each compiled.lint.items as w (w.position + w.kind)}<li>{w.text}</li>{/each}
+            {#each compiled.lint.items as w, i (`${w.position}:${w.kind}:${i}`)}<li>{w.text}</li>{/each}
           </ul>
           {#if compiled.lint.total > compiled.lint.items.length}<p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('boot.lint.more', '{n} more', { n: compiled.lint.total - compiled.lint.items.length })}</p>{/if}
         </div>
@@ -100,8 +103,8 @@
       {#if canManage !== false}
         <form method="POST" action="?/approveBootPrompt" use:approveEnhance class="flex justify-end">
           <input type="hidden" name="_kind" value="bootApprove" />
-          <input type="hidden" name="nodeId" value={$approveForm.nodeId} />
-          <input type="hidden" name="revision" value={$approveForm.revision} />
+          <input type="hidden" name="nodeId" value={compiled.id} />
+          <input type="hidden" name="revision" value={compiled.revision} />
           <button type="submit" disabled={$approveSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50">{$approveSubmitting ? t('boot.approve.running', 'Approving...') : t('boot.approve.button', 'Approve')}</button>
         </form>
       {/if}

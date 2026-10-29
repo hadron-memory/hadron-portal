@@ -5,7 +5,7 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import type { BootSourceView } from '$lib/server/boot-source';
 import Page from './+page.svelte';
 import { pageData } from './page-fixture';
-import { bootSourceSchema } from './schema';
+import { bootApproveSchema, bootSourceSchema } from './schema';
 
 let mounted: Mounted<Record<string, unknown>> | null = null;
 afterEach(() => { mounted?.unmount(); mounted = null; });
@@ -106,6 +106,8 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
     await tick();
     expect(btn().disabled).toBe(true);
     expect(root.textContent).toContain('Save your changes first.');
+    expect(btn().getAttribute('aria-describedby')).toBe('bootSaveFirst');
+    expect(root.querySelector('#bootSaveFirst')?.textContent).toContain('Save your changes first.');
   });
   it('shows the pending revision, its exact text, lint and an Approve bound to that revision', async () => {
     const lint = { items: [{ kind: 'BROKEN_INCLUDE', position: 4, text: 'Include at 4 does not resolve', targetUrn: null, pinnedRevision: null, newerRevision: null, workerField: null }], total: 3, nextCursor: 'c' };
@@ -142,5 +144,50 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
   it('the read-only compiled text can be scrolled by keyboard', async () => {
     const root = await open({ mode: 'compiled-only', compiled: compiledLite(2) });
     expect(root.querySelector('[data-boot-compiled-only] pre')?.getAttribute('tabindex')).toBe('0');
+  });
+
+  // The page after a loader refresh that moves only the COMPILED revision (compile, approve, mismatch reload).
+  async function refreshable(canManageAgent = true) {
+    const { reactiveProps } = await import('$lib/test/reactiveProps.svelte');
+    const base = await pageData('a', { mentionOnly: false }, { systemPrompt: 'LEGACY FIELD TEXT' });
+    const view = (compiledRevision: number): BootSourceView => ({ mode: 'source', node: { id: 'n1', urn: 'hrn:node:ada:sys:boot:source', revision: 3, content: SOURCE }, compiled: compiledLite(2, { id: `c${compiledRevision}`, revision: compiledRevision, pending: true, content: `compiled ${compiledRevision}` }) } as BootSourceView);
+    const bootSourceForm = await superValidate({ nodeId: 'n1', content: SOURCE, expectedRevision: 3 }, zod4(bootSourceSchema), { id: 'bootSource:a', errors: false });
+    const approveForm = async (rev: number) => superValidate({ nodeId: `c${rev}`, revision: rev }, zod4(bootApproveSchema), { id: 'bootApprove:a', errors: false });
+    const props = reactiveProps({ data: { ...base, canManageAgent, bootSource: view(5), bootSourceForm, bootApproveForm: await approveForm(5) }, form: null } as Record<string, unknown>);
+    mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    await tick(5);
+    [...mounted.target.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Boot prompt')!.click();
+    await tick();
+    const refresh = async (rev: number, form: unknown = props.form) => {
+      props.data = { ...(props.data as Record<string, unknown>), bootSource: view(rev), bootApproveForm: await approveForm(rev) };
+      props.form = form;
+      await tick(5);
+    };
+    return { root: mounted.target, refresh, approveForm };
+  }
+  const hidden = (root: HTMLElement, name: string) => root.querySelector<HTMLInputElement>(`[data-boot-approve] input[name=${name}]`)?.value;
+
+  it.each([
+    ['a mismatch reload', 'error', 'Someone updated the prompt after you opened it.'],
+    ['a successful approval followed by a new compile', 'success', 'Revision 5 approved.'],
+  ])('Approve follows the displayed compiled revision after %s', async (_n, type, text) => {
+    // The posted result survives the loader refresh (its revision is the old one); the panel must still bind to the displayed one.
+    const { root, refresh, approveForm } = await refreshable();
+    expect(hidden(root, 'revision')).toBe('5');
+    const posted = await approveForm(5);
+    posted.message = { type: type as 'error' | 'success', text };
+    await refresh(6, { form: posted });
+    expect(root.querySelector('[data-boot-compiled]')?.textContent).toBe('compiled 6');
+    expect(hidden(root, 'revision')).toBe('6');
+    expect(hidden(root, 'nodeId')).toBe('c6');
+  });
+  it('a compiled-only refresh keeps a dirty source draft', async () => {
+    const { root, refresh } = await refreshable();
+    const ta = area(root)!;
+    ta.value = 'my unsaved draft'; ta.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    await refresh(6);
+    expect(area(root)?.value).toBe('my unsaved draft');
+    expect(root.querySelector('[data-boot-compiled]')?.textContent).toBe('compiled 6');
   });
 });

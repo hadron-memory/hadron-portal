@@ -19,6 +19,11 @@ describe('compileRefusalText', () => {
     expect(text).toContain('pin missing');
     expect(text).toContain('character 17');
   });
+  it('BOOT_PROMPT_TARGET_RETIRED blames the Agent, not an include', () => {
+    const text = compileRefusalText('BOOT_PROMPT_TARGET_RETIRED', undefined, 4);
+    expect(text).toContain('This Agent has been retired');
+    expect(text).not.toMatch(/include/i);
+  });
   it('is honest when the served revision is none or unknown', () => {
     expect(compileRefusalText('CONFLICT', undefined, null)).toContain('no revision is approved yet');
     expect(compileRefusalText('CONFLICT', undefined, undefined)).toMatch(/Nothing changed\.$/);

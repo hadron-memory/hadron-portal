@@ -50,7 +50,7 @@ export function compileRefusalText(code: string | null | undefined, position: un
     case 'BOOT_PROMPT_NODE_TYPE':
       lead = t('boot.compile.refused.source-invalid', 'The source node isn’t a boot-prompt source.'); break;
     case 'BOOT_PROMPT_TARGET_RETIRED':
-      lead = t('boot.compile.refused.target-retired', 'An include in the source points at something that has been retired.'); break;
+      lead = t('boot.compile.refused.target-retired', 'This Agent has been retired, so its prompt can’t be updated.'); break;
     case 'BOOT_PROMPT_GRANT_REQUIRED':
       lead = t('boot.compile.refused.grant-required', 'An include in the source needs a grant that this Agent doesn’t have.'); break;
     case 'BOOT_PROMPT_COMPILE_LIMIT_EXCEEDED':
