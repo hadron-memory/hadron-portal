@@ -36,6 +36,9 @@ export interface AgentTaskSessionEndRequest {
 
 /** A board or tree row. */
 export interface AgentTaskRow {
+  /** Missing data stays unknown; the blocked flag is never reconstructed from relations. */
+  priority?: number | null;
+  blocked?: boolean | null;
   id: string;
   /** The immutable short handle (`AT3.405`), from server#2579. */
   handle: string;
@@ -195,3 +198,6 @@ export interface TaskRefInfo {
   title: string;
 }
 export type TaskRefs = Record<string, TaskRefInfo | null>;
+
+export interface TaskChoice { id: string; appId: string; title: string; handle: string; status: string }
+export interface TaskDependencyPage { items: TaskChoice[]; hasMore: boolean }

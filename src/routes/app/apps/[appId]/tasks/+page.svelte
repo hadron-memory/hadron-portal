@@ -49,6 +49,7 @@
     /** Everything the Status cell shows, so search reaches the words, never the enum. */
     statusText: string;
     title: string;
+    priority: number | undefined;
     ownerText: string;
     assigneeText: string;
     startByMs: number;
@@ -68,7 +69,8 @@
           const state = taskDisplayState(task);
           return {
             task,
-            statusText: [taskStateLabel(state, task.status), task.waitingOnChildren && task.status === 'STARTED' ? waitingOnSubtasksLabel() : '']
+            priority: task.priority ?? undefined,
+            statusText: [taskStateLabel(state, task.status), task.blocked === true ? t('app.tasks.blocked', 'Blocked') : '', task.waitingOnChildren && task.status === 'STARTED' ? waitingOnSubtasksLabel() : '']
               .filter(Boolean)
               .join(' '),
             title: [task.title, task.handle, task.source ?? ''].join(' ').trim(),
@@ -96,6 +98,7 @@
   const columns: PortalColumnDef<BoardRow>[] = [
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
     { id: 'title', accessorFn: (r) => r.title, header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 320 },
+    { id: 'priority', accessorFn: (r) => r.priority, header: t('app.tasks.priority', 'Priority'), size: 110, sortDescFirst: false, sortFn: 'basic', sortUndefined: 'last' },
     { id: 'owner', accessorFn: (r) => r.ownerText, header: t('app.tasks.col.owner', 'Owner'), size: 200 },
     { id: 'assignee', accessorFn: (r) => r.assigneeText, header: t('app.tasks.col.assignee', 'Assignee'), size: 200 },
     { id: 'subtasks', accessorFn: () => '', header: t('app.tasks.col.subtasks', 'Subtasks'), enableSorting: false, enableGlobalFilter: false, size: 120 },
@@ -263,6 +266,8 @@
               </span>
               {#if row.task.source}<TaskSource source={row.task.source} />{/if}
             </div>
+          {:else if cell.column.id === 'priority'}
+            {row.priority ?? '—'}
           {:else if cell.column.id === 'owner'}
             <PartyLabel party={row.task.owner} />
           {:else if cell.column.id === 'assignee'}

@@ -1,3 +1,4 @@
+import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { CREATE_AGENT_TASK_MUTATION } from '$lib/server/queries';
@@ -81,6 +82,12 @@ export const actions: Actions = {
 
     const backlog = str(fd, 'start') === 'backlog';
     const input: Record<string, unknown> = { appRef: app.id, title };
+    const priority = readTaskPriority(fd.get('priority'));
+    if (typeof priority === 'object') return writeFailure('create', { kind: 'invalid', ...priority }, values);
+    if (priority !== undefined) input.priority = priority;
+    const blockedBy = fd.getAll('blockedBy').filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+    if (blockedBy.length) input.blockedBy = blockedBy;
+
     const description = str(fd, 'description');
     if (description) input.description = description;
     if (backlog) input.status = 'BACKLOG';

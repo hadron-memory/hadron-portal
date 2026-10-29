@@ -218,7 +218,7 @@ describe('/app/agents/[id] loader', () => {
   });
 
   it('#472: a failed Apps read (either call) is installedAppsError, and the other call\'s rows survive', async () => {
-    const lite = (id: string) => ({ id, name: id, urn: `hrn:app:x:${id}`, organizationId: 'org-a', agentId: 'agent-aaa', agents: [] });
+    const lite = (id: string) => ({ id, name: id, urn: `hrn:app:x:${id}`, organizationId: 'org-a', appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [] });
     const run = async (opts: Parameters<typeof routeMock>[0]) => {
       routeMock({ agent: { data: { agent: agentInA } }, myOrgs: { data: { organizations: [orgA] } }, ...opts });
       const load = await importLoad();
@@ -626,54 +626,83 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
     const { bundledAgents: bundled } = await loadBundled({
       apps: [{
         id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a',
-        agentId: 'agent-aaa', agents: [selfLite, backend, frontend],
+        appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [selfLite, backend, frontend],
       }],
     });
     expect(bundled.map((a) => a.id)).toEqual(['agent-backend', 'agent-frontend']);
     expect(bundled[0]).toMatchObject({ name: 'Backend Engineer', personaRole: 'backend-engineer', via: 'Team App' });
   });
 
-  // portal#1148 (hadron-server#2089): an App whose roster is withheld (agents: null) has UNKNOWN siblings.
-  it('counts an App that withholds its agents instead of reading it as having none', async () => {
-    const result = (await loadBundled({
-      apps: [
-        { id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a', agentId: 'agent-aaa', agents: [selfLite, backend] },
-        { id: 'app-2', name: 'Private', urn: 'urn:app:2', organizationId: 'org-a', agentId: 'agent-aaa', agents: null },
-      ],
-    })) as { bundledAgents: Array<{ id: string }>; bundledWithheldApps?: number };
-    expect(result.bundledAgents.map((a) => a.id)).toEqual(['agent-backend']);
-    expect(result.bundledWithheldApps).toBe(1);
+  // portal#1350: App.agents drops an unreadable Agent and App.agentId is masked, so the only
+  // signal is an `appAgents` row whose `agent` is null. Pins the real nullable AppAgent shape.
+  type Flag = { bundledAgents: Array<{ id: string }>; installedApps: Array<{ id: string }>; bundledMayBeIncomplete?: boolean };
+  const hiddenRow = { agent: null };
+  const row = (id: string) => ({ agent: { id } });
+  const app = (id: string, appAgents: unknown, agents: unknown[] = [selfLite]) =>
+    ({ id, name: id, urn: `urn:app:${id}`, organizationId: 'org-a', appAgents, agents });
+
+  it('flags a hidden PRIMARY with a readable secondary: the secondary stays, the notice is on', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [hiddenRow, row('agent-aaa'), row('agent-backend')], [selfLite, backend])] })) as Flag;
+    expect(r.bundledAgents.map((a) => a.id)).toEqual(['agent-backend']);
+    expect(r.bundledMayBeIncomplete).toBe(true);
   });
 
-  // George, LOCAL on portal#1150: #2089 withholds agentId AND agents together, so the legal wire for
-  // the new audience is agentId: null + agents: null — an App the link-based filter would drop.
-  it('counts a fully withheld App (agentId null AND agents null): whether it installs this agent is unknown', async () => {
-    const result = (await loadBundled({
-      apps: [{ id: 'app-3', name: 'Private', urn: 'urn:app:3', organizationId: null, agentId: null, agents: null }],
-    })) as { bundledAgents: unknown[]; bundledWithheldApps?: number };
-    expect(result.bundledWithheldApps).toBe(1);
-    expect(result.bundledAgents).toEqual([]);
+  it('flags a readable primary with a hidden SECONDARY', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [row('agent-aaa'), hiddenRow])] })) as Flag;
+    expect(r.installedApps.map((a) => a.id)).toEqual(['app-1']);
+    expect(r.bundledMayBeIncomplete).toBe(true);
   });
 
-  it('does not count an App whose agentId names a different agent while agents is a real list', async () => {
-    const result = (await loadBundled({
-      apps: [{ id: 'app-4', name: 'Other', urn: 'urn:app:4', organizationId: 'org-a', agentId: 'agent-zzz', agents: [] }],
-    })) as { bundledWithheldApps?: number };
-    expect(result.bundledWithheldApps).toBe(0);
+  it('flags an App where only hidden installs exist (this agent unknown)', async () => {
+    const r = (await loadBundled({ apps: [app('app-3', [hiddenRow], [])] })) as Flag;
+    expect(r.bundledMayBeIncomplete).toBe(true);
+    expect(r.bundledAgents).toEqual([]);
   });
 
-  it('known-empty control: an App with a real [] is not counted as withheld', async () => {
-    const result = (await loadBundled({
-      apps: [{ id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a', agentId: 'agent-aaa', agents: [selfLite] }],
-    })) as { bundledWithheldApps?: number };
-    expect(result.bundledWithheldApps).toBe(0);
+  it('reads the signal from the org-less read too, and a duplicate across both reads still yields one boolean', async () => {
+    const a = app('app-9', [row('agent-aaa'), hiddenRow]);
+    const r = (await loadBundled({ apps: [a], ownedApps: [a] })) as Flag;
+    expect(r.installedApps.map((x) => x.id)).toEqual(['app-9']);
+    expect(r.bundledMayBeIncomplete).toBe(true);
+    const own = (await loadBundled({ ownedApps: [app('app-o', [row('agent-aaa'), hiddenRow])] })) as Flag;
+    expect(own.bundledMayBeIncomplete).toBe(true);
+  });
+
+  it('all-readable control: no notice', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [row('agent-aaa'), row('agent-backend')], [selfLite, backend])] })) as Flag;
+    expect(r.bundledMayBeIncomplete).toBe(false);
+  });
+
+  it('known-empty control: an App with a real empty join is not flagged', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [], [])] })) as Flag;
+    expect(r.bundledMayBeIncomplete).toBe(false);
+  });
+
+  it('malformed appAgents is unknown, never proof of completeness', async () => {
+    for (const bad of [null, undefined]) {
+      const r = (await loadBundled({ apps: [app('app-1', bad)] })) as Flag;
+      expect(r.bundledMayBeIncomplete).toBe(true);
+    }
+  });
+
+  it('payload carries a boolean only: no legacy count key', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [row('agent-aaa'), hiddenRow, hiddenRow])] })) as Record<string, unknown>;
+    expect(r.bundledMayBeIncomplete).toBe(true);
+    expect('bundledWithheldApps' in r).toBe(false);
+  });
+
+  it('selects the join, not the masked primary id, in both App documents', () => {
+    for (const doc of [AGENT_APPS_QUERY, AGENT_OWNED_APPS_QUERY]) {
+      expect(doc).toContain('appAgents { agent { id } }');
+      expect(doc).not.toMatch(/^\s+agentId\s*$/m);
+    }
   });
 
   it('ignores apps this agent is not installed in', async () => {
     const { bundledAgents: bundled } = await loadBundled({
       apps: [{
         id: 'app-2', name: 'Someone Else', urn: 'urn:app:2', organizationId: 'org-a',
-        agentId: 'agent-zzz', agents: [{ ...backend, id: 'agent-other' }],
+        appAgents: [{ agent: { id: 'agent-zzz' } }], agents: [{ ...backend, id: 'agent-other' }],
       }],
     });
     expect(bundled).toEqual([]);
@@ -705,7 +734,7 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
       },
       apps: [{
         id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a',
-        agentId: 'agent-aaa', agents: [selfLite, backend],
+        appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [selfLite, backend],
       }],
     });
     expect(bundled).toHaveLength(1);
@@ -736,7 +765,7 @@ describe('/app/agents/[id] loader — bundles across app OWNERSHIP classes (#714
       apps: { data: [] },
       ownedApps: { data: [{
         id: 'app-personal', name: 'My Team', urn: 'urn:app:mine', organizationId: null,
-        agentId: 'agent-aaa', agents: [selfLite, nova],
+        appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [selfLite, nova],
       }] },
     });
     const load = await importLoad();
@@ -753,7 +782,7 @@ describe('/app/agents/[id] loader — bundles across app OWNERSHIP classes (#714
   it('de-duplicates an app returned by BOTH lists (a platform admin sees overlap)', async () => {
     const app = {
       id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: null,
-      agentId: 'agent-aaa', agents: [selfLite, nova],
+      appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [selfLite, nova],
     };
     routeMock({
       agent: { data: { agent: agentInA } },

@@ -59,7 +59,7 @@ async function taskActions() {
 
 describe('task page actions', () => {
   it('the page has exactly these write actions', async () => {
-    expect(Object.keys(await taskActions()).sort()).toEqual(['assign', 'cancel', 'park', 'ready', 'reassign']);
+    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
   });
 
   // portal#1143
@@ -414,6 +414,14 @@ describe('task page actions: handle routes', () => {
     await (await taskActions()).park(at('AT3.405'));
     expect(request).toHaveBeenLastCalledWith(PARK_AGENT_TASK_MUTATION, { taskId: 'canon-1' });
     expect(resolver).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+  });
+
+  it('a planning write from a handle URL sends the canonical id as its taskRef', async () => {
+    const fd = new FormData();
+    fd.append('priority', '2');
+    const e = { ...(at('AT3.405') as unknown as Record<string, unknown>), request: { formData: async () => fd } } as never;
+    await (await taskActions()).priority(e);
+    expect(rawRequest).toHaveBeenLastCalledWith(expect.stringContaining('setAgentTaskPriority'), { taskRef: 'canon-1', priority: 2 });
   });
 
   it('another App’s qualified handle writes nothing and resolves nothing', async () => {

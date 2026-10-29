@@ -22,6 +22,7 @@ import { readTaskWarnings, type TaskWarnings } from '$lib/agent-tasks/warnings';
  */
 export const WRITE_REFUSAL_CODES = new Set([
   'TASK_NOT_FOUND',
+  'TASK_BLOCKER_CYCLE',
   'TASK_NOT_OWNER',
   'TASK_ENDED',
   'TASK_INVALID_TRANSITION',
