@@ -7,7 +7,7 @@ it.each(['INTERNAL_SERVER_ERROR','UNKNOWN_FAULT'])('a null App after %s is never
  const {load}=await import('./+page.server');
  await expect(load!(event())).rejects.toMatchObject({status:500,body:{message:expect.not.stringContaining('SELECT'),...(code==='INTERNAL_SERVER_ERROR'?{requestId:id}:{})}});
 });
-it.each(['NOT_FOUND','FORBIDDEN'])('%s retains concealed absence and no request id',async code=>{
+it.each(['NOT_FOUND','FORBIDDEN','UNAUTHENTICATED','BAD_USER_INPUT'])('%s retains concealed absence and no request id',async code=>{
  request.mockRejectedValue({response:{data:{app:null},errors:[{message:'unavailable',extensions:{code,requestId:id}}]}});
  const {load}=await import('./+page.server');
  try{await load!(event());throw new Error('expected refusal');}catch(e){expect(e).toMatchObject({status:404});expect(JSON.stringify(e)).not.toContain(id);}

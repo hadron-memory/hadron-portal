@@ -1065,3 +1065,12 @@ it('#1261 returns the raw requested page even when the reverse read fails', asyn
   expect(result.extendedAfter).toBe('opaque+/=');
   expect(result.extendedBy.failed).toBe(true);
 });
+
+it.each(['SelfImportError', 'MultiLevelImportError', 'MissingGrantError', 'PositionConflictError'])(
+  'preserves the landed publishAgentImport %s refusal', async (code) => {
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Intentional bundle refusal.', extensions: { code } }] } });
+    const { actions } = await importMod();
+    const result = await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never);
+    expect(result).toMatchObject({ status: 500, data: { bundleError: 'Intentional bundle refusal.' } });
+  },
+);
