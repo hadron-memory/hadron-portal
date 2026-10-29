@@ -4016,14 +4016,15 @@ export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
 // ---------------------------------------------------------------------------
 
 export const MY_USER_API_KEYS_QUERY = /* GraphQL */ `
-  query MyUserApiKeys {
-    myUserApiKeys {
+  query MyUserApiKeys($includeHidden: Boolean = false) {
+    myUserApiKeys(includeHidden: $includeHidden) {
       id
       keyPreview
       label
       createdAt
       lastUsedAt
       revokedAt
+      hiddenAt
       issuedVia
     }
   }
@@ -4039,6 +4040,7 @@ export const CREATE_USER_API_KEY_MUTATION = /* GraphQL */ `
         createdAt
         lastUsedAt
         revokedAt
+        hiddenAt
         issuedVia
       }
       rawKey
@@ -4055,7 +4057,17 @@ export const REVOKE_USER_API_KEY_MUTATION = /* GraphQL */ `
       createdAt
       lastUsedAt
       revokedAt
+      hiddenAt
       issuedVia
+    }
+  }
+`;
+
+export const SET_USER_API_KEY_HIDDEN_MUTATION = /* GraphQL */ `
+  mutation SetUserApiKeyHidden($id: ID!, $hidden: Boolean!) {
+    setUserApiKeyHidden(id: $id, hidden: $hidden) {
+      id
+      hiddenAt
     }
   }
 `;
