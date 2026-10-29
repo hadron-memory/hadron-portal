@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import SelectTask from '$lib/components/agent-tasks/SelectTask.svelte';
+  import type { TaskChoice } from '$lib/agent-tasks/types';
+  import { onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import PartyPicker from '$lib/components/agent-tasks/PartyPicker.svelte';
@@ -52,6 +54,18 @@
   let description = $state(v('description'));
   let source = $state(v('source'));
   let tags = $state(v('tags'));
+  let priority = $state(v('priority'));
+  let blockers = $state<string[]>(vs('blockedBy'));
+  let blockerLabels = $state<Record<string, string>>({});
+  let taskPicker = $state(false);
+  let planningApp = '';
+  $effect(() => {
+    const id = data.app.id;
+    untrack(() => {
+      if (planningApp && planningApp !== id) { priority = ''; blockers = []; blockerLabels = {}; taskPicker = false; }
+      planningApp = id;
+    });
+  });
   let owner = $state(v('owner') || 'me');
   let assignee = $state(v('assignee') || 'nobody');
   let familyIn = $state<string[]>(vs('familyIn'));
@@ -93,7 +107,8 @@
   /** A browser-to-portal failure (Diego's P2-1 on #1135): the task may exist, so the fixed line, and the form stays. */
   let transportRefusal = $state<WriteRefusal | null>(null);
   const shownRefusal = $derived(transportRefusal ?? result?.refusal ?? null);
-  const submit = () => {
+  const submit = ({ cancel }: { cancel: () => void }) => {
+    if (submitting) { cancel(); return; }
     submitting = true;
     transportRefusal = null;
     return async ({ result: r0, update }: { result: { type: string }; update: (o?: { reset?: boolean }) => Promise<void> }) => {
@@ -170,6 +185,7 @@
     </section>
   {:else}
     <form method="POST" use:enhance={submit} class="space-y-5 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+
       <input type="hidden" name="startByUtc" value={startByUtc} />
 
       <div class="space-y-1">
@@ -183,6 +199,23 @@
         <label for="new-description" class={labelClass}>{t('app.tasks.new.description', 'Description')}</label>
         <textarea id="new-description" name="description" rows="4" class={inputClass} bind:value={description}></textarea>
       </div>
+
+      <fieldset disabled={submitting} class="space-y-3 rounded border border-zinc-200 p-3 dark:border-zinc-700">
+        <legend class={labelClass}>{t('app.tasks.planning', 'Priority and blockers')}</legend>
+        <label for="new-priority" class={labelClass}>{t('app.tasks.priority', 'Priority')}</label>
+        <select id="new-priority" name="priority" bind:value={priority} class={inputClass}>
+          <option value="">{t('app.tasks.priority.default', 'Use default (1, highest)')}</option>
+          {#each [1,2,3,4,5] as value}<option value={String(value)}>{value}</option>{/each}
+        </select>
+        <p class={helpClass}>{t('app.tasks.planning.create-authority', 'Setting priority or blockers requires permission to assign the new task. Leave them unset to use the defaults.')}</p>
+        <div class="flex flex-wrap gap-2">
+          {#each blockers as ref (ref)}
+            <input type="hidden" name="blockedBy" value={ref} />
+            <button type="button" class="rounded border px-2 py-1 text-sm" onclick={() => blockers = blockers.filter((id) => id !== ref)}>{blockerLabels[ref] ?? t('app.tasks.blocker.selected', 'Selected task')} · {t('app.tasks.blocker.remove', 'Remove')}</button>
+          {/each}
+        </div>
+        <button type="button" class="rounded border px-3 py-1 text-sm" onclick={() => taskPicker = true}>{t('app.tasks.blocker.choose', 'Choose a blocker')}</button>
+      </fieldset>
 
       <fieldset class="space-y-1">
         <legend class={labelClass}>{t('app.tasks.new.start', 'Where it starts')}</legend>
@@ -302,3 +335,8 @@
     </form>
   {/if}
 </div>
+
+<SelectTask appId={data.app.id} bind:open={taskPicker} onselect={(task: TaskChoice) => {
+  if (!blockers.includes(task.id)) blockers = [...blockers, task.id];
+  blockerLabels = { ...blockerLabels, [task.id]: task.title };
+}} />

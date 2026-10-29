@@ -4677,12 +4677,15 @@ const AGENT_TASK_PARTY_FIELDS = /* GraphQL */ `
 
 const AGENT_TASK_ROW_FIELDS = /* GraphQL */ `
   fragment AgentTaskRowFields on AgentTask {
+    handle
     id
     parentTaskId
     title
     status
     queued
     waitingOnChildren
+    priority
+    blocked
     source
     owner { id kind name urn }
     assignee { id kind name urn }
@@ -4995,6 +4998,43 @@ export const CREATE_CUSTOMISATION_MUTATION = /* GraphQL */ `
       id
       loc
       revision
+    }
+  }
+`;
+
+// #1352: server#2644 merged wire; each edit retains the shared taskWrite semantics.
+export const SET_AGENT_TASK_PRIORITY_MUTATION = /* GraphQL */ `
+  mutation SetAgentTaskPriority($taskRef: ID!, $priority: Int!) {
+    setAgentTaskPriority(taskRef: $taskRef, priority: $priority) { id }
+  }
+`;
+export const ADD_AGENT_TASK_BLOCKER_MUTATION = /* GraphQL */ `
+  mutation AddAgentTaskBlocker($taskRef: ID!, $blockerTaskRef: ID!) {
+    addAgentTaskBlocker(taskRef: $taskRef, blockerTaskRef: $blockerTaskRef) { id }
+  }
+`;
+export const REMOVE_AGENT_TASK_BLOCKER_MUTATION = /* GraphQL */ `
+  mutation RemoveAgentTaskBlocker($taskRef: ID!, $blockerTaskRef: ID!) {
+    removeAgentTaskBlocker(taskRef: $taskRef, blockerTaskRef: $blockerTaskRef) { id }
+  }
+`;
+
+export const TASK_PICKER_QUERY = /* GraphQL */ `
+  query TaskPicker($appRef: ID!, $offset: Int!) {
+    agentTasks(appRef: $appRef, status: [BACKLOG, PENDING, STARTED], limit: 200, offset: $offset) {
+      id appId title handle status
+    }
+  }
+`;
+export const TASK_PICKER_EXACT_QUERY = /* GraphQL */ `
+  query TaskPickerExact($id: ID!) { agentTask(id: $id) { id appId title handle status } }
+`;
+export const TASK_DEPENDENCIES_QUERY = /* GraphQL */ `
+  query TaskDependencies($id: ID!, $offset: Int!) {
+    agentTask(id: $id) {
+      id appId
+      blockedBy(limit: 200, offset: $offset) { items { id appId title handle status } hasMore }
+      blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore }
     }
   }
 `;

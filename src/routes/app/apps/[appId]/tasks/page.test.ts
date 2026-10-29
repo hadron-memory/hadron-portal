@@ -141,7 +141,7 @@ describe('task page', () => {
     expect(html).toContain('hadron team task get t1');
     expect(html).toContain('No subtasks');
     expect(html).toContain('You can change a task you own, or any task if you manage the App.');
-    expect(html).not.toMatch(/<form/);
+    expect(html).toContain('action="?/priority"');
     expect(html).not.toMatch(/\bPark\b/);
   });
 
