@@ -1,6 +1,7 @@
 <script lang="ts">
   import BootPrompt from './BootPrompt.svelte';
   import BootPromptSource from './BootPromptSource.svelte';
+  import StartBootSource from './StartBootSource.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
   import AgentExtendedBy from '$lib/components/AgentExtendedBy.svelte';
   import type { NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -466,6 +467,10 @@
     const result = submittedForm(form, 'bootSource') as typeof data.bootSourceForm | null;
     return result?.id === data.bootSourceForm?.id ? result : null;
   });
+  const bootStartSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootStart') as typeof data.bootStartForm | null;
+    return result?.id === data.bootStartForm?.id ? result : null;
+  });
   const bootCompileSubmission = $derived.by(() => {
     const result = submittedForm(form, 'bootCompile') as typeof data.bootCompileForm | null;
     return result?.id === data.bootCompileForm?.id ? result : null;
@@ -475,7 +480,7 @@
     return result?.id === data.bootApproveForm?.id ? result : null;
   });
   $effect(() => {
-    if (bootPromptSubmission || bootSourceSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
+    if (bootPromptSubmission || bootSourceSubmission || bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -825,13 +830,16 @@
     <div hidden={activeTab !== 'boot'}>
       {#if data.bootSource.mode === 'legacy'}
         <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">{t('agent.boot.legacy-note', 'This is the legacy prompt field. Set a boot prompt pointer in Settings to serve a compiled prompt instead.')}</p>
+        {#if data.bootSource.canStart}
+          {#key data.bootStartForm.id}<StartBootSource seeded={false} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
+        {/if}
         {#key data.bootPromptForm.id}
           <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'source'}
         <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
         {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
-          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
+          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'compiled-only'}
         <section data-boot-compiled-only>
@@ -841,7 +849,11 @@
           <pre tabindex="0" aria-label={t('agent.boot.compiled-text-label', 'Compiled prompt text')} class="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{data.bootSource.compiled.content}</pre>
         </section>
       {:else if data.bootSource.mode === 'source-missing'}
-        <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
+        {#if data.bootSource.canStart}
+          {#key data.bootStartForm.id}<StartBootSource seeded={true} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
+        {:else}
+          <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
+        {/if}
       {:else if data.bootSource.mode === 'source-unreadable'}
         <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-unreadable', 'You can’t see this Agent’s boot prompt.')}</p>
       {:else}

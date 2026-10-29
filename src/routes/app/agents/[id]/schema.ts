@@ -91,6 +91,8 @@ export const bootSourceSchema = z.object({
 });
 
 // portal#1377 S2: compile carries nothing but its kind; approve pins the revision the manager read.
+// portal#1378: "Start a source" carries nothing but its kind; the seed is read server-side.
+export const bootStartSchema = z.object({ _kind: z.literal('bootStart').default('bootStart') });
 export const bootCompileSchema = z.object({ _kind: z.literal('bootCompile').default('bootCompile') });
 export const bootApproveSchema = z.object({
   _kind: z.literal('bootApprove').default('bootApprove'),
