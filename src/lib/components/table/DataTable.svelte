@@ -86,7 +86,7 @@
      TableFrame). The view strip takes the remaining width (flex-1) so its
      "+ New view" button lands next to Columns; bordered=false since it no
      longer sits on its own line. -->
-<TableFrame {active} bind:open={headerOpen}>
+<TableFrame {active} {searchable} bind:open={headerOpen}>
   {#snippet controls()}
   {#if searchable}
   <input type="text" placeholder={searchPlaceholder} aria-label={searchAriaLabel} bind:value={globalFilter}

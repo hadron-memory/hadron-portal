@@ -34,6 +34,9 @@ export const tableStrings = {
   /** Folded-header toggle (search, saved views and columns live behind it). */
   showHeader: (): string => t('table.header.show', 'Search, views & columns'),
 
+  /** The same toggle on a table whose search is not its own (portal#1400): saved views and columns only. */
+  showHeaderWithoutSearch: (): string => t('table.header.show-without-search', 'Views & columns'),
+
   /** Button that folds the header again. */
   hideHeader: (): string => t('table.header.hide', 'Hide'),
 

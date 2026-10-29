@@ -93,6 +93,12 @@ describe('board text search', () => {
     expect((html.match(/<input[^>]*type="(text|search)"/g) ?? []).length).toBe(1);
   });
 
+  it('the table’s folded header no longer promises a search it does not have', () => {
+    const html = board();
+    expect(html).toMatch(/data-testid="table-header-toggle"[^>]*>[\s\S]*?Views &amp; columns/);
+    expect(html).not.toContain('Search, views');
+  });
+
   it('says how many tasks are shown, and never calls that a total', () => {
     const three = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ id: 'a' }), task({ id: 'b' }), task({ id: 'c' })] } } });
     expect(three).toMatch(/data-testid="board-count"[^>]*>\s*3 tasks shown/);
