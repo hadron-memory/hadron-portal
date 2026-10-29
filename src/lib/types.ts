@@ -209,6 +209,19 @@ export interface TeamChatMessage {
    * the thread then shows nothing, never a guessed address.
    */
   urn: string | null;
+  /**
+   * Immutable head identity/display pairs stamped when the message was posted
+   * (S3, server#2019). `label` is a post-time display snapshot, never identity:
+   * chips key and filter by `headId`. `[]` is a known no-team post; NULL is a
+   * historical absence OR a withheld value, indistinguishable by design — render
+   * no chip and make no claim, never "untagged" or "private".
+   */
+  teamTags: TeamTagSnapshot[] | null;
+}
+
+export interface TeamTagSnapshot {
+  headId: string;
+  label: string;
 }
 
 /**
@@ -624,6 +637,24 @@ export interface NodeRevision {
   createdAt: string;
 }
 
+// portal#1355 (server#2562, #2517): one audit entry a HARD delete left on this
+// node when it removed an edge the node held to the deleted target
+// (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). Deliberately not a NodeRevision — revisions stay snapshots
+// of the node's own fields. edgeLoc/targetLoc are null when the deleted
+// target's memory is not one the viewer can read (the locs derive from the
+// target's address); render that as absent, never as an empty value.
+export interface NodeEdgeRemoval {
+  id: string;
+  edgeLoc: string | null;
+  edgeName: string | null;
+  targetId: string;
+  targetLoc: string | null;
+  reason: string;
+  // The same actor a soft delete records as deletedBy; null when unattributed.
+  removedBy: string | null;
+  createdAt: string;
+}
+
 export interface MemoryNode {
   id: string;
   memoryId: string;
@@ -990,3 +1021,6 @@ export interface RegisterEntry {
   description: string | null;
   createdAt: string;
 }
+
+/** The server's typed refusal of a team head (#1137), shown verbatim. */
+export type TeamChatRefusal = { code: string; message: string };

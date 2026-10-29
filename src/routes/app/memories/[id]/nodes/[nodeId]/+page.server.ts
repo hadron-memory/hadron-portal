@@ -9,7 +9,7 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
@@ -32,12 +32,15 @@ import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isC
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
-import type { MemoryNode, NodeRevision } from '$lib/types';
+import type { MemoryNode, NodeEdgeRemoval, NodeRevision } from '$lib/types';
 import { isCapped } from '$lib/server/capped';
 
 // nodeRevisions has no offset or cursor (hadron-server#2212): the history is one
 // window of the newest revisions, and the History tab says when it came back full.
 const REVISIONS_LIMIT = 100;
+// nodeEdgeRemovals is the same one-window shape (server#2562), so it shares the
+// window size and the full-window cue.
+const REMOVALS_LIMIT = 100;
 import type { Actions, PageServerLoad } from './$types';
 import { loadSkillCheck } from '$lib/server/skill-check';
 import { nodeStorageSeed, noWriteDoor, runnableBlockedBy, updateStorage } from './storage-action';
@@ -326,6 +329,27 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     }
   })();
 
+  // portal#1355: edge-removal audit entries (server#2562, hrn:node:hadronmemory.com:specs:cor:dmo:010:04) for
+  // the History tab. STREAMED and best-effort like the revision history, with
+  // the same discriminated result so the tab can tell "none recorded" from
+  // "couldn't load" — a silent [] on failure would mask a real error as an
+  // absent audit trail. A comment never held edges of its own, so its page
+  // asks for none (mirroring the revisions read above).
+  const edgeRemovals = (async (): Promise<{ ok: boolean; items: NodeEdgeRemoval[]; capped?: boolean }> => {
+    if (isComment) return { ok: true, items: [] };
+    try {
+      const r = await gqlClient(locals.token).request<{ nodeEdgeRemovals: NodeEdgeRemoval[] }>(
+        NODE_EDGE_REMOVALS_QUERY,
+        { nodeRef: node.id, limit: REMOVALS_LIMIT },
+      );
+      const items = r?.nodeEdgeRemovals ?? [];
+      return { ok: true, items, capped: isCapped(items.length, REMOVALS_LIMIT) };
+    } catch (e) {
+      console.warn('[node-detail] edge-removal audit failed:', e);
+      return { ok: false, items: [] };
+    }
+  })();
+
   // #914: authorship + advisory content validation, for the node and for its
   // History rows. Each is its OWN streamed read (see NODE_PROVENANCE_QUERY for
   // why it never rides on the node or history reads), and a failure resolves to
@@ -550,6 +574,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     testFlowApps,
     memories,
     revisions,
+    edgeRemovals,
     provenance,
     revisionProvenance,
     approval,

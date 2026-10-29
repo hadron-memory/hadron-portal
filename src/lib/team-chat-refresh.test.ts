@@ -106,6 +106,7 @@ function msg(seq: number, over: Partial<TeamChatMessage> = {}): TeamChatMessage 
     replyToSeq: null,
     mentions: [],
     urn: null,
+    teamTags: null,
     ...over,
   };
 }
