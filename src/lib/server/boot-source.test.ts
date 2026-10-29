@@ -10,7 +10,17 @@ describe('readBootSource', () => {
     expect(await readBootSource(client(() => ({})), { ok: false }, 'sys')).toEqual({ mode: 'unknown' });
   });
   it('no pointer is legacy', async () => {
-    expect(await readBootSource(client(() => ({})), { ok: true, ref: null, deleted: null }, 'sys')).toEqual({ mode: 'legacy' });
+    expect(await readBootSource(client(() => ({ node: null })), { ok: true, ref: null, deleted: null }, 'sys')).toEqual({ mode: 'legacy', canStart: true });
+  });
+  it('portal#1378: no pointer and no system memory, or a source read that fails, offers no Start', async () => {
+    expect(await readBootSource(client(() => ({})), { ok: true, ref: null, deleted: null }, null)).toEqual({ mode: 'legacy', canStart: false });
+    for (const code of ['FORBIDDEN', 'MEMORY_NOT_FOUND', 'INTERNAL_SERVER_ERROR']) {
+      expect(await readBootSource(client(() => { throw gqlErr(code); }), { ok: true, ref: null, deleted: null }, 'sys')).toEqual({ mode: 'legacy', canStart: false });
+    }
+  });
+  it('portal#1378: a source started for a pointer-less Agent is edited, not offered again, and nothing is served yet', async () => {
+    const c = client(() => ({ node: { id: 'n1', urn: 'u', revision: 1, content: 'seed' } }));
+    expect(await readBootSource(c, { ok: true, ref: null, deleted: null }, 'sys')).toEqual({ mode: 'source', node: { id: 'n1', urn: 'u', revision: 1, content: 'seed' }, compiled: null, noPointer: true });
   });
   it('reads the source raw at boot:source and the approved revision of the pointed node', async () => {
     const c = client((q) => q === BOOT_SOURCE_QUERY
@@ -24,7 +34,9 @@ describe('readBootSource', () => {
   });
   it('a missing source node is source-missing; a refused read is source-unreadable; other failures are unknown', async () => {
     const p = { ok: true as const, ref: 'r', deleted: false };
-    expect(await readBootSource(client(() => ({ node: null })), p, 'sys')).toEqual({ mode: 'source-missing' });
+    expect(await readBootSource(client((q) => q === BOOT_SOURCE_QUERY ? { node: null } : { node: { id: 'c1', urn: 'cu', revision: 2, content: 'built', approvalStatus: { state: 'APPROVED', approval: { revision: 2 } }, lintWarnings: null } }), p, 'sys'))
+      .toEqual({ mode: 'source-missing', canStart: true, compiled: { id: 'c1', urn: 'cu', revision: 2, content: 'built', approvedRevision: 2, pending: false, lint: null } });
+    expect(await readBootSource(client((q) => { if (q === BOOT_COMPILED_QUERY) throw new Error('boom'); return { node: null }; }), p, 'sys')).toEqual({ mode: 'source-missing', canStart: true, compiled: null });
     expect(await readBootSource(client(() => { throw gqlErr('FORBIDDEN'); }), p, 'sys')).toEqual({ mode: 'source-unreadable' });
     expect(await readBootSource(client(() => { throw new Error('boom'); }), p, 'sys')).toEqual({ mode: 'unknown' });
   });
