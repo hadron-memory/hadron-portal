@@ -77,7 +77,7 @@
   } from '$lib/flow/extraction';
   import { fillViewport } from '$lib/fill-viewport';
   import { scrollHint } from '$lib/scroll-hint';
-  import type { NodeEdge, NodeRevision } from '$lib/types';
+  import type { NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import NodeStorageForm from './NodeStorageForm.svelte';
   import {
@@ -1823,6 +1823,33 @@
     });
   });
 
+  // portal#1355: edge-removal audit entries (server#2562, hrn:node:hadronmemory.com:specs:cor:dmo:010:04) —
+  // the same streamed-promise pattern as the revisions above, for the same
+  // reasons: client-rendered (the History tab isn't SSR'd), and every
+  // resolution is checked against the promise now current so a late answer
+  // for the node the reader navigated away from can't land on this one.
+  let removalRows = $state<NodeEdgeRemoval[]>([]);
+  let removalsLoaded = $state(false);
+  let removalsFailed = $state(false);
+  let removalsCapped = $state(false);
+  $effect(() => {
+    const p = data.edgeRemovals; // track the current navigation's promise
+    // Node A's rows or failure must not read as node B's history while B's
+    // promise is pending (portal#1356 BLIND review, P2) — reset the display
+    // synchronously, the way the provenance effect does.
+    removalRows = [];
+    removalsFailed = false;
+    removalsLoaded = false;
+    removalsCapped = false;
+    p.then((res) => {
+      if (data.edgeRemovals !== p) return;
+      removalRows = res.items;
+      removalsCapped = res.capped === true;
+      removalsFailed = !res.ok; // distinguish "none recorded" from "couldn't load"
+      removalsLoaded = true;
+    });
+  });
+
   // #914: authorship + advisory validation. Both are streamed and resolve to a
   // result that may be { ok: false }. Each resolution is checked against the
   // promise now current, so a late answer for the node the reader navigated
@@ -2007,6 +2034,54 @@
     // the cell shows; the raw ISO rides along, and it is also the cell's own
     // `title`, so a reader can search what the tooltip shows them.
     globalFilterFn: makeGlobalFilterFn<HistoryRow>({}, {
+      when: (row) => `${formatPortalDateTime(row.createdAt)} ${row.createdAt}`,
+    }),
+    initialState: {
+      pagination: { pageIndex: 0, pageSize: 20 },
+      sorting: [{ id: 'when', desc: true }], // most recent first
+    },
+  });
+
+  // ── portal#1355 — edge-removal audit entries in their own DataTable ────────
+  // hrn:node:hadronmemory.com:specs:cor:dmo:010:04: an entry is an audit record, never a revision, so it gets
+  // its own list (and its own listKey) under the revisions table rather than
+  // masquerading as a History row. No row actions — there is nothing to do
+  // with an entry; it is a trace.
+  let removalFilter = $state('');
+  // hrn:node:hadronmemory.com:specs:cor:dmo:010:04: today only TARGET_HARD_DELETED exists. An unknown code
+  // renders verbatim rather than being guessed at — a loud unknown beats a
+  // silent wrong label.
+  function removalReasonText(r: NodeEdgeRemoval): string {
+    if (r.reason === 'TARGET_HARD_DELETED') return t('node.history.removals.reason.target-hard-deleted', 'Target was hard-deleted');
+    return r.reason;
+  }
+  const removalColumns: PortalColumnDef<NodeEdgeRemoval>[] = [
+    { accessorFn: (r) => revisionDateMs(r.createdAt), id: 'when', header: t('node.history.removals.col.when', 'When'), size: 200 },
+    { accessorFn: (r) => `${r.edgeName ?? ''} ${r.edgeLoc ?? ''}`, id: 'edge', header: t('node.history.removals.col.edge', 'Edge'), size: 240 },
+    // The loc is the addressable part; the stable id is the only handle that
+    // survives the delete, so both ride along (the id also carries the search).
+    { accessorFn: (r) => `${r.targetLoc ?? ''} ${r.targetId}`, id: 'target', header: t('node.history.removals.col.target', 'Removed target'), size: 240 },
+    { accessorFn: (r) => removalReasonText(r), id: 'reason', header: t('node.history.removals.col.reason', 'Reason'), enableSorting: false, size: 200 },
+    { accessorFn: (r) => r.removedBy ?? '', id: 'removedBy', header: t('node.history.removals.col.removed-by', 'Deleted by'), size: 180 },
+  ];
+  const removalTable = createSvelteTable<NodeEdgeRemoval>({
+    get data() {
+      return removalRows;
+    },
+    columns: removalColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: {
+      get globalFilter() {
+        return removalFilter;
+      },
+    },
+    onGlobalFilterChange: (u) => {
+      removalFilter = typeof u === 'function' ? u(removalFilter) : u;
+    },
+    // #820, same as the revisions table: sort by epoch, match the rendered text.
+    globalFilterFn: makeGlobalFilterFn<NodeEdgeRemoval>({}, {
       when: (row) => `${formatPortalDateTime(row.createdAt)} ${row.createdAt}`,
     }),
     initialState: {
@@ -3861,6 +3936,75 @@
           {/snippet}
         </DataTable>
         </div>
+      {/if}
+
+      <!-- ═══ portal#1355 — edge-removal audit entries (server#2562,
+           hrn:node:hadronmemory.com:specs:cor:dmo:010:04) ═══ Edges a hard delete of their target removed from
+           THIS node: an audit record, never a revision (revisions stay
+           snapshots of the node's own fields), so it renders as its own list
+           under the revisions table. Hidden while empty and while streaming —
+           an absence of entries is not news — but a FAILED read says so: the
+           streamed result is discriminated precisely so a silent [] can't mask
+           an error as an absent audit trail. -->
+      {#if removalsFailed || removalRows.length > 0}
+        <section class="mt-8" aria-labelledby="edge-removals-heading">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <h3 id="edge-removals-heading" class="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{t('node.history.removals.heading', 'Removed edges')}</h3>
+            {#if removalsCapped}<CappedNotice shown={removalRows.length} what={t('capped.edge-removals', 'removed-edge entries (the newest)')} />{/if}
+          </div>
+          {#if removalsFailed}
+            <div class="rounded-lg border border-amber-300 bg-amber-50 p-6 text-center dark:border-amber-800 dark:bg-amber-950">
+              <p class="text-sm text-amber-800 dark:text-amber-300">{t('node.history.removals.load-failed', "Couldn't load the removed-edges audit — the node service returned an error. This is not the same as none recorded; try refreshing.")}</p>
+            </div>
+          {:else}
+          <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">{t('node.history.removals.intro', 'Edges removed from this node when their target was hard-deleted, most recent first. Each entry is an audit record, not a revision.')}</p>
+          <div class="space-y-3">
+            <DataTable
+              table={removalTable}
+              listKey="node:edge-removals"
+              searchPlaceholder={t('node.history.removals.search', 'Search removed edges…')}
+              searchAriaLabel={t('node.history.removals.search', 'Search removed edges…')}
+              bind:globalFilter={removalFilter}
+              maxHeight="max(200px, calc(100vh - 28rem))"
+            >
+            {#snippet cell(cell, r)}
+              {#if cell.column.id === 'when'}
+                <span class="whitespace-nowrap text-zinc-600 dark:text-zinc-400" title={r.createdAt}>{formatPortalDateTime(r.createdAt)}</span>
+              {:else if cell.column.id === 'edge'}
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-zinc-700 dark:text-zinc-300">{r.edgeName ?? '—'}</span>
+                  {#if r.edgeLoc}
+                    <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.edgeLoc}</code>
+                  {:else}
+                    <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld-edge', 'Not shown')}</span>
+                  {/if}
+                </div>
+              {:else if cell.column.id === 'target'}
+                <div class="flex flex-col gap-0.5">
+                  {#if r.targetLoc}
+                    <code class="text-xs text-zinc-600 dark:text-zinc-400">{r.targetLoc}</code>
+                  {:else}
+                    <span class="text-xs italic text-zinc-500 dark:text-zinc-400">{t('node.history.removals.withheld', "Not shown: it was in a memory you can't read.")}</span>
+                  {/if}
+                  <!-- The stable id is the one handle that outlives the delete. -->
+                  <code class="text-xs text-zinc-500 dark:text-zinc-400">{r.targetId}</code>
+                </div>
+              {:else if cell.column.id === 'reason'}
+                <span class="text-zinc-600 dark:text-zinc-400" title={r.reason}>{removalReasonText(r)}</span>
+              {:else if cell.column.id === 'removedBy'}
+                {#if r.removedBy}
+                  <!-- removedBy is a bare actor id (no resolution field in the
+                       SDL) — shown verbatim rather than guessed at. -->
+                  <code class="text-xs text-zinc-500 dark:text-zinc-400" title={t('node.history.removals.removed-by-title', 'The actor id a soft delete would record (a user, app or client)')}>{r.removedBy}</code>
+                {:else}
+                  <span class="text-zinc-400">—</span>
+                {/if}
+              {/if}
+            {/snippet}
+          </DataTable>
+          </div>
+          {/if}
+        </section>
       {/if}
     {/if}
 

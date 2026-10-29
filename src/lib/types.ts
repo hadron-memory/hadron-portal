@@ -618,6 +618,24 @@ export interface NodeRevision {
   createdAt: string;
 }
 
+// portal#1355 (server#2562, #2517): one audit entry a HARD delete left on this
+// node when it removed an edge the node held to the deleted target
+// (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). Deliberately not a NodeRevision — revisions stay snapshots
+// of the node's own fields. edgeLoc/targetLoc are null when the deleted
+// target's memory is not one the viewer can read (the locs derive from the
+// target's address); render that as absent, never as an empty value.
+export interface NodeEdgeRemoval {
+  id: string;
+  edgeLoc: string | null;
+  edgeName: string | null;
+  targetId: string;
+  targetLoc: string | null;
+  reason: string;
+  // The same actor a soft delete records as deletedBy; null when unattributed.
+  removedBy: string | null;
+  createdAt: string;
+}
+
 export interface MemoryNode {
   id: string;
   memoryId: string;
