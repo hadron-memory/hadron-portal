@@ -36,6 +36,10 @@ export interface AgentTaskSessionEndRequest {
 
 /** A board or tree row. */
 export interface AgentTaskRow {
+  handle?: string | null;
+  /** Missing data stays unknown; the blocked flag is never reconstructed from relations. */
+  priority?: number | null;
+  blocked?: boolean | null;
   id: string;
   parentTaskId: string | null;
   title: string;
@@ -180,3 +184,6 @@ export type WriteCandidates = {
   /** The members read FAILED (a reload can fix it): `people` is unknown, not empty, and not withheld. */
   peopleFailed?: boolean;
 };
+
+export interface TaskChoice { id: string; appId: string; title: string; handle: string; status: string }
+export interface TaskDependencyPage { items: TaskChoice[]; hasMore: boolean }

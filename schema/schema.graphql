@@ -1,4 +1,4 @@
-# Exported from hadron-server 86939843aaae53bb1a1318d3f4c8b5cb5b176bac (86939843a, 2026-10-29T13:41:21-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server c81b1cf14ef9b65f680a31d47166bf9dbce5c571 (c81b1cf14ef9b65f680a31d47166bf9dbce5c571, 2026-10-29T14:16:19-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -12407,6 +12407,9 @@ type Query {
   templates are NOT compiled (unlike the single-node 'node' read), since this
   is a bulk source read for lint / audit / migration and compiling per node
   would re-introduce the N+1 it eliminates.
+  Requested edge fields share a 2000-row budget for this batch result; exceeding
+  it returns BAD_USER_INPUT. Read large edge sets through the paged edges query.
+  Unselected edges and endpoint bodies are not prefetched by the batch read.
   """
   nodeBatch(locPrefix: String, memory: ID, refs: [ID!]): NodeBatchResult!
 

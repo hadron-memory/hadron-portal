@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import CopyCode from '$lib/components/agent-tasks/CopyCode.svelte';
   import NotParticipant from '$lib/components/agent-tasks/NotParticipant.svelte';
@@ -106,6 +107,8 @@
       <CopyCode value="hadron team task get {task.id}" label={t('app.tasks.copy-cli', 'Copy the CLI command that reads this task')} />
     </div>
   </div>
+
+  <TaskPlanning {task} appId={data.app.id} canWrite={data.canWrite} dependencies={data.dependencies} />
 
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-facts">
     <h2 id="task-facts" class="sr-only">{t('app.tasks.facts', 'Facts')}</h2>
