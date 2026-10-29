@@ -1,3 +1,4 @@
+import { captureNodeAdvice } from './node-advice';
 import { GraphQLClient } from 'graphql-request';
 import { env } from '$env/dynamic/private';
 
@@ -9,6 +10,7 @@ export function serverBaseUrl(): string {
 export function gqlClient(token?: string | null): GraphQLClient {
   const url = `${serverBaseUrl()}/graphql`;
   return new GraphQLClient(url, {
+    responseMiddleware: captureNodeAdvice,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 }

@@ -41,7 +41,7 @@ function channel(over: Record<string, unknown> = {}) {
   return {
     id: 'ch-1', name: 'All hands', description: null, kind: 'CHAT', loc: 'chats:all-hands',
     chatRootUrn: 'hrn:node:acme.com:shared:chats:all-hands', chatRootNodeId: 'root-1',
-    lastSeq: 3, lastMessageAt: null, createdAt: '', memory: MEM, ...over,
+    lastSeq: 3, lastMessageAt: null, createdAt: '', memoryId: 'mem-org', memory: MEM, ...over,
   };
 }
 function row(over: Record<string, unknown> = {}) {

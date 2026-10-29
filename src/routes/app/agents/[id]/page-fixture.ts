@@ -6,7 +6,9 @@
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import {
-  bootPromptSchema,
+  bootSourceSchema,
+  bootCompileSchema,
+  bootApproveSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
   agentSettingsSchema,
@@ -18,7 +20,7 @@ import {
 export function agent(id: string) {
   return {
     id, organizationId: null, urn: `hrn:agent:ada:${id}`, name: `Agent ${id}`, description: null,
-    systemPrompt: null, systemMemoryId: null, visibility: 'PERSONAL', type: 'ASSISTANT', surfaces: [],
+    systemMemoryId: null, visibility: 'PERSONAL', type: 'ASSISTANT', surfaces: [],
     personaRole: null, properties: null, hasAiApiKey: false, memoryItems: [], imports: [],
     memoryProvisioning: null, installationPolicy: null, createdAt: '2026-09-01T00:00:00Z',
   };
@@ -42,10 +44,14 @@ export async function pageData(
     configsError: false,
     currentUserId: 'user-1',
     form: await superValidate(
-      { name: `Agent ${id}`, urnSlug: id, description: '', systemPrompt: '', visibility: 'PERSONAL', systemMemoryId: '', personaRole: '' },
+      { name: `Agent ${id}`, urnSlug: id, description: '', visibility: 'PERSONAL', systemMemoryId: '', personaRole: '' },
       zod4(agentSettingsSchema), { errors: false },
     ),
-    bootPromptForm: await superValidate({ systemPrompt: String(agentOverride.systemPrompt ?? '') }, zod4(bootPromptSchema), { id: `bootPrompt:${id}`, errors: false }),
+    // portal#1377: no pointer; tests may supply a source explicitly.
+    bootSource: { mode: 'legacy' } as import('$lib/server/boot-source').BootSourceView,
+    bootSourceForm: await superValidate({ nodeId: '', content: '', expectedRevision: 1 }, zod4(bootSourceSchema), { id: `bootSource:${id}`, errors: false }),
+    bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${id}`, errors: false }),
+    bootApproveForm: await superValidate({ nodeId: '', revision: 1 }, zod4(bootApproveSchema), { id: `bootApprove:${id}`, errors: false }),
     registerDefaults,
     registerDefaultsForm: await superValidate(
       { mentionOnly: registerDefaults?.mentionOnly ?? false },

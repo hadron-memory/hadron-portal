@@ -38,7 +38,7 @@ export const actions: Actions = {
     const agentName = form.data.agentName;
     const agentSlug = form.data.agentSlug;
     const agentDescription = form.data.agentDescription || null;
-    const systemPrompt = form.data.systemPrompt || null;
+
     // Spec 035: the form's visibility drives the AGENT (AgentVisibility:
     // PUBLIC | ORGANIZATION | PERSONAL). The memories it creates take
     // MemoryVisibility (no PERSONAL), so map PERSONAL -> ORGANIZATION for the
@@ -98,7 +98,6 @@ export const actions: Actions = {
         orgId: params.id,
         name: agentSlug || agentName,
         description: agentDescription,
-        systemPrompt,
         systemMemoryId,
         visibility,
       });
@@ -167,7 +166,7 @@ export const actions: Actions = {
 
       await client.request(CREATE, { input: {
         memoryId: systemMemoryId, loc: 'prompts:setup:onboard', name: 'onboard', nodeType: 'system',
-        content: `You are ${agentName}.${systemPrompt ? ' ' + systemPrompt : ''}\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
+        content: `You are ${agentName}.\n\nWelcome the user and learn about them.\nAsk for their name to get started.\n\nRespond using the 'respond' tool.`,
       }});
 
       // partials

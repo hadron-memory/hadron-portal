@@ -5,14 +5,14 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
-import { SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import { SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import { loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
-import { updateBriefingSchema } from './schema';
+import { updateSignatureSchema } from './schema';
 
-const updateBriefingAdapter = zod4(updateBriefingSchema);
+const updateSignatureAdapter = zod4(updateSignatureSchema);
 
 /**
  * #758 — the worker page's tab ids. These are ADDRESSES, not labels: they are
@@ -150,18 +150,25 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     selfCanManage(client, locals.user?.id, worker.app?.urn),
   ]);
 
-  // #1010: seeded with the worker's CURRENT override, so the Source view opens
-  // on what is stored rather than on an empty box a reader could mistake for
-  // "there is no override" and save over.
-  const briefingForm = await superValidate(
-    { promptOverride: worker.promptOverride ?? '' },
-    updateBriefingAdapter,
+  // portal#1142 P4: seeded with the stored templates and, as bases, the same
+  // values, so a save sends only what the reader changed. A masked (null) field
+  // seeds as '': the page shows it as "not shown" (it reads worker.signature,
+  // not this form) and posts nothing for it.
+  const signatureForm = await superValidate(
+    {
+      signature: worker.signature ?? '',
+      trailer: worker.trailer ?? '',
+      signatureBase: worker.signature ?? '',
+      trailerBase: worker.trailer ?? '',
+    },
+    updateSignatureAdapter,
     { errors: false },
   );
 
   return {
     worker,
-    briefingForm,
+
+    signatureForm,
     initialTab,
     initialView,
     workerSessions: sessions ? sessions.slice(0, SESSION_PAGE_SIZE) : null,
@@ -186,61 +193,56 @@ export const actions: Actions = {
       gqlClient(locals.token).request(SET_WORKER_BOOT_PROMPT_MUTATION, { workerRef: params.id, nodeRef })),
 
   /**
-   * #1010 — save the worker's prompt OVERRIDE.
+   * portal#1142 P4 (hadron-server#1602 / #2120) — save the signature and/or
+   * trailer TEMPLATE. Only a field the page showed AND the reader changed is
+   * sent: an unchanged one is omitted (the server preserves it), a masked one
+   * was never posted, and nothing is ever sent as null (the server refuses it).
+   * An emptied template goes as text: it stores '' and delivers nothing.
    *
-   * Named for what it writes. It is deliberately not `updateBriefing` on the
-   * wire either: the briefing is composed and underivable from this input, so a
-   * name promising to save "the briefing" would misdescribe the one thing this
-   * action can do.
+   * Refusals are the server's to make. FORBIDDEN gets a fixed line that gives
+   * no reason: who may write is the server's rule (H26 is provisional), and the
+   * portal does not restate it. BAD_USER_INPUT and WORKER_RETIRED carry their
+   * reason, so their message is shown whole. Every path returns the posted
+   * form, so the draft stays on screen.
    */
-  updateBriefing: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), updateBriefingAdapter);
+  updateSignature: async ({ request, params, locals }) => {
+    const posted = await request.formData();
+    const form = await superValidate(posted, updateSignatureAdapter);
     if (!form.valid) return fail(400, { form });
 
+    // Gene's blind P2 on #1157: clear intent comes from what was POSTED, never
+    // from the schema's '' default. A template counts only when it and its base
+    // were both posted; an omitted one (or one without a base) is left alone.
+    const sent = (field: 'signature' | 'trailer') => posted.has(field) && posted.has(`${field}Base`);
+    const vars: { workerRef: string; signature?: string; trailer?: string } = { workerRef: params.id };
+    if (sent('signature') && form.data.signature !== form.data.signatureBase) vars.signature = form.data.signature;
+    if (sent('trailer') && form.data.trailer !== form.data.trailerBase) vars.trailer = form.data.trailer;
+    if (!('signature' in vars) && !('trailer' in vars)) return { form };
+
     try {
-      await gqlClient(locals.token).request(UPDATE_WORKER_MUTATION, {
-        workerRef: params.id,
-        // The mutation null-clears by PRESENCE, so an empty textarea must reach
-        // the server as an empty STRING to clear the override. Sending null
-        // here would be indistinguishable from "leave it untouched", and the
-        // reader who just emptied the box would see their text come back.
-        promptOverride: form.data.promptOverride,
-      });
+      await gqlClient(locals.token).request(UPDATE_WORKER_SIGNATURE_MUTATION, vars);
       return message(form, {
         type: 'success',
-        text: t('worker.briefing.saved', 'Override saved. It reaches this worker at its next bind.'),
+        text: t('worker.signature.saved', 'Saved. It applies from this worker’s next bind.'),
       });
     } catch (e: unknown) {
       const code = extractGqlErrorCode(e);
-      // Both refusals are the server's to make and are reported as it stated
-      // them: the portal does not pre-derive staffing access to hide the editor
-      // (the App page's own note on STAFFING_FORBIDDEN explains why a hidden
-      // control is worse than a refused one), and a retired worker is a fact
-      // the payload carries, so the UI disables the editor for it too.
-      const text =
-        code === 'WORKER_RETIRED'
-          ? t(
-              'worker.briefing.error.retired',
-              'This worker is retired — it takes no new session bindings, so an override would never be delivered.',
-            )
-          : code === 'FORBIDDEN'
-            ? t(
-                'worker.briefing.error.forbidden',
-                'You don’t have permission to amend this worker. Editing a casting needs contributor access to the App’s organization, or a non-reader role in the App.',
-              )
-            : extractGqlError(e, 'Failed to save the override');
-      // @copilot on #857: only KNOWN client-error codes get a 4xx. The previous
-      // `: 400` swept transport failures and unrecognised codes in with them,
-      // labelling an outage as bad input — the same defect this repo just spent
-      // #843 and #851 removing from two other surfaces, written fresh here.
-      //
-      // 500 rather than a rethrow, deliberately: a rethrow renders the error
-      // page and DISCARDS the override the reader just typed, which for a
-      // multi-KB briefing is a worse outcome than the status code was worth.
-      // The message keeps their text on screen; the status stops monitoring and
-      // retry logic from reading a server fault as a user mistake.
-      const status = code === 'FORBIDDEN' ? 403 : code === 'WORKER_RETIRED' ? 400 : 500;
-      return message(form, { type: 'error', text }, { status });
+      if (code === 'FORBIDDEN') {
+        return message(
+          form,
+          { type: 'error', text: t('worker.signature.error.forbidden', "You can't change this worker's signature or trailer.") },
+          { status: 403 },
+        );
+      }
+      if (code === 'BAD_USER_INPUT' || code === 'WORKER_RETIRED') {
+        return message(form, { type: 'error', text: extractGqlError(e, '') }, { status: 400 });
+      }
+      return message(
+        form,
+        { type: 'error', text: t('worker.signature.error.failed', "The signature and trailer couldn't be saved.") },
+        { status: 500 },
+      );
     }
   },
+
 };

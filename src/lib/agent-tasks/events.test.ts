@@ -12,6 +12,11 @@ const ev = (type: string, payload: Record<string, unknown> = {}, subjectWorker: 
 
 describe('eventSentence', () => {
   it.each([
+    ['task.blocker-added', { blockerTaskId: 'concealed' }, null, 'added a blocker'],
+    ['task.blocker-removed', { blockerTaskId: 'concealed' }, null, 'removed a blocker'],
+    ['task.priority', { priority: 3 }, null, 'set priority to 3'],
+    ['task.priority', { priority: 'untrusted' }, null, 'changed the priority'],
+    ['task.released', {}, null, 'released this task after its last open blocker ended or was removed'],
     ['task.created', {}, null, 'created this task'],
     ['task.assigned', {}, dara, 'assigned it to Dara'],
     ['task.reassigned', {}, dara, 'reassigned it to Dara'],

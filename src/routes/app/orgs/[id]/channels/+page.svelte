@@ -30,7 +30,9 @@
       // A compound (pre-v2) host memory has no chatRootUrn, and its loc is only
       // memory-relative, so the id is the address there.
       address: c.chatRootUrn ?? c.id,
-      host: c.memory.name,
+      // #2509: seeing a Channel does not grant its host memory's record, so
+      // memory may be null — the host cell then renders the withheld note.
+      host: c.memory?.name ?? '',
     })),
   );
 
@@ -40,7 +42,7 @@
     // address, and the memory's name and URN.
     { accessorFn: (r) => [r.name, r.channel.description].filter(Boolean).join(' '), id: 'name', header: t('org.channels.col.name', 'Channel'), enableHiding: false, size: 240 },
     { accessorKey: 'address', header: t('org.channels.col.address', 'Address'), size: 320 },
-    { accessorFn: (r) => `${r.host} ${r.channel.memory.urn}`, id: 'host', header: t('org.channels.col.host', 'Lives in memory'), size: 260 },
+    { accessorFn: (r) => `${r.host} ${r.channel.memory?.urn ?? ''}`, id: 'host', header: t('org.channels.col.host', 'Lives in memory'), size: 260 },
   ];
   const table = createSvelteTable<Row>({
     get data() { return rows; },
@@ -85,7 +87,7 @@
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'name'}
               <div class="min-w-0">
-                <a href="/app/memories/{row.channel.memory.id}/nodes/{row.channel.chatRootNodeId}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
+                <a href="/app/memories/{row.channel.memoryId}/nodes/{row.channel.chatRootNodeId}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.name}</a>
                 {#if row.channel.description}<div class="truncate text-xs text-zinc-500 dark:text-zinc-400">{row.channel.description}</div>{/if}
               </div>
             {:else if cell.column.id === 'address'}
@@ -97,7 +99,13 @@
             {:else if cell.column.id === 'host'}
               <div class="min-w-0">
                 <div class="truncate">{row.host}</div>
-                <Urn value={row.channel.memory.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
+                {#if row.channel.memory}
+                  <Urn value={row.channel.memory.urn} type="memory" size={8} label={t('app.channels.urn.memory', 'memory')} />
+                {:else}
+                  <!-- #2509: the record is concealed, not empty — render it as
+                       absent (never an empty chip), with the reason on hover. -->
+                  <span class="text-xs text-zinc-500 dark:text-zinc-400" title={t('org.channels.host-hidden-title', 'Seeing this channel doesn’t grant its memory’s record.')}>{t('org.channels.host-hidden', 'Memory not shown')}</span>
+                {/if}
               </div>
             {:else}
               <div class="truncate">{cell.getValue()}</div>

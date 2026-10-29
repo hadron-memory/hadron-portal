@@ -24,12 +24,9 @@ export const agentSettingsSchema = z.object({
   name: z.string().trim().min(1, 'Name is required.'),
   urnSlug: agentSlugField(),
   description: z.string().trim().default(''),
-  // Prompt text is stored verbatim by the server. Trimming here would rewrite
-  // migrated prompts when saving an unrelated Agent setting (#1241).
-  systemPrompt: z.string().default(''),
   visibility: z.enum(['PERSONAL', 'ORGANIZATION', 'PUBLIC']).default('ORGANIZATION'),
   systemMemoryId: z.string().trim().default(''),
-  // The role remains distinct from the shared systemPrompt (#1241). An empty
+  // The role remains distinct from the shared compiled boot prompt (#1241). An empty
   // role is a meaningful clear, so send it rather than omitting it.
   personaRole: z.string().trim().default(''),
 });
@@ -75,8 +72,21 @@ export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;
 export type RemoveAgentMemorySchema = typeof removeAgentMemorySchema;
 export type DeleteAgentSchema = typeof deleteAgentSchema;
 
-// #999: a separate form prevents unrelated metadata saves from overwriting it.
-export const bootPromptSchema = z.object({
-  _kind: z.literal('bootPrompt').default('bootPrompt'),
-  systemPrompt: z.string(),
+// portal#1377: the pointed-at Agent's `boot:source` node. `expectedRevision` is
+// the revision the manager opened, so a concurrent edit is refused, not overwritten.
+export const bootSourceSchema = z.object({
+  _kind: z.literal('bootSource').default('bootSource'),
+  nodeId: z.string().min(1),
+  content: z.string(),
+  expectedRevision: z.coerce.number().int().min(1),
+});
+
+// portal#1377 S2: compile carries nothing but its kind; approve pins the revision the manager read.
+// portal#1378: "Start a source" carries nothing but its kind; the seed is read server-side.
+export const bootStartSchema = z.object({ _kind: z.literal('bootStart').default('bootStart') });
+export const bootCompileSchema = z.object({ _kind: z.literal('bootCompile').default('bootCompile') });
+export const bootApproveSchema = z.object({
+  _kind: z.literal('bootApprove').default('bootApprove'),
+  nodeId: z.string().min(1),
+  revision: z.coerce.number().int().min(1),
 });

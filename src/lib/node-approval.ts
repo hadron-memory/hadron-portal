@@ -125,6 +125,8 @@ export function shortHash(hash: string | null | undefined): string {
 export function approvalRefusalStatus(code: string | null | undefined): 403 | 404 | 409 | 423 | 500 {
   switch (code) {
     case 'FORBIDDEN':
+    case 'BOOT_PROMPT_APPROVAL_FORBIDDEN':
+    case 'BOOT_PROMPT_WORKER_SESSION_REFUSED':
       return 403;
     case 'NODE_NOT_FOUND':
     case 'NOT_FOUND':
@@ -145,6 +147,10 @@ export function approveRefusalText(code: string | null | undefined): string {
   switch (code) {
     case 'FORBIDDEN':
       return t('node.approval.refused.forbidden', "You don't have permission to approve nodes in this memory.");
+    case 'BOOT_PROMPT_APPROVAL_FORBIDDEN':
+      return t('node.approval.refused.boot-prompt-forbidden', 'Only whoever manages this Agent, signed in as themselves, can approve its boot prompt.');
+    case 'BOOT_PROMPT_WORKER_SESSION_REFUSED':
+      return t('node.approval.refused.boot-prompt-worker-session', 'Boot prompts are approved by their manager signed in as themselves, not through a worker session.');
     case 'REVISION_MISMATCH':
       return t('node.approval.refused.revision-mismatch', 'This node changed after you opened it, so nothing was approved. Review the current revision, then approve it.');
     case 'NODE_IS_PLACEHOLDER':

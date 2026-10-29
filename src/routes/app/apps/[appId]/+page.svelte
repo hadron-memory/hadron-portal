@@ -9,6 +9,7 @@
   import JSZip from 'jszip';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import InstallCustomisation from '$lib/components/InstallCustomisation.svelte';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { appAgentPointerKey, appRowPointer, pointerResultFor, pointerText, pointerView, type PointerResult } from '$lib/boot-prompt-pointer';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
@@ -55,6 +56,7 @@
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import AppMemories from './AppMemories.svelte';
   import AppMembersPanel from './AppMembersPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -324,8 +326,7 @@
     { id: 'actions', header: t('app.staff.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
   // #1009: a worker row's actions, as ⋯ menu items.
-  // - Edit opens the worker page's briefing editor: `updateWorker` takes only
-  //   `promptOverride`, so a worker's ROLE is not editable anywhere yet.
+  // - Edit opens the worker page for its prompt pointer and signature templates.
   // - Release / Force-release only when a hold is actually KNOWN (#756/#1050):
   //   `none` is not "unheld" — the field is masked to null on a denied read.
   // - Retire (danger) only for an active worker; a retired one keeps its
@@ -525,6 +526,13 @@
     }
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
+  let customisationPanel = $state<{ reveal: () => void }>();
+  let customisationChoice = $state<{ appRef: string; agentId: string } | null>(null);
+  const customisationAgent = $derived(
+    customisationChoice?.appRef === data.bootPointerAppKey
+      ? installedAgents.find((a) => a.id === customisationChoice?.agentId)
+      : null,
+  );
   const choosePointerRow = (agentId: string | null) => (pointerChoice = { appKey: data.bootPointerAppKey, agentId });
 
   // #1020 + #1142 S8: the agents grid's row actions. Set boot prompt opens
@@ -533,6 +541,7 @@
   // below the table for the picked row.
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
     return [
+      { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
         ? [{
             id: 'set-boot-prompt',
@@ -544,7 +553,13 @@
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
-    if (id === 'set-boot-prompt') {
+    if (id === 'customisation') {
+      customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
+      const appKey = data.bootPointerAppKey;
+      void tick().then(() => {
+        if (appKey === data.bootPointerAppKey && customisationAgent?.id === agent.id) customisationPanel?.reveal();
+      });
+    } else if (id === 'set-boot-prompt') {
       choosePointerRow(pointerAgent?.id === agent.id ? null : agent.id);
     } else if (id === 'unlink') {
       unlinkAgent(agent);
@@ -657,6 +672,7 @@
     ) {
       return 'members';
     }
+    if (submittedForm(result, 'createAppMemory')) return 'memory';
     if (submittedForm<DeleteAppForm>(result, 'deleteApp')) {
       return 'settings';
     }
@@ -962,7 +978,7 @@
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
         castWorkerForm.update(
-          (current) => ({ ...current, agentId: '', name: '', promptOverride: '' }),
+          (current) => ({ ...current, agentId: '', name: '' }),
           { taint: false },
         );
         castOpen = false;
@@ -1173,7 +1189,7 @@
         appType: app.appType,
         role: app.role,
         description: app.description ?? '',
-        systemPrompt: app.systemPrompt ?? '',
+
         createUserPermission: app.createUserPermission,
         identifyUserMethod: app.identifyUserMethod,
         sessionTimeoutSeconds: String(app.sessionTimeoutSeconds),
@@ -2167,22 +2183,6 @@
               {/if}
             </p>
           </div>
-          <div>
-            <label for="castPromptOverride" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('app.staff.field.prompt-override', 'Prompt override')}
-            </label>
-            <textarea
-              id="castPromptOverride"
-              name="promptOverride"
-              rows="3"
-              bind:value={$castWorkerForm.promptOverride}
-              aria-describedby="castPromptOverrideHelp"
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-            ></textarea>
-            <p id="castPromptOverrideHelp" class="mt-1 text-xs text-zinc-400">
-              {t('app.staff.field.prompt-override.help', 'Optional. Appended to the agent’s prompt template as this worker’s own paragraph.')}
-            </p>
-          </div>
           <div class="flex gap-3">
             <button
               type="submit"
@@ -2525,6 +2525,16 @@
             {/if}
           {/snippet}
         </DataTable>
+        {#if customisationAgent}
+          {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
+            <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} onClose={async () => {
+              const label = t('app.agents.actions.label', 'Actions for {name}', { name: customisationAgent.name });
+              customisationChoice = null;
+              await tick();
+              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+            }} />
+          {/key}
+        {/if}
         {#if pointerAgent}
           <!-- portal#1142 S8: one install's pointer. Re-keyed per row, so a draft
                or result typed for one agent never shows on another. -->
@@ -2616,6 +2626,11 @@
 
   {#if activeTab === 'memory'}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    {#if data.createMemoryForm}
+      {#key app.id}
+        <AppMemories memories={data.appMemories ?? null} canCreate={data.canCreateMemory === true} initial={data.createMemoryForm} result={form} />
+      {/key}
+    {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's
          rights across this App. Omit the partial writable set so the browser
          makes no read-only claim from omission; server writes stay authoritative.
@@ -2800,13 +2815,6 @@
             <div>
               <label for="description" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
               <input id="description" type="text" name="description" bind:value={$appSettingsForm.description} placeholder="What this app is for" class={inputClass} />
-            </div>
-            <div>
-              <label for="systemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="systemPrompt" name="systemPrompt" rows="4" bind:value={$appSettingsForm.systemPrompt}
-                placeholder="Instructions for the LLM when using this app"
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"></textarea>
-              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each agent chat.</p>
             </div>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
