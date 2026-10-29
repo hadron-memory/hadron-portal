@@ -39,25 +39,38 @@ function classify<T>(e: unknown, what: string): TaskRead<T> {
 /** The board reads up to this many roots; the server's cap. */
 export const BOARD_LIMIT = 200;
 
+/** The board's read: the three outcomes every task read has, plus a refused search text. */
+export type BoardRead = TaskRead<{ tasks: AgentTaskRow[]; capped: boolean }> | { kind: 'bad-text' };
+
 /**
- * The board's roots for one filter. `agentTasks` has no total, so a full page
- * is reported as `capped`: the view says there may be more rather than
- * claiming the list is whole
+ * The board's roots for one filter and, optionally, a text search (portal#1400).
+ * The server applies the text before its 200-root cap, so a match beyond the
+ * first 200 roots is found. `agentTasks` has no total, so a full page is
+ * reported as `capped`: the view says there may be more rather than claiming
+ * the list is whole
  * (hrn:node:hadronmemory.com:hadron-portal:review:short-page-is-not-end-of-data).
+ *
+ * Blank text sends no `text` at all. A BAD_USER_INPUT on a read that carried
+ * text is `bad-text`, never an empty board; the code only means "the text was
+ * refused" when there was text, so without it that code stays a failure.
  */
 export async function loadBoard(
   client: GraphQLClient,
   appRef: string,
   filter: BoardFilter,
-): Promise<TaskRead<{ tasks: AgentTaskRow[]; capped: boolean }>> {
+  text?: string | null,
+): Promise<BoardRead> {
+  const search = text?.trim() ? text.trim() : null;
   try {
     const r = await client.request<{ agentTasks: AgentTaskRow[] }>(AGENT_TASKS_BOARD_QUERY, {
       appRef,
       ...boardFilterArgs(filter),
+      ...(search ? { text: search } : {}),
       limit: BOARD_LIMIT,
     });
     return { kind: 'ok', value: { tasks: r.agentTasks, capped: r.agentTasks.length >= BOARD_LIMIT } };
   } catch (e) {
+    if (search && extractGqlErrorCode(e) === 'BAD_USER_INPUT') return { kind: 'bad-text' };
     return classify(e, `board read for ${appRef}`);
   }
 }

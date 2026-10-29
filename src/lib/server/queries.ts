@@ -4678,8 +4678,8 @@ export const AGENT_TASKS_APP_QUERY = /* GraphQL */ `
 
 export const AGENT_TASKS_BOARD_QUERY = /* GraphQL */ `
   ${AGENT_TASK_ROW_FIELDS}
-  query AgentTasksBoard($appRef: ID!, $status: [AgentTaskStatus!], $queued: Boolean, $limit: Int) {
-    agentTasks(appRef: $appRef, rootsOnly: true, status: $status, queued: $queued, limit: $limit) {
+  query AgentTasksBoard($appRef: ID!, $status: [AgentTaskStatus!], $queued: Boolean, $text: String, $limit: Int) {
+    agentTasks(appRef: $appRef, rootsOnly: true, status: $status, queued: $queued, text: $text, limit: $limit) {
       ...AgentTaskRowFields
     }
   }

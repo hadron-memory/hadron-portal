@@ -5,7 +5,7 @@
  * An SSR render never mounts or navigates, so this is the client lane.
  */
 import { flushSync } from 'svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Board from './+page.svelte';
@@ -72,4 +72,25 @@ describe('board page index', () => {
     expect(pageText(m)).toBe('Page 2 of 3');
   });
 });
-void vi;
+
+describe('board search field', () => {
+  const field = (m: Mounted<Record<string, unknown>>) => m.target.querySelector('input[name="text"]') as HTMLInputElement;
+
+  it('shows the applied search, and an unsubmitted edit does not outlive the next navigation', () => {
+    const props = reactiveProps({ data: data({ text: 'applied' }) });
+    mounted = mountComponent(Board as never, props as never) as never;
+    const m = mounted!;
+    expect(field(m).value).toBe('applied');
+    field(m).value = 'typed but never submitted';
+
+    // A status chip is a navigation that keeps the same search.
+    props.data = data({ text: 'applied', filter: 'ended' });
+    flushSync();
+    expect(field(m).value).toBe('applied');
+
+    // Clear lands on no text at all.
+    props.data = data({ text: '', filter: 'ended' });
+    flushSync();
+    expect(field(m).value).toBe('');
+  });
+});

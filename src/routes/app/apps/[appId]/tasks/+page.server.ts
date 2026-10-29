@@ -2,6 +2,7 @@ import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { ALARMS_LIMIT, BOARD_LIMIT, loadAlarms, loadBoard, loadComposition, loadOpenTaskTitles, loadRoster, loadTasksApp } from '$lib/server/agent-tasks';
 import { parseBoardFilter } from '$lib/agent-tasks/status';
+import { parseBoardText } from '$lib/agent-tasks/search';
 import { parseAlarmFilter } from '$lib/agent-tasks/roster';
 import { parseTaskView } from '$lib/agent-tasks/views';
 import type { PageServerLoad } from './$types';
@@ -20,6 +21,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
   const view = parseTaskView(url.searchParams.get('view'));
   const filter = parseBoardFilter(url.searchParams.get('status'));
+  const text = parseBoardText(url.searchParams.get('text'));
   const alarmFilter = parseAlarmFilter(url.searchParams.get('alarms'));
 
   // The App's header comes first and alone: a missing App is a 404 whatever
@@ -31,6 +33,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     app,
     view,
     filter,
+    text,
     alarmFilter,
     boardLimit: BOARD_LIMIT,
     alarmsLimit: ALARMS_LIMIT,
@@ -50,6 +53,6 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     const [alarms, titles] = await Promise.all([loadAlarms(client, app.id), loadOpenTaskTitles(client, app.id)]);
     return { ...base, board: null, roster: null, composition: null, alarms, titles };
   }
-  const board = await loadBoard(client, app.id, filter);
+  const board = await loadBoard(client, app.id, filter, text);
   return { ...base, board, roster: null, composition: null, alarms: null, titles: {} as Record<string, string> };
 };

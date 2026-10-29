@@ -166,7 +166,7 @@ describe('board', () => {
   ])('an empty %s filter says so, above a grid that stays mounted', (filter, text) => {
     const html = board({ filter });
     expect(html).toContain(text);
-    expect(html).toContain('Search tasks…');
+    expect(html).toContain('data-testid="table-frame"');
   });
 
   it('marks the current filter, with Backlog as its own link', () => {
