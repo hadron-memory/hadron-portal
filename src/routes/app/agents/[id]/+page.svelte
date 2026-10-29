@@ -1,5 +1,6 @@
 <script lang="ts">
   import BootPrompt from './BootPrompt.svelte';
+  import BootPromptSource from './BootPromptSource.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
   import AgentExtendedBy from '$lib/components/AgentExtendedBy.svelte';
   import type { NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -97,7 +98,7 @@
   const nextImportPosition = $derived((data as { nextImportPosition?: number }).nextImportPosition ?? 1);
   const bundleResult = $derived(form as { bundleError?: string; bundleAdded?: boolean } | null);
   let bundling = $state(false);
-  const bundledWithheldApps = $derived((data as { bundledWithheldApps?: number }).bundledWithheldApps ?? 0);
+  const bundledMayBeIncomplete = $derived((data as { bundledMayBeIncomplete?: boolean }).bundledMayBeIncomplete ?? false);
   const bundledAgents = $derived(
     (data as { bundledAgents?: BundledAgentRow[] }).bundledAgents ?? [],
   );
@@ -203,7 +204,7 @@
     // #713: only for an agent that actually bundles others (a Team Agent and
     // its personas) — an always-empty tab on every ordinary agent is noise,
     // same reasoning as Chatbot Control below.
-    ...(bundledAgents.length > 0 || bundledWithheldApps > 0 || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
+    ...(bundledAgents.length > 0 || bundledMayBeIncomplete || bundleCandidates.length > 0 || bundleCandidatesError ? [{ id: 'bundled' as TabId, label: 'Bundled agents' }] : []),
     { id: 'nodes', label: 'Nodes' },
     ...(hasSystemMemory ? [{ id: 'chatbot' as TabId, label: 'Chatbot Control' }] : []),
     { id: 'ai', label: 'AI Providers' },
@@ -461,8 +462,20 @@
     const result = submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null;
     return result?.id === data.bootPromptForm?.id ? result : null;
   });
+  const bootSourceSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootSource') as typeof data.bootSourceForm | null;
+    return result?.id === data.bootSourceForm?.id ? result : null;
+  });
+  const bootCompileSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootCompile') as typeof data.bootCompileForm | null;
+    return result?.id === data.bootCompileForm?.id ? result : null;
+  });
+  const bootApproveSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootApprove') as typeof data.bootApproveForm | null;
+    return result?.id === data.bootApproveForm?.id ? result : null;
+  });
   $effect(() => {
-    if (bootPromptSubmission) activeTab = 'boot';
+    if (bootPromptSubmission || bootSourceSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -810,9 +823,30 @@
   {/if}
   {#if data.bootPromptForm}
     <div hidden={activeTab !== 'boot'}>
-      {#key data.bootPromptForm.id}
-        <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
-      {/key}
+      {#if data.bootSource.mode === 'legacy'}
+        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">{t('agent.boot.legacy-note', 'This is the legacy prompt field. Set a boot prompt pointer in Settings to serve a compiled prompt instead.')}</p>
+        {#key data.bootPromptForm.id}
+          <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
+        {/key}
+      {:else if data.bootSource.mode === 'source'}
+        <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
+        {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
+          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
+        {/key}
+      {:else if data.bootSource.mode === 'compiled-only'}
+        <section data-boot-compiled-only>
+          <p role="status" class="mb-2 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.compiled-only', 'You can’t see this Agent’s source, so this is the compiled prompt, read-only.')}</p>
+          <p class="mb-3 text-xs"><Urn value={data.bootSource.compiled.urn} type="node" /> <span class="text-zinc-500 dark:text-zinc-400">{t('agent.boot.source-revision', 'revision {n}', { n: data.bootSource.compiled.revision })}</span></p>
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex: a scrollable text region must be reachable by keyboard (WCAG 2.1.1) -->
+          <pre tabindex="0" aria-label={t('agent.boot.compiled-text-label', 'Compiled prompt text')} class="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{data.bootSource.compiled.content}</pre>
+        </section>
+      {:else if data.bootSource.mode === 'source-missing'}
+        <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
+      {:else if data.bootSource.mode === 'source-unreadable'}
+        <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-unreadable', 'You can’t see this Agent’s boot prompt.')}</p>
+      {:else}
+        <p role="alert" class="text-sm text-red-600 dark:text-red-400">{t('agent.boot.unknown', 'The boot prompt could not be loaded. Reload the page to try again.')}</p>
+      {/if}
     </div>
   {/if}
   {#if activeTab === 'profile'}
@@ -1200,9 +1234,9 @@
       {:else if bundleResult?.bundleAdded}
         <p role="status" class="mb-3 text-sm text-green-700 dark:text-green-400">{t('agent.bundled.add.done', 'Agent bundled.')}</p>
       {/if}
-      {#if bundledWithheldApps > 0}
-        <p role="status" class="mb-3 text-xs text-zinc-500">
-          {t('agent.bundled.withheld', 'The agents installed in {count} App(s) aren’t visible to you, so this list may be incomplete.', { count: String(bundledWithheldApps) })}
+      {#if bundledMayBeIncomplete}
+        <p role="status" class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">
+          {t('agent.bundled.withheld', 'This list may be incomplete because some installed agents aren’t visible to you.')}
         </p>
       {/if}
       <!-- 24rem offset tuned to this page's chrome (breadcrumb + header + tab

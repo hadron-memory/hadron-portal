@@ -3965,16 +3965,19 @@ const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
     name
     urn
     organizationId
-    agentId
     agents { id name urn description personaRole }
+    appAgents { agent { id } }
   }
 `;
 
 // #472 / hadron-server#2343: `agentId` narrows the read to Apps whose AppAgent
 // join installs this Agent, so the Agent detail load no longer drains every
 // App the caller can see. The match is the join, not `App.agents`, so an App
-// that WITHHOLDS its roster (#1148) still comes back (agents: null) and the
-// loader keeps counting it; an unreadable/unknown agent answers an empty page.
+// that hides an installed Agent from the caller still comes back, and the
+// loader reads that from `appAgents { agent { id } }` (#1350): a join row whose
+// `agent` is null is an install the caller cannot see. `App.agents` and
+// `App.agentId` drop/mask such rows, so neither can carry that signal.
+// An unreadable/unknown agent answers an empty page.
 export const AGENT_APPS_QUERY = /* GraphQL */ `
   ${AGENT_APP_LITE_FIELDS}
   query AgentApps($agentId: ID, $limit: Int, $offset: Int) {
@@ -4480,6 +4483,37 @@ export const SELF_CAN_MANAGE_QUERY = /* GraphQL */ `
 export const AGENT_BOOT_POINTER_QUERY = /* GraphQL */ `
   query AgentBootPointer($ref: ID!) {
     agent(ref: $ref) { id bootPromptRef bootPromptTargetDeleted }
+  }
+`;
+
+// portal#1377 S1 — the two nodes behind an Agent's Boot prompt tab. raw: true
+// (#485): the source is an editor, so include tags must round-trip unexpanded.
+// The compiled node is read for its approval (the status line) and, when the source
+// itself can't be read, its text (R1 c: a reader sees the compiled prompt read-only).
+export const BOOT_SOURCE_QUERY = /* GraphQL */ `
+  query BootSource($ref: ID!, $memoryRef: ID!) {
+    node(ref: $ref, memoryRef: $memoryRef, raw: true) { id urn revision content }
+  }
+`;
+
+export const BOOT_COMPILED_QUERY = /* GraphQL */ `
+  query BootCompiled($ref: ID!) {
+    node(ref: $ref, raw: true) {
+      id urn revision content
+      approvalStatus { state approval { revision } }
+      lintWarnings(first: 50) { items { kind position text targetUrn pinnedRevision newerRevision workerField } total nextCursor }
+    }
+  }
+`;
+
+// portal#1377 S2 — setPointer is omitted, so the server default (true) applies:
+// the compiled loc is fixed, so the pointer keeps naming the same node.
+export const COMPILE_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
+  mutation CompileAgentBootPrompt($agentRef: String!) {
+    compileAgentBootPrompt(agentRef: $agentRef) {
+      revNo contentHash pointerSet
+      node { id urn revision lintWarnings(first: 50) { items { kind position text targetUrn pinnedRevision newerRevision workerField } total nextCursor } }
+    }
   }
 `;
 
