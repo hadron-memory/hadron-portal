@@ -760,7 +760,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         appType: appData.app.appType,
         role: appData.app.role,
         description: appData.app.description ?? '',
-        systemPrompt: appData.app.systemPrompt ?? '',
+
         createUserPermission: appData.app.createUserPermission,
         identifyUserMethod: appData.app.identifyUserMethod,
         sessionTimeoutSeconds: String(appData.app.sessionTimeoutSeconds),
@@ -997,7 +997,7 @@ export const actions: Actions = {
         appType: form.data.appType,
         role: form.data.role,
         description: form.data.description || null,
-        systemPrompt: form.data.systemPrompt || null,
+
         createUserPermission: form.data.createUserPermission,
         identifyUserMethod: form.data.identifyUserMethod,
         sessionTimeoutSeconds: Number(form.data.sessionTimeoutSeconds),
@@ -1114,7 +1114,7 @@ export const actions: Actions = {
         // has nothing to express — and leaving it would quietly turn a
         // validation gap into a nameless cast the server refuses.
         name: form.data.name,
-        promptOverride: form.data.promptOverride || undefined,
+
       });
       return message(form, {
         type: 'success',

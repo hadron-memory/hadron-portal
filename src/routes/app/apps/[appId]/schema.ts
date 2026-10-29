@@ -15,7 +15,6 @@ export const appSettingsSchema = z.object({
   appType: z.enum(['WORKSTATION', 'CHATBOT', 'AGENT', 'AUTOMATION', 'CLOUD', 'IOT']).prefault('WORKSTATION'),
   role: z.enum(['OWNER', 'ADMIN', 'CONTRIBUTOR', 'READER']).prefault('READER'),
   description: z.string().trim().default(''),
-  systemPrompt: z.string().trim().default(''),
   createUserPermission: z.enum(['DENY', 'EXPLICIT', 'IMPLICIT']).prefault('DENY'),
   identifyUserMethod: z.enum(['USER_ID', 'SECRET']).prefault('USER_ID'),
   sessionTimeoutSeconds: z.string()
@@ -91,7 +90,6 @@ export const castWorkerSchema = z.object({
   _kind: z.literal('castWorker').default('castWorker'),
   agentId: z.string().trim().min(1, 'Select an agent to cast.').prefault(''),
   name: z.string().trim().min(1, 'Give the worker a name — the platform no longer picks one.').prefault(''),
-  promptOverride: z.string().trim().optional(),
 });
 
 export const retireWorkerSchema = z.object({

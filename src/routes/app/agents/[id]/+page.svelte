@@ -1,5 +1,4 @@
 <script lang="ts">
-  import BootPrompt from './BootPrompt.svelte';
   import BootPromptSource from './BootPromptSource.svelte';
   import StartBootSource from './StartBootSource.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
@@ -390,7 +389,7 @@
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
       description: agent.description ?? '',
-      systemPrompt: agent.systemPrompt ?? '',
+
       visibility: agent.visibility ?? 'ORGANIZATION',
       systemMemoryId: '',
       personaRole: agent.personaRole ?? '',
@@ -459,10 +458,6 @@
 
   // A delayed action from another route instance must not seed this editor
   // or reopen it. Superforms also uses this route-specific id to isolate stores.
-  const bootPromptSubmission = $derived.by(() => {
-    const result = submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null;
-    return result?.id === data.bootPromptForm?.id ? result : null;
-  });
   const bootSourceSubmission = $derived.by(() => {
     const result = submittedForm(form, 'bootSource') as typeof data.bootSourceForm | null;
     return result?.id === data.bootSourceForm?.id ? result : null;
@@ -480,7 +475,7 @@
     return result?.id === data.bootApproveForm?.id ? result : null;
   });
   $effect(() => {
-    if (bootPromptSubmission || bootSourceSubmission || bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
+    if (bootSourceSubmission || bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -826,16 +821,13 @@
   {#if activeTab === 'processes' && data.inheritance}
     <AgentDefinitions agentId={agent.id} read={data.inheritance.processes} processes />
   {/if}
-  {#if data.bootPromptForm}
+  {#if data.bootSource}
     <div hidden={activeTab !== 'boot'}>
       {#if data.bootSource.mode === 'legacy'}
-        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">{t('agent.boot.legacy-note', 'This is the legacy prompt field. Set a boot prompt pointer in Settings to serve a compiled prompt instead.')}</p>
+        <p class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.no-source', 'This Agent has no boot prompt source yet.')}</p>
         {#if data.bootSource.canStart}
           {#key data.bootStartForm.id}<StartBootSource seeded={false} canManage={data.canManageAgent} initial={data.bootStartForm} submitted={bootStartSubmission} />{/key}
         {/if}
-        {#key data.bootPromptForm.id}
-          <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
-        {/key}
       {:else if data.bootSource.mode === 'source'}
         <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
         {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
@@ -1570,7 +1562,7 @@
               </div>
             {/if}
             <!-- The role belongs to the reusable Agent; the shared template
-                 now lives in systemPrompt (#1241). -->
+                 now lives in compiled boot prompt (#1241). -->
             <div>
               <label for="editPersonaRole" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('agent.persona.role', 'Persona role')}</label>
               <input id="editPersonaRole" name="personaRole" type="text" placeholder="backend-engineer" bind:value={$agentSettingsForm.personaRole}
