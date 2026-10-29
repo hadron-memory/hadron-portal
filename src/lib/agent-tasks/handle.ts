@@ -19,12 +19,15 @@ export const MAX_HANDLE_DEPTH = 16;
 const MAX_NUMBER = 9223372036854775807n;
 const PATH = 'AT(?:0|[1-9][0-9]{0,18})(?:\\.[1-9][0-9]{0,18})*';
 const BARE = new RegExp(`^(${PATH})$`, 'i');
-const QUALIFIED = new RegExp(`^hrn:agenttask:([^\\s:/]+:[^\\s:/]+):(${PATH})$`, 'i');
+// Two or more App parts, as the server takes them (it also normalizes an
+// `hrn:app:<root>:<slug>` App part): anything but this App's exact
+// `<root>:<slug>` is then refused by resolveSegment before a lookup (Riana §10 P3, portal#1375).
+const QUALIFIED = new RegExp(`^hrn:agenttask:((?:[^\\s:/]+:)+[^\\s:/]+):(${PATH})$`, 'i');
 
 export interface ParsedHandle {
   /** Canonical, upper case. */
   handle: string;
-  /** `<root>:<app-slug>` for a qualified spelling, null for a bare one. */
+  /** The App part of a qualified spelling (`<root>:<app-slug>`, or longer), null for a bare one. */
   appUrn: string | null;
 }
 

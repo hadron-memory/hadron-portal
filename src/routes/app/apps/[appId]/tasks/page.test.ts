@@ -310,6 +310,30 @@ describe('task handles', () => {
     expect(html).not.toContain('tasks/r1');
   });
 
+  // Greta LOCAL P2 on portal#1375: the handles must be SEEN, not only routed to.
+  // Root AT91, parent AT92, current AT93; strip attributes so hrefs can't satisfy it.
+  it('detail: each known ancestor and the Parent fact show their handle beside the title', () => {
+    const html = taskPage({
+      task: detail({ id: 'c', handle: 'AT93', title: 'Current', parentTaskId: 'p' }),
+      ancestors: [{ id: 'r', handle: 'AT91', title: 'Root' }, { id: 'p', handle: 'AT92', title: 'Parent' }],
+    });
+    const nav = html.match(/<nav aria-label="Breadcrumb"[\s\S]*?<\/nav>/)![0];
+    expect(nav).toMatch(/data-crumb-chip[^>]*>AT91<\/code>/);
+    expect(nav).toMatch(/data-crumb-chip[^>]*>AT92<\/code>/);
+    expect(nav).toContain('aria-label="Task handle AT91"');
+    const parentFact = html.slice(html.indexOf('>Parent</dt>'), html.indexOf('</dd>', html.indexOf('>Parent</dt>')));
+    expect(parentFact).toMatch(/data-task-handle[^>]*>AT92<\/code>/);
+    expect(parentFact.replace(/<[^>]*>/g, ' ')).toMatch(/Parent\s+AT92/);
+  });
+
+  it('detail: an unread parent stays neutral, with no handle chip', () => {
+    const html = taskPage({ task: detail({ id: 'c', handle: 'AT93', parentTaskId: 'p' }), ancestors: [], ancestorsTruncated: true });
+    const parentFact = html.slice(html.indexOf('>Parent</dt>'), html.indexOf('</dd>', html.indexOf('>Parent</dt>')));
+    expect(parentFact).toContain('Parent task');
+    expect(parentFact).not.toContain('data-task-handle');
+    expect(html).not.toContain('data-crumb-chip');
+  });
+
   it('detail: the subtask tree links its rows by handle and shows their chips', () => {
     const child = detail({ id: 'c1', handle: 'AT3.405.1', parentTaskId: 'abc', title: 'Child' });
     const html = taskPage({ task: detail({ id: 'abc', handle: H }), tree: { kind: 'ok', value: { rows: [detail({ id: 'abc', handle: H }), child], capped: false } } });

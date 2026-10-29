@@ -2345,6 +2345,9 @@
               {#if !rosterEntry(worker.id)}
                 <!-- Failed, withheld, or a worker the read did not return: never the "no task" dash. -->
                 <span class="text-xs text-zinc-500">{t('app.staff.na', 'Not available')}</span>
+              {:else if rosterEntry(worker.id)?.currentTaskUnavailable}
+                <!-- portal#1349: a current task this App could not resolve. Neutral, no link, unsearchable. -->
+                <span class="text-xs text-zinc-500">{t('app.tasks.task-ref-unavailable', 'Task unavailable')}</span>
               {:else if task}
                 <div class="min-w-0 text-xs">
                   <span class="flex min-w-0 items-center gap-1.5">

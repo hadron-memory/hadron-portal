@@ -290,6 +290,35 @@ describe('Worker agents tab (#1009)', () => {
     expect(columnTexts(target, 'Task')[1]).toBe('—');
   });
 
+  // Greta LOCAL P2 on portal#1375: a current task the loader could not resolve is
+  // "Task unavailable": no link, no stale title, unsearchable, and not the "no task" dash.
+  it('an unresolved current task is neutral “Task unavailable”, unlinked and unsearchable; a resolved one is found by its handle', async () => {
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' }), worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy' })],
+      { kind: 'ok', byWorker: {
+        w1: entry({ currentTask: { id: 't9', title: 'Ship the grid', status: 'STARTED', handle: 'AT3.405' } }),
+        w2: entry({ currentTask: null, currentTaskUnavailable: true }),
+        w3: entry(),
+      } },
+    );
+    const tasks = columnTexts(target, 'Task');
+    expect(tasks[0]).toContain('AT3.405');
+    expect(tasks[1]).toBe('Task unavailable');
+    expect(tasks[2]).toBe('—');
+    const links = [...target.querySelectorAll('tbody a[href*="/tasks/"]')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual(['/app/apps/a1/tasks/AT3.405']);
+
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    const names = async (q: string) => {
+      search.value = q;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(3);
+      return [...target.querySelectorAll('tbody a[href^="/app/workers/"]')].map((a) => a.textContent?.trim());
+    };
+    expect(await names('AT3.405')).toEqual(['Ada']);
+    expect(await names('unavailable')).toEqual([]);
+  });
+
   it('marks a paused worker from the server’s check status, not from pausedUntil alone', async () => {
     const future = '2099-01-01T00:00:00.000Z';
     const target = await mountStaff(

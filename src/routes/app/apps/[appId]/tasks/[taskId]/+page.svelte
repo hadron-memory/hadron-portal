@@ -34,7 +34,12 @@
     { label: data.app.name, href: basePath },
     { label: t('app.tasks.crumb.tasks', 'Tasks'), href: `${basePath}/tasks` },
     ...(data.ancestorsTruncated ? [{ label: '…' }] : []),
-    ...data.ancestors.map((a) => ({ label: a.title, href: taskHref(basePath, a) })),
+    ...data.ancestors.map((a) => ({
+      label: a.title,
+      href: taskHref(basePath, a),
+      chip: a.handle,
+      chipLabel: t('app.tasks.handle.aria', 'Task handle {handle}', { handle: a.handle }),
+    })),
     { label: task.title },
   ]);
 
@@ -146,10 +151,12 @@
 
       {#if task.parentTaskId}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.parent', 'Parent')}</dt>
-        <dd class="min-w-0">
-          <a href={taskHref(basePath, parent && parent.id === task.parentTaskId ? parent : { id: task.parentTaskId })} class="text-indigo-600 hover:underline dark:text-indigo-300">
+        <dd class="flex min-w-0 items-center gap-1.5">
+          <a href={taskHref(basePath, parent && parent.id === task.parentTaskId ? parent : { id: task.parentTaskId })} class="min-w-0 truncate text-indigo-600 hover:underline dark:text-indigo-300">
             {parent && parent.id === task.parentTaskId ? parent.title : t('app.tasks.fact.parent-task', 'Parent task')}
           </a>
+          <!-- portal#1349: the parent's handle beside its title; an unread parent shows none. -->
+          {#if parent && parent.id === task.parentTaskId}<TaskHandle handle={parent.handle} />{/if}
         </dd>
       {/if}
 

@@ -42,6 +42,15 @@ describe('resolveSegment', () => {
     expect(resolveSegment(Q('hadronmemory.com:other-app', 'AT3'), APP)).toEqual({ kind: 'unknown' });
     expect(resolveSegment(Q('other.com:hadron-dev-team', 'AT3'), APP)).toEqual({ kind: 'unknown' });
   });
+  // Riana §10 P3 on portal#1375: the server also takes an App part of three or
+  // more atoms (it normalizes `hrn:app:<root>:<slug>`); the portal must not
+  // forward one raw. Only this App's exact `<root>:<slug>` is forwarded.
+  it('a qualified handle with a longer App part is unknown before any lookup, even one naming this App', () => {
+    for (const app of ['hrn:app:other.com:other-app', 'hrn:app:hadronmemory.com:hadron-dev-team', 'a:b:c']) {
+      expect(parseHandle(Q(app, 'AT3'))?.appUrn).toBe(app);
+      expect(resolveSegment(Q(app, 'AT3'), APP)).toEqual({ kind: 'unknown' });
+    }
+  });
   it('an App URN the portal cannot read as an App makes a handle unknown, not an id', () => {
     expect(resolveSegment('AT3', 'not-a-urn')).toEqual({ kind: 'unknown' });
   });
