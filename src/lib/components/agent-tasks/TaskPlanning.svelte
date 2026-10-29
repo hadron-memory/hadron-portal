@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { taskChoiceStatus } from '$lib/agent-tasks/planning';
   import TaskHandle from './TaskHandle.svelte';
   import { onDestroy, untrack } from 'svelte';
   import { enhance } from '$app/forms';
@@ -14,7 +15,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   let { task, appId, canWrite, dependencies = { kind: 'failed' } }: { task: AgentTaskDetail; appId: string; canWrite: boolean; dependencies: TaskRead<{ blockedBy: TaskDependencyPage; blocks: TaskDependencyPage }> } = $props();
-  let priority = $state('');
+  let priority = $state(untrack(() => String(task.priority ?? '')));
   let picker = $state(false);
   let chosen = $state<TaskChoice | null>(null);
   let pending = $state(false);
@@ -45,7 +46,7 @@
     { id: 'direction', accessorFn: (row) => row.direction === 'blockedBy' ? t('app.tasks.waits-for', 'Waits for') : t('app.tasks.holds-up', 'Holds up'), header: t('app.tasks.relation', 'Relation'), size: 120 },
     { accessorKey: 'title', header: t('app.tasks.col.task', 'Task'), size: 240 },
     { accessorKey: 'handle', header: t('app.tasks.col.handle', 'Handle'), size: 150 },
-    { accessorKey: 'status', header: t('app.tasks.col.status', 'Status'), size: 120 },
+    { id: 'status', accessorFn: (row) => taskChoiceStatus(row.status), header: t('app.tasks.col.status', 'Status'), size: 120 },
     { id: 'remove', header: '', enableSorting: false, enableGlobalFilter: false, size: 90 },
   ];
   const table = createSvelteTable<Relation>({ get data() { return rows; }, columns, initialState: { pagination: { pageIndex: 0, pageSize: 10 } } });
@@ -75,12 +76,13 @@
 </script>
 <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-planning">
   <h2 id="task-planning" class="font-semibold text-zinc-900 dark:text-white">{t('app.tasks.planning', 'Priority and blockers')}</h2>
-  <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('app.tasks.priority', 'Priority')}: {task.priority ?? '—'} <span class="text-xs">{t('app.tasks.priority.highest', '(1 is highest)')}</span></p>
   {#if canPriority}
     <form method="POST" action="?/priority" use:enhance={submit} class="flex flex-wrap items-end gap-2">
-      <label for="task-priority" class="text-sm">{t('app.tasks.priority.change', 'Change priority')}</label><select id="task-priority" name="priority" bind:value={priority} disabled={pending} class="ml-2 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600">{#each [1,2,3,4,5] as value}<option value={String(value)}>{value}</option>{/each}</select>
+      <label for="task-priority" class="text-sm">{t('app.tasks.priority.edit-label', 'Priority (1 is highest)')}</label><select id="task-priority" name="priority" bind:value={priority} disabled={pending} class="ml-2 rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600">{#each [1,2,3,4,5] as value}<option value={String(value)}>{value}</option>{/each}</select>
       <button disabled={pending || !priority} class="rounded border px-3 py-1 text-sm disabled:opacity-50">{t('app.tasks.priority.save', 'Save priority')}</button>
     </form>
+  {:else}
+    <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('app.tasks.priority', 'Priority')}: {task.priority ?? '—'} <span class="text-xs">{t('app.tasks.priority.highest', '(1 is highest)')}</span></p>
   {/if}
   {#if dependencies.kind !== 'ok'}
     <p role="status" class="text-sm">{t('app.tasks.dependencies.unknown', 'Blocker relations are unavailable. Reload to try again.')}</p>

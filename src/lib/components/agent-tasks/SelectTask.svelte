@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { taskChoiceStatus } from '$lib/agent-tasks/planning';
   import TaskHandle from './TaskHandle.svelte';
   import { untrack } from 'svelte';
   import { focusTrap } from '$lib/a11y/focus-trap';
@@ -22,7 +23,7 @@
   const columns: PortalColumnDef<TaskChoice>[] = [
     { accessorKey: 'title', header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 240 },
     { accessorKey: 'handle', header: t('app.tasks.col.handle', 'Handle'), size: 150 },
-    { accessorKey: 'status', header: t('app.tasks.col.status', 'Status'), size: 120 },
+    { id: 'status', accessorFn: (row) => taskChoiceStatus(row.status), header: t('app.tasks.col.status', 'Status'), size: 120 },
     { id: 'choose', header: '', enableSorting: false, enableGlobalFilter: false, size: 90 },
   ];
   const shown = $derived(exactDone ? exactItems : items);

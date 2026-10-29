@@ -31,3 +31,19 @@ The shared TaskHandle component is copied byte-for-byte from Gaia's portal#1375
 head `6e3dbd42bbe59d137641a58779f4370740a60848` at the same path. No second handle
 renderer or task-search provider is introduced. Fresh-main overlap is checked
 before freeze; merge main, never rebase, if the companion lands first.
+
+## Pre-freeze UX correction evidence
+
+The owned blocker/priority/release events now have plain-language history
+sentences. Relation and picker status cells use the shared status label helper;
+editable priority is shown once, with the highest-first hint in its label.
+
+- [Board marks a blocked task](board-blocked-dark.png).
+- [STARTED task: priority remains, blocker controls absent](started-dark.png).
+- [Native cycle refusal: selected draft retained](cycle-refusal-dark.png).
+- Relations with rows at390px: [light](detail-390-rows-light.png), [dark](detail-390-rows-dark.png).
+- [History after priority edit and last-blocker release](history-after-release-dark.png).
+
+These native author journeys passed with no browser errors. 390px with rows also
+reported no document horizontal overflow. Five history assertions failed before
+the correction and pass afterward; concealed blocker ids are never interpolated.
