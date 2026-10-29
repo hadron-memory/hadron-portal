@@ -8,7 +8,7 @@ import { render } from 'svelte/server';
 import StopBanner from './StopBanner.svelte';
 
 const sig = (id: string, level: string, worker: string) => ({ id, level, scope: 'WORKER', targetWorkerId: worker, until: null, live: true });
-const html = (live: unknown) => render(StopBanner as never, { props: { live, workers: [{ id: 'w1', name: 'Gaby', urn: null }], href: '/app/apps/a/stops' } }).body;
+const html = (live: unknown) => render(StopBanner, { props: { live, workers: [{ id: 'w1', name: 'Gaby', urn: null }], href: '/app/apps/a/stops' } as never }).body;
 
 describe('StopBanner', () => {
   it('lists every live stop and names no winner', () => {
