@@ -29,3 +29,11 @@ describe('addressed channel chat (#1033)', () => {
     expect(c.request.mock.calls).toHaveLength(4);
   });
 });
+
+
+it('refuses a concealed host memory before any addressed message read or write', async () => {
+  const c = { request: vi.fn(async (q: string) => q === APP_CHAT_TARGET_QUERY ? { app: { id: 'app-a' } } : { channel: { id: 'chan-b', memory: null } }) };
+  await expect(readChannelPage(c as any, 'app-a', 'chan-b', {})).rejects.toThrow('Channel unavailable');
+  await expect(postToChannel(c as any, 'app-a', 'chan-b', 'hello')).rejects.toThrow('Channel unavailable');
+  expect(c.request.mock.calls).toHaveLength(4);
+});

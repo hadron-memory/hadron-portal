@@ -158,11 +158,11 @@ export function sortChatMessages<T extends { loc: string }>(nodes: T[]): T[] {
 
 /** Registered Channels are addressed by server-issued identity, never just a loc. */
 export function withRegisteredChannels(chats: AppChatEntry[], channels: Array<{
-  id: string; name: string; loc: string; chatRootUrn: string | null; memory: { id: string };
+  id: string; name: string; loc: string; chatRootUrn: string | null; memoryId: string;
 }>, defaultChannelId?: string | null): AppChatEntry[] {
-  const remaining = chats.filter(c => c.kind !== 'other' || !channels.some(ch => ch.memory.id === c.memoryId && ch.loc === c.key));
+  const remaining = chats.filter(c => c.kind !== 'other' || !channels.some(ch => ch.memoryId === c.memoryId && ch.loc === c.key));
   return [...remaining, ...channels.filter(c => c.id !== defaultChannelId).map(c => ({
     key: c.chatRootUrn ?? c.id, label: c.name, labelKey: null, kind: 'channel' as const,
-    channelId: c.id, alias: c.loc, memoryId: c.memory.id,
+    channelId: c.id, alias: c.loc, memoryId: c.memoryId,
   }))];
 }

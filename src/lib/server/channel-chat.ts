@@ -5,12 +5,12 @@ import { APP_CHAT_TARGET_QUERY, CHANNEL_CHAT_TARGET_QUERY, CHANNEL_MESSAGES_QUER
 async function target(client: GraphQLClient, appRef: string, channelRef: string) {
   const [appResult, channelResult] = await Promise.all([
     client.request<{ app: { id: string } | null }>(APP_CHAT_TARGET_QUERY, { ref: appRef }),
-    client.request<{ channel: { id: string; memory: { appId: string | null } } | null }>(CHANNEL_CHAT_TARGET_QUERY, { ref: channelRef }),
+    client.request<{ channel: { id: string; memory: { appId: string | null } | null } | null }>(CHANNEL_CHAT_TARGET_QUERY, { ref: channelRef }),
   ]);
   const r = { ...appResult, ...channelResult };
   // This is route/target consistency, not a second authorization rule. The
   // caller's token goes to every server gate, and a post never falls back.
-  if (!r.app || !r.channel || r.channel.memory.appId !== r.app.id) throw new Error('Channel unavailable');
+  if (!r.app || !r.channel || r.channel.memory?.appId !== r.app.id) throw new Error('Channel unavailable');
   return r.channel.id;
 }
 export async function readChannelPage(client: GraphQLClient, appRef: string, channelRef: string,

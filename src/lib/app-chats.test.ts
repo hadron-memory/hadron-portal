@@ -187,8 +187,8 @@ describe('withChatView', () => {
 describe('registered Channels (#1033)', () => {
   it('uses server identities, retains unambiguous loc links, and does not duplicate the default team', () => {
     const channels = [
-      { id: 'team', name: 'Team', loc: 'chats:team', chatRootUrn: null, memory: { id: 'm1' } },
-      { id: 'pair', name: 'Ada & Fiona', loc: 'chats:ada-fiona', chatRootUrn: 'hrn:node:acme.com:shared:chats:ada-fiona', memory: { id: 'm1' } },
+      { id: 'team', name: 'Team', loc: 'chats:team', chatRootUrn: null, memoryId: 'm1' },
+      { id: 'pair', name: 'Ada & Fiona', loc: 'chats:ada-fiona', chatRootUrn: 'hrn:node:acme.com:shared:chats:ada-fiona', memoryId: 'm1' },
     ];
     const list = withRegisteredChannels(buildAppChatList([root('chats:ada-fiona', 'Ada & Fiona', 'm1')], { hasAgentChat: false }), channels, 'team');
     expect(list).toHaveLength(2);
@@ -196,7 +196,7 @@ describe('registered Channels (#1033)', () => {
     expect(resolveSelectedChat(list, channels[1].chatRootUrn).selected?.channelId).toBe('pair');
   });
   it('does not alias two memories channels with the same loc to one arbitrary target', () => {
-    const list = withRegisteredChannels(buildAppChatList([], { hasAgentChat: false }), ['one', 'two'].map(id => ({ id, name: 'Same', loc: 'chats:pair', chatRootUrn: null, memory: { id } })));
+    const list = withRegisteredChannels(buildAppChatList([], { hasAgentChat: false }), ['one', 'two'].map(id => ({ id, name: 'Same', loc: 'chats:pair', chatRootUrn: null, memoryId: id })));
     expect(resolveSelectedChat(list, 'chats:pair').requestedMissing).toBe(true);
     expect(resolveSelectedChat(list, 'one').selected?.channelId).toBe('one');
   });
