@@ -7,6 +7,8 @@ import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
+import { readBootSource } from '$lib/server/boot-source';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
@@ -23,6 +25,7 @@ import {
   AGENT_APPS_QUERY,
   AGENT_OWNED_APPS_QUERY,
   UPDATE_AGENT_MUTATION,
+  NODE_DATA_READ_QUERY,
   DELETE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
@@ -39,6 +42,7 @@ import type { Agent, Organization, Memory, MemoryNode, AiServiceConfig } from '$
 import type { Actions, PageServerLoad } from './$types';
 import {
   bootPromptSchema,
+  bootSourceSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
   agentSettingsSchema,
@@ -350,6 +354,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     loadAgentExtensions(client, agent.id, url?.searchParams.get('extendedAfter') ?? null),
     loadSystemMemoryIdentity(client, systemMemoryId),
   ]);
+  // portal#1377: after the pointer read, because it decides which editor to offer.
+  const bootSource = await readBootSource(client, bootPointer, systemMemoryId);
   return {
     extendedBy, systemMemoryIdentity,
     extendedAfter: url?.searchParams.get('extendedAfter') ?? null,
@@ -375,6 +381,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     currentUserId: locals.user?.id ?? null,
     form,
     bootPromptForm: await superValidate({ systemPrompt: agent.systemPrompt ?? '' }, zod4(bootPromptSchema), { id: `bootPrompt:${params.id}`, errors: false }),
+    bootSource,
+    bootSourceForm: await superValidate(
+      { nodeId: bootSource.mode === 'source' ? bootSource.node.id : '', content: bootSource.mode === 'source' ? bootSource.node.content : '', expectedRevision: bootSource.mode === 'source' ? bootSource.node.revision : 1 },
+      zod4(bootSourceSchema), { id: `bootSource:${params.id}`, errors: false },
+    ),
     registerDefaults: registerDefaultsResult,
     registerDefaultsForm,
     bootPointer,
@@ -424,6 +435,36 @@ export const actions: Actions = {
     } catch {
       // Raw ClientError may include private request variables (the prompt).
       return message(form, { type: 'error', text: t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.') }, { status: 500 });
+    }
+  },
+
+  // portal#1377 S1: with a boot-prompt pointer set, the tab edits the Agent's
+  // `boot:source` node, not `Agent.systemPrompt`. Refusals map by code to fixed
+  // copy: a ClientError's message carries the request variables (the prompt).
+  saveBootSource: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootSourceSchema), { id: `bootSource:${params.id}`, strict: true });
+    if (!form.valid) return fail(400, { form });
+    const input = { id: form.data.nodeId, content: form.data.content.replace(/\r\n/g, '\n'), expectedRevision: form.data.expectedRevision };
+    try {
+      const client = gqlClient(locals.token);
+      // A fresh read of the governance signals picks the write door (server #1201).
+      const prior = (await client.request<{ node: { role?: string | null; isRunnable?: boolean | null } | null }>(NODE_DATA_READ_QUERY, { ref: input.id })).node;
+      await client.request(nodeUpdateDocument(prior, input), { input });
+      // The shared node fragment carries no revision; the page shows the new one after the reload.
+      return message(form, { type: 'success', text: t('agent.boot.source-saved', 'Source saved. Workers get nothing new until it is compiled and approved.') });
+    } catch (e) {
+      const code = extractGqlErrorCode(e);
+      const text = code === 'NODE_WRITE_CONFLICT'
+        ? t('agent.boot.source-conflict', 'Someone changed the source since you opened it. Your draft is kept; reload to see their version.')
+        : code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED'
+          ? t('agent.boot.source-worker-refused', 'Boot prompts are edited by their manager signed in as themselves, not through a worker session.')
+          : code === 'INCLUDE_TARGET_UNAVAILABLE'
+            // Fixed copy: the server's message and tag name the target, which this reader may not be allowed to know.
+            ? t('agent.boot.source-include-unavailable', 'An include in the source points at something that doesn’t exist or that you can’t read. Your draft is kept.')
+          : code === 'FORBIDDEN'
+            ? t('agent.boot.source-forbidden', 'Only whoever manages this Agent can change its boot prompt.')
+            : t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.');
+      return message(form, { type: 'error', text }, { status: code === 'NODE_WRITE_CONFLICT' ? 409 : code === 'INCLUDE_TARGET_UNAVAILABLE' ? 422 : code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED' ? 403 : 500 });
     }
   },
 

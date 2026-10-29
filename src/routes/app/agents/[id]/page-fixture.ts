@@ -7,6 +7,7 @@ import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import {
   bootPromptSchema,
+  bootSourceSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
   agentSettingsSchema,
@@ -46,6 +47,9 @@ export async function pageData(
       zod4(agentSettingsSchema), { errors: false },
     ),
     bootPromptForm: await superValidate({ systemPrompt: String(agentOverride.systemPrompt ?? '') }, zod4(bootPromptSchema), { id: `bootPrompt:${id}`, errors: false }),
+    // portal#1377: no pointer, so the tab keeps the legacy editor unless a test overrides it.
+    bootSource: { mode: 'legacy' } as import('$lib/server/boot-source').BootSourceView,
+    bootSourceForm: await superValidate({ nodeId: '', content: '', expectedRevision: 1 }, zod4(bootSourceSchema), { id: `bootSource:${id}`, errors: false }),
     registerDefaults,
     registerDefaultsForm: await superValidate(
       { mentionOnly: registerDefaults?.mentionOnly ?? false },
