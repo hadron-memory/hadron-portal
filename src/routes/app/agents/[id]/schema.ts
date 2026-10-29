@@ -89,3 +89,11 @@ export const bootSourceSchema = z.object({
   content: z.string(),
   expectedRevision: z.coerce.number().int().min(1),
 });
+
+// portal#1377 S2: compile carries nothing but its kind; approve pins the revision the manager read.
+export const bootCompileSchema = z.object({ _kind: z.literal('bootCompile').default('bootCompile') });
+export const bootApproveSchema = z.object({
+  _kind: z.literal('bootApprove').default('bootApprove'),
+  nodeId: z.string().min(1),
+  revision: z.coerce.number().int().min(1),
+});

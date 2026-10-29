@@ -466,8 +466,16 @@
     const result = submittedForm(form, 'bootSource') as typeof data.bootSourceForm | null;
     return result?.id === data.bootSourceForm?.id ? result : null;
   });
+  const bootCompileSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootCompile') as typeof data.bootCompileForm | null;
+    return result?.id === data.bootCompileForm?.id ? result : null;
+  });
+  const bootApproveSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootApprove') as typeof data.bootApproveForm | null;
+    return result?.id === data.bootApproveForm?.id ? result : null;
+  });
   $effect(() => {
-    if (bootPromptSubmission || bootSourceSubmission) activeTab = 'boot';
+    if (bootPromptSubmission || bootSourceSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -821,8 +829,8 @@
           <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'source'}
-        {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
-          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} approvedRevision={data.bootSource.approvedRevision} initial={data.bootSourceForm} submitted={bootSourceSubmission} />
+        {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}:${data.bootSource.compiled?.revision ?? 0}`}
+          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'source-missing'}
         <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>

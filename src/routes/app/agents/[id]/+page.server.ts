@@ -8,12 +8,14 @@ import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
-import { readBootSource } from '$lib/server/boot-source';
+import { compileRefusalStatus, compileRefusalText } from '$lib/boot-compile';
+import { approvalRefusalStatus, approveRefusalText } from '$lib/node-approval';
+import { readBootSource, readServedRevision } from '$lib/server/boot-source';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import { drainFindNodes, fetchAllItems } from '$lib/server/paginate';
 import { fetchOwnedMemoriesLite } from '$lib/server/personal-memories';
 import type { OwnedMemoryLite } from '$lib/server/personal-memories';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
 import { grantedAgents, type InstallableAgent, type OrgAgentPool } from '$lib/server/installable-agents';
 import { withTimeout, OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
@@ -26,6 +28,8 @@ import {
   AGENT_OWNED_APPS_QUERY,
   UPDATE_AGENT_MUTATION,
   NODE_DATA_READ_QUERY,
+  COMPILE_AGENT_BOOT_PROMPT_MUTATION,
+  APPROVE_NODE_MUTATION,
   DELETE_AGENT_MUTATION,
   ADD_MEMORY_TO_AGENT_MUTATION,
   UPDATE_AGENT_MEMORY_ROLE_MUTATION,
@@ -43,6 +47,8 @@ import type { Actions, PageServerLoad } from './$types';
 import {
   bootPromptSchema,
   bootSourceSchema,
+  bootCompileSchema,
+  bootApproveSchema,
   addAgentMemorySchema,
   agentRegisterDefaultsSchema,
   agentSettingsSchema,
@@ -382,6 +388,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     form,
     bootPromptForm: await superValidate({ systemPrompt: agent.systemPrompt ?? '' }, zod4(bootPromptSchema), { id: `bootPrompt:${params.id}`, errors: false }),
     bootSource,
+    bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${params.id}`, errors: false }),
+    bootApproveForm: await superValidate(
+      { nodeId: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.id : '', revision: bootSource.mode === 'source' && bootSource.compiled ? bootSource.compiled.revision : 1 },
+      zod4(bootApproveSchema), { id: `bootApprove:${params.id}`, errors: false },
+    ),
     bootSourceForm: await superValidate(
       { nodeId: bootSource.mode === 'source' ? bootSource.node.id : '', content: bootSource.mode === 'source' ? bootSource.node.content : '', expectedRevision: bootSource.mode === 'source' ? bootSource.node.revision : 1 },
       zod4(bootSourceSchema), { id: `bootSource:${params.id}`, errors: false },
@@ -461,6 +472,37 @@ export const actions: Actions = {
             ? t('agent.boot.source-forbidden', 'Only whoever manages this Agent can change its boot prompt.')
             : t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.');
       return message(form, { type: 'error', text }, { status: code === 'NODE_WRITE_CONFLICT' ? 409 : code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED' ? 403 : 500 });
+    }
+  },
+
+  // portal#1377 S2: "Update the prompt workers get". The compile never approves;
+  // the server writes a new unapproved compiled revision and the manager approves it.
+  compileBootPrompt: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootCompileSchema), { id: `bootCompile:${params.id}`, strict: true });
+    if (!form.valid) return fail(400, { form });
+    const client = gqlClient(locals.token);
+    try {
+      const r = await client.request<{ compileAgentBootPrompt: { revNo: number } }>(COMPILE_AGENT_BOOT_PROMPT_MUTATION, { agentRef: params.id });
+      return message(form, { type: 'success', text: t('boot.compile.done', 'Revision {n} is ready but not approved. Review it below, then approve it.', { n: r.compileAgentBootPrompt.revNo }) });
+    } catch (e) {
+      const code = extractGqlErrorCode(e);
+      const served = await readServedRevision(client, params.id);
+      return message(form, { type: 'error', text: compileRefusalText(code, extractGqlErrorExtensions(e)?.position, served) }, { status: compileRefusalStatus(code) });
+    }
+  },
+  // Approve exactly the revision the manager read (hidden field), never "latest".
+  approveBootPrompt: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), zod4(bootApproveSchema), { id: `bootApprove:${params.id}`, strict: true });
+    if (!form.valid) return fail(400, { form });
+    try {
+      await gqlClient(locals.token).request(APPROVE_NODE_MUTATION, { nodeRef: form.data.nodeId, revision: form.data.revision });
+      return message(form, { type: 'success', text: t('boot.approve.done', 'Revision {n} approved. Workers bound from now on get it.', { n: form.data.revision }) });
+    } catch (e) {
+      const code = extractGqlErrorCode(e);
+      const text = code === 'REVISION_MISMATCH'
+        ? t('boot.approve.mismatch', 'Someone updated the prompt after you opened it, so nothing was approved. The page has reloaded with the newest revision.')
+        : approveRefusalText(code);
+      return message(form, { type: 'error', text }, { status: approvalRefusalStatus(code) });
     }
   },
 
