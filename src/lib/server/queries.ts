@@ -1732,6 +1732,14 @@ export const UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION = /* GraphQL */ `
   }
 `;
 
+// portal#1405 (R211): replaces the roles the Agent offers and nothing else in its
+// installation policy. Existing members keep their role (server-side, by design).
+export const UPDATE_AGENT_MEMBER_ROLES_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentMemberRoles($ref: ID!, $memberRoles: [String!]!) {
+    updateAgent(ref: $ref, memberRoles: $memberRoles) { id installationPolicy { memberRoles } }
+  }
+`;
+
 export const DELETE_AGENT_MUTATION = /* GraphQL */ `
   mutation DeleteAgent($ref: ID!) { deleteAgent(ref: $ref) }
 `;

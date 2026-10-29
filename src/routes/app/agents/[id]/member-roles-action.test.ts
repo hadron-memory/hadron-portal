@@ -32,7 +32,18 @@ async function run(roles: string[]) {
   } as never);
 }
 
-const formOf = (result: unknown) => (result as { data?: { form?: { valid?: boolean; message?: unknown; errors?: Record<string, string[]> } }; form?: unknown } | undefined)?.data?.form;
+type ActionForm = { valid?: boolean; message?: unknown; errors?: { roles?: string[] | { _errors?: string[] } } };
+// fail() wraps the form in `data`; message() returns it as `form`. The producer has
+// two shapes for an array field: schema validation nests under `_errors`, while
+// setError() on the field is a plain list.
+const formOf = (result: unknown): ActionForm | undefined => {
+  const r = result as { data?: { form?: ActionForm }; form?: ActionForm } | undefined;
+  return r?.data?.form ?? r?.form;
+};
+const rolesError = (result: unknown) => {
+  const roles = formOf(result)?.errors?.roles;
+  return Array.isArray(roles) ? roles[0] : roles?._errors?.[0];
+};
 const calls = () => mockRequest.mock.calls.filter(([query]) => query === UPDATE_AGENT_MEMBER_ROLES_MUTATION);
 
 function gqlError(code: string, message: string) {
@@ -55,19 +66,19 @@ describe('Agent member-roles action (portal#1405)', () => {
     const result = await run([]);
     expect(calls()).toHaveLength(0);
     expect(formOf(result)?.valid).toBe(false);
-    expect(formOf(result)?.errors?.roles?.[0]).toBe('An Agent needs at least one role.');
+    expect(rolesError(result)).toBe('An Agent needs at least one role.');
   });
 
   it('a malformed role from the server shows its message at the roles field', async () => {
     mockRequest.mockRejectedValue(gqlError('BAD_USER_INPUT', 'Role "Bad Role" must be lowercase letters, digits and hyphens.'));
     const result = await run(['Bad Role']);
-    expect(formOf(result)?.errors?.roles?.[0]).toBe('Role "Bad Role" must be lowercase letters, digits and hyphens.');
+    expect(rolesError(result)).toBe('Role "Bad Role" must be lowercase letters, digits and hyphens.');
   });
 
   it('a refusal for lack of access is not a field error', async () => {
     mockRequest.mockRejectedValue(gqlError('FORBIDDEN', 'Forbidden'));
     const result = await run(['owner']);
-    expect(formOf(result)?.errors?.roles).toBeUndefined();
+    expect(rolesError(result)).toBeUndefined();
     expect(formOf(result)?.message).toMatchObject({ type: 'error' });
   });
 });

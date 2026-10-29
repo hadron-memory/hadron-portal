@@ -18,7 +18,8 @@ afterEach(() => {
 async function mountEditor(opts: { canManage: boolean; roles?: string[]; refusal?: string }) {
   const roles = opts.roles ?? ['owner', 'member'];
   const initial = await superValidate({ roles }, zod4(updateAgentMemberRolesSchema), { errors: false, id: 'updateMemberRoles' });
-  if (opts.refusal) initial.errors = { roles: [opts.refusal] };
+  // The shape the action's setError(form, 'roles._errors') produces for an array field.
+  if (opts.refusal) initial.errors = { roles: { _errors: [opts.refusal] } } as never;
   const m = mountComponent(AgentMemberRolesEditor as never, reactiveProps({ canManage: opts.canManage, roles, initial }) as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
@@ -30,10 +31,12 @@ const save = (t: HTMLElement) => [...t.querySelectorAll('button')].find((b) => b
 const posted = (t: HTMLElement) => [...(form(t)?.querySelectorAll('input[name="roles"]') ?? [])].map((i) => (i as HTMLInputElement).value);
 const removeButton = (t: HTMLElement, role: string) => t.querySelector(`button[aria-label="Remove ${role}"]`) as HTMLButtonElement | null;
 
-function type(t: HTMLElement, value: string) {
+// Typing and clicking are separate moments: let the typed value reach the Add button's state first.
+async function type(t: HTMLElement, value: string) {
   const input = t.querySelector('input[type="text"]') as HTMLInputElement;
   input.value = value;
   input.dispatchEvent(new Event('input', { bubbles: true }));
+  await tick(2);
 }
 const addButton = (t: HTMLElement) => [...t.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Add') as HTMLButtonElement | undefined;
 
@@ -54,7 +57,7 @@ describe('Agent member-roles editor (portal#1405)', () => {
 
   it('adding a role enables Save and posts exactly the new list', async () => {
     const t = await mountEditor({ canManage: true });
-    type(t, 'reviewer');
+    await type(t, 'reviewer');
     addButton(t)!.click();
     await tick(2);
     expect(posted(t)).toEqual(['owner', 'member', 'reviewer']);
@@ -71,7 +74,7 @@ describe('Agent member-roles editor (portal#1405)', () => {
 
   it('adding a role already in the list changes nothing', async () => {
     const t = await mountEditor({ canManage: true });
-    type(t, 'owner');
+    await type(t, 'owner');
     addButton(t)!.click();
     await tick(2);
     expect(posted(t)).toEqual(['owner', 'member']);
