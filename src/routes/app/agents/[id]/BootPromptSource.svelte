@@ -41,6 +41,10 @@
   // reload and the panel would show one revision while Approve submitted another.
   const compileMessage = compile.message, compileSubmitting = compile.submitting, compileEnhance = compile.enhance;
   const approveMessage = approve.message, approveSubmitting = approve.submitting, approveEnhance = approve.enhance;
+  // A compile or approval response reloads the page data, which would replace anything typed
+  // meanwhile with the saved source. Editing waits for the response: the textarea turns
+  // read-only (aria-busy) and Save/Cancel are disabled, so no input is accepted and then lost.
+  const busy = $derived($compileSubmitting || $approveSubmitting);
 </script>
 
 <section data-boot-prompt-source>
@@ -60,11 +64,11 @@
     <input type="hidden" name="nodeId" value={$form.nodeId} />
     <input type="hidden" name="expectedRevision" value={$form.expectedRevision} />
     <label for="bootSourceText" class="sr-only">{t('agent.boot.source-label', 'Boot prompt source')}</label>
-    <textarea id="bootSourceText" name="content" bind:value={$form.content} rows="24" readonly={canManage === false} aria-invalid={!!$errors.content?.length} class="w-full rounded-lg border border-zinc-300 bg-white p-4 font-mono text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"></textarea>
+    <textarea id="bootSourceText" name="content" bind:value={$form.content} rows="24" readonly={canManage === false || busy} aria-busy={busy} aria-invalid={!!$errors.content?.length} class="w-full rounded-lg border border-zinc-300 bg-white p-4 font-mono text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"></textarea>
     {#if canManage !== false}
       <div class="flex justify-end gap-2">
-        <button type="button" disabled={$submitting} onclick={() => reset({ data: { ...$form, content: stored } })} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700">{t('agent.boot.cancel', 'Cancel')}</button>
-        <button type="submit" disabled={$submitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50">{$submitting ? t('agent.boot.saving', 'Saving...') : t('agent.boot.save', 'Save')}</button>
+        <button type="button" disabled={$submitting || busy} onclick={() => reset({ data: { ...$form, content: stored } })} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700">{t('agent.boot.cancel', 'Cancel')}</button>
+        <button type="submit" disabled={$submitting || busy} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50">{$submitting ? t('agent.boot.saving', 'Saving...') : t('agent.boot.save', 'Save')}</button>
       </div>
     {/if}
   </form>

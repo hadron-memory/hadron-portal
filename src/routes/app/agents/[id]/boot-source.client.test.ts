@@ -190,4 +190,41 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
     expect(area(root)?.value).toBe('my unsaved draft');
     expect(root.querySelector('[data-boot-compiled]')?.textContent).toBe('compiled 6');
   });
+
+  // Cameron's QA P2: a draft typed while a compile is pending was replaced by the saved source
+  // when the response reloaded the page. Drives the real enhanced submit, not a props swap.
+  it('editing is blocked while a compile is in flight and returns with the response', async () => {
+    const { submitEnhancedDeferred } = await import('$lib/test/stubs/app-forms');
+    const { setStubPage, resetStubPage } = await import('$lib/test/stubs/app-stores');
+    setStubPage('http://localhost/app/agents/a');
+    try {
+      const root = await open(source());
+      const compileForm = root.querySelector<HTMLFormElement>('form[action="?/compileBootPrompt"]')!;
+      const pending = await submitEnhancedDeferred(compileForm);
+      await tick();
+      expect(area(root)!.readOnly).toBe(true);
+      expect(area(root)!.getAttribute('aria-busy')).toBe('true');
+      const buttons = [...root.querySelectorAll<HTMLButtonElement>('[data-boot-prompt-source] form[action="?/saveBootSource"] button')];
+      expect(buttons.length).toBeGreaterThan(0);
+      expect(buttons.every((b) => b.disabled)).toBe(true);
+      await pending.finish({ type: 'success', status: 200, data: { form: { id: 'bootCompile:a', valid: true, posted: true, errors: {}, data: { _kind: 'bootCompile' }, message: { type: 'success', text: 'Built revision 6.' } } } });
+      await tick(5);
+      expect(area(root)!.readOnly).toBe(false);
+      expect(buttons.some((b) => b.disabled)).toBe(false);
+    } finally { resetStubPage(); }
+  });
+  it('editing is blocked while an approval is in flight too', async () => {
+    const { submitEnhancedDeferred } = await import('$lib/test/stubs/app-forms');
+    const { setStubPage, resetStubPage } = await import('$lib/test/stubs/app-stores');
+    setStubPage('http://localhost/app/agents/a');
+    try {
+      const root = await open(source(2, undefined, { revision: 5, pending: true }));
+      const pending = await submitEnhancedDeferred(root.querySelector<HTMLFormElement>('form[action="?/approveBootPrompt"]')!);
+      await tick();
+      expect(area(root)!.readOnly).toBe(true);
+      await pending.finish({ type: 'success', status: 200, data: { form: { id: 'bootApprove:a', valid: true, posted: true, errors: {}, data: { _kind: 'bootApprove' }, message: { type: 'success', text: 'Revision 5 approved.' } } } });
+      await tick(5);
+      expect(area(root)!.readOnly).toBe(false);
+    } finally { resetStubPage(); }
+  });
 });
