@@ -1,5 +1,6 @@
 <script lang="ts">
   import BootPrompt from './BootPrompt.svelte';
+  import BootPromptSource from './BootPromptSource.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
   import AgentExtendedBy from '$lib/components/AgentExtendedBy.svelte';
   import type { NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -461,8 +462,12 @@
     const result = submittedForm(form, 'bootPrompt') as typeof data.bootPromptForm | null;
     return result?.id === data.bootPromptForm?.id ? result : null;
   });
+  const bootSourceSubmission = $derived.by(() => {
+    const result = submittedForm(form, 'bootSource') as typeof data.bootSourceForm | null;
+    return result?.id === data.bootSourceForm?.id ? result : null;
+  });
   $effect(() => {
-    if (bootPromptSubmission) activeTab = 'boot';
+    if (bootPromptSubmission || bootSourceSubmission) activeTab = 'boot';
   });
 
   function submitMemoryRoleChange(e: Event) {
@@ -810,9 +815,22 @@
   {/if}
   {#if data.bootPromptForm}
     <div hidden={activeTab !== 'boot'}>
-      {#key data.bootPromptForm.id}
-        <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
-      {/key}
+      {#if data.bootSource.mode === 'legacy'}
+        <p class="mb-3 text-xs text-zinc-500 dark:text-zinc-400">{t('agent.boot.legacy-note', 'This is the legacy prompt field. Set a boot prompt pointer in Settings to serve a compiled prompt instead.')}</p>
+        {#key data.bootPromptForm.id}
+          <BootPrompt canManage={data.canManageAgent} stored={agent.systemPrompt ?? ''} initial={data.bootPromptForm} submitted={bootPromptSubmission} />
+        {/key}
+      {:else if data.bootSource.mode === 'source'}
+        {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
+          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} approvedRevision={data.bootSource.approvedRevision} initial={data.bootSourceForm} submitted={bootSourceSubmission} />
+        {/key}
+      {:else if data.bootSource.mode === 'source-missing'}
+        <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-missing', 'This Agent points at a compiled prompt but has no source to edit.')}</p>
+      {:else if data.bootSource.mode === 'source-unreadable'}
+        <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400">{t('agent.boot.source-unreadable', 'You can’t see this Agent’s boot prompt.')}</p>
+      {:else}
+        <p role="alert" class="text-sm text-red-600 dark:text-red-400">{t('agent.boot.unknown', 'The boot prompt could not be loaded. Reload the page to try again.')}</p>
+      {/if}
     </div>
   {/if}
   {#if activeTab === 'profile'}

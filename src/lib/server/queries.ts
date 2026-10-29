@@ -4471,6 +4471,21 @@ export const AGENT_BOOT_POINTER_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1377 S1 — the two nodes behind an Agent's Boot prompt tab. raw: true
+// (#485): the source is an editor, so include tags must round-trip unexpanded.
+// The compiled node is read only for its revision and approval, for the status line.
+export const BOOT_SOURCE_QUERY = /* GraphQL */ `
+  query BootSource($ref: ID!, $memoryRef: ID!) {
+    node(ref: $ref, memoryRef: $memoryRef, raw: true) { id urn revision content }
+  }
+`;
+
+export const BOOT_COMPILED_QUERY = /* GraphQL */ `
+  query BootCompiled($ref: ID!) {
+    node(ref: $ref, raw: true) { id urn revision approvalStatus { state approval { revision } } }
+  }
+`;
+
 // The App's install rows, joined to the Agents tab by agent id. A row whose
 // agent is withheld (null) can't be joined and shows as not shown.
 export const APP_BOOT_POINTERS_QUERY = /* GraphQL */ `
