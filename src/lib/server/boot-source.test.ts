@@ -15,9 +15,9 @@ describe('readBootSource', () => {
   it('reads the source raw at boot:source and the approved revision of the pointed node', async () => {
     const c = client((q) => q === BOOT_SOURCE_QUERY
       ? { node: { id: 'n1', urn: 'u', revision: 3, content: '{{> a:b}}' } }
-      : { node: { approvalStatus: { approval: { revision: 2 } } } });
+      : { node: { id: 'c1', urn: 'cu', revision: 2, content: 'built', approvalStatus: { state: 'APPROVED', approval: { revision: 2 } }, lintWarnings: { items: [], total: 0, nextCursor: null } } });
     const v = await readBootSource(c, { ok: true, ref: 'hrn:node:ada:sys:boot:compiled', deleted: false }, 'sys');
-    expect(v).toEqual({ mode: 'source', node: { id: 'n1', urn: 'u', revision: 3, content: '{{> a:b}}' }, approvedRevision: 2 });
+    expect(v).toEqual({ mode: 'source', node: { id: 'n1', urn: 'u', revision: 3, content: '{{> a:b}}' }, compiled: { id: 'c1', urn: 'cu', revision: 2, content: 'built', approvedRevision: 2, pending: false, lint: null } });
     expect(BOOT_SOURCE_QUERY).toContain('raw: true');
     expect((c as { request: ReturnType<typeof vi.fn> }).request).toHaveBeenCalledWith(BOOT_SOURCE_QUERY, { ref: 'boot:source', memoryRef: 'sys' });
     expect((c as { request: ReturnType<typeof vi.fn> }).request).toHaveBeenCalledWith(BOOT_COMPILED_QUERY, { ref: 'hrn:node:ada:sys:boot:compiled' });
@@ -30,6 +30,15 @@ describe('readBootSource', () => {
   });
   it('a failed compiled read keeps the editor and drops only the revision number', async () => {
     const c = client((q) => { if (q === BOOT_COMPILED_QUERY) throw new Error('boom'); return { node: { id: 'n', urn: 'u', revision: 1, content: null } }; });
-    expect(await readBootSource(c, { ok: true, ref: 'r', deleted: false }, 'sys')).toMatchObject({ mode: 'source', node: { content: '' }, approvedRevision: null });
+    expect(await readBootSource(c, { ok: true, ref: 'r', deleted: false }, 'sys')).toMatchObject({ mode: 'source', node: { content: '' }, compiled: null });
+  });
+  it('a compiled revision that is not approved is pending, and keeps its lint warnings', async () => {
+    const lint = { items: [{ kind: 'BROKEN_INCLUDE', position: 4, text: 'x', targetUrn: null, pinnedRevision: null, newerRevision: null, workerField: null }], total: 3, nextCursor: 'c' };
+    const c = client((q) => q === BOOT_SOURCE_QUERY ? { node: { id: 'n', urn: 'u', revision: 1, content: '' } } : { node: { id: 'c1', urn: 'cu', revision: 5, content: 'new', approvalStatus: { state: 'SUPERSEDED', approval: { revision: 4 } }, lintWarnings: lint } });
+    expect(await readBootSource(c, { ok: true, ref: 'r', deleted: false }, 'sys')).toMatchObject({ compiled: { revision: 5, approvedRevision: 4, pending: true, lint } });
+  });
+  it('never approved is pending with no approved revision', async () => {
+    const c = client((q) => q === BOOT_SOURCE_QUERY ? { node: { id: 'n', urn: 'u', revision: 1, content: '' } } : { node: { id: 'c1', urn: 'cu', revision: 1, content: 'new', approvalStatus: { state: 'NOT_APPROVED', approval: null }, lintWarnings: null } });
+    expect(await readBootSource(c, { ok: true, ref: 'r', deleted: false }, 'sys')).toMatchObject({ compiled: { approvedRevision: null, pending: true, lint: null } });
   });
 });

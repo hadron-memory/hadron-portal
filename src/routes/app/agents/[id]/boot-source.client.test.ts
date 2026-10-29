@@ -21,7 +21,8 @@ async function open(bootSource: BootSourceView, canManageAgent: boolean | null =
   await tick();
   return mounted.target;
 }
-const source = (approvedRevision: number | null = 2): BootSourceView => ({ mode: 'source', node: { id: 'n1', urn: 'hrn:node:ada:sys:boot:source', revision: 3, content: SOURCE }, approvedRevision });
+const compiledView = (over: Record<string, unknown> = {}) => ({ id: 'c1', urn: 'hrn:node:ada:sys:boot:compiled', revision: 2, content: 'COMPILED TEXT', approvedRevision: 2, pending: false, lint: null, ...over });
+const source = (approvedRevision: number | null = 2, compiled: Record<string, unknown> | null = {}): BootSourceView => ({ mode: 'source', node: { id: 'n1', urn: 'hrn:node:ada:sys:boot:source', revision: 3, content: SOURCE }, compiled: compiled && compiledView({ approvedRevision, ...compiled }) } as BootSourceView);
 const area = (root: HTMLElement) => root.querySelector<HTMLTextAreaElement>('[data-boot-prompt-source] textarea');
 
 describe('portal#1377 S1 boot prompt tab modes', () => {
@@ -57,5 +58,39 @@ describe('portal#1377 S1 boot prompt tab modes', () => {
     const root = await open(source(), false);
     expect(area(root)?.readOnly).toBe(true);
     expect(root.querySelector('[data-boot-prompt-source] button[type=submit]')).toBeNull();
+  });
+
+  it('offers Update the prompt workers get, disabled while the draft is unsaved', async () => {
+    const root = await open(source());
+    const btn = () => [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Update the prompt workers get')!;
+    expect(btn().disabled).toBe(false);
+    const ta = area(root)!;
+    ta.value = 'changed'; ta.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    expect(btn().disabled).toBe(true);
+    expect(root.textContent).toContain('Save your changes first.');
+  });
+  it('shows the pending revision, its exact text, lint and an Approve bound to that revision', async () => {
+    const lint = { items: [{ kind: 'BROKEN_INCLUDE', position: 4, text: 'Include at 4 does not resolve', targetUrn: null, pinnedRevision: null, newerRevision: null, workerField: null }], total: 3, nextCursor: 'c' };
+    const root = await open(source(2, { revision: 5, pending: true, content: 'PENDING <b>bytes</b>', lint }));
+    const panel = root.querySelector('[data-boot-approve]')!;
+    expect(panel.textContent).toContain('Revision 5 is ready but not approved. Workers still get revision 2.');
+    expect(panel.querySelector('[data-boot-compiled]')?.textContent).toBe('PENDING <b>bytes</b>');
+    expect(panel.querySelector('b')).toBeNull();
+    expect(panel.querySelector('[data-boot-lint]')?.textContent).toContain('Warnings (3)');
+    expect(panel.textContent).toContain('2 more');
+    expect([...panel.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Approve')).toBe(true);
+  });
+  it('shows no Approve panel or lint when nothing is pending', async () => {
+    const root = await open(source());
+    expect(root.querySelector('[data-boot-approve]')).toBeNull();
+    expect(root.querySelector('[data-boot-lint]')).toBeNull();
+  });
+  it('a non-manager gets neither Update nor Approve', async () => {
+    const root = await open(source(2, { pending: true, revision: 5 }), false);
+    const labels = [...root.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    expect(labels).not.toContain('Update the prompt workers get');
+    expect(labels).not.toContain('Approve');
+    expect(root.querySelector('[data-boot-approve]')).not.toBeNull();
   });
 });
