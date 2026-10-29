@@ -958,7 +958,7 @@ const WORKER_FIELDS = /* GraphQL */ `
     # release frees it (hrn:node:hadronmemory.com:specs:cor:agt:020:09).
     #
     # WORKING-STATE fields: behind the worker read gate and MASKED TO NULL ON
-    # DENY, exactly like boot-prompt state and memoryId above, and unlike
+    # DENY, exactly like prompt and memoryId above, and unlike
     # name/role/urn. Null therefore means "nobody holds it" OR "you may not
     # see" — the renderer must not collapse the two.
     #
@@ -989,7 +989,7 @@ const WORKER_FIELDS = /* GraphQL */ `
  * portal#1142 P4 (hadron-server#1602 / #2120) — write a worker's signature and
  * trailer templates. A variable the caller leaves undefined is ABSENT on the
  * wire, and the server preserves an absent field; it refuses an explicit null,
- * so this is only ever sent text. Never carries boot-prompt state: the two are
+ * so this is only ever sent text. Never changes the boot prompt: the two are
  * separate forms, so no single submit mixes them.
  */
 export const UPDATE_WORKER_SIGNATURE_MUTATION = /* GraphQL */ `
@@ -2386,7 +2386,7 @@ export const APP_NODES_QUERY = /* GraphQL */ `
 // Deliberately does NOT select `worker { ... }`: this page already knows whose
 // sessions these are, and Session.worker runs a WIDER read gate than the worker
 // query itself. Selecting working-state through it (heldByUserId, memoryId,
-// boot-prompt state) would let a former App member read current staffing off a
+// prompt) would let a former App member read current staffing off a
 // historical session. Keep this selection worker-free.
 //
 // `sessions` returns a BARE [Session!]! — no page envelope and no total, unlike

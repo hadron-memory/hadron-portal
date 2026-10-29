@@ -1,7 +1,7 @@
 <!--
   portal#1142 P4 (hadron-server#1602 / #2120) — a worker's signature and commit
-  trailer TEMPLATES, on the Briefing tab beside the override but in a form of
-  its own (never one submit with boot-prompt state).
+  trailer TEMPLATES, on the Briefing tab beside the served briefing, in a
+  form of their own.
 
   - A template is shown exactly as stored; the server fills its variables at
     each bind, so the `{{…}}` text is literal here.

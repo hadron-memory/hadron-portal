@@ -47,7 +47,7 @@ export async function pageData(
       { name: `Agent ${id}`, urnSlug: id, description: '', visibility: 'PERSONAL', systemMemoryId: '', personaRole: '' },
       zod4(agentSettingsSchema), { errors: false },
     ),
-    // portal#1377: no pointer, so the tab keeps the legacy editor unless a test overrides it.
+    // portal#1377: no pointer; tests may supply a source explicitly.
     bootSource: { mode: 'legacy' } as import('$lib/server/boot-source').BootSourceView,
     bootSourceForm: await superValidate({ nodeId: '', content: '', expectedRevision: 1 }, zod4(bootSourceSchema), { id: `bootSource:${id}`, errors: false }),
     bootCompileForm: await superValidate({}, zod4(bootCompileSchema), { id: `bootCompile:${id}`, errors: false }),

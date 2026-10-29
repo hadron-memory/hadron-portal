@@ -440,7 +440,7 @@
           <p class="mt-1 text-sm text-zinc-500">
             {t(
               'worker.briefing.description',
-              'What this worker is told at the start of every worker session: its role agent’s template with the name and role bound, plus this worker’s override. It renders live, so a copy goes stale.',
+              'What this worker is told at the start of every worker session: its approved boot prompt with this worker’s variables filled in. It renders live, so a copy goes stale.',
             )}
           </p>
         </div>
@@ -471,8 +471,7 @@
 
       {#if !showSource}
         <!-- ── RENDERED: the composed briefing, which is what the worker is
-             actually told. Read-only by nature, not by choice — see the Source
-             view for what can be changed. -->
+             actually told. Both rendered and source views are read-only. -->
         {#if data.worker.prompt}
           <div class="rounded-xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
             {#if isBrowser}
@@ -504,8 +503,7 @@
 
       <!-- portal#1142 P4. Keyed on the worker: SvelteKit reuses this page across
            /app/workers/[id] navigations, and a superForm seeded once would carry
-           worker A's draft onto worker B (the trap the override form handles in
-           afterNavigate). A remount per worker is the simpler honest answer. -->
+           worker A's draft onto worker B. A remount per worker keeps each form scoped. -->
       {#key worker.id}
         <WorkerSignatureSection
           signature={worker.signature}

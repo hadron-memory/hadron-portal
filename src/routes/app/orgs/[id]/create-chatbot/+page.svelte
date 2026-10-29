@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { t } from '$lib/i18n/t';
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -265,9 +266,10 @@
         </div>
       {/if}
 
-      <!-- Step 4: Review -->
+      <!-- Step 3: Review -->
       {#if step === 3}
         <h2 class="mb-4 text-lg font-semibold text-zinc-900 dark:text-white">Review & create</h2>
+        <p class="mb-4 text-sm text-zinc-500 dark:text-zinc-400">{t('chatbot.boot-next-step', 'After creating the chatbot, open its Agent’s Boot prompt tab to write a source, then compile and approve it.')}</p>
         <div class="space-y-3 text-sm">
           <div class="rounded-lg border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-800 dark:bg-zinc-950">
             <h3 class="font-medium text-zinc-900 dark:text-white">Agent</h3>

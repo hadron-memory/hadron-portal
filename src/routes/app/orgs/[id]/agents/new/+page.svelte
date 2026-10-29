@@ -2,6 +2,7 @@
   import { untrack } from 'svelte';
   import { superForm } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
+  import { t } from '$lib/i18n/t';
   import { toSlug } from '$lib/slug';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import type { PageData, ActionData } from './$types';
@@ -65,6 +66,7 @@
       { label: 'New' },
     ]} />
     <h1 class="mt-2 text-2xl font-bold text-zinc-900 dark:text-white">New Agent</h1>
+    <p class="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{t('agent.new.boot-next-step', 'After creating the Agent, open its Boot prompt tab to write a source, then compile and approve it.')}</p>
   </div>
 
   <form method="POST" onsubmit={markSubmitAttempted} use:enhance class="space-y-5" novalidate>

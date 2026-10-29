@@ -8,7 +8,7 @@ import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { updateSignatureSchema } from './schema';
 import Page from './+page.svelte';
 
-function worker(id: string, promptOverride: string | null) {
+function worker(id: string, extraText: string | null) {
   return {
     id,
     appId: 'app-1',
@@ -17,7 +17,7 @@ function worker(id: string, promptOverride: string | null) {
     slug: id === 'w-a' ? 'ada' : 'dara',
     urn: `hrn:worker:hadronmemory.com:team:${id}`,
     role: 'engineer',
-    prompt: `BOUND TEMPLATE FOR ${id}${promptOverride ? `\n\n${promptOverride}` : ''}`,
+    prompt: `BOUND TEMPLATE FOR ${id}${extraText ? `\n\n${extraText}` : ''}`,
     memoryId: null,
     retiredAt: null,
     heldByUserId: null,
@@ -35,7 +35,7 @@ async function dataFor(w: ReturnType<typeof worker>) {
     // which the loader always seeds. A masked worker seeds it empty.
     signatureForm: await superValidate({}, zod4(updateSignatureSchema), { errors: false }),
     initialTab: 'briefing',
-    initialView: 'source',
+    initialView: 'rendered',
     workerSessions: [],
     sessionsTruncated: false,
     worklog: [],
@@ -46,16 +46,24 @@ async function dataFor(w: ReturnType<typeof worker>) {
 
 beforeEach(() => {
   resetNavigationGuards();
-  setStubPage('http://localhost/app/workers/w-a?tab=briefing&view=source', { id: 'w-a' });
+  setStubPage('http://localhost/app/workers/w-a?tab=briefing', { id: 'w-a' });
 });
 it('#1379 briefing source is read-only and never offers a retired override editor', async () => {
-  const mounted = mountComponent(Page, { data: await dataFor(worker('w-a', null)), form: null } as any);
+  const mounted = mountComponent(Page, { data: await dataFor(worker('w-a', null)), form: null } as never);
   const { target } = mounted;
   try {
     flushSync();
-    expect(target.textContent).toContain('BOUND TEMPLATE FOR w-a');
+    const sourceButton = [...target.querySelectorAll('button')].find(button => button.textContent === 'Source');
+    expect(sourceButton).toBeDefined();
+    expect(sourceButton!.getAttribute('aria-pressed')).toBe('false');
+    sourceButton!.click();
+    flushSync();
+    expect(sourceButton!.getAttribute('aria-pressed')).toBe('true');
+    const source = [...target.querySelectorAll('pre')].find(pre => pre.textContent === 'BOUND TEMPLATE FOR w-a');
+    expect(source).toBeDefined();
+    expect(source!.isContentEditable).not.toBe(true);
     expect(target.querySelector('[name="promptOverride"]')).toBeNull();
     expect(target.querySelector('form[action*="updateBriefing"]')).toBeNull();
-    expect(target.querySelector('textarea')).toBeNull();
+    expect(source!.querySelector('textarea, input, [contenteditable="true"]')).toBeNull();
   } finally { mounted.unmount(); }
 });

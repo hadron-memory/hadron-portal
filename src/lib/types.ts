@@ -101,7 +101,7 @@ export interface Agent {
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
-  // The role is dressing on the reusable Agent; compiled boot prompt supplies the
+  // The role is dressing on the reusable Agent; the compiled boot prompt supplies the
   // shared instructions for chats and bound Worker briefings.
   personaRole?: string | null;
   // 036-ai-service-config: server shim — true when the agent's `default`
@@ -396,7 +396,7 @@ export interface Worker {
    *
    * THREE-VALUED, and the third value is the one that bites. This is a
    * WORKING-STATE field behind the worker read gate, MASKED TO NULL ON DENY
-   * (like `boot-prompt state` and `memoryId`, unlike `name`/`role`/`urn`). So
+   * (like `prompt` and `memoryId`, unlike `name`/`role`/`urn`). So
    * `null` means EITHER "nobody holds it" OR "you may not see who does", and a
    * UI that renders those the same is asserting something the data does not
    * support. `undefined` additionally means "not selected".

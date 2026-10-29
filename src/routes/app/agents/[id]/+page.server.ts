@@ -432,7 +432,7 @@ export const actions: Actions = {
     }
   },
   // portal#1377 S1: with a boot-prompt pointer set, the tab edits the Agent's
-  // `boot:source` node, not `Agent.compiled boot prompt`. Refusals map by code to fixed
+  // `boot:source` node, not compiled prompt text. Refusals map by code to fixed
   // copy: a ClientError's message carries the request variables (the prompt).
   saveBootSource: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), zod4(bootSourceSchema), { id: `bootSource:${params.id}`, strict: true });
