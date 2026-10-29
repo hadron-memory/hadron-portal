@@ -449,18 +449,22 @@ export const actions: Actions = {
       const client = gqlClient(locals.token);
       // A fresh read of the governance signals picks the write door (server #1201).
       const prior = (await client.request<{ node: { role?: string | null; isRunnable?: boolean | null } | null }>(NODE_DATA_READ_QUERY, { ref: input.id })).node;
-      const r = await client.request<{ updateNode: { revision: number } }>(nodeUpdateDocument(prior, input), { input });
-      return message(form, { type: 'success', text: t('agent.boot.source-saved', 'Source saved (revision {n}). Workers get nothing new until it is compiled and approved.', { n: r.updateNode?.revision ?? '' }) });
+      await client.request(nodeUpdateDocument(prior, input), { input });
+      // The shared node fragment carries no revision; the page shows the new one after the reload.
+      return message(form, { type: 'success', text: t('agent.boot.source-saved', 'Source saved. Workers get nothing new until it is compiled and approved.') });
     } catch (e) {
       const code = extractGqlErrorCode(e);
       const text = code === 'NODE_WRITE_CONFLICT'
         ? t('agent.boot.source-conflict', 'Someone changed the source since you opened it. Your draft is kept; reload to see their version.')
         : code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED'
           ? t('agent.boot.source-worker-refused', 'Boot prompts are edited by their manager signed in as themselves, not through a worker session.')
+          : code === 'INCLUDE_TARGET_UNAVAILABLE'
+            // Fixed copy: the server's message and tag name the target, which this reader may not be allowed to know.
+            ? t('agent.boot.source-include-unavailable', 'An include in the source points at something that doesn’t exist or that you can’t read. Your draft is kept.')
           : code === 'FORBIDDEN'
             ? t('agent.boot.source-forbidden', 'Only whoever manages this Agent can change its boot prompt.')
             : t('agent.boot.failed', 'Could not save the boot prompt. Your draft is kept; try again.');
-      return message(form, { type: 'error', text }, { status: code === 'NODE_WRITE_CONFLICT' ? 409 : code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED' ? 403 : 500 });
+      return message(form, { type: 'error', text }, { status: code === 'NODE_WRITE_CONFLICT' ? 409 : code === 'INCLUDE_TARGET_UNAVAILABLE' ? 422 : code === 'FORBIDDEN' || code === 'BOOT_PROMPT_WORKER_SESSION_REFUSED' ? 403 : 500 });
     }
   },
 
