@@ -22,3 +22,9 @@ Two temporary private-only resolver probes issued `SELECT private_1132 FROM miss
 Cleanup verified: preview stopped, Incus instance/state removed, temporary server checkout removed. No auth artifacts or raw server logs are included here. Independent QA must repeat the action/loader/log-correlation and refusal/concealment checks on its own fresh private stack at the frozen PR head; author smoke does not replace that seat.
 
 Finding captured and read back: hrn:node:hadronmemory.com:hadron-portal:findings:typed-refusal-defaults-need-error-envelope. Contract unchanged: hrn:node:hadronmemory.com:specs:cor:api:260:01. No new spec citation minted.
+
+## Batched review fixes
+
+BLIND and LOCAL found a missing portal-side logger, framework4xx copy flattened by the hook, actual bundle class-name refusals missing from the local opt-in, and known create/read refusal statuses needing preservation. Red commit141123f3 adds12 failing pins at the original head (78 controls pass); three further framework4xx hook pins also failed before the fix. The final batch passes 6,916 tests, focused106 checks, typecheck0/0 and repository guards. Production build passed at the batch before the final framework-message return condition (2,457MB peak); hosted CI validates the exact final head. No new author browser run is claimed for this batch; independent seat holders must validate or carry their final-head coverage.
+
+The unresolved typed memory/App collision gap belongs to the provider: its plain Errors are already masked as generic faults. No client collision recovery from generic prose was introduced. Evidence and QA dependency disposition are on the PR. New reusable review check captured at hrn:node:hadronmemory.com:hadron-portal:review:custom-error-hook-framework-copy-and-logging; lint87 checks OK.

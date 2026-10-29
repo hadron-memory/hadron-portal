@@ -8,7 +8,7 @@ All direct reader calls below use the existing server import path, which re-expo
 
 Genuine transport Error handling stays separate. A payload-less graphql-request ClientError uses the caller fallback, because its constructor embeds the query/variables. Unhandled loader errors use the same bounded App.Error body; explicit Agent/clone 500 boundaries preserve it. ErrorPage displays validated ids only for 5xx, as selectable escaped body text, outside title/URL. App partial success remains salvageable, but missing data after a fault is 500, not a concealed 404.
 
-Message-dependent branches audited: account BAD_USER_INPUT email uses its known typed text; access-check NOT_FOUND preserves its existing user/resource hint; personal/org Agent URN collision recognizes landed AGENT_URN_TAKEN; old memory/App collision and install missing-Agent text is inspected separately from reader copy; chatbot field selection inspects only branch text; agent-chat legacy scope routing remains separate. Generic and unknown coded faults never trigger those text branches.
+Message-dependent branches audited: account BAD_USER_INPUT email uses its known typed text; access-check NOT_FOUND preserves its existing user/resource hint; personal/org Agent URN collision recognizes landed AGENT_URN_TAKEN; memory/App collision prose is inspected only on genuine legacy plain-Error transport paths: the provider throws plain Error for these collisions and formats them as generic faults, so real GraphQL collisions cannot be recovered by this client; typed Agent collisions and install AGENT_NOT_FOUND still branch by code; chatbot field selection inspects only branch text; agent-chat legacy scope routing remains separate. Generic and unknown coded faults never trigger those text branches.
 
 Additional direct/default sinks: edgeWriteFailure's ClientError-message bypass removed; include refusal text retains only INCLUDE_REFUSAL_CODES; pointer/customisation known-code maps retain intentional text while unknown fallback uses classifier; Agent tester readiness no longer reflects generic/unknown text; app-member/create-node translator defaults and edge-condition fallback use the same classifier. Existing server-only logging is not shipped to clients. Existing asset/automation/API-key/delete-worker typed branches are explicit code maps; their raw text is used only after their known-code guards, and unknowns already use fixed fallback. No telemetry added.
 
@@ -49,24 +49,24 @@ AST calls: 144; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/agents/[id]/+page.server.ts:672 — extractGqlError(e, 'Failed to update agent')
 - src/routes/app/agents/[id]/+page.server.ts:740 — extractGqlError(e, 'Failed to delete agent')
 - src/routes/app/agents/[id]/+page.server.ts:764 — extractGqlError(e, 'Failed to add memory')
-- src/routes/app/agents/[id]/+page.server.ts:789 — extractGqlError(e, 'Failed to bundle the agent')
+- src/routes/app/agents/[id]/+page.server.ts:789 — extractGqlError(e, 'Failed to bundle the agent', ['SelfImportError', 'MultiLevelImportError', 'MissingGrantError', 'PositionConflictError'])
 - src/routes/app/agents/[id]/+page.server.ts:805 — extractGqlError(e, 'Failed to update memory role')
 - src/routes/app/agents/[id]/+page.server.ts:820 — extractGqlError(e, 'Failed to remove memory')
 - src/routes/app/agents/[id]/test/+page.server.ts:111 — extractGqlError(e, '', ['NoAiConfigAvailableError', 'FORBIDDEN', 'UNAUTHENTICATED', 'GRAPHQL_VALIDATION_FAILED'])
 - src/routes/app/agents/new/+page.server.ts:47 — extractGqlError(e, 'Failed to create agent', ["AGENT_URN_TAKEN"])
-- src/routes/app/apps/[appId]/+page.server.ts:1014 — extractGqlError(e, 'Failed to update app')
-- src/routes/app/apps/[appId]/+page.server.ts:1047 — extractGqlError(e, 'Failed to add agent')
-- src/routes/app/apps/[appId]/+page.server.ts:1069 — extractGqlError(e, 'Failed to remove agent')
-- src/routes/app/apps/[appId]/+page.server.ts:1141 — extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.'))
-- src/routes/app/apps/[appId]/+page.server.ts:1195 — extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.'))
-- src/routes/app/apps/[appId]/+page.server.ts:1302 — extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.'))
-- src/routes/app/apps/[appId]/+page.server.ts:1348 — extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.'))
-- src/routes/app/apps/[appId]/+page.server.ts:1423 — extractGqlError(e, 'Failed to delete app')
+- src/routes/app/apps/[appId]/+page.server.ts:1016 — extractGqlError(e, 'Failed to update app')
+- src/routes/app/apps/[appId]/+page.server.ts:1049 — extractGqlError(e, 'Failed to add agent')
+- src/routes/app/apps/[appId]/+page.server.ts:1071 — extractGqlError(e, 'Failed to remove agent')
+- src/routes/app/apps/[appId]/+page.server.ts:1143 — extractGqlError(e, t('app.staff.cast.error', 'Failed to cast the worker.'))
+- src/routes/app/apps/[appId]/+page.server.ts:1197 — extractGqlError(e, t('app.team-chat.post.error', 'Failed to post to the team chat.'))
+- src/routes/app/apps/[appId]/+page.server.ts:1304 — extractGqlError(e, t('app.staff.retire.error', 'Failed to retire the worker.'))
+- src/routes/app/apps/[appId]/+page.server.ts:1350 — extractGqlError(e, t('app.staff.release.error', 'Failed to release the name.'))
+- src/routes/app/apps/[appId]/+page.server.ts:1425 — extractGqlError(e, 'Failed to delete app')
 - src/routes/app/apps/[appId]/agent-tools-refusal.ts:36 — extractGqlError(e, fallback)
 - src/routes/app/apps/[appId]/channels/+page.server.ts:221 — extractGqlError(e, fallback)
 - src/routes/app/apps/[appId]/runs/+page.server.ts:99 — extractGqlError(e, 'Failed to start the flow')
 - src/routes/app/apps/[appId]/runs/[runId]/+page.server.ts:81 — extractGqlError(e, 'Failed to cancel run')
-- src/routes/app/apps/new/+page.server.ts:158 — extractGqlError(e, 'Failed to create app.')
+- src/routes/app/apps/new/+page.server.ts:161 — extractGqlError(e, 'Failed to create app.', CREATE_APP_REFUSALS)
 - src/routes/app/commands/access-check/+page.server.ts:110 — extractGqlError(e, t('commands.common.not-found', 'Not found'), ['NOT_FOUND'])
 - src/routes/app/commands/access-check/+page.server.ts:118 — extractGqlError(e, t('commands.access-check.error.failed', 'Access check failed.'))
 - src/routes/app/commands/merge-memory/+page.server.ts:97 — extractGqlError(e, t('commands.merge-memory.error.failed', 'Merge failed.'))
@@ -128,7 +128,7 @@ AST calls: 144; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/orgs/[id]/+page.server.ts:75 — extractGqlError(e, 'Failed to update organization')
 - src/routes/app/orgs/[id]/agents/+page.server.ts:179 — extractGqlError( e, t('org-agents.subscribed.error', 'Failed to subscribe to the agent.'), )
 - src/routes/app/orgs/[id]/agents/+page.server.ts:210 — extractGqlError( e, t( 'org-agents.subscribed.unsubscribe.error', 'Failed to remove the agent subscription.', ), )
-- src/routes/app/orgs/[id]/agents/install/[aid]/+page.server.ts:233 — extractGqlError(e, 'Install failed.')
+- src/routes/app/orgs/[id]/agents/install/[aid]/+page.server.ts:236 — extractGqlError(e, 'Install failed.', CREATE_APP_REFUSALS)
 - src/routes/app/orgs/[id]/agents/new/+page.server.ts:49 — extractGqlError(e, 'Failed to create agent', ["AGENT_URN_TAKEN"])
 - src/routes/app/orgs/[id]/apps/+page.server.ts:74 — extractGqlError(e, 'Failed to delete app')
 - src/routes/app/orgs/[id]/create-chatbot/+page.server.ts:210 — extractGqlError(e, 'Failed to create chatbot agent', ["AGENT_URN_TAKEN"])
@@ -160,3 +160,7 @@ AST calls: 144; modules: 68. This follows the helper name and excludes tests; it
 - src/routes/app/user/[id]/+page.server.ts:57 — extractGqlError(e, 'The workers could not be loaded')
 - src/routes/app/workers/[id]/+page.server.ts:248 — extractGqlError(e, '', ["BAD_USER_INPUT","WORKER_RETIRED"])
 - src/routes/app/workers/[id]/+page.server.ts:301 — extractGqlError(e, 'Failed to save the override', ["BAD_USER_INPUT","WORKER_RETIRED"])
+
+## Review fix audit
+
+The provider publishAgentImport resolver explicitly emits SelfImportError, MultiLevelImportError, MissingGrantError and PositionConflictError. Those four codes retain intentional text at the bundle mutation; IMPORT_DEPTH is an old invented test code, not a provider code. Known createApp refusals retain the previous400 status (install AGENT_NOT_FOUND remains404); generic/unknown faults remain500. App read UNAUTHENTICATED/BAD_USER_INPUT retain prior concealed404 alongside existing absence/refusal codes. The portal handleError hook logs unexpected exceptions server-side before returning safe copy; event URLs/cookies/forms are not added. See PR review response for exact provider source links. No generic fault is parsed as a collision.

@@ -123,6 +123,9 @@ export const load: PageServerLoad = async ({ locals, url, parent }) => {
   };
 };
 
+// Existing createApp refusals from the landed server, not a catch-all 4xx rule.
+const CREATE_APP_REFUSALS = ['BAD_USER_INPUT', 'FORBIDDEN', 'UNAUTHENTICATED', 'AGENT_NOT_FOUND', 'ORGANIZATION_NOT_FOUND', 'ORGANIZATION_MISMATCH', 'INSTALL_MEMORIES_REMAIN', 'URN_NOT_QUALIFIED'] as const;
+
 export const actions: Actions = {
   default: async ({ request, locals }) => {
     const form = await superValidate<CreatePersonalAppForm>(await request.formData(), adapter);
@@ -155,12 +158,12 @@ export const actions: Actions = {
       });
       createdId = res.createApp.id;
     } catch (e) {
-      const msg = extractGqlError(e, 'Failed to create app.');
+      const msg = extractGqlError(e, 'Failed to create app.', CREATE_APP_REFUSALS);
       if (/already exists/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'urn', 'An app with that URN already exists.', { status: 409 });
       }
       // Handle-less account / agent-not-found / other → surface as a form error.
-      return message(form, { type: 'error', text: msg }, { status: classifyGqlError(e).kind === 'transport' || extractGqlErrorCode(e) === 'BAD_USER_INPUT' ? 400 : 500 });
+      return message(form, { type: 'error', text: msg }, { status: classifyGqlError(e).kind === 'transport' || (CREATE_APP_REFUSALS as readonly string[]).includes(extractGqlErrorCode(e) ?? '') ? 400 : 500 });
     }
 
     redirect(303, `/app/apps/${createdId}`);

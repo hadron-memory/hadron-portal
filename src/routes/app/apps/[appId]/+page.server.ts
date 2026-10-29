@@ -475,6 +475,8 @@ const WORKLOG_PAGE_SIZE = 200;
 // 100, that nothing kept in step is the drift this module's own TEAM_CHAT_LOC
 // comment warns about.
 
+const APP_CONCEALED_REFUSALS: readonly string[] = ['FORBIDDEN', 'NOT_FOUND', 'APP_NOT_FOUND', 'UNAUTHENTICATED', 'BAD_USER_INPUT'];
+
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   // #785: this load no longer carries the team chat's refresh. The poll reads
   // `team-chat/+server.ts` directly, because a background tick must not be able
@@ -523,7 +525,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
           const partial = (e as { response?: { data?: { app?: App | null } } }).response?.data;
           if (partial?.app) return { app: partial.app };
           const code = extractGqlErrorCode(e);
-          if (code !== 'FORBIDDEN' && code !== 'NOT_FOUND' && code !== 'APP_NOT_FOUND') throw error(500, gqlErrorBody(e, t('app.load-failed', 'Could not load App.')));
+          if (!APP_CONCEALED_REFUSALS.includes(code ?? '')) throw error(500, gqlErrorBody(e, t('app.load-failed', 'Could not load App.')));
           return { app: null };
         }
         throw e;

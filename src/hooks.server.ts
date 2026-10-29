@@ -137,4 +137,9 @@ const securityHeaders: Handle = async ({ event, resolve }) => {
 // #974: sessionActionGuard reads what authHandle decided, so it runs right after.
 export const handle: Handle = sequence(authHandle, sessionActionGuard, nodeAdviceHandle, cspAssetStorage, securityHeaders);
 
-export const handleError: HandleServerError = ({ error }) => gqlErrorBody(error, internalErrorText());
+export const handleError: HandleServerError = ({ error, status, message }) => {
+  // Defining this hook replaces SvelteKit's default error logger. Keep the
+  // original exception server-side; never attach request URLs, cookies or form data.
+  console.error('[portal] unexpected request error', { status, error });
+  return status < 500 ? { message } : gqlErrorBody(error, internalErrorText());
+};

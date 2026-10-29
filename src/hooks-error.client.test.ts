@@ -16,3 +16,19 @@ it('logs an unexpected portal exception while returning only safe reader copy', 
   expect(log.mock.calls[0]).toContainEqual(expect.objectContaining({ error, status: 500 }));
   expect(result).toEqual({ message: 'Something went wrong on our side.' });
 });
+
+it.each([[400, 'Bad Request'], [403, 'Forbidden'], [404, 'Not Found']])(
+  'preserves SvelteKit %s framework copy', async (status, message) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const result = await handleError({ error: new Error('not reader copy'), status: Number(status), message: String(message), event: {} as never });
+    expect(result).toEqual({ message });
+  },
+);
+
+it('preserves a validated GraphQL request id without returning its diagnostics', async () => {
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  const requestId = 'a4451409-72f6-4f08-b90b-f8db328e8c58';
+  const error = { response: { errors: [{ message: 'SELECT private FROM /srv/internal.ts', extensions: { code: 'INTERNAL_SERVER_ERROR', requestId } }] } };
+  const result = await handleError({ error, status: 500, message: 'Internal Error', event: {} as never });
+  expect(result).toEqual({ message: 'Something went wrong on our side.', requestId });
+});

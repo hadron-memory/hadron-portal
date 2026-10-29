@@ -786,7 +786,7 @@ export const actions: Actions = {
       });
       return { bundleAdded: true };
     } catch (e: unknown) {
-      return fail(500, { bundleError: extractGqlError(e, 'Failed to bundle the agent') });
+      return fail(500, { bundleError: extractGqlError(e, 'Failed to bundle the agent', ['SelfImportError', 'MultiLevelImportError', 'MissingGrantError', 'PositionConflictError']) });
     }
   },
 

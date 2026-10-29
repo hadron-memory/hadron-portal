@@ -179,3 +179,12 @@ describe('install agent action', () => {
     });
   });
 });
+
+it.each(['BAD_USER_INPUT', 'UNAUTHENTICATED', 'FORBIDDEN', 'ORGANIZATION_MISMATCH', 'INSTALL_MEMORIES_REMAIN'])(
+  'preserves createApp %s as an intentional 400 install refusal', async (code) => {
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Intentional install refusal.', extensions: { code } }] } });
+    const result = await runInstall(baseFields);
+    expect(result).toMatchObject({ status: 400 });
+    expect(JSON.stringify(result)).toContain('Intentional install refusal.');
+  },
+);
