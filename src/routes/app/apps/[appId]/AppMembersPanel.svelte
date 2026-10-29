@@ -49,7 +49,7 @@
   }
 
   // Roles the App offers: the server's union over every installed Agent,
-  // primary first (R211, cor:dmo:050:04). The server validates against this
+  // primary first (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04). The server validates against this
   // same list, so the dropdown is the canonical source of truth. Not the
   // deprecated single `app.agent` policy: on a multi-Agent App that list is
   // incomplete (#1405). `maxMembers` below keeps its existing read.

@@ -9,7 +9,7 @@
   type RolesSuperform = SuperValidated<RolesForm, App.Superforms.Message, RolesForm>;
 
   /**
-   * portal#1405 (R211, cor:dmo:050:04): "Choose which roles people can have in
+   * portal#1405 (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): "Choose which roles people can have in
    * Apps using this Agent". Whoever the server lets edit the Agent edits the
    * list; everyone else keeps the read-only line. The server decides on save
    * (`updateAgent`, requireAgentAccess(ADMIN)); `canManage` only decides what

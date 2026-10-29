@@ -1,5 +1,5 @@
 /**
- * portal#1405 (hadron-server#2171, R211, cor:dmo:050:04): the App members panel
+ * portal#1405 (hadron-server#2171, R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the App members panel
  * offers the roles the SERVER computed for the App, `App.availableMemberRoles`
  * (the union over every installed Agent, primary first), not the deprecated
  * single `app.agent`'s installation policy.

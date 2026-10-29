@@ -38,7 +38,7 @@ export const agentRegisterDefaultsSchema = z.object({
   mentionOnly: z.boolean().default(false),
 });
 
-// portal#1405 (R211, cor:dmo:050:04): the roles people can have in Apps using
+// portal#1405 (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the roles people can have in Apps using
 // this Agent. Posted as repeated `roles` entries; an empty list is refused here
 // and by the server, so an Agent always offers at least one role.
 export const updateAgentMemberRolesSchema = z.object({

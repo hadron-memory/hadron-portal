@@ -290,7 +290,7 @@ export interface App {
   agentId: string | null;
   agent: AppAgentSummary | null;
   /**
-   * #1405 (R211, cor:dmo:050:04): the member roles the App offers, the union
+   * #1405 (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the member roles the App offers, the union
    * over its installed Agents, primary first. Optional because only the
    * AppFields fragment selects it.
    */

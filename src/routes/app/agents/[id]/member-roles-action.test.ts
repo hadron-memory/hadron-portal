@@ -1,5 +1,5 @@
 /**
- * portal#1405 (hadron-server#2171, R211, cor:dmo:050:04): the Agent page lets a
+ * portal#1405 (hadron-server#2171, R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the Agent page lets a
  * manager choose which roles people can have in Apps using this Agent. The
  * action sends `updateAgent(ref, memberRoles)` and nothing else, never an empty
  * list, and shows the server's refusal at the `roles` field.
