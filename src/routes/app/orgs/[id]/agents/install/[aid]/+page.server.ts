@@ -20,7 +20,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { classifyGqlError, gqlErrorTextForBranching, extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import {
   ORGANIZATIONS_QUERY,
@@ -158,6 +158,9 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   };
 };
 
+// Existing createApp refusals from the landed server, not a catch-all 4xx rule.
+const CREATE_APP_REFUSALS = ['BAD_USER_INPUT', 'FORBIDDEN', 'UNAUTHENTICATED', 'AGENT_NOT_FOUND', 'ORGANIZATION_NOT_FOUND', 'ORGANIZATION_MISMATCH', 'INSTALL_MEMORIES_REMAIN', 'URN_NOT_QUALIFIED'] as const;
+
 export const actions: Actions = {
   installExisting: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), zod4(installExistingAppSchema), { id: 'installExistingApp', strict: true });
@@ -230,14 +233,14 @@ export const actions: Actions = {
       });
       createdApp = result.createApp;
     } catch (e) {
-      const msg = extractGqlError(e, 'Install failed.');
-      if (/already exists/i.test(msg)) {
+      const msg = extractGqlError(e, 'Install failed.', CREATE_APP_REFUSALS);
+      if (/already exists/i.test(gqlErrorTextForBranching(e))) {
         return setError(form, 'urn', installStrings.errorUrnCollision(), { status: 409 });
       }
-      if (/Agent not found|deleted/i.test(msg)) {
+      if (extractGqlErrorCode(e) === 'AGENT_NOT_FOUND' || /Agent not found|deleted/i.test(gqlErrorTextForBranching(e))) {
         return message(form, { type: 'error', text: installStrings.errorAgentNotFound() }, { status: 404 });
       }
-      return message(form, { type: 'error', text: msg }, { status: 400 });
+      return message(form, { type: 'error', text: msg }, { status: classifyGqlError(e).kind === 'transport' || (CREATE_APP_REFUSALS as readonly string[]).includes(extractGqlErrorCode(e) ?? '') ? 400 : 500 });
     }
 
     // #648: the App detail is the canonical org-optional /app/apps/[appId].

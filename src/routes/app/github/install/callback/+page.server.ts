@@ -1,3 +1,4 @@
+import { extractGqlError, extractGqlErrorCode, gqlErrorBody } from '$lib/server/gqlError';
 import { redirect, error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { LINK_GITHUB_APP_MUTATION } from '$lib/server/queries';
@@ -25,7 +26,10 @@ export const load: PageServerLoad = async ({ url, locals }) => {
       installationId,
     });
   } catch (e: unknown) {
-    throw error(500, e instanceof Error ? e.message : 'Failed to link GitHub App installation');
+    const fallback = 'Failed to link GitHub App installation';
+    throw error(500, extractGqlErrorCode(e) === 'INTERNAL_SERVER_ERROR'
+      ? gqlErrorBody(e, fallback)
+      : { message: extractGqlError(e, fallback) });
   }
 
   // #336: GitHub config + success banner live on the Integrations tab.

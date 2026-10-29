@@ -129,7 +129,7 @@ describe('account invite action', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'boom' });
   });
 
-  it('surfaces the GraphQL response message instead of the raw ClientError message', async () => {
+  it('suppresses uncoded GraphQL response and ClientError prose', async () => {
     mockRequest.mockRejectedValueOnce(
       Object.assign(new Error('raw ClientError payload with query text'), {
         response: { errors: [{ message: 'Invitation already exists.' }] },
@@ -139,6 +139,6 @@ describe('account invite action', () => {
     const result = await runInvite({ inviteName: 'Ada', inviteEmail: '', inviteGithub: '' });
 
     expect(result).toMatchObject({ status: 500 });
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Invitation already exists.' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });

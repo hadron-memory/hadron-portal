@@ -31,8 +31,8 @@ describe('userFacingErrorMessage', () => {
     expect(userFacingErrorMessage(null, 'Fallback')).toBe('Fallback');
   });
 
-  it('uses the message from the first error when extensions are absent', () => {
+  it('uses generic copy when GraphQL extensions are absent', () => {
     const err = { response: { errors: [{ message: 'plain server error' }] } };
-    expect(userFacingErrorMessage(err, 'Fallback')).toBe('plain server error');
+    expect(userFacingErrorMessage(err, 'Fallback')).toBe('Something went wrong on our side.');
   });
 });

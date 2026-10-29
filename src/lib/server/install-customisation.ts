@@ -10,7 +10,7 @@ import {
   type Read,
 } from '$lib/install-customisation';
 import { parseExpectedRevision } from '$lib/node-revision';
-import { extractGqlErrorCode } from './gqlError';
+import { extractGqlError, extractGqlErrorCode } from './gqlError';
 import {
   INSTALL_TARGET_QUERY,
   INSTALL_MEMORY_QUERY,
@@ -151,16 +151,13 @@ export async function writeCustomisation(
     return { saved: true };
   } catch (e) {
     const code = extractGqlErrorCode(e);
-    const serverMessage = (
-      e as { response?: { errors?: { message?: unknown }[] } } | null
-    )?.response?.errors?.[0]?.message;
     const fixed = t(
       'customisation.failed-save',
       'The customisation could not be saved. Your draft is kept.',
     );
     const detail = [
       customisationRefusalLead(code),
-      typeof serverMessage === 'string' ? serverMessage : fixed,
+      extractGqlError(e, fixed, code && customisationRefusalLead(code) !== null ? [code] : [], { transport: 'fallback' }),
     ]
       .filter(Boolean)
       .join(' ');

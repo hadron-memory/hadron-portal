@@ -170,7 +170,7 @@ describe('updateEdge', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('surfaces the GraphQL error message, not the raw ClientError payload', async () => {
+  it('suppresses uncoded GraphQL prose and the raw ClientError payload', async () => {
     mockRequest.mockRejectedValueOnce(
       Object.assign(new Error('huge query/variable dump'), {
         response: { errors: [{ message: 'Forbidden' }] },
@@ -183,7 +183,7 @@ describe('updateEdge', () => {
       condition: 'null',
     })) as { status: number; data: { error: string; edgeId: string } };
     expect(result.status).toBe(500);
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
     expect(superFormFrom(result)?.data?.edgeId).toBe('e1');
   });
 });

@@ -71,14 +71,14 @@ describe('/app/memories/[id]/nodes/[nodeId]/revisions (#529)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('surfaces a server error as a 500 with the message', async () => {
+  it('surfaces an uncoded server error as a generic 500', async () => {
     mockRequest.mockRejectedValueOnce(
       Object.assign(new Error('boom'), { response: { errors: [{ message: 'write forbidden' }] } }),
     );
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const res = await POST(ev({ action: 'clear' }));
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toMatch(/write forbidden/);
+    expect((await res.json()).error).toContain('Something went wrong on our side.');
   });
 });
 

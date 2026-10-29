@@ -196,7 +196,7 @@ describe('/app/agents/[id]/test loader', () => {
       llm: unknown;
     };
     expect(result.agent.id).toBe(personalAgent.id);
-    expect(result.llm).toEqual({ status: 'unavailable', detail: 'Forbidden' });
+    expect(result.llm).toEqual({ status: 'unavailable', detail: 'Something went wrong on our side.' });
   });
 
   it('conceals an unrelated user-owned agent even when it is PUBLIC', async () => {
@@ -280,12 +280,12 @@ describe('/app/agents/[id]/test loader', () => {
       expect(result.llm.detail).toContain('has no API key stored');
     });
 
-    it('any other refusal is `unavailable` with the server\'s words — not "not configured"', async () => {
+    it('an unknown fault is `unavailable` with generic copy', async () => {
       routeMyOrgs({ organizations: [{ ...orgA, agents: [agentConfigured] }] }, gqlRefusal('Forbidden', 'INTERNAL_SERVER_ERROR'));
       const load = await importLoad();
       const result = (await load(ev({ agentId: 'agent-aaa' }))) as { llmProviderConfigured: boolean; llm: unknown };
       expect(result.llmProviderConfigured).toBe(false);
-      expect(result.llm).toEqual({ status: 'unavailable', detail: 'Forbidden' });
+      expect(result.llm).toEqual({ status: 'unavailable', detail: 'Something went wrong on our side.' });
     });
 
     it('a transport failure is `unavailable` WITHOUT its message, which can carry the request (#468)', async () => {
