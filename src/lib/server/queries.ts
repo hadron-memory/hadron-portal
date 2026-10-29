@@ -1509,6 +1509,27 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1355 (server#2562, #2517): the audit entries a HARD delete left on
+// this node when it removed edges the node held to the deleted target
+// (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). A separate record from NodeRevision — revisions stay
+// snapshots of the node's own fields — read through the same gate as
+// nodeRevisions. edgeLoc/targetLoc come back null when the deleted target's
+// memory is not one the viewer can read.
+export const NODE_EDGE_REMOVALS_QUERY = /* GraphQL */ `
+  query NodeEdgeRemovals($nodeRef: ID!, $limit: Int) {
+    nodeEdgeRemovals(nodeRef: $nodeRef, limit: $limit) {
+      id
+      edgeLoc
+      edgeName
+      targetId
+      targetLoc
+      reason
+      removedBy
+      createdAt
+    }
+  }
+`;
+
 // #529: a single revision's full snapshot (incl. content) for the read-only
 // "Display" view. Access-gated server-side; null when unreadable/missing.
 export const NODE_REVISION_QUERY = /* GraphQL */ `
@@ -2667,8 +2688,29 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
   # is the point: an offset is an index into a list whose length changes under a
   # reader while workers post, so it skips or duplicates mid-scroll. seq is
   # atomic and unique per chat, so the cursor is stable.
-  query TeamChatMessages($appRef: ID!, $sinceSeq: Int, $beforeSeq: Int, $limit: Int, $offset: Int) {
-    teamChatMessages(appRef: $appRef, sinceSeq: $sinceSeq, beforeSeq: $beforeSeq, limit: $limit, offset: $offset) {
+  #
+  # #1137: teamHeadRef / untagged are the S3 team filter (server#2019),
+  # mutually exclusive and applied SERVER-SIDE before paging and total. Both
+  # are omitted for the unfiltered thread. teamTags is the stored head
+  # identity per message — headId is the identity, label display only.
+  query TeamChatMessages(
+    $appRef: ID!
+    $sinceSeq: Int
+    $beforeSeq: Int
+    $limit: Int
+    $offset: Int
+    $teamHeadRef: ID
+    $untagged: Boolean
+  ) {
+    teamChatMessages(
+      appRef: $appRef
+      sinceSeq: $sinceSeq
+      beforeSeq: $beforeSeq
+      limit: $limit
+      offset: $offset
+      teamHeadRef: $teamHeadRef
+      untagged: $untagged
+    ) {
       items {
         nodeId
         seq
@@ -2685,6 +2727,10 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
         # when it cannot be emitted in grammar v2; the thread then shows no
         # message chip.
         urn
+        teamTags {
+          headId
+          label
+        }
       }
       total
     }

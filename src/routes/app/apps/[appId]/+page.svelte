@@ -18,6 +18,7 @@
   import type { TranscriptView } from '$lib/team-chat-refresh';
   import ChannelChatThread from '$lib/components/ChannelChatThread.svelte';
   import { createRosterRefreshers, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
+  import { NO_TEAM_FILTER, filterKeyOf, teamChatReadUrl, withTeamFilter, type TeamChatFilter } from '$lib/team-chat-filter';
 
   let channelPostBusy = $state(false);
   // Keep the submitting thread mounted until its result clears/keeps its own
@@ -50,11 +51,19 @@
   // one. Measured under #754: one refetch in 20s where three were due, because
   // the 8s clock kept resetting. A prop that changes identity every render is
   // not a callback, it is a dependency.
+  // #1137: every read carries the team filter this page was loaded with
+  // (`data.teamFilter`, from `?team=`), so the filter and the transcript it
+  // produced always travel together. A read that lands after the page moved to
+  // another filter or App is dropped by the thread's generation guard: `data`
+  // changes only together with the transcript props that guard watches.
+  // An invalid `?team=` reads NOTHING: the loader stored the unfiltered value
+  // next to `teamFilterInvalid`, so a read here would broaden the request behind
+  // the alert. Leaving it takes an explicit All messages navigation.
   const refreshTeamChat = async (sinceSeq?: number) => {
-    const cursor = sinceSeq === undefined ? '' : `?sinceSeq=${sinceSeq}`;
-    const res = await fetch(`/app/apps/${app.id}/team-chat${cursor}`);
+    if (data.teamFilterInvalid) return null;
+    const res = await fetch(teamChatReadUrl(app.id, { sinceSeq }, data.teamFilter));
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
-    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
     // The initial page can contain workers whose roster lookup failed. Later
     // forward pages may be empty, so keep seeding those bounded first-page
     // authors while the refresher retries its pending IDs.
@@ -65,12 +74,22 @@
   // null means "the fetch failed, retry on the next scroll", which the thread
   // keeps distinct from an empty page meaning "start of the conversation".
   const loadOlderTeamChat = async (beforeSeq: number) => {
-    const res = await fetch(`/app/apps/${app.id}/team-chat?beforeSeq=${beforeSeq}`);
+    if (data.teamFilterInvalid) return null;
+    const res = await fetch(teamChatReadUrl(app.id, { beforeSeq }, data.teamFilter));
     if (!res.ok) return null;
-    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
-    if (body.loadFailed) return null;
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
+    // A typed head refusal is an answer the thread must show; any other failure
+    // stays null so the next scroll retries.
+    if (body.loadFailed) return body.refusal ? { refusal: body.refusal } : null;
     void refreshRosterFor(body.items);
     return { items: body.items, total: body.total };
+  };
+  // #1137: choosing a filter is a NAVIGATION to `?team=`, not component state:
+  // the loader re-reads the tail under it (server-side), the cursors and loaded
+  // page reset with the new props, and the URL is linkable. `keepFocus` and
+  // `noScroll` leave the composer and its draft alone.
+  const selectTeamFilter = (next: TeamChatFilter) => {
+    void goto(withTeamFilter(new URL(window.location.href), next), { keepFocus: true, noScroll: true });
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
@@ -82,7 +101,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AppKey, TeamChatMessage, Worker } from '$lib/types';
+  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
@@ -1927,11 +1946,12 @@
            but minting new links that depend on a back-compat shim is how a
            shim stops being removable (Copilot on #759). -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-        {#key `${app.id}:${data.postTeamChatMessageForm.id}`}
+        {#key `${app.id}:${data.postTeamChatMessageForm.id}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
           {@const teamStateKey = `${app.id}:team`}
+          {@const teamViewKey = `${teamStateKey}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
         <TeamChatThread
           draft={channelDrafts[teamStateKey]} onDraftChange={(draft) => { channelDrafts[teamStateKey] = draft; }}
-          viewState={channelViews[teamStateKey]} onViewStateChange={(view) => { channelViews[teamStateKey] = view; }}
+          viewState={channelViews[teamViewKey]} onViewStateChange={(view) => { channelViews[teamViewKey] = view; }}
           onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
           messages={data.teamChatMessages ?? []}
           total={data.teamChatTotal ?? 0}
@@ -1942,6 +1962,10 @@
           onRefresh={refreshTeamChat}
           onLoadOlder={loadOlderTeamChat}
           {workerUrns}
+          filter={data.teamFilter}
+          filterInvalid={data.teamFilterInvalid}
+          refusal={data.teamChatRefusal}
+          onSelectTeam={selectTeamFilter}
         />
         {/key}
       </div>
