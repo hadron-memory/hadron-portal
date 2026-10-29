@@ -4483,7 +4483,22 @@ export const BOOT_SOURCE_QUERY = /* GraphQL */ `
 
 export const BOOT_COMPILED_QUERY = /* GraphQL */ `
   query BootCompiled($ref: ID!) {
-    node(ref: $ref, raw: true) { id urn revision content approvalStatus { state approval { revision } } }
+    node(ref: $ref, raw: true) {
+      id urn revision content
+      approvalStatus { state approval { revision } }
+      lintWarnings(first: 50) { items { kind position text targetUrn pinnedRevision newerRevision workerField } total nextCursor }
+    }
+  }
+`;
+
+// portal#1377 S2 — setPointer is omitted, so the server default (true) applies:
+// the compiled loc is fixed, so the pointer keeps naming the same node.
+export const COMPILE_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
+  mutation CompileAgentBootPrompt($agentRef: String!) {
+    compileAgentBootPrompt(agentRef: $agentRef) {
+      revNo contentHash pointerSet
+      node { id urn revision lintWarnings(first: 50) { items { kind position text targetUrn pinnedRevision newerRevision workerField } total nextCursor } }
+    }
   }
 `;
 
