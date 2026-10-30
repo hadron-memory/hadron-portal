@@ -1042,6 +1042,12 @@ export const WORKER_QUERY = /* GraphQL */ `
   query Worker($ref: ID!) {
     worker(ref: $ref) {
       ...WorkerFields
+      # Profile identity and server-masked working-state signal (#1334/#1149).
+      portalUrl
+      appUrn
+      appName
+      ownerName
+      hasLiveSession
       # portal#1142 P4 — the signature and trailer TEMPLATES, masked to null for
       # a reader who may not see worker internals. Null is "not shown", never
       # "empty": the empty string is a real, deliverable-as-nothing value.

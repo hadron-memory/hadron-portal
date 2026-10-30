@@ -191,6 +191,7 @@ describe('a retired worker (#1367)', () => {
 describe('the whole worker page (#1367)', () => {
   function worker(signature: string) {
     return {
+    hasLiveSession: false,
       id: 'w-a', appId: 'app-1', agentId: 'agent-1', name: 'Dara', slug: 'dara',
       urn: 'hrn:worker:hadronmemory.com:team:dara', role: 'engineer',
       prompt: null, memoryId: null, retiredAt: null, heldByUserId: null, heldAt: null, createdAt: '1789430400000',

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import WorkerProfile from '$lib/components/WorkerProfile.svelte';
+  import { workerInternalsVisible } from '$lib/worker-profile';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
@@ -162,6 +164,9 @@
 
 <svelte:head><title>{worker.name} · Worker · Hadron</title></svelte:head>
 
+{#if !workerInternalsVisible(worker)}
+  <WorkerProfile {worker} />
+{:else}
 <div class="mx-auto max-w-3xl space-y-6 py-6">
   <div>
     <Breadcrumb
@@ -279,6 +284,7 @@
         </dd>
       </div>
 
+      {#if worker.agent}
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
           {t('worker.field.agent', 'Backed by')}
@@ -303,6 +309,8 @@
           {/if}
         </dd>
       </div>
+
+      {/if}
 
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -662,3 +670,5 @@
     </div>
   {/if}
 </div>
+
+{/if}

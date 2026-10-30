@@ -1,3 +1,4 @@
+import { profileWorker, workerInternalsVisible } from '$lib/worker-profile';
 import { error, fail } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -94,6 +95,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     throw error(404, 'No worker found here, or you do not have access to it.');
   }
 
+  const internals = workerInternalsVisible(worker);
+  if (!internals) worker = profileWorker(worker);
+
   // #737 — the two sections that answer "what have they actually done".
   //
   // Each fetch fails INDEPENDENTLY and reports null rather than []. The issue is
@@ -107,7 +111,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // whose identity half loaded fine.
   const client = gqlClient(locals.token);
   const [sessions, worklog] = await Promise.all([
-    client
+    internals ? client
       // limit+1: `sessions` has no `total`, so "is there more" is answered by
       // observing a short page, not by counting.
       .request<{ sessions: WorkerSession[] }>(WORKER_SESSIONS_QUERY, {
@@ -118,12 +122,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       .catch((e) => {
         console.warn(`[worker-page] worker-sessions fetch failed for ${params.id}:`, e);
         return null;
-      }),
+      }) : Promise.resolve(null),
     // teamWorkItems REQUIRES an appRef, and `worker.app` runs its own read gate
     // and masks to null on deny (#552). So a masked App is not an outage and
     // not an empty worklog — it is a section we cannot even ask for, and it
     // reports as unavailable rather than as "no records".
-    worker.app?.id
+    internals && worker.app?.id
       ? client
           .request<{ teamWorkItems: { items: TeamWorkItem[]; total: number } }>(
             TEAM_WORK_ITEMS_QUERY,
@@ -144,17 +148,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // neither can blank the rest of the page. The App's settings only supply the
   // wake-rate floor line; without a readable App there is nothing to ask.
   const [wake, wakeAppSettings, bootPointer, canManageWorkerApp] = await Promise.all([
-    loadWakeSettings(client, worker.id),
+    internals ? loadWakeSettings(client, worker.id) : Promise.resolve({ kind: 'not-participant' as const }),
     worker.app?.id ? loadAppTickerSettings(client, worker.app.id) : Promise.resolve(null),
     // portal#1142 S8: the worker's boot-prompt pointer, and whether to offer
     // its form. The setter belongs to the worker's APP manager (R23): holding
     // the worker grants nothing, so nothing here reads who holds it.
-    readPointer(
+    internals ? readPointer(
       () => client.request<{ worker: { bootPromptRef: string | null; bootPromptTargetDeleted: boolean | null } | null }>(WORKER_BOOT_POINTER_QUERY, { ref: worker.id }),
       (r) => r.worker,
       `worker ${worker.id}`,
-    ),
-    selfCanManage(client, locals.user?.id, worker.app?.urn),
+    ) : Promise.resolve({ ok: false as const }),
+    internals ? selfCanManage(client, locals.user?.id, worker.app?.urn) : Promise.resolve(false),
   ]);
 
   // portal#1142 P4: seeded with the stored templates and, as bases, the same
@@ -177,7 +181,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     worker,
 
     signatureForm,
-    initialTab,
+    initialTab: internals ? initialTab : 'profile',
     initialView,
     workerSessions: sessions ? sessions.slice(0, SESSION_PAGE_SIZE) : null,
     sessionsTruncated,

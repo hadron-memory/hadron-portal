@@ -22,6 +22,7 @@ const SIG = '— [{{worker.name}}, {{worker.role}}]({{worker.url}}) · {{session
 const TRL = 'Worker: {{worker.name}} ({{worker.role}}) <{{worker.url}}>';
 
 const WORKER = {
+  hasLiveSession: false,
   id: 'w-1', appId: 'app-1', agentId: 'agent-1', name: 'Dara', slug: 'dara', role: 'engineer',
   urn: 'hrn:worker:hadronmemory.com:team:dara', promptOverride: null, prompt: null, retiredAt: null,
   signature: SIG, trailer: TRL, app: { id: 'app-1', name: 'Team', urn: 'hrn:app:x:team', organizationId: 'org-1' },

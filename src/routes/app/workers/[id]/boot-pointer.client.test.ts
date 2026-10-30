@@ -21,6 +21,7 @@ const VIEWER = 'u1';
 
 function worker(id: string, heldByUserId: string | null) {
   return {
+    hasLiveSession: false,
     id, appId: 'app-1', agentId: 'agent-1', name: `Worker ${id}`, slug: id, urn: `hrn:worker:a.com:team:${id}`,
     role: 'engineer', prompt: 'P', memoryId: null, retiredAt: null,
     heldByUserId, heldAt: heldByUserId ? '2026-10-21T00:00:00Z' : null, createdAt: '1789430400000',
