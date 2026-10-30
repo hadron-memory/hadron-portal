@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import TickerForm from './TickerForm.svelte';
@@ -198,5 +198,34 @@ describe('TickerDelete', () => {
   it('a support session gets no Delete', async () => {
     const root = await mountIt(TickerDelete, { appId: 'app-1', ticker: stored, impersonating: 'Rae' });
     expect(root.querySelector('button')).toBeNull();
+  });
+});
+
+// Juliet's P2 on #1458: a result that lands after the reader left the page must touch nothing, and
+// above all must not send them back to a list they navigated away from. The mounted tests above
+// keep the positive control: while mounted, the same success does leave for the list / reload.
+describe('a result that lands after the component is gone', () => {
+  it('a delete success does not navigate the reader to the list', async () => {
+    const m = mountComponent(TickerDelete as never, { appId: 'app-1', ticker: stored } as never) as Mounted<Record<string, unknown>>;
+    await tick(2);
+    m.target.querySelector<HTMLButtonElement>('button')!.click();
+    await tick(2);
+    const { finish } = await submitEnhancedDeferred(formOf(m.target));
+    m.unmount();
+    await finish({ type: 'success', status: 200, data: { action: 'delete', ok: true } });
+    await tick(3);
+    expect(navigationCalls.filter((c) => c.fn === 'goto')).toHaveLength(0);
+  });
+
+  it('a form success does not reload or touch the page it left', async () => {
+    const m = mountComponent(TickerForm as never, { appId: 'app-1', ticker: stored } as never) as Mounted<Record<string, unknown>>;
+    await tick(2);
+    type(field(m.target, 'cadenceSeconds'), '300');
+    await tick(2);
+    const { finish } = await submitEnhancedDeferred(formOf(m.target));
+    m.unmount();
+    await finish({ type: 'success', status: 200, data: { action: 'update', ok: true } });
+    await tick(3);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
   });
 });
