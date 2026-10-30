@@ -11,6 +11,8 @@
   import DOMPurify from 'dompurify';
   import { onMount, tick, untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
+  import { page } from '$app/stores';
+  import { get } from 'svelte/store';
   import { t } from '$lib/i18n/t';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
@@ -653,6 +655,7 @@
         canManage={data.canManageWorkerApp}
         applyKey={data.applyKey}
         viewerId={data.user?.id ?? null}
+        pageHasError={() => get(page).error != null}
         applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
       />
     </div>

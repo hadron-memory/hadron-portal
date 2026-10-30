@@ -49,6 +49,7 @@
     result = null,
     floorSeconds = null,
     viewerId = null,
+    pageHasError,
   }: {
     canManage: boolean | null;
     action: string;
@@ -58,6 +59,8 @@
     floorSeconds?: number | null;
     /** The signed-in viewer, to scope the refresh marker. Without one no marker is left. */
     viewerId?: string | null;
+    /** True when the page now shows an error (kit navigated to its error route). Read once a refresh has resolved. */
+    pageHasError: () => boolean;
   } = $props();
 
   // A result written for another route (the page is reused across /workers/A → B) is not this one's.
@@ -142,7 +145,13 @@
           } catch {
             refreshFailed = true;
           }
-          if (live?.id !== mine) return;
+          if (live?.id !== mine) {
+            // Gone during the refresh. Kit's error route unmounts this panel too, and the refresh resolves either
+            // way, so the page store says which it was: with no error the refresh worked (the reader moved on)
+            // and nothing may claim a failed reload later. Only this attempt's marker is touched.
+            if (attempt && !pageHasError()) clearRefreshMarker(attempt);
+            return;
+          }
           if (attempt) clearRefreshMarker(attempt);
         }
         await update({ reset: false, invalidateAll: false });

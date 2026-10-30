@@ -31,6 +31,7 @@
     applyAction = '?tab=wake&/applyTickerTemplates',
     applyResult = null,
     viewerId = null,
+    pageHasError,
   }: {
     wake: TickerRead<WorkerWakeSettings>;
     appSettings: TickerRead<AppTickerSettings> | null;
@@ -44,6 +45,7 @@
     applyAction?: string;
     applyResult?: ApplyResult | null;
     viewerId?: string | null;
+    pageHasError: () => boolean;
   } = $props();
 
   const now = $derived(Date.parse(loadedAt));
@@ -97,7 +99,7 @@
 <section class="space-y-4" data-testid="wake-panel">
   <!-- portal#1462: independent of the reads below, so a failed read never hides it. -->
   {#key applyKey}
-    <ApplyAgentTickers canManage={canManage} action={applyAction} workerKey={applyKey} result={applyResult} floorSeconds={minCadence} {viewerId} />
+    <ApplyAgentTickers canManage={canManage} action={applyAction} workerKey={applyKey} result={applyResult} floorSeconds={minCadence} {viewerId} {pageHasError} />
   {/key}
   {#if wake.kind === 'not-participant'}
     <TickersNotParticipant what="wake" />

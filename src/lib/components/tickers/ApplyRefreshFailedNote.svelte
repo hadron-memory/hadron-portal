@@ -7,18 +7,29 @@
   storage after mount, so a server render and a hydration agree on nothing shown.
 -->
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { applyRefreshFailedLine } from '$lib/tickers/apply';
   import { takeRefreshMarker } from '$lib/tickers/refresh-marker';
 
-  let shown = $state(false);
-  onMount(() => {
-    const viewer = ($page.data as { user?: { id?: string } | null } | undefined)?.user?.id;
-    const worker = $page.params?.id;
-    if (!viewer || !worker || $page.route?.id !== '/app/workers/[id]') return;
-    shown = takeRefreshMarker({ viewer, worker });
+  // The scope the CURRENT page is in. A boundary kit reuses across error navigations keeps this instance, so
+  // everything below follows these, never a one-time read (Anne's P2 on 7290cfe4).
+  const viewer = $derived(($page.data as { user?: { id?: string } | null } | undefined)?.user?.id ?? null);
+  const worker = $derived($page.params?.id ?? null);
+  const onWorker = $derived($page.route?.id === '/app/workers/[id]');
+
+  // The scope whose marker this instance consumed. Replaced (or dropped) whenever the page's scope changes, so
+  // a claim made for one viewer/worker is never shown for another, nor again on coming back to it.
+  let consumed = $state<{ viewer: string; worker: string } | null>(null);
+  $effect(() => {
+    const v = viewer;
+    const w = worker;
+    const ok = onWorker;
+    untrack(() => {
+      consumed = v && w && ok && takeRefreshMarker({ viewer: v, worker: w }) ? { viewer: v, worker: w } : null;
+    });
   });
+  const shown = $derived(consumed !== null && onWorker && consumed.viewer === viewer && consumed.worker === worker);
 </script>
 
 {#if shown}
