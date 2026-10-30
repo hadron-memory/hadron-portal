@@ -161,6 +161,23 @@ describe('the set form', () => {
     expect(dialog.textContent).toContain('acme.com:team:gaby');
   });
 
+  it('an unparseable until sends no end time and the dialog says the stop runs until lifted (#1413 A1)', async () => {
+    const { root } = await mountPanel();
+    choose(root);
+    const input = root.querySelector<HTMLInputElement>('#stop-until')!;
+    // jsdom keeps whatever is assigned; a browser can hand back a value the
+    // Date constructor rejects, which is the case the guard must not trust.
+    Object.defineProperty(input, 'value', { configurable: true, get: () => 'not-a-date', set: () => {} });
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    const sent = root.querySelector<HTMLInputElement>('input[type="hidden"][name="until"]')!.value;
+    expect(sent).toBe('');
+    await review(root);
+    const text = root.querySelector('dialog')!.textContent ?? '';
+    expect(text).not.toContain('ends on its own');
+    expect(text).toContain('until someone lifts it');
+  });
+
   it('PAUSE_DISPATCH does not claim ticks or stall time stop; PAUSE does', async () => {
     const { root } = await mountPanel();
     choose(root);
@@ -253,6 +270,24 @@ describe('after a submit', () => {
     await tick(3);
     expect(alertText(root)).toContain('may or may not have gone through');
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+  });
+
+  it('a redirect result (expired session) follows the redirect, not the uncertain line (#1413 A3)', async () => {
+    const { root } = await opened();
+    const deliver = await beginEnhanced(setForm(root));
+    await deliver({ type: 'redirect', status: 303, location: '/signin?next=/app/apps/app-1/stops' } as never);
+    await tick(3);
+    expect(navigationCalls.some((c) => c.fn === 'goto' && c.args[0] === '/signin?next=/app/apps/app-1/stops')).toBe(true);
+    expect(alertText(root)).not.toContain('may or may not have gone through');
+  });
+
+  it('a failure carrying a known refusal shows that refusal and does not re-read (#1413 A3)', async () => {
+    const { root } = await opened();
+    const deliver = await beginEnhanced(setForm(root));
+    await deliver({ type: 'failure', status: 400, data: { action: 'set', refusal: { kind: 'refused', code: 'STOP_SIGNAL_NOT_FOUND', message: 'That stop no longer exists.' } } });
+    await tick(3);
+    expect(alertText(root)).toContain('That stop no longer exists.');
+    expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(false);
   });
 
   it('a late result for App A never lands on App B', async () => {
