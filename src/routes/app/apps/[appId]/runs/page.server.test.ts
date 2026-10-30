@@ -3,6 +3,7 @@ import {
   AGENT_TASKS_APP_QUERY,
   APP_NODES_QUERY,
   APP_QUERY,
+  APP_INSTALLED_AGENTS_QUERY,
   APP_RUNS_QUERY,
   RUN_TASK_APP_MUTATION,
 } from '$lib/server/queries';
@@ -215,5 +216,74 @@ describe('app runs run action', () => {
       type: 'error',
       text: 'runner unavailable',
     });
+  });
+});
+
+// portal#1444 (hadron-server#2849): an App with several installed Agents refuses
+// a run that names none (RUN_AGENT_REQUIRED); the page offers a picker and sends agentRef.
+describe('app runs: choosing the Agent (#1444)', () => {
+  const agent = (n: string) => ({ agent: { id: `ag-${n}`, name: `Agent ${n}`, urn: `hrn:agent:x:${n}` } });
+  const gqlError = (code: string, message = 'server prose') => ({ response: { errors: [{ message, extensions: { code } }] } });
+
+  async function loadWith(appAgents: unknown, agentsRead?: () => unknown) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === APP_QUERY || query === AGENT_TASKS_APP_QUERY) return { app };
+      if (query === APP_RUNS_QUERY) return { appRuns: { items: [], total: 0 } };
+      if (query === APP_NODES_QUERY) return { appNodes: [flowNode] };
+      if (query === APP_INSTALLED_AGENTS_QUERY) return agentsRead ? agentsRead() : { app: { id: 'app-1', appAgents } };
+      throw new Error(`unexpected query: ${query.slice(0, 60)}`);
+    });
+    const { load } = await importServer();
+    return (await load({
+      params: { id: 'org-1', appId: 'app-1' },
+      locals: { token: 'tok' },
+      parent: async () => ({}),
+      url: new URL('https://example.test/app/apps/app-1/runs'),
+    } as unknown as Parameters<typeof load>[0])) as { runAgents: unknown; runForm: { data: Record<string, unknown> } };
+  }
+
+  it('several installed Agents: the loader hands the picker their names', async () => {
+    const r = await loadWith([agent('a'), agent('b')]);
+    expect(r.runAgents).toEqual([agent('a').agent, agent('b').agent]);
+    expect(r.runForm.data.agentRef).toBe('');
+  });
+
+  it('one installed Agent: no picker', async () => {
+    expect((await loadWith([agent('a')])).runAgents).toBeNull();
+  });
+
+  it('a failed Agent read hides the picker, never the page, and is logged', async () => {
+    const r = await loadWith(null, () => { throw new Error('boom'); });
+    expect(r.runAgents).toBeNull();
+    expect(console.warn).toHaveBeenCalled();
+  });
+
+  it('sends agentRef when an Agent was chosen', async () => {
+    mockRequest.mockResolvedValueOnce({ runTask: 'run-1' });
+    const { actions } = await importServer();
+    await expect(actions.run(actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry', agentRef: 'ag-b' }) as never)).rejects.toMatchObject({ status: 303 });
+    expect(mockRequest).toHaveBeenCalledWith(RUN_TASK_APP_MUTATION, {
+      nodeRef: 'hrn:node:acme.com::flows::entry',
+      appRef: 'app-1',
+      runAsSelf: false,
+      agentRef: 'ag-b',
+    });
+  });
+
+  it('sends no agentRef key when none was chosen (one Agent: the server picks)', async () => {
+    mockRequest.mockResolvedValueOnce({ runTask: 'run-1' });
+    const { actions } = await importServer();
+    await expect(actions.run(actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry', agentRef: '' }) as never)).rejects.toMatchObject({ status: 303 });
+    expect(mockRequest.mock.calls[0][1]).not.toHaveProperty('agentRef');
+  });
+
+  it('RUN_AGENT_REQUIRED reads as a plain prompt to choose an Agent, never as the code', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('RUN_AGENT_REQUIRED', 'RUN_AGENT_REQUIRED: name one of the installed Agents'));
+    const { actions } = await importServer();
+    const result = await actions.run(actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry' }) as never);
+    const text = (superFormFrom(result)?.message as { text: string }).text;
+    expect(text).toMatch(/choose an agent/i);
+    expect(text).not.toContain('RUN_AGENT_REQUIRED');
   });
 });
