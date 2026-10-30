@@ -17,16 +17,19 @@ import ApplyAgentTickers from './ApplyAgentTickers.svelte';
 
 // portal#1462: the signed-in viewer a test mounts the panel for (null: none known).
 let viewer: string | null = null;
+// portal#1462: whether the page store holds an error once a refresh resolves (kit's error-route path).
+let pageErrored = false;
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   sessionStorage.clear();
   viewer = null;
+  pageErrored = false;
   while (mounted.length) mounted.pop()!.unmount();
   resetNavigationCalls();
 });
 
 async function mountApply(props: Record<string, unknown>) {
-  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, viewerId: viewer, ...props });
+  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, viewerId: viewer, pageHasError: () => pageErrored, ...props });
   const m = mountComponent(ApplyAgentTickers as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
@@ -478,10 +481,38 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
     const nav = await import('$lib/test/stubs/app-navigation');
     const { root } = await mountApply({ workerKey: 'w-A' });
     const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
-    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); };
+    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); pageErrored = true; };
     await finish(ok);
     await tick(2);
     expect(marker()).toMatchObject({ viewer: 'u-1', worker: 'w-A' });
+  });
+
+  it('is cleared when the panel was unmounted but the refresh WORKED (the reader moved A to B): no error page, so nothing may claim a failed reload later', async () => {
+    asViewer('u-1');
+    const nav = await import('$lib/test/stubs/app-navigation');
+    const { root } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
+    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); pageErrored = false; };
+    await finish(ok);
+    await tick(2);
+    expect(marker()).toBeNull();
+  });
+
+  it('cleans up only its own attempt: a newer attempt’s marker survives an older refresh that worked', async () => {
+    asViewer('u-1');
+    const nav = await import('$lib/test/stubs/app-navigation');
+    const { root } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
+    let newer: string | null = null;
+    nav.navigationHooks.onInvalidateAll = () => {
+      mounted.pop()!.unmount();
+      newer = setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+      pageErrored = false;
+    };
+    await finish(ok);
+    await tick(2);
+    expect(newer).toBeTruthy();
+    expect(marker()).toMatchObject({ attempt: newer });
   });
 
   it('is cleared once the refresh worked and this panel is still the one showing', async () => {

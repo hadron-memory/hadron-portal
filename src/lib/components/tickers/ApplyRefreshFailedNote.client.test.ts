@@ -84,4 +84,46 @@ describe('ApplyRefreshFailedNote', () => {
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
     expect(line(await mountNote())).toBeNull();
   });
+
+  describe('a boundary that is REUSED across scope changes (Anne’s P2 on 7290cfe4)', () => {
+    it('drops the line when the worker changes, and does not bring it back on returning to the first worker', async () => {
+      at({ id: 'w-A' }, 'u-1');
+      setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+      const root = await mountNote();
+      expect(line(root)).not.toBeNull();
+      at({ id: 'w-B' }, 'u-1');
+      await tick(2);
+      expect(line(root)).toBeNull();
+      at({ id: 'w-A' }, 'u-1');
+      await tick(2);
+      expect(line(root)).toBeNull();
+    });
+
+    it('drops the line when the viewer changes, and when the route is no longer a worker', async () => {
+      at({ id: 'w-A' }, 'u-1');
+      setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+      const root = await mountNote();
+      expect(line(root)).not.toBeNull();
+      at({ id: 'w-A' }, 'u-2');
+      await tick(2);
+      expect(line(root)).toBeNull();
+      at({ id: 'w-A' }, 'u-1');
+      await tick(2);
+      setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+      at({ id: 'w-A' }, 'u-1', '/app/memories/[id]');
+      await tick(2);
+      expect(line(root)).toBeNull();
+    });
+
+    it('takes the marker of the NEW scope when the reused boundary lands on another worker that has one', async () => {
+      at({ id: 'w-A' }, 'u-1');
+      const root = await mountNote();
+      expect(line(root)).toBeNull();
+      setRefreshMarker({ viewer: 'u-1', worker: 'w-B' });
+      at({ id: 'w-B' }, 'u-1');
+      await tick(2);
+      expect(line(root)).not.toBeNull();
+      expect(sessionStorage.getItem(REFRESH_MARKER_KEY)).toBeNull();
+    });
+  });
 });
