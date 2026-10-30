@@ -259,6 +259,13 @@
       <SubtaskTree rows={data.tree.value.rows} rootId={task.id} {basePath} />
     {:else if data.tree.kind === 'not-participant'}
       <NotParticipant />
+    {:else if data.tree.kind === 'ok' && fixedTask}
+      <!-- portal#1414: the server answers AT0's tree with null by design (AT0 is not a tree root).
+           Neutral on AT0 only: any other null is a race with deletion or revoked access, and keeps the alert. -->
+      <p class="text-sm text-zinc-500 dark:text-zinc-400" data-testid="project-zero-tree">
+        {t('app.tasks.tree.project-zero.lead', 'Tasks that belong to no project are listed on the')}
+        <a href="{basePath}/tasks" class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.tree.project-zero.link', 'Tasks page')}</a>{t('app.tasks.tree.project-zero.tail', ', not under this one.')}
+      </p>
     {:else}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
         {t('app.tasks.tree.failed', 'Couldn’t load the subtasks.')}
