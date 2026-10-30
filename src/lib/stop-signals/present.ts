@@ -1,5 +1,5 @@
 import { t } from '$lib/i18n/t';
-import type { LiveStops, StopLevel, StopScope, StopSignal, WorkerOption } from './types';
+import type { LiveStops, ManagesHint, StopLevel, StopScope, StopSignal, WorkerOption } from './types';
 
 /**
  * portal#1139 — how a stop signal reads. Copy states only the persisted
@@ -92,6 +92,15 @@ export function actorText(userId: string | null, hostKey: boolean, people: Recor
 /** The banner's count line. A partial read says "at least", never an exact count or "none". */
 export function bannerCount(live: LiveStops): string {
   const n = live.signals.length;
-  if (!live.complete) return t('app.stops.banner.at-least', 'At least {n} stops are in effect', { n });
+  if (!live.complete) {
+    return n === 1
+      ? t('app.stops.banner.at-least-one', 'At least 1 stop is in effect')
+      : t('app.stops.banner.at-least', 'At least {n} stops are in effect', { n });
+  }
   return n === 1 ? t('app.stops.banner.one', '1 stop is in effect') : t('app.stops.banner.many', '{n} stops are in effect', { n });
+}
+
+/** Lift buttons need a decisive yes: unknown (a failed hint read) and no both read-only. */
+export function canLiftStops(impersonating: string | null | undefined, manages: ManagesHint): boolean {
+  return !impersonating && manages === 'yes';
 }

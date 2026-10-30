@@ -9,7 +9,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { actorText, levelLabel, scopeLabel, stateLabel, stopState, targetOf } from '$lib/stop-signals/present';
+  import { actorText, canLiftStops, levelLabel, scopeLabel, stateLabel, stopState, targetOf } from '$lib/stop-signals/present';
   import type { StopSignal } from '$lib/stop-signals/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -78,7 +78,7 @@
     },
   });
 
-  const canLift = $derived(!data.impersonating && data.manages !== 'no');
+  const canLift = $derived(canLiftStops(data.impersonating, data.manages));
   function liftLabel(s: StopSignal): string {
     const target = targetOf(s, data.workers);
     return `${levelLabel(s.level)} · ${scopeLabel(s.scope)}${target ? ` · ${target.name ?? target.id}` : ''}`;

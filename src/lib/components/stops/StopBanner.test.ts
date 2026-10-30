@@ -23,7 +23,7 @@ describe('StopBanner', () => {
 
   it('a partial read says at least N, never an exact count', () => {
     const out = html({ kind: 'ok', value: { complete: false, signals: [sig('1', 'PAUSE', 'w1')] } });
-    expect(out).toContain('At least 1 stops are in effect');
+    expect(out).toContain('At least 1 stop is in effect');
   });
 
   it('a failed read says it could not check, not that there are none', () => {

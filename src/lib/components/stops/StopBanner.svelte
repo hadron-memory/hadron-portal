@@ -5,6 +5,7 @@
   not check, never that there is nothing.
 -->
 <script lang="ts">
+  import { fmtRunTime } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
   import { bannerCount, levelLabel, scopeLabel, targetOf } from '$lib/stop-signals/present';
   import type { LiveStops, StopRead, WorkerOption } from '$lib/stop-signals/types';
@@ -25,11 +26,11 @@
   </div>
 {:else if live.kind === 'ok' && live.value.signals.length > 0}
   <div role="status" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900 dark:bg-red-950 dark:text-red-200" data-testid="stop-banner">
-    <p class="font-semibold">⛔ {bannerCount(live.value)}{#if href}<a {href} class="ml-2 text-sm font-medium underline">{t('app.stops.banner.link', 'Open stops')}</a>{/if}</p>
+    <p class="font-semibold"><span aria-hidden="true">⛔</span> {bannerCount(live.value)}{#if href}<a {href} class="ml-2 text-sm font-medium underline">{t('app.stops.banner.link', 'Open stops')}</a>{/if}</p>
     <ul class="mt-1 list-inside list-disc">
       {#each live.value.signals as s (s.id)}
         {@const target = targetOf(s, workers)}
-        <li>{levelLabel(s.level)} · {scopeLabel(s.scope)}{#if target} · {target.name ?? target.id}{/if}{#if s.until} · {t('app.stops.until', 'until {time}', { time: s.until })}{/if}</li>
+        <li>{levelLabel(s.level)} · {scopeLabel(s.scope)}{#if target} · {target.name ?? target.id}{/if}{#if s.until} · {t('app.stops.until', 'until {time}', { time: fmtRunTime(s.until) })}{/if}</li>
       {/each}
     </ul>
   </div>

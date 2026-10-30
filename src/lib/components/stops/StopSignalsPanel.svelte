@@ -19,6 +19,8 @@
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
+  import Urn from '$lib/components/Urn.svelte';
+  import { fmtRunTime } from '$lib/flow/runs';
   import WriteRefusalAlert from '$lib/components/agent-tasks/WriteRefusal.svelte';
   import { STOP_LEVELS, levelEffect, levelLabel, scopeCoverage, scopeLabel } from '$lib/stop-signals/present';
   import type { ManagesHint, StopLevel, StopScope, WorkerOption } from '$lib/stop-signals/types';
@@ -79,6 +81,19 @@
   });
 
   const controls = $derived(!impersonating && manages !== 'no');
+  const workerUrn = $derived(workers.find((w) => w.id === worker)?.urn ?? null);
+  // datetime-local is zone-less: convert in the browser so the server gets the
+  // reader's instant (ISO, with zone) and the dialog shows what will be set.
+  const untilIso = $derived.by(() => {
+    if (!until) return '';
+    const ms = new Date(until).getTime();
+    return Number.isNaN(ms) ? '' : new Date(ms).toISOString();
+  });
+  const minUntil = $derived.by(() => {
+    const d = new Date();
+    d.setSeconds(0, 0);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  });
   const workerName = $derived(workers.find((w) => w.id === worker)?.name ?? worker);
 
   async function openConfirm() {
@@ -124,8 +139,12 @@
 
   function submitter(kind: 'set' | 'lift'): SubmitFunction {
     return ({ cancel }) => {
-      if (pending) {
+      // Review is not a submit: only the confirmation's own button sends. Kit
+      // prevents the native submit itself and sends unless we cancel, so an
+      // Enter key or a stray submit before the dialog opened must stop here.
+      if (pending || (kind === 'set' && !confirming)) {
         cancel();
+        if (kind === 'set' && !pending && !confirming) void openConfirm();
         return;
       }
       const mine = ++generation;
@@ -182,24 +201,17 @@
     <p class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="stop-read-only">
       {t('app.stops.read-only', 'Only whoever manages this App can set or lift a stop. You can see the stops below.')}
     </p>
+  {:else if manages === 'unknown'}
+    <p role="status" class="text-sm text-amber-800 dark:text-amber-300" data-testid="stop-unknown-hint">
+      {t('app.stops.unknown-hint', 'Couldn’t check whether you manage this App, so stops can’t be set or lifted from here right now. Reload to try again. You can see the stops below.')}
+    </p>
   {:else}
-    {#if manages === 'unknown'}
-      <p role="status" class="text-sm text-amber-800 dark:text-amber-300" data-testid="stop-unknown-hint">
-        {t('app.stops.unknown-hint', 'Couldn’t check your access. You can try; the server will refuse anyone who doesn’t manage this App.')}
-      </p>
-    {/if}
     <form
       bind:this={formEl}
       method="POST"
       action="?/set"
       use:enhance={submitter('set')}
       class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900"
-      onsubmit={(e) => {
-        if (!confirming) {
-          e.preventDefault();
-          openConfirm();
-        }
-      }}
     >
       <input type="hidden" name="level" value={level} />
       <input type="hidden" name="scope" value={scope} />
@@ -224,7 +236,7 @@
       </fieldset>
       <div>
         <label for="stop-worker" class="font-medium text-zinc-900 dark:text-white">
-          {scope === 'TEAM' ? t('app.stops.head', 'Team head') : t('app.stops.worker', 'Worker')}
+          {scope === 'TEAM' ? t('app.stops.team-head', 'Team head') : t('app.stops.worker', 'Worker')}
         </label>
         <select
           id="stop-worker"
@@ -241,19 +253,20 @@
         <label for="stop-until" class="font-medium text-zinc-900 dark:text-white">{t('app.stops.until-label', 'Until (optional)')}</label>
         <input
           id="stop-until"
-          name="until"
           type="datetime-local"
+          min={minUntil}
           bind:value={until}
           aria-describedby="stop-until-help"
           class="mt-1 block rounded-md border border-zinc-300 bg-white px-2 py-1 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
         />
+        <input type="hidden" name="until" value={untilIso} />
         <p id="stop-until-help" class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{t('app.stops.until-help', 'Leave empty to stop until someone lifts it.')}</p>
       </div>
       {#if refusal}<WriteRefusalAlert {refusal} />{/if}
       {#if status}
         <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
       {/if}
-      <button type="submit" data-open-confirm disabled={pending} class="rounded-md bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50">
+      <button type="button" data-open-confirm onclick={openConfirm} disabled={pending} class="rounded-md bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50">
         {t('app.stops.review', 'Review stop…')}
       </button>
 
@@ -271,13 +284,14 @@
           <h3 id="stop-confirm-title" class="text-lg font-semibold">{t('app.stops.confirm.title', 'Set this stop?')}</h3>
           <div id="stop-confirm-body" class="mt-3 space-y-2 text-sm">
             <p><span class="font-medium">{levelLabel(level)}</span> · {scopeLabel(scope)} · {workerName}</p>
+            {#if workerUrn}<p><Urn value={workerUrn} /></p>{/if}
             <p>{scopeCoverage(scope)}</p>
             <p>{levelEffect(level)}</p>
-            <p>{until ? t('app.stops.confirm.until', 'It ends on its own at {time}.', { time: until }) : t('app.stops.confirm.open', 'It lasts until someone lifts it.')}</p>
+            <p>{until ? t('app.stops.confirm.until', 'It ends on its own at {time}.', { time: fmtRunTime(untilIso) + ' (' + Intl.DateTimeFormat().resolvedOptions().timeZone + ')' }) : t('app.stops.confirm.open', 'It lasts until someone lifts it.')}</p>
             <p>{t('app.stops.confirm.messages', 'Messages are not held by any level.')}</p>
           </div>
           <div class="mt-4 flex flex-wrap justify-end gap-3">
-            <button bind:this={cancelButton} type="button" onclick={closeConfirm} disabled={pending} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">
+            <button bind:this={cancelButton} data-testid="stop-confirm-cancel" type="button" onclick={closeConfirm} disabled={pending} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">
               {t('app.stops.confirm.cancel', 'Cancel')}
             </button>
             <button type="submit" disabled={pending} class="rounded-md bg-red-700 px-3 py-2 text-sm text-white disabled:opacity-50">
@@ -307,7 +321,7 @@
       </p>
       <form method="POST" action="?/lift" use:enhance={submitter('lift')} class="mt-4 flex flex-wrap justify-end gap-3">
         <input type="hidden" name="id" value={lifting.id} />
-        <button bind:this={liftCancel} type="button" onclick={closeLift} disabled={pending} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">
+        <button bind:this={liftCancel} data-testid="stop-confirm-cancel" type="button" onclick={closeLift} disabled={pending} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">
           {t('app.stops.lift.cancel', 'Cancel')}
         </button>
         <button type="submit" disabled={pending} class="rounded-md bg-indigo-600 px-3 py-2 text-sm text-white disabled:opacity-50">

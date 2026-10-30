@@ -80,10 +80,11 @@ describe('what each manager hint shows', () => {
     expect(root.querySelector('[data-testid="stop-read-only"]')).not.toBeNull();
   });
 
-  it('unknown: says so and still offers the form (the server decides), never reads as no', async () => {
+  it('unknown: explains and offers no controls, never reads as no', async () => {
     const { root } = await mountPanel({ manages: 'unknown' });
-    expect(root.querySelector('[data-testid="stop-unknown-hint"]')?.textContent).toContain('Couldn’t check your access');
-    expect(setForm(root)).not.toBeNull();
+    expect(root.querySelector('[data-testid="stop-unknown-hint"]')?.textContent).toContain('Couldn’t check');
+    expect(setForm(root)).toBeNull();
+    expect(root.querySelector('[data-testid="stop-read-only"]')).toBeNull();
   });
 
   it('a support session sees no controls even when the hint is yes', async () => {
@@ -102,6 +103,26 @@ describe('the set form', () => {
     expect(root.querySelector('fieldset legend')).not.toBeNull();
   });
 
+  it('Review is not a submit: clicking it opens the dialog and sends nothing', async () => {
+    const { root } = await mountPanel();
+    choose(root);
+    const button = root.querySelector<HTMLButtonElement>('button[data-open-confirm]')!;
+    expect(button.type).toBe('button');
+    await review(root);
+    expect(root.querySelector('dialog')!.open).toBe(true);
+  });
+
+  it('a submit that arrives before the confirmation is cancelled, not sent', async () => {
+    const { root } = await mountPanel();
+    choose(root);
+    expect((await submitEnhanced(setForm(root))).cancelled).toBe(true);
+    await tick(3);
+    expect(root.querySelector('dialog')!.open).toBe(true);
+    root.querySelector<HTMLButtonElement>('[data-testid="stop-confirm-cancel"]')!.click();
+    await tick(2);
+    expect(root.querySelector('dialog')).toBeNull();
+  });
+
   it('review without a worker shows a message and opens no confirmation', async () => {
     const { root } = await mountPanel();
     await review(root);
@@ -117,11 +138,27 @@ describe('the set form', () => {
     await review(root);
     const dialog = root.querySelector('dialog')!;
     expect(dialog.open).toBe(true);
-    expect(document.activeElement).toBe(dialog.querySelector('button[type="button"]'));
+    expect(document.activeElement).toBe(dialog.querySelector('[data-testid="stop-confirm-cancel"]'));
     expect(dialog.textContent).toContain('Pause');
     expect(dialog.textContent).toContain('Gaby');
     expect(dialog.textContent).toContain('every worker reporting to it');
     expect(dialog.textContent).toContain('Messages are not held');
+  });
+
+  it('sends the reader’s instant with its zone and shows the worker URN in the confirmation', async () => {
+    const { root } = await mountPanel();
+    choose(root);
+    const input = root.querySelector<HTMLInputElement>('#stop-until')!;
+    input.value = '2099-10-30T14:00';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(2);
+    expect(input.name).toBe('');
+    expect(root.querySelector<HTMLInputElement>('input[type="hidden"][name="until"]')!.value).toBe(new Date('2099-10-30T14:00').toISOString());
+    await review(root);
+    const dialog = root.querySelector('dialog')!;
+    expect(dialog.textContent).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    expect(dialog.textContent).not.toContain('2099-10-30T14:00');
+    expect(dialog.textContent).toContain('acme.com:team:gaby');
   });
 
   it('PAUSE_DISPATCH does not claim ticks or stall time stop; PAUSE does', async () => {
@@ -129,7 +166,7 @@ describe('the set form', () => {
     choose(root);
     await review(root);
     expect(root.querySelector('dialog')!.textContent).toContain('Its ticks, its messages and its stall time are not affected');
-    root.querySelector<HTMLButtonElement>('dialog button[type="button"]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-testid="stop-confirm-cancel"]')!.click();
     await tick(2);
     radio(root, 'level-choice', 'PAUSE');
     await review(root);
@@ -151,7 +188,7 @@ describe('the set form', () => {
     const { root } = await mountPanel();
     choose(root);
     await review(root);
-    root.querySelector<HTMLButtonElement>('dialog button[type="button"]')!.click();
+    root.querySelector<HTMLButtonElement>('[data-testid="stop-confirm-cancel"]')!.click();
     await tick(2);
     expect(root.querySelector('dialog')).toBeNull();
     expect(navigationCalls).toHaveLength(0);
@@ -264,7 +301,7 @@ describe('lifting', () => {
     expect(dialog.textContent).toContain('Pause · One worker · Gaby');
     expect(dialog.textContent).toContain('Other stops covering the same workers still apply');
     expect(dialog.textContent).not.toMatch(/notice|resume/i);
-    expect(document.activeElement).toBe(dialog.querySelector('button[type="button"]'));
+    expect(document.activeElement).toBe(dialog.querySelector('[data-testid="stop-confirm-cancel"]'));
     expect(new FormData(liftForm(root)).get('id')).toBe('s1');
   });
 

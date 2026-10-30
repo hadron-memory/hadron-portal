@@ -145,6 +145,7 @@ describe('classifyStopError', () => {
     expect(classifyStopError(gqlError('FORBIDDEN', 'Forbidden'))).toEqual({ kind: 'uncertain' });
     expect(classifyStopError(new Error('network'))).toEqual({ kind: 'uncertain' });
     expect(classifyStopError(null)).toEqual({ kind: 'uncertain' });
+    expect(classifyStopError({ response: { errors: [{ message: 'x' }] } })).toEqual({ kind: 'uncertain' });
   });
 
   it('the impersonation sentence is shown', () => {
