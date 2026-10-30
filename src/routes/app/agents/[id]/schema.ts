@@ -38,6 +38,17 @@ export const agentRegisterDefaultsSchema = z.object({
   mentionOnly: z.boolean().default(false),
 });
 
+// portal#1405 (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the roles people can have in Apps using
+// this Agent. Posted as repeated `roles` entries; an empty list is refused here
+// and by the server, so an Agent always offers at least one role.
+export const updateAgentMemberRolesSchema = z.object({
+  _kind: z.literal('updateMemberRoles').default('updateMemberRoles'),
+  roles: z.preprocess(
+    (value) => value === undefined ? [] : (Array.isArray(value) ? value : [value]),
+    z.array(z.string().trim().min(1)).min(1, 'An Agent needs at least one role.'),
+  ),
+});
+
 export const addAgentMemorySchema = z.object({
   _kind: z.literal('addMemory').default('addMemory'),
   memoryId: z.string().trim().min(1, 'Select a memory.').prefault(''),
@@ -67,6 +78,7 @@ export const deleteAgentSchema = z.object({
 
 export type AgentSettingsSchema = typeof agentSettingsSchema;
 export type AgentRegisterDefaultsSchema = typeof agentRegisterDefaultsSchema;
+export type UpdateAgentMemberRolesSchema = typeof updateAgentMemberRolesSchema;
 export type AddAgentMemorySchema = typeof addAgentMemorySchema;
 export type UpdateAgentMemoryRoleSchema = typeof updateAgentMemoryRoleSchema;
 export type RemoveAgentMemorySchema = typeof removeAgentMemorySchema;

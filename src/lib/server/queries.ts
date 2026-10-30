@@ -138,6 +138,9 @@ export const APP_FIELDS = /* GraphQL */ `
     anonymousTtlDays
     # 008-agent-installation: direct FK + new App-level fields.
     agentId
+    # #1405 (R211): the roles the App offers, the union over its installed
+    # Agents, primary first. The members panel reads this, not agent.installationPolicy.
+    availableMemberRoles
     agent {
       id
       urn
@@ -1748,6 +1751,14 @@ export const AGENT_REGISTER_DEFAULTS_QUERY = /* GraphQL */ `
 export const UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION = /* GraphQL */ `
   mutation UpdateAgentRegisterDefaults($ref: ID!, $registerDefaults: RegisterDefaultsInput!) {
     updateAgent(ref: $ref, registerDefaults: $registerDefaults) { id registerDefaults { mentionOnly } }
+  }
+`;
+
+// portal#1405 (R211): replaces the roles the Agent offers and nothing else in its
+// installation policy. Existing members keep their role (server-side, by design).
+export const UPDATE_AGENT_MEMBER_ROLES_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentMemberRoles($ref: ID!, $memberRoles: [String!]!) {
+    updateAgent(ref: $ref, memberRoles: $memberRoles) { id installationPolicy { memberRoles } }
   }
 `;
 

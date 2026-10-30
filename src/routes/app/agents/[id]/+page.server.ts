@@ -4,7 +4,7 @@ import { loadInheritanceManagement, loadBaseCandidates, baseVariables, indexVari
 import { loadAgentInheritance } from '$lib/server/agent-inheritance';
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
-import { message, superValidate } from 'sveltekit-superforms/server';
+import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { nodeUpdateDocument } from '$lib/server/nodeKindDoor';
@@ -41,6 +41,7 @@ import {
   CREATE_NODE_MUTATION,
   SET_AGENT_BOOT_PROMPT_MUTATION,
   UPDATE_AGENT_REGISTER_DEFAULTS_MUTATION,
+  UPDATE_AGENT_MEMBER_ROLES_MUTATION,
   APP_ORG_AGENT_GRANTS_QUERY,
   PUBLISH_AGENT_IMPORT_MUTATION,
 } from '$lib/server/queries';
@@ -57,6 +58,7 @@ import {
   deleteAgentSchema,
   removeAgentMemorySchema,
   updateAgentMemoryRoleSchema,
+  updateAgentMemberRolesSchema,
 } from './schema';
 
 // Route-local, but a `/* GraphQL */` const rather than an inline string so
@@ -72,6 +74,7 @@ const AGENT_ORG_QUERY = /* GraphQL */ `
 
 const agentSettingsFormAdapter = zod4(agentSettingsSchema);
 const agentRegisterDefaultsFormAdapter = zod4(agentRegisterDefaultsSchema);
+const updateAgentMemberRolesFormAdapter = zod4(updateAgentMemberRolesSchema);
 const addAgentMemoryFormAdapter = zod4(addAgentMemorySchema);
 const updateAgentMemoryRoleFormAdapter = zod4(updateAgentMemoryRoleSchema);
 const removeAgentMemoryFormAdapter = zod4(removeAgentMemorySchema);
@@ -322,7 +325,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       .map((n) => ({ ...n, memory: memoryMap.get(n.memoryId) ?? null }));
   }
   orgSystemMemories = sysMemResult;
-  const [form, registerDefaultsForm, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
+  const [form, registerDefaultsForm, memberRolesForm, addMemoryForm, updateMemoryRoleForm, removeMemoryForm, deleteForm] = await Promise.all([
     superValidate({
       name: agent.name ?? '',
       urnSlug: urnSlug(agent.urn),
@@ -336,6 +339,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { mentionOnly: registerDefaultsResult?.mentionOnly ?? false },
       agentRegisterDefaultsFormAdapter,
       { errors: false },
+    ),
+    superValidate(
+      { roles: agent.installationPolicy?.memberRoles ?? [] },
+      updateAgentMemberRolesFormAdapter,
+      { errors: false, id: 'updateMemberRoles' },
     ),
     superValidate<AddAgentMemoryForm>(
       { memoryId: '', role: 'read' },
@@ -407,6 +415,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     ),
     registerDefaults: registerDefaultsResult,
     registerDefaultsForm,
+    memberRolesForm,
     bootPointer,
     canManageAgent,
     // The key a pointer result carries (the action's own params.id), so a
@@ -675,6 +684,33 @@ export const actions: Actions = {
         default:
           return message(form, { type: 'error', text: t('agent.register-defaults.error.failed', 'The default was not saved. Changing it needs the agent’s owner or an organization admin.') }, { status: 500 });
       }
+    }
+  },
+
+  // portal#1405 (R211): only memberRoles is sent. The server's updateAgent gate
+  // (requireAgentAccess(ADMIN)) decides; the page shows the editor to managers.
+  // A malformed role is BAD_USER_INPUT with a message meant for the person, so
+  // it lands at the field; any other refusal is a form-level message.
+  updateMemberRoles: async ({ request, params, locals }) => {
+    const form = await superValidate(await request.formData(), updateAgentMemberRolesFormAdapter, { id: 'updateMemberRoles' });
+    if (!form.valid) return fail(400, { form });
+
+    try {
+      await gqlClient(locals.token).request(UPDATE_AGENT_MEMBER_ROLES_MUTATION, {
+        ref: params.id,
+        memberRoles: form.data.roles,
+      });
+      return message(form, { type: 'success', text: t('agent.member-roles.saved', 'Saved. Apps using this Agent offer these roles.') });
+    } catch (e: unknown) {
+      if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
+        return setError(form, 'roles._errors', extractGqlError(e, t('agent.member-roles.error.invalid', 'Those roles were not accepted.'), ['BAD_USER_INPUT']), { status: 400 });
+      }
+      // The permission sentence is for a refusal only; an internal fault keeps
+      // the shared envelope (and its request id), anything else says to retry.
+      if (extractGqlErrorCode(e) === 'FORBIDDEN') {
+        return message(form, { type: 'error', text: t('agent.member-roles.error.failed', 'The roles were not saved. Changing them needs the Agent’s owner or an organization admin.') }, { status: 403 });
+      }
+      return message(form, { type: 'error', text: extractGqlError(e, t('agent.member-roles.error.retry', 'The roles were not saved. Try again.'), [], { transport: 'fallback' }) }, { status: 500 });
     }
   },
 

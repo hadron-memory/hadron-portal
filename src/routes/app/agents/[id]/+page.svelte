@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AgentMemberRolesEditor from './AgentMemberRolesEditor.svelte';
   import BootPromptSource from './BootPromptSource.svelte';
   import StartBootSource from './StartBootSource.svelte';
   import AgentInheritanceSettings from '$lib/components/AgentInheritanceSettings.svelte';
@@ -31,6 +32,7 @@
   import {
     addAgentMemorySchema,
     agentRegisterDefaultsSchema,
+    updateAgentMemberRolesSchema,
     agentSettingsSchema,
     deleteAgentSchema,
     removeAgentMemorySchema,
@@ -44,6 +46,8 @@
   type RemoveAgentMemoryForm = Infer<typeof removeAgentMemorySchema, 'zod4'>;
   type DeleteAgentForm = Infer<typeof deleteAgentSchema, 'zod4'>;
   type AgentSettingsSuperform = SuperValidated<AgentSettingsForm, App.Superforms.Message, AgentSettingsForm>;
+  type AgentMemberRolesForm = Infer<typeof updateAgentMemberRolesSchema, 'zod4'>;
+  type AgentMemberRolesSuperform = SuperValidated<AgentMemberRolesForm, App.Superforms.Message, AgentMemberRolesForm>;
   type AgentRegisterDefaultsSuperform = SuperValidated<AgentRegisterDefaultsForm, App.Superforms.Message, AgentRegisterDefaultsForm>;
   type AddAgentMemorySuperform = SuperValidated<AddAgentMemoryForm, App.Superforms.Message, AddAgentMemoryForm>;
   type UpdateAgentMemoryRoleSuperform = SuperValidated<UpdateAgentMemoryRoleForm, App.Superforms.Message, UpdateAgentMemoryRoleForm>;
@@ -943,8 +947,14 @@
                 <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.installationPolicy.maxMembers}</span>
               </div>
               <div class="px-5 py-3">
-                <span class="text-sm text-zinc-500">Member roles</span>
-                <p class="mt-1 text-sm text-zinc-900 dark:text-white">{agent.installationPolicy.memberRoles.join(', ') || '—'}</p>
+                <!-- #1405: re-keyed per Agent, so a draft typed for A never sits in B's editor. -->
+                {#key agent.id}
+                  <AgentMemberRolesEditor
+                    canManage={!!data.canManageAgent}
+                    roles={agent.installationPolicy.memberRoles}
+                    initial={submittedForm<AgentMemberRolesForm>(form, 'updateMemberRoles') as AgentMemberRolesSuperform | null ?? data.memberRolesForm}
+                  />
+                {/key}
               </div>
             {/if}
             {#if agent.appCount !== undefined}

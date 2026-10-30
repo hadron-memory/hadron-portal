@@ -302,6 +302,12 @@ export interface App {
   // 008-agent-installation: direct FK to Agent (replaces the AppAgent join).
   agentId: string | null;
   agent: AppAgentSummary | null;
+  /**
+   * #1405 (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the member roles the App offers, the union
+   * over its installed Agents, primary first. Optional because only the
+   * AppFields fragment selects it.
+   */
+  availableMemberRoles?: string[];
   // Spec 021 US1: server-computed R2 canonical install URN
   // (hrn:agent:<installing-org>::<app-slug>::<author-org>:<agent-slug>).
   // Optional because not every query that returns App fetches this
