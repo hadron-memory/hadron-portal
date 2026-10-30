@@ -1,0 +1,5 @@
+Non-manager action probe (synthetic multi-app session)
+HTTP status: 403
+Form action: updateMemberRoles
+UI message: The roles were not saved. Changing them needs the Agent’s owner or an organization admin.
+No request id or internal exception text was returned.
