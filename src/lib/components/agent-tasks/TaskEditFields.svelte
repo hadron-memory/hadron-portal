@@ -54,7 +54,11 @@
   let familyIn = $state<string[]>([...baseReq.familyIn]);
   let familyNotIn = $state<string[]>([...baseReq.familyNotIn]);
   let exclude = $state<string[]>([...baseReq.excludeWorkers]);
-  const startByUtc = $derived(localDateTimeToIso(startByLocal));
+  // The instant is recomputed from the control only once the reader changes it: read back from its local
+  // string, an instant in the autumn DST overlap (the second 01:30) would land on the first, an hour
+  // earlier, and an unrelated edit would move the deadline (Beckett's P2 on #1466).
+  let startByTouched = $state(false);
+  const startByUtc = $derived(startByTouched ? localDateTimeToIso(startByLocal) : (seed.startBy ?? ''));
 
   let zoneLabel = $state(t('app.tasks.new.zone-utc', 'UTC'));
   onMount(() => {
@@ -121,7 +125,7 @@
 
 <div class="space-y-1">
   <label for="edit-start-by" class={labelClass}>{t('app.tasks.new.start-by', 'Start by')} <span class="font-normal text-zinc-500">({zoneLabel})</span></label>
-  <input id="edit-start-by" name="startBy" type="datetime-local" bind:value={startByLocal} class="{inputClass} max-w-xs"
+  <input id="edit-start-by" name="startBy" type="datetime-local" bind:value={startByLocal} oninput={() => (startByTouched = true)} class="{inputClass} max-w-xs"
     aria-invalid={fieldError('startBy') ? 'true' : undefined} aria-describedby={fieldError('startBy') ? 'edit-start-by-error' : 'edit-start-by-help'} />
   {#if fieldError('startBy')}<p id="edit-start-by-error" class="text-xs text-red-700 dark:text-red-300">{fieldError('startBy')}</p>{/if}
   <p id="edit-start-by-help" class={helpClass}>{t('app.tasks.edit.start-by-help', 'If it’s still pending then, an alarm is raised. Empty it to remove the deadline.')}</p>
