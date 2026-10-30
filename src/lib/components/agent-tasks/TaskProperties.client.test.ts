@@ -72,7 +72,15 @@ describe('TaskProperties mounted', () => {
     expect(text(m)).toContain('None');
   });
 
-  it('an unset field (undefined, e.g. an older server) is the empty state', async () => {
+  it('a value JSON cannot serialise shows a notice and does not throw', async () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const { m } = await mountWith(cyclic);
+    expect(block(m)).toBeNull();
+    expect(m.target.querySelector('[data-testid="task-properties-unreadable"]')).not.toBeNull();
+  });
+
+  it('an omitted field (undefined) is the empty state', async () => {
     const { m } = await mountWith(undefined);
     expect(text(m)).toContain('None');
   });

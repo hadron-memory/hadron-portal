@@ -73,7 +73,8 @@ export interface AgentTaskDetail extends AgentTaskRow {
   sessionEndRequest: AgentTaskSessionEndRequest | null;
   /**
    * portal#1340 (hadron-server#2420): the task's OWN optional JSON object, opaque to the platform.
-   * Never inherited from a parent; null when unset (and absent from a server that predates it).
+   * Never inherited from a parent; null when unset. The detail query selects it, so it needs a server that has the field
+   * (hadron-server#2877); a server without it rejects the read rather than omitting the field.
    */
   properties?: unknown;
 }

@@ -10,14 +10,28 @@
    */
   let { properties }: { properties?: unknown } = $props();
 
-  // null and undefined (a server that predates the field) are both "no value"; `{}` is a value.
+  // null and undefined are both "no value" (undefined only if a payload omits the field; the detail query
+  // selects it, so a server that lacks the field rejects the read instead). `{}` is a value.
   const present = $derived(properties !== null && properties !== undefined);
-  const json = $derived(present ? (JSON.stringify(properties, null, 2) ?? String(properties)) : '');
+
+  // The server bounds the object at 16 KiB, but a render must never throw on someone else's data: an
+  // unserialisable value (a cycle, or nesting deep enough to overflow the stack) shows a notice instead
+  // of taking the page down.
+  const shown = $derived.by(() => {
+    if (!present) return { json: '', failed: false };
+    try {
+      return { json: JSON.stringify(properties, null, 2), failed: false };
+    } catch {
+      return { json: '', failed: true };
+    }
+  });
 </script>
 
 <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-properties">
   <h2 id="task-properties" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.properties', 'Properties')}</h2>
-  {#if present}
+  {#if present && shown.failed}
+    <p role="alert" class="text-sm text-red-700 dark:text-red-300" data-testid="task-properties-unreadable">{t('app.tasks.properties.unreadable', 'These properties couldn’t be displayed.')}</p>
+  {:else if present}
     <!-- Wraps rather than scrolls sideways, so a long unbroken value cannot widen the page; the cap
          scrolls vertically and is focusable so a keyboard reader can reach all of it. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex: a scrollable text region must be reachable by keyboard (WCAG 2.1.1) -->
@@ -26,7 +40,7 @@
       tabindex="0"
       aria-label={t('app.tasks.properties.aria', 'Task properties as JSON')}
       data-testid="task-properties-value"
-      class="max-h-96 overflow-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs break-all whitespace-pre-wrap text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">{json}</pre>
+      class="max-h-96 overflow-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs break-all whitespace-pre-wrap text-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">{shown.json}</pre>
   {:else}
     <p class="text-sm text-zinc-500 dark:text-zinc-400" data-testid="task-properties-empty">{t('app.tasks.properties.none', 'None')}</p>
   {/if}

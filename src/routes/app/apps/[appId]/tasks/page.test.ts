@@ -205,12 +205,18 @@ describe('task page', () => {
     });
 
     it('a child with null shows the empty state even though its root has properties', () => {
-      const html = taskPage({ task: detail({ id: 't2', parentTaskId: 't1', properties: null }) });
+      const rootRow = detail({ id: 't1', properties: { who: 'root-secret' } });
+      const html = taskPage({
+        task: detail({ id: 't2', parentTaskId: 't1', properties: null }),
+        ancestors: [{ id: 't1', handle: 'AT1', title: 'Root', parentTaskId: null, properties: { who: 'root-secret' } }],
+        tree: { kind: 'ok', value: { rows: [rootRow, detail({ id: 't2', parentTaskId: 't1', properties: null })], capped: false } },
+      });
       expect(html).not.toContain('task-properties-value');
+      expect(html).not.toContain('root-secret');
       expect(html).toContain('data-testid="task-properties-empty"');
     });
 
-    it('a task from an older server (no field) is the empty state, and nothing is invented from status or tags', () => {
+    it('a payload without the field is the empty state, and nothing is invented from status or tags', () => {
       const html = taskPage({ task: detail({ tags: ['ready', 'tier-p'] }) });
       expect(html).toContain('data-testid="task-properties-empty"');
       expect(html).not.toContain('task-properties-value');
@@ -218,7 +224,9 @@ describe('task page', () => {
 
     it('is read-only: no inherited label, no properties form or edit control', () => {
       const html = taskPage({ task: detail({ properties: { a: 1 } }) });
-      expect(html).not.toMatch(/inherit/i);
+      const section = html.slice(html.indexOf('id="task-properties"'), html.indexOf('id="subtasks"'));
+      expect(section).not.toMatch(/inherit/i);
+      expect(section).not.toMatch(/<(form|input|button|textarea)\b/);
       expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((m) => m[1])).toEqual(['?/priority']);
     });
   });
