@@ -350,6 +350,19 @@ describe('task handles', () => {
     expect(html).not.toMatch(/<form/);
   });
 
+  // Celine QA P2 on portal#1375: AT0 must not borrow the support-session line.
+  // Pinned both ways: AT0 never shows it, a real support session still does.
+  it('AT0 never says "Viewing as … support session" to a normal viewer, writer or not', () => {
+    for (const canWrite of [true, false]) {
+      const html = taskPage({ task: detail({ id: 'z0', handle: 'AT0', title: 'No project', status: 'BACKLOG', assignee: null }), canWrite });
+      expect(html).not.toContain('Viewing as');
+      expect(html).not.toContain('task-actions-off');
+      expect(html).toContain('data-testid="project-zero-note"');
+    }
+    const support = taskPage({ task: detail({ id: 'abc', handle: 'AT3' }), canWrite: false, impersonating: 'Mike' });
+    expect(support).toContain('Viewing as Mike: changes are switched off in a support session.');
+  });
+
   it('a task that is not AT0 keeps its actions for a writer', () => {
     const html = taskPage({ task: detail({ id: 'abc', handle: 'AT3', status: 'BACKLOG', assignee: null }), canWrite: true });
     expect(html).not.toContain('project-zero-note');

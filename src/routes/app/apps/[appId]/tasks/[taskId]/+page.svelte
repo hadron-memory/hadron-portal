@@ -107,14 +107,18 @@
           {t('app.tasks.project-zero', 'This is the fixed “No project” task. It can’t be started, assigned, or cancelled.')}
         </p>
       {/if}
-      <TaskActionBar
-        {task}
-        canWrite={data.canWrite && !fixedTask}
-        impersonating={data.impersonating}
-        candidates={data.candidates}
-        {openChildren}
-        created={data.created}
-      />
+      <!-- AT0 has no action bar at all: the note above says why. Passing it canWrite=false
+           instead read as a support session ("Viewing as —") to everyone (Celine QA P2, portal#1375). -->
+      {#if !fixedTask}
+        <TaskActionBar
+          {task}
+          canWrite={data.canWrite}
+          impersonating={data.impersonating}
+          candidates={data.candidates}
+          {openChildren}
+          created={data.created}
+        />
+      {/if}
     </div>
     <div class="flex min-w-0 flex-col items-start gap-1 sm:items-end">
       <CopyCode value={task.handle} label={t('app.tasks.copy-handle', 'Copy the task handle')} />
