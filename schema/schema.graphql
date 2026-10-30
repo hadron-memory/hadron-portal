@@ -1,4 +1,4 @@
-# Exported from hadron-server 8889e61c1b855df1394ee217ec29426876cfbba5 (8889e61c1b855df1394ee217ec29426876cfbba5, 2026-10-29T19:00:16-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 2dbb311fc85ace02de48b71b7240b82e2af4d519 (2dbb311f, 2026-10-29T23:53:35-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -4981,6 +4981,11 @@ exactly one of 'url' | 'content'.
 """
 input ImportNodeInput {
   """
+  The Agent the task run is served as (PK or URN), installed in the App. Omit to use the App's single installed Agent; an App with several refuses with RUN_AGENT_REQUIRED before anything is written (#2735). Only meaningful with taskRef.
+  """
+  agentRef: ID
+
+  """
   App to run the task under — PK or URN. Falls back to the caller's active App. Only meaningful with taskRef.
   """
   appRef: ID
@@ -8816,7 +8821,7 @@ type Mutation {
   the caller. Without appRef, behavior is unchanged.
   Spec cor:api:060.
   """
-  runTask(appRef: ID, args: JSON, nodeRef: String!, runAsSelf: Boolean): String!
+  runTask(agentRef: ID, appRef: ID, args: JSON, nodeRef: String!, runAsSelf: Boolean): String!
 
   """
   Persist a caller-produced chat summary.
@@ -13191,7 +13196,10 @@ type Query {
 
   """
   Usage events (most recent first), optionally filtered by type, memoryId,
-  or nodeId.
+  nodeId, or time. since is inclusive and until is exclusive: since <= createdAt < until.
+  Bounds must be ISO date-times with Z or an explicit offset.
+  Either bound may be omitted; invalid bounds or since >= until are BAD_USER_INPUT.
+  Windowing does not change scope (hrn:node:hadronmemory.com:specs:cor:acl:090:01).
   
   Access control (#250): results are always scoped to memories the caller
   may read (org membership / subscriptions / public / owned personal+private
@@ -13223,13 +13231,17 @@ type Query {
   nodeUsage(loc:) above — same match, same gate (PR-986 review, Codex P2).
   Mutually exclusive with nodeId (BAD_USER_INPUT when both are passed).
   """
-  usageEvents(limit: Int, loc: String, memoryId: ID, nodeId: ID, offset: Int, type: String): [UsageEvent!]!
+  usageEvents(limit: Int, loc: String, memoryId: ID, nodeId: ID, offset: Int, since: DateTime, type: String, until: DateTime): [UsageEvent!]!
 
   """
   #2212 - `usageEvents` as a page: the same READER gate, the same loc/nodeId rules and the same readable-memory
-  scope, ordered newest first with an id tiebreak, with the real total. Sizes as `tickersPage`.
+  scope, ordered newest first with an id tiebreak, with the windowed total.
+  since is inclusive and until is exclusive: since <= createdAt < until.
+  Bounds must be ISO date-times with Z or an explicit offset.
+  Either bound may be omitted; invalid bounds or since >= until are BAD_USER_INPUT.
+  hrn:node:hadronmemory.com:specs:cor:acl:090:01; paging: hrn:node:hadronmemory.com:specs:cor:api:120:04. Sizes as `tickersPage`.
   """
-  usageEventsPage(limit: Int, loc: String, memoryId: ID, nodeId: ID, offset: Int, type: String): UsageEventPage!
+  usageEventsPage(limit: Int, loc: String, memoryId: ID, nodeId: ID, offset: Int, since: DateTime, type: String, until: DateTime): UsageEventPage!
 
   """
   The uniform single-user read (#473). 'ref' accepts a primary key or a
@@ -16428,6 +16440,10 @@ type TickerSubscriptionPage {
 }
 
 input TriggerAppRunInput {
+  """
+  The Agent the run is served as (PK or URN), installed in the App. Omit to use the App's single installed Agent; an App with several refuses with RUN_AGENT_REQUIRED (#2735).
+  """
+  agentRef: ID
   aiConfigName: String
 
   """App — ref: PK or fully-qualified URN."""
@@ -16940,6 +16956,16 @@ type WakeReason {
 
   """Set for kind TASK."""
   task: DueTaskReason
+
+  """
+  #2790 (hrn:node:hadronmemory.com:specs:cor:agt:080:23) — set for kind TICK only, null for MENTION, TASK and STOP: the
+  time of THIS ticker's oldest tick the worker has not acknowledged, up to the tick that fired. It is per reason, so a
+  wake with an old mention and a fresh tick, or ticks of two tickers, shows each tick's own time; `anchorAt` stays the
+  earliest over all reasons (hrn:node:hadronmemory.com:specs:cor:agt:080:27) and is at or before every one of these.
+  Computed at read time from the worker's acknowledged tick, never stored: a tick that joins an outstanding wake
+  (hrn:node:hadronmemory.com:specs:cor:agt:080:12) leaves it at the oldest unacknowledged tick, not the joining one.
+  """
+  tickDueAt: DateTime
   ticker: Ticker
 }
 

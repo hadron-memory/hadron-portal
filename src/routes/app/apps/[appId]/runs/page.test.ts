@@ -158,3 +158,26 @@ describe('runs list (#478)', () => {
     expect(body).not.toContain('Showing the first');
   });
 });
+
+// portal#1444 (hadron-server#2849): the Agent picker, only where the server would ask for one.
+describe('runs list: the Agent picker (#1444)', () => {
+  const agents = [
+    { id: 'ag-1', name: 'Writer', urn: 'hrn:agent:x:writer' },
+    { id: 'ag-2', name: 'Editor', urn: 'hrn:agent:x:editor' },
+  ];
+
+  it('several installed Agents: a labelled picker lists them by name, and each Run form carries agentRef', async () => {
+    const body = await renderPage([], null, [flow], { runAgents: agents });
+    expect(body).toMatch(/<label[^>]*for="runAgent"[^>]*>Run as Agent<\/label>/);
+    expect(body).toContain('>Writer</option>');
+    expect(body).toContain('>Editor</option>');
+    expect(body).not.toContain('RUN_AGENT_REQUIRED');
+    expect(body).toMatch(/<input type="hidden" name="agentRef"/);
+  });
+
+  it('one or no installed Agent: nothing new on the page', async () => {
+    const body = await renderPage([], null, [flow], { runAgents: null });
+    expect(body).not.toContain('id="runAgent"');
+    expect(body).not.toContain('Run as Agent');
+  });
+});

@@ -2,8 +2,10 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
-import { APP_RUNS_QUERY, APP_NODES_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
+import { APP_RUNS_QUERY, APP_NODES_QUERY, APP_INSTALLED_AGENTS_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
+import { runAgentChoice } from '$lib/run-agent';
+import type { InstalledAgent } from '$lib/app-installed-agents';
+import { runStartError } from '$lib/server/run-start-error';
 import { isAccessRefusal, loadTasksApp } from '$lib/server/agent-tasks';
 import { flowRoots, type FlowGraphNode } from '$lib/flow/flows';
 import { RUN_STATUSES, type AppRun, type AppRunStatus } from '$lib/flow/runs';
@@ -36,7 +38,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
 
-  const [runsData, nodesData] = await Promise.all([
+  const [runsData, nodesData, agentsData] = await Promise.all([
     client
       .request<{ appRuns: { items: AppRun[]; total: number } }>(APP_RUNS_QUERY, {
         appRef: params.appId,
@@ -61,6 +63,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         console.warn(`[runs] appNodes fetch failed for ${params.appId}:`, e);
         return { appNodes: [] as FlowGraphNode[] };
       }),
+    // The Agent picker's options (#1444). Best-effort like the flows: a failed
+    // read hides only the picker (and is logged), never the audit list; the
+    // server's RUN_AGENT_REQUIRED still tells the reader to choose.
+    client
+      .request<{ app: { appAgents: Array<{ agent: InstalledAgent | null }> | null } | null }>(APP_INSTALLED_AGENTS_QUERY, { ref: params.appId })
+      .catch((e) => {
+        console.warn(`[runs] installed Agents fetch failed for ${params.appId}:`, e);
+        return null;
+      }),
   ]);
 
   const runForm = await superValidate(zod4(runAppFlowSchema), { errors: false });
@@ -76,6 +87,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     flowsCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT),
     flowsScanned: nodesData.appNodes?.length ?? 0,
     runForm,
+    // null = no picker: the App has one or no installed Agent (the server picks).
+    runAgents: runAgentChoice(agentsData?.app?.appAgents),
   };
 };
 
@@ -93,10 +106,11 @@ export const actions: Actions = {
         nodeRef: form.data.entryUrn,
         appRef: params.appId,
         runAsSelf: false,
+        ...(form.data.agentRef ? { agentRef: form.data.agentRef } : {}),
       });
       runId = res.runTask;
     } catch (e: unknown) {
-      return message(form, { type: 'error' as const, text: extractGqlError(e, 'Failed to start the flow') }, { status: 500 });
+      return message(form, { type: 'error' as const, text: runStartError(e, 'Failed to start the flow') }, { status: 500 });
     }
     redirect(303, `/app/apps/${params.appId}/runs/${runId}`);
   },
