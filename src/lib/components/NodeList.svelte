@@ -8,6 +8,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
+  import NodeEmbeddingBadges from './NodeEmbeddingBadges.svelte';
   import { nodeListHref } from '$lib/node-list-links';
   import ViewTabs from './table/ViewTabs.svelte';
   import TableFrame from './table/TableFrame.svelte';
@@ -29,6 +30,7 @@
     meta = {},
     deletedIds = [],
     showColumns = false,
+    embeddingEnabled = false,
     columnData = {},
     columnsLoading = 0,
     columnsFailed = 0,
@@ -63,6 +65,11 @@
      * their three columns. Fixed at mount, like the rest of the column set.
      */
     showColumns?: boolean;
+    /**
+     * portal#1346: the browsed memory is vector-indexed, so a row may carry the
+     * pending/failed embedding badge from its (lazily loaded) columns.
+     */
+    embeddingEnabled?: boolean;
     /** nodeId → that node's extra columns, as they load. A node absent here has not loaded. */
     columnData?: Record<string, NodeColumnRow>;
     /** How many nodes' columns are still being read. */
@@ -444,6 +451,9 @@
                       {/if}
                     </div>
                     <div class="mt-0.5 truncate"><Urn value={nodeUrn(n)} type="node" size={8} /></div>
+                    {#if c?.embedding}
+                      <NodeEmbeddingBadges enabled={embeddingEnabled} pendingAt={c.embedding.pendingAt} failedAt={c.embedding.failedAt} error={c.embedding.error} />
+                    {/if}
                     {#if hit && n.comment}
                       <!-- portal#1015: feedback, never content of its target: its author, the
                            node it concerns, and the revision it was written against

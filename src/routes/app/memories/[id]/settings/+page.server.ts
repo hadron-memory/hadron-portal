@@ -11,12 +11,14 @@ import {
   UPDATE_MEMORY_MUTATION,
   DELETE_MEMORY_MUTATION,
   RETRY_FAILED_EMBEDDINGS_MUTATION,
+  VALIDATE_MEMORY_QUERY,
   ORGANIZATIONS_QUERY,
   RESOLVE_URN_QUERY,
   TRANSFER_MEMORY_OWNERSHIP_MUTATION,
   MEMORY_TRANSFER_ACCESS_QUERY,
   USER_PROFILE_QUERY,
 } from '$lib/server/queries';
+import { VECTOR_HEALTH_LIMIT, embedFailedView, type ValidateMemoryResult } from '$lib/vector-health';
 import { toBareMemorySlugInput } from '$lib/urn/form-validation';
 import type { Memory, Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
@@ -531,6 +533,30 @@ export const actions: Actions = {
         },
         { status: 500 },
       );
+    }
+  },
+
+  // portal#1346: the "Vector index health" panel. On demand only (a button), never
+  // from the loader: validateMemory scans the whole memory on every call. The
+  // server has no check filter, so this asks for the most findings it allows and
+  // keeps EMBED_FAILED; the view says when the cap may have hidden some. The ref
+  // is the route's, never the form's. No form input, so no superforms: the
+  // result is plain data and a refusal a plain error.
+  checkVectorIndexHealth: async ({ params, locals }) => {
+    try {
+      const res = await gqlClient(locals.token).request<{ validateMemory: ValidateMemoryResult }>(
+        VALIDATE_MEMORY_QUERY,
+        { memoryRef: params.id, limit: VECTOR_HEALTH_LIMIT },
+      );
+      return { vectorHealth: embedFailedView(res.validateMemory) };
+    } catch (e: unknown) {
+      return fail(500, {
+        vectorHealthError: extractGqlError(
+          e,
+          t('memory-settings.vector-health.failed', 'Could not check the vector index'),
+          ['BAD_USER_INPUT'],
+        ),
+      });
     }
   },
 
