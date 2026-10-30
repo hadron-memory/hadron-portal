@@ -313,6 +313,18 @@ describe('Edit details: drafts and navigation', () => {
     expect(root.textContent).not.toContain('TASK_');
   });
 
+  it('a refusal already showing for one task is gone once the reader moves to another', async () => {
+    const { root, props } = await mountBar();
+    const form = await openEdit(root);
+    await submitEnhancedWithResult(form, { type: 'failure', status: 409, data: { action: 'edit', refusal: { kind: 'refused', code: 'TASK_ENDED', message: 'This task has ended.' } } });
+    await tick(2);
+    expect(root.textContent).toContain('TASK_ENDED');
+    props.task = task({ id: 't2', title: 'Other task' });
+    await tick(2);
+    flushSync();
+    expect(root.textContent).not.toContain('TASK_ENDED');
+  });
+
   it('a refusal for the task in view still shows after that same task reloads', async () => {
     const { root, props } = await mountBar();
     const form = await openEdit(root);
