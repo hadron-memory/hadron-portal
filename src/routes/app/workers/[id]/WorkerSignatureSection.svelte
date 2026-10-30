@@ -42,9 +42,10 @@
   async function focusResultAfterSave() {
     await tick();
     const focused = document.activeElement;
-    // Only when focus was LEFT behind: on the body, or on the form's own
-    // control that just went away. A reader who has moved on keeps their place.
-    const left = !focused || focused === document.body || (!!formEl && formEl.contains(focused) && focused !== resultEl);
+    // Only when focus was LEFT behind: on the body, or on a submit button of
+    // this form (the control that just went away). A reader who has moved on,
+    // to another control or back into a template field, keeps their place.
+    const left = !focused || focused === document.body || (!!formEl && formEl.contains(focused) && focused instanceof HTMLButtonElement && focused.type === 'submit');
     // After teardown `bind:this` has nulled the element, so a late result is inert.
     if (!left || !resultEl?.isConnected) return;
     resultEl.focus();
