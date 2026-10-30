@@ -12,10 +12,14 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { applyAction, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { page } from '$lib/test/stubs/app-stores';
+import { REFRESH_MARKER_KEY, setRefreshMarker } from '$lib/tickers/refresh-marker';
 import ApplyAgentTickers from './ApplyAgentTickers.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
+  sessionStorage.clear();
+  page.update((p) => ({ ...p, data: {} }));
   while (mounted.length) mounted.pop()!.unmount();
   resetNavigationCalls();
 });
@@ -437,5 +441,111 @@ describe('ApplyAgentTickers: a refresh that fails after a committed apply says s
     await tick(3);
     flushSync();
     expect(guidance(root)).toBeNull();
+  });
+});
+
+describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', () => {
+  const receipt = { key: 'w-A', ok: true as const, created: [created()], alreadyPresent: [] };
+  const ok = { type: 'success' as const, status: 200, data: { applyTickers: receipt } };
+  const marker = () => {
+    const raw = sessionStorage.getItem(REFRESH_MARKER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  };
+  const asViewer = (id: string | null) => page.update((p) => ({ ...p, data: id ? { user: { id } } : {} }));
+
+  it('is written for this viewer and worker BEFORE the refresh starts, and only after a confirmed success', async () => {
+    asViewer('u-1');
+    const nav = await import('$lib/test/stubs/app-navigation');
+    let seen: unknown = 'unset';
+    nav.navigationHooks.onInvalidateAll = () => { seen = marker(); };
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update: vi.fn(async () => { props.result = receipt; }) });
+    await finish(ok);
+    expect(seen).toMatchObject({ viewer: 'u-1', worker: 'w-A' });
+  });
+
+  it('is not written for a refusal, which attempts no refresh', async () => {
+    asViewer('u-1');
+    const { root } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
+    await finish({ type: 'failure', status: 409, data: { applyTickers: { key: 'w-A', refusal: { code: 'X', message: 'x', outcomeUnknown: false } } } });
+    expect(marker()).toBeNull();
+  });
+
+  it('survives a refresh that lands on the error page, which unmounts this panel (the real kit path)', async () => {
+    asViewer('u-1');
+    const nav = await import('$lib/test/stubs/app-navigation');
+    const { root } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
+    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); };
+    await finish(ok);
+    await tick(2);
+    expect(marker()).toMatchObject({ viewer: 'u-1', worker: 'w-A' });
+  });
+
+  it('is cleared once the refresh worked and this panel is still the one showing', async () => {
+    asViewer('u-1');
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update: vi.fn(async () => { props.result = receipt; }) });
+    await finish(ok);
+    await tick(2);
+    expect(marker()).toBeNull();
+  });
+
+  it('is cleared when the refresh rejects in this panel, which says so itself rather than leaving a second claim behind', async () => {
+    asViewer('u-1');
+    const nav = await import('$lib/test/stubs/app-navigation');
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update: vi.fn(async () => { props.result = receipt; }) });
+    nav.navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed'); };
+    await finish(ok);
+    await tick(2);
+    expect(marker()).toBeNull();
+    expect(root.querySelector('[data-testid="apply-refresh-failed"]')).not.toBeNull();
+  });
+
+  it('a stale marker is cleared when the panel mounts, and when the next apply starts', async () => {
+    asViewer('u-1');
+    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+    const { root } = await mountApply({ workerKey: 'w-A' });
+    expect(marker()).toBeNull();
+    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+    await submitEnhancedDeferred(root.querySelector('form')!);
+    expect(marker()).toBeNull();
+  });
+
+  it('a mount that was replaced writes no marker', async () => {
+    asViewer('u-1');
+    const a = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(a.root.querySelector('form')!);
+    mounted.pop()!.unmount();
+    await finish(ok);
+    expect(marker()).toBeNull();
+  });
+
+  it('with no known viewer writes nothing and still refreshes, applies and shows the receipt', async () => {
+    asViewer(null);
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => { props.result = receipt; });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update });
+    await finish(ok);
+    await tick(2);
+    expect(marker()).toBeNull();
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it('storage that throws never blocks the apply: the refresh is still attempted and the receipt applied', async () => {
+    asViewer('u-1');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => { props.result = receipt; });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update });
+    await finish(ok);
+    await tick(2);
+    vi.restoreAllMocks();
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(root.querySelector('[data-testid="apply-receipt"]')).not.toBeNull();
   });
 });
