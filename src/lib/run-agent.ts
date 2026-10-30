@@ -1,5 +1,5 @@
 /**
- * portal#1444 (hadron-server#2849, cor:agt:040:10): a manual run in an App with
+ * portal#1444 (hadron-server#2849, hrn:node:hadronmemory.com:specs:cor:agt:040:10): a manual run in an App with
  * SEVERAL installed Agents must name one, or the server refuses it with
  * `RUN_AGENT_REQUIRED`. With one or none installed the server picks, so the
  * run surfaces show nothing new.
