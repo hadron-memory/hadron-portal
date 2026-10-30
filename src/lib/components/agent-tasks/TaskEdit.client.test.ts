@@ -293,4 +293,34 @@ describe('Edit details: drafts and navigation', () => {
     await tick(2);
     expect(root.textContent).not.toContain('Details saved.');
   });
+
+  // Gabriel's LOCAL P2 on #1466: the failure path is the fourth piece of bar state and needs the same task guard.
+  it.each([
+    ['a stale refusal (TASK_ENDED)', { kind: 'refused', code: 'TASK_ENDED', message: 'This task has ended.' }, 409],
+    ['an in-panel refusal (TASK_NOT_OWNER)', { kind: 'refused', code: 'TASK_NOT_OWNER', message: 'Only the owner edits it.' }, 403],
+    ['an uncertain outcome', { kind: 'uncertain' }, 502]
+  ])('%s that lands after the reader moved to another task shows nothing on the other', async (_name, refusal, status) => {
+    const { root, props } = await mountBar();
+    const form = await openEdit(root);
+    const finish = await beginEnhanced(form);
+    props.task = task({ id: 't2', title: 'Other task' });
+    await tick(2);
+    await finish({ type: 'failure', status, data: { action: 'edit', refusal } });
+    await tick(2);
+    flushSync();
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+    expect(root.textContent).not.toContain('This task has ended.');
+    expect(root.textContent).not.toContain('TASK_');
+  });
+
+  it('a refusal for the task in view still shows after that same task reloads', async () => {
+    const { root, props } = await mountBar();
+    const form = await openEdit(root);
+    await submitEnhancedWithResult(form, { type: 'failure', status: 403, data: { action: 'edit', refusal: { kind: 'refused', code: 'TASK_NOT_OWNER', message: 'Only the owner edits it.' } } });
+    await tick(2);
+    props.task = task({ updatedAt: '2026-10-30T00:00:00Z' });
+    await tick(2);
+    flushSync();
+    expect(root.textContent).toContain('TASK_NOT_OWNER');
+  });
 });
