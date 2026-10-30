@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { loadTasksApp } from '$lib/server/agent-tasks';
-import { loadAppTickerSettings, loadSubscribers, loadTicker } from '$lib/server/tickers';
+import { loadAppTickerSettings, loadSubscribers, loadTicker, loadTickerTask } from '$lib/server/tickers';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -11,7 +11,8 @@ import type { PageServerLoad } from './$types';
  * can't read (ticker.app null, #1209) are all this page's 404; a ticker of
  * another App redirects to its canonical address, as runs/[runId] does.
  *
- * Subscribers page forward with `?after=`; the server gives no total.
+ * portal#1384: the task the team maps this ticker to is its own read, so its
+ * failure blanks only that entry. Subscribers page forward with `?after=`; the server gives no total.
  */
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
@@ -25,15 +26,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   }
 
   const after = url.searchParams.get('after');
-  const [subscribers, settings] = await Promise.all([
+  const [subscribers, settings, tickerTask] = await Promise.all([
     loadSubscribers(client, ticker.id, after),
     loadAppTickerSettings(client, app.id),
+    loadTickerTask(client, ticker.id),
   ]);
   return {
     app,
     ticker,
     subscribers,
     settings,
+    tickerTask,
     paged: after !== null,
     loadedAt: new Date().toISOString(),
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,

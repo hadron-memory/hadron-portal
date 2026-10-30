@@ -45,6 +45,23 @@ export interface Ticker {
   updatedAt: string | null;
 }
 
+/**
+ * portal#1384 — what the ticker page reads beyond the shared fields. `tickCode` is the server's
+ * permanent code (template copies share one); never derive it from the slug.
+ */
+export interface TickerDetail extends Ticker {
+  tickCode: string;
+  app: { id: string } | null;
+}
+
+/**
+ * The loc the team maps the ticker's code to, unresolved. Null means "no entry" OR "an entry
+ * this reader may not read", by design (hadron-server#2733): the page claims no more than that.
+ */
+export interface TickerTask {
+  registerTaskLoc: string | null;
+}
+
 export interface TickerListRow extends Ticker {
   subscribers: { hasNextPage: boolean; items: { id: string }[] };
 }

@@ -35,7 +35,16 @@ const subscriber = {
   worker: { id: 'w-liam', name: 'Liam', urn: 'hrn:worker:hadronmemory.com:hadron-dev-team:liam', retiredAt: null },
 };
 
-export type TickersView = 'list' | 'detail' | 'wake';
+// portal#1384: a long code and a long loc, unbroken, are what push the Task entry wide.
+const LONG_CODE = 'tick.engineering-reviews-and-ready-calls-overnight-and-weekend-coverage';
+const LONG_LOC = 'tasks:team:on-base-tick:engineering-reviews-and-ready-calls-overnight-and-weekend';
+const detailTask = {
+  'detail': { kind: 'ok', value: { registerTaskLoc: LONG_LOC } },
+  'detail-unmapped': { kind: 'ok', value: { registerTaskLoc: null } },
+  'detail-task-failed': { kind: 'failed' },
+} as const;
+
+export type TickersView = 'list' | 'detail' | 'detail-unmapped' | 'detail-task-failed' | 'wake';
 
 export function mountTickers(target: HTMLElement, view: TickersView): () => void {
   let page;
@@ -44,12 +53,13 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
       target,
       props: { data: { app, tickers: { kind: 'ok', value: [ticker] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null } } as never,
     });
-  } else if (view === 'detail') {
+  } else if (view in detailTask) {
     page = mount(TickerPage, {
       target,
       props: {
         data: {
-          app, ticker, settings, paged: false, loadedAt: LOADED, impersonating: null,
+          app, ticker: { ...ticker, tickCode: LONG_CODE }, settings, paged: false, loadedAt: LOADED, impersonating: null,
+          tickerTask: detailTask[view as keyof typeof detailTask],
           subscribers: { kind: 'ok', value: { items: [subscriber], hasNextPage: true, endCursor: 's1' } },
         },
       } as never,

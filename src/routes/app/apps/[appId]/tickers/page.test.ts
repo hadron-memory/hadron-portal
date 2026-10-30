@@ -436,7 +436,7 @@ describe('Ticker page: the Task entry (portal#1384)', () => {
     const e = entry(detail({ ticker: ticker({ tickCode: 'tick.<img src=x>' }), tickerTask: { kind: 'ok', value: { registerTaskLoc: 'a:<script>x</script>' } } }));
     expect(e).not.toContain('<script>');
     expect(e).not.toContain('<img');
-    expect(e).toContain('&lt;script&gt;');
+    expect(e).toContain('&lt;script>');
   });
 
   it('stays read-only', () => {

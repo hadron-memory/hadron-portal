@@ -19,7 +19,7 @@ try {
   browser = await chromium.launch({ headless: true });
 
   for (const width of [390, 1280]) {
-    for (const view of ['list', 'detail', 'wake']) {
+    for (const view of ['list', 'detail', 'detail-unmapped', 'detail-task-failed', 'wake']) {
       const page = await browser.newPage({ viewport: { width, height: 844 } });
       await page.goto(new URL('/@vite/client', origin).href);
       await page.evaluate((css) => {
@@ -31,7 +31,7 @@ try {
         const { mountTickers } = await import('/src/lib/test/fixtures/tickers-harness.ts');
         mountTickers(document.getElementById('col'), view);
       }, view);
-      await page.waitForSelector(view === 'wake' ? '[data-testid="wake-status"]' : view === 'detail' ? '[data-testid="ticker-facts"]' : 'table');
+      await page.waitForSelector(view === 'wake' ? '[data-testid="wake-status"]' : view.startsWith('detail') ? '[data-testid="ticker-task"]' : 'table');
 
       const measure = () => page.evaluate(() => {
         const vw = document.documentElement.clientWidth;
@@ -46,6 +46,7 @@ try {
           width: vw,
           scrollWidth: document.documentElement.scrollWidth,
           heads,
+          taskEntries: document.querySelectorAll('[data-testid="ticker-task"]').length,
           statusFirst: status && settings ? status.getBoundingClientRect().top < settings.getBoundingClientRect().top : null,
         };
       });
@@ -59,6 +60,7 @@ try {
           assert.ok(h.on, `${label}: the ${col} column is off-screen`);
         }
       }
+      if (view.startsWith('detail')) assert.equal(got.taskEntries, 1, `${label}: the Task entry must render exactly once`);
       if (view === 'wake') assert.equal(got.statusFirst, true, `${label}: the status sentence must come first`);
 
       if (width === 390) {
