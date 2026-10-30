@@ -14,16 +14,19 @@
  *
  * The late-reply legs drive the REAL delivery path (applyAction setting
  * page.form, applied by superforms to any mounted form with the same id) and
- * carry a positive control: the same delivery at the editor's own live epoch
- * lands (the refusal message renders), so the negatives — an A-minted reply
- * while B is live — prove a fence, not a dead wire. The other reply
- * spellings (the bare loader stamp, the per-mount epoch fence across
- * A→B→A) are pinned in signature-isolation.client.test.ts (#1448/#1450);
- * the page.form pin was held RED at the unfixed parent (CI run 41013104823,
- * CM ruling on #1366).
+ * carry positive controls at BOTH ends — one at the initial mount, one after
+ * the A→B navigation: the same delivery at the editor's own live epoch lands
+ * (the refusal message renders), so the negatives — an A-minted reply while
+ * B is live — prove a fence, not a dead wire, and not a wire that died with
+ * the data swap either. The other reply spellings (the bare loader stamp,
+ * the per-mount epoch fence across A→B→A) are pinned in
+ * signature-isolation.client.test.ts (#1448/#1450); the late-reply fence leg
+ * below ("a late failed reply minted by A …") was held RED at the unfixed
+ * parent (CI run 41013104823, CM ruling on #1366).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { flushSync, tick } from 'svelte';
+import { get } from 'svelte/store';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
@@ -91,9 +94,22 @@ async function navigateTo(props: Awaited<ReturnType<typeof mountPage>>, w: typeo
 }
 
 /**
+ * The navigation order that does NOT clear the form first — A's action
+ * result is still sitting in page.form when B's keyed remount reads the page
+ * state. SvelteKit normally clears page.form on a navigation; this variant
+ * keeps it, so B's mount is pinned against the WORST order, which subsumes
+ * the cleared one.
+ */
+async function navigateToKeepingForm(props: Awaited<ReturnType<typeof mountPage>>, w: typeof WORKER_A) {
+  page.update((p) => ({ ...p, url: new URL(`https://example.test/app/workers/${w.id}?tab=briefing`), params: { id: w.id } }));
+  props.data = await pageData(w);
+  flushSync();
+}
+
+/**
  * applyAction's shape, as SvelteKit delivers a late reply to a live page:
- * page.form is set and the page store notifies. The awaited microtasks let
- * superforms' asynchronous application settle before the assertions read.
+ * page.form is set and the page store notifies. The awaited tick and macrotask
+ * let superforms' asynchronous application settle before the assertions read.
  */
 async function deliverLate(reply: unknown) {
   page.update((p) => ({ ...p, form: reply }));
@@ -102,18 +118,23 @@ async function deliverLate(reply: unknown) {
   flushSync();
 }
 
-/** The id this mount answers to (`<stamp>#<uuid>` in the browser), for minting a reply at its own epoch. */
-const instanceIdOf = (t: HTMLElement) =>
-  t.querySelector<HTMLElement>('[data-testid="worker-signature"]')!
-    .querySelector<HTMLFormElement>('form')!
-    .getAttribute('data-superform-id')!;
+/** The id this mount answers to (`<stamp>#<uuid>` in the browser), for minting a reply at its own epoch.
+ *  Fails naming the missing piece, rather than returning null into a minted reply. */
+function instanceIdOf(t: HTMLElement): string {
+  const section = t.querySelector<HTMLElement>('[data-testid="worker-signature"]');
+  const form = section?.querySelector<HTMLFormElement>('form');
+  const id = form?.getAttribute('data-superform-id');
+  if (!id) throw new Error(`no live signature instance id (section: ${section != null}, form: ${form != null})`);
+  return id;
+}
 
-/** A refused reply for `who`, minted the way the real action does: at `epoch` when given, else the bare loader stamp. */
-async function refusedReply(who: string, epoch: string | null, draft: string) {
+/** A refused reply for `w`, minted the way the real action does: at the target
+ *  mount's live `epoch`, carrying the worker's own stored templates as the submitted bases. */
+async function refusedReply(w: typeof WORKER_A, epoch: string, draft: string) {
   const failed = await superValidate(
-    { _kind: 'updateSignature', signature: draft, trailer: '', signatureBase: 'A-SIG', trailerBase: 'A-TRAILER' },
+    { _kind: 'updateSignature', signature: draft, trailer: '', signatureBase: w.signature ?? '', trailerBase: w.trailer ?? '' },
     zod4(updateSignatureSchema),
-    { errors: false, id: epoch ?? updateSignatureFormId(who) },
+    { errors: false, id: epoch },
   );
   return { form: { ...failed, message: { type: 'error', text: 'refused' } as const } };
 }
@@ -171,16 +192,16 @@ describe('worker page: signature section across worker navigation (#1366)', () =
     });
   });
 
-  // The control for every negative below (Joran's blind delta on #1443): each
-  // of them also passes if the stub page store were not wired to anything
-  // superforms reads. This leg delivers through the SAME page-store path at
-  // the editor's own live epoch and asserts the reply LANDS — the message
-  // renders on the editor it targets — so the fence, not a dead wire, is what
-  // the negatives prove. (A bare-stamp reply to a live editor is pinned to
-  // pass through untouched in signature-isolation.client.test.ts.)
+  // The control for every negative below: each of them also passes if the
+  // stub page store were not wired to anything superforms reads. This leg
+  // delivers through the SAME page-store path at the editor's own live epoch
+  // and asserts the reply LANDS — the message renders on the editor it
+  // targets — so the fence, not a dead wire, is what the negatives prove.
+  // (A bare-stamp reply to a live editor is pinned to pass through
+  // untouched in signature-isolation.client.test.ts.)
   it('control: the same page.form delivery at the editor’s own epoch lands — the refusal and its text show on A', async () => {
     await mountPage(WORKER_A);
-    await deliverLate(await refusedReply('w-a', instanceIdOf(currentPage().target), 'A REFUSED TEXT'));
+    await deliverLate(await refusedReply(WORKER_A, instanceIdOf(currentPage().target), 'A REFUSED TEXT'));
     // The path is live: the reply's message renders AND its submitted text is
     // restored to the editor (an own-epoch refusal applies, so the reader can
     // edit and retry — the same semantics signature-isolation.client.test.ts
@@ -205,7 +226,7 @@ describe('worker page: signature section across worker navigation (#1366)', () =
     // with the same id). B's editor answers to B's own epoch, so the reply
     // belongs to no live form: B keeps its own text, bases, save state and
     // payload, and the refusal line never shows on B's page.
-    await deliverLate(await refusedReply('w-a', aEpoch, 'A REFUSED TEXT'));
+    await deliverLate(await refusedReply(WORKER_A, aEpoch, 'A REFUSED TEXT'));
 
     // No remount: the same editor node, no stale error banner from A on B,
     // and B's serialized state is exactly its own.
@@ -216,24 +237,60 @@ describe('worker page: signature section across worker navigation (#1366)', () =
     });
   });
 
+  // The first control proves the page-store wire is live at the INITIAL
+  // mount, but the fence leg above runs its delivery AFTER a navigation — a
+  // wire that died with the data swap would pass that negative vacuously.
+  // This leg delivers at B's OWN live epoch after the A→B navigation and
+  // asserts the landing, so the wire is proven live past the swap: what
+  // excludes A's reply from B above is the fence.
+  it('control after navigation: a reply at B’s own epoch lands on B — the wire is live past the data swap', async () => {
+    const props = await mountPage(WORKER_A);
+    await navigateTo(props, WORKER_B);
+    await deliverLate(await refusedReply(WORKER_B, instanceIdOf(currentPage().target), 'B REFUSED TEXT'));
+    expect(currentPage().target.textContent).toContain('refused');
+    expect(field(currentPage().target, 'signature').value).toBe('B REFUSED TEXT');
+  });
+
   it('after A’s refusal is delivered and the page navigates, B seeds from B’s loader form — A’s reply leaves no residue', async () => {
     const props = await mountPage(WORKER_A);
 
     // A's refusal arrives through the same real page-store path while A is
     // live — and demonstrably lands there (the control above): the message
     // shows and the refused text becomes A's editor value.
-    await deliverLate(await refusedReply('w-a', instanceIdOf(currentPage().target), 'A REFUSED TEXT'));
+    await deliverLate(await refusedReply(WORKER_A, instanceIdOf(currentPage().target), 'A REFUSED TEXT'));
     expect(currentPage().target.textContent).toContain('refused');
     expect(field(currentPage().target, 'signature').value).toBe('A REFUSED TEXT');
 
     // The navigation to B replaces the page state — the form is cleared
     // BEFORE B's keyed remount reads it (setStubPage resets the store, as
     // SvelteKit clears page.form on a navigation) — so B mounts from B's own
-    // loader form alone.
+    // loader form alone. Pinned, because the leg's meaning hangs on it: if
+    // the form survived here, the leg below would be the worst-order one.
     await navigateTo(props, WORKER_B);
+    expect(get(page).form).toBeNull();
 
     const target = currentPage().target;
     expect(target.textContent).not.toContain('refused');
+    expect(field(target, 'signature').value).toBe('B-SIG');
+    expect(JSON.stringify(posted(target))).not.toContain('A REFUSED');
+    expect(posted(target)).toEqual({
+      _kind: 'updateSignature', signature: 'B-SIG', signatureBase: 'B-SIG', trailer: 'B-TRAILER', trailerBase: 'B-TRAILER',
+    });
+  });
+
+  it('with A’s refusal still sitting in page.form at B’s mount (the form NOT cleared first), B still seeds from B’s loader form', async () => {
+    const props = await mountPage(WORKER_A);
+
+    // A's refusal lands on A through the real path (the controls above).
+    await deliverLate(await refusedReply(WORKER_A, instanceIdOf(currentPage().target), 'A REFUSED TEXT'));
+    expect(currentPage().target.textContent).toContain('refused');
+
+    // The worst order for B: the page state still carries A's reply when B's
+    // keyed remount reads it. B must seed from B's own loader form anyway —
+    // the sitting reply belongs to A's editor, never to B's mount.
+    await navigateToKeepingForm(props, WORKER_B);
+
+    const target = currentPage().target;
     expect(field(target, 'signature').value).toBe('B-SIG');
     expect(JSON.stringify(posted(target))).not.toContain('A REFUSED');
     expect(posted(target)).toEqual({

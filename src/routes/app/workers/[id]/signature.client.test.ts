@@ -15,7 +15,7 @@ import Page from './+page.svelte';
 
 const SIG = '— [{{worker.name}}, {{worker.role}}]({{worker.url}}) · {{session.llmModel}}';
 
-/** The default worker's id, so the mount stamp and the reply stamp can never drift apart. */
+/** The factory default id below. Reply stamps derive from the mounted worker itself (portal#1443), so the two can no longer drift. */
 const DEFAULT_WORKER_ID = 'w-a';
 
 function worker(over: Record<string, unknown>) {
@@ -62,12 +62,14 @@ async function mount(w: ReturnType<typeof worker>, form: unknown = undefined) {
   return m.target;
 }
 
-/** An action result as SvelteKit hands it to the page: the posted form, by its _kind. */
-async function actionResult(signature: string, message: { type: 'success' | 'error'; text: string }) {
+/** An action result as SvelteKit hands it to the page: the posted form, by its _kind,
+ *  stamped for the SAME worker the caller mounts — derived, never a coincidental
+ *  constant (portal#1443), so a non-default worker cannot get a default-stamped reply. */
+async function actionResult(w: ReturnType<typeof worker>, signature: string, message: { type: 'success' | 'error'; text: string }) {
   const f = await superValidate(
     { _kind: 'updateSignature', signature, trailer: '', signatureBase: 'whatever', trailerBase: '' },
     zod4(updateSignatureSchema),
-    { errors: false, id: updateSignatureFormId(DEFAULT_WORKER_ID) },
+    { errors: false, id: updateSignatureFormId(w.id) },
   );
   return { form: { ...f, message } };
 }
@@ -152,14 +154,16 @@ describe('worker page: Signature and trailer (#1142 P4)', () => {
   // editor over the fresher stored value on a remount (leaving and reopening
   // the tab keeps the action result); a FAILED one must, so the draft survives.
   it('a fresher stored template wins over an earlier successful save', async () => {
-    const res = await actionResult('old saved', { type: 'success', text: 'Saved.' });
-    const s = section(await mount(worker({ signature: 'new stored' }), res))!;
+    const w = worker({ signature: 'new stored' });
+    const res = await actionResult(w, 'old saved', { type: 'success', text: 'Saved.' });
+    const s = section(await mount(w, res))!;
     expect(s.querySelector<HTMLTextAreaElement>('textarea[name="signature"]')!.value).toBe('new stored');
   });
 
   it('a refused save keeps the reader’s draft', async () => {
-    const res = await actionResult('my draft', { type: 'error', text: "You can't change this worker's signature or trailer." });
-    const s = section(await mount(worker({ signature: 'stored' }), res))!;
+    const w = worker({ signature: 'stored' });
+    const res = await actionResult(w, 'my draft', { type: 'error', text: "You can't change this worker's signature or trailer." });
+    const s = section(await mount(w, res))!;
     expect(s.querySelector<HTMLTextAreaElement>('textarea[name="signature"]')!.value).toBe('my draft');
   });
 });
