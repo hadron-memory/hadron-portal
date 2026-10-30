@@ -7,7 +7,7 @@ Refs #1381. Diagnostic only: no production TreeView, route, access or navigation
 From the portal checkout, with dependencies and the existing Playwright Chromium installed:
 
 ```sh
-DISPLAY=:99 node scripts/diagnostics/tree-entry/run.mjs /tmp/tree-entry-diagnostic
+DISPLAY=:99 node scripts/diagnostics/tree-entry/run.mjs /home/orca/scratch/greta/tree-entry-diagnostic
 ```
 
 Use an available display (this run used Xvfb). The runner builds a production/minified standalone fixture around the **real TreeView** and serves only that fixture on a loopback ephemeral port. It launches headed Chromium in a clean browser process with extensions disabled, then uses a fresh context/page for every run. It closes the browser/contexts and server in `finally`. Output stays outside the checkout. No login, API, server database, real memory or credential is used.
@@ -16,7 +16,7 @@ The fixture preloads entries before the timed click. The initial view is a place
 
 ## Source and dataset
 
-Production source: fresh main `184bd51474160d9ec3f45fc6681985f9635fc60a`, which already contains Gino's #1423 diagnostic. The source hash map in [results.json](results.json) pins TreeView, graph-utils, runner, harness and generator as actually measured, including the then-uncommitted diagnostic files. The measured diagnostic source bytes are also preserved in commit `295f8143` (the hash map matches that commit). A subsequent commit trims one extra EOF blank line in the extracted generator; its algorithm and compiled behavior are unchanged. Production source is unchanged.
+Production source: fresh main `184bd51474160d9ec3f45fc6681985f9635fc60a`, which already contains Gino's #1423 diagnostic. The source hash map in [results.json](results.json) pins TreeView, graph-utils, runner, harness and generator as actually measured, including the then-uncommitted diagnostic files. The measured diagnostic source bytes are also preserved in commit `295f8143` (the hash map matches that commit). Subsequent edits trim one extra EOF blank line in the extracted generator and require an explicit scratch output path instead of a default under /tmp; the generator algorithm and measured browser behavior are unchanged. Production source is unchanged.
 
 The seeded case reuses **exactly the same synthMemory, DEFAULT_SHAPE and seed=1380** as #1423. The pure generator was extracted unchanged into `scripts/fixtures/synthetic-memory.ts`; #1423's test imports/re-exports it, preserving its API. There are 32,920 real nodes; buildTreeEntries runs before timing and synthesizes virtual parents, yielding **60,194 entries and 27,092 initially rendered rows**. The generator also creates its original edges/usage to preserve seed consumption, but these are not passed to TreeView or kept as full layout projections. This is the same data seed/count, **not a calibrated match to production tree topology**.
 
@@ -56,7 +56,7 @@ Heap is CDP Runtime.getHeapUsage.usedSize (JS heap), not total process memory. F
 
 ## Evidence and interpretation
 
-[results.json](results.json) contains all 20 measured runs and medians/worsts. [trace-slices.json](trace-slices.json) preserves start/end user marks, overlapping renderer-main top-level task events and SHA-256 for all 20 raw traces. Two complete synthetic raw traces are preserved compressed: [seeded run 1](trace-seeded-1.json.gz), [large run 1](trace-large-1.json.gz). Gunzip to open in Chrome DevTools Performance. Other full raw traces remain at `/tmp/greta-1381-diagnostic-evidence`; the runner reproduces them. No production trace or real data is included.
+[results.json](results.json) contains all 20 measured runs and medians/worsts. [trace-slices.json](trace-slices.json) preserves start/end user marks, overlapping renderer-main top-level task events and SHA-256 for all 20 raw traces. Two complete synthetic raw traces are preserved compressed: [seeded run 1](trace-seeded-1.json.gz), [large run 1](trace-large-1.json.gz). Gunzip to open in Chrome DevTools Performance. Other full raw traces remain at `/home/orca/scratch/greta/1381-artifacts/greta-1381-diagnostic-evidence`; the runner reproduces them. No production trace or real data is included.
 
 The effect is reproduced without installed extensions: rendering thousands of rows is expensive even after data is cached. The same-count compact control is much smaller but still pays substantial data processing/proxy/tree costs; **virtualizing DOM alone is not proven to meet the target**. Topology and visible expanded count must accompany “node count” in future comparisons. The seeded case deliberately exposes more rows than Holger's report, so its timing is not a reproduction of his exact route/topology.
 

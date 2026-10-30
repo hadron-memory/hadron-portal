@@ -15,7 +15,8 @@ import { chromium } from 'playwright';
 
 const root = process.cwd();
 const fixture = path.dirname(fileURLToPath(import.meta.url));
-const output = path.resolve(process.argv[2] ?? '/tmp/greta-1381-tree-diagnostic');
+assert.ok(process.argv[2] && path.isAbsolute(process.argv[2]), 'Pass an absolute scratch output directory outside the checkout');
+const output = path.resolve(process.argv[2]);
 assert.ok(!output.startsWith(root + path.sep), 'Keep traces and build output outside the checkout');
 assert.notEqual(output, root);
 assert.notEqual(output, path.parse(output).root);
