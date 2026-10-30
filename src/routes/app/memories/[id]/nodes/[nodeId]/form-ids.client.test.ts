@@ -45,14 +45,16 @@ const PARENT = {
   user: { id: 'u1' },
 };
 
+let warnSpy: { mockRestore: () => void } | undefined;
 beforeEach(() => {
   mockRequest.mockReset();
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   setStubPage('http://localhost/app/memories/mem-A/nodes/leaf-pk', { id: 'mem-A', nodeId: 'leaf-pk' });
 });
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
+  warnSpy?.mockRestore();
 });
 
 function serveNode(node: typeof NODE | null) {

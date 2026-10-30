@@ -3,7 +3,7 @@
  * own. Add member and Ensure member were both `{ _kind, userId, role }`, so they
  * hashed to one id and shared one client store.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_QUERY, APP_MEMBERS_QUERY, SELF_CAN_MANAGE_QUERY } from '$lib/server/queries';
 import { expectDistinctFormIds, formIdsOf } from '$lib/test/expectDistinctFormIds';
 
@@ -18,10 +18,19 @@ const APP = {
   identifyUserMethod: 'USER_ID', sessionTimeoutSeconds: 3600, anonymousTtlDays: 14, agentId: null, agent: null,
 };
 
+// Restored per test: the config sets no restoreMocks, so an unrestored spy
+// would swallow console output for every later test in the worker.
+const consoleSpies: Array<{ mockRestore: () => void }> = [];
+afterEach(() => {
+  while (consoleSpies.length) consoleSpies.pop()!.mockRestore();
+});
+
 beforeEach(() => {
   mockRequest.mockReset();
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
-  vi.spyOn(console, 'error').mockImplementation(() => {});
+  consoleSpies.push(
+    vi.spyOn(console, 'warn').mockImplementation(() => {}),
+    vi.spyOn(console, 'error').mockImplementation(() => {}),
+  );
   // The App is the one read the forms hang off; every other read is empty, which
   // the loader treats as "none".
   mockRequest.mockImplementation(async (query: string) => {

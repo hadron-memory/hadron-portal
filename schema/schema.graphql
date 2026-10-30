@@ -1,4 +1,4 @@
-# Exported from hadron-server 8889e61c1b855df1394ee217ec29426876cfbba5 (8889e61c1b855df1394ee217ec29426876cfbba5, 2026-10-29T19:00:16-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 43adbe503ba823e8fa7d4065decfcaace4791fe0 (43adbe503ba823e8fa7d4065decfcaace4791fe0, 2026-10-30T01:13:47-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -905,6 +905,11 @@ type AgentTickerTemplate {
 
   """The shape of this record. Only 1 exists."""
   shapeVersion: Int!
+
+  """
+  The code future generated tickers receive, derived from this template's current name (hrn:node:hadronmemory.com:specs:cor:agt:110:01).
+  """
+  tickCode: String!
   updatedAt: DateTime
 }
 
@@ -4248,6 +4253,11 @@ type DueWake {
   """
   proof: String!
   reasons: [WakeReason!]!
+
+  """
+  One server-written tick line, null without a tick (hrn:node:hadronmemory.com:specs:cor:agt:080:26). Names are flattened; repeated task URNs appear once.
+  """
+  tickText: String
   unread: Int!
   unreadMentions: Int!
   worker: Worker!
@@ -4980,6 +4990,11 @@ the URN may name a not-yet-existing node (import creates it). Source:
 exactly one of 'url' | 'content'.
 """
 input ImportNodeInput {
+  """
+  The Agent the task run is served as (PK or URN), installed in the App. Omit to use the App's single installed Agent; an App with several refuses with RUN_AGENT_REQUIRED before anything is written (#2735). Only meaningful with taskRef.
+  """
+  agentRef: ID
+
   """
   App to run the task under — PK or URN. Falls back to the caller's active App. Only meaningful with taskRef.
   """
@@ -6730,7 +6745,8 @@ type Mutation {
   closed list per release (task.create.no-source, task.assign.assignee-unavailable,
   task.assign.assignee-busy, task.assign.assignee-paused,
   task.finish.open-children, and from #2607 task.cancel.open-children on
-  cancelAgentTask and alarm.ack.outside-chain on acknowledgeAlarm); a client must tolerate unknown codes. `text` is
+  cancelAgentTask, alarm.ack.outside-chain on acknowledgeAlarm, and #2733 ticker.code.unmapped on createTicker);
+  a client must tolerate unknown codes. `text` is
   fixed per code. `register` appears only for a caller that has an Agent:
   { state: mapped (taskLoc, taskUrn) | unmapped | unresolved }. A warning never
   blocks and never reveals another worker's state to a caller who could not
@@ -6878,16 +6894,16 @@ type Mutation {
   createAppKey(appRef: ID!, label: String): AppKeyCreated!
 
   """
-  Create a NEW free-standing app-class memory in an org-owned App with at
+  Create a NEW free-standing app-class memory in an App with at
   least one installed Agent. The caller must act as themselves, outside a
   worker/session, App-key, headless-run or impersonation principal, through
-  the existing org ADMIN/OWNER gate. User-owned Apps are refused with
-  USER_OWNED_APP_UNSUPPORTED until ruled. App participants read and write it;
+  the existing org ADMIN/OWNER gate, or as the actual owner of a user-owned
+  App. App participants read and write it;
   the installed Agent's owning org gains no access. Existing memories cannot
   be attached through this operation. Name determines the slug as createMemory
-  does. Refusals: FORBIDDEN, AGENT_NOT_INSTALLED, USER_OWNED_APP_UNSUPPORTED,
-  BAD_USER_INPUT (empty name). Installation and membership are checked in the
-  inserting transaction, fenced against uninstall and revocation.
+  does. Refusals: FORBIDDEN, AGENT_NOT_INSTALLED,
+  BAD_USER_INPUT (empty name). Installation and tenant ownership/membership are checked in the
+  inserting transaction, fenced against transfer, uninstall and revocation.
   See hrn:node:hadronmemory.com:specs:cor:acl:010:01.
   """
   createAppMemory(appRef: ID!, description: String, name: String!, shortDescription: String, tags: [String!]): Memory!
@@ -8816,7 +8832,7 @@ type Mutation {
   the caller. Without appRef, behavior is unchanged.
   Spec cor:api:060.
   """
-  runTask(appRef: ID, args: JSON, nodeRef: String!, runAsSelf: Boolean): String!
+  runTask(agentRef: ID, appRef: ID, args: JSON, nodeRef: String!, runAsSelf: Boolean): String!
 
   """
   Persist a caller-produced chat summary.
@@ -11723,6 +11739,12 @@ type Query {
     limit: Int
     mentionsRef: ID
     offset: Int
+
+    """
+    Direct replies only; target excluded. Unknown/deleted target: TEAM_CHAT_REPLY_NOT_FOUND.
+    AND-composes with all filters; a partial window never advances the read mark.
+    """
+    replyToSeq: Int
     sinceSeq: Int
 
     """Stable authorized head ID; mutually exclusive with untagged."""
@@ -13036,6 +13058,12 @@ type Query {
     limit: Int
     mentionsRef: ID
     offset: Int
+
+    """
+    Direct replies only; target excluded. Unknown/deleted target: TEAM_CHAT_REPLY_NOT_FOUND.
+    AND-composes with all filters; a partial window never advances the read mark.
+    """
+    replyToSeq: Int
     sinceSeq: Int
 
     """Stable authorized head ID; mutually exclusive with untagged."""
@@ -13191,7 +13219,10 @@ type Query {
 
   """
   Usage events (most recent first), optionally filtered by type, memoryId,
-  or nodeId.
+  nodeId, or time. since is inclusive and until is exclusive: since <= createdAt < until.
+  Bounds must be ISO date-times with Z or an explicit offset.
+  Either bound may be omitted; invalid bounds or since >= until are BAD_USER_INPUT.
+  Windowing does not change scope (hrn:node:hadronmemory.com:specs:cor:acl:090:01).
   
   Access control (#250): results are always scoped to memories the caller
   may read (org membership / subscriptions / public / owned personal+private
@@ -13223,13 +13254,17 @@ type Query {
   nodeUsage(loc:) above — same match, same gate (PR-986 review, Codex P2).
   Mutually exclusive with nodeId (BAD_USER_INPUT when both are passed).
   """
-  usageEvents(limit: Int, loc: String, memoryId: ID, nodeId: ID, offset: Int, type: String): [UsageEvent!]!
+  usageEvents(limit: Int, loc: String, memoryId: ID, nodeId: ID, offset: Int, since: DateTime, type: String, until: DateTime): [UsageEvent!]!
 
   """
   #2212 - `usageEvents` as a page: the same READER gate, the same loc/nodeId rules and the same readable-memory
-  scope, ordered newest first with an id tiebreak, with the real total. Sizes as `tickersPage`.
+  scope, ordered newest first with an id tiebreak, with the windowed total.
+  since is inclusive and until is exclusive: since <= createdAt < until.
+  Bounds must be ISO date-times with Z or an explicit offset.
+  Either bound may be omitted; invalid bounds or since >= until are BAD_USER_INPUT.
+  hrn:node:hadronmemory.com:specs:cor:acl:090:01; paging: hrn:node:hadronmemory.com:specs:cor:api:120:04. Sizes as `tickersPage`.
   """
-  usageEventsPage(limit: Int, loc: String, memoryId: ID, nodeId: ID, offset: Int, type: String): UsageEventPage!
+  usageEventsPage(limit: Int, loc: String, memoryId: ID, nodeId: ID, offset: Int, since: DateTime, type: String, until: DateTime): UsageEventPage!
 
   """
   The uniform single-user read (#473). 'ref' accepts a primary key or a
@@ -16276,6 +16311,37 @@ type TeamWorkItemsPage {
   total: Int!
 }
 
+type TickAction {
+  """Permanent tick code (hrn:node:hadronmemory.com:specs:cor:agt:110:01)."""
+  code: String!
+  state: TickActionState!
+
+  """The readable entry's loc, including when no usable task was found."""
+  taskLoc: String
+
+  """The readable runnable task nearest in the woken worker's Agent chain."""
+  taskUrn: String
+}
+
+"""
+What the register says this tick asks of the woken worker, as far as the reader may read (hrn:node:hadronmemory.com:specs:cor:agt:110:03).
+"""
+enum TickActionState {
+  """A readable entry and runnable task."""
+  MAPPED
+
+  """
+  No mapping in the fully readable Team Agent chain, or no single Team Agent.
+  """
+  UNMAPPED
+
+  """The readable entry's loc has no usable task in the worker's chain."""
+  UNRESOLVED
+
+  """Code-only guidance: resolve the task yourself. Includes failed reads."""
+  WITHHELD
+}
+
 """
 #1747 — a named wake schedule owned by one team App (hrn:node:hadronmemory.com:specs:cor:agt:080:01). Its URN is hrn:ticker:ROOT:APP-SLUG:SLUG,
 computed from the App and the permanent slug. Ticks are computed, not stored; nothing reads a ticker until due wakes ship.
@@ -16312,6 +16378,11 @@ type Ticker {
   #2068 — why the ticker fires. Never empty; existing tickers are READ_TEAM_CHANNEL.
   """
   reasons: [TickerReason!]!
+
+  """
+  The readable Team Agent register entry's loc, without resolving any worker's task; null on absence, refusal or read failure (hrn:node:hadronmemory.com:specs:cor:agt:080:01).
+  """
+  registerTaskLoc: String
   relevance: TickerRelevance!
 
   """Permanent: a re-created name gets a new slug (engineering-2)."""
@@ -16319,6 +16390,11 @@ type Ticker {
 
   """Live subscriptions."""
   subscribers(after: String, first: Int): TickerSubscriptionPage!
+
+  """
+  Permanent stored action-register code; generated copies retain their template's code at generation (hrn:node:hadronmemory.com:specs:cor:agt:110:01).
+  """
+  tickCode: String!
   updatedAt: DateTime
 
   """The canonical URN. Null when it cannot be composed."""
@@ -16428,6 +16504,10 @@ type TickerSubscriptionPage {
 }
 
 input TriggerAppRunInput {
+  """
+  The Agent the run is served as (PK or URN), installed in the App. Omit to use the App's single installed Agent; an App with several refuses with RUN_AGENT_REQUIRED (#2735).
+  """
+  agentRef: ID
   aiConfigName: String
 
   """App — ref: PK or fully-qualified URN."""
@@ -16933,6 +17013,10 @@ enum WakeKind {
 }
 
 type WakeReason {
+  """
+  The tick's role-task guidance, gated for the reader on every read; null for other reasons (hrn:node:hadronmemory.com:specs:cor:agt:080:23).
+  """
+  action: TickAction
   kind: WakeKind!
 
   """#2022 — set for kind STOP."""
@@ -16940,6 +17024,16 @@ type WakeReason {
 
   """Set for kind TASK."""
   task: DueTaskReason
+
+  """
+  #2790 (hrn:node:hadronmemory.com:specs:cor:agt:080:23) — set for kind TICK only, null for MENTION, TASK and STOP: the
+  time of THIS ticker's oldest tick the worker has not acknowledged, up to the tick that fired. It is per reason, so a
+  wake with an old mention and a fresh tick, or ticks of two tickers, shows each tick's own time; `anchorAt` stays the
+  earliest over all reasons (hrn:node:hadronmemory.com:specs:cor:agt:080:27) and is at or before every one of these.
+  Computed at read time from the worker's acknowledged tick, never stored: a tick that joins an outstanding wake
+  (hrn:node:hadronmemory.com:specs:cor:agt:080:12) leaves it at the oldest unacknowledged tick, not the joining one.
+  """
+  tickDueAt: DateTime
   ticker: Ticker
 }
 

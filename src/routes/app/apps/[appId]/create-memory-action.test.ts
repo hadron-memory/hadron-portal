@@ -26,8 +26,10 @@ it.each([{...valid,name:'  '},{...valid,_kind:'deleteApp'}])('rejects invalid fi
 });
 it.each([
   ['FORBIDDEN',403,'organization'],['UNAUTHENTICATED',401,'Sign in'],
-  ['AGENT_NOT_INSTALLED',409,'Install'],['USER_OWNED_APP_UNSUPPORTED',400,'organization'],
+  ['AGENT_NOT_INSTALLED',409,'Install'],
   ['INTERNAL_SERVER_ERROR',500,'try again'],['FUTURE_CODE',500,'try again'],
+  // #1451: an older server's refusal no longer has its own copy.
+  ['USER_OWNED_APP_UNSUPPORTED',500,'try again'],
 ])('maps %s to fixed copy without reflecting server diagnostics', async (code,status,copy) => {
   request.mockRejectedValue({response:{errors:[{message:'secret SQL /private/path',extensions:{code}}]}});
   const result = await submit(valid) as any;

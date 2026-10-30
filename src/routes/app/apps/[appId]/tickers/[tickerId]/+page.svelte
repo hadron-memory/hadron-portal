@@ -25,6 +25,7 @@
   const tk = $derived(data.ticker);
   const quiet = $derived(parseQuietHours(tk.quietHours));
   const subscribers = $derived(data.subscribers);
+  const task = $derived(data.tickerTask);
 
   interface Row {
     sub: TickerSubscriber;
@@ -162,6 +163,32 @@
           : t('app.ticker.relevance.all', 'All unread: makes a subscriber due when it has unread messages in these channels.')}
       </dd>
     </div>
+    <!-- portal#1384: the loc and code are shown as the server returned them. A loc is not a URN: no
+         chip, no link, nothing resolved. A null loc is "no entry" or "an entry you can't read", and
+         the copy claims no more. 'not-participant' and a null ticker say nothing about the mapping,
+         so they render no entry at all. -->
+    {#if task.kind === 'failed' || (task.kind === 'ok' && task.value)}
+      <div class="min-w-0 sm:col-span-2" data-testid="ticker-task">
+        <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('app.ticker.task', 'Task')}</dt>
+        <dd class="min-w-0 text-zinc-900 dark:text-white">
+          {#if task.kind === 'failed'}
+            <span role="alert" class="text-red-800 dark:text-red-300">
+              {t('app.ticker.task.failed', 'Couldn’t load this ticker’s task.')}
+              <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
+            </span>
+          {:else if task.value?.registerTaskLoc}
+            <code class="break-all font-mono text-xs select-all">{task.value.registerTaskLoc}</code>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.each-worker', 'Each worker runs the task at this location in its own role, or the shared one.')}</p>
+          {:else}
+            {t('app.ticker.task.none', 'No task you can see is mapped to this ticker.')}
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.fix', 'To hand its workers a task, map this code in the team Agent’s system memory.')}</p>
+          {/if}
+          {#if tk.tickCode}
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.code', 'Code:')} <code class="break-all font-mono select-all">{tk.tickCode}</code></p>
+          {/if}
+        </dd>
+      </div>
+    {/if}
     <div class="min-w-0">
       <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('app.ticker.owner', 'Owner')}</dt>
       <dd class="min-w-0 text-zinc-900 dark:text-white">

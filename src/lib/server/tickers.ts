@@ -3,9 +3,10 @@ import { extractGqlErrorCode } from '$lib/server/gqlError';
 import type {
   AppTickerSettings,
   SubscriberPage,
-  Ticker,
+  TickerDetail,
   TickerListRow,
   TickerRead,
+  TickerTask,
   WorkerWakeSettings,
 } from '$lib/tickers/types';
 
@@ -59,7 +60,20 @@ export const TICKER_QUERY = /* GraphQL */ `
   query Ticker($ref: String!) {
     ticker(ref: $ref) {
       ...TickerFields
+      tickCode
       app { id }
+    }
+  }
+`;
+
+// portal#1384 — its OWN request, never a field on TICKER_QUERY: registerTaskLoc runs a lookup on
+// the server, and a field error inside TICKER_QUERY would turn the whole page into an error. Alone,
+// a failure blanks only the Task entry.
+export const TICKER_TASK_QUERY = /* GraphQL */ `
+  query TickerTask($ref: String!) {
+    ticker(ref: $ref) {
+      id
+      registerTaskLoc
     }
   }
 `;
@@ -143,12 +157,24 @@ export async function loadAppTickerSettings(client: GraphQLClient, appRef: strin
  * ticker's `app` is null under the same rule when the reader can't read the
  * App directly (#1209) — callers treat that as not-found, never dereference it.
  */
-export async function loadTicker(
-  client: GraphQLClient,
-  ref: string,
-): Promise<(Ticker & { app: { id: string } | null }) | null> {
-  const r = await client.request<{ ticker: (Ticker & { app: { id: string } | null }) | null }>(TICKER_QUERY, { ref });
+export async function loadTicker(client: GraphQLClient, ref: string): Promise<TickerDetail | null> {
+  const r = await client.request<{ ticker: TickerDetail | null }>(TICKER_QUERY, { ref });
   return r.ticker;
+}
+
+/**
+ * portal#1384 — the loc the team maps this ticker's code to. `ok` with a null value means the
+ * ticker itself came back null (gone or concealed since the facts were read): that is NOT an
+ * answer about the mapping, so the page renders nothing. `ok` with `registerTaskLoc: null` is the
+ * server's "no entry you can read". A thrown error is `failed`, never null.
+ */
+export async function loadTickerTask(client: GraphQLClient, ref: string): Promise<TickerRead<TickerTask | null>> {
+  try {
+    const r = await client.request<{ ticker: TickerTask | null }>(TICKER_TASK_QUERY, { ref });
+    return { kind: 'ok', value: r.ticker ? { registerTaskLoc: r.ticker.registerTaskLoc } : null };
+  } catch (e) {
+    return classify(e, `task read for ${ref}`, APP_CONCEALED);
+  }
 }
 
 export async function loadSubscribers(

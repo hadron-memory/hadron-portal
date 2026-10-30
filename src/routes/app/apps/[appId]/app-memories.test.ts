@@ -1,4 +1,4 @@
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/server/api', () => ({ gqlClient: vi.fn() }));
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 import { canCreateAppMemory, readAppMemories } from './app-memories';
@@ -28,4 +28,22 @@ it('bounds an optional list outage instead of hanging the App page',async()=>{
  try { const pending=readAppMemories({request:vi.fn(()=>new Promise(()=>{}))} as never,'o','a');
  await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);expect(await pending).toBeNull();
  }finally{vi.useRealTimers();}
+});
+
+// #1451: a user-owned App has no org, so the offer follows the viewer's manage
+// right on the App (the owner, per effectiveAccess). The server stays the gate.
+describe('create offer for an App with no organization', () => {
+  it('is shown to the viewer who can manage the App', () => {
+    expect(canCreateAppMemory(null, 'me', { userOwned: true, canManageApp: true })).toBe(true);
+  });
+  it.each([false, null])('is hidden when manage is %s (not the owner, or unknown)', canManageApp => {
+    expect(canCreateAppMemory(null, 'me', { userOwned: true, canManageApp })).toBe(false);
+  });
+  it('is hidden when signed out', () => {
+    expect(canCreateAppMemory(null, null, { userOwned: true, canManageApp: true })).toBe(false);
+  });
+  it('does not widen an org-owned App: manage alone never offers it', () => {
+    expect(canCreateAppMemory({ members: [{ role: 'READER', user: { id: 'me' } }] }, 'me', { userOwned: false, canManageApp: true })).toBe(false);
+    expect(canCreateAppMemory({ members: [{ role: 'ADMIN', user: { id: 'me' } }] }, 'me', { userOwned: false, canManageApp: false })).toBe(true);
+  });
 });

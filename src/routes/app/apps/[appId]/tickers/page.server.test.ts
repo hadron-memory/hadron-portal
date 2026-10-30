@@ -6,7 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
 import { APP_DELIVERY_SETTINGS_QUERY, SET_APP_DELIVERY_SETTINGS_MUTATION } from '$lib/server/delivery-settings';
-import { APP_TICKER_SETTINGS_QUERY, APP_TICKERS_QUERY, TICKER_QUERY, TICKER_SUBSCRIBERS_QUERY } from '$lib/server/tickers';
+import { APP_TICKER_SETTINGS_QUERY, APP_TICKERS_QUERY, TICKER_QUERY, TICKER_SUBSCRIBERS_QUERY, TICKER_TASK_QUERY } from '$lib/server/tickers';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -251,5 +251,65 @@ describe('portal#1141 A — the delivery action', () => {
     const r = (await run({ ...was, ...same, busyDelaySeconds: '5' }, { sessionId: 's', actorUserId: 'a', orgId: 'o', expiresAt: 0 })) as { status: number };
     expect(r.status).toBe(403);
     expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe('portal#1384 — the ticker page’s task read', () => {
+  const reads = (task: (q: string) => unknown) => async (q: string) => {
+    if (q === AGENT_TASKS_APP_QUERY) return { app };
+    if (q === TICKER_QUERY) return { ticker };
+    if (q === TICKER_TASK_QUERY) return task(q);
+    if (q === TICKER_SUBSCRIBERS_QUERY) return { ticker: { subscribers: { items: [], hasNextPage: false, endCursor: null } } };
+    return { appTickerSettings: settings };
+  };
+
+  it('reads the task on its own, for this ticker, after the App-first 404 and the canonical redirect', async () => {
+    request.mockImplementation(reads(() => ({ ticker: { id: 'tk-1', registerTaskLoc: 'tasks:on-base-tick' } })));
+    const r = await loadDetail();
+    expect(r.tickerTask).toEqual({ kind: 'ok', value: { registerTaskLoc: 'tasks:on-base-tick' } });
+    expect(request).toHaveBeenCalledWith(TICKER_TASK_QUERY, { ref: 'tk-1' });
+    request.mockReset();
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { ticker: { ...ticker, app: { id: 'app-2' } } }));
+    await expect(loadDetail()).rejects.toMatchObject({ status: 307 });
+    expect(request.mock.calls.some((c) => c[0] === TICKER_TASK_QUERY)).toBe(false);
+  });
+
+  it('a null register field is an ok read with a null loc', async () => {
+    request.mockImplementation(reads(() => ({ ticker: { id: 'tk-1', registerTaskLoc: null } })));
+    expect((await loadDetail()).tickerTask).toEqual({ kind: 'ok', value: { registerTaskLoc: null } });
+  });
+
+  it('a failed task read leaves the facts, the subscribers and the settings intact', async () => {
+    request.mockImplementation(reads(() => { throw gqlError('INTERNAL_SERVER_ERROR', 'boom: secret server prose'); }));
+    const r = await loadDetail();
+    expect(r.tickerTask).toEqual({ kind: 'failed' });
+    expect(r.ticker).toMatchObject({ id: 'tk-1' });
+    expect(r.subscribers).toEqual({ kind: 'ok', value: { items: [], hasNextPage: false, endCursor: null } });
+    expect(r.settings).toEqual({ kind: 'ok', value: settings });
+  });
+
+  it('a network failure is a failure, never a null loc', async () => {
+    request.mockImplementation(reads(() => { throw new Error('ECONNREFUSED'); }));
+    expect((await loadDetail()).tickerTask).toEqual({ kind: 'failed' });
+  });
+
+  it('APP_NOT_FOUND is not-participant; any other code, FORBIDDEN included, is a failure', async () => {
+    request.mockImplementation(reads(() => { throw gqlError('APP_NOT_FOUND'); }));
+    expect((await loadDetail()).tickerTask).toEqual({ kind: 'not-participant' });
+    request.mockImplementation(reads(() => { throw gqlError('FORBIDDEN'); }));
+    expect((await loadDetail()).tickerTask).toEqual({ kind: 'failed' });
+  });
+
+  it('the ticker gone between the two reads (null outer) is an ok read of null, not an authoritative “no mapping”', async () => {
+    request.mockImplementation(reads(() => ({ ticker: null })));
+    expect((await loadDetail()).tickerTask).toEqual({ kind: 'ok', value: null });
+  });
+
+  it('the list still issues no task read', async () => {
+    request.mockImplementation(async (q: string) =>
+      q === AGENT_TASKS_APP_QUERY ? { app } : q === APP_TICKERS_QUERY ? { tickers: [] } : q === APP_DELIVERY_SETTINGS_QUERY ? { appDeliverySettings: delivery } : { appTickerSettings: settings },
+    );
+    await loadList();
+    expect(request.mock.calls.some((c) => c[0] === TICKER_TASK_QUERY)).toBe(false);
   });
 });

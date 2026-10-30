@@ -907,7 +907,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   return {
     appMemories,
     createMemoryForm,
-    canCreateMemory: canCreateAppMemory(org, locals.user?.id ?? null),
+    canCreateMemory: canCreateAppMemory(org, locals.user?.id ?? null, { userOwned: !app.organizationId, canManageApp: canManageApp as boolean | null }),
     app,
     org,
     availableAgents,

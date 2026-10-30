@@ -23,11 +23,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, tick } from 'svelte';
 import { get } from 'svelte/store';
+import { superValidate, type SuperValidated } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage, page } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { updateSignatureFormId, updateSignatureSchema, type UpdateSignatureForm } from './schema';
 import Page from './+page.svelte';
+import Section from './WorkerSignatureSection.svelte';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -74,13 +78,16 @@ async function loadWorker(id: string, signature: string) {
  * so the reply is minted for that epoch. Omitted, the reply carries the bare
  * loader stamp (the no-JS POST shape).
  */
-async function actionReply(id: string, draft: string, outcome: 'refuse' | 'ok', formId?: string) {
+async function actionReply(
+  id: string, draft: string, outcome: 'refuse' | 'ok', formId?: string,
+  base = 'base', trailer = '', trailerBase = '',
+) {
   const fd = new FormData();
   fd.set('_kind', 'updateSignature');
   fd.set('signature', draft);
-  fd.set('signatureBase', outcome === 'refuse' ? 'base' : 'base');
-  fd.set('trailer', '');
-  fd.set('trailerBase', '');
+  fd.set('signatureBase', base);
+  fd.set('trailer', trailer);
+  fd.set('trailerBase', trailerBase);
   if (formId) fd.set('__superform_id', formId);
   if (outcome === 'refuse') mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'Forbidden'));
   else mockRequest.mockResolvedValueOnce({ updateWorker: { id } });
@@ -137,6 +144,7 @@ function navigateTo(data: Record<string, unknown>) {
 
 const sectionEl = (t: HTMLElement) => t.querySelector<HTMLElement>('[data-testid="worker-signature"]')!;
 const sigField = (t: HTMLElement) => sectionEl(t).querySelector<HTMLTextAreaElement>('textarea[name="signature"]')!;
+const trailerField = (t: HTMLElement) => sectionEl(t).querySelector<HTMLTextAreaElement>('textarea[name="trailer"]')!;
 const sigBase = (t: HTMLElement) => sectionEl(t).querySelector<HTMLInputElement>('input[name="signatureBase"]')!;
 const saveButton = (t: HTMLElement) => sectionEl(t).querySelector<HTMLButtonElement>('button[type="submit"]')!;
 /** The id this MOUNT answers to (`<stamp>#<uuid>` in the browser), for minting replies at its own epoch. */
@@ -243,5 +251,147 @@ describe('worker signature: late-reply isolation (#1448)', () => {
     const target = await mountPage(await loadWorker('w-b', SIG_B), reply);
     expect(sigField(target).value).toBe('B’s refused draft');
     expect(sectionEl(target).textContent).toMatch(/can't change this worker's signature/i);
+  });
+
+  // Gaby's blind P2 on #1450, second half — the epoch fence is only as real
+  // as the id the REAL enhanced submit posts — is dispositioned by EVIDENCE,
+  // not a jsdom pin (a synthetic submit event does not drive kit's enhance
+  // chain to fetch in jsdom, so a harness pin cannot see the posted id):
+  // superforms 2.30.2 injects `__superform_id` from the form's id in the
+  // submit path (dist/client/superForm.js:1293-1298), kit's enhance then
+  // POSTs that FormData through the global fetch, and George's local delta
+  // node records an actual enhanced callback posting the live mount id with
+  // the real action echoing it; Cedric's private-browser run verifies the
+  // POST on a real page. The action-side half IS pinned server-side:
+  // signature.test.ts "echoes a POSTED instance id".
+});
+
+// Gaby's blind P2 on #1450, the mount-path half: an earlier mount's refusal
+// may seed a remount only while its bases still equal the loader's — a save
+// that landed since changed the stored text and the loader's bases with it.
+// (Tab round-trips are {#if} toggles, NOT navigations — +page.svelte keeps
+// tab clicks out of the URL — so page.form really does survive them; that is
+// the legitimate case these legs keep alive.)
+describe('worker signature: prior-epoch seed gate (#1450)', () => {
+  const stamp = updateSignatureFormId('w-a');
+
+  /**
+   * The loader's form for one stored signature and trailer — each base mirrors
+   * its own field (`trailerBase: worker.trailer ?? ''` in the loader), so a
+   * save that lands moves only the bases of the fields it changed. ONE object
+   * per loader run, shared by every remount while that run stands, exactly as
+   * the page passes data.signatureForm itself (a fresh object only when the
+   * loader reruns).
+   */
+  const loaderFormFor = (stored: string, trailer = '') =>
+    superValidate(
+      { signature: stored, trailer, signatureBase: stored, trailerBase: trailer },
+      zod4(updateSignatureSchema),
+      { errors: false, id: stamp },
+    ) as Promise<SuperValidated<UpdateSignatureForm>>;
+
+  /** The section's props for one remount, as the page builds them per render from the SAME loader form object. */
+  function sectionProps(
+    initialForm: SuperValidated<UpdateSignatureForm>, actionResult: unknown,
+    storedSignature: string, trailer: string | null = null,
+  ) {
+    return reactiveProps({
+      signature: storedSignature, trailer, retired: false, initialForm, actionResult,
+    });
+  }
+
+  /** The section mounted directly, as a tab round-trip remounts it. */
+  function mountSection(props: Record<string, unknown>) {
+    const m = mountComponent(Section as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    flushSync();
+    return m.target;
+  }
+
+  it('an earlier mount’s refusal still seeds while its base matches the store — through TWO tab round-trips', async () => {
+    const reply = await actionReply('w-a', 'my round-trip draft', 'refuse', `${stamp}#old-epoch`, SIG_A);
+    const props = sectionProps(await loaderFormFor(SIG_A), reply, SIG_A);
+    const first = mountSection(props);
+    expect(sigField(first).value).toBe('my round-trip draft');
+    expect(saveButton(first).disabled).toBe(false);
+    // The second round-trip is the review's explicit pin: a refusal writes
+    // nothing, so the loader's bases are unchanged and the draft must seed
+    // this remount exactly as it seeded the last. The SAME props object is
+    // reused, as the page re-delivers the same data.signatureForm.
+    mounted.pop()!.unmount();
+    const second = mountSection(props);
+    expect(sigField(second).value).toBe('my round-trip draft');
+    expect(saveButton(second).disabled).toBe(false);
+    expect(sectionEl(second).textContent).toMatch(/can't change this worker's signature/i);
+  });
+
+  it('the form the section was given is never mutated: each mount mints ONE epoch, never a compounding id', async () => {
+    // superForm assigns the live id onto the form it is GIVEN (superForm.js:
+    // `form.id = options.id ?? form.id`). Handing it the loader's own object
+    // — which a CLEAN mount does, before any reply exists — let a library
+    // mutate page data in place: the id grew a `#uuid` per remount (Cedric's
+    // QA on #1450 saw it in a real browser), and the compounded id starves
+    // the seed gate's prefix arm on the next round-trip, losing the refused
+    // draft. The first mount here is clean, exactly like the real sequence's.
+    const loaderForm = await loaderFormFor(SIG_A);
+    const props = sectionProps(loaderForm, undefined, SIG_A);
+    const first = mountSection(props);
+    expect((props.initialForm as SuperValidated<UpdateSignatureForm>).id).toBe(stamp);
+    expect(instanceIdOf(first).split('#')).toHaveLength(2);
+    // This mount's own refusal, then the tab round-trip: the draft must
+    // still seed from the loader's UNMUTATED stamp.
+    const reply = await actionReply('w-a', 'my round-trip draft', 'refuse', instanceIdOf(first), SIG_A);
+    mounted.pop()!.unmount();
+    const second = mountSection(sectionProps(loaderForm, reply, SIG_A));
+    expect(instanceIdOf(second).split('#')).toHaveLength(2);
+    expect(sigField(second).value).toBe('my round-trip draft');
+    expect(sectionEl(second).textContent).toMatch(/can't change this worker's signature/i);
+  });
+
+  it('an earlier mount’s refusal does NOT seed once a later save has overtaken its base (Gaby’s blind P2)', async () => {
+    // The loader now holds a NEWER stored signature (mount 2's save landed,
+    // invalidateAll reran the loader); the stale refusal still carries the
+    // OLD base and the OLD draft.
+    const reply = await actionReply('w-a', 'stale doomed draft', 'refuse', `${stamp}#old-epoch`, SIG_A);
+    const target = mountSection(sectionProps(await loaderFormFor('A-SIG SAVED LATER'), reply, 'A-SIG SAVED LATER'));
+    expect(sigField(target).value).toBe('A-SIG SAVED LATER');
+    expect(sigBase(target).value).toBe('A-SIG SAVED LATER');
+    expect(saveButton(target).disabled).toBe(true);
+    expect(sectionEl(target).textContent).not.toMatch(/can't change this worker's signature/i);
+  });
+
+  // Rico's §10 P3-4: the gate's trailerBase half is load-bearing on its own.
+  // A trailer-only save lands after the refusal — the stored signature (and
+  // its base) are untouched, but the stored trailer moved, and the loader's
+  // trailerBase with it. The stale refusal still carries the OLD trailer
+  // base, so the store has overtaken it and NOTHING seeds; dropping the
+  // trailerBase condition (Rico's surviving mutant) would seed the stale
+  // signature draft too, its base still matching.
+  it('an earlier mount’s refusal does not seed once a later trailer-only save moved only the trailer base (Rico’s §10 P3-4)', async () => {
+    const reply = await actionReply(
+      'w-a', 'stale doomed draft', 'refuse', `${stamp}#old-epoch`,
+      SIG_A, 'stale trailer draft', 'old trailer',
+    );
+    const target = mountSection(sectionProps(await loaderFormFor(SIG_A, 'TRL SAVED LATER'), reply, SIG_A, 'TRL SAVED LATER'));
+    expect(sigField(target).value).toBe(SIG_A);
+    expect(trailerField(target).value).toBe('TRL SAVED LATER');
+    expect(saveButton(target).disabled).toBe(true);
+    expect(sectionEl(target).textContent).not.toMatch(/can't change this worker's signature/i);
+  });
+
+  // Rico's §10 P3-5: the stamp's percent-encoding is load-bearing on its own.
+  // Worker `w-a#2`'s UNENCODED stamp would be `updateSignature:w-a#2` —
+  // literally A's stamp plus the epoch separator — so a refused reply minted
+  // by w-a#2's own mount would ride A's prefix arm into A's freshly mounted
+  // editor. The encoded ref keeps `#` out of every stamp, so the reply
+  // belongs to no mount of A and seeds nothing. The reply's bases are made
+  // EQUAL to A's loader's deliberately, so the encoding is the only guard
+  // this leg rests on.
+  it('a refusal for a worker whose ref contains # never prefix-matches another worker’s stamp (Rico’s §10 P3-5)', async () => {
+    const reply = await actionReply('w-a#2', 'B’s refused draft', 'refuse', `${updateSignatureFormId('w-a#2')}#b-epoch`, SIG_A);
+    const target = mountSection(sectionProps(await loaderFormFor(SIG_A), reply, SIG_A));
+    expect(sigField(target).value).toBe(SIG_A);
+    expect(saveButton(target).disabled).toBe(true);
+    expect(sectionEl(target).textContent).not.toMatch(/can't change this worker's signature/i);
   });
 });
