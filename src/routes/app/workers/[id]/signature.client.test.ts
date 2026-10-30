@@ -21,7 +21,7 @@ function worker(over: Record<string, unknown>) {
     urn: 'hrn:worker:hadronmemory.com:team:dara', role: 'engineer',
     prompt: null, memoryId: null, retiredAt: null,
     heldByUserId: null, heldAt: null, createdAt: '1789430400000',
-    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:x:engineer', },
+    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:x:engineer' },
     app: { id: 'app-1', name: 'Team', urn: 'hrn:app:x:team', organizationId: 'org-1' },
     reportsToWorkerId: null, reportsToRetired: false, reportsTo: null,
     signature: SIG, trailer: '',
@@ -92,13 +92,16 @@ describe('worker page: Signature and trailer (#1142 P4)', () => {
     expect(s.textContent).not.toMatch(/empty|none set/i);
   });
 
-  // portal#1366 — mixed masking, both directions (Ruth's scoped §10 carry on
+  // portal#1366 — mixed masking, both directions (the scoped §10 carry on
   // #1157 kept these as test gaps). A masked (null) field renders no editor AND
   // no hidden base input, so the browser's serialization carries the readable
-  // field and its base only — the masked field is absent outright, never
-  // default-cleared to an empty string.
+  // field and its base only — the masked field is absent outright. This pins
+  // the browser's half; the action's half (an omitted field is never read as a
+  // '' clear — posted presence decides, not the schema default) is pinned in
+  // signature.test.ts: "save sends changed fields only" and "posted presence,
+  // not defaults".
   const posted = (s: HTMLElement) =>
-    Object.fromEntries([...new FormData(s.querySelector('form')!)].map(([k, v]) => [k, String(v)]));
+    Object.fromEntries([...new FormData(s.querySelector<HTMLFormElement>('form[action*="updateSignature"]')!)].map(([k, v]) => [k, String(v)]));
 
   it('a masked signature with a readable trailer: only the trailer is submittable, the masked field absent from the serialization', async () => {
     const s = section(await mount(worker({ signature: null, trailer: 'T-KEEP' })))!;
@@ -133,7 +136,7 @@ describe('worker page: Signature and trailer (#1142 P4)', () => {
 
   it('posts to its own action, never the override action', async () => {
     const s = section(await mount(worker({})))!;
-    const form = s.querySelector('form')!;
+    const form = s.querySelector<HTMLFormElement>('form[action*="updateSignature"]')!;
     expect(form.getAttribute('action')).toContain('/updateSignature');
     expect(form.querySelector('[name="promptOverride"]')).toBeNull();
   });
