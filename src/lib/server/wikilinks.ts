@@ -5,23 +5,17 @@
  * module answers the one question the renderer can't: does the target exist,
  * and where does it live?
  *
- * Two paths, deliberately:
+ * Every target, same memory or not, is looked up through the server: batched
+ * into aliased `node(ref: <full node URN>)` requests (50 per request, in
+ * parallel), and skipped entirely when a node has no wikilinks, which is the
+ * overwhelmingly common case. Before portal#1433 a bare `[[loc]]` resolved
+ * against the node list the memory layout had paged to completion; the layout
+ * no longer ships that list, so a bare loc is looked up as this memory's node
+ * URN instead.
  *
- *  - **Same memory** (bare `[[loc]]`, or a qualified target naming this very
- *    memory) resolves against the node list the memory layout has already
- *    paged to completion. Free — no extra round-trip, and it is the same
- *    memory-scoped table the breadcrumb resolves against (#234), so a loc
- *    collision in another memory can never bleed in.
- *  - **Cross memory** needs the server. Those are batched into ONE aliased
- *    GraphQL request per page load, and skipped entirely when a node has none —
- *    which is the overwhelmingly common case. This covers both explicitly
- *    qualified targets and the v2-flat second chance a bare target gets after
- *    missing locally (see `flatV2Candidate`).
- *
- * The scoped-resolver consolidation the issue asked for lands on the server
- * side: `node(ref: <full node URN>)` is hadron-server's own strict, memory-
- * pinned dispatch (#335's AMBIGUOUS_NODE_LOC guard), so nothing here re-implements
- * loc lookup.
+ * `node(ref: <full node URN>)` is hadron-server's own strict, memory-pinned
+ * dispatch (#335's AMBIGUOUS_NODE_LOC guard), so nothing here re-implements loc
+ * lookup, and a same-loc node in another memory can never bleed in (#234).
  */
 import { ClientError } from 'graphql-request';
 import type { GraphQLClient } from 'graphql-request';
@@ -30,7 +24,6 @@ import {
   flatV2Candidate,
   type WikilinkMap,
   type WikilinkRef,
-  type WikilinkResolution,
 } from '$lib/markdown/wikilink';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 
@@ -42,15 +35,12 @@ import { composeNodeUrn } from '$lib/urn/compose-node-urn';
  * the dropped targets render as unresolved, and "unresolved" must not quietly
  * mean "we stopped looking".
  */
-const CROSS_MEMORY_LIMIT = 50;
+const CROSS_MEMORY_LIMIT = 200;
 
 type ResolvedNode = { id: string; name: string | null; memoryId: string } | null;
 
 /** Minimal client shape — keeps the unit tests free of a real GraphQLClient. */
 type Client = Pick<GraphQLClient, 'request'>;
-
-/** A node as the memory layout's `graphNodes` payload carries it. */
-type LayoutNode = { id: string; memoryId: string; loc: string; name?: string | null };
 
 /**
  * Compare two memory URNs for identity, tolerating the grammars the portal
@@ -85,32 +75,13 @@ export function nodeHref(memoryId: string, nodeId: string): string {
 }
 
 /**
- * "We couldn't check" — NOT "it's broken".
- *
- * A visible broken-link marker is a claim about the corpus, so it must only be
- * made when we actually looked and found nothing. When a lookup was prevented
- * (graph fetch down, resolution request failed), fall back to the
- * `/app/u/<urn>` resolver route, which re-resolves with access control on
- * click. Returns null only when we can't even build a URN to point at.
- */
-function unchecked(memoryUrn: string | null, loc: string): WikilinkResolution | null {
-  if (!memoryUrn) return null;
-  try {
-    return { href: `/app/u/${composeNodeUrn(memoryUrn, loc)}`, label: loc };
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Resolve every wikilink in `sources` to a link target.
  *
- * @param client   GraphQL client, used only when a cross-memory target exists.
+ * @param client   GraphQL client. Every target is looked up through it, same
+ *                 memory included (portal#1433: the memory layout no longer
+ *                 ships the node list).
  * @param sources  Markdown bodies to scan (content, abstract, …).
  * @param ctx      The containing node's memory — the scope a bare `[[loc]]` means.
- *                 `nodesFailed` mirrors the memory layout's flag: the graph
- *                 fetch errored, so `nodes` is empty for a reason that is NOT
- *                 "this memory has no nodes".
  */
 export async function resolveWikilinks(
   client: Client,
@@ -118,68 +89,88 @@ export async function resolveWikilinks(
   ctx: {
     memoryId: string;
     memoryUrn: string | null;
-    nodes: LayoutNode[];
-    nodesFailed?: boolean;
   },
 ): Promise<WikilinkMap> {
   const refs = extractWikilinks(...sources);
   if (refs.length === 0) return {};
-
-  // Same-memory lookup table. Filter on memoryId for the same reason the
-  // breadcrumb does (#234): `graphNodes` is this memory's list, and keeping the
-  // filter makes that load-bearing rather than incidental.
-  const byLoc = new Map<string, LayoutNode>();
-  for (const n of ctx.nodes) {
-    if (n.memoryId === ctx.memoryId && !byLoc.has(n.loc)) byLoc.set(n.loc, n);
-  }
 
   const ownKey = ctx.memoryUrn ? memoryKey(ctx.memoryUrn) : null;
   const isLocal = (ref: WikilinkRef) =>
     ref.memoryUrn === null || (ownKey !== null && memoryKey(ref.memoryUrn) === ownKey);
 
   const links: WikilinkMap = {};
-  // Targets needing a server lookup: explicitly cross-memory ones, plus bare
-  // ones that missed locally and could be a grammar-v2 flat URN.
-  const remote: Array<{ ref: WikilinkRef; memoryUrn: string; loc: string }> = [];
+  // One lookup per ref: the memory the ref names (this one for a bare loc),
+  // pinned by `node(ref: <full node URN>)`, which is hadron-server's own
+  // strict, memory-scoped dispatch (#335's AMBIGUOUS_NODE_LOC guard) — a loc
+  // collision in another memory can never bleed in. A bare ref that misses
+  // gets one second chance as a v2 flat URN (see `flatV2Candidate`), which
+  // keeps the bare reading's first refusal intact.
+  type Lookup = { ref: WikilinkRef; memoryUrn: string; loc: string; flat: { memoryUrn: string; loc: string } | null };
+  const primary: Lookup[] = [];
 
   for (const ref of refs) {
     if (!isLocal(ref)) {
-      remote.push({ ref, memoryUrn: ref.memoryUrn as string, loc: ref.loc });
+      primary.push({ ref, memoryUrn: ref.memoryUrn as string, loc: ref.loc, flat: null });
       continue;
     }
-    // The layout returns `graphNodes: []` BOTH for an empty memory and for a
-    // failed graph fetch, distinguishing them only via `nodesFailed`. Without
-    // that flag a transient outage would repaint every valid same-memory link
-    // as permanent corpus rot — the same mistake the cross-memory path already
-    // avoids below. PR #684 review, Codex P2.
-    if (ctx.nodesFailed) {
-      links[ref.target] = unchecked(ctx.memoryUrn, ref.loc);
+    // Without this memory's URN a same-memory target cannot be addressed.
+    if (!ctx.memoryUrn) {
+      links[ref.target] = null;
       continue;
     }
-    const hit = byLoc.get(ref.loc);
-    if (hit) {
-      links[ref.target] = { href: nodeHref(ctx.memoryId, hit.id), label: hit.name || ref.loc };
-      continue;
-    }
-    // Bare lookup missed. Before calling it broken, try reading it as a v2 flat
-    // cross-memory URN — the spelling someone gets by copying a canonical URN
-    // and dropping the `hrn:node:` prefix. The bare reading kept first refusal
-    // (we only get here because it found nothing), so the spec's scope rule is
-    // intact; this only converts a would-be broken link into a working one.
     const flat = ref.memoryUrn === null ? flatV2Candidate(ref.loc) : null;
-    if (flat) remote.push({ ref, ...flat });
-    else links[ref.target] = null;
+    primary.push({ ref, memoryUrn: ctx.memoryUrn, loc: ref.loc, flat });
   }
 
-  if (remote.length === 0) return links;
+  const first = await lookupTargets(client, primary, links);
+  // Misses that have a v2 reading: one more batch, usually empty.
+  const second: Lookup[] = [];
+  for (const [i, entry] of primary.entries()) {
+    if (first.results[i] === 'miss' && entry.flat) {
+      second.push({ ref: entry.ref, memoryUrn: entry.flat.memoryUrn, loc: entry.flat.loc, flat: null });
+    }
+  }
+  const secondResults = second.length > 0 ? (await lookupTargets(client, second, links)).results : [];
+  // A miss that is still unsettled is unresolved: the one place "broken" is claimed.
+  const secondByTarget = new Map(second.map((e, i) => [e.ref.target, secondResults[i]]));
+  for (const [i, entry] of primary.entries()) {
+    if (first.results[i] !== 'miss') continue;
+    const retry = secondByTarget.get(entry.ref.target);
+    if (retry === 'settled') continue;
+    links[entry.ref.target] = null;
+  }
+  return links;
+}
 
-  const batch = remote.slice(0, CROSS_MEMORY_LIMIT);
-  if (remote.length > batch.length) {
+/** One aliased `node(ref:)` request carries at most this many targets. */
+const TARGETS_PER_REQUEST = 50;
+
+/**
+ * Look the targets up in chunks of `TARGETS_PER_REQUEST`, in parallel, at most
+ * `CROSS_MEMORY_LIMIT` of them. Writes `links` for every target it settled, and
+ * returns each target's outcome by index: 'settled' (a hit, the overflow, an
+ * uncomposable URN or an unchecked fallback, already written) or 'miss' (looked
+ * and found nothing; the caller may try another reading).
+ */
+async function lookupTargets(
+  client: Client,
+  entries: Array<{ ref: WikilinkRef; memoryUrn: string; loc: string }>,
+  links: WikilinkMap,
+): Promise<{ results: Array<'miss' | 'settled'> }> {
+  const results: Array<'miss' | 'settled'> = entries.map(() => 'miss');
+
+  const batch = entries.slice(0, CROSS_MEMORY_LIMIT);
+  if (entries.length > batch.length) {
     console.warn(
-      `[wikilinks] ${remote.length} cross-memory targets exceeds the ${CROSS_MEMORY_LIMIT} per-page cap; ` +
-        `${remote.length - batch.length} will render as unresolved`,
+      `[wikilinks] ${entries.length} link targets exceeds the ${CROSS_MEMORY_LIMIT} per-page cap; ` +
+        `${entries.length - batch.length} will render as unresolved`,
     );
-    for (const { ref } of remote.slice(CROSS_MEMORY_LIMIT)) links[ref.target] = null;
+    for (const [i, { ref }] of entries.entries()) {
+      if (i >= CROSS_MEMORY_LIMIT) {
+        links[ref.target] = null;
+        results[i] = 'settled';
+      }
+    }
   }
 
   // A target whose memory URN is malformed can't be composed into a node URN
@@ -187,45 +178,57 @@ export async function resolveWikilinks(
   // reference — exactly what the broken-link affordance is for — so record it
   // and keep it out of the batch rather than failing the whole request.
   const urns: string[] = [];
-  const batched: typeof batch = [];
-  for (const entry of batch) {
+  const batched: Array<{ index: number; ref: WikilinkRef; loc: string }> = [];
+  for (const [index, entry] of batch.entries()) {
     try {
       urns.push(composeNodeUrn(entry.memoryUrn, entry.loc));
-      batched.push(entry);
+      batched.push({ index, ref: entry.ref, loc: entry.loc });
     } catch {
       links[entry.ref.target] = null;
+      results[index] = 'settled';
     }
   }
-  if (batched.length === 0) return links;
+  if (batched.length === 0) return { results };
 
-  const variables = Object.fromEntries(urns.map((urn, i) => [`r${i}`, urn]));
-  let data: Record<string, ResolvedNode> | undefined;
-  try {
-    data = await client.request<Record<string, ResolvedNode>>(batchQuery(batched.length), variables);
-  } catch (err) {
-    // Aliased fields are nullable, so a per-target rejection (a malformed ref
-    // the server refuses outright) nulls just that alias and still returns
-    // data — use the partial result. Only a request that produced no data at
-    // all is a genuine failure.
-    if (err instanceof ClientError && err.response?.data) {
-      data = err.response.data as Record<string, ResolvedNode>;
-    } else {
-      // Couldn't check ≠ broken — see `unchecked` above. The URNs are already
-      // composed, so inline the same fallback rather than recomposing.
-      console.warn('[wikilinks] cross-memory resolution failed:', err);
-      for (const [i, entry] of batched.entries()) {
-        links[entry.ref.target] = { href: `/app/u/${urns[i]}`, label: entry.loc };
+  const chunks: number[][] = [];
+  for (let at = 0; at < batched.length; at += TARGETS_PER_REQUEST) {
+    chunks.push(Array.from({ length: Math.min(TARGETS_PER_REQUEST, batched.length - at) }, (_, k) => at + k));
+  }
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      const variables = Object.fromEntries(chunk.map((at, i) => [`r${i}`, urns[at]]));
+      let data: Record<string, ResolvedNode> | undefined;
+      try {
+        data = await client.request<Record<string, ResolvedNode>>(batchQuery(chunk.length), variables);
+      } catch (err) {
+        // Aliased fields are nullable, so a per-target rejection (a malformed ref
+        // the server refuses outright) nulls just that alias and still returns
+        // data — use the partial result. Only a request that produced no data at
+        // all is a genuine failure.
+        if (err instanceof ClientError && err.response?.data) {
+          data = err.response.data as Record<string, ResolvedNode>;
+        } else {
+          // Couldn't check ≠ broken — falls back to the `/app/u/<urn>` resolver route, which re-resolves with
+          // access control on click. The URNs are already
+          // composed, so inline the same fallback rather than recomposing.
+          console.warn('[wikilinks] link resolution failed:', err);
+          for (const at of chunk) {
+            const entry = batched[at];
+            links[entry.ref.target] = { href: `/app/u/${urns[at]}`, label: entry.loc };
+            results[entry.index] = 'settled';
+          }
+          return;
+        }
       }
-      return links;
-    }
-  }
-
-  for (const [i, entry] of batched.entries()) {
-    const hit = data?.[`w${i}`];
-    links[entry.ref.target] = hit
-      ? { href: nodeHref(hit.memoryId, hit.id), label: hit.name || entry.loc }
-      : null;
-  }
-
-  return links;
+      for (const [i, at] of chunk.entries()) {
+        const entry = batched[at];
+        const hit = data?.[`w${i}`];
+        if (hit) {
+          links[entry.ref.target] = { href: nodeHref(hit.memoryId, hit.id), label: hit.name || entry.loc };
+          results[entry.index] = 'settled';
+        }
+      }
+    }),
+  );
+  return { results };
 }

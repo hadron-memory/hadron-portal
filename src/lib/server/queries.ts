@@ -2982,6 +2982,35 @@ export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1433: the Info tab shows a node COUNT, which used to be the length of
+// the layout's whole node list. `total` is the memory's full count regardless
+// of `limit`, so one row is enough.
+export const MEMORY_NODE_COUNT_QUERY = /* GraphQL */ `
+  query MemoryNodeCount($memoryRef: ID!) {
+    memoryNodes(memoryRef: $memoryRef, limit: 1, offset: 0) {
+      total
+    }
+  }
+`;
+
+// portal#1433: a node page's breadcrumb needs the id and name of each ANCESTOR
+// of one loc, which used to be a map lookup over the layout's whole node list.
+// One `nodeBatch` of the ancestors' node URNs (at most loc-depth refs; cap 200)
+// replaces it. `unavailable` echoes refs the viewer cannot read or that do not
+// exist; the crumb then keeps that segment's slug, as it always did. `nodeType`
+// and `tags` ride along because the chat-message page classifies its chat root,
+// which is one of these ancestors, with them.
+export const NODE_ANCESTORS_QUERY = /* GraphQL */ `
+  query NodeAncestors($refs: [ID!]) {
+    nodeBatch(refs: $refs) {
+      nodes { id loc name nodeType tags memoryId }
+      unavailable
+      omitted
+      truncated
+    }
+  }
+`;
+
 export const NODE_FIND_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodeFind(

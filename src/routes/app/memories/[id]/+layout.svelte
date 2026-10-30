@@ -1,9 +1,9 @@
 <script lang="ts">
   // #266: memory-detail is a tab layout. The layout renders the breadcrumb +
   // header + tab bar; each tab is a sub-route rendered via {@render children()}.
+  import { setContext } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
@@ -13,6 +13,7 @@
   import MintDialog from '$lib/components/memory/MintDialog.svelte';
   import { canSeeShares } from '$lib/memory/can-manage-shares';
   import { scrollHint } from '$lib/scroll-hint';
+  import { MEMORY_APPROVALS_VERSION } from '$lib/memory/approvals-version';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
 
@@ -77,6 +78,10 @@
   // Bumped after a confirmed Approve all, so an active server filter in the
   // node list ("Not approved") re-runs instead of listing approved nodes.
   let approvalsVersion = $state(0);
+  // portal#1433: the Nodes/Graph browser is hosted by the `(browser)` group's
+  // layout, a child of this one, and must reload when an approval or mint here
+  // changes the memory. A getter, so the child reads the live value.
+  setContext(MEMORY_APPROVALS_VERSION, () => approvalsVersion);
 
   function onMenuSelect(id: string) {
     cloneOpen = false;
@@ -320,19 +325,5 @@
     <p role="status" class="mb-4 text-sm text-zinc-500">{t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.')}</p>
   {/if}
 
-  <!-- Nodes/Graph share one MemoryBrowser rendered HERE (in the persistent
-       layout) so its tree width, open/closed, search, and filters survive
-       switching between the two tabs (the page components would remount). The
-       page components only set the <title>. -->
-  {#if !isNodeDetail && (activeTab === 'nodes' || activeTab === 'graph')}
-    {#if data.nodesFailed}
-      <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
-        {t('memory-detail.nodes-load-error', "Couldn't load this memory's nodes — the node service returned an error. This is not the same as an empty memory; try refreshing, and if it persists check the hadron-server logs.")}
-      </div>
-    {/if}
-    <!-- #589: memory drives the structured-query UI (schema pickers +
-         encrypted-data annotation). -->
-    <MemoryBrowser {readOnly} nodes={data.graphNodes ?? []} nodesTotal={data.nodesTotal} {basePath} forcedView={activeTab} memory={data.graph} refreshKey={approvalsVersion} />
-  {/if}
   {@render children()}
 </div>

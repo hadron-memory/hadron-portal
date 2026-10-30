@@ -3,9 +3,14 @@
  *
  * The load-bearing rule here is the scope of a BARE `[[loc]]`: the containing
  * node's own memory, never "some memory that happens to have this loc". That's
- * the same footgun hadron-server#335 fixed for `Query.node(loc:)`, so it gets
- * the same treatment the breadcrumb got in #234 — resolve against the memory's
- * own node list, not a global lookup.
+ * the same footgun hadron-server#335 fixed for `Query.node(loc:)`, so a bare
+ * loc is looked up as THIS memory's node URN (the server pins the memory).
+ *
+ * portal#1433: every target is looked up through the server now; the memory
+ * layout no longer ships the node list a bare loc used to resolve against. The
+ * `serve` client below stands in for the server: it answers each aliased
+ * `node(ref: <urn>)` from a table keyed by full node URN, so what the tests pin
+ * is which URN a link asks for and what it does with the answer.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
@@ -13,55 +18,69 @@ import { resolveWikilinks } from './wikilinks';
 
 const MEM = 'mem-A';
 const MEM_URN = 'hrn:memory:hadronmemory.com::hadron-portal';
+const NODE_URN = (loc: string) => `hrn:node:hadronmemory.com:hadron-portal:${loc}`;
 
-const nodes = [
-  { id: 'n1', memoryId: MEM, loc: 'findings:x', name: 'Finding X' },
-  { id: 'n2', memoryId: MEM, loc: 'glossary:ns1', name: 'Nameserver 1' },
-  // A same-loc row from ANOTHER memory, as it would look if a caller ever
-  // handed us an unfiltered list. It must never win.
-  { id: 'foreign', memoryId: 'mem-B', loc: 'findings:x', name: 'Foreign X' },
-];
+const table: Record<string, { id: string; name: string | null; memoryId: string }> = {
+  [NODE_URN('findings:x')]: { id: 'n1', name: 'Finding X', memoryId: MEM },
+  [NODE_URN('glossary:ns1')]: { id: 'n2', name: 'Nameserver 1', memoryId: MEM },
+};
 
-const noClient = { request: vi.fn() };
+/** A stub server: answers each `w{i}` alias from `table` by the URN in `r{i}`. */
+function serve(rows: typeof table = table) {
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a stub for the overloaded client.request
+    request: vi.fn(async (...args: any[]) => {
+      const vars = (args[1] ?? {}) as Record<string, string>;
+      return Object.fromEntries(Object.keys(vars).map((k, i) => [`w${i}`, rows[vars[k]] ?? null]));
+    }),
+  };
+}
 
 function ctx() {
-  return { memoryId: MEM, memoryUrn: MEM_URN, nodes };
+  return { memoryId: MEM, memoryUrn: MEM_URN };
 }
 
 describe('resolveWikilinks — same-memory (bare loc)', () => {
-  it('resolves a bare loc against this memory and labels it with the node name', async () => {
-    const links = await resolveWikilinks(noClient, ['see [[findings:x]]'], ctx());
+  it('looks a bare loc up as THIS memory\'s node URN and labels it with the node name', async () => {
+    const client = serve();
+    const links = await resolveWikilinks(client, ['see [[findings:x]]'], ctx());
+    expect(client.request.mock.calls[0][1]).toEqual({ r0: NODE_URN('findings:x') });
     expect(links).toEqual({
       'findings:x': { href: `/app/memories/${MEM}/nodes/n1`, label: 'Finding X' },
     });
-    expect(noClient.request).not.toHaveBeenCalled();
   });
 
-  it('never resolves a bare loc to a same-loc node in another memory (#335 scope)', async () => {
-    const links = await resolveWikilinks(noClient, ['[[findings:x]]'], ctx());
+  it('asks for this memory, never a same-loc node in another memory (#335 scope)', async () => {
+    // A foreign memory holding the same loc is a different URN: the bare loc
+    // is only ever composed against this memory.
+    const client = serve({
+      ...table,
+      'hrn:node:other.test:foreign:findings:x': { id: 'foreign', name: 'Foreign X', memoryId: 'mem-B' },
+    });
+    const links = await resolveWikilinks(client, ['[[findings:x]]'], ctx());
     expect(links['findings:x']?.href).toContain('/nodes/n1');
     expect(links['findings:x']?.href).not.toContain('foreign');
   });
 
   it('marks a bare loc with no node in this memory as unresolved', async () => {
-    const links = await resolveWikilinks(noClient, ['[[findings:portal-never-written]]'], ctx());
+    const links = await resolveWikilinks(serve(), ['[[findings:portal-never-written]]'], ctx());
     expect(links['findings:portal-never-written']).toBeNull();
   });
 
-  it('treats a fully-qualified target naming THIS memory as local (no round-trip)', async () => {
-    const client = { request: vi.fn() };
+  it('treats a fully-qualified target naming THIS memory as local, in the same lookup', async () => {
+    const client = serve();
     const links = await resolveWikilinks(
       client,
       ['[[hadronmemory.com::hadron-portal::glossary:ns1]]'],
       ctx(),
     );
     expect(links['hadronmemory.com::hadron-portal::glossary:ns1']?.href).toContain('/nodes/n2');
-    expect(client.request).not.toHaveBeenCalled();
+    expect(client.request).toHaveBeenCalledTimes(1);
   });
 
   it('matches this memory across the legacy single-colon URN grammar', async () => {
     const links = await resolveWikilinks(
-      noClient,
+      serve(),
       ['[[hadronmemory.com::hadron-portal::findings:x]]'],
       { ...ctx(), memoryUrn: 'hadronmemory.com:hadron-portal' },
     );
@@ -73,33 +92,32 @@ describe('resolveWikilinks — same-memory (bare loc)', () => {
     expect(await resolveWikilinks(client, ['plain prose', null], ctx())).toEqual({});
     expect(client.request).not.toHaveBeenCalled();
   });
-});
 
-describe('resolveWikilinks — graph fetch failed (nodesFailed)', () => {
-  // The layout returns `graphNodes: []` for BOTH an empty memory and a failed
-  // graph fetch. Reading the empty list as "no such node" would repaint every
-  // valid link as permanent corpus rot on a transient outage. PR #684, Codex P2.
-  it('does not mark same-memory links broken when the graph fetch failed', async () => {
-    const links = await resolveWikilinks(noClient, ['[[findings:x]]'], {
-      memoryId: MEM,
-      memoryUrn: MEM_URN,
-      nodes: [],
-      nodesFailed: true,
-    });
-    expect(links['findings:x']).toEqual({
-      href: '/app/u/hrn:node:hadronmemory.com:hadron-portal:findings:x',
-      label: 'findings:x',
-    });
+  it('cannot address a same-memory target without the memory URN: unresolved, no request', async () => {
+    const client = { request: vi.fn() };
+    const links = await resolveWikilinks(client, ['[[findings:x]]'], { memoryId: MEM, memoryUrn: null });
+    expect(links['findings:x']).toBeNull();
+    expect(client.request).not.toHaveBeenCalled();
   });
 
-  it('still marks them broken for a genuinely empty memory (nodesFailed false)', async () => {
-    const links = await resolveWikilinks(noClient, ['[[findings:x]]'], {
-      memoryId: MEM,
-      memoryUrn: MEM_URN,
-      nodes: [],
-      nodesFailed: false,
-    });
-    expect(links['findings:x']).toBeNull();
+  it('does not mark same-memory links broken when the lookup itself failed', async () => {
+    // A transient outage must not repaint every valid link as corpus rot
+    // (PR #684 review, Codex P2): fall back to the resolver route.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const client = { request: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')) };
+    const links = await resolveWikilinks(client, ['[[findings:x]]'], ctx());
+    expect(links['findings:x']).toEqual({ href: `/app/u/${NODE_URN('findings:x')}`, label: 'findings:x' });
+  });
+
+  it('resolves more same-memory links than one request carries, across chunks (> 50)', async () => {
+    const rows: typeof table = {};
+    const locs = Array.from({ length: 120 }, (_, i) => `bulk:n${i}`);
+    for (const [i, loc] of locs.entries()) rows[NODE_URN(loc)] = { id: `id${i}`, name: `N${i}`, memoryId: MEM };
+    const client = serve(rows);
+    const links = await resolveWikilinks(client, [locs.map((l) => `[[${l}]]`).join(' ')], ctx());
+    expect(client.request).toHaveBeenCalledTimes(3);
+    expect(Object.values(links).every((l) => l !== null)).toBe(true);
+    expect(links['bulk:n119']?.href).toBe(`/app/memories/${MEM}/nodes/id119`);
   });
 });
 
@@ -117,53 +135,48 @@ describe('resolveWikilinks — grammar v2 (cor:urn:010:01)', () => {
     );
   });
 
-  it('resolves a prefixed v2 target that names THIS memory locally', async () => {
-    const client = { request: vi.fn() };
+  it('resolves a prefixed v2 target that names THIS memory', async () => {
+    const client = serve();
     const links = await resolveWikilinks(
       client,
       ['[[hrn:node:hadronmemory.com:hadron-portal:findings:x]]'],
       ctx(),
     );
     expect(links['hrn:node:hadronmemory.com:hadron-portal:findings:x']?.href).toContain('/nodes/n1');
-    expect(client.request).not.toHaveBeenCalled();
   });
 
   it('gives a bare loc FIRST refusal — a local hit is never reinterpreted as v2 flat', async () => {
     // bare-loc-ok — a loc shape being described, not a citation.
-    // `findings:x` exists here. Even though a 2-atom loc could never be a v2
-    // URN, the ordering is the rule that matters: the spec's bare-loc scope
-    // always wins when it resolves. Guarded here with a 3-atom local loc.
-    const client = { request: vi.fn() };
-    const links = await resolveWikilinks(client, ['[[a:b:c]]'], {
-      ...ctx(),
-      nodes: [{ id: 'local', memoryId: MEM, loc: 'a:b:c', name: 'Deep Local' }],
-    });
+    // A 3-atom bare loc could also read as a v2 flat URN. The spec's bare-loc
+    // scope always wins when it resolves: one request, for THIS memory's URN.
+    const client = serve({ [NODE_URN('a:b:c')]: { id: 'local', name: 'Deep Local', memoryId: MEM } });
+    const links = await resolveWikilinks(client, ['[[a:b:c]]'], ctx());
     expect(links['a:b:c']).toEqual({ href: `/app/memories/${MEM}/nodes/local`, label: 'Deep Local' });
-    expect(client.request).not.toHaveBeenCalled();
+    expect(client.request).toHaveBeenCalledTimes(1);
   });
 
   it('gives a MISSED bare loc a second chance as an unprefixed v2 flat URN', async () => {
     // The spelling you get by copying a canonical URN and dropping the prefix.
-    const request = vi.fn().mockResolvedValue({ w0: { id: 'r1', name: 'R', memoryId: 'mem-R' } });
-    const links = await resolveWikilinks(
-      { request },
-      ['[[hadronmemory.com:dev:findings:a]]'],
-      ctx(),
-    );
-    expect(request.mock.calls[0][1]).toEqual({ r0: 'hrn:node:hadronmemory.com:dev:findings:a' });
+    const flatUrn = 'hrn:node:hadronmemory.com:dev:findings:a';
+    const client = serve({ [flatUrn]: { id: 'r1', name: 'R', memoryId: 'mem-R' } });
+    const links = await resolveWikilinks(client, ['[[hadronmemory.com:dev:findings:a]]'], ctx());
+    // First this memory's reading (a miss), then the flat reading.
+    expect(client.request.mock.calls.map((c) => Object.values(c[1]))).toEqual([
+      [NODE_URN('hadronmemory.com:dev:findings:a')],
+      [flatUrn],
+    ]);
     expect(links['hadronmemory.com:dev:findings:a']?.href).toBe('/app/memories/mem-R/nodes/r1');
   });
 
   it('leaves a missed 2-atom bare loc broken — too short to be a v2 URN', async () => {
-    const client = { request: vi.fn() };
+    const client = serve();
     const links = await resolveWikilinks(client, ['[[findings:nope]]'], ctx());
     expect(links['findings:nope']).toBeNull();
-    expect(client.request).not.toHaveBeenCalled();
+    expect(client.request).toHaveBeenCalledTimes(1);
   });
 
   it('marks a missed deep loc broken when the v2 reading also finds nothing', async () => {
-    const request = vi.fn().mockResolvedValue({ w0: null });
-    const links = await resolveWikilinks({ request }, ['[[ops:incidents:2026:thing]]'], ctx());
+    const links = await resolveWikilinks(serve(), ['[[ops:incidents:2026:thing]]'], ctx());
     expect(links['ops:incidents:2026:thing']).toBeNull();
   });
 });
@@ -260,13 +273,13 @@ describe('resolveWikilinks — cross-memory', () => {
 
   it('caps the per-page batch and marks the overflow unresolved rather than silently dropping it', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const body = Array.from({ length: 55 }, (_, i) => `[[o::m::loc${i}]]`).join(' ');
+    const body = Array.from({ length: 205 }, (_, i) => `[[o::m::loc${i}]]`).join(' ');
     const request = vi.fn().mockResolvedValue({});
     const links = await resolveWikilinks({ request }, [body], ctx());
 
     expect(Object.keys(request.mock.calls[0][1])).toHaveLength(50);
-    expect(links['o::m::loc54']).toBeNull();
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining('exceeds the 50 per-page cap'));
+    expect(links['o::m::loc204']).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('exceeds the 200 per-page cap'));
     warn.mockRestore();
   });
 });

@@ -5,7 +5,6 @@
   import ChatThread from '$lib/components/ChatThread.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t.js';
-  import type { MemoryNode } from '$lib/types';
   import type { ActionData, PageData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -29,8 +28,8 @@
     const parts = node.loc?.split(':') ?? [];
     for (let i = 1; i < parts.length; i++) {
       const parentLoc = parts.slice(0, i).join(':');
-      const parentNode = ((data.graphNodes ?? []) as MemoryNode[]).find((n: MemoryNode) => n.loc === parentLoc);
-      if (parentNode) {
+      const parentNode = (data.ancestors ?? []).find((n) => n.loc === parentLoc);
+      if (parentNode?.name) {
         items.push({
           label: parentNode.name,
           href: `${basePath}/nodes/${parentNode.id}`,

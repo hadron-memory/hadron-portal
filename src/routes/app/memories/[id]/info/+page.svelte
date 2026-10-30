@@ -11,7 +11,7 @@
   let { data }: { data: PageData } = $props();
   const g = $derived(data.graph);
   const org = $derived(data.org);
-  const nodeCount = $derived(data.graphNodes?.length ?? 0);
+  const nodeCount = $derived(data.nodeCount);
 
   const isAgentSystem = $derived(g.class === 'system');
   const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
@@ -120,7 +120,7 @@
     <div class={card}>
       <div class="flex items-center justify-between px-5 py-3">
         <span class={rowLabel}>{t('memory-info.nodes', 'Nodes')}</span>
-        <span class={rowValue}>{nodeCount.toLocaleString('en-US')}</span>
+        <span class={rowValue}>{nodeCount === null ? '—' : nodeCount.toLocaleString('en-US')}</span>
       </div>
     </div>
     <p class="mt-2 text-xs text-zinc-400">
