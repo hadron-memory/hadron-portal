@@ -81,4 +81,19 @@ describe('Agent member-roles action (portal#1405)', () => {
     expect(rolesError(result)).toBeUndefined();
     expect(formOf(result)?.message).toMatchObject({ type: 'error' });
   });
+
+  it('an internal fault keeps the shared envelope and its request id, never the permission copy', async () => {
+    const id = 'a4451409-72f6-4f08-b90b-f8db328e8c58';
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'SELECT private FROM /srv/users.ts', extensions: { code: 'INTERNAL_SERVER_ERROR', requestId: id } }] } });
+    const text = (formOf(await run(['owner'])) as { message?: { text?: string } }).message?.text ?? '';
+    expect(text).toContain(id);
+    expect(text).not.toContain('SELECT');
+    expect(text).not.toContain('owner or an organization admin');
+  });
+
+  it('an unknown fault says to try again, not that access is missing', async () => {
+    mockRequest.mockRejectedValue(new Error('socket hang up'));
+    const text = (formOf(await run(['owner'])) as { message?: { text?: string } }).message?.text ?? '';
+    expect(text).toBe('The roles were not saved. Try again.');
+  });
 });

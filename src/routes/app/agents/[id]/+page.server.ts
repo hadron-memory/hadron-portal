@@ -705,7 +705,12 @@ export const actions: Actions = {
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
         return setError(form, 'roles._errors', extractGqlError(e, t('agent.member-roles.error.invalid', 'Those roles were not accepted.'), ['BAD_USER_INPUT']), { status: 400 });
       }
-      return message(form, { type: 'error', text: t('agent.member-roles.error.failed', 'The roles were not saved. Changing them needs the Agent’s owner or an organization admin.') }, { status: 500 });
+      // The permission sentence is for a refusal only; an internal fault keeps
+      // the shared envelope (and its request id), anything else says to retry.
+      if (extractGqlErrorCode(e) === 'FORBIDDEN') {
+        return message(form, { type: 'error', text: t('agent.member-roles.error.failed', 'The roles were not saved. Changing them needs the Agent’s owner or an organization admin.') }, { status: 403 });
+      }
+      return message(form, { type: 'error', text: extractGqlError(e, t('agent.member-roles.error.retry', 'The roles were not saved. Try again.'), [], { transport: 'fallback' }) }, { status: 500 });
     }
   },
 

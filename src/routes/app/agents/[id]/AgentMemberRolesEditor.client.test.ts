@@ -100,4 +100,37 @@ describe('Agent member-roles editor (portal#1405)', () => {
     const alert = t.querySelector('[role="alert"]');
     expect(alert?.textContent).toContain('Role "Bad" is malformed.');
   });
+
+  it('removing a role keeps keyboard focus in the form and announces it', async () => {
+    const t = await mountEditor({ canManage: true, roles: ['owner', 'member', 'reviewer'] });
+    removeButton(t, 'member')!.focus();
+    removeButton(t, 'member')!.click();
+    await tick(3);
+    // The chip that took its place holds focus, not the page body.
+    expect(document.activeElement).toBe(removeButton(t, 'reviewer'));
+    expect(t.querySelector('[aria-live="polite"]')?.textContent).toContain('Removed member. 2 roles left.');
+  });
+
+  it('removing the last role hands focus to the New role field', async () => {
+    const t = await mountEditor({ canManage: true, roles: ['owner'] });
+    removeButton(t, 'owner')!.focus();
+    removeButton(t, 'owner')!.click();
+    await tick(3);
+    expect(document.activeElement).toBe(t.querySelector('input[type="text"]'));
+  });
+
+  it('a duplicate Add keeps the typed text and says it is already there', async () => {
+    const t = await mountEditor({ canManage: true });
+    await type(t, 'owner');
+    addButton(t)!.click();
+    await tick(2);
+    expect((t.querySelector('input[type="text"]') as HTMLInputElement).value).toBe('owner');
+    expect(t.textContent).toContain('“owner” is already in the list.');
+  });
+
+  it('shows the role format and what removal does to existing members', async () => {
+    const t = await mountEditor({ canManage: true });
+    expect(t.textContent).toContain('Lowercase letters, digits and hyphens');
+    expect(t.textContent).toContain('People who already have a removed role keep it.');
+  });
 });
