@@ -205,9 +205,9 @@
   /** Rows mounted: the window, plus the focused row if it scrolled far out of it. */
   let visibleRows = $derived.by(() => {
     const { first, last } = windowRange;
-    const rows = flatRows.slice(first, last).map((r, i) => ({ ...r, index: first + i }));
+    const rows = flatRows.slice(first, last).map((r, i) => ({ ...r, index: first + i, pinned: false }));
     if (focusedIndex !== -1 && (focusedIndex < first || focusedIndex >= last)) {
-      const pinned = { ...flatRows[focusedIndex], index: focusedIndex };
+      const pinned = { ...flatRows[focusedIndex], index: focusedIndex, pinned: true };
       return focusedIndex < first ? [pinned, ...rows] : [...rows, pinned];
     }
     return rows;
@@ -401,7 +401,7 @@
      the panes disagreed in the first place. `search` and `showHidden` are still
      read; only the duplicate controls are gone. -->
 
-{#snippet nodeRow(node: TreeNode, depth: number)}
+{#snippet nodeRow(node: TreeNode, depth: number, pinnedAt: number | null)}
   {@const hasChildren = node.children.length > 0}
   {@const open = isExpanded(node.entry.id)}
   {@const href = nodeHref(node.entry)}
@@ -416,7 +416,7 @@
     class:drop-after={dropTarget?.id === node.entry.id && dropTarget?.position === 'after'}
     class:dragging={dragId === node.entry.id}
     data-node-id={node.entry.id}
-    style="padding-left: {depth * 16 + 4}px"
+    style="padding-left: {depth * 16 + 4}px{pinnedAt === null ? '' : `; position: absolute; left: 0; right: 0; top: ${pinnedAt * ROW_HEIGHT + 4}px`}"
     draggable={canDrag && !node.entry.isVirtual ? 'true' : undefined}
     ondragstart={(e) => handleDragStart(e, node.entry)}
     ondragover={(e) => handleDragOver(e, node.entry)}
@@ -467,7 +467,7 @@
   }}
 >
   {#each visibleRows as row (row.node.entry.id)}
-    {@render nodeRow(row.node, row.depth)}
+    {@render nodeRow(row.node, row.depth, row.pinned ? row.index : null)}
   {/each}
   {#if search && tree.length === 0}
     <div class="no-results">No matches</div>
@@ -485,6 +485,7 @@
   :global(.dark) .no-results { color: #8b949e; }
 
   .tree-view {
+    position: relative;
     font-size: 13px;
     line-height: 1;
   }

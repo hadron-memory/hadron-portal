@@ -140,6 +140,11 @@ describe('TreeView bounded window (#1381)', () => {
       expect(names(target)).toContain('r0');
       expect(document.activeElement).toBe(link);
       expect(names(target).length).toBeLessThanOrEqual(MAX_ROWS + 1);
+      // The pinned row sits at its own index offset, out of flow: it must not add height
+      // to (or shift) the padded window (BLIND P2 on #1486).
+      const row = target.querySelector('.tree-row[data-node-id="r0"]') as HTMLElement;
+      expect(row.style.position).toBe('absolute');
+      expect(row.style.top).toBe('4px');
       done();
     });
   });
