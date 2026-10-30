@@ -36,4 +36,17 @@ describe('StopBanner', () => {
       expect(html(live)).not.toContain('stop');
     }
   });
+
+  it('B3: a stop with an end time names its zone, in the confirm dialog\'s format', () => {
+    const until = '2026-10-01T10:00:00Z';
+    const out = html({ kind: 'ok', value: { complete: true, signals: [{ ...sig('1', 'PAUSE', 'w1'), until }] } });
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(out).toContain(`(${zone})`);
+  });
+
+  it('portal#1431: the until segment keeps the space before its dot', () => {
+    const until = '2026-10-01T10:00:00Z';
+    const out = html({ kind: 'ok', value: { complete: true, signals: [{ ...sig('1', 'PAUSE', 'w1'), until }] } });
+    expect(out).toMatch(/\S · until /);
+  });
 });
