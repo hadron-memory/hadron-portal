@@ -38,8 +38,8 @@ describe('NodeAdvice live region (#1371, Uma P3-1)', () => {
   });
 });
 
-describe('NodeAdvice fills after mount (#1371, Uma)', () => {
-  it('advice present at first load fills the region after mount, without scrolling', () => {
+describe('NodeAdvice on first load (#1371, Uma)', () => {
+  it('advice present at first load shows in the region without scrolling', () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
     const { region } = mountAdvice([INCLUDE_PIN_UNKEPT_TEXT]);
     expect(region()!.textContent).toContain('Advice from a saved change');

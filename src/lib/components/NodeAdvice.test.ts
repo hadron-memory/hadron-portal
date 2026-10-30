@@ -3,20 +3,20 @@ import { render } from 'svelte/server';
 import NodeAdvice from './NodeAdvice.svelte';
 import { INCLUDE_PIN_UNKEPT_TEXT } from '$lib/node-advice';
 
-// Mounted behaviour (fill after mount, announcement, proximity, escaping) lives
+// Mounted behaviour (live-region identity, proximity, escaping) lives
 // in NodeAdvice.client.test.ts; a server render never mounts.
 describe('saved node advice', () => {
   it('renders no feedback for an ordinary successful save', () => {
     expect(render(NodeAdvice, { props: { advice: [] } }).body).not.toContain('node-save-advice');
   });
-  it('server-renders only the empty status region, so the advice is inserted after mount and announced (#1371)', () => {
+  it('server-renders full-load advice as page content inside the status region, readable without JS (#1371)', () => {
     const html = render(NodeAdvice, { props: { advice: [INCLUDE_PIN_UNKEPT_TEXT] } }).body;
-    expect(html).toContain('role="status"');
-    expect(html).not.toContain(INCLUDE_PIN_UNKEPT_TEXT);
-    expect(html).not.toContain('node-save-advice');
+    expect(html).toMatch(/<div role="status">\s*(<!--[^>]*-->\s*)*<div[^>]*data-testid="node-save-advice"/);
+    expect(html).toContain(INCLUDE_PIN_UNKEPT_TEXT);
   });
   it('frames advice as a saved change, not failure or a retry', () => {
     const html = render(NodeAdvice, { props: { advice: [INCLUDE_PIN_UNKEPT_TEXT] } }).body;
+    expect(html).toContain('Advice from a saved change');
     expect(html).not.toContain('Retry');
     expect(html).not.toContain('role="alert"');
   });
