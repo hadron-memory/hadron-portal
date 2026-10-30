@@ -62,7 +62,7 @@ describe('board narrowing (portal#1427)', () => {
     expect(html).toContain('Tagged with all of');
     expect(html).toContain('Overdue only');
     expect(overdueBox(html)).not.toMatch(/\bchecked\b/);
-    expect(overdueBox(html)).not.toMatch(/\bdisabled\b/);
+    expect(overdueBox(html)).not.toMatch(/aria-disabled/);
     expect(html).toMatch(/name="tags"[^>]*value=""/);
   });
 
@@ -72,13 +72,16 @@ describe('board narrowing (portal#1427)', () => {
     expect(html).toMatch(/name="tags"[^>]*value="ops, infra"/);
   });
 
-  it('Overdue is disabled, with its reason, in Ended and Backlog', () => {
+  // Uma #48051: aria-disabled, not native disabled, so it stays focusable and the reason is heard.
+  it('Overdue is aria-disabled and focusable, with its reason, in Ended and Backlog', () => {
     for (const filter of ['ended', 'backlog']) {
       const html = board({ filter });
-      expect(overdueBox(html)).toMatch(/\bdisabled\b/);
-      expect(html).toContain('Overdue applies to Active, Queued and All tasks.');
+      expect(overdueBox(html)).toMatch(/aria-disabled="true"/);
+      expect(overdueBox(html)).not.toMatch(/\sdisabled\b/);
+      expect(overdueBox(html)).toMatch(/aria-describedby="task-overdue-guidance"/);
+      expect(html).toMatch(/id="task-overdue-guidance"[^>]*>\s*Overdue applies to Active, Queued and All tasks\./);
     }
-    for (const filter of ['active', 'queued', 'all']) expect(overdueBox(board({ filter }))).not.toMatch(/\bdisabled\b/);
+    for (const filter of ['active', 'queued', 'all']) expect(overdueBox(board({ filter }))).not.toMatch(/aria-disabled/);
   });
 
   it('says so when Overdue was dropped for the bucket', () => {

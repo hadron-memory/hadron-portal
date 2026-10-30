@@ -285,7 +285,8 @@
       </div>
       <div class="pb-2">
         <label class="flex items-center gap-2 text-sm font-medium {overdueOffered ? 'text-zinc-700 dark:text-zinc-300' : 'text-zinc-400 dark:text-zinc-500'}">
-          <input type="checkbox" name="overdue" value="1" checked={narrow.overdue} disabled={!overdueOffered}
+          <input type="checkbox" name="overdue" value="1" checked={narrow.overdue} aria-disabled={overdueOffered ? undefined : 'true'}
+            onclick={(event) => { if (!overdueOffered) event.preventDefault(); }}
             aria-describedby="task-overdue-guidance" class="size-4 rounded border-zinc-300 dark:border-zinc-700" />
           {t('app.tasks.narrow.overdue.label', 'Overdue only')}
         </label>
