@@ -85,6 +85,19 @@ describe('loader', () => {
     expect(request.mock.calls.some((c) => String(c[0]).includes('mutation'))).toBe(false);
   });
 
+  it('B4: a failed roster read is flagged, a loaded one is not, and an empty roster is not a failure', async () => {
+    answer({ [STOP_WORKERS_QUERY]: new Error('roster down') });
+    const failed = await load();
+    expect(failed.workers).toEqual([]);
+    expect(failed.rosterFailed).toBe(true);
+    answer();
+    expect((await load()).rosterFailed).toBe(false);
+    answer({ [STOP_WORKERS_QUERY]: { teamRoster: { workers: [] } } });
+    const empty = await load();
+    expect(empty.workers).toEqual([]);
+    expect(empty.rosterFailed).toBe(false);
+  });
+
   it('passes the page cursor through', async () => {
     answer();
     await load('?after=abc');
