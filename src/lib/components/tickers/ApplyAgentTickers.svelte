@@ -92,7 +92,7 @@
     await tick();
     // A control the reader chose survives kit's reset: put focus back on it, never on the receipt.
     if (chosen && chosen.isConnected) {
-      chosen.focus();
+      chosen.focus({ preventScroll: true });
       return;
     }
     const active = document.activeElement;
@@ -121,13 +121,12 @@
           await invalidateAll();
           if (live?.id !== mine) return;
         }
-        try {
-          await update({ reset: false, invalidateAll: false });
-        } finally {
-          submitting = false;
-        }
+        await update({ reset: false, invalidateAll: false });
+        submitting = false;
         await settleFocus(focus.chosen());
       } finally {
+        // Whatever happened (a refresh that rejected, a stale mount, a failed update), the next apply must be possible.
+        submitting = false;
         focus.stop();
       }
     };
