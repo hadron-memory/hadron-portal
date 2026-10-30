@@ -156,6 +156,20 @@ export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
  */
 export function applyAction(result?: { type?: string; status?: number; data?: unknown }): Promise<void> {
   if (result && (result.type === 'success' || result.type === 'failure')) {
+    // Kit's applyAction resets focus to the document body once the result is
+    // applied (portal#1367: a native run saw it land BEFORE a form's own
+    // onUpdated). A stub that left focus alone hid that from every mounted test.
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+      document.activeElement.blur();
+      // Kit then focuses the body (tabindex -1 for the moment), which FIRES
+      // focusin on it: a listener that records the last focused element must
+      // not mistake that reset for the reader's own move (a native run saw it).
+      const had = document.body.getAttribute('tabindex');
+      document.body.setAttribute('tabindex', '-1');
+      document.body.focus();
+      if (had === null) document.body.removeAttribute('tabindex');
+      else document.body.setAttribute('tabindex', had);
+    }
     page.update((p) => ({ ...p, form: result.data ?? null, status: result.status ?? 200 }));
   }
   return Promise.resolve();
