@@ -9,6 +9,8 @@ import {
 } from '$lib/server/queries';
 import type {
   Organization,
+  OrgMember,
+  UserSummary,
   Memory,
   MemoryNode,
   NodeEdge,
@@ -28,6 +30,12 @@ type SlimNode = {
   isRunnable: boolean | null;
   description: string | null;
   openThreads: number;
+};
+// What MEMORY_LAYOUT_ORG_QUERY selects, and no more: typing it as the full
+// Organization would let a consumer read `memories` or `createdAt` and get
+// undefined at runtime instead of a compile error (#1429).
+export type MemoryLayoutOrg = Pick<Organization, 'id' | 'name' | 'urn'> & {
+  members: Array<Pick<OrgMember, 'id' | 'role'> & { user: Pick<UserSummary, 'id'> }>;
 };
 type SlimEdge = { id: string; loc: string; name: string | null; sourceId: string; targetId: string };
 
@@ -187,7 +195,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   // GraphQL validation error.
   const orgData = memory.organizationId
     ? await client
-        .request<{ organization: Organization | null }>(MEMORY_LAYOUT_ORG_QUERY, { ref: memory.organizationId })
+        .request<{ organization: MemoryLayoutOrg | null }>(MEMORY_LAYOUT_ORG_QUERY, { ref: memory.organizationId })
         .catch(() => ({ organization: null }))
     : { organization: null };
 
