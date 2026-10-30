@@ -4588,9 +4588,9 @@ export const DELETE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
 `;
 
 // #942 slice 4 — an attendee's RESOLVED register (spec 049 phase 6): one
-// winning row per Channel. `canRead` / `canPost` / `disclosure` describe the
-// CALLER's standing (resolveRegister's actor is the request), NOT the
-// attendee's, so the portal must not present them as the attendee's.
+// winning row per Channel. Since server #1560, canRead/canPost/disclosure
+// describe the ATTENDEE. Viewer visibility separately gates hostMemoryUrn;
+// the portal words standing only when that host memory is visible.
 export const ATTENDEE_REGISTER_QUERY = /* GraphQL */ `
   query AttendeeRegister($workerRef: ID, $agentRef: ID, $appRef: ID) {
     attendeeRegister(workerRef: $workerRef, agentRef: $agentRef, appRef: $appRef) {
