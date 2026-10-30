@@ -32,6 +32,38 @@ describe('ticker reasons (portal#1144)', () => {
   });
 });
 
+describe('portal#1384 — tick code and task loc are detail-only', () => {
+  const fragment = (doc: string) => doc.match(/fragment TickerFields on Ticker \{[^}]*\}/)?.[0] ?? '';
+
+  it('TICKER_QUERY selects tickCode itself, outside the shared fragment', () => {
+    expect(tickers.TICKER_QUERY).toMatch(/\btickCode\b/);
+    expect(fragment(tickers.TICKER_QUERY)).not.toMatch(/\btickCode\b/);
+  });
+
+  it('the shared fragment and the list select neither tickCode nor registerTaskLoc', () => {
+    for (const doc of [tickers.APP_TICKERS_QUERY, tickers.TICKER_QUERY]) {
+      expect(fragment(doc)).not.toMatch(/\b(tickCode|registerTaskLoc)\b/);
+    }
+    expect(tickers.APP_TICKERS_QUERY).not.toMatch(/\b(tickCode|registerTaskLoc)\b/);
+  });
+
+  it('registerTaskLoc lives in its own query, never in TICKER_QUERY (a failure there must not blank the page)', () => {
+    expect(tickers.TICKER_TASK_QUERY).toMatch(/\bregisterTaskLoc\b/);
+    expect(tickers.TICKER_QUERY).not.toMatch(/\bregisterTaskLoc\b/);
+  });
+
+  it('loadTickerTask maps only APP_NOT_FOUND to not-participant; the rest is a failure', async () => {
+    request.mockResolvedValueOnce({ ticker: { id: 't1', registerTaskLoc: 'tasks:x' } });
+    await expect(tickers.loadTickerTask(client, 't1')).resolves.toEqual({ kind: 'ok', value: { registerTaskLoc: 'tasks:x' } });
+    request.mockRejectedValueOnce(gqlError('APP_NOT_FOUND'));
+    await expect(tickers.loadTickerTask(client, 't1')).resolves.toEqual({ kind: 'not-participant' });
+    request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
+    await expect(tickers.loadTickerTask(client, 't1')).resolves.toEqual({ kind: 'failed' });
+    request.mockResolvedValueOnce({ ticker: null });
+    await expect(tickers.loadTickerTask(client, 't1')).resolves.toEqual({ kind: 'ok', value: null });
+  });
+});
+
 describe('loadTickers', () => {
   it('ok with the rows', async () => {
     request.mockResolvedValueOnce({ tickers: [{ id: 't1' }] });
