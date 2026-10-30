@@ -223,9 +223,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     // "Form: FBAR (FinCEN Form 114)" on its own page became `form-fbar` the
     // moment you clicked into a child.
     //
-    // The name is free: `graphNodes` already carries it and the layout has
-    // already paged it to completion, so this is the same map lookup with a
-    // second field.
+    // The name is free: the ancestor lookup (`loadAncestors`) already returns
+    // it, so this is the same map lookup with a second field.
     let label = parts[i];
     let title: string | undefined;
     if (i < parts.length - 1) {
