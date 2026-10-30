@@ -153,4 +153,13 @@ describe('testFlow action: choosing the Agent (#1444)', () => {
     expect(text).toMatch(/choose an agent/i);
     expect(text).not.toContain('RUN_AGENT_REQUIRED');
   });
+
+  // portal#1454 — a correctable refusal is the reader's input, not a server fault.
+  it('RUN_AGENT_REQUIRED answers 400; any other failure to start stays 500', async () => {
+    answer(() => { throw gqlError('RUN_AGENT_REQUIRED', 'RUN_AGENT_REQUIRED: name one of the installed Agents'); });
+    expect(((await runTestFlow(base)) as { status: number }).status).toBe(400);
+
+    answer(() => { throw new Error('boom'); });
+    expect(((await runTestFlow(base)) as { status: number }).status).toBe(500);
+  });
 });

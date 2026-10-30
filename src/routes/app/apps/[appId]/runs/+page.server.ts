@@ -5,7 +5,7 @@ import { gqlClient } from '$lib/server/api';
 import { APP_RUNS_QUERY, APP_NODES_QUERY, APP_INSTALLED_AGENTS_QUERY, RUN_TASK_APP_MUTATION } from '$lib/server/queries';
 import { runAgentChoice } from '$lib/run-agent';
 import type { InstalledAgent } from '$lib/app-installed-agents';
-import { runStartError } from '$lib/server/run-start-error';
+import { runStartError, runStartStatus } from '$lib/server/run-start-error';
 import { isAccessRefusal, loadTasksApp } from '$lib/server/agent-tasks';
 import { flowRoots, type FlowGraphNode } from '$lib/flow/flows';
 import { RUN_STATUSES, type AppRun, type AppRunStatus } from '$lib/flow/runs';
@@ -110,7 +110,7 @@ export const actions: Actions = {
       });
       runId = res.runTask;
     } catch (e: unknown) {
-      return message(form, { type: 'error' as const, text: runStartError(e, 'Failed to start the flow') }, { status: 500 });
+      return message(form, { type: 'error' as const, text: runStartError(e, 'Failed to start the flow') }, { status: runStartStatus(e) });
     }
     redirect(303, `/app/apps/${params.appId}/runs/${runId}`);
   },

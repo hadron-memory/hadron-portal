@@ -14,3 +14,13 @@ export function runStartError(e: unknown, fallback: string, knownRefusals: reado
   }
   return extractGqlError(e, fallback, knownRefusals);
 }
+
+/**
+ * The HTTP status a refused manual run answers with (portal#1454). The
+ * `RUN_AGENT_REQUIRED` refusal is the reader's to fix by choosing an Agent, so
+ * it is a 400 like the portal's other correctable refusals; any other failure
+ * to start stays the server fault it was.
+ */
+export function runStartStatus(e: unknown): 400 | 500 {
+  return extractGqlErrorCode(e) === RUN_AGENT_REQUIRED ? 400 : 500;
+}
