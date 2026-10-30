@@ -17,6 +17,7 @@
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { enhance } from '$app/forms';
+  import VectorHealthTable from '$lib/components/VectorHealthTable.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import type { VectorHealthView } from '$lib/vector-health';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
@@ -416,12 +417,18 @@
   // On demand and read-only. The result arrives as plain action data, so it is
   // read off `form` by the keys only this action sets. No invalidateAll: the
   // layout loader pages the memory's whole graph, and nothing here changed.
-  let checkingHealth = $state(false);
+  // Pending is scoped to the memory that asked: this page component is reused
+  // on a [id] navigation, so a single boolean would leave memory B's button
+  // disabled until A's whole-memory scan came back (George on #1460). A late
+  // completion only clears the flag if it is still its own.
+  let checkingFor = $state<string | null>(null);
+  const checkingHealth = $derived(checkingFor === g.id);
   const checkHealth: SubmitFunction = () => {
-    checkingHealth = true;
+    const asked = g.id;
+    checkingFor = asked;
     return async ({ update }) => {
       await update({ reset: false, invalidateAll: false });
-      checkingHealth = false;
+      if (checkingFor === asked) checkingFor = null;
     };
   };
   const vectorHealth = $derived((form as { vectorHealth?: VectorHealthView } | null)?.vectorHealth ?? null);
@@ -1131,15 +1138,7 @@
             </p>
           {/if}
           {#if vectorHealth.failed.length > 0}
-            <ul class="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-              {#each vectorHealth.failed as row (row.nodeId)}
-                <li data-testid="vector-health-row" class="min-w-0 space-y-1 px-4 py-3 text-sm">
-                  <a href={`/app/memories/${g.id}/nodes/${row.nodeId}`} class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.nodeLoc}</a>
-                  {#if row.nodeUrn}<div class="truncate"><Urn value={row.nodeUrn} type="node" size={8} /></div>{/if}
-                  <p class="break-words text-xs text-red-700 dark:text-red-300">{row.detail}</p>
-                </li>
-              {/each}
-            </ul>
+            <VectorHealthTable rows={vectorHealth.failed} memoryId={g.id} />
           {/if}
         {/if}
       </div>
