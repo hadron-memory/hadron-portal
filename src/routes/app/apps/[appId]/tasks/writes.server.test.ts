@@ -59,7 +59,7 @@ async function taskActions() {
 
 describe('task page actions', () => {
   it('the page has exactly these write actions', async () => {
-    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
+    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'edit', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
   });
 
   // portal#1143

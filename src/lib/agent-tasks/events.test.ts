@@ -29,6 +29,12 @@ describe('eventSentence', () => {
     ['task.cancelled', { openChildCount: 0 }, null, 'cancelled it'],
     ['task.parked', {}, null, 'moved it to backlog'],
     ['task.ready', {}, null, 'made it ready to be worked'],
+    // portal#1357: names the changed fields only, in the platform's order; never a value.
+    ['task.edited', { fields: ['title', 'startBy', 'closeSessionWhenDone'] }, null, 'edited the title, start by and end-session choice'],
+    ['task.edited', { fields: ['requirements'] }, null, 'edited the requirements'],
+    ['task.edited', { fields: ['source', 'title'] }, null, 'edited the title'],
+    ['task.edited', { fields: ['source'] }, null, 'edited the task'],
+    ['task.edited', {}, null, 'edited the task'],
     ['task.session-end-requested', {}, dara, 'asked Dara to end its session when done'],
   ])('%s %j reads "%s"', (type, payload, subject, text) => {
     expect(eventSentence(ev(type, payload, subject))).toEqual({ known: true, text });
