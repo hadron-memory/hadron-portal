@@ -340,6 +340,14 @@ describe('portal#1151 — the create action', () => {
     expect(await run(good)).toMatchObject({ ok: true, warnings: [], more: 0 });
   });
 
+  it('an answer with no usable ticker and no warning to prove the write is uncertain, never "created"', async () => {
+    rawRequest.mockResolvedValue({ data: { createTicker: null }, extensions: {} });
+    const r = (await run(good)) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(502);
+    expect(r.data).toMatchObject({ action: 'create', refusal: { kind: 'uncertain' } });
+    expect(r.data).not.toHaveProperty('ok');
+  });
+
   it('an unknown warning code under the path passes through verbatim, never reworded', async () => {
     rawRequest.mockResolvedValue({ ...created, extensions: { warnings: [{ path: 'createTicker', code: 'ticker.future.thing', text: 'Fixed server text.' }] } });
     expect(await run(good)).toMatchObject({ warnings: [{ code: 'ticker.future.thing', text: 'Fixed server text.' }] });

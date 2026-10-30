@@ -98,6 +98,8 @@ export async function taskWrite<D>(
   doc: string,
   vars: Record<string, unknown>,
   path: string,
+  // portal#1384: another write family's refusals (the ticker writes) classify with their own table.
+  classify: (e: unknown) => WriteRefusal = classifyWriteError,
 ): Promise<TaskWriteOutcome<D>> {
   try {
     const r = await client.rawRequest<D>(doc, vars);
@@ -109,7 +111,7 @@ export async function taskWrite<D>(
       const data = response?.data && typeof response.data === 'object' ? (response.data as Partial<D>) : null;
       return { kind: 'committed-error', data, ...w };
     }
-    return { kind: 'refused', refusal: classifyWriteError(e) };
+    return { kind: 'refused', refusal: classify(e) };
   }
 }
 
