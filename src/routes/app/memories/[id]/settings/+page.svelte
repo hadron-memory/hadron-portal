@@ -16,6 +16,9 @@
   import { deleteMemoryStrings } from '$lib/i18n/delete-memory-strings';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
+  import { enhance } from '$app/forms';
+  import type { SubmitFunction } from '@sveltejs/kit';
+  import type { VectorHealthView } from '$lib/vector-health';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { PageData, ActionData } from './$types';
   import type { MemoryOwnerTransferPreview } from './+page.server';
@@ -408,6 +411,21 @@
     return typeof n === 'number' ? n : null;
   });
   const retryEmbedsError = $derived(scopedActionError<RetryFailedEmbeddingsForm>(form, 'retryFailedEmbeddings', $retryEmbedsMessage));
+
+  // ── Vector index health (portal#1346) ───────────────────────────────
+  // On demand and read-only. The result arrives as plain action data, so it is
+  // read off `form` by the keys only this action sets. No invalidateAll: the
+  // layout loader pages the memory's whole graph, and nothing here changed.
+  let checkingHealth = $state(false);
+  const checkHealth: SubmitFunction = () => {
+    checkingHealth = true;
+    return async ({ update }) => {
+      await update({ reset: false, invalidateAll: false });
+      checkingHealth = false;
+    };
+  };
+  const vectorHealth = $derived((form as { vectorHealth?: VectorHealthView } | null)?.vectorHealth ?? null);
+  const vectorHealthError = $derived((form as { vectorHealthError?: string } | null)?.vectorHealthError ?? null);
 
   // ── Property schema (#588 / server #725) ────────────────────────────
   const initialSchemaForm = untrack(() => submittedForm<MemorySchemaSettingsForm>(form, 'updateSchema') as MemorySchemaSettingsSuperform | null ?? data.schemaForm);
@@ -1073,6 +1091,58 @@
             : t('memory-settings.retry-embeds.submit', 'Retry failed embeds')}
         </button>
       </form>
+    {/if}
+
+    <!-- portal#1346: vector index health. Gated on the SAVED state like the
+         re-drive above. Not in the loader: validateMemory is a whole-memory scan. -->
+    {#if g.vectorIndexEnabled}
+      <div class="mt-4 space-y-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+        <div>
+          <h3 class="text-sm font-medium text-zinc-900 dark:text-white">{t('memory-settings.vector-health.heading', 'Vector index health')}</h3>
+          <p class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            {t('memory-settings.vector-health.help', 'Lists the nodes whose last embed attempt failed, and why. This scans the whole memory, so it only runs when you ask.')}
+          </p>
+        </div>
+
+        <form method="POST" action="?/checkVectorIndexHealth" use:enhance={checkHealth}>
+          <button type="submit" disabled={checkingHealth}
+            class="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+            {checkingHealth
+              ? t('memory-settings.vector-health.checking', 'Checking...')
+              : t('memory-settings.vector-health.check', 'Check vector index health')}
+          </button>
+        </form>
+
+        {#if vectorHealthError}
+          <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{vectorHealthError}</div>
+        {:else if vectorHealth}
+          {#if vectorHealth.truncation}
+            <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              {t('memory-settings.vector-health.truncated', 'Showing {shown} of {total} findings; other check kinds may hide embedding failures.', { shown: vectorHealth.truncation.shown, total: vectorHealth.truncation.total })}
+            </div>
+          {/if}
+          {#if vectorHealth.skipped}
+            <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              {t('memory-settings.vector-health.skipped', 'The embedding check did not run: {reason}', { reason: vectorHealth.skipped })}
+            </div>
+          {:else if vectorHealth.failed.length === 0}
+            <p data-testid="vector-health-empty" role="status" class="text-sm text-zinc-600 dark:text-zinc-300">
+              {t('memory-settings.vector-health.none', 'No failed embeddings among the findings returned.')}
+            </p>
+          {/if}
+          {#if vectorHealth.failed.length > 0}
+            <ul class="divide-y divide-zinc-200 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
+              {#each vectorHealth.failed as row (row.nodeId)}
+                <li data-testid="vector-health-row" class="min-w-0 space-y-1 px-4 py-3 text-sm">
+                  <a href={`/app/memories/${g.id}/nodes/${row.nodeId}`} class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.nodeLoc}</a>
+                  {#if row.nodeUrn}<div class="truncate"><Urn value={row.nodeUrn} type="node" size={8} /></div>{/if}
+                  <p class="break-words text-xs text-red-700 dark:text-red-300">{row.detail}</p>
+                </li>
+              {/each}
+            </ul>
+          {/if}
+        {/if}
+      </div>
     {/if}
   </section>
 

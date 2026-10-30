@@ -62,7 +62,7 @@ describe('Vector index health panel (#1346)', () => {
 
   it('says so explicitly when the response was truncated', async () => {
     const html = await renderSettings(true, health({ vectorHealth: { failed: [failed()], truncation: { shown: 1000, total: 1500 }, skipped: null, nodesChecked: 5000 } }));
-    expect(html).toContain('showing 1000 of 1500 findings');
+    expect(html).toContain('Showing 1000 of 1500 findings');
     expect(html).toContain('other check kinds may hide embedding failures');
   });
 
