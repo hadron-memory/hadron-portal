@@ -71,33 +71,65 @@
     if (live?.id === mine) live = null;
   });
 
-  async function focusResult() {
+  /**
+   * Where the reader's focus went while the request ran, if anywhere else. Kit's `applyAction` resets
+   * focus to the body BEFORE the callback's `await update` resolves, which erases the evidence, so the
+   * choice is recorded as it happens (George's P2 on the delta of #1464). The body itself, which the
+   * reset focuses, never counts, and neither does this panel's own form or result region.
+   */
+  function watchFocus(formElement: HTMLElement) {
+    let moved: HTMLElement | null = null;
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target;
+      if (!(el instanceof HTMLElement) || el === document.body) return;
+      moved = formElement.contains(el) || region?.contains(el) ? null : el;
+    };
+    document.addEventListener('focusin', onFocusIn);
+    return { stop: () => document.removeEventListener('focusin', onFocusIn), chosen: () => moved };
+  }
+
+  async function settleFocus(chosen: HTMLElement | null) {
     await tick();
+    // A control the reader chose survives kit's reset: put focus back on it, never on the receipt.
+    if (chosen && chosen.isConnected) {
+      chosen.focus();
+      return;
+    }
     const active = document.activeElement;
-    // Don't steal focus from a control the reader moved to while the request ran: only from the body
-    // (where kit's applyAction leaves it) or from this form's own button.
     if (!active || active === document.body || active === button) region?.focus();
   }
 
-  const submit = ({ cancel }: { cancel: () => void }) => {
+  const submit = ({ cancel, formElement }: { cancel: () => void; formElement: HTMLFormElement }) => {
     if (submitting) {
       cancel();
       return;
     }
     submitting = true;
-    return async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => {
-      if (live?.id !== mine) {
-        // This mount is gone (the reader moved on, perhaps A → B → A). Its result is not applied to any
-        // panel; the loader is refreshed only when the reader is back on the worker it was written for.
-        if (live && live.key === originKey) await invalidateAll();
-        return;
-      }
+    const focus = watchFocus(formElement);
+    return async ({ result, update }: { result: { type: string }; update: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> }) => {
       try {
-        await update({ reset: false });
+        if (live?.id !== mine) {
+          // This mount is gone (the reader moved on, perhaps A → B → A). Its result is not applied to any
+          // panel; the loader is refreshed only when the reader is back on the worker it was written for.
+          if (live && live.key === originKey) await invalidateAll();
+          return;
+        }
+        // Kit refreshes before it applies a success, and what follows that await is decided by its
+        // pathname check alone, which passes again on A → B → A. So the refresh is done HERE, and the
+        // fence is checked again after it, before anything is applied.
+        if (result.type === 'success') {
+          await invalidateAll();
+          if (live?.id !== mine) return;
+        }
+        try {
+          await update({ reset: false, invalidateAll: false });
+        } finally {
+          submitting = false;
+        }
+        await settleFocus(focus.chosen());
       } finally {
-        submitting = false;
+        focus.stop();
       }
-      await focusResult();
     };
   };
 

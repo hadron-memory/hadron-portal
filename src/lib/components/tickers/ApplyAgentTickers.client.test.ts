@@ -11,7 +11,7 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { applyAction, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import ApplyAgentTickers from './ApplyAgentTickers.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -111,7 +111,8 @@ describe('ApplyAgentTickers: submit and isolation', () => {
     let release!: () => void;
     const update = vi.fn(() => new Promise<void>((r) => { release = r; }));
     const done = submitEnhancedWithResult(root.querySelector('form')!, { type: 'success', status: 200, data: { applyTickers: { key: 'w-1', ok: true, created: [], alreadyPresent: [] } } }, { update });
-    await tick(2);
+    // The refresh (invalidateAll) comes first, then kit's update applies the result.
+    await vi.waitFor(() => expect(update).toHaveBeenCalled());
     flushSync();
     const pending = root.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
     // Not `disabled`: a disabled button drops keyboard focus mid-request (Uma's P3 on #1464).
@@ -122,7 +123,7 @@ describe('ApplyAgentTickers: submit and isolation', () => {
     await done;
     await tick(2);
     flushSync();
-    expect(update).toHaveBeenCalledWith({ reset: false });
+    expect(update).toHaveBeenCalledWith({ reset: false, invalidateAll: false });
     expect(root.querySelector<HTMLButtonElement>('form button[type="submit"]')!.getAttribute('aria-disabled')).not.toBe('true');
   });
 
@@ -196,11 +197,13 @@ describe('ApplyAgentTickers: keyboard focus after an apply (Uma’s P2 on #1464)
     expect(document.activeElement).toBe(root.querySelector('#apply-tickers-result'));
   });
 
-  it('does not steal focus from a control the reader moved to while the request ran', async () => {
-    const { root } = await mountApply({});
+  it('does not steal focus from a control the reader moved to while the request ran, through kit’s own body reset (George’s P2 on the delta)', async () => {
+    const { root, props } = await mountApply({});
     const other = document.createElement('input');
     document.body.appendChild(other);
-    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update: async () => {} });
+    root.querySelector<HTMLButtonElement>('form button[type="submit"]')!.focus();
+    // The same path the positive test takes: kit's applyAction blurs to the body inside update.
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update: async () => { await applyAction(ok); props.result = ok.data.applyTickers; } });
     other.focus();
     await finish(ok);
     await tick(3);
@@ -253,12 +256,57 @@ describe('ApplyAgentTickers: a late result is fenced to the mount that sent it (
     expect(update).not.toHaveBeenCalled();
   });
 
+  it('a mount that navigated away DURING the awaited refresh applies nothing (A → B → A while invalidateAll is pending)', async () => {
+    const a1 = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => {});
+    const { finish } = await submitEnhancedDeferred(a1.root.querySelector('form')!, { update });
+    const release = holdInvalidateAll();
+    const done = finish(ok);
+    await tick(2);
+    mounted.pop()!.unmount();
+    await mountApply({ workerKey: 'w-B' });
+    mounted.pop()!.unmount();
+    const a2 = await mountApply({ workerKey: 'w-A' });
+    release();
+    await done;
+    await tick(2);
+    flushSync();
+    expect(update).not.toHaveBeenCalled();
+    expect(a2.root.querySelector('[data-testid="apply-receipt"]')).toBeNull();
+  });
+
+  it('the same for A → B while the refresh is pending', async () => {
+    const a1 = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => {});
+    const { finish } = await submitEnhancedDeferred(a1.root.querySelector('form')!, { update });
+    const release = holdInvalidateAll();
+    const done = finish(ok);
+    await tick(2);
+    mounted.pop()!.unmount();
+    await mountApply({ workerKey: 'w-B' });
+    release();
+    await done;
+    await tick(2);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('a late FAILURE does not refresh at all (kit only refreshes a success), and is applied only by the live mount', async () => {
+    const a = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => {});
+    const { finish } = await submitEnhancedDeferred(a.root.querySelector('form')!, { update });
+    await finish({ type: 'failure', status: 409, data: { applyTickers: { key: 'w-A', refusal: { code: 'TICKER_LIMIT_REACHED', message: 'x', outcomeUnknown: false } } } });
+    await tick(2);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+    expect(update).toHaveBeenCalledWith({ reset: false, invalidateAll: false });
+  });
+
   it('the live mount’s own result still goes through update (the current-request control)', async () => {
     const a = await mountApply({ workerKey: 'w-A' });
     const update = vi.fn(async () => {});
     const { finish } = await submitEnhancedDeferred(a.root.querySelector('form')!, { update });
     await finish(ok);
     await tick(2);
-    expect(update).toHaveBeenCalledWith({ reset: false });
+    expect(update).toHaveBeenCalledWith({ reset: false, invalidateAll: false });
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
   });
 });
