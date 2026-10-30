@@ -279,10 +279,10 @@ describe('task page', () => {
 // authority is the server's, so every non-impersonating participant sees it.
 describe('task page action bar (#1090)', () => {
   it.each([
-    [{ status: 'BACKLOG', assignee: null }, ['Make ready', 'Assign…', 'Cancel…']],
-    [{ status: 'PENDING', queued: true, assignee: null }, ['Assign…', 'Park…', 'Cancel…']],
-    [{ status: 'PENDING', queued: false }, ['Reassign…', 'Cancel…']],
-    [{ status: 'STARTED' }, ['Reassign…', 'Cancel…']],
+    [{ status: 'BACKLOG', assignee: null }, ['Make ready', 'Assign…', 'Edit details', 'Cancel…']],
+    [{ status: 'PENDING', queued: true, assignee: null }, ['Assign…', 'Park…', 'Edit details', 'Cancel…']],
+    [{ status: 'PENDING', queued: false }, ['Reassign…', 'Edit details', 'Cancel…']],
+    [{ status: 'STARTED' }, ['Reassign…', 'Edit details', 'Cancel…']],
   ])('%j offers %j', (over, buttons) => {
     const html = taskPage({ task: detail(over) });
     expect(barButtons(html)).toEqual(buttons);
