@@ -31,7 +31,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   if (!app) throw error(404, 'App not found');
 
   const after = url.searchParams.get('after');
-  const [page, live, manages, workers, people] = await Promise.all([
+  const [page, live, manages, roster, people] = await Promise.all([
     loadStopPage(client, app.id, after && after.length <= 512 ? after : null),
     loadLiveStops(client, app.id),
     loadManagesHint(client, app.id),
@@ -43,7 +43,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     page,
     live,
     manages,
-    workers,
+    workers: roster.workers,
+    rosterFailed: roster.failed,
     people,
     after: after && after.length <= 512 ? after : null,
     loadedAt: new Date().toISOString(),

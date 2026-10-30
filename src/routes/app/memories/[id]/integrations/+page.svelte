@@ -14,6 +14,7 @@
     pushMemoryIntegrationSchema,
     syncMemoryIntegrationSchema,
   } from './schema';
+  import SyncReportDetail from '$lib/components/SyncReportDetail.svelte';
   import SyncErrorDetail from '$lib/components/SyncErrorDetail.svelte';
 
   type MemoryIntegrationForm = Infer<typeof memoryIntegrationSchema, 'zod4'>;
@@ -173,6 +174,7 @@
         <span class="text-sm text-zinc-500">{t('integrations.status', 'Status')}</span>
         <span class="text-sm font-medium text-zinc-900 dark:text-white">{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {formatPortalDate(g.lastSyncedAt)}{/if}</span>
       </div>
+      <SyncReportDetail lastSyncReport={g.lastSyncReport} syncStatus={g.syncStatus} lastSyncedAt={g.lastSyncedAt} listKey="memories:integrations:sync-outcomes" />
       {#if g.syncStatus === 'ERROR'}
         <SyncErrorDetail syncError={g.syncError} />
       {/if}
