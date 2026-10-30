@@ -55,10 +55,16 @@ function type(target: HTMLElement, name: string, value: string) {
   flushSync();
 }
 
-/** The server's answer to a save, as the form action returns it. */
-async function savedResult(signature: string) {
+/**
+ * The server's answer to a save, as the form action returns it — minted for
+ * the form's LIVE instance id, which the real action echoes back from the
+ * posted __superform_id (#1450, pinned server-side in signature.test.ts). A
+ * reply without it is the no-JS shape and applies to no mounted editor.
+ */
+async function savedResult(signature: string, form: HTMLFormElement) {
   const f = await superValidate({ signature, trailer: 'stored trailer', signatureBase: signature, trailerBase: 'stored trailer' }, zod4(updateSignatureSchema), { errors: false });
-  return { type: 'success' as const, status: 200, data: { form: { ...f, message: { type: 'success', text: 'Saved.' } } } };
+  const id = form.getAttribute('data-superform-id')!;
+  return { type: 'success' as const, status: 200, data: { form: { ...f, id, message: { type: 'success', text: 'Saved.' } } } };
 }
 
 describe('focus through a successful save (#1367)', () => {
@@ -69,7 +75,7 @@ describe('focus through a successful save (#1367)', () => {
     save.focus();
     expect(document.activeElement).toBe(save);
 
-    await submitEnhancedWithResult(target.querySelector('form')!, await savedResult('edited sig'));
+    await submitEnhancedWithResult(target.querySelector('form')!, await savedResult('edited sig', target.querySelector('form')!));
     // The loader re-read lands with the saved text: nothing differs, so Save disables.
     props.signature = 'edited sig';
     await tick(4);
@@ -88,7 +94,7 @@ describe('focus through a successful save (#1367)', () => {
     document.body.appendChild(other);
     other.focus();
 
-    await submitEnhancedWithResult(target.querySelector('form')!, await savedResult('edited sig'));
+    await submitEnhancedWithResult(target.querySelector('form')!, await savedResult('edited sig', target.querySelector('form')!));
     props.signature = 'edited sig';
     await tick(4);
 
@@ -104,7 +110,7 @@ describe('focus through a successful save (#1367)', () => {
     document.body.appendChild(other);
     other.focus();
 
-    await submitEnhancedWithResult(target.querySelector('form')!, await savedResult('edited sig'));
+    await submitEnhancedWithResult(target.querySelector('form')!, await savedResult('edited sig', target.querySelector('form')!));
     props.signature = 'edited sig';
     await tick(4);
 
@@ -118,7 +124,7 @@ describe('focus through a successful save (#1367)', () => {
     const trailer = target.querySelector<HTMLTextAreaElement>('textarea[name="trailer"]')!;
     trailer.focus();
 
-    await submitEnhancedWithResult(target.querySelector('form')!, await savedResult('edited sig'));
+    await submitEnhancedWithResult(target.querySelector('form')!, await savedResult('edited sig', target.querySelector('form')!));
     props.signature = 'edited sig';
     await tick(4);
 
@@ -130,7 +136,7 @@ describe('focus through a successful save (#1367)', () => {
     type(target, 'signature', 'edited sig');
     target.querySelector<HTMLButtonElement>('button[type="submit"]')!.focus();
     const form = target.querySelector('form')!;
-    const result = await savedResult('edited sig');
+    const result = await savedResult('edited sig', form);
     const caught = await captureUnhandledRejections(async () => {
       const done = submitEnhancedWithResult(form, result);
       mounted.pop()!.unmount();
@@ -147,7 +153,9 @@ describe('focus through a successful save (#1367)', () => {
     const save = target.querySelector<HTMLButtonElement>('button[type="submit"]')!;
     save.focus();
     const f = await superValidate({ signature: 'edited sig', trailer: 'stored trailer', signatureBase: 'stored sig', trailerBase: 'stored trailer' }, zod4(updateSignatureSchema), { errors: false });
-    await submitEnhancedWithResult(target.querySelector('form')!, { type: 'failure', status: 403, data: { form: { ...f, valid: false, message: { type: 'error', text: 'Refused.' } } } });
+    // Minted for the live instance id like every enhanced reply (#1450).
+    const id = target.querySelector('form')!.getAttribute('data-superform-id')!;
+    await submitEnhancedWithResult(target.querySelector('form')!, { type: 'failure', status: 403, data: { form: { ...f, id, valid: false, message: { type: 'error', text: 'Refused.' } } } });
     await tick(4);
     // Kit resets focus to the body on any applied result; a refusal adds nothing of ours.
     expect(document.activeElement).toBe(document.body);
@@ -207,7 +215,7 @@ describe('the whole worker page (#1367)', () => {
     type(m.target, 'signature', 'new');
     const save = m.target.querySelector<HTMLButtonElement>('[data-testid="worker-signature"] button[type="submit"]')!;
     save.focus();
-    await submitEnhancedWithResult(m.target.querySelector('[data-testid="worker-signature"] form')!, await savedResult('new'));
+    await submitEnhancedWithResult(m.target.querySelector('[data-testid="worker-signature"] form')!, await savedResult('new', m.target.querySelector('[data-testid="worker-signature"] form')!));
     props.data = { ...base, worker: worker('new') };
     await tick(4);
     expect(save.disabled).toBe(true);

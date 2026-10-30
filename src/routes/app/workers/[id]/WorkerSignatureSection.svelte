@@ -18,6 +18,7 @@
   import { failedSubmission } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { updateSignatureSchema, type UpdateSignatureForm } from './schema';
+  import { signatureInstanceId } from './signature-instance-id';
 
   let {
     signature,
@@ -33,12 +34,67 @@
     actionResult: unknown;
   } = $props();
 
+  // portal#1448 — a reply from the page's action data seeds this editor only
+  // when it belongs to THIS worker: either it carries the loader's STAMP (a
+  // no-JS POST, whose reply the server render matches the same way), or it
+  // was minted by a PREVIOUS MOUNT of this same worker (`<stamp>#…`, a
+  // refused enhanced save still sitting in page.form after a tab round-trip —
+  // which is not a navigation, so page.form was not cleared; the draft it
+  // carries is this reader's own unsaved text on this very surface). Another
+  // worker's id, stamped or minted, never matches either form. Only a FAILED
+  // submission seeds at all, so a refusal keeps the reader's text. A
+  // successful one must not: the action result outlives a remount (leave and
+  // reopen the tab), and seeding from it would put the old saved text over a
+  // fresher stored value (Gene's blind P2 on #1157).
+  //
+  // portal#1450 (Gaby's blind P2) — an earlier mount's refusal seeds only
+  // while it is still consistent with what the loader holds NOW: its bases
+  // must equal the loader's. A later save changed the stored text — and the
+  // loader's bases with it — so a refusal the store has overtaken no longer
+  // seeds; seeding from it would resurrect stale text over a stale base
+  // through the mount path, the very clobber the epoch fence stops on the
+  // live path. A refusal writes nothing, so the bases still match in the
+  // legitimate case and the tab-round-trip draft survives.
+  //
+  // Both reads are deliberately mount-time only (untrack): the seed is what
+  // this editor starts from, and a changed loader form is a worker (or ref
+  // spelling) move, which remounts the section through its keyed id.
+  //
+  // The chosen form is handed over as a COPY, never the prop object itself:
+  // superForm assigns the live instance id onto the form it is given
+  // (dist/client/superForm.js: `form.id = options.id ?? form.id`), so passing
+  // the loader's object would let a library mutate page data in place —
+  // compounding a `#uuid` onto data.signatureForm.id at every remount
+  // (Cedric's QA on #1450 saw the id grow per tab flip), which starves the
+  // prefix arm above on the second round-trip and loses the refused draft.
+  const seedForm = untrack(() => {
+    const failed = failedSubmission<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null;
+    const fromEarlierMount =
+      failed != null &&
+      failed.id.startsWith(`${initialForm.id}#`) &&
+      failed.data.signatureBase === initialForm.data.signatureBase &&
+      failed.data.trailerBase === initialForm.data.trailerBase;
+    const chosen = failed && (failed.id === initialForm.id || fromEarlierMount) ? failed : initialForm;
+    return { ...chosen };
+  });
+  // portal#1450 (George's LOCAL P2) — per MOUNT, on top of the loader's
+  // per-worker stamp: a returned-to worker's fresh editor must not answer to
+  // the id its own earlier mount posted. See signature-instance-id.ts.
+  const instanceId = untrack(() => signatureInstanceId(initialForm.id));
+
+  let formEl: HTMLFormElement | undefined = $state();
+  // The live epoch, for devtools and tests: which id this mount answers to.
+  // Set from an effect (not the template) so the server render, which keeps
+  // the bare stamp, never has to agree with it across hydration.
+  $effect(() => {
+    formEl?.setAttribute('data-superform-id', instanceId);
+  });
+
   // #1367: after a successful save the focused Save button is disabled (while
   // the request runs, and again once nothing differs from the stored text), so
   // a keyboard reader's focus fell to the document body. The result line is the
   // stable target: it is the one thing that always exists after a save.
   let resultEl = $state<HTMLElement | null>(null);
-  let formEl = $state<HTMLFormElement | null>(null);
   // Kit's applyAction resets focus to the body BEFORE onUpdated runs (a native
   // run saw exactly that), so the active element at that point says nothing
   // about where the reader was. Remember the last element they focused instead.
@@ -72,25 +128,24 @@
     message: result,
     submitting,
     enhance,
-  } = superForm(
-    // Only a FAILED submission seeds the editor, so a refusal keeps the
-    // reader's text. A successful one must not: the action result outlives a
-    // remount (leave and reopen the tab), and seeding from it would put the
-    // old saved text over a fresher stored value (Gene's blind P2 on #1157).
-    untrack(
-      () => (failedSubmission<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null) ?? initialForm,
-    ),
-    {
-      validators: zod4Client(updateSignatureSchema),
-      validationMethod: 'submit-only',
-      resetForm: false,
-      invalidateAll: true,
-      onUpdated: ({ form }) => {
-        if (form.message?.type === 'success') void focusResultAfterSave();
-      },
-      taintedMessage: t('worker.signature.discard', 'You have unsaved changes to this worker’s signature or trailer. Leave the page and lose them?'),
+  } = superForm(seedForm, {
+    // portal#1448/#1450 — the instance id is per mount, so superforms
+    // applies an arriving reply only when it was minted by THIS mount: A's
+    // late reply never reaches B's editor, nor the previous mount of A its
+    // fresher remount, while replies to this mount's own submissions still
+    // apply (the action echoes the posted instance id back).
+    id: instanceId,
+    validators: zod4Client(updateSignatureSchema),
+    validationMethod: 'submit-only',
+    resetForm: false,
+    invalidateAll: true,
+    // #1367: a successful save disables the Save button the reader used, so
+    // hand focus back (to them, if their control is still live, else here).
+    onUpdated: ({ form }) => {
+      if (form.message?.type === 'success') void focusResultAfterSave();
     },
-  );
+    taintedMessage: t('worker.signature.discard', 'You have unsaved changes to this worker’s signature or trailer. Leave the page and lose them?'),
+  });
 
   // Jane's local P2 on #1157: a same-worker re-read (the loader reruns after
   // any save on this page, or a query-only navigation) changes the stored

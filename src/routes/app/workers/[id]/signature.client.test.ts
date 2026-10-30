@@ -10,7 +10,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { updateSignatureSchema } from './schema';
+import { updateSignatureFormId, updateSignatureSchema } from './schema';
 import Page from './+page.svelte';
 
 const SIG = '— [{{worker.name}}, {{worker.role}}]({{worker.url}}) · {{session.llmModel}}';
@@ -46,7 +46,9 @@ async function mount(w: ReturnType<typeof worker>, form: unknown = undefined) {
       signatureForm: await superValidate(
         { signature: w.signature ?? '', trailer: w.trailer ?? '', signatureBase: w.signature ?? '', trailerBase: w.trailer ?? '' },
         zod4(updateSignatureSchema),
-        { errors: false },
+        // portal#1448 — stamped the way the real loader stamps, so the seed
+        // and reply regime here is the one production runs.
+        { errors: false, id: updateSignatureFormId(String(w.id)) },
       ),
       initialTab: 'briefing', initialView: null,
       workerSessions: [], sessionsTruncated: false, worklog: [], worklogTotal: 0,
@@ -62,7 +64,7 @@ async function actionResult(signature: string, message: { type: 'success' | 'err
   const f = await superValidate(
     { _kind: 'updateSignature', signature, trailer: '', signatureBase: 'whatever', trailerBase: '' },
     zod4(updateSignatureSchema),
-    { errors: false },
+    { errors: false, id: updateSignatureFormId('w-a') },
   );
   return { form: { ...f, message } };
 }
