@@ -63,6 +63,12 @@
   let seededFor = $state<string | null>(null);
   $effect.pre(() => {
     if (seededFor !== appId) {
+      // The page keeps `lifting` across an App change; a confirmation for
+      // App A's stop must not survive into App B.
+      if (seededFor !== null && lifting) {
+        liftDialog?.close();
+        onliftclose();
+      }
       generation++;
       level = 'PAUSE_DISPATCH';
       scope = 'WORKER';
