@@ -33,27 +33,42 @@
     actionResult: unknown;
   } = $props();
 
+  // portal#1448 — a reply from the page's action data seeds this editor only
+  // when it belongs to THIS worker: ids are per worker now, so a late refusal
+  // for worker A still sitting in page.form when B's section mounts must not
+  // seed B's editor (it would also put B's instance on A's id, and A's later
+  // replies would then apply to it). Only a FAILED submission seeds at all, so
+  // a refusal keeps the reader's text. A successful one must not: the action
+  // result outlives a remount (leave and reopen the tab), and seeding from it
+  // would put the old saved text over a fresher stored value (Gene's blind P2
+  // on #1157).
+  //
+  // Both reads are deliberately mount-time only (untrack): the seed is what
+  // this editor starts from, and a changed loader form is a worker (or ref
+  // spelling) move, which remounts the section through its keyed id.
+  const seedForm = untrack(() => {
+    const failed = failedSubmission<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null;
+    return failed && failed.id === initialForm.id ? failed : initialForm;
+  });
+  const seedId = untrack(() => initialForm.id);
+
   const {
     form: data,
     message: result,
     submitting,
     enhance,
-  } = superForm(
-    // Only a FAILED submission seeds the editor, so a refusal keeps the
-    // reader's text. A successful one must not: the action result outlives a
-    // remount (leave and reopen the tab), and seeding from it would put the
-    // old saved text over a fresher stored value (Gene's blind P2 on #1157).
-    untrack(
-      () => (failedSubmission<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null) ?? initialForm,
-    ),
-    {
-      validators: zod4Client(updateSignatureSchema),
-      validationMethod: 'submit-only',
-      resetForm: false,
-      invalidateAll: true,
-      taintedMessage: t('worker.signature.discard', 'You have unsaved changes to this worker’s signature or trailer. Leave the page and lose them?'),
-    },
-  );
+  } = superForm(seedForm, {
+    // portal#1448 — the instance id is the loader's stamp for THIS worker
+    // (never re-derived here), so superforms applies an arriving reply only
+    // when its stamped id matches: A's late reply never reaches B's editor,
+    // while B's own replies still apply.
+    id: seedId,
+    validators: zod4Client(updateSignatureSchema),
+    validationMethod: 'submit-only',
+    resetForm: false,
+    invalidateAll: true,
+    taintedMessage: t('worker.signature.discard', 'You have unsaved changes to this worker’s signature or trailer. Leave the page and lose them?'),
+  });
 
   // Jane's local P2 on #1157: a same-worker re-read (the loader reruns after
   // any save on this page, or a query-only navigation) changes the stored

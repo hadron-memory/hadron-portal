@@ -18,7 +18,7 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { updateSignatureSchema } from './schema';
+import { updateSignatureFormId, updateSignatureSchema } from './schema';
 import Section from './WorkerSignatureSection.svelte';
 
 const mounted: Mounted<Record<string, unknown>>[] = [];
@@ -27,7 +27,8 @@ afterEach(() => {
 });
 
 async function formFor(signature: string, trailer: string) {
-  return superValidate({ signature, trailer, signatureBase: signature, trailerBase: trailer }, zod4(updateSignatureSchema), { errors: false });
+  // portal#1448 — stamped the way the real loader stamps (one worker here).
+  return superValidate({ signature, trailer, signatureBase: signature, trailerBase: trailer }, zod4(updateSignatureSchema), { errors: false, id: updateSignatureFormId('w-1') });
 }
 
 async function mountSection(signature: string, trailer: string) {

@@ -501,10 +501,15 @@
         <pre class="whitespace-pre-wrap break-words rounded-lg border border-zinc-200 bg-white p-4 font-mono text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">{data.worker.prompt ?? t('worker.briefing.not-shown', 'No briefing is shown.')}</pre>
       {/if}
 
-      <!-- portal#1142 P4. Keyed on the worker: SvelteKit reuses this page across
-           /app/workers/[id] navigations, and a superForm seeded once would carry
-           worker A's draft onto worker B. A remount per worker keeps each form scoped. -->
-      {#key worker.id}
+      <!-- portal#1142 P4 / portal#1448. Keyed on the loader's stamped form id:
+           SvelteKit reuses this page across /app/workers/[id] navigations, and a
+           superForm seeded once would carry worker A's draft onto worker B. The
+           stamp is per worker (and per ref spelling of one worker, so a
+           name→URN move remounts onto the fresh stamp rather than keeping a
+           stale id alive), and remounting on it keeps the mounted form's id
+           equal to what the loader and action stamp — a late reply for another
+           worker can never match it. -->
+      {#key data.signatureForm.id}
         <WorkerSignatureSection
           signature={worker.signature}
           trailer={worker.trailer}

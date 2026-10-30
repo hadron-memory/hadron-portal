@@ -10,7 +10,7 @@ import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prom
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import { loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
-import { updateSignatureSchema } from './schema';
+import { updateSignatureFormId, updateSignatureSchema } from './schema';
 
 const updateSignatureAdapter = zod4(updateSignatureSchema);
 
@@ -154,6 +154,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // values, so a save sends only what the reader changed. A masked (null) field
   // seeds as '': the page shows it as "not shown" (it reads worker.signature,
   // not this form) and posts nothing for it.
+  // portal#1448: the id is per worker — see updateSignatureFormId.
   const signatureForm = await superValidate(
     {
       signature: worker.signature ?? '',
@@ -162,7 +163,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       trailerBase: worker.trailer ?? '',
     },
     updateSignatureAdapter,
-    { errors: false },
+    { errors: false, id: updateSignatureFormId(params.id) },
   );
 
   return {
@@ -207,7 +208,10 @@ export const actions: Actions = {
    */
   updateSignature: async ({ request, params, locals }) => {
     const posted = await request.formData();
-    const form = await superValidate(posted, updateSignatureAdapter);
+    // portal#1448 — the reply carries the same per-worker id the loader
+    // stamped, so a late reply still reaches its own worker's editor (and no
+    // other; see updateSignatureFormId).
+    const form = await superValidate(posted, updateSignatureAdapter, { id: updateSignatureFormId(params.id) });
     if (!form.valid) return fail(400, { form });
 
     // Gene's blind P2 on #1157: clear intent comes from what was POSTED, never

@@ -22,3 +22,17 @@ export const updateSignatureSchema = z.object({
 });
 
 export type UpdateSignatureForm = z.infer<typeof updateSignatureSchema>;
+
+/**
+ * portal#1448 — the form's Superforms id is PER WORKER, in the loader, the
+ * action and superForm, so an action reply (applyAction sets page.form, and
+ * superforms applies it to any mounted form with the same id) reaches only the
+ * form it belongs to. The default schema-hash id is shared by every worker's
+ * editor, so a late reply for worker A landed in worker B's live editor and a
+ * B save wrote A's text onto B. Same helper everywhere, so the three can never
+ * drift apart.
+ */
+export function updateSignatureFormId(workerId: string): string {
+  return `updateSignature:${workerId}`;
+}
+
