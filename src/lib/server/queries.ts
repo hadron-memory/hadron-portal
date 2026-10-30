@@ -3396,8 +3396,8 @@ export const RECOVERY_NODES_QUERY = /* GraphQL */ `
 
 // #1161: edges with a deleted endpoint, as the server reports them (writer-only).
 export const RECOVERY_EDGES_QUERY = /* GraphQL */ `
-  query RecoveryEdges($memoryRef: ID!, $limit: Int, $offset: Int) {
-    recoveryEdges(memoryRef: $memoryRef, limit: $limit, offset: $offset) {
+  query RecoveryEdges($memoryRef: ID!, $edgeIds: [ID!]!, $limit: Int) {
+    recoveryEdges(memoryRef: $memoryRef, edgeIds: $edgeIds, limit: $limit) {
       items {
         id
         name
