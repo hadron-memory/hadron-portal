@@ -10,6 +10,7 @@
 Captures:
 
 - `confirm-zone-aware-expiry.png` — expiry confirmation displays the ISO-converted instant and `UTC` browser timezone.
+- `banner-zone-los-angeles.png` — after an expiring stop is set in `America/Los_Angeles`, the active banner shows the corresponding local time (17:29); it does not print a timezone name.
 - `expiry-state-los-angeles.png` — expired row rendered at 5:13 p.m. in `America/Los_Angeles`; absent from active banner.
 - `non-manager-read-only.png` — participant sees stop state but no write controls.
 - `overlap-after-lift.png` — one overlapping stop lifted; remaining coverage is still in effect.
