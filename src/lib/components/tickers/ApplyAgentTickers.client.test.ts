@@ -406,7 +406,7 @@ describe('ApplyAgentTickers: a refresh that fails after a committed apply says s
     restore();
     expect(guidance(root)).not.toBeNull();
     props.workerKey = 'w-B';
-    props.result = null;
+    props.result = { key: 'w-B', ok: true, created: [], alreadyPresent: [] };
     await tick(2);
     flushSync();
     expect(guidance(root)).toBeNull();
