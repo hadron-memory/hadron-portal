@@ -74,3 +74,30 @@ describe('startBoundMagicLink', () => {
     expect(result).toMatchObject({ ok: false, status: 502 });
   });
 });
+
+
+describe('#1470 Turnstile forwarding and safe refusals', () => {
+  it('forwards a token only in the request body, never cookies', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+    const { cookies, sets } = cookieStub();
+    await startBoundMagicLink(cookies, 'user@example.test', '/invite/x', 'challenge-token');
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)['cf-turnstile-response']).toBe('challenge-token');
+    expect(JSON.stringify(sets)).not.toContain('challenge-token');
+    expect(fetchMock.mock.calls[0][1].headers).toEqual({ 'content-type': 'application/json' });
+  });
+  it.each(['missing_token', 'invalid_token'])('maps %s to safe retry guidance', async (reason) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 403,
+      json: async () => ({ error: 'bot_check_failed', reason }) }));
+    expect(await startBoundMagicLink(cookieStub().cookies, 'user@example.test')).toEqual({
+      ok: false, status: 403, error: 'Complete the check and try again.',
+    });
+  });
+  it.each(['provider_error', 'not_configured'])('maps %s to safe unavailable guidance', async (reason) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503,
+      json: async () => ({ error: 'bot_check_failed', reason }) }));
+    expect(await startBoundMagicLink(cookieStub().cookies, 'user@example.test')).toEqual({
+      ok: false, status: 503, error: 'Sign-in is temporarily unavailable. Please try again later.',
+    });
+  });
+});
