@@ -18,6 +18,7 @@
   import { failedSubmission } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { updateSignatureSchema, type UpdateSignatureForm } from './schema';
+  import { signatureInstanceId } from './signature-instance-id';
 
   let {
     signature,
@@ -33,27 +34,58 @@
     actionResult: unknown;
   } = $props();
 
+  // portal#1448 — a reply from the page's action data seeds this editor only
+  // when it belongs to THIS worker: either it carries the loader's STAMP (a
+  // no-JS POST, whose reply the server render matches the same way), or it
+  // was minted by a PREVIOUS MOUNT of this same worker (`<stamp>#…`, a
+  // refused enhanced save still sitting in page.form after a tab round-trip —
+  // which is not a navigation, so page.form was not cleared; the draft it
+  // carries is this reader's own unsaved text on this very surface). Another
+  // worker's id, stamped or minted, never matches either form. Only a FAILED
+  // submission seeds at all, so a refusal keeps the reader's text. A
+  // successful one must not: the action result outlives a remount (leave and
+  // reopen the tab), and seeding from it would put the old saved text over a
+  // fresher stored value (Gene's blind P2 on #1157).
+  //
+  // Both reads are deliberately mount-time only (untrack): the seed is what
+  // this editor starts from, and a changed loader form is a worker (or ref
+  // spelling) move, which remounts the section through its keyed id.
+  const seedForm = untrack(() => {
+    const failed = failedSubmission<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null;
+    const own = (id: string) => id === initialForm.id || id.startsWith(`${initialForm.id}#`);
+    return failed && own(failed.id) ? failed : initialForm;
+  });
+  // portal#1450 (George's LOCAL P2) — per MOUNT, on top of the loader's
+  // per-worker stamp: a returned-to worker's fresh editor must not answer to
+  // the id its own earlier mount posted. See signature-instance-id.ts.
+  const instanceId = untrack(() => signatureInstanceId(initialForm.id));
+
+  let formEl: HTMLFormElement | undefined = $state();
+  // The live epoch, for devtools and tests: which id this mount answers to.
+  // Set from an effect (not the template) so the server render, which keeps
+  // the bare stamp, never has to agree with it across hydration.
+  $effect(() => {
+    formEl?.setAttribute('data-superform-id', instanceId);
+  });
+
   const {
     form: data,
     message: result,
     submitting,
     enhance,
-  } = superForm(
-    // Only a FAILED submission seeds the editor, so a refusal keeps the
-    // reader's text. A successful one must not: the action result outlives a
-    // remount (leave and reopen the tab), and seeding from it would put the
-    // old saved text over a fresher stored value (Gene's blind P2 on #1157).
-    untrack(
-      () => (failedSubmission<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null) ?? initialForm,
-    ),
-    {
-      validators: zod4Client(updateSignatureSchema),
-      validationMethod: 'submit-only',
-      resetForm: false,
-      invalidateAll: true,
-      taintedMessage: t('worker.signature.discard', 'You have unsaved changes to this worker’s signature or trailer. Leave the page and lose them?'),
-    },
-  );
+  } = superForm(seedForm, {
+    // portal#1448/#1450 — the instance id is per mount, so superforms
+    // applies an arriving reply only when it was minted by THIS mount: A's
+    // late reply never reaches B's editor, nor the previous mount of A its
+    // fresher remount, while replies to this mount's own submissions still
+    // apply (the action echoes the posted instance id back).
+    id: instanceId,
+    validators: zod4Client(updateSignatureSchema),
+    validationMethod: 'submit-only',
+    resetForm: false,
+    invalidateAll: true,
+    taintedMessage: t('worker.signature.discard', 'You have unsaved changes to this worker’s signature or trailer. Leave the page and lose them?'),
+  });
 
   // Jane's local P2 on #1157: a same-worker re-read (the loader reruns after
   // any save on this page, or a query-only navigation) changes the stored
@@ -105,7 +137,7 @@
       )}
     </p>
 
-    <form method="POST" action="?tab=briefing&/updateSignature" use:enhance class="space-y-3" novalidate>
+    <form bind:this={formEl} method="POST" action="?tab=briefing&/updateSignature" use:enhance class="space-y-3" novalidate>
       <input type="hidden" name="_kind" value="updateSignature" />
 
       {#if readable.signature}

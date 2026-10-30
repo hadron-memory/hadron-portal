@@ -184,8 +184,7 @@ export function renderProfile(p: Awaited<ReturnType<typeof profile>>): string {
   lines.push(`### ${p.nodeCount} nodes, ${p.edgeCount} edges, ${p.usageEntries} usage entries (median of ${p.runs} samples per timing)`);
   lines.push('');
   lines.push(`- layout \`load\` elapsed wall time (portal side, stub server answers instantly; byte accounting off): **${p.loadMsMedian.toFixed(0)} ms**`);
-  lines.push(`  - of which \`buildTreeEntries\` ${p.treeMsMedian.toFixed(0)} ms + \`buildGraphViewData\` ${p.graphMsMedian.toFixed(0)} ms (timed separately on the same input; wall time)`);
-  lines.push(`  - remainder (paging loop, reconstructNodes): ${(p.loadMsMedian - p.treeMsMedian - p.graphMsMedian).toFixed(0)} ms (estimate: load minus separately timed builders, not an isolated measurement)`);
+  lines.push(`  - \`buildTreeEntries\` ${p.treeMsMedian.toFixed(0)} ms and \`buildGraphViewData\` ${p.graphMsMedian.toFixed(0)} ms, timed separately on the same input (wall time). Since #1429 the layout \`load\` no longer runs them, so they are NOT part of the load figure above; they show what a client-side derivation costs.`);
   lines.push(`- graph pages per load: ${p.pages.nodes} node pages + ${p.pages.edges} edge pages, ${SERVER_PAGE} rows each, issued as two sequential chains`);
   lines.push(`- server response bytes per load (JSON, measured in one extra untimed load): ` +
     Object.entries(p.responseBytes).map(([k, v]) => `${k} ${mib(v)} MiB`).join(', '));
