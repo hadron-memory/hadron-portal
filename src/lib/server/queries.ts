@@ -5180,3 +5180,30 @@ export const CREATE_CHANNEL_MESSAGE_MUTATION = /* GraphQL */ `
     createChannelMessage(channelRef: $channelRef, body: $body, replyToSeq: $replyToSeq) { nodeId seq body at authorName }
   }
 `;
+
+// portal#1433 (hadron-server#2832): the DIRECT children of one loc, or the
+// memory's roots when `$childrenOf` is ''. Slim on purpose: the node page's
+// Children tab and the new-node form's sibling check read only these fields.
+// The server orders a childrenOf read by `seq` (non-null first, ascending) then
+// `loc` (Order A), which is what the old in-memory sort produced. NOT in the
+// committed schema snapshot until #2832 is deployed (refresh-the-schema-snapshot).
+export const NODE_CHILDREN_QUERY = /* GraphQL */ `
+  query NodeChildren($memoryIds: [ID!], $childrenOf: String, $limit: Int, $offset: Int) {
+    findNodes(limit: $limit, offset: $offset, filter: { memoryIds: $memoryIds, childrenOf: $childrenOf }) {
+      hits {
+        node {
+          id
+          memoryId
+          loc
+          name
+          nodeType
+          tags
+          seq
+          isRunnable
+          description
+          commentSummary { openThreads }
+        }
+      }
+    }
+  }
+`;

@@ -27,6 +27,7 @@ import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
 import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
+import { loadChildren } from '$lib/server/node-children';
 import { loadCommentSummary, loadDiscussion, sendCommentWrite } from '$lib/server/comments';
 import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
 import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
@@ -533,6 +534,16 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // #1031: the Properties tab's storage form (once the `/edit` page). The
   // skill check is the server's lint verdict on the STORED export, per declared
   // host; it never throws, and costs nothing for a node with no export.
+  // portal#1433: direct children come from the server (findNodes childrenOf),
+  // not a filter over the memory's node list. A failed read is flagged so the
+  // tab says so instead of showing a childless node.
+  const childrenPromise = loadChildren(gqlClient(locals.token), { id: params.id, urn: graph?.urn }, node.loc).then(
+    (rows) => ({ children: rows, childrenFailed: false }),
+    (err) => {
+      console.error('[node-page] children read failed:', err);
+      return { children: [] as MemoryNode[], childrenFailed: true };
+    },
+  );
   const [storageForm, skillCheck] = await Promise.all([
     nodeStorageSeed(node),
     loadSkillCheck(gqlClient(locals.token), node),
@@ -546,9 +557,12 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     gqlClient(locals.token), node.memoryId, [...(node.outgoingEdges ?? []), ...(node.incomingEdges ?? [])],
   );
   const chatMessages = await chatMessagesPromise;
+  const { children, childrenFailed } = await childrenPromise;
 
   return {
     node,
+    children,
+    childrenFailed,
     isChat,
     isChatMessage,
     openChat,

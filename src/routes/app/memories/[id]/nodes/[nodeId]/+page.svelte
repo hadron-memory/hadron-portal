@@ -2171,21 +2171,7 @@
   }
 
   // Children: direct children of this node's loc
-  const children = $derived(
-    (data.graphNodes ?? [])
-      .filter((n) => {
-        if (n.loc === node.loc) return false;
-        if (!n.loc.startsWith(node.loc + ':')) return false;
-        const rest = n.loc.slice(node.loc.length + 1);
-        return !rest.includes(':');
-      })
-      .sort((a, b) => {
-        if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
-        if (a.seq !== null) return -1;
-        if (b.seq !== null) return 1;
-        return a.loc.localeCompare(b.loc);
-      })
-  );
+  const children = $derived(data.children);
   const hasChildren = $derived(children.length > 0);
   const childrenReorderable = $derived(children.some((c) => c.seq !== null));
   let childDragError = $state<string | null>(null);
