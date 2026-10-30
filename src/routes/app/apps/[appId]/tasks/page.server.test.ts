@@ -213,6 +213,29 @@ describe('task loader', () => {
     await expect(loadDetail()).rejects.toMatchObject({ status: 303, location: '/app/apps/app-2/tasks/t1' });
   });
 
+  it('portal#1340: the detail read selects properties and the loader hands back the task’s own value', async () => {
+    const own = { review: { local: false }, n: 0, s: '' };
+    request.mockImplementation(async (q: string) => {
+      if (q === AGENT_TASKS_APP_QUERY) return { app };
+      if (q === AGENT_TASK_DETAIL_QUERY) return { agentTask: detail({ properties: own }) };
+      if (q === AGENT_TASK_TREE_QUERY) return { agentTaskTree: [detail()] };
+      if (q === AGENT_TASK_EVENTS_QUERY) return { agentTeamEvents: [] };
+      return { agentTask: null };
+    });
+    const r = await loadDetail();
+    expect(AGENT_TASK_DETAIL_QUERY).toMatch(/\bproperties\b/);
+    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, expect.anything());
+    expect((r.task as { properties: unknown }).properties).toEqual(own);
+  });
+
+  it('portal#1340: a failed task read is a failure, never an empty Properties result', async () => {
+    request.mockImplementation(async (q: string) => {
+      if (q === AGENT_TASKS_APP_QUERY) return { app };
+      throw new Error('down');
+    });
+    await expect(loadDetail()).rejects.toThrow('down');
+  });
+
   it('a failed history leaves the facts and the tree in place', async () => {
     request.mockImplementation(async (q: string) => {
       if (q === AGENT_TASKS_APP_QUERY) return { app };

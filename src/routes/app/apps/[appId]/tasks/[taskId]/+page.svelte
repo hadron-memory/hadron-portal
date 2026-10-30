@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
   import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import CopyCode from '$lib/components/agent-tasks/CopyCode.svelte';
@@ -249,6 +250,8 @@
       </div>
     {/if}
   </section>
+
+  <TaskProperties properties={task.properties} />
 
   <section id="subtasks" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="subtasks-heading">
     <h2 id="subtasks-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.subtasks', 'Subtasks')}</h2>
