@@ -363,6 +363,35 @@ describe('task handles', () => {
     expect(support).toContain('Viewing as Mike: changes are switched off in a support session.');
   });
 
+  // portal#1414 (gate: Xanthos 6512531270): the server answers agentTaskTree(AT0) with
+  // null by design (AT0 is not a tree root). That is neutral on AT0 only; any other
+  // null (a race with deletion or revoked access) and any failed read keep the alert.
+  const subtasks = (html: string) => html.slice(html.indexOf('id="subtasks"'), html.indexOf('</section>', html.indexOf('id="subtasks"')));
+  const at0 = () => detail({ id: 'z0', handle: 'AT0', title: 'No project', status: 'BACKLOG', assignee: null });
+
+  it('AT0: a null tree is a neutral note, not a failure', () => {
+    const s = subtasks(taskPage({ task: at0(), tree: { kind: 'ok', value: null } }));
+    expect(s).toContain('data-testid="project-zero-tree"');
+    // Uma UX P2: say where AT0.<n> tasks are (the board), not that AT0 has none.
+    expect(s).toContain('Tasks that belong to no project are listed on the');
+    expect(s).toMatch(/<a href="\/app\/apps\/[^"]+\/tasks"[^>]*>Tasks page<\/a>, not under this one\./);
+    expect(s).not.toContain('role="alert"');
+    expect(s).not.toContain('Couldn’t load the subtasks.');
+  });
+
+  it('a null tree on any other task, and a failed read on any task, keep the alert', () => {
+    for (const [task, tree] of [
+      [detail({ id: 'abc', handle: 'AT3' }), { kind: 'ok', value: null }],
+      [detail({ id: 'abc', handle: 'AT3' }), { kind: 'failed' }],
+      [at0(), { kind: 'failed' }],
+    ] as const) {
+      const s = subtasks(taskPage({ task, tree }));
+      expect(s).toContain('role="alert"');
+      expect(s).toContain('Couldn’t load the subtasks.');
+      expect(s).not.toContain('project-zero-tree');
+    }
+  });
+
   it('a task that is not AT0 keeps its actions for a writer', () => {
     const html = taskPage({ task: detail({ id: 'abc', handle: 'AT3', status: 'BACKLOG', assignee: null }), canWrite: true });
     expect(html).not.toContain('project-zero-note');

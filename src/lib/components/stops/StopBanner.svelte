@@ -29,7 +29,7 @@
     <ul class="mt-1 list-inside list-disc">
       {#each live.value.signals as s (s.id)}
         {@const target = targetOf(s, workers)}
-        <li>{levelLabel(s.level)} · {scopeLabel(s.scope)}{#if target} · {target.name ?? target.id}{/if}{#if s.until} · {t('app.stops.until', 'until {time}', { time: fmtStopTime(s.until) })}{/if}</li>
+        <li>{levelLabel(s.level)} · {scopeLabel(s.scope)}{#if target}{' · '}{target.name ?? target.id}{/if}{#if s.until} · {t('app.stops.until', 'until {time}', { time: fmtStopTime(s.until) })}{/if}</li>
       {/each}
     </ul>
   </div>

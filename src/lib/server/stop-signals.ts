@@ -2,6 +2,7 @@ import type { GraphQLClient } from 'graphql-request';
 import { t } from '$lib/i18n/t';
 import type { WriteRefusal } from '$lib/agent-tasks/actions';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
+import { STOP_LEVELS } from '$lib/stop-signals/present';
 import { IMPERSONATION_SENTENCE } from '$lib/server/agent-task-writes';
 import type {
   LiveStops,
@@ -155,7 +156,6 @@ export async function loadStopPeople(client: GraphQLClient, appRef: string): Pro
 
 // ── the set form ─────────────────────────────────────────────────────────
 
-const LEVELS: StopLevel[] = ['PAUSE_DISPATCH', 'PAUSE', 'HALT'];
 const SCOPES: StopScope[] = ['WORKER', 'TEAM']; // HOST is display-only: never sent by the portal.
 
 export interface SetStopInput {
@@ -177,7 +177,7 @@ export function buildSetInput(
   now: Date = new Date(),
 ): { input: SetStopInput } | { invalid: { field: string; message: string } } {
   const level = String(fd.get('level') ?? '') as StopLevel;
-  if (!LEVELS.includes(level)) return { invalid: { field: 'level', message: t('app.stops.invalid.level', 'Choose a level.') } };
+  if (!STOP_LEVELS.includes(level)) return { invalid: { field: 'level', message: t('app.stops.invalid.level', 'Choose a level.') } };
   const scope = String(fd.get('scope') ?? '') as StopScope;
   if (!SCOPES.includes(scope)) return { invalid: { field: 'scope', message: t('app.stops.invalid.scope', 'Choose a worker or a team.') } };
   const worker = String(fd.get('worker') ?? '').trim();
@@ -222,11 +222,10 @@ const STOP_SENTENCES: Record<string, () => string> = {
 
 export function classifyStopError(e: unknown): WriteRefusal {
   if (!e || typeof e !== 'object' || !('response' in e)) return { kind: 'uncertain' };
-  const first = (e as { response?: { errors?: { message?: unknown; extensions?: { code?: unknown } }[] } }).response?.errors?.[0];
-  const code = typeof first?.extensions?.code === 'string' ? first.extensions.code : null;
+  const code = extractGqlErrorCode(e);
   if (!code) return { kind: 'uncertain' };
   const sentence = STOP_SENTENCES[code];
   if (sentence) return { kind: 'refused', code, message: sentence() };
-  if (code === 'FORBIDDEN' && first?.message === IMPERSONATION_SENTENCE) return { kind: 'refused', code, message: IMPERSONATION_SENTENCE };
+  if (code === 'FORBIDDEN' && (e as { response?: { errors?: { message?: unknown }[] } }).response?.errors?.[0]?.message === IMPERSONATION_SENTENCE) return { kind: 'refused', code, message: IMPERSONATION_SENTENCE };
   return { kind: 'uncertain' };
 }

@@ -16,7 +16,7 @@
   import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
-  import { invalidateAll } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import { WRITE_UNCERTAIN_TEXT, writeLead, type WriteRefusal } from '$lib/agent-tasks/actions';
   import Urn from '$lib/components/Urn.svelte';
@@ -56,7 +56,7 @@
   let status = $state<string | null>(null);
   let statusLine = $state<HTMLElement | null>(null);
   // One status line for every lift, outside the set form: the table is where the action happened.
-  let liftNote = $state<{ text: string } | null>(null);
+  let liftNote = $state<{ text: string; failed?: boolean } | null>(null);
   let liftLine = $state<HTMLElement | null>(null);
   let cancelButton = $state<HTMLButtonElement | null>(null);
   let formEl = $state<HTMLFormElement | null>(null);
@@ -70,6 +70,12 @@
   let seededFor = $state<string | null>(null);
   $effect.pre(() => {
     if (seededFor !== appId) {
+      // The page keeps `lifting` across an App change; a confirmation for
+      // App A's stop must not survive into App B.
+      if (seededFor !== null && lifting) {
+        liftDialog?.close();
+        onliftclose();
+      }
       generation++;
       level = 'PAUSE_DISPATCH';
       scope = 'WORKER';
@@ -171,7 +177,7 @@
       pending = true;
       pendingKind = kind;
       status = null;
-      if (kind === 'lift') liftNote = null;
+      liftNote = null;
       return async ({ result }) => {
         if (!alive || mine !== generation) return;
         pending = false;
@@ -205,6 +211,12 @@
           }
           return;
         }
+        // A redirect (an expired session sent to sign-in) is an answer, not an
+        // unknown: follow it instead of reading it as "may not have gone through".
+        if (result.type === 'redirect') {
+          await goto(result.location);
+          return;
+        }
         const failed: WriteRefusal =
           result.type === 'failure' && result.data && typeof result.data === 'object' && 'refusal' in result.data
             ? (result.data.refusal as WriteRefusal)
@@ -214,7 +226,7 @@
           confirming = false;
           dialog?.close();
         } else {
-          liftNote = { text: refusalText(failed) };
+          liftNote = { text: refusalText(failed), failed: true };
           liftDialog?.close();
           onliftclose();
         }
@@ -330,7 +342,7 @@
             {#if workerUrn}<p><Urn value={workerUrn} /></p>{/if}
             <p>{scopeCoverage(scope)}</p>
             <p>{levelEffect(level)}</p>
-            <p>{until ? t('app.stops.confirm.until', 'It ends on its own at {time}.', { time: fmtStopTime(untilIso) }) : t('app.stops.confirm.open', 'It lasts until someone lifts it.')}</p>
+            <p>{untilIso ? t('app.stops.confirm.until', 'It ends on its own at {time}.', { time: fmtStopTime(untilIso) }) : t('app.stops.confirm.open', 'It lasts until someone lifts it.')}</p>
             <p>{t('app.stops.confirm.messages', 'Messages are not held by any level.')}</p>
           </div>
           <div class="mt-4 flex flex-wrap justify-end gap-3">
@@ -347,7 +359,16 @@
   {/if}
 
   {#if liftNote}
-    <p bind:this={liftLine} tabindex="-1" role="status" aria-live="polite" data-testid="stop-lift-status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white">{liftNote.text}</p>
+    <p
+      bind:this={liftLine}
+      tabindex="-1"
+      role={liftNote.failed ? 'alert' : 'status'}
+      aria-live={liftNote.failed ? 'assertive' : 'polite'}
+      data-testid="stop-lift-status"
+      class="rounded-lg border px-3 py-2 text-sm {liftNote.failed
+        ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
+        : 'border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white'}"
+    >{liftNote.text}</p>
   {/if}
 
   {#if lifting && controls}

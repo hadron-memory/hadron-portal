@@ -80,7 +80,8 @@ describe('B2 where a refused lift lands', () => {
     await deliver(refusedLift);
     await tick(3);
     const line = root.querySelector<HTMLElement>('[data-testid="stop-lift-status"]');
-    expect(line?.getAttribute('role')).toBe('status');
+    expect(line?.getAttribute('role')).toBe('alert');
+    expect(line?.className).toMatch(/border-red-300/);
     expect(line?.textContent).toContain('Only whoever manages this App');
     expect(setForm(root).contains(line)).toBe(false);
     expect(setForm(root).textContent).not.toContain('Only whoever manages this App');
@@ -94,6 +95,8 @@ describe('B2 where a refused lift lands', () => {
     await deliver({ type: 'success', status: 200, data: { action: 'lift', ok: true, id: 's1', changed: true } });
     await tick(3);
     const line = root.querySelector<HTMLElement>('[data-testid="stop-lift-status"]');
+    expect(line?.getAttribute('role')).toBe('status');
+    expect(line?.className).not.toMatch(/border-red/);
     expect(line?.textContent).toContain('Stop lifted');
     expect(setForm(root).contains(line)).toBe(false);
   });
