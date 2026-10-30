@@ -17,7 +17,7 @@
   import { downloadAriaLabel, downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import PublicLinkConfirm from '$lib/components/assets/PublicLinkConfirm.svelte';
-  import { canSwitchPublicLink } from '$lib/assets/public-link';
+  import { canSwitchPublicLink, returnFocusAfterClose } from '$lib/assets/public-link';
   import { getAssetDownloadUrl, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
   import { assetErrorMessage } from '$lib/assets/error-messages';
 
@@ -36,12 +36,18 @@
   // Plain let: read only inside handlers.
   let linkBase: AssetSummary | null = null;
   let linkNote = $state<string | null>(null);
+  let linkTrigger = $state<HTMLButtonElement | null>(null);
+
+  function closeLinkConfirm() {
+    confirmingLink = false;
+    void returnFocusAfterClose(() => linkTrigger);
+  }
 
   function onLinkChanged(updated: AssetSummary) {
     // Applies only to the object the confirmation opened against: a refetch or
     // another asset arriving mid-request makes this answer older than the card.
     const base = linkBase;
-    confirmingLink = false;
+    closeLinkConfirm();
     linkBase = null;
     if (!base || base !== listed || updated.id !== listed.id) return;
     answer = { base, asset: updated };
@@ -152,7 +158,7 @@
   {#if canSwitchPublicLink(asset)}
     <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
       {#if confirmingLink}
-        <PublicLinkConfirm {asset} onchanged={onLinkChanged} oncancel={() => (confirmingLink = false)} />
+        <PublicLinkConfirm {asset} onchanged={onLinkChanged} oncancel={closeLinkConfirm} />
       {:else}
         <span class="text-xs text-zinc-500">
           {asset.publicLinkEnabled
@@ -161,6 +167,7 @@
         </span>
         <button
           type="button"
+          bind:this={linkTrigger}
           onclick={() => {
             linkNote = null;
             linkBase = listed;

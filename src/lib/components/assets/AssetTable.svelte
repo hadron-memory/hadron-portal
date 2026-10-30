@@ -26,7 +26,7 @@
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import PublicLinkConfirm from '$lib/components/assets/PublicLinkConfirm.svelte';
-  import { canSwitchPublicLink } from '$lib/assets/public-link';
+  import { canSwitchPublicLink, returnFocusAfterClose } from '$lib/assets/public-link';
   import Urn from '$lib/components/Urn.svelte';
   import { memoryUrnFromAssetUrn } from '$lib/assets/asset-urn';
   import { downloadAriaLabel, downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
@@ -338,6 +338,16 @@
     } else if (id === 'delete') pendingDelete = row.id;
   }
 
+  function closeLinkConfirm(id: string) {
+    pendingLink = null;
+    // Back to the row's ⋯ trigger, which re-renders in the panel's place.
+    void returnFocusAfterClose(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-asset-actions]')]
+        .find((el) => el.dataset.assetActions === id)
+        ?.querySelector<HTMLElement>('[aria-haspopup="menu"]'),
+    );
+  }
+
   function onLinkChanged(row: AssetRow, updated: AssetSummary) {
     // The base is the object listed when the confirmation OPENED. A refetch that
     // landed while the request was out hands over new objects, and the server's
@@ -347,7 +357,7 @@
     const base = linkBases.get(row.id);
     const current = assets.find((a) => a.id === row.id);
     linkBases.delete(row.id);
-    if (pendingLink === row.id) pendingLink = null;
+    if (pendingLink === row.id) closeLinkConfirm(row.id);
     if (!base || current !== base) return;
     overrides = { ...overrides, [row.id]: { base, asset: updated } };
     linkNote = {
@@ -502,14 +512,14 @@
           <PublicLinkConfirm
             asset={row}
             onchanged={(updated) => onLinkChanged(row, updated)}
-            oncancel={() => (pendingLink = null)}
+            oncancel={() => closeLinkConfirm(row.id)}
             {sending}
           />
         {/key}
       {:else}
         <!-- #1020: Download, Copy public link and Delete live in the row's ⋯
              menu. Delete still expands the inline confirm above, in place. -->
-        <div class="flex items-center gap-1.5">
+        <div class="flex items-center gap-1.5" data-asset-actions={row.id}>
           <NodeActionsMenu
             actions={assetActions(row)}
             onselect={(id) => onAssetAction(id, row)}
