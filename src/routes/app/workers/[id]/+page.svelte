@@ -6,6 +6,7 @@
   import WorkerSessionsTable from '$lib/components/WorkerSessionsTable.svelte';
   import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
   import type { ApplyResult } from '$lib/tickers/apply';
+  import { workerOfPage } from '$lib/tickers/refresh-page';
   import WorkerSignatureSection from './WorkerSignatureSection.svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
@@ -655,7 +656,7 @@
         canManage={data.canManageWorkerApp}
         applyKey={data.applyKey}
         viewerId={data.user?.id ?? null}
-        pageHasError={() => get(page).error != null}
+        errorPageWorker={() => { const p = get(page); return p.error != null ? workerOfPage(p) : null; }}
         applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
       />
     </div>

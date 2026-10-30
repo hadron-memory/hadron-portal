@@ -50,7 +50,7 @@
     floorSeconds = null,
     viewerId = null,
     workerIdentity = null,
-    pageHasError,
+    errorPageWorker,
   }: {
     canManage: boolean | null;
     action: string;
@@ -62,8 +62,12 @@
     viewerId?: string | null;
     /** The worker's canonical ids and App, recorded in the refresh marker. Without them no marker is left. */
     workerIdentity?: { id: string; urn: string | null; appId: string | null; orgId: string | null } | null;
-    /** True when the page now shows an error (kit navigated to its error route). Read once a refresh has resolved. */
-    pageHasError: () => boolean;
+    /**
+     * The worker (the route's spelling) whose page is showing an error right now, or null when there is none.
+     * Read once a refresh has resolved: an error at THIS worker is the refresh's own failure; an error anywhere
+     * else is not (George's P2 on b3fa8201).
+     */
+    errorPageWorker: () => string | null;
   } = $props();
 
   // A result written for another route (the page is reused across /workers/A → B) is not this one's.
@@ -74,6 +78,10 @@
   let refreshFailedFor = $state<string | null>(null);
   let region = $state<HTMLElement | null>(null);
   let button = $state<HTMLButtonElement | null>(null);
+
+  // An error page for this worker, in any of its spellings, is this panel's own refresh having failed.
+  const failedHere = (errorAt: string | null) =>
+    errorAt !== null && (errorAt === originKey || errorAt === workerIdentity?.id || (!!workerIdentity?.urn && errorAt === workerIdentity.urn));
 
   const mine = ++sequence;
   const originKey = untrack(() => workerKey);
@@ -152,9 +160,11 @@
           }
           if (live?.id !== mine) {
             // Gone during the refresh. Kit's error route unmounts this panel too, and the refresh resolves either
-            // way, so the page store says which it was: with no error the refresh worked (the reader moved on)
-            // and nothing may claim a failed reload later. Only this attempt's marker is touched.
-            if (attempt && !pageHasError()) clearRefreshMarker(attempt);
+            // way, so the page store says which it was: an error page for THIS worker is the refresh's own failure
+            // and keeps the marker; no error (the reader moved on) or an error for another worker (a destination
+            // that failed on its own) is not, and nothing may claim a failed reload later. Only this attempt's
+            // marker is touched.
+            if (attempt && !failedHere(errorPageWorker())) clearRefreshMarker(attempt);
             return;
           }
           if (attempt) clearRefreshMarker(attempt);

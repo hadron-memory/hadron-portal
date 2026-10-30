@@ -10,28 +10,33 @@
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { applyRefreshFailedLine } from '$lib/tickers/apply';
+  import { workerOfPage } from '$lib/tickers/refresh-page';
   import { takeRefreshMarker } from '$lib/tickers/refresh-marker';
 
   // The scope the CURRENT page is in. A boundary kit reuses across error navigations keeps this instance, so
   // everything below follows these, never a one-time read (Anne's P2 on 7290cfe4).
   const viewer = $derived(($page.data as { user?: { id?: string } | null } | undefined)?.user?.id ?? null);
-  const worker = $derived($page.params?.id ?? null);
+  const worker = $derived(workerOfPage($page));
   const orgId = $derived(($page.data as { activeOrgId?: string | null } | undefined)?.activeOrgId ?? null);
-  const onWorker = $derived($page.route?.id === '/app/workers/[id]');
+  // The error this instance is showing. Kit reuses a boundary across error navigations at the same scope, and a
+  // claim consumed for one error is not a claim about the next (George's P2 on b3fa8201).
+  const error = $derived($page.error);
+  const status = $derived($page.status);
 
-  // The scope whose marker this instance consumed. Replaced (or dropped) whenever the page's scope changes, so
-  // a claim made for one viewer/worker is never shown for another, nor again on coming back to it.
+  // The scope AND error whose marker this instance consumed. Replaced (or dropped) whenever either changes, so a
+  // claim made for one viewer/worker/error is never shown for another, nor again on coming back to it.
   let consumed = $state<{ viewer: string; worker: string } | null>(null);
   $effect(() => {
     const v = viewer;
     const w = worker;
-    const ok = onWorker;
     const org = orgId;
+    void error;
+    void status;
     untrack(() => {
-      consumed = v && w && ok && takeRefreshMarker({ viewer: v, worker: w, orgId: org }) ? { viewer: v, worker: w } : null;
+      consumed = v && w && takeRefreshMarker({ viewer: v, worker: w, orgId: org }) ? { viewer: v, worker: w } : null;
     });
   });
-  const shown = $derived(consumed !== null && onWorker && consumed.viewer === viewer && consumed.worker === worker);
+  const shown = $derived(consumed !== null && consumed.viewer === viewer && consumed.worker === worker);
 </script>
 
 {#if shown}

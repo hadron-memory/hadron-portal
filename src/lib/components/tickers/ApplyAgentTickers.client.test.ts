@@ -33,7 +33,7 @@ afterEach(() => {
 });
 
 async function mountApply(props: Record<string, unknown>) {
-  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, viewerId: viewer, workerIdentity: identity, pageHasError: () => errorAt !== null, errorPageWorker: () => errorAt, ...props });
+  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, viewerId: viewer, workerIdentity: identity, errorPageWorker: () => errorAt, ...props });
   const m = mountComponent(ApplyAgentTickers as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
