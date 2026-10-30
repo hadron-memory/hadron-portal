@@ -78,13 +78,16 @@ async function loadWorker(id: string, signature: string) {
  * so the reply is minted for that epoch. Omitted, the reply carries the bare
  * loader stamp (the no-JS POST shape).
  */
-async function actionReply(id: string, draft: string, outcome: 'refuse' | 'ok', formId?: string, base = 'base') {
+async function actionReply(
+  id: string, draft: string, outcome: 'refuse' | 'ok', formId?: string,
+  base = 'base', trailer = '', trailerBase = '',
+) {
   const fd = new FormData();
   fd.set('_kind', 'updateSignature');
   fd.set('signature', draft);
   fd.set('signatureBase', base);
-  fd.set('trailer', '');
-  fd.set('trailerBase', '');
+  fd.set('trailer', trailer);
+  fd.set('trailerBase', trailerBase);
   if (formId) fd.set('__superform_id', formId);
   if (outcome === 'refuse') mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'Forbidden'));
   else mockRequest.mockResolvedValueOnce({ updateWorker: { id } });
@@ -141,6 +144,7 @@ function navigateTo(data: Record<string, unknown>) {
 
 const sectionEl = (t: HTMLElement) => t.querySelector<HTMLElement>('[data-testid="worker-signature"]')!;
 const sigField = (t: HTMLElement) => sectionEl(t).querySelector<HTMLTextAreaElement>('textarea[name="signature"]')!;
+const trailerField = (t: HTMLElement) => sectionEl(t).querySelector<HTMLTextAreaElement>('textarea[name="trailer"]')!;
 const sigBase = (t: HTMLElement) => sectionEl(t).querySelector<HTMLInputElement>('input[name="signatureBase"]')!;
 const saveButton = (t: HTMLElement) => sectionEl(t).querySelector<HTMLButtonElement>('button[type="submit"]')!;
 /** The id this MOUNT answers to (`<stamp>#<uuid>` in the browser), for minting replies at its own epoch. */
@@ -272,22 +276,27 @@ describe('worker signature: prior-epoch seed gate (#1450)', () => {
   const stamp = updateSignatureFormId('w-a');
 
   /**
-   * The loader's form for one stored signature — ONE object per loader run,
-   * shared by every remount while that run stands, exactly as the page
-   * passes data.signatureForm itself (a fresh object only when the loader
-   * reruns).
+   * The loader's form for one stored signature and trailer — each base mirrors
+   * its own field (`trailerBase: worker.trailer ?? ''` in the loader), so a
+   * save that lands moves only the bases of the fields it changed. ONE object
+   * per loader run, shared by every remount while that run stands, exactly as
+   * the page passes data.signatureForm itself (a fresh object only when the
+   * loader reruns).
    */
-  const loaderFormFor = (stored: string) =>
+  const loaderFormFor = (stored: string, trailer = '') =>
     superValidate(
-      { signature: stored, trailer: '', signatureBase: stored, trailerBase: '' },
+      { signature: stored, trailer, signatureBase: stored, trailerBase: trailer },
       zod4(updateSignatureSchema),
       { errors: false, id: stamp },
     ) as Promise<SuperValidated<UpdateSignatureForm>>;
 
   /** The section's props for one remount, as the page builds them per render from the SAME loader form object. */
-  function sectionProps(initialForm: SuperValidated<UpdateSignatureForm>, actionResult: unknown, storedSignature: string) {
+  function sectionProps(
+    initialForm: SuperValidated<UpdateSignatureForm>, actionResult: unknown,
+    storedSignature: string, trailer: string | null = null,
+  ) {
     return reactiveProps({
-      signature: storedSignature, trailer: null, retired: false, initialForm, actionResult,
+      signature: storedSignature, trailer, retired: false, initialForm, actionResult,
     });
   }
 
@@ -347,6 +356,41 @@ describe('worker signature: prior-epoch seed gate (#1450)', () => {
     const target = mountSection(sectionProps(await loaderFormFor('A-SIG SAVED LATER'), reply, 'A-SIG SAVED LATER'));
     expect(sigField(target).value).toBe('A-SIG SAVED LATER');
     expect(sigBase(target).value).toBe('A-SIG SAVED LATER');
+    expect(saveButton(target).disabled).toBe(true);
+    expect(sectionEl(target).textContent).not.toMatch(/can't change this worker's signature/i);
+  });
+
+  // Rico's §10 P3-4: the gate's trailerBase half is load-bearing on its own.
+  // A trailer-only save lands after the refusal — the stored signature (and
+  // its base) are untouched, but the stored trailer moved, and the loader's
+  // trailerBase with it. The stale refusal still carries the OLD trailer
+  // base, so the store has overtaken it and NOTHING seeds; dropping the
+  // trailerBase condition (Rico's surviving mutant) would seed the stale
+  // signature draft too, its base still matching.
+  it('an earlier mount’s refusal does not seed once a later trailer-only save moved only the trailer base (Rico’s §10 P3-4)', async () => {
+    const reply = await actionReply(
+      'w-a', 'stale doomed draft', 'refuse', `${stamp}#old-epoch`,
+      SIG_A, 'stale trailer draft', 'old trailer',
+    );
+    const target = mountSection(sectionProps(await loaderFormFor(SIG_A, 'TRL SAVED LATER'), reply, SIG_A, 'TRL SAVED LATER'));
+    expect(sigField(target).value).toBe(SIG_A);
+    expect(trailerField(target).value).toBe('TRL SAVED LATER');
+    expect(saveButton(target).disabled).toBe(true);
+    expect(sectionEl(target).textContent).not.toMatch(/can't change this worker's signature/i);
+  });
+
+  // Rico's §10 P3-5: the stamp's percent-encoding is load-bearing on its own.
+  // Worker `w-a#2`'s UNENCODED stamp would be `updateSignature:w-a#2` —
+  // literally A's stamp plus the epoch separator — so a refused reply minted
+  // by w-a#2's own mount would ride A's prefix arm into A's freshly mounted
+  // editor. The encoded ref keeps `#` out of every stamp, so the reply
+  // belongs to no mount of A and seeds nothing. The reply's bases are made
+  // EQUAL to A's loader's deliberately, so the encoding is the only guard
+  // this leg rests on.
+  it('a refusal for a worker whose ref contains # never prefix-matches another worker’s stamp (Rico’s §10 P3-5)', async () => {
+    const reply = await actionReply('w-a#2', 'B’s refused draft', 'refuse', `${updateSignatureFormId('w-a#2')}#b-epoch`, SIG_A);
+    const target = mountSection(sectionProps(await loaderFormFor(SIG_A), reply, SIG_A));
+    expect(sigField(target).value).toBe(SIG_A);
     expect(saveButton(target).disabled).toBe(true);
     expect(sectionEl(target).textContent).not.toMatch(/can't change this worker's signature/i);
   });
