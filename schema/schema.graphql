@@ -1,4 +1,4 @@
-# Exported from hadron-server 9f42805b8349ce15c21475d49e010014f1f11611 (9f42805b8349ce15c21475d49e010014f1f11611, 2026-10-30T05:22:46-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 35da7f37ca22f4cf49a67a96eb6368df0c79b392 (35da7f37ca22f4cf49a67a96eb6368df0c79b392, 2026-10-30T06:58:42-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -1661,7 +1661,7 @@ enum AppMemoryKind {
 """#2190: one reason a memory is in an App's scope."""
 type AppMemorySource {
   """
-  The installed or base Agent, for AGENT_SYSTEM, AGENT_LINK and INHERITED_BASE; null for TEAM_SPACE. An id only: when it does not resolve to an Agent this caller may read, show the source kind without a name.
+  The installed or base Agent, for AGENT_SYSTEM, AGENT_LINK and INHERITED_BASE; null for TEAM_SPACE and APP_MEMORY. An id only: when it does not resolve to an Agent this caller may read, show the source kind without a name.
   """
   agentId: ID
   kind: AppMemorySourceKind!
@@ -1673,6 +1673,11 @@ enum AppMemorySourceKind {
 
   """The system memory of an Agent installed in this App."""
   AGENT_SYSTEM
+
+  """
+  A free-standing app memory of this App, the kind createAppMemory makes: app-class, no Agent links it, not the team space. Listed for App participants only, never for an org reader who is not one (hrn:node:hadronmemory.com:specs:cor:dmo:050:17, hadron-server#2861).
+  """
+  APP_MEMORY
 
   """
   A base Agent's system memory, with nodes inherited by an installed Agent's system memory (hrn:node:hadronmemory.com:specs:cor:dmo:050:14).
@@ -1943,7 +1948,7 @@ type AppScopedMemory {
   name: String!
 
   """
-  Every reason this memory is in scope. Never empty. Ordered by kind (AGENT_SYSTEM, AGENT_LINK, INHERITED_BASE, TEAM_SPACE), then by agent install order.
+  Every reason this memory is in scope. Never empty. Ordered by kind (AGENT_SYSTEM, AGENT_LINK, INHERITED_BASE, TEAM_SPACE, APP_MEMORY), then by agent install order.
   """
   sources: [AppMemorySource!]!
 

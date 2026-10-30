@@ -19,8 +19,44 @@ it('drains a server-clamped list before filtering app-scoped memories',async()=>
 it('reports a failed memory list instead of claiming it is empty',async()=>{
  expect(await readAppMemories({request:vi.fn().mockRejectedValue(new Error('offline'))} as never,'o','a')).toBeNull();
 });
-it('does not query unrelated memories for an org-less App',async()=>{
- const request=vi.fn();expect(await readAppMemories({request} as never,null,'a')).toEqual([]);expect(request).not.toHaveBeenCalled();
+// #1451 Ask 2: a user-owned App has no org to list through, so its app memories
+// come from appMemoryScope (hadron-server#2861), keeping the APP_MEMORY rows.
+describe('app memories of an App with no organization', () => {
+  const row = (id: string, kinds: (string | [string, string])[]) => ({
+    memoryId: id, memoryUrn: `hrn:mem:example.com:${id}`, name: `Memory ${id}`,
+    sources: kinds.map(k => (Array.isArray(k) ? { kind: k[0], agentId: k[1] } : { kind: k, agentId: null })),
+  });
+  it('reads the App scope and keeps only the free-standing app memories', async () => {
+    const request = vi.fn().mockResolvedValue({ appMemoryScope: { total: 4, items: [
+      row('mine', ['APP_MEMORY']), row('team', ['TEAM_SPACE']), row('agent', [['AGENT_SYSTEM', 'ag1']]), row('also', ['APP_MEMORY', ['AGENT_LINK', 'ag1']]),
+    ] } });
+    expect(await readAppMemories({ request } as never, null, 'a')).toEqual([
+      { id: 'mine', urn: 'hrn:mem:example.com:mine', name: 'Memory mine', description: null, appId: 'a' },
+      { id: 'also', urn: 'hrn:mem:example.com:also', name: 'Memory also', description: null, appId: 'a' },
+    ]);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0][0]).toContain('appMemoryScope(appRef: $appRef');
+    expect(request.mock.calls[0][1]).toEqual({ appRef: 'a', limit: 200, offset: 0 });
+  });
+  it('never asks the org list, which a user-owned App has none of', async () => {
+    const request = vi.fn().mockResolvedValue({ appMemoryScope: { total: 0, items: [] } });
+    await readAppMemories({ request } as never, null, 'a');
+    expect(request.mock.calls.every(c => !String(c[0]).includes('memories('))).toBe(true);
+  });
+  it('drains every page of the scope before filtering', async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce({ appMemoryScope: { total: 2, items: [row('team', ['TEAM_SPACE'])] } })
+      .mockResolvedValueOnce({ appMemoryScope: { total: 2, items: [row('late', ['APP_MEMORY'])] } });
+    expect((await readAppMemories({ request } as never, null, 'a'))?.map(m => m.id)).toEqual(['late']);
+    expect(request.mock.calls.map(c => c[1])).toEqual([{ appRef: 'a', limit: 200, offset: 0 }, { appRef: 'a', limit: 200, offset: 1 }]);
+  });
+  it('is empty, not failed, when the App has no app memories', async () => {
+    const request = vi.fn().mockResolvedValue({ appMemoryScope: { total: 1, items: [row('team', ['TEAM_SPACE'])] } });
+    expect(await readAppMemories({ request } as never, null, 'a')).toEqual([]);
+  });
+  it('reports a failed read instead of claiming it is empty', async () => {
+    expect(await readAppMemories({ request: vi.fn().mockRejectedValue(new Error('offline')) } as never, null, 'a')).toBeNull();
+  });
 });
 
 it('bounds an optional list outage instead of hanging the App page',async()=>{
