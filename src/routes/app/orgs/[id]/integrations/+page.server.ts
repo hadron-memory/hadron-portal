@@ -7,7 +7,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { t } from '$lib/i18n/t';
 import {
@@ -56,6 +56,14 @@ type ActionFailureStatus = NumericRange<400, 599>;
 
 function actionFailureStatus(status: number): ActionFailureStatus {
   return status >= 400 && status <= 599 ? status as ActionFailureStatus : 500;
+}
+
+// portal#1347: the server answers a missing, deleted or not-yours Exchange
+// connection with one refusal, FORBIDDEN (authorizationDenied()). Test and Delete
+// show it as 403, the same for every case so the two stay indistinguishable;
+// every other failure (another code, transport, a plain Error) stays 500.
+function exchangeConnectionFailureStatus(e: unknown): 403 | 500 {
+  return extractGqlErrorCode(e) === 'FORBIDDEN' ? 403 : 500;
 }
 
 function scrubPrivateKey<T extends { data: { privateKey: string } }>(form: T): T {
@@ -267,7 +275,7 @@ export const actions: Actions = {
       return message(
         form,
         { type: 'error', text: extractGqlError(e, 'Failed to delete Exchange connection') },
-        { status: 500 },
+        { status: exchangeConnectionFailureStatus(e) },
       );
     }
   },
@@ -287,7 +295,7 @@ export const actions: Actions = {
       return message(
         form,
         { type: 'error', text: extractGqlError(e, 'Exchange connection test failed') },
-        { status: 500 },
+        { status: exchangeConnectionFailureStatus(e) },
       );
     }
   },
