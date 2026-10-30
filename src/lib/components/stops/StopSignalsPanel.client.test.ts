@@ -305,6 +305,15 @@ describe('lifting', () => {
     expect(new FormData(liftForm(root)).get('id')).toBe('s1');
   });
 
+  it('an open lift confirmation goes away when the hint turns from yes to unknown', async () => {
+    const { root, props } = await mountPanel({ lifting });
+    await tick(3);
+    expect(root.querySelector('dialog[aria-labelledby="stop-lift-title"]')).not.toBeNull();
+    props.manages = 'unknown';
+    await tick(3);
+    expect(root.querySelector('dialog[aria-labelledby="stop-lift-title"]')).toBeNull();
+  });
+
   it('changed:false says it had already ended, not an error', async () => {
     const { root } = await mountPanel({ lifting });
     await tick(3);

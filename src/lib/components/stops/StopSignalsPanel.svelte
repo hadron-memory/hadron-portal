@@ -80,7 +80,7 @@
     generation++;
   });
 
-  const controls = $derived(!impersonating && manages !== 'no');
+  const controls = $derived(!impersonating && manages === 'yes');
   const workerUrn = $derived(workers.find((w) => w.id === worker)?.urn ?? null);
   // datetime-local is zone-less: convert in the browser so the server gets the
   // reader's instant (ISO, with zone) and the dialog shows what will be set.
