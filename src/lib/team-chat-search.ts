@@ -68,6 +68,12 @@ export function outcomeOf(items: readonly unknown[], complete: boolean, cursor: 
 export function isSearchResponse(body: unknown): body is TeamChatSearchResponse {
   if (typeof body !== 'object' || body === null) return false;
   const b = body as Record<string, unknown>;
-  if (b.ok === true) return Array.isArray(b.items) && typeof b.complete === 'boolean';
-  return b.ok === false && typeof b.code === 'string';
+  if (b.ok === true) {
+    return (
+      Array.isArray(b.items) &&
+      b.items.every((i) => typeof i === 'object' && i !== null && typeof (i as { seq?: unknown }).seq === 'number') &&
+      typeof b.complete === 'boolean'
+    );
+  }
+  return b.ok === false && (b.code === 'FAILED' || (TEAM_CHAT_SEARCH_REFUSALS as readonly string[]).includes(b.code as string));
 }

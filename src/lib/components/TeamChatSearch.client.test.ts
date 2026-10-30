@@ -194,4 +194,20 @@ describe('TeamChatSearch', () => {
     expect(fetchMock.mock.calls[2][0]).not.toContain('cursor=');
     expect(m.target.textContent).toContain('fresh');
   });
+
+  it('lands Load more on the page holding the new rows even after the reader changes rows per page', async () => {
+    const first = Array.from({ length: 30 }, (_, k) => hit(500 - k, { body: `old ${k}` }));
+    fetchMock.mockResolvedValueOnce(reply(ok(first, { complete: false, cursor: 'c2' })));
+    const m = mountPanel();
+    await search(m, 'old');
+    const size = m.target.querySelector('select') as HTMLSelectElement;
+    size.value = '10';
+    size.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick();
+    expect(m.target.textContent).toContain('Page 1 of 3');
+    fetchMock.mockResolvedValueOnce(reply(ok([hit(3, { body: 'newest-loaded' })])));
+    (q(m, 'more') as HTMLButtonElement).click();
+    await wait(0);
+    expect(m.target.textContent).toContain('newest-loaded');
+  });
 });

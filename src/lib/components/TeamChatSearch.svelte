@@ -106,7 +106,7 @@
     const firstNew = rows.length;
     rows = [...rows, ...res.items];
     // One visible pager: land on the page holding the first new row.
-    table.setPageIndex(Math.floor(firstNew / PAGE_SIZE));
+    table.setPageIndex(Math.floor(firstNew / table.atoms.pagination.get().pageSize));
     complete = res.complete;
     cursor = res.cursor;
   }
@@ -121,8 +121,8 @@
   const columns: PortalColumnDef<TeamChatSearchHit>[] = [
     { id: 'when', accessorFn: (r) => r.at ?? '', header: s.colWhen(), size: 150, enableSorting: false },
     { id: 'author', accessorFn: (r) => r.authorName ?? '', header: s.colAuthor(), size: 110, enableSorting: false },
-    { id: 'message', accessorFn: (r) => r.body ?? '', header: s.colMessage(), enableHiding: false, size: 360, enableSorting: false },
     { id: 'urn', accessorFn: (r) => r.urn ?? '', header: s.colUrn(), size: 240, enableSorting: false },
+    { id: 'message', accessorFn: (r) => r.body ?? '', header: s.colMessage(), enableHiding: false, size: 360, enableSorting: false },
   ];
   const table = createSvelteTable<TeamChatSearchHit>({
     get data() { return rows; },
