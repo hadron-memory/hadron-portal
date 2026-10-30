@@ -36,7 +36,7 @@ function answer(over: Record<string, unknown> = {}) {
     }
     if (q === AGENT_TASKS_APP_QUERY) return { app };
     if (q === APP_VIEWER_MANAGES_QUERY) return { app: { id: 'app-1', viewerManages: true } };
-    if (q === TEAM_STOP_SIGNALS_QUERY) return { teamStopSignals: { signals: vars.includeEnded ? [signal] : [signal], pageInfo: { hasNextPage: false, endCursor: null } } };
+    if (q === TEAM_STOP_SIGNALS_QUERY) return { teamStopSignals: { signals: [signal], pageInfo: { hasNextPage: false, endCursor: null } } };
     if (q === STOP_WORKERS_QUERY) return { teamRoster: { workers: [{ worker: { id: 'w1', name: 'Gaby', urn: 'hrn:worker:acme.com:team:gaby' } }] } };
     if (q === STOP_PEOPLE_QUERY) return { app: { members: [{ user: { id: 'u1', handle: 'holger', name: 'Holger' } }] } };
     throw new Error(`unexpected ${q}`);
