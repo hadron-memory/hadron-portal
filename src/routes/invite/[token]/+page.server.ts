@@ -4,6 +4,7 @@ import type { Infer } from 'sveltekit-superforms/adapters';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
+import { TURNSTILE_FIELD, turnstileToken } from '$lib/turnstile';
 import { emailLoginErrorStatus, startBoundMagicLink } from '$lib/server/emailLogin';
 import { INVITATION_QUERY, ACCEPT_INVITATION_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
@@ -55,14 +56,17 @@ export const actions: Actions = {
   },
 
   sendEmail: async ({ request, params, cookies }) => {
-    const form = await superValidate<InviteEmailForm>(
-      await request.formData(),
-      inviteEmailFormAdapter,
-    );
+    const formData = await request.formData();
+    const form = await superValidate<InviteEmailForm>(formData, inviteEmailFormAdapter);
     if (!form.valid) return fail(400, { form });
 
     // #505: set the session-fixation nonce cookie and forward it as clientState.
-    const result = await startBoundMagicLink(cookies, form.data.email, `/invite/${params.token}`);
+    const result = await startBoundMagicLink(
+      cookies,
+      form.data.email,
+      `/invite/${params.token}`,
+      turnstileToken(formData.get(TURNSTILE_FIELD)),
+    );
     if (!result.ok) {
       return message(form, { type: 'error', text: result.error }, {
         status: emailLoginErrorStatus(result.status),

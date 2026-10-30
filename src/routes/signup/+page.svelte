@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TurnstileWidget from '$lib/components/TurnstileWidget.svelte';
   import { page } from '$app/state';
   import AppleLoginButton from '$lib/components/AppleLoginButton.svelte';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
@@ -37,6 +38,8 @@
     `/auth/start/apple?redirect=${encodeURIComponent(postAuthRedirect)}`
   );
 
+  let turnstile: TurnstileWidget | undefined = $state();
+
   const initialEmailForm = untrack(() => form?.form ?? data.form);
   const {
     form: emailForm,
@@ -51,6 +54,9 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #1470: a Turnstile token verifies once, so a fresh one is needed after any submit.
+    onUpdated: () => turnstile?.reset(),
+    onError: () => turnstile?.reset(),
   });
   const emailError = $derived($emailErrors.email?.[0] ?? null);
   const actionError = $derived($emailMessage?.type === 'error' ? $emailMessage.text : null);
@@ -122,6 +128,7 @@
         {#if actionError && !emailError}
           <p role="alert" class="mt-2 text-sm text-red-500">{actionError}</p>
         {/if}
+        <TurnstileWidget bind:this={turnstile} />
         <button
           type="submit"
           disabled={$emailSubmitting}

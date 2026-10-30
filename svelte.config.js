@@ -30,7 +30,10 @@ const config = {
       mode: 'auto',
       directives: {
         'default-src': ['self'],
-        'script-src': ['self'],
+        // #1470: Cloudflare Turnstile's script and its challenge iframe, and
+        // nothing else — still no 'unsafe-inline'; nonces keep covering ours.
+        'script-src': ['self', 'https://challenges.cloudflare.com'],
+        'frame-src': ['https://challenges.cloudflare.com'],
         // Many components emit inline style="" attributes; nonces don't cover
         // style attributes, so allow inline styles (low XSS risk).
         'style-src': ['self', 'unsafe-inline'],
