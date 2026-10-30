@@ -15,9 +15,12 @@ import Page from './+page.svelte';
 
 const SIG = '— [{{worker.name}}, {{worker.role}}]({{worker.url}}) · {{session.llmModel}}';
 
+/** The default worker's id, so the mount stamp and the reply stamp can never drift apart. */
+const DEFAULT_WORKER_ID = 'w-a';
+
 function worker(over: Record<string, unknown>) {
   return {
-    id: 'w-a', appId: 'app-1', agentId: 'agent-1', name: 'Dara', slug: 'dara',
+    id: DEFAULT_WORKER_ID, appId: 'app-1', agentId: 'agent-1', name: 'Dara', slug: 'dara',
     urn: 'hrn:worker:hadronmemory.com:team:dara', role: 'engineer',
     prompt: null, memoryId: null, retiredAt: null,
     heldByUserId: null, heldAt: null, createdAt: '1789430400000',
@@ -48,7 +51,7 @@ async function mount(w: ReturnType<typeof worker>, form: unknown = undefined) {
         zod4(updateSignatureSchema),
         // portal#1448 — stamped the way the real loader stamps, so the seed
         // and reply regime here is the one production runs.
-        { errors: false, id: updateSignatureFormId(String(w.id)) },
+        { errors: false, id: updateSignatureFormId(w.id) },
       ),
       initialTab: 'briefing', initialView: null,
       workerSessions: [], sessionsTruncated: false, worklog: [], worklogTotal: 0,
@@ -64,7 +67,7 @@ async function actionResult(signature: string, message: { type: 'success' | 'err
   const f = await superValidate(
     { _kind: 'updateSignature', signature, trailer: '', signatureBase: 'whatever', trailerBase: '' },
     zod4(updateSignatureSchema),
-    { errors: false, id: updateSignatureFormId('w-a') },
+    { errors: false, id: updateSignatureFormId(DEFAULT_WORKER_ID) },
   );
   return { form: { ...f, message } };
 }
@@ -100,8 +103,10 @@ describe('worker page: Signature and trailer (#1142 P4)', () => {
   // field and its base only — the masked field is absent outright. This pins
   // the browser's half; the action's half (an omitted field is never read as a
   // '' clear — posted presence decides, not the schema default) is pinned in
-  // signature.test.ts: "save sends changed fields only" and "posted presence,
-  // not defaults".
+  // signature.test.ts: "a field the page did not show (masked) is never sent"
+  // and the "posted presence, not defaults" describe ("an omitted template
+  // with a non-empty base is not sent") — both masking directions, asserted
+  // on the mutation payload (what would be written), not just a non-failure.
   const posted = (s: HTMLElement) =>
     Object.fromEntries([...new FormData(s.querySelector<HTMLFormElement>('form[action*="updateSignature"]')!)].map(([k, v]) => [k, String(v)]));
 

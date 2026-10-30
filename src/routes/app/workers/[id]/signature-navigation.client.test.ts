@@ -12,16 +12,18 @@
  * (updateSignatureFormId) — an unstamped form carries the schema-hash default,
  * one id for EVERY worker, and the key never moves across an A→B navigation.
  *
- * The late-reply test drives the REAL delivery path (applyAction setting
- * page.form, applied by superforms to any mounted form with the same id). It
- * was RED until portal#1448 landed (CM ruling on #1366): A's and B's editors
- * shared the schema-hash form id, so a late A reply overwrote B's live
- * editor. Since #1448 the reply carries A's stamp and since #1450 a mounted
- * editor answers only to its own per-mount epoch, so a stamped A reply cannot
- * reach B's editor in any spelling.
+ * The late-reply legs drive the REAL delivery path (applyAction setting
+ * page.form, applied by superforms to any mounted form with the same id) and
+ * carry a positive control: the same delivery at the editor's own live epoch
+ * lands (the refusal message renders), so the negatives — an A-minted reply
+ * while B is live — prove a fence, not a dead wire. The other reply
+ * spellings (the bare loader stamp, the per-mount epoch fence across
+ * A→B→A) are pinned in signature-isolation.client.test.ts (#1448/#1450);
+ * the page.form pin was held RED at the unfixed parent (CI run 41013104823,
+ * CM ruling on #1366).
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { flushSync } from 'svelte';
+import { flushSync, tick } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
@@ -76,8 +78,8 @@ async function pageData(w: typeof WORKER_A) {
 /** Mount the real Page with reactive loader data; navigation is a data swap. */
 async function mountPage(w: typeof WORKER_A) {
   const props = reactiveProps<Record<string, unknown>>({ data: await pageData(w), form: undefined });
-  const page = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
-  mounted.push(page);
+  const instance = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(instance);
   return props;
 }
 
@@ -86,6 +88,34 @@ async function navigateTo(props: Awaited<ReturnType<typeof mountPage>>, w: typeo
   setStubPage(`https://example.test/app/workers/${w.id}?tab=briefing`, { id: w.id });
   props.data = await pageData(w);
   flushSync();
+}
+
+/**
+ * applyAction's shape, as SvelteKit delivers a late reply to a live page:
+ * page.form is set and the page store notifies. The awaited microtasks let
+ * superforms' asynchronous application settle before the assertions read.
+ */
+async function deliverLate(reply: unknown) {
+  page.update((p) => ({ ...p, form: reply }));
+  await tick();
+  await new Promise((r) => setTimeout(r));
+  flushSync();
+}
+
+/** The id this mount answers to (`<stamp>#<uuid>` in the browser), for minting a reply at its own epoch. */
+const instanceIdOf = (t: HTMLElement) =>
+  t.querySelector<HTMLElement>('[data-testid="worker-signature"]')!
+    .querySelector<HTMLFormElement>('form')!
+    .getAttribute('data-superform-id')!;
+
+/** A refused reply for `who`, minted the way the real action does: at `epoch` when given, else the bare loader stamp. */
+async function refusedReply(who: string, epoch: string | null, draft: string) {
+  const failed = await superValidate(
+    { _kind: 'updateSignature', signature: draft, trailer: '', signatureBase: 'A-SIG', trailerBase: 'A-TRAILER' },
+    zod4(updateSignatureSchema),
+    { errors: false, id: epoch ?? updateSignatureFormId(who) },
+  );
+  return { form: { ...failed, message: { type: 'error', text: 'refused' } as const } };
 }
 
 /** What the browser would post from the section's real form. */
@@ -141,62 +171,69 @@ describe('worker page: signature section across worker navigation (#1366)', () =
     });
   });
 
-  it('a late failed reply for A never writes A’s text into B through the real page.form path (no remount: the editor keeps B’s state)', async () => {
+  // The control for every negative below (Joran's blind delta on #1443): each
+  // of them also passes if the stub page store were not wired to anything
+  // superforms reads. This leg delivers through the SAME page-store path at
+  // the editor's own live epoch and asserts the reply LANDS — the message
+  // renders on the editor it targets — so the fence, not a dead wire, is what
+  // the negatives prove. (A bare-stamp reply to a live editor is pinned to
+  // pass through untouched in signature-isolation.client.test.ts.)
+  it('control: the same page.form delivery at the editor’s own epoch lands — the refusal and its text show on A', async () => {
+    await mountPage(WORKER_A);
+    await deliverLate(await refusedReply('w-a', instanceIdOf(currentPage().target), 'A REFUSED TEXT'));
+    // The path is live: the reply's message renders AND its submitted text is
+    // restored to the editor (an own-epoch refusal applies, so the reader can
+    // edit and retry — the same semantics signature-isolation.client.test.ts
+    // pins as "the draft and the refusal line stay").
+    expect(currentPage().target.textContent).toContain('refused');
+    expect(field(currentPage().target, 'signature').value).toBe('A REFUSED TEXT');
+  });
+
+  it('a late failed reply minted by A never writes A’s text into B through the real page.form path (no remount: the editor keeps B’s state)', async () => {
     const props = await mountPage(WORKER_A);
     typeInto(currentPage().target, 'signature', 'A DRAFT SIG');
+    // A's epoch: the enhanced submit posts the mount's instance id and the
+    // action echoes it back, so a real refusal for A carries THIS id.
+    const aEpoch = instanceIdOf(currentPage().target);
     await navigateTo(props, WORKER_B);
     const target = currentPage().target;
     const bTrailer = field(target, 'trailer');
     typeInto(target, 'trailer', 'B DRAFT TRAILER');
-    const before = posted(target);
 
-    // A's save refusal lands while B is mounted — through the REAL path:
-    // applyAction sets page.form, and superforms applies it to any mounted
-    // form with the same id. The reply carries A's own stamp (a real refusal
-    // is stamped by the action; before portal#1448 it carried the schema-hash
-    // default shared by every worker's editor, which is what made this pin
-    // RED there, CM ruling on #1366): B must keep its own text, bases, save
-    // state and payload, and the reply must not reach B's editor or the page.
-    const failed = await superValidate(
-      { _kind: 'updateSignature', signature: 'A REFUSED TEXT', trailer: '', signatureBase: 'A-SIG', trailerBase: 'A-TRAILER' },
-      zod4(updateSignatureSchema),
-      { errors: false, id: updateSignatureFormId('w-a') },
-    );
-    page.update((p) => ({ ...p, form: { form: { ...failed, message: { type: 'error', text: 'refused' } } } }));
-    flushSync();
+    // A's save refusal lands while B is mounted — through the REAL path
+    // (applyAction setting page.form, applied by superforms to a mounted form
+    // with the same id). B's editor answers to B's own epoch, so the reply
+    // belongs to no live form: B keeps its own text, bases, save state and
+    // payload, and the refusal line never shows on B's page.
+    await deliverLate(await refusedReply('w-a', aEpoch, 'A REFUSED TEXT'));
 
     // No remount: the same editor node, no stale error banner from A on B,
-    // and B's serialized state is exactly what it was before the reply.
+    // and B's serialized state is exactly its own.
     expect(field(currentPage().target, 'trailer')).toBe(bTrailer);
     expect(currentPage().target.textContent).not.toContain('refused');
-    expect(posted(currentPage().target)).toEqual(before);
     expect(posted(currentPage().target)).toEqual({
       _kind: 'updateSignature', signature: 'B-SIG', signatureBase: 'B-SIG', trailer: 'B DRAFT TRAILER', trailerBase: 'B-TRAILER',
     });
-    expect(JSON.stringify(posted(currentPage().target))).not.toContain('A REFUSED');
   });
 
-  it('a navigation that clears the form before B’s remount: B seeds from B’s loader form, not A’s refusal', async () => {
+  it('after A’s refusal is delivered and the page navigates, B seeds from B’s loader form — A’s reply leaves no residue', async () => {
     const props = await mountPage(WORKER_A);
-    typeInto(currentPage().target, 'signature', 'A DRAFT SIG');
 
-    const failed = await superValidate(
-      { _kind: 'updateSignature', signature: 'A REFUSED TEXT', trailer: '', signatureBase: 'A-SIG', trailerBase: 'A-TRAILER' },
-      zod4(updateSignatureSchema),
-      { errors: false, id: updateSignatureFormId('w-a') },
-    );
-    props.form = { form: { ...failed, message: { type: 'error', text: 'refused' } } };
-    flushSync();
-    // The refusal has really been rendered through: A's live editor keeps its
-    // draft (a late action result seeds only a mount, never a live form).
-    expect(field(currentPage().target, 'signature').value).toBe('A DRAFT SIG');
+    // A's refusal arrives through the same real page-store path while A is
+    // live — and demonstrably lands there (the control above): the message
+    // shows and the refused text becomes A's editor value.
+    await deliverLate(await refusedReply('w-a', instanceIdOf(currentPage().target), 'A REFUSED TEXT'));
+    expect(currentPage().target.textContent).toContain('refused');
+    expect(field(currentPage().target, 'signature').value).toBe('A REFUSED TEXT');
 
-    // The realistic order: the navigation to B loads B's data and replaces the
-    // page state, so the form is cleared BEFORE B's keyed remount reads it.
-    props.form = undefined;
+    // The navigation to B replaces the page state — the form is cleared
+    // BEFORE B's keyed remount reads it (setStubPage resets the store, as
+    // SvelteKit clears page.form on a navigation) — so B mounts from B's own
+    // loader form alone.
     await navigateTo(props, WORKER_B);
 
     const target = currentPage().target;
+    expect(target.textContent).not.toContain('refused');
     expect(field(target, 'signature').value).toBe('B-SIG');
     expect(JSON.stringify(posted(target))).not.toContain('A REFUSED');
     expect(posted(target)).toEqual({
