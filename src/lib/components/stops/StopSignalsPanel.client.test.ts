@@ -342,6 +342,17 @@ describe('lifting', () => {
     expect(root.querySelector('dialog[aria-labelledby="stop-lift-title"]')).toBeNull();
   });
 
+  it('navigating to another App closes an open lift confirmation and tells the page', async () => {
+    let closed = 0;
+    const { root, props } = await mountPanel({ lifting, onliftclose: () => closed++ });
+    await tick(3);
+    expect(root.querySelector<HTMLDialogElement>('dialog[aria-labelledby="stop-lift-title"]')!.open).toBe(true);
+    props.appId = 'app-2';
+    flushSync();
+    await tick(3);
+    expect(closed).toBe(1);
+  });
+
   it('changed:false says it had already ended, not an error', async () => {
     const { root } = await mountPanel({ lifting });
     await tick(3);
