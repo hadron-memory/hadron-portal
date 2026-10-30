@@ -31,7 +31,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
-  import { page } from '$app/stores';
   import { invalidateAll } from '$app/navigation';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
@@ -49,6 +48,7 @@
     workerKey,
     result = null,
     floorSeconds = null,
+    viewerId = null,
   }: {
     canManage: boolean | null;
     action: string;
@@ -56,6 +56,8 @@
     workerKey: string;
     result?: ApplyResult | null;
     floorSeconds?: number | null;
+    /** The signed-in viewer, to scope the refresh marker. Without one no marker is left. */
+    viewerId?: string | null;
   } = $props();
 
   // A result written for another route (the page is reused across /workers/A → B) is not this one's.
@@ -134,8 +136,7 @@
         // showing (the refresh worked, or rejected and is said below), and kept when the panel was replaced.
         let refreshFailed = false;
         if (result.type === 'success') {
-          const viewer = ($page.data as { user?: { id?: string } | null } | undefined)?.user?.id;
-          const attempt = viewer ? setRefreshMarker({ viewer, worker: originKey }) : null;
+          const attempt = viewerId ? setRefreshMarker({ viewer: viewerId, worker: originKey }) : null;
           try {
             await invalidateAll();
           } catch {

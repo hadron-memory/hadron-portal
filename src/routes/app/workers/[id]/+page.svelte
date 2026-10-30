@@ -652,6 +652,7 @@
         loadedAt={data.wakeLoadedAt}
         canManage={data.canManageWorkerApp}
         applyKey={data.applyKey}
+        viewerId={data.user?.id ?? null}
         applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
       />
     </div>

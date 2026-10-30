@@ -12,20 +12,21 @@ import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { applyAction, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
-import { page } from '$lib/test/stubs/app-stores';
 import { REFRESH_MARKER_KEY, setRefreshMarker } from '$lib/tickers/refresh-marker';
 import ApplyAgentTickers from './ApplyAgentTickers.svelte';
 
+// portal#1462: the signed-in viewer a test mounts the panel for (null: none known).
+let viewer: string | null = null;
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   sessionStorage.clear();
-  page.update((p) => ({ ...p, data: {} }));
+  viewer = null;
   while (mounted.length) mounted.pop()!.unmount();
   resetNavigationCalls();
 });
 
 async function mountApply(props: Record<string, unknown>) {
-  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, ...props });
+  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, viewerId: viewer, ...props });
   const m = mountComponent(ApplyAgentTickers as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
@@ -451,7 +452,7 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
     const raw = sessionStorage.getItem(REFRESH_MARKER_KEY);
     return raw ? JSON.parse(raw) : null;
   };
-  const asViewer = (id: string | null) => page.update((p) => ({ ...p, data: id ? { user: { id } } : {} }));
+  const asViewer = (id: string | null) => { viewer = id; };
 
   it('is written for this viewer and worker BEFORE the refresh starts, and only after a confirmed success', async () => {
     asViewer('u-1');
