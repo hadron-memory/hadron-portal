@@ -1498,6 +1498,22 @@ export const DELETE_MEMORY_MUTATION = /* GraphQL */ `
 // must not render the first as an explanation.
 //
 // Gate: memory owner or org-ADMIN, the same one `updateMemory` uses.
+// portal#1346: the "Vector index health" panel. validateMemory has NO check
+// filter: it runs every check over the whole memory and `limit` caps the
+// combined findings, so the portal keeps EMBED_FAILED client-side. Read-only,
+// and a whole-memory scan, so it only runs when the reader asks.
+export const VALIDATE_MEMORY_QUERY = /* GraphQL */ `
+  query ValidateMemory($memoryRef: ID!, $limit: Int) {
+    validateMemory(memoryRef: $memoryRef, limit: $limit) {
+      nodesChecked
+      totalFindings
+      truncated
+      findings { kind nodeId nodeLoc nodeUrn detail }
+      skippedChecks { check reason }
+    }
+  }
+`;
+
 export const RETRY_FAILED_EMBEDDINGS_MUTATION = /* GraphQL */ `
   mutation RetryFailedEmbeddings($memoryRef: ID!) { retryFailedEmbeddings(memoryRef: $memoryRef) }
 `;
@@ -2945,6 +2961,9 @@ export const NODE_COLUMNS_QUERY = /* GraphQL */ `
         revision
         approvalStatus { state }
         signatureStatus { state }
+        embeddingPendingAt
+        embeddingFailedAt
+        embeddingError
         # Last authored-edit attribution; the user projection landed in #2189.
         updatedByUser { handle urn }
         updatedByAgent { id name urn }
@@ -2972,6 +2991,9 @@ export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
         updatedAt
         revision
         approvalStatus { state }
+        embeddingPendingAt
+        embeddingFailedAt
+        embeddingError
         updatedByUser { handle urn }
         updatedByAgent { id name urn }
         updatedByWorker { id name urn }
