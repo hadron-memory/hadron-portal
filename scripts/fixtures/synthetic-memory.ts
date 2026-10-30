@@ -65,4 +65,3 @@ export function synthMemory(nodeCount: number, shape: Shape = DEFAULT_SHAPE, see
   };
   return { memory, nodes, edges, usage };
 }
-

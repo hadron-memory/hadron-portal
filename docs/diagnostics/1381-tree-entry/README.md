@@ -16,7 +16,7 @@ The fixture preloads entries before the timed click. The initial view is a place
 
 ## Source and dataset
 
-Production source: fresh main `184bd51474160d9ec3f45fc6681985f9635fc60a`, which already contains Gino's #1423 diagnostic. The source hash map in [results.json](results.json) pins TreeView, graph-utils, runner, harness and generator as actually measured, including the then-uncommitted diagnostic files. Subsequent report/docs commits do not change that production source.
+Production source: fresh main `184bd51474160d9ec3f45fc6681985f9635fc60a`, which already contains Gino's #1423 diagnostic. The source hash map in [results.json](results.json) pins TreeView, graph-utils, runner, harness and generator as actually measured, including the then-uncommitted diagnostic files. The measured diagnostic source bytes are also preserved in commit `295f8143` (the hash map matches that commit). A subsequent commit trims one extra EOF blank line in the extracted generator; its algorithm and compiled behavior are unchanged. Production source is unchanged.
 
 The seeded case reuses **exactly the same synthMemory, DEFAULT_SHAPE and seed=1380** as #1423. The pure generator was extracted unchanged into `scripts/fixtures/synthetic-memory.ts`; #1423's test imports/re-exports it, preserving its API. There are 32,920 real nodes; buildTreeEntries runs before timing and synthesizes virtual parents, yielding **60,194 entries and 27,092 initially rendered rows**. The generator also creates its original edges/usage to preserve seed consumption, but these are not passed to TreeView or kept as full layout projections. This is the same data seed/count, **not a calibrated match to production tree topology**.
 
