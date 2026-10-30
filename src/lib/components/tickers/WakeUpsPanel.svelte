@@ -27,16 +27,19 @@
     appId,
     loadedAt,
     canManage = false,
+    applyKey,
     applyAction = '?tab=wake&/applyTickerTemplates',
     applyResult = null,
   }: {
     wake: TickerRead<WorkerWakeSettings>;
     appSettings: TickerRead<AppTickerSettings> | null;
-    worker: { id?: string; retiredAt: string | null };
+    worker: { retiredAt: string | null };
     appId: string | null;
     loadedAt: string;
     /** portal#1462: may the viewer manage the worker's App (null = unknown; the server decides). */
     canManage?: boolean | null;
+    /** The route's identity for this worker: what the apply action keys its result with. */
+    applyKey: string;
     applyAction?: string;
     applyResult?: ApplyResult | null;
   } = $props();
@@ -91,8 +94,8 @@
 
 <section class="space-y-4" data-testid="wake-panel">
   <!-- portal#1462: independent of the reads below, so a failed read never hides it. -->
-  {#key worker.id}
-    <ApplyAgentTickers canManage={canManage} action={applyAction} workerKey={worker.id ?? ''} result={applyResult} floorSeconds={minCadence} />
+  {#key applyKey}
+    <ApplyAgentTickers canManage={canManage} action={applyAction} workerKey={applyKey} result={applyResult} floorSeconds={minCadence} />
   {/key}
   {#if wake.kind === 'not-participant'}
     <TickersNotParticipant what="wake" />

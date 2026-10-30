@@ -651,7 +651,8 @@
         appId={data.worker.app?.id ?? null}
         loadedAt={data.wakeLoadedAt}
         canManage={data.canManageWorkerApp}
-                applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
+        applyKey={data.applyKey}
+        applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
       />
     </div>
   {/if}

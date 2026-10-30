@@ -13,11 +13,31 @@
     floor and nothing ever says "raised" (Xavier's gate delta 2).
   - A refusal says "nothing was created" only for the two the server refuses
     whole; anything else is outcome-unknown, with a hint to refresh.
+  - The receipt's rows are the shared grid (DataTable), not bespoke lists.
+  - A result belongs to the MOUNT that sent it (George's P2s on #1464). The page
+    is reused across workers, and kit's own pathname guard passes again on
+    A → B → A, so a late result is fenced here, BEFORE `update`: a mount that is
+    no longer the live one applies nothing, and only refreshes the loader when
+    the reader is back on the worker it was written for.
+  - One live region is mounted before any result, and focus moves to it after
+    one (kit's applyAction resets focus to the body), unless the reader has
+    already moved to another control (Uma's P2/P3 on #1464).
 -->
+<script module lang="ts">
+  // The mount that is showing a panel right now. Client-only: it is set in onMount.
+  let live: { id: number; key: string } | null = null;
+  let sequence = 0;
+</script>
 <script lang="ts">
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
+  import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import { floorLabel, type ApplyResult } from '$lib/tickers/apply';
+  import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
+  import { makeGlobalFilterFn } from '$lib/table/global-filter';
+  import type { PortalColumnDef } from '$lib/table/features';
+  import { floorLabel, type AppliedTicker, type ApplyResult } from '$lib/tickers/apply';
   import { cadenceText } from '$lib/tickers/format';
   import { t } from '$lib/i18n/t';
 
@@ -30,26 +50,96 @@
   }: {
     canManage: boolean | null;
     action: string;
-    /** The worker this panel is showing; a result for another worker is never shown. */
+    /** The route's identity for this worker (what the action keys its result with), never the loaded worker's id. */
     workerKey: string;
     result?: ApplyResult | null;
     floorSeconds?: number | null;
   } = $props();
 
-  // A result written for another worker (the page is reused across /workers/A → B) is not this one's.
+  // A result written for another route (the page is reused across /workers/A → B) is not this one's.
   const shown = $derived(result && result.key === workerKey ? result : null);
   let submitting = $state(false);
+  let region = $state<HTMLElement | null>(null);
+  let button = $state<HTMLButtonElement | null>(null);
 
-  const submit = () => {
+  const mine = ++sequence;
+  const originKey = untrack(() => workerKey);
+  onMount(() => {
+    live = { id: mine, key: originKey };
+  });
+  onDestroy(() => {
+    if (live?.id === mine) live = null;
+  });
+
+  async function focusResult() {
+    await tick();
+    const active = document.activeElement;
+    // Don't steal focus from a control the reader moved to while the request ran: only from the body
+    // (where kit's applyAction leaves it) or from this form's own button.
+    if (!active || active === document.body || active === button) region?.focus();
+  }
+
+  const submit = ({ cancel }: { cancel: () => void }) => {
+    if (submitting) {
+      cancel();
+      return;
+    }
     submitting = true;
     return async ({ update }: { update: (o?: { reset?: boolean }) => Promise<void> }) => {
+      if (live?.id !== mine) {
+        // This mount is gone (the reader moved on, perhaps A → B → A). Its result is not applied to any
+        // panel; the loader is refreshed only when the reader is back on the worker it was written for.
+        if (live && live.key === originKey) await invalidateAll();
+        return;
+      }
       try {
         await update({ reset: false });
       } finally {
         submitting = false;
       }
+      await focusResult();
     };
   };
+
+  // The receipt's rows, in the shared grid.
+  interface CreatedRow { c: AppliedTicker; text: string; cadence: number }
+  interface PresentRow { id: string; name: string }
+  const createdRows = $derived<CreatedRow[]>(
+    shown && shown.ok ? shown.created.map((c) => ({ c, text: [c.tickerName, c.tickerUrn ?? ''].filter(Boolean).join(' '), cadence: c.effectiveCadenceSeconds })) : [],
+  );
+  const presentRows = $derived<PresentRow[]>(shown && shown.ok ? shown.alreadyPresent : []);
+  let createdFilter = $state('');
+  let presentFilter = $state('');
+  const createdColumns: PortalColumnDef<CreatedRow>[] = [
+    { id: 'ticker', accessorFn: (r) => r.text, header: t('worker.apply.col.ticker', 'Ticker'), enableHiding: false, size: 260 },
+    { id: 'template', accessorFn: (r) => r.c.templateName, header: t('worker.apply.col.template', 'From template'), size: 180 },
+    { id: 'every', accessorFn: (r) => r.cadence, header: t('worker.apply.col.every', 'Every'), size: 140 },
+  ];
+  const presentColumns: PortalColumnDef<PresentRow>[] = [
+    { id: 'template', accessorFn: (r) => r.name, header: t('worker.apply.col.present', 'Template'), enableHiding: false, size: 300 },
+  ];
+  const createdTable = createSvelteTable<CreatedRow>({
+    get data() { return createdRows; },
+    columns: createdColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: { get globalFilter() { return createdFilter; } },
+    onGlobalFilterChange: (u) => { createdFilter = typeof u === 'function' ? u(createdFilter) : u; },
+    globalFilterFn: makeGlobalFilterFn<CreatedRow>({ every: (v) => (typeof v === 'number' ? cadenceText(v) : '') }),
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
+  const presentTable = createSvelteTable<PresentRow>({
+    get data() { return presentRows; },
+    columns: presentColumns,
+    enableMultiSort: false,
+    enableColumnResizing: true,
+    columnResizeMode: 'onChange',
+    state: { get globalFilter() { return presentFilter; } },
+    onGlobalFilterChange: (u) => { presentFilter = typeof u === 'function' ? u(presentFilter) : u; },
+    globalFilterFn: makeGlobalFilterFn<PresentRow>({}),
+    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+  });
 </script>
 
 {#if canManage !== false}
@@ -61,46 +151,74 @@
     <form method="POST" {action} use:enhance={submit}>
       <button
         type="submit"
-        disabled={submitting}
-        aria-describedby={shown ? 'apply-tickers-result' : undefined}
-        class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
-      >{t('worker.apply.button', 'Apply the Agent’s tickers')}</button>
+        bind:this={button}
+        aria-disabled={submitting ? 'true' : undefined}
+        aria-describedby="apply-tickers-result"
+        class="rounded-md bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-500 aria-disabled:opacity-50"
+      >{submitting ? t('worker.apply.pending', 'Adding…') : t('worker.apply.button', 'Apply the Agent’s tickers')}</button>
     </form>
 
-    {#if shown && 'refusal' in shown}
-      <div id="apply-tickers-result" role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300" data-testid="apply-refusal">
-        <p>{shown.refusal.message}</p>
-        {#if shown.refusal.code}<code class="font-mono opacity-80">{shown.refusal.code}</code>{/if}
-      </div>
-    {:else if shown}
-      <div id="apply-tickers-result" role="status" class="space-y-2 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-900 dark:border-green-900 dark:bg-green-950 dark:text-green-200" data-testid="apply-receipt">
-        {#if shown.created.length === 0}
-          <p>{t('worker.apply.none', 'Nothing to create: this worker already has every ticker its Agent declares.')}</p>
-        {:else}
-          <p class="font-semibold">{t('worker.apply.created', 'Created {n} ticker(s):', { n: shown.created.length })}</p>
-          <ul class="space-y-1.5">
-            {#each shown.created as c (c.tickerId)}
-              {@const label = floorLabel(c.effectiveCadenceSeconds, floorSeconds)}
-              <li class="min-w-0">
-                <span class="font-medium break-words">{c.tickerName}</span>
-                <span class="text-green-800 dark:text-green-300">
-                  {t('worker.apply.from', 'from {template}', { template: c.templateName })} ·
-                  {t('worker.apply.every', 'every {every}', { every: cadenceText(c.effectiveCadenceSeconds) })}{#if label}&nbsp;({label}){/if}
-                </span>
-                {#if c.tickerUrn}<div class="mt-0.5"><Urn value={c.tickerUrn} size={9} compact linked label={t('app.tickers.urn-label', 'ticker')} /></div>{/if}
-              </li>
-            {/each}
-          </ul>
-        {/if}
-        {#if shown.alreadyPresent.length > 0}
-          <div>
-            <p class="font-semibold">{t('worker.apply.already', 'Already had:')}</p>
-            <ul class="list-inside list-disc">
-              {#each shown.alreadyPresent as a (a.id)}<li class="break-words">{a.name}</li>{/each}
-            </ul>
-          </div>
-        {/if}
-      </div>
-    {/if}
+    <!-- Mounted before any result, so a screen reader is already watching it; focus moves here after an apply. -->
+    <div id="apply-tickers-result" bind:this={region} tabindex="-1" aria-live="polite" class="space-y-2 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+      {#if shown && 'refusal' in shown}
+        <div role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300" data-testid="apply-refusal">
+          <p>{shown.refusal.message}</p>
+          {#if shown.refusal.code}<code class="font-mono opacity-80">{shown.refusal.code}</code>{/if}
+        </div>
+      {:else if shown}
+        <div role="status" class="space-y-3 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-xs text-green-900 dark:border-green-900 dark:bg-green-950 dark:text-green-200" data-testid="apply-receipt">
+          {#if shown.created.length === 0}
+            <p>{t('worker.apply.none', 'Nothing to create: this worker already has every ticker its Agent declares.')}</p>
+          {:else}
+            <div class="space-y-1.5">
+              <p class="font-semibold">
+                {shown.created.length === 1
+                  ? t('worker.apply.created-one', 'Created 1 ticker:')
+                  : t('worker.apply.created', 'Created {n} tickers:', { n: shown.created.length })}
+              </p>
+              <DataTable
+                table={createdTable}
+                listKey="worker-wake:apply-created"
+                searchPlaceholder={t('worker.apply.search', 'Search the receipt…')}
+                searchAriaLabel={t('worker.apply.search', 'Search the receipt…')}
+                bind:globalFilter={createdFilter}
+                maxHeight="max(120px, 40vh)"
+              >
+                {#snippet cell(cell, row)}
+                  {#if cell.column.id === 'ticker'}
+                    <div class="flex min-w-0 flex-col">
+                      <span class="font-medium break-words">{row.c.tickerName}</span>
+                      {#if row.c.tickerUrn}<Urn value={row.c.tickerUrn} size={9} compact linked label={t('app.tickers.urn-label', 'ticker')} />{/if}
+                    </div>
+                  {:else if cell.column.id === 'template'}
+                    <span class="break-words">{row.c.templateName}</span>
+                  {:else if cell.column.id === 'every'}
+                    {@const label = floorLabel(row.c.effectiveCadenceSeconds, floorSeconds)}
+                    <span class="whitespace-nowrap">{cadenceText(row.c.effectiveCadenceSeconds)}{#if label}&nbsp;({label}){/if}</span>
+                  {/if}
+                {/snippet}
+              </DataTable>
+            </div>
+          {/if}
+          {#if shown.alreadyPresent.length > 0}
+            <div class="space-y-1.5">
+              <p class="font-semibold">{t('worker.apply.already', 'Already had:')}</p>
+              <DataTable
+                table={presentTable}
+                listKey="worker-wake:apply-present"
+                searchPlaceholder={t('worker.apply.search', 'Search the receipt…')}
+                searchAriaLabel={t('worker.apply.search', 'Search the receipt…')}
+                bind:globalFilter={presentFilter}
+                maxHeight="max(120px, 40vh)"
+              >
+                {#snippet cell(cell, row)}
+                  {#if cell.column.id === 'template'}<span class="break-words">{row.name}</span>{/if}
+                {/snippet}
+              </DataTable>
+            </div>
+          {/if}
+        </div>
+      {/if}
+    </div>
   </section>
 {/if}

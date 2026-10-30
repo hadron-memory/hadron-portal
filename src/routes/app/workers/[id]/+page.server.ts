@@ -190,6 +190,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     canManageWorkerApp,
     // The key a pointer result carries (the action's own params.id).
     bootPointerKey: params.id,
+    // portal#1462: the same for an apply result. The route may spell the worker as its URN while
+    // `worker.id` is its id, so the panel is keyed by the spelling the action keys with.
+    applyKey: params.id,
   };
 };
 
