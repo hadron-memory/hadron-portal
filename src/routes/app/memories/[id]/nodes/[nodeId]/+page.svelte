@@ -24,6 +24,7 @@
   import NodeList from '$lib/components/NodeList.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
+  import { searchMemoryNodes, pickEdgeTarget, type TypeaheadNode } from '$lib/memory/node-typeahead';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -663,9 +664,29 @@
   );
   // Same-memory nodes for the output-target datalist (any URN can still be
   // typed — flows may write to another memory in the org).
+  // Fetched on demand as the user types (portal#1433): the page no longer
+  // carries the memory's node list.
+  let outputTargetHits = $state<TypeaheadNode[]>([]);
+  $effect(() => {
+    const q = outputWriteTo.trim();
+    const memoryId = data.graph.id;
+    if (q.length < 2 || isFullyQualifiedNodeUrnInput(q)) {
+      outputTargetHits = [];
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(async () => {
+      const hits = await searchMemoryNodes(memoryId, q);
+      if (!stale) outputTargetHits = hits;
+    }, 200);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  });
   const outputTargetOptions = $derived(
-    (data.graphNodes ?? [])
-      .filter((n) => n.memoryId === data.graph.id && n.id !== node.id)
+    outputTargetHits
+      .filter((n) => n.id !== node.id)
       .map((n) => ({ urn: data.graph.urn ? composeNodeUrn(data.graph.urn, n.loc) : n.loc, name: n.name ?? n.loc })),
   );
 
@@ -1625,16 +1646,10 @@
     editableEdges = editableEdges.filter((_, i) => i !== idx);
   }
 
-  function addEditableEdge() {
-    // Match the target by loc against graphNodes (loaded on the page already).
-    const candidates = data.graphNodes ?? [];
-    const q = newEdgeTargetQuery.trim().toLowerCase();
+  async function addEditableEdge() {
+    const q = newEdgeTargetQuery.trim();
     if (!q) return;
-    const target = candidates.find(
-      (n) => n.loc.toLowerCase() === q || n.name?.toLowerCase() === q,
-    ) ?? candidates.find(
-      (n) => n.loc.toLowerCase().includes(q) || (n.name ?? '').toLowerCase().includes(q),
-    );
+    const target = pickEdgeTarget(await searchMemoryNodes(data.graph.id, q), q);
     if (!target) {
       addEdgeError = `No node found matching "${newEdgeTargetQuery}"`;
       return;
