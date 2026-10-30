@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { onMount, tick } from "svelte";
   import { page } from "$app/stores";
   import type { TreeEntry } from "$lib/types";
   import { t } from "$lib/i18n/t";
@@ -107,6 +107,109 @@
     expanded[id] = !isExpanded(id);
   }
 
+  // ── Bounded window (#1381 Slice 2) ───────────────────────────────────
+  // The tree used to render every expanded row (~5,500 rows / 33k DOM nodes on
+  // Holger's memory). Rows are a fixed ROW_HEIGHT, so the visible expansion is
+  // flattened and only the rows in (and just around) the scroller's viewport
+  // are mounted; padding on the <nav> stands in for the rest so the scrollbar
+  // reflects the full height.
+  const ROW_HEIGHT = 28;
+  const OVERSCAN = 20;
+  /** Viewport height assumed before layout is known (SSR, first paint). */
+  const FALLBACK_VIEWPORT = 800;
+
+  interface FlatRow {
+    node: TreeNode;
+    depth: number;
+  }
+
+  let flatRows = $derived.by(() => {
+    const out: FlatRow[] = [];
+    const walk = (nodes: TreeNode[], depth: number) => {
+      for (const node of nodes) {
+        out.push({ node, depth });
+        if (node.children.length > 0 && isExpanded(node.entry.id)) walk(node.children, depth + 1);
+      }
+    };
+    walk(tree, 0);
+    return out;
+  });
+
+  let navEl = $state<HTMLElement | null>(null);
+  let scroller: HTMLElement | null = null;
+  let scrollTop = $state(0);
+  let viewportHeight = $state(FALLBACK_VIEWPORT);
+  // The row holding focus stays mounted however far the scroller moves, so
+  // scrolling never drops keyboard focus.
+  let focusedId = $state<string | null>(null);
+
+  function findScroller(el: HTMLElement): HTMLElement | null {
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const oy = getComputedStyle(p).overflowY;
+      if (oy === "auto" || oy === "scroll") return p;
+    }
+    return null;
+  }
+
+  function measure() {
+    if (!navEl) return;
+    if (!scroller) {
+      scrollTop = 0;
+      viewportHeight = FALLBACK_VIEWPORT;
+      return;
+    }
+    // Tree top relative to the scroller's content, so a header above the tree
+    // doesn't shift the window.
+    const offset = navEl.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    scrollTop = Math.max(0, scroller.scrollTop - offset);
+    viewportHeight = scroller.clientHeight || FALLBACK_VIEWPORT;
+  }
+
+  onMount(() => {
+    if (!navEl) return;
+    scroller = findScroller(navEl);
+    measure();
+    const target: HTMLElement | Window = scroller ?? window;
+    target.addEventListener("scroll", measure, { passive: true });
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    if (scroller) ro?.observe(scroller);
+    return () => {
+      target.removeEventListener("scroll", measure);
+      ro?.disconnect();
+    };
+  });
+
+  let focusedIndex = $derived(
+    focusedId === null ? -1 : flatRows.findIndex((r) => r.node.entry.id === focusedId),
+  );
+
+  let windowRange = $derived.by(() => {
+    const total = flatRows.length;
+    let first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+    let last = Math.min(total, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+    first = Math.min(first, total);
+    last = Math.max(last, first);
+    // Tabbing walks the DOM, so a focused row at the window's edge pulls the
+    // window along with it: the next Tab then lands on a mounted row instead of
+    // leaving the tree. A focus far outside the window is pinned instead (below).
+    if (focusedIndex !== -1 && focusedIndex >= first - OVERSCAN && focusedIndex < last + OVERSCAN) {
+      first = Math.min(first, Math.max(0, focusedIndex - OVERSCAN));
+      last = Math.max(last, Math.min(total, focusedIndex + OVERSCAN + 1));
+    }
+    return { first, last };
+  });
+
+  /** Rows mounted: the window, plus the focused row if it scrolled far out of it. */
+  let visibleRows = $derived.by(() => {
+    const { first, last } = windowRange;
+    const rows = flatRows.slice(first, last).map((r, i) => ({ ...r, index: first + i }));
+    if (focusedIndex !== -1 && (focusedIndex < first || focusedIndex >= last)) {
+      const pinned = { ...flatRows[focusedIndex], index: focusedIndex };
+      return focusedIndex < first ? [pinned, ...rows] : [...rows, pinned];
+    }
+    return rows;
+  });
+
   // Active node: from URL or graph selection
   let activeNodeId = $derived.by(() => {
     const path = $page.url.pathname;
@@ -131,9 +234,15 @@
       }
     }
     tick().then(() => {
-      const el = document.querySelector(`.tree-row[data-node-id="${loc}"]`);
-      if (el) {
-        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      // The row may not be mounted (outside the window), so scroll by its
+      // computed position, not by looking the element up.
+      const idx = flatRows.findIndex((r) => r.node.entry.id === loc);
+      if (idx === -1 || !scroller || !navEl) return;
+      const offset = navEl.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+      const top = offset + idx * ROW_HEIGHT;
+      if (top < scroller.scrollTop) scroller.scrollTo({ top, behavior: "smooth" });
+      else if (top + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight) {
+        scroller.scrollTo({ top: top + ROW_HEIGHT - scroller.clientHeight, behavior: "smooth" });
       }
     });
   });
@@ -333,16 +442,22 @@
     {/if}
   </div>
 
-  {#if hasChildren && open}
-    {#each node.children as child}
-      {@render nodeRow(child, depth + 1)}
-    {/each}
-  {/if}
 {/snippet}
 
-<nav class="tree-view">
-  {#each tree as root}
-    {@render nodeRow(root, 0)}
+<nav
+  class="tree-view"
+  bind:this={navEl}
+  data-row-count={flatRows.length}
+  style="padding-top: {windowRange.first * ROW_HEIGHT + 4}px; padding-bottom: {Math.max(0, flatRows.length - windowRange.last) * ROW_HEIGHT + 8}px"
+  onfocusin={(e) => {
+    focusedId = (e.target as HTMLElement).closest<HTMLElement>(".tree-row")?.dataset.nodeId ?? null;
+  }}
+  onfocusout={(e) => {
+    if (!navEl?.contains(e.relatedTarget as Node | null)) focusedId = null;
+  }}
+>
+  {#each visibleRows as row (row.node.entry.id)}
+    {@render nodeRow(row.node, row.depth)}
   {/each}
   {#if search && tree.length === 0}
     <div class="no-results">No matches</div>
@@ -360,7 +475,6 @@
   :global(.dark) .no-results { color: #8b949e; }
 
   .tree-view {
-    padding: 4px 0 8px;
     font-size: 13px;
     line-height: 1;
   }
