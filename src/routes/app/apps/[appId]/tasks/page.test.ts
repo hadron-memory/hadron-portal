@@ -193,6 +193,44 @@ function taskPage(over: Record<string, unknown> = {}) {
 }
 
 describe('task page', () => {
+  describe('Properties (portal#1340)', () => {
+    const pre = (html: string) => (html.match(/data-testid="task-properties-value"[^>]*>([^<]*)</) ?? [])[1];
+    const unescape = (h: string) => h.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+    it('a root and its child each show their OWN object', () => {
+      const root = taskPage({ task: detail({ properties: { who: 'root' } }) });
+      const child = taskPage({ task: detail({ id: 't2', parentTaskId: 't1', properties: { who: 'child' } }) });
+      expect(JSON.parse(unescape(pre(root)))).toEqual({ who: 'root' });
+      expect(JSON.parse(unescape(pre(child)))).toEqual({ who: 'child' });
+    });
+
+    it('a child with null shows the empty state even though its root has properties', () => {
+      const rootRow = detail({ id: 't1', properties: { who: 'root-secret' } });
+      const html = taskPage({
+        task: detail({ id: 't2', parentTaskId: 't1', properties: null }),
+        ancestors: [{ id: 't1', handle: 'AT1', title: 'Root', parentTaskId: null, properties: { who: 'root-secret' } }],
+        tree: { kind: 'ok', value: { rows: [rootRow, detail({ id: 't2', parentTaskId: 't1', properties: null })], capped: false } },
+      });
+      expect(html).not.toContain('task-properties-value');
+      expect(html).not.toContain('root-secret');
+      expect(html).toContain('data-testid="task-properties-empty"');
+    });
+
+    it('a payload without the field is the empty state, and nothing is invented from status or tags', () => {
+      const html = taskPage({ task: detail({ tags: ['ready', 'tier-p'] }) });
+      expect(html).toContain('data-testid="task-properties-empty"');
+      expect(html).not.toContain('task-properties-value');
+    });
+
+    it('is read-only: no inherited label, no properties form or edit control', () => {
+      const html = taskPage({ task: detail({ properties: { a: 1 } }) });
+      const section = html.slice(html.indexOf('id="task-properties"'), html.indexOf('id="subtasks"'));
+      expect(section).not.toMatch(/inherit/i);
+      expect(section).not.toMatch(/<(form|input|button|textarea)\b/);
+      expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((m) => m[1])).toEqual(['?/priority']);
+    });
+  });
+
   it('shows the id and the CLI line that reads it, and says where the right to change it comes from', () => {
     const html = taskPage();
     expect(html).toContain('hadron team task get t1');
