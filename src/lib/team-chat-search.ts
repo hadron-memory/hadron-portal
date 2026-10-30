@@ -63,3 +63,11 @@ export function outcomeOf(items: readonly unknown[], complete: boolean, cursor: 
   if (items.length === 0) return complete ? 'no-matches' : 'scan-limit';
   return !complete && cursor ? 'more' : 'matches';
 }
+
+/** Whether `body` is a response this client understands; anything else is treated as a failure. */
+export function isSearchResponse(body: unknown): body is TeamChatSearchResponse {
+  if (typeof body !== 'object' || body === null) return false;
+  const b = body as Record<string, unknown>;
+  if (b.ok === true) return Array.isArray(b.items) && typeof b.complete === 'boolean';
+  return b.ok === false && typeof b.code === 'string';
+}

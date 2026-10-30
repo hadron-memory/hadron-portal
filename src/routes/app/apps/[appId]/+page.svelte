@@ -28,6 +28,7 @@
   let channelPostBusy = $state(false);
   // #1013: the team-chat history search panel; the live thread below stays mounted.
   let teamSearchOpen = $state(false);
+  let teamSearchToggle: HTMLButtonElement | undefined = $state();
   // Keep the submitting thread mounted until its result clears/keeps its own
   // draft. A navigation mid-post would make that outcome ambiguous.
   beforeNavigate((navigation) => { if (channelPostBusy) navigation.cancel(); });
@@ -1928,9 +1929,8 @@
              decoration, kept out of that name. -->
         <button
           type="button"
-          aria-expanded={teamSearchOpen}
-          aria-controls="team-chat-search-panel"
-          onclick={() => { teamSearchOpen = !teamSearchOpen; }}
+          bind:this={teamSearchToggle}
+          onclick={() => { teamSearchOpen = !teamSearchOpen; if (!teamSearchOpen) teamSearchToggle?.focus(); }}
           class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
           data-testid="team-chat-search-toggle"
         >
@@ -1976,7 +1976,7 @@
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
         {#if teamSearchOpen}
           <div id="team-chat-search-panel" class="min-h-0 flex-1 overflow-y-auto">
-            <TeamChatSearch appId={app.id} />
+            {#key app.id}<TeamChatSearch appId={app.id} />{/key}
           </div>
         {/if}
         <div class={teamSearchOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>

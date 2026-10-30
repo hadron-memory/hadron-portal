@@ -24,7 +24,7 @@ const hit = (seq: number, over: Record<string, unknown> = {}) => ({
 const ok = (items: unknown[], over: Record<string, unknown> = {}) => ({
   ok: true, items, complete: true, cursor: null, channelId: 'c1', channelIncarnation: 1, ...over,
 });
-const reply = (body: unknown) => ({ json: async () => body });
+const reply = (body: unknown) => ({ ok: true, json: async () => body });
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -143,5 +143,55 @@ describe('TeamChatSearch', () => {
     });
     expect(m.target.textContent).not.toContain('body 1');
     expect(rejections).toEqual([]);
+  });
+
+  it.each([
+    ['a non-success status', { ok: false, status: 502, json: async () => ({ message: 'Unavailable' }) }],
+    ['a null body', reply(null)],
+    ['an unrecognised shape', reply({ message: 'x' })],
+  ])('treats %s as a failure the reader can see', async (_n, response) => {
+    fetchMock.mockResolvedValueOnce(response);
+    const m = mountPanel();
+    await search(m, 'zz');
+    expect(q(m, 'refusal')?.textContent).toContain('The search failed');
+  });
+
+  it('retries the query that failed, not whatever is in the box now', async () => {
+    fetchMock.mockResolvedValueOnce(reply({ ok: false, code: 'FAILED' }));
+    const m = mountPanel();
+    await search(m, 'first');
+    const input = m.target.querySelector('input') as HTMLInputElement;
+    input.value = 'edited';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    fetchMock.mockResolvedValueOnce(reply(ok([hit(1)])));
+    (Array.from(m.target.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Retry') as HTMLButtonElement).click();
+    await wait(0);
+    expect(fetchMock.mock.calls[1][0]).toContain('q=first');
+  });
+
+  it('shows the newly loaded rows after Load more, on a single pager', async () => {
+    const first = Array.from({ length: 100 }, (_, k) => hit(500 - k, { body: `old ${k}` }));
+    fetchMock.mockResolvedValueOnce(reply(ok(first, { complete: false, cursor: 'c2' })));
+    const m = mountPanel();
+    await search(m, 'old');
+    fetchMock.mockResolvedValueOnce(reply(ok([hit(3, { body: 'newest-loaded' })])));
+    (q(m, 'more') as HTMLButtonElement).click();
+    await wait(0);
+    expect(m.target.textContent).toContain('newest-loaded');
+  });
+
+  it('offers a fresh search, not a same-cursor retry, when a later page says the cursor is invalid', async () => {
+    fetchMock.mockResolvedValueOnce(reply(ok([hit(5)], { complete: false, cursor: 'c2' })));
+    const m = mountPanel();
+    await search(m, 'body');
+    fetchMock.mockResolvedValueOnce(reply({ ok: false, code: 'TEAM_CHAT_SEARCH_CURSOR_INVALID' }));
+    (q(m, 'more') as HTMLButtonElement).click();
+    await wait(0);
+    expect(q(m, 'more')?.textContent).toContain('Search again');
+    fetchMock.mockResolvedValueOnce(reply(ok([hit(9, { body: 'fresh' })])));
+    (q(m, 'more') as HTMLButtonElement).click();
+    await wait(0);
+    expect(fetchMock.mock.calls[2][0]).not.toContain('cursor=');
+    expect(m.target.textContent).toContain('fresh');
   });
 });

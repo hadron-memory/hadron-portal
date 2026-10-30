@@ -18,6 +18,7 @@ export const teamChatSearchStrings = {
   incomplete: () => t('team-chat-search.incomplete', 'More history remains to be searched.'),
   continueSearch: () => t('team-chat-search.continue', 'Continue searching'),
   loadMore: () => t('team-chat-search.load-more', 'Load more matches'),
+  searchAgain: () => t('team-chat-search.search-again', 'Search again'),
   retry: () => t('team-chat-search.retry', 'Retry'),
   laterFailed: () => t('team-chat-search.later-failed', 'Could not load the next page. The matches below are kept.'),
   unavailable: () => t('team-chat-search.unavailable', 'Message text unavailable'),

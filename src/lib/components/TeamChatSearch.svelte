@@ -12,7 +12,7 @@
   Results page independently from the live thread and never mark a range read.
 -->
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -20,6 +20,7 @@
   import { teamChatSearchStrings as s } from '$lib/i18n/team-chat-search-strings';
   import {
     isSearchableQuery,
+    isSearchResponse,
     outcomeOf,
     type TeamChatSearchHit,
     type TeamChatSearchRefusal,
@@ -43,6 +44,8 @@
   // Every request takes a ticket; only the newest ticket may write state.
   let ticket = 0;
   let destroyed = false;
+  let inputEl: HTMLInputElement | undefined = $state();
+  onMount(() => inputEl?.focus());
   let controller: AbortController | null = null;
   onDestroy(() => {
     destroyed = true;
@@ -56,23 +59,24 @@
     if (from) params.set('cursor', from);
     try {
       const res = await fetch(`/app/apps/${encodeURIComponent(appId)}/team-chat/search?${params}`, { signal: controller.signal });
-      const body = (await res.json()) as TeamChatSearchResponse;
-      return mine === ticket && !destroyed ? body : null;
+      const body = res.ok ? await res.json() : null;
+      return mine === ticket && !destroyed ? (isSearchResponse(body) ? body : { ok: false, code: 'FAILED' }) : null;
     } catch {
       return mine === ticket && !destroyed ? { ok: false, code: 'FAILED' } : null;
     }
   }
 
-  async function search(event?: Event) {
+  async function search(event?: Event, retryOf: string | null = null) {
     event?.preventDefault();
-    tooShort = !isSearchableQuery(input);
+    const query = retryOf ?? input;
+    tooShort = !isSearchableQuery(query);
     if (tooShort) return;
     const mine = ++ticket;
-    const query = input;
     busy = true;
     refusal = laterRefusal = null;
     activeQuery = query;
     rows = [];
+    table.setPageIndex(0);
     cursor = null;
     complete = false;
     const res = await fetchPage(query, null, mine);
@@ -99,20 +103,26 @@
       laterRefusal = res.code;
       return;
     }
+    const firstNew = rows.length;
     rows = [...rows, ...res.items];
+    // One visible pager: land on the page holding the first new row.
+    table.setPageIndex(Math.floor(firstNew / PAGE_SIZE));
     complete = res.complete;
     cursor = res.cursor;
   }
 
+  // The same cursor can never succeed again: recovery is a fresh search.
+  const cursorDead = $derived(laterRefusal === 'TEAM_CHAT_SEARCH_CURSOR_INVALID');
   const outcome = $derived(
     activeQuery !== null && refusal === null && !busy ? outcomeOf(rows, complete, cursor) : null,
   );
 
+  const PAGE_SIZE = 100;
   const columns: PortalColumnDef<TeamChatSearchHit>[] = [
-    { id: 'when', accessorFn: (r) => r.at ?? '', header: s.colWhen(), size: 170, enableSorting: false },
-    { id: 'author', accessorFn: (r) => r.authorName ?? '', header: s.colAuthor(), size: 140, enableSorting: false },
-    { id: 'message', accessorFn: (r) => r.body ?? '', header: s.colMessage(), enableHiding: false, size: 420, enableSorting: false },
-    { id: 'urn', accessorFn: (r) => r.urn ?? '', header: s.colUrn(), size: 320, enableSorting: false },
+    { id: 'when', accessorFn: (r) => r.at ?? '', header: s.colWhen(), size: 150, enableSorting: false },
+    { id: 'author', accessorFn: (r) => r.authorName ?? '', header: s.colAuthor(), size: 110, enableSorting: false },
+    { id: 'message', accessorFn: (r) => r.body ?? '', header: s.colMessage(), enableHiding: false, size: 360, enableSorting: false },
+    { id: 'urn', accessorFn: (r) => r.urn ?? '', header: s.colUrn(), size: 240, enableSorting: false },
   ];
   const table = createSvelteTable<TeamChatSearchHit>({
     get data() { return rows; },
@@ -122,7 +132,7 @@
     manualFiltering: true,
     enableGlobalFilter: false,
     autoResetPageIndex: false,
-    initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+    initialState: { pagination: { pageIndex: 0, pageSize: PAGE_SIZE } },
     getRowId: (r) => r.nodeId,
   });
 </script>
@@ -136,6 +146,7 @@
       id="team-chat-search-input"
       type="search"
       bind:value={input}
+      bind:this={inputEl}
       placeholder={s.placeholder()}
       aria-invalid={tooShort}
       aria-describedby={tooShort ? 'team-chat-search-short' : undefined}
@@ -153,9 +164,9 @@
     {#if busy && rows.length === 0}
       <p class="text-zinc-500 dark:text-zinc-400" data-testid="team-chat-search-pending">{s.searching()}</p>
     {:else if refusal}
-      <p role="alert" class="text-red-600 dark:text-red-400" data-testid="team-chat-search-refusal">{s.refusal(refusal)}</p>
+      <p class="text-red-600 dark:text-red-400" data-testid="team-chat-search-refusal">{s.refusal(refusal)}</p>
       {#if refusal === 'FAILED'}
-        <button type="button" class="mt-1 text-indigo-600 underline dark:text-indigo-300" onclick={() => search()}>{s.retry()}</button>
+        <button type="button" class="mt-1 text-indigo-600 underline dark:text-indigo-300" onclick={() => search(undefined, activeQuery)}>{s.retry()}</button>
       {/if}
     {:else if outcome === 'no-matches'}
       <p class="text-zinc-600 dark:text-zinc-300" data-testid="team-chat-search-none">{s.noMatches(activeQuery ?? '')}</p>
@@ -189,15 +200,15 @@
   {/if}
 
   {#if laterRefusal}
-    <p role="alert" class="text-xs text-red-600 dark:text-red-400" data-testid="team-chat-search-later-failed">
+    <p aria-live="polite" class="text-xs text-red-600 dark:text-red-400" data-testid="team-chat-search-later-failed">
       {s.laterFailed()} {s.refusal(laterRefusal)}
     </p>
   {/if}
   {#if cursor && !complete && !refusal && activeQuery !== null}
     <div class="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-300">
       {#if rows.length > 0 && !laterRefusal}<span>{s.incomplete()}</span>{/if}
-      <button type="button" disabled={busy} onclick={more} class="rounded-md border border-zinc-300 px-2 py-1 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800" data-testid="team-chat-search-more">
-        {laterRefusal ? s.retry() : rows.length === 0 ? s.continueSearch() : s.loadMore()}
+      <button type="button" disabled={busy} onclick={cursorDead ? () => search(undefined, activeQuery) : more} class="rounded-md border border-zinc-300 px-2 py-1 hover:bg-zinc-50 disabled:opacity-60 dark:border-zinc-700 dark:hover:bg-zinc-800" data-testid="team-chat-search-more">
+        {cursorDead ? s.searchAgain() : laterRefusal ? s.retry() : rows.length === 0 ? s.continueSearch() : s.loadMore()}
       </button>
     </div>
   {/if}
