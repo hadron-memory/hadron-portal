@@ -28,6 +28,9 @@
     type BoardFilter,
   } from '$lib/agent-tasks/status';
   import type { AgentTaskRow } from '$lib/agent-tasks/types';
+  import { goto } from '$app/navigation';
+  import { parseHandle, taskHref } from '$lib/agent-tasks/handle';
+  import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   import type { PageData } from './$types';
 
   /**
@@ -82,6 +85,15 @@
       : [],
   );
 
+  // portal#1349: the search box's live value, until the next server slice resets it.
+  let typed = $state<string | null>(null);
+  const searchValue = $derived(typed ?? data.text ?? '');
+  // A whole handle once trimmed: a pasted "AT3.405 " is still one (Uma's P2).
+  const exactHandle = $derived(parseHandle(searchValue.trim()) ? searchValue.trim() : null);
+  // Starts like a handle but is not a whole one ("AT3." or "AT3.4x"): the search
+  // cannot match handles (#1401 searches titles and descriptions), so say so.
+  const looksLikePartialHandle = (text: string) => /^AT\d/i.test(text) && !parseHandle(text);
+  const exactHandleHref = $derived(exactHandle ? `${basePath}/tasks/${encodeURIComponent(exactHandle)}` : '');
   const columns: PortalColumnDef<BoardRow>[] = [
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
     { id: 'title', accessorFn: (r) => r.title, header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 320 },
@@ -125,7 +137,10 @@
   const boardSlice = $derived(JSON.stringify([data.app.id, data.filter, data.text ?? '']));
   $effect(() => {
     void boardSlice;
-    untrack(() => table.resetPageIndex());
+    untrack(() => {
+      table.resetPageIndex();
+      typed = null;
+    });
   });
 
   // Preserve a valid position on refresh, but never strand rows beyond a
@@ -142,7 +157,13 @@
   function submitSearch(event: SubmitEvent) {
     const form = event.currentTarget as HTMLFormElement;
     const input = form.elements.namedItem('text') as HTMLInputElement;
+    // portal#1349: an exact handle opens that task; the title search would never find it.
     input.value = input.value.trim();
+    if (parseHandle(input.value)) {
+      event.preventDefault();
+      void goto(`${basePath}/tasks/${encodeURIComponent(input.value)}`);
+      return;
+    }
     input.setCustomValidity(input.value.length > TASK_SEARCH_MAX
       ? t('app.tasks.search.bounds', 'Search text is 1 to 200 characters.') : '');
     if (!input.reportValidity()) { event.preventDefault(); return; }
@@ -195,11 +216,11 @@
   </nav>
 
   {#if data.view === 'roster' && data.roster}
-    <TasksRoster roster={data.roster} titles={data.titles} {basePath} impersonating={data.impersonating} />
+    <TasksRoster roster={data.roster} refs={data.refs} {basePath} impersonating={data.impersonating} />
   {:else if data.view === 'composition' && data.composition}
     <TasksComposition composition={data.composition} {basePath} impersonating={data.impersonating} />
   {:else if data.view === 'alarms' && data.alarms}
-    <TasksAlarms alarms={data.alarms} filter={data.alarmFilter} limit={data.alarmsLimit} titles={data.titles} {basePath} impersonating={data.impersonating} />
+    <TasksAlarms alarms={data.alarms} filter={data.alarmFilter} limit={data.alarmsLimit} refs={data.refs} {basePath} impersonating={data.impersonating} />
   {:else if !board}
     <!-- The loader always reads the board for the board view; if it ever doesn't, say so rather than show nothing. -->
     <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
@@ -245,7 +266,7 @@
       <div class="min-w-0 flex-1 basis-60">
         <label for="task-board-search" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.tasks.search.scope', 'Search title and description')}</label>
         <input id="task-board-search" name="text" type="search" value={data.text ?? ''}
-          oninput={(event) => event.currentTarget.setCustomValidity('')}
+          oninput={(event) => { event.currentTarget.setCustomValidity(''); typed = event.currentTarget.value; }}
           aria-describedby="task-search-guidance"
           class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
       </div>
@@ -253,6 +274,15 @@
       <a href={taskBoardHref(basePath, data.filter, '')} data-sveltekit-reload class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">{t('app.tasks.search.clear', 'Clear')}</a>
       <p id="task-search-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.limit', 'Up to 200 characters after trimming. Searches titles and descriptions in this App.')}</p>
     </form>
+    <!-- portal#1349: the search reads titles and descriptions, so an EXACT handle
+         (the only way to name a subtask like AT3.405 here) is a real link to that
+         task. The route hands the handle to the server's resolver; an unknown,
+         malformed or foreign one answers there, exactly like an unknown id. -->
+    {#if exactHandle}
+      <p class="text-sm" data-testid="open-by-handle">
+        <a href={exactHandleHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.open-handle', 'Open {handle}', { handle: exactHandle })}</a>
+      </p>
+    {/if}
 
     {#if board.kind === 'invalid-search'}
       <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('app.tasks.search.bounds', 'Search text is 1 to 200 characters.')}</p>
@@ -270,7 +300,11 @@
       {/if}
       {#if rows.length === 0}
         <div role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty={data.filter}>
-          {data.text ? t('app.tasks.search.empty', 'No matching tasks.') : boardEmptyText(data.filter)}
+          {#if data.text && looksLikePartialHandle(data.text)}
+            {t('app.tasks.search.partial-handle', 'No matching tasks. Handles open only when complete, for example AT3.405.')}
+          {:else}
+            {data.text ? t('app.tasks.search.empty', 'No matching tasks.') : boardEmptyText(data.filter)}
+          {/if}
         </div>
       {/if}
       <DataTable
@@ -286,7 +320,10 @@
             <TaskStateChips task={row.task} />
           {:else if cell.column.id === 'title'}
             <div class="flex min-w-0 flex-col">
-              <a href="{basePath}/tasks/{row.task.id}" class="truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.task.title}</a>
+              <span class="flex min-w-0 items-center gap-1.5">
+                <a href={taskHref(basePath, row.task)} class="min-w-0 truncate font-medium text-indigo-600 hover:underline dark:text-indigo-300">{row.task.title}</a>
+                <TaskHandle handle={row.task.handle} />
+              </span>
               {#if row.task.source}<TaskSource source={row.task.source} />{/if}
             </div>
           {:else if cell.column.id === 'priority'}
@@ -304,7 +341,7 @@
             {/if}
           {:else if cell.column.id === 'subtasks'}
             <a
-              href="{basePath}/tasks/{row.task.id}#subtasks"
+              href="{taskHref(basePath, row.task)}#subtasks"
               aria-label={t('app.tasks.subtasks-of', 'Subtasks of {title}', { title: row.task.title })}
               class="text-sm text-indigo-600 hover:underline dark:text-indigo-300"
             >{t('app.tasks.subtasks.open', 'View subtasks')}</a>

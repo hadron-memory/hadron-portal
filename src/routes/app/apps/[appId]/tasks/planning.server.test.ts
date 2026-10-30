@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AGENT_TASKS_APP_QUERY, CREATE_AGENT_TASK_MUTATION } from '$lib/server/queries';
+import { AGENT_TASK_REF_QUERY, AGENT_TASKS_APP_QUERY, CREATE_AGENT_TASK_MUTATION } from '$lib/server/queries';
 
 const request = vi.fn();
 const rawRequest = vi.fn();
@@ -11,7 +11,9 @@ function event(fields: Record<string, string | string[]>, impersonation: unknown
   return { request: { formData: async () => fd }, params: { appId: 'app-1', taskId: 't1' }, locals: { token: 'tok', user: { id: 'u1' }, impersonation } } as never;
 }
 beforeEach(() => {
-  request.mockReset().mockImplementation(async (q: string) => q === AGENT_TASKS_APP_QUERY ? { app } : {});
+  // portal#1349: a write first resolves the route's task to its canonical id for this App.
+  request.mockReset().mockImplementation(async (q: string, v?: { id: string }) =>
+    q === AGENT_TASKS_APP_QUERY ? { app } : q === AGENT_TASK_REF_QUERY ? { agentTask: { id: v!.id, appId: app.id } } : {});
   rawRequest.mockReset().mockResolvedValue({ data: { createAgentTask: { id: 't9' } } });
 });
 async function create(fields: Record<string, string | string[]>) {

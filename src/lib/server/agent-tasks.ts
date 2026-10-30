@@ -1,4 +1,6 @@
+import { error } from '@sveltejs/kit';
 import type { GraphQLClient } from 'graphql-request';
+import { resolveSegment } from '$lib/agent-tasks/handle';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import {
   AGENT_ALARMS_QUERY,
@@ -7,14 +9,14 @@ import {
   AGENT_TASK_EVENTS_QUERY,
   AGENT_TASK_TREE_QUERY,
   AGENT_TASKS_BOARD_QUERY,
-  AGENT_TASKS_OPEN_TITLES_QUERY,
+  AGENT_TASK_REF_QUERY,
   APP_PEOPLE_QUERY,
   TEAM_COMPOSITION_QUERY,
   TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
 import { rosterOf } from '$lib/withheld';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
-import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TeamComposition, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
+import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TaskRefs, TeamComposition, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
 
 /**
  * portal#1052 — the Tasks views' reads.
@@ -120,7 +122,7 @@ export async function loadHistory(
 /** The breadcrumb follows this many parents; a deeper chain shows an ellipsis. */
 export const ANCESTOR_LIMIT = 8;
 
-export type TaskAncestor = { id: string; title: string };
+export type TaskAncestor = { id: string; handle: string; title: string };
 
 /**
  * A task's parents, root first, for the breadcrumb. Best-effort: a failed or
@@ -135,12 +137,12 @@ export async function loadAncestors(
   let next = parentTaskId;
   try {
     while (next && chain.length < ANCESTOR_LIMIT) {
-      const r = await client.request<{ agentTask: { id: string; title: string; parentTaskId: string | null } | null }>(
+      const r = await client.request<{ agentTask: { id: string; handle: string; title: string; parentTaskId: string | null } | null }>(
         AGENT_TASK_ANCESTOR_QUERY,
         { id: next },
       );
       if (!r.agentTask) return { ancestors: chain.reverse(), truncated: true };
-      chain.push({ id: r.agentTask.id, title: r.agentTask.title });
+      chain.push({ id: r.agentTask.id, handle: r.agentTask.handle, title: r.agentTask.title });
       next = r.agentTask.parentTaskId;
     }
   } catch (e) {
@@ -177,22 +179,73 @@ export async function loadComposition(client: GraphQLClient, appRef: string): Pr
 }
 
 /**
- * Titles for the bare task ids the Roster and Alarms carry: the App's open
- * tasks, read once (design §6). An id outside this set still renders, as
- * "Task <short id>" linked to its page, never as "no task". A failure here
- * only costs the titles, so it reads as an empty map and is logged.
+ * portal#1349 — the canonical task id a route segment (an id or a handle)
+ * names inside THIS App, for a write. The App is read first (a non-participant
+ * gets the App's 404), the segment is qualified with that App by
+ * `resolveSegment`, and the server's resolver answers; a task that is missing,
+ * unreadable (answered null or refused) or another App's is the same 404. A
+ * transport failure or unknown fault is thrown as is. The raw segment is never
+ * a mutation identity.
  */
-export async function loadOpenTaskTitles(client: GraphQLClient, appRef: string): Promise<Record<string, string>> {
+export async function canonicalTaskId(client: GraphQLClient, appId: string, segment: string): Promise<string> {
+  const app = await loadTasksApp(client, appId);
+  if (!app) throw error(404, 'App not found');
+  const seg = resolveSegment(segment, app.urn);
+  if (seg.kind === 'unknown') throw error(404, 'Task not found, or you can’t see it');
+  let r: { agentTask: { id: string; appId: string } | null };
   try {
-    const r = await client.request<{ agentTasks: { id: string; title: string }[] }>(AGENT_TASKS_OPEN_TITLES_QUERY, {
-      appRef,
-      limit: BOARD_LIMIT,
-    });
-    return Object.fromEntries(r.agentTasks.map((t) => [t.id, t.title]));
+    r = await client.request(AGENT_TASK_REF_QUERY, { id: seg.ref });
   } catch (e) {
-    console.warn(`[agent-tasks] open-task titles failed for ${appRef}:`, e);
-    return {};
+    // A refusal is the same 404 as a null answer; any other failure is the caller's to classify.
+    if (TASK_REF_REFUSALS.has(extractGqlErrorCode(e) ?? '')) throw error(404, 'Task not found, or you can’t see it');
+    throw e;
   }
+  if (!r.agentTask || r.agentTask.appId !== app.id) throw error(404, 'Task not found, or you can’t see it');
+  return r.agentTask.id;
+}
+
+/** The resolution read's answers that mean "not one you can see": never told apart (portal#1349). */
+const TASK_REF_REFUSALS = new Set(['FORBIDDEN', 'NOT_FOUND', 'TASK_NOT_FOUND', 'APP_NOT_FOUND']);
+
+/** Bounded concurrency for reference hydration: a finite page of ids, never a flood. */
+export const HYDRATE_CONCURRENCY = 6;
+
+/**
+ * portal#1349 — display info for the bare task ids the Roster, Alarms and AI
+ * Team grid carry. Each distinct id is read once through `agentTask(id)`, the
+ * server's own readable-task gate, so terminal children and old alarm tasks
+ * resolve as completely as open ones (a capped open-only scan would not).
+ *
+ * A task of another App is never used to decorate this App's row, and an id
+ * the server answers null for, refuses, or fails on is `null` (unavailable): no
+ * stale title or handle, and no distinction between the reasons.
+ */
+export async function hydrateTaskRefs(
+  client: GraphQLClient,
+  appId: string,
+  ids: Iterable<string | null | undefined>,
+): Promise<TaskRefs> {
+  const distinct = [...new Set([...ids].filter((id): id is string => typeof id === 'string' && id !== ''))];
+  const out: TaskRefs = {};
+  let next = 0;
+  async function worker() {
+    while (next < distinct.length) {
+      const id = distinct[next++]!;
+      try {
+        const r = await client.request<{ agentTask: { id: string; appId: string; handle: string; title: string } | null }>(
+          AGENT_TASK_REF_QUERY,
+          { id },
+        );
+        const task = r.agentTask;
+        out[id] = task && task.appId === appId ? { id: task.id, handle: task.handle, title: task.title } : null;
+      } catch (e) {
+        console.warn(`[agent-tasks] task ref hydration failed (${extractGqlErrorCode(e) ?? 'transport'})`);
+        out[id] = null;
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(HYDRATE_CONCURRENCY, distinct.length) }, worker));
+  return out;
 }
 
 /** The Alarms list reads this many alarms at most; past it the view says so. */

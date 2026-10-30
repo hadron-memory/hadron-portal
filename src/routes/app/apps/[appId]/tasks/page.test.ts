@@ -6,6 +6,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
+import { parseHandle } from '$lib/agent-tasks/handle';
 
 // The node lane has no $app/* (only the client lane aliases navigation).
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
@@ -254,5 +255,117 @@ describe('board New task (#1090)', () => {
   it('is hidden in an impersonation session', () => {
     // The note names New task (Uma's P3-3); the LINK is what an impersonation session must not get.
     expect(board({ impersonating: 'Mike' })).not.toMatch(/href="\/app\/apps\/app-1\/tasks\/new"/);
+  });
+});
+
+// portal#1349: the immutable handle beside the title, on every task surface.
+describe('task handles', () => {
+  const H = 'AT3.405';
+
+  it('board: title stays the link text, the handle is a quiet chip, and the link points at the handle', () => {
+    const html = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ id: 'abc', handle: H })] } } });
+    expect(html).toContain(`href="/app/apps/app-1/tasks/${H}"`);
+    expect(html).toContain(`href="/app/apps/app-1/tasks/${H}#subtasks"`);
+    expect(html).toMatch(/data-task-handle[^>]*>AT3\.405<\/code>/);
+    expect(html).toContain('aria-label="Task handle AT3.405"');
+    expect(html).not.toContain('tasks/abc');
+  });
+
+  it('board: a row with no handle links by id and draws no chip — never an invented one', () => {
+    const html = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ id: 'abc' })] } } });
+    expect(html).toContain('href="/app/apps/app-1/tasks/abc"');
+    expect(html).not.toContain('data-task-handle');
+  });
+
+  it('a 64-character, 16-deep handle gets truncation styling in the chip but is whole in title and name', () => {
+    // The server's bounds (64 characters, 16 segments); a layout test would need a browser.
+    const long = 'AT' + [...Array(15).fill('100'), '10'].join('.');
+    expect(long).toHaveLength(64);
+    expect(long.slice(2).split('.')).toHaveLength(16);
+    expect(parseHandle(long)?.handle).toBe(long);
+    const html = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ handle: long })] } } });
+    expect(html).toMatch(/data-task-handle/);
+    expect(html).toContain(`title="${long}"`);
+    expect(html).toMatch(new RegExp(`class="[^"]*\\btruncate\\b[^"]*"[^>]*title="${long.replaceAll('.', '\\.')}"`));
+  });
+
+  it('detail: handle chip by the title, three SEPARATELY labelled copy values (handle, id, CLI), id not the only addressable thing', () => {
+    const html = taskPage({ task: detail({ id: 'abc', handle: H }) });
+    expect(html).toMatch(/data-task-handle[^>]*>AT3\.405<\/code>/);
+    expect(html).toContain('aria-label="Copy the task handle"');
+    expect(html).toContain('aria-label="Copy the task id"');
+    expect(html).toContain('aria-label="Copy the CLI command that reads this task"');
+    expect(html).toMatch(/<code[^>]*>AT3\.405<\/code>/);
+    expect(html).toMatch(/<code[^>]*>abc<\/code>/);
+  });
+
+  it('detail: breadcrumb ancestors and the parent link point at their handles', () => {
+    const html = taskPage({
+      task: detail({ id: 'abc', handle: 'AT3.405', parentTaskId: 'p1' }),
+      ancestors: [{ id: 'r1', handle: 'AT3', title: 'Root' }, { id: 'p1', handle: 'AT3.4', title: 'Parent' }],
+    });
+    expect(html).toContain('href="/app/apps/app-1/tasks/AT3"');
+    expect(html.match(/href="\/app\/apps\/app-1\/tasks\/AT3\.4"/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(html).not.toContain('tasks/p1');
+    expect(html).not.toContain('tasks/r1');
+  });
+
+  // Greta LOCAL P2 on portal#1375: the handles must be SEEN, not only routed to.
+  // Root AT91, parent AT92, current AT93; strip attributes so hrefs can't satisfy it.
+  it('detail: each known ancestor and the Parent fact show their handle beside the title', () => {
+    const html = taskPage({
+      task: detail({ id: 'c', handle: 'AT93', title: 'Current', parentTaskId: 'p' }),
+      ancestors: [{ id: 'r', handle: 'AT91', title: 'Root' }, { id: 'p', handle: 'AT92', title: 'Parent' }],
+    });
+    const nav = html.match(/<nav aria-label="Breadcrumb"[\s\S]*?<\/nav>/)![0];
+    expect(nav).toMatch(/data-crumb-chip[^>]*>AT91<\/code>/);
+    expect(nav).toMatch(/data-crumb-chip[^>]*>AT92<\/code>/);
+    expect(nav).toContain('aria-label="Task handle AT91"');
+    const parentFact = html.slice(html.indexOf('>Parent</dt>'), html.indexOf('</dd>', html.indexOf('>Parent</dt>')));
+    expect(parentFact).toMatch(/data-task-handle[^>]*>AT92<\/code>/);
+    expect(parentFact.replace(/<[^>]*>/g, ' ')).toMatch(/Parent\s+AT92/);
+  });
+
+  it('detail: an unread parent stays neutral, with no handle chip', () => {
+    const html = taskPage({ task: detail({ id: 'c', handle: 'AT93', parentTaskId: 'p' }), ancestors: [], ancestorsTruncated: true });
+    const parentFact = html.slice(html.indexOf('>Parent</dt>'), html.indexOf('</dd>', html.indexOf('>Parent</dt>')));
+    expect(parentFact).toContain('Parent task');
+    expect(parentFact).not.toContain('data-task-handle');
+    expect(html).not.toContain('data-crumb-chip');
+  });
+
+  it('detail: the subtask tree links its rows by handle and shows their chips', () => {
+    const child = detail({ id: 'c1', handle: 'AT3.405.1', parentTaskId: 'abc', title: 'Child' });
+    const html = taskPage({ task: detail({ id: 'abc', handle: H }), tree: { kind: 'ok', value: { rows: [detail({ id: 'abc', handle: H }), child], capped: false } } });
+    expect(html).toContain('href="/app/apps/app-1/tasks/AT3.405.1"');
+    expect(html).toMatch(/data-task-handle[^>]*>AT3\.405\.1<\/code>/);
+  });
+
+  it('AT0 is shown with its handle and title but offers no write control, with a plain explanation', () => {
+    const html = taskPage({ task: detail({ id: 'z0', handle: 'AT0', title: 'No project', status: 'BACKLOG', assignee: null }), canWrite: true });
+    expect(html).toContain('No project');
+    expect(html).toMatch(/data-task-handle[^>]*>AT0<\/code>/);
+    expect(html).toContain('data-testid="project-zero-note"');
+    expect(barButtons(html)).toEqual([]);
+    expect(html).not.toMatch(/<form/);
+  });
+
+  // Celine QA P2 on portal#1375: AT0 must not borrow the support-session line.
+  // Pinned both ways: AT0 never shows it, a real support session still does.
+  it('AT0 never says "Viewing as … support session" to a normal viewer, writer or not', () => {
+    for (const canWrite of [true, false]) {
+      const html = taskPage({ task: detail({ id: 'z0', handle: 'AT0', title: 'No project', status: 'BACKLOG', assignee: null }), canWrite });
+      expect(html).not.toContain('Viewing as');
+      expect(html).not.toContain('task-actions-off');
+      expect(html).toContain('data-testid="project-zero-note"');
+    }
+    const support = taskPage({ task: detail({ id: 'abc', handle: 'AT3' }), canWrite: false, impersonating: 'Mike' });
+    expect(support).toContain('Viewing as Mike: changes are switched off in a support session.');
+  });
+
+  it('a task that is not AT0 keeps its actions for a writer', () => {
+    const html = taskPage({ task: detail({ id: 'abc', handle: 'AT3', status: 'BACKLOG', assignee: null }), canWrite: true });
+    expect(html).not.toContain('project-zero-note');
+    expect(barButtons(html).length).toBeGreaterThan(0);
   });
 });
