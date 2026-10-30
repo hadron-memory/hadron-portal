@@ -154,8 +154,9 @@
   function measure() {
     if (!navEl) return;
     if (!scroller) {
-      scrollTop = 0;
-      viewportHeight = FALLBACK_VIEWPORT;
+      // No overflow ancestor: the page itself scrolls.
+      scrollTop = Math.max(0, -navEl.getBoundingClientRect().top);
+      viewportHeight = window.innerHeight || FALLBACK_VIEWPORT;
       return;
     }
     // Tree top relative to the scroller's content, so a header above the tree
@@ -173,8 +174,10 @@
     target.addEventListener("scroll", measure, { passive: true });
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     if (scroller) ro?.observe(scroller);
+    else window.addEventListener("resize", measure);
     return () => {
       target.removeEventListener("scroll", measure);
+      window.removeEventListener("resize", measure);
       ro?.disconnect();
     };
   });
@@ -237,7 +240,14 @@
       // The row may not be mounted (outside the window), so scroll by its
       // computed position, not by looking the element up.
       const idx = flatRows.findIndex((r) => r.node.entry.id === loc);
-      if (idx === -1 || !scroller || !navEl) return;
+      if (idx === -1 || !navEl) return;
+      if (!scroller) {
+        const top = navEl.getBoundingClientRect().top + window.scrollY + idx * ROW_HEIGHT;
+        if (top < window.scrollY || top + ROW_HEIGHT > window.scrollY + window.innerHeight) {
+          window.scrollTo({ top: top - window.innerHeight / 2, behavior: "smooth" });
+        }
+        return;
+      }
       const offset = navEl.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
       const top = offset + idx * ROW_HEIGHT;
       if (top < scroller.scrollTop) scroller.scrollTo({ top, behavior: "smooth" });
