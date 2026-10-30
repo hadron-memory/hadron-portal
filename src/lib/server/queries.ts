@@ -2795,6 +2795,52 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
   }
 `;
 
+// Team-chat history search (#1013, server#2299). The page carries REFERENCES only
+// (no text): a hit is read back through `CHANNEL_HIT_MESSAGE_QUERY` below.
+export const TEAM_CHAT_SEARCH_QUERY = /* GraphQL */ `
+  query TeamChatSearch($appRef: ID!, $query: String!, $cursor: String, $limit: Int) {
+    teamChatSearch(appRef: $appRef, query: $query, cursor: $cursor, limit: $limit) {
+      items {
+        nodeId
+        urn
+        seq
+        channelId
+        channelIncarnation
+      }
+      complete
+      cursor
+      channelId
+      channelIncarnation
+    }
+  }
+`;
+
+// One hit's message, read through the existing channel read path. `sinceSeq` is
+// EXCLUSIVE, so `seq - 1` with limit 1 lands on the hit. The read is pinned to the
+// incarnation the search saw (a changed one is CHANNEL_INCARNATION_CHANGED, never a
+// retarget) and `advanceReadState: false` keeps opening a hit from acknowledging a
+// range the reader has not seen.
+export const CHANNEL_HIT_MESSAGE_QUERY = /* GraphQL */ `
+  query ChannelHitMessage($channelRef: ID!, $sinceSeq: Int!, $expectedIncarnation: Int!) {
+    channelMessages(
+      channelRef: $channelRef
+      sinceSeq: $sinceSeq
+      limit: 1
+      expectedIncarnation: $expectedIncarnation
+      advanceReadState: false
+    ) {
+      items {
+        nodeId
+        seq
+        body
+        at
+        authorName
+        urn
+      }
+    }
+  }
+`;
+
 // The team worklog (#947) — the AUTHORITATIVE artifact-to-session join
 // (hrn:node:hadronmemory.com:specs:cor:agt:020:05), which is what lets a merged PR trace back to the worker and
 // transcript that produced it.

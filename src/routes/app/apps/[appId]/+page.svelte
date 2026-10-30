@@ -18,12 +18,17 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
+  import TeamChatSearch from '$lib/components/TeamChatSearch.svelte';
+  import { teamChatSearchStrings } from '$lib/i18n/team-chat-search-strings';
   import type { TranscriptView } from '$lib/team-chat-refresh';
   import ChannelChatThread from '$lib/components/ChannelChatThread.svelte';
   import { createRosterRefreshers, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
   import { NO_TEAM_FILTER, filterKeyOf, teamChatReadUrl, withTeamFilter, type TeamChatFilter } from '$lib/team-chat-filter';
 
   let channelPostBusy = $state(false);
+  // #1013: the team-chat history search panel; the live thread below stays mounted.
+  let teamSearchOpen = $state(false);
+  let teamSearchToggle: HTMLButtonElement | undefined = $state();
   // Keep the submitting thread mounted until its result clears/keeps its own
   // draft. A navigation mid-post would make that outcome ambiguous.
   beforeNavigate((navigation) => { if (channelPostBusy) navigation.cancel(); });
@@ -1924,6 +1929,15 @@
              decoration, kept out of that name. -->
         <button
           type="button"
+          bind:this={teamSearchToggle}
+          onclick={() => { teamSearchOpen = !teamSearchOpen; if (!teamSearchOpen) teamSearchToggle?.focus(); }}
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          data-testid="team-chat-search-toggle"
+        >
+          {teamSearchOpen ? teamChatSearchStrings.back() : teamChatSearchStrings.toggle()}
+        </button>
+        <button
+          type="button"
           onclick={() => setChatMaximized(!chatFullView)}
           class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
@@ -1960,6 +1974,12 @@
            but minting new links that depend on a back-compat shim is how a
            shim stops being removable (Copilot on #759). -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+        {#if teamSearchOpen}
+          <div id="team-chat-search-panel" class="min-h-0 flex-1 overflow-y-auto">
+            {#key app.id}<TeamChatSearch appId={app.id} />{/key}
+          </div>
+        {/if}
+        <div class={teamSearchOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
         {#key `${app.id}:${data.postTeamChatMessageForm.id}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
           {@const teamStateKey = `${app.id}:team`}
           {@const teamViewKey = `${teamStateKey}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
@@ -1982,6 +2002,7 @@
           onSelectTeam={selectTeamFilter}
         />
         {/key}
+        </div>
       </div>
     </div>
     {:else if data.selectedChannelId && data.postChannelMessageForm}
