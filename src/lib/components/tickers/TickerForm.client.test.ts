@@ -93,6 +93,61 @@ describe('TickerForm (create)', () => {
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
   });
 
+  // portal#1384 acceptance 9: the warning a successful create carried (hadron-server#2733).
+  const unmappedWarning = { code: 'ticker.code.unmapped', text: 'No task is mapped to this ticker’s code in the App’s register.' };
+
+  it('a create that carried ticker.code.unmapped reports the ticker created AND shows the warning’s text and code beside the form', async () => {
+    const root = await mountIt(TickerForm, { appId: 'app-1', ticker: null });
+    type(field(root, 'name'), 'standup');
+    await tick(2);
+    await submitEnhancedWithResult(formOf(root), {
+      type: 'success', status: 200,
+      data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' }, committedWithError: false, warnings: [unmappedWarning], more: 0 },
+    });
+    await tick(3);
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('Created standup.');
+    const box = root.querySelector('[data-testid="task-warnings"]')!;
+    expect(box.textContent).toContain(unmappedWarning.text);
+    expect(box.querySelector('[data-warning-code="ticker.code.unmapped"] code')?.textContent).toBe('ticker.code.unmapped');
+    expect(root.querySelector('form [role="alert"]')).toBeNull();
+  });
+
+  it('a create with no warnings shows no warnings box', async () => {
+    const root = await mountIt(TickerForm, { appId: 'app-1', ticker: null });
+    await submitEnhancedWithResult(formOf(root), {
+      type: 'success', status: 200,
+      data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' }, committedWithError: false, warnings: [], more: 0 },
+    });
+    await tick(3);
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('Created standup.');
+    expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
+  });
+
+  it('a committed create whose response also errored says so, keeps the warning and does not call it failed', async () => {
+    const root = await mountIt(TickerForm, { appId: 'app-1', ticker: null });
+    await submitEnhancedWithResult(formOf(root), {
+      type: 'success', status: 200,
+      data: { action: 'create', ok: true, ticker: null, committedWithError: true, warnings: [unmappedWarning], more: 0 },
+    });
+    await tick(3);
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('also reported an error');
+    expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
+    expect(root.querySelector('a[href*="/tickers/"]')).toBeNull();
+  });
+
+  it('the next submit clears the previous create’s warning', async () => {
+    const root = await mountIt(TickerForm, { appId: 'app-1', ticker: null });
+    await submitEnhancedWithResult(formOf(root), {
+      type: 'success', status: 200,
+      data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' }, committedWithError: false, warnings: [unmappedWarning], more: 0 },
+    });
+    await tick(3);
+    expect(root.querySelector('[data-testid="task-warnings"]')).not.toBeNull();
+    await submitEnhancedDeferred(formOf(root));
+    await tick(2);
+    expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
+  });
+
   it('an uncertain outcome says so, never "failed", and shows no success', async () => {
     const root = await mountIt(TickerForm, { appId: 'app-1', ticker: null });
     await submitEnhancedWithResult(formOf(root), { type: 'failure', status: 502, data: { action: 'create', refusal: { kind: 'uncertain' } } });
