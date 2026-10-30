@@ -187,6 +187,15 @@ describe('ApplyAgentTickers: keyboard focus after an apply (Uma’s P2 on #1464)
     expect(document.activeElement).toBe(region);
   });
 
+  it('also lands on the result region when focus is still on the apply button', async () => {
+    const { root } = await mountApply({});
+    root.querySelector<HTMLButtonElement>('form button[type="submit"]')!.focus();
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update: async () => {} });
+    await finish(ok);
+    await tick(3);
+    expect(document.activeElement).toBe(root.querySelector('#apply-tickers-result'));
+  });
+
   it('does not steal focus from a control the reader moved to while the request ran', async () => {
     const { root } = await mountApply({});
     const other = document.createElement('input');
