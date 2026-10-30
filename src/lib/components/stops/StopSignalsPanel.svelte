@@ -16,7 +16,7 @@
   import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import type { SubmitFunction } from '@sveltejs/kit';
-  import { invalidateAll } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import Urn from '$lib/components/Urn.svelte';
@@ -182,6 +182,12 @@
           statusLine?.focus();
           return;
         }
+        // A redirect (an expired session sent to sign-in) is an answer, not an
+        // unknown: follow it instead of reading it as "may not have gone through".
+        if (result.type === 'redirect') {
+          await goto(result.location);
+          return;
+        }
         refusal =
           result.type === 'failure' && result.data && typeof result.data === 'object' && 'refusal' in result.data
             ? (result.data.refusal as WriteRefusal)
@@ -293,7 +299,7 @@
             {#if workerUrn}<p><Urn value={workerUrn} /></p>{/if}
             <p>{scopeCoverage(scope)}</p>
             <p>{levelEffect(level)}</p>
-            <p>{until ? t('app.stops.confirm.until', 'It ends on its own at {time}.', { time: fmtRunTime(untilIso) + ' (' + Intl.DateTimeFormat().resolvedOptions().timeZone + ')' }) : t('app.stops.confirm.open', 'It lasts until someone lifts it.')}</p>
+            <p>{untilIso ? t('app.stops.confirm.until', 'It ends on its own at {time}.', { time: fmtRunTime(untilIso) + ' (' + Intl.DateTimeFormat().resolvedOptions().timeZone + ')' }) : t('app.stops.confirm.open', 'It lasts until someone lifts it.')}</p>
             <p>{t('app.stops.confirm.messages', 'Messages are not held by any level.')}</p>
           </div>
           <div class="mt-4 flex flex-wrap justify-end gap-3">
