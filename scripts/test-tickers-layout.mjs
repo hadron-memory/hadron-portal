@@ -10,6 +10,37 @@ import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { chromium } from 'playwright';
 
+
+// portal#1151: the first import of the harness makes Vite discover and re-optimize dependencies,
+// and it then reloads every page it is serving. A page that was mid-`evaluate` died with
+// "Execution context was destroyed, most likely because of a navigation": CI's slower runner hit
+// it on the 1280px legs once the Tickers pages grew. Each view is therefore set up from a
+// document that has no script of its own (the old /@vite/client address was a SvelteKit 404 page
+// that hydrates), and a setup that a reload interrupts starts again from the top. A setup that
+// fails any other way still fails.
+const RELOADED = /Execution context was destroyed|navigation/i;
+
+async function mountView(page, origin, css, width, view) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await page.route('**/__blank', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>layout</title>' }));
+      await page.goto(new URL('/__blank', origin).href);
+      await page.evaluate((css) => {
+        document.head.innerHTML = '';
+        document.body.innerHTML = `<style>${css}</style><main id="col"></main>`;
+      }, css);
+      await page.addStyleTag({ content: `#col { width: ${width === 390 ? 308 : 1000}px; margin: 40px; }` });
+      await page.evaluate(async (view) => {
+        const { mountTickers } = await import('/src/lib/test/fixtures/tickers-harness.ts');
+        mountTickers(document.getElementById('col'), view);
+      }, view);
+      return;
+    } catch (e) {
+      if (attempt >= 5 || !RELOADED.test(String(e))) throw e;
+    }
+  }
+}
+
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
 try {
@@ -21,16 +52,7 @@ try {
   for (const width of [390, 1280]) {
     for (const view of ['list', 'detail', 'detail-unmapped', 'detail-task-failed', 'wake']) {
       const page = await browser.newPage({ viewport: { width, height: 844 } });
-      await page.goto(new URL('/@vite/client', origin).href);
-      await page.evaluate((css) => {
-        document.head.innerHTML = '';
-        document.body.innerHTML = `<style>${css}</style><main id="col"></main>`;
-      }, css);
-      await page.addStyleTag({ content: `#col { width: ${width === 390 ? 308 : 1000}px; margin: 40px; }` });
-      await page.evaluate(async (view) => {
-        const { mountTickers } = await import('/src/lib/test/fixtures/tickers-harness.ts');
-        mountTickers(document.getElementById('col'), view);
-      }, view);
+      await mountView(page, origin, css, width, view);
       await page.waitForSelector(view === 'wake' ? '[data-testid="wake-status"]' : view.startsWith('detail') ? '[data-testid="ticker-task"]' : 'table');
 
       const measure = () => page.evaluate(() => {
