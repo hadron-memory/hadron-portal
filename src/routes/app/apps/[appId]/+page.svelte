@@ -2710,7 +2710,7 @@
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     {#if data.createMemoryForm}
       {#key app.id}
-        <AppMemories memories={data.appMemories ?? null} canCreate={data.canCreateMemory === true} initial={data.createMemoryForm} result={form} />
+        <AppMemories memories={data.appMemories ?? null} canCreate={data.canCreateMemory === true} showDescription={!!app.organizationId} initial={data.createMemoryForm} result={form} />
       {/key}
     {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's

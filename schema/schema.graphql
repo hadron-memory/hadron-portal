@@ -1,4 +1,4 @@
-# Exported from hadron-server 76792bd991488cbf0b1fc78fd82f5266ddd7ea2b (76792bd9, 2026-10-30T04:45:35-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 35da7f37ca22f4cf49a67a96eb6368df0c79b392 (35da7f37ca22f4cf49a67a96eb6368df0c79b392, 2026-10-30T06:58:42-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -1661,7 +1661,7 @@ enum AppMemoryKind {
 """#2190: one reason a memory is in an App's scope."""
 type AppMemorySource {
   """
-  The installed or base Agent, for AGENT_SYSTEM, AGENT_LINK and INHERITED_BASE; null for TEAM_SPACE. An id only: when it does not resolve to an Agent this caller may read, show the source kind without a name.
+  The installed or base Agent, for AGENT_SYSTEM, AGENT_LINK and INHERITED_BASE; null for TEAM_SPACE and APP_MEMORY. An id only: when it does not resolve to an Agent this caller may read, show the source kind without a name.
   """
   agentId: ID
   kind: AppMemorySourceKind!
@@ -1673,6 +1673,11 @@ enum AppMemorySourceKind {
 
   """The system memory of an Agent installed in this App."""
   AGENT_SYSTEM
+
+  """
+  A free-standing app memory of this App, the kind createAppMemory makes: app-class, no Agent links it, not the team space. Listed for App participants only, never for an org reader who is not one (hrn:node:hadronmemory.com:specs:cor:dmo:050:17, hadron-server#2861).
+  """
+  APP_MEMORY
 
   """
   A base Agent's system memory, with nodes inherited by an installed Agent's system memory (hrn:node:hadronmemory.com:specs:cor:dmo:050:14).
@@ -1943,7 +1948,7 @@ type AppScopedMemory {
   name: String!
 
   """
-  Every reason this memory is in scope. Never empty. Ordered by kind (AGENT_SYSTEM, AGENT_LINK, INHERITED_BASE, TEAM_SPACE), then by agent install order.
+  Every reason this memory is in scope. Never empty. Ordered by kind (AGENT_SYSTEM, AGENT_LINK, INHERITED_BASE, TEAM_SPACE, APP_MEMORY), then by agent install order.
   """
   sources: [AppMemorySource!]!
 
@@ -1998,6 +2003,33 @@ enum AppType {
   CLOUD
   IOT
   WORKSTATION
+}
+
+"""
+#2096 — a template as the apply operation reports it: its id and name only. Deliberately NOT AgentTickerTemplate:
+that type's agent field default-resolves the whole Agent, and whoever manages an App need not be able to read
+the Agent it installed (the same reason ReleasedFromUser is not User, hrn:node:hadronmemory.com:specs:cor:acl:110:01).
+"""
+type AppliedTickerTemplate {
+  id: ID!
+  name: String!
+}
+
+"""
+#2096 — one ticker an apply created, with the template it came from and its effective cadence (the App's floor may have raised it, R92).
+"""
+type AppliedTickerTemplateTicker {
+  effectiveCadenceSeconds: Int!
+  template: AppliedTickerTemplate!
+  ticker: Ticker!
+}
+
+"""
+#2096 — what applyAgentTickerTemplates did: what it created, and the templates the worker already had (a second call is a visible no-op).
+"""
+type ApplyAgentTickerTemplatesResult {
+  alreadyPresent: [AppliedTickerTemplate!]!
+  created: [AppliedTickerTemplateTicker!]!
 }
 
 """#1591 — the outcome of approving every node of a memory."""
@@ -6268,6 +6300,17 @@ type Mutation {
   Refusals: NODE_WRITE_CONFLICT, DECISION_PART_RENUMBER, DECISION_ANSWER_IMMUTABLE, DECISION_NOT_DECIDER.
   """
   amendDecision(expectedRevision: Int!, input: AmendDecisionInput!, reason: String!, ref: ID!): Decision!
+
+  """
+  #2096 — apply the Agent's current ticker templates to ONE existing worker (the repair for workers cast before the
+  templates existed; hrn:node:hadronmemory.com:specs:cor:agt:080:33, :20). Whoever manages the App, acting as themselves:
+  not the worker, not its holder as such, not a reportsTo chain. Creates only the template tickers the worker is missing,
+  each owned by and subscribed to it, and never edits or deletes any existing ticker or subscription; a template the
+  worker already has a live ticker for is reported under alreadyPresent and left as it is. A template below the App's
+  cadence floor is created at the floor; if the App's live-ticker cap cannot take every missing ticker, or a generated
+  name is already a live ticker's, the whole call is refused and nothing is created. Never automatic, never across workers.
+  """
+  applyAgentTickerTemplates(workerRef: String!): ApplyAgentTickerTemplatesResult!
 
   """
   #1334 — copy a template's rules into ONE memory's config. A one-off copy:

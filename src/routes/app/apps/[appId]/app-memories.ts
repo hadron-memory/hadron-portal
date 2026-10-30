@@ -29,8 +29,28 @@ export const APP_MEMORIES_QUERY = /* GraphQL */ `
     }
   }
 `;
+// A user-owned App has no org to list through. hadron-server#2861 lists its
+// free-standing app memories as the APP_MEMORY source of appMemoryScope, for App
+// participants only. The row is a leaf with no description, so it is null here.
+export const APP_MEMORY_SCOPE_QUERY = /* GraphQL */ `
+  query AppMemoryScope($appRef: ID!, $limit: Int, $offset: Int) {
+    appMemoryScope(appRef: $appRef, limit: $limit, offset: $offset) {
+      items { memoryId memoryUrn name sources { kind } }
+      total
+    }
+  }
+`;
+interface ScopedMemoryRow { memoryId: string; memoryUrn: string; name: string; sources: { kind: string }[] }
+async function readUserOwnedAppMemories(client: ReturnType<typeof gqlClient>, appId: string): Promise<AppMemoryRow[] | null> {
+  try {
+    const scope = await withTimeout(fetchAllItems<ScopedMemoryRow>(client, APP_MEMORY_SCOPE_QUERY, 'appMemoryScope', { appRef: appId }), OPTIONAL_LIST_TIMEOUT_MS, null);
+    return scope === null ? null : scope
+      .filter(m => m.sources.some(s => s.kind === 'APP_MEMORY'))
+      .map(m => ({ id: m.memoryId, urn: m.memoryUrn, name: m.name, description: null, appId }));
+  } catch { return null; }
+}
 export async function readAppMemories(client: ReturnType<typeof gqlClient>, orgId: string | null, appId: string): Promise<AppMemoryRow[] | null> {
-  if (!orgId) return [];
+  if (!orgId) return readUserOwnedAppMemories(client, appId);
   try {
     const memories = await withTimeout(fetchAllItems<AppMemoryRow>(client, APP_MEMORIES_QUERY, 'memories', { orgId }), OPTIONAL_LIST_TIMEOUT_MS, null);
     return memories === null ? null : memories.filter(m => m.appId === appId);
