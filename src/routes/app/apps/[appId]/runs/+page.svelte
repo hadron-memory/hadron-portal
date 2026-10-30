@@ -47,6 +47,15 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
   });
+  // The page is reused across param-only navigation, so the form store outlives
+  // the App: an Agent chosen for App A must not ride along into App B (#1444).
+  let seenAppId = untrack(() => data.app.id);
+  $effect(() => {
+    const id = data.app.id;
+    if (id === seenAppId) return;
+    seenAppId = id;
+    runFormData.update((current) => ({ ...current, agentRef: '' }), { taint: false });
+  });
   const runActionError = $derived(scopedActionError<RunAppFlowForm>(form, 'runFlow', $runMessage, $runErrors, ['entryUrn', 'agentRef', '_kind']));
 
   function pageHref(page: number, status: string | null): string {

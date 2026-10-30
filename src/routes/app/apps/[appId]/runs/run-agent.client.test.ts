@@ -7,6 +7,7 @@ import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { runAppFlowSchema } from './schema';
 import Page from './+page.svelte';
 
@@ -56,5 +57,44 @@ describe('runs page: Agent picker (#1444)', () => {
   it('no picker without several Agents', async () => {
     const t = await mountRuns(null);
     expect(t.querySelector('#runAgent')).toBeNull();
+  });
+
+  // Param-only navigation reuses the page, so the form store outlives the App.
+  async function navigateAtoB(runAgentsB: unknown) {
+    const base = {
+      app: { id: 'app-a', name: 'A', organizationId: 'org-1' },
+      runs: [], total: 0, page: 1, pageSize: 25, status: null,
+      flows: [flow], flowsCapped: false, flowsScanned: 1,
+      runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }),
+      runAgents: agents as unknown,
+    };
+    const props = reactiveProps({ data: base, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    const select = m.target.querySelector<HTMLSelectElement>('#runAgent')!;
+    select.value = 'ag-2';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    expect(hidden(m.target)!.value).toBe('ag-2');
+    props.data = {
+      ...base,
+      app: { id: 'app-b', name: 'B', organizationId: 'org-1' },
+      runAgents: runAgentsB,
+      runForm: await superValidate(zod4(runAppFlowSchema), { errors: false }),
+    };
+    flushSync();
+    return m.target;
+  }
+
+  it('App A\'s chosen Agent does not survive navigation to a single-Agent App B', async () => {
+    const t = await navigateAtoB(null);
+    expect(t.querySelector('#runAgent')).toBeNull();
+    expect(hidden(t)!.value).toBe('');
+  });
+
+  it('navigating to another several-Agent App asks for a fresh choice', async () => {
+    const t = await navigateAtoB(agents);
+    expect(t.querySelector<HTMLSelectElement>('#runAgent')!.value).toBe('');
+    expect(hidden(t)!.value).toBe('');
   });
 });
