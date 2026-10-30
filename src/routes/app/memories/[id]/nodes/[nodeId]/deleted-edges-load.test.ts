@@ -5,7 +5,10 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RECOVERY_EDGES_QUERY } from '$lib/server/queries';
+import { serveMemoryReads } from '$lib/test/serveMemoryReads';
 
+// portal#1433: the node reads that replaced the layout's graphNodes.
+let reads = serveMemoryReads([], { id: 'mem-1', urn: 'hrn:mem:acme.com:notes' });
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
@@ -18,7 +21,8 @@ const MEM = 'mem-A';
 const live = { id: 'live-pk', name: 'Live', loc: 'live', memory: { id: MEM, urn: 'hrn:mem:acme.com:notes' } };
 
 async function runLoad(incomingEdges: unknown[], recoveryItems: unknown[] = []) {
-  mockRequest.mockImplementation(async (q: string) => {
+  mockRequest.mockImplementation(async (q: string, vars?: Record<string, unknown>) => {
+    { const served = reads(q, vars); if (served !== undefined) return served; }
     if (q === RECOVERY_EDGES_QUERY) return { recoveryEdges: { items: recoveryItems, total: recoveryItems.length } };
     if (String(q).includes('query NodeById')) {
       return {

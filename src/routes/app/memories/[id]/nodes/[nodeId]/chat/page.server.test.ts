@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CREATE_NODE_MUTATION, CREATE_TEAM_CHAT_MESSAGE_MUTATION, LEGACY_THREAD_PROBE_QUERY, NODE_BY_ID_QUERY } from '$lib/server/queries';
 
+import { serveMemoryReads } from '$lib/test/serveMemoryReads';
+
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
   gqlClient: () => ({ request: mockRequest }),
@@ -67,7 +69,10 @@ function teamChat(over: Record<string, unknown> = {}) {
 
 describe('chat page load — fullUrn', () => {
   async function loadWith(memoryUrn: string | null, node: Record<string, unknown>) {
-    mockRequest.mockImplementation(async (query: string) => {
+    const reads = serveMemoryReads([], { id: 'mem-1', urn: memoryUrn ?? 'hrn:mem:acme.com:x' });
+    mockRequest.mockImplementation(async (query: string, vars?: Record<string, unknown>) => {
+      const served = reads(query, vars);
+      if (served !== undefined) return served;
       if (query === NODE_BY_ID_QUERY) return { node };
       if (query === LEGACY_THREAD_PROBE_QUERY) return LEGACY_THREAD;
       // loadChatMessages' NODES_BY_LOC_PREFIX_QUERY — an empty thread is fine,

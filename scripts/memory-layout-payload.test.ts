@@ -33,6 +33,8 @@ const SERVER_PAGE = 2000;
 const MIB = 1048576;
 // Slimmed payload measures ~24.0 MiB at this fixture; the pre-S2a one 47.55.
 const BOUND_MIB = 26;
+// portal#1433 target 1 is HTML <= 1 MB; the root layout payload is a fraction of it.
+const ROOT_BOUND_BYTES = 1 * MIB;
 
 beforeEach(() => {
   mockRequest.mockReset();
@@ -58,9 +60,41 @@ describe('memory layout payload at 32,920 nodes (portal#1429)', () => {
     const { load } = await import('../src/routes/app/memories/[id]/+layout.server');
     const data = (await load({ params: { id: world.memory.id }, locals: { token: 't', user: { id: 'u' } } } as never)) as Record<string, unknown>;
 
-    expect(Object.keys(data).sort()).toEqual(['canWriteMemory', 'graph', 'graphNodes', 'nodesFailed', 'nodesTotal', 'org']);
-    expect((data.graphNodes as unknown[]).length).toBe(32920);
+    // portal#1433: the ROOT layout carries no graph, so every route outside the
+    // Nodes/Graph group (node detail, info, settings, assets …) is tiny here.
+    expect(Object.keys(data).sort()).toEqual(['canWriteMemory', 'graph', 'org']);
+    expect(data).not.toHaveProperty('graphNodes');
+    const queries = mockRequest.mock.calls.map((c) => c[0]);
+    expect(queries).not.toContain(MEMORY_NODES_QUERY);
+    expect(queries).not.toContain(MEMORY_EDGES_QUERY);
     const bytes = devalue.uneval(data).length;
-    expect(bytes).toBeLessThan(BOUND_MIB * MIB);
+    expect(bytes).toBeLessThan(ROOT_BOUND_BYTES);
+  }, 120_000);
+
+  it('the (browser) group layout, which only Nodes and Graph load, still drains the whole graph', async () => {
+    const world = synthMemory(32920);
+    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
+      const limit = Math.min(Number(vars?.limit ?? 1000), SERVER_PAGE);
+      const offset = Number(vars?.offset ?? 0);
+      if (query === MEMORY_NODES_QUERY) {
+        return { memoryNodes: { nodes: world.nodes.slice(offset, offset + limit), total: world.nodes.length } };
+      }
+      if (query === MEMORY_EDGES_QUERY) {
+        return { memoryEdges: { edges: world.edges.slice(offset, offset + limit), total: world.edges.length } };
+      }
+      throw new Error(`unexpected query: ${String(query).slice(0, 60)}`);
+    });
+    const { load } = await import('../src/routes/app/memories/[id]/(browser)/+layout.server');
+    const data = (await load({
+      params: { id: world.memory.id },
+      locals: { token: 't' },
+      parent: async () => ({ graph: world.memory }),
+    } as never)) as Record<string, unknown>;
+
+    expect(Object.keys(data).sort()).toEqual(['graphNodes', 'nodesFailed', 'nodesTotal']);
+    expect((data.graphNodes as unknown[]).length).toBe(32920);
+    // R2 (portal#1433): Nodes/Graph are exempt from the payload targets until #1381;
+    // this is the pre-existing ~24 MiB graph, unchanged.
+    expect(devalue.uneval(data).length).toBeLessThan(BOUND_MIB * MIB);
   }, 120_000);
 });

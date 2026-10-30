@@ -87,8 +87,16 @@ export async function profile(nodeCount: number, runs = 3) {
   const stats = new Map<string, QueryStat>();
   const opts = { countBytes: false };
   serve(world, stats, opts);
-  const { load } = await import('../src/routes/app/memories/[id]/+layout.server');
+  // portal#1433: the Nodes-tab entry is the memory layout PLUS the `(browser)`
+  // group layout that drains the graph, so profile both as one entry.
+  const { load: loadRoot } = await import('../src/routes/app/memories/[id]/+layout.server');
+  const { load: loadBrowser } = await import('../src/routes/app/memories/[id]/(browser)/+layout.server');
   const event = { params: { id: world.memory.id }, locals: { token: 't', user: { id: 'u' } } } as never;
+  const load = async (e: never) => {
+    const root = (await loadRoot(e)) as Record<string, unknown>;
+    const browser = (await loadBrowser({ ...(e as object), parent: async () => root } as never)) as Record<string, unknown>;
+    return { ...root, ...browser };
+  };
 
   await load(event); // warm-up: JIT and module init are not the cost being measured
   stats.clear();

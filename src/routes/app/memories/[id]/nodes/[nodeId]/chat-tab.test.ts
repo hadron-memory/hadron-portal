@@ -6,7 +6,10 @@ import {
   NODES_BY_LOC_PREFIX_QUERY,
   NODE_BY_ID_QUERY,
 } from '$lib/server/queries';
+import { serveMemoryReads } from '$lib/test/serveMemoryReads';
 
+// portal#1433: the node reads that replaced the layout's graphNodes.
+let reads = serveMemoryReads([], { id: 'mem-1', urn: 'hrn:mem:acme.com:notes' });
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
@@ -37,7 +40,8 @@ function legacyThreadOf(loc: string) {
 // includes streamed, best-effort calls) doesn't make these tests brittle.
 function routeRequests(over: { messages?: unknown; node?: Record<string, unknown> } = {}) {
   const node = over.node ?? nodeRow();
-  mockRequest.mockImplementation(async (doc: string) => {
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    { const served = reads(doc, vars); if (served !== undefined) return served; }
     if (doc === NODE_BY_ID_QUERY) return { node };
     // #926: a tag-only root is a chat only with a legacy message under it.
     if (doc === LEGACY_THREAD_PROBE_QUERY) return legacyThreadOf(node.loc as string);

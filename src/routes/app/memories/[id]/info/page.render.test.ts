@@ -12,7 +12,7 @@ function data(over: Record<string, unknown>) {
       ...over,
     },
     org: null,
-    graphNodes: [],
+    nodeCount: 0,
   };
 }
 

@@ -15,11 +15,21 @@ import { MOVE_NODE_MUTATION, NODE_QUERY, NODE_REVISIONS_QUERY } from '$lib/serve
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  // portal#1433: the breadcrumb/children/wikilink reads are answered from the
+  // seeded nodes WITHOUT touching `mockRequest`, so the ordered
+  // `mockResolvedValueOnce` queue below still lines up with the node read.
+  gqlClient: () => ({
+    request: (doc: string, vars?: Record<string, unknown>) => {
+      const served = reads(doc, vars);
+      return served !== undefined ? Promise.resolve(served) : mockRequest(doc, vars);
+    },
+  }),
 }));
 vi.mock('$lib/server/guards', () => ({
   requireNonConsumer: vi.fn().mockResolvedValue(undefined),
 }));
+
+let reads = serveMemoryReads([], { id: 'mem-A', urn: 'hrn:mem:acme.com:mem-a' });
 
 beforeEach(() => {
   mockRequest.mockReset();
@@ -51,6 +61,10 @@ function loadEvent(opts: {
   /** #853 — the memory URN the crumb qualifies ancestor locs against. */
   memoryUrn?: string | null;
 }) {
+  reads = serveMemoryReads(opts.parentGraphNodes as SeedNode[], {
+    id: opts.gid,
+    urn: opts.memoryUrn ?? 'hrn:mem:acme.com:mem-a',
+  });
   return {
     params: { id: opts.gid, nodeId: opts.nodeId },
     locals: { token: 'tok' },
@@ -58,7 +72,6 @@ function loadEvent(opts: {
       `http://localhost/app/memories/${opts.gid}/nodes/${opts.nodeId}${opts.search ?? ''}`,
     ),
     parent: vi.fn().mockResolvedValue({
-      graphNodes: opts.parentGraphNodes,
       // #853: the breadcrumb qualifies an ancestor loc into a full node URN
       // from this, exactly as the wikilink resolver already does.
       // `'memoryUrn' in opts`, not `??` — an explicit null is the "the layout
@@ -424,6 +437,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
  * the contract per action so a future refactor can't silently regress.
  */
 import type { Actions } from './$types';
+import { serveMemoryReads, type SeedNode } from '$lib/test/serveMemoryReads';
 
 async function importActions() {
   const mod = await import('./+page.server');
@@ -1453,29 +1467,30 @@ describe('node-detail load — an ancestor crumb carries a qualified URN', () =>
     );
   });
 
-  it('falls back to the bare loc when the memory URN is unavailable', async () => {
-    // The layout returns no `graph` when the memory read failed. "Couldn't
-    // qualify it" is not "there is no address" — the loc still beats nothing,
-    // and the crumb must not render a broken or empty title.
+  it('keeps the slug crumb, and the page loads, when the memory URN is unavailable', async () => {
+    // The layout returns no `graph` when the memory read failed. portal#1433: an
+    // ancestor is looked up by its node URN, so with no memory URN there is
+    // nothing to look up. "Couldn't qualify it" must not take the page down or
+    // render a broken crumb: each segment keeps its slug.
     mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'pen-pk') });
     const result = await runLoad(loadEvent({
       gid: MEM, nodeId: 'pen-pk', parentGraphNodes: ancestors, memoryUrn: null,
     }));
-    expect(result.breadcrumb.find((s) => s.path === 'form-fbar')?.title).toBe(
-      'Form: FBAR — form-fbar',
-    );
+    const seg = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(seg?.label).toBe('form-fbar');
+    expect(seg?.nodeId).toBeNull();
   });
 
-  it('falls back to the bare loc when the memory URN is malformed', async () => {
+  it('keeps the slug crumb, and the page loads, when the memory URN is malformed', async () => {
     // composeNodeUrn throws on a wrong-type prefix. A throw here would take out
-    // the whole node page over a hover string.
+    // the whole node page over a breadcrumb.
     mockRequest.mockResolvedValueOnce({ node: nodeAt('form-fbar:penalties', 'pen-pk') });
     const result = await runLoad(loadEvent({
       gid: MEM, nodeId: 'pen-pk', parentGraphNodes: ancestors,
       memoryUrn: 'hrn:node:not-a-memory:at-all',
     }));
-    expect(result.breadcrumb.find((s) => s.path === 'form-fbar')?.title).toBe(
-      'Form: FBAR — form-fbar',
-    );
+    const seg = result.breadcrumb.find((s) => s.path === 'form-fbar');
+    expect(seg?.label).toBe('form-fbar');
+    expect(seg?.nodeId).toBeNull();
   });
 });

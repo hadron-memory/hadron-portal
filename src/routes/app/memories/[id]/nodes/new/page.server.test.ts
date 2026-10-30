@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CREATE_NODE_MUTATION } from '$lib/server/queries';
+import { serveMemoryReads } from '$lib/test/serveMemoryReads';
 
 const mockRequest = vi.fn();
 
@@ -20,19 +21,25 @@ function loadEvent(opts: {
   loc?: string;
   isConsumerMode?: boolean;
   activeOrgId?: string | null;
-  graphNodes?: Array<{ loc: string }>;
+  /** Nodes the server holds in the memory (the layout no longer carries them). */
+  graphNodes?: Array<{ id: string; loc: string }>;
   graph?: { organizationId?: string | null };
 } = {}) {
   const url = new URL('https://portal.test/app/memories/memory-1/nodes/new');
   if (opts.parent !== undefined) url.searchParams.set('parent', opts.parent);
   if (opts.loc !== undefined) url.searchParams.set('loc', opts.loc);
 
+  // portal#1433: siblings come from the server, not from the layout's node list.
+  const reads = serveMemoryReads(opts.graphNodes ?? [], { id: 'memory-1', urn: 'hrn:mem:acme.com:notes' });
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => reads(doc, vars));
+
   return {
     url,
+    params: { id: 'memory-1' },
+    locals: { token: 'test-token' },
     parent: vi.fn().mockResolvedValue({
       isConsumerMode: opts.isConsumerMode ?? false,
       activeOrgId: opts.activeOrgId ?? 'org-1',
-      graphNodes: opts.graphNodes ?? [],
       // Default to an org-scoped memory so the consumer-bounce still applies
       // unless a test opts into an org-less (user-owned) memory.
       graph: opts.graph ?? { organizationId: 'org-1' },
@@ -79,8 +86,10 @@ describe('new node load()', () => {
       parent: 'loc:parent/path',
       loc: 'urn:node:hadronmemory.com::dev::parent:child',
       graphNodes: [
-        { loc: 'loc:parent/child' },
-        { loc: 'hadronmemory.com:dev:other-node' },
+        { id: 'n1', loc: 'parent:path:child' },
+        { id: 'n2', loc: 'parent:path:other-node' },
+        { id: 'n3', loc: 'elsewhere' },
+        { id: 'n4', loc: 'parent:path:child:grandchild' },
       ],
     });
 
@@ -90,7 +99,8 @@ describe('new node load()', () => {
     expect(result).toMatchObject({
       parentLoc: 'parent:path',
       prefillLoc: 'parent:child',
-      existingLocs: ['parent:child', 'other-node'],
+      // only the DIRECT children of the chosen parent: a loc is unique per memory
+      existingLocs: ['parent:path:child', 'parent:path:other-node'],
     });
     expect((result as {
       form: { data: Record<string, string>; errors: Record<string, string[]> };
