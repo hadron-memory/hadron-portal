@@ -45,7 +45,9 @@
   let lastFocused: Element | null = null;
   onMount(() => {
     const remember = (e: FocusEvent) => {
-      if (e.target instanceof Element) lastFocused = e.target;
+      // Kit's own reset lands on the body and fires focusin there: that is not
+      // the reader moving, so it must not overwrite where they actually were.
+      if (e.target instanceof Element && e.target !== document.body && e.target !== document.documentElement) lastFocused = e.target;
     };
     document.addEventListener('focusin', remember);
     return () => document.removeEventListener('focusin', remember);

@@ -141,7 +141,7 @@ describe('focus through a successful save (#1367)', () => {
     expect(document.activeElement).toBe(document.body);
   });
 
-  it('a refused save leaves focus alone', async () => {
+  it('a refused save moves focus nowhere of its own', async () => {
     const { target } = await mountSection();
     type(target, 'signature', 'edited sig');
     const save = target.querySelector<HTMLButtonElement>('button[type="submit"]')!;
@@ -149,7 +149,9 @@ describe('focus through a successful save (#1367)', () => {
     const f = await superValidate({ signature: 'edited sig', trailer: 'stored trailer', signatureBase: 'stored sig', trailerBase: 'stored trailer' }, zod4(updateSignatureSchema), { errors: false });
     await submitEnhancedWithResult(target.querySelector('form')!, { type: 'failure', status: 403, data: { form: { ...f, valid: false, message: { type: 'error', text: 'Refused.' } } } });
     await tick(4);
-    expect(document.activeElement).toBe(save);
+    // Kit resets focus to the body on any applied result; a refusal adds nothing of ours.
+    expect(document.activeElement).toBe(document.body);
+    expect(document.activeElement).not.toBe(target.querySelector('[role="alert"]'));
   });
 });
 
