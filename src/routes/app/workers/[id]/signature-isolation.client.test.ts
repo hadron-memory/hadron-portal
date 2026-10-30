@@ -23,11 +23,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, tick } from 'svelte';
 import { get } from 'svelte/store';
+import { superValidate } from 'sveltekit-superforms';
+import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage, page } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { updateSignatureFormId, updateSignatureSchema } from './schema';
 import Page from './+page.svelte';
+import Section from './WorkerSignatureSection.svelte';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -74,11 +78,11 @@ async function loadWorker(id: string, signature: string) {
  * so the reply is minted for that epoch. Omitted, the reply carries the bare
  * loader stamp (the no-JS POST shape).
  */
-async function actionReply(id: string, draft: string, outcome: 'refuse' | 'ok', formId?: string) {
+async function actionReply(id: string, draft: string, outcome: 'refuse' | 'ok', formId?: string, base = 'base') {
   const fd = new FormData();
   fd.set('_kind', 'updateSignature');
   fd.set('signature', draft);
-  fd.set('signatureBase', outcome === 'refuse' ? 'base' : 'base');
+  fd.set('signatureBase', base);
   fd.set('trailer', '');
   fd.set('trailerBase', '');
   if (formId) fd.set('__superform_id', formId);
@@ -243,5 +247,70 @@ describe('worker signature: late-reply isolation (#1448)', () => {
     const target = await mountPage(await loadWorker('w-b', SIG_B), reply);
     expect(sigField(target).value).toBe('B’s refused draft');
     expect(sectionEl(target).textContent).toMatch(/can't change this worker's signature/i);
+  });
+
+  // Gaby's blind P2 on #1450, second half — the epoch fence is only as real
+  // as the id the REAL enhanced submit posts — is dispositioned by EVIDENCE,
+  // not a jsdom pin (a synthetic submit event does not drive kit's enhance
+  // chain to fetch in jsdom, so a harness pin cannot see the posted id):
+  // superforms 2.30.2 injects `__superform_id` from the form's id in the
+  // submit path (dist/client/superForm.js:1293-1298), kit's enhance then
+  // POSTs that FormData through the global fetch, and George's local delta
+  // node records an actual enhanced callback posting the live mount id with
+  // the real action echoing it; Cedric's private-browser run verifies the
+  // POST on a real page. The action-side half IS pinned server-side:
+  // signature.test.ts "echoes a POSTED instance id".
+});
+
+// Gaby's blind P2 on #1450, the mount-path half: an earlier mount's refusal
+// may seed a remount only while its bases still equal the loader's — a save
+// that landed since changed the stored text and the loader's bases with it.
+// (Tab round-trips are {#if} toggles, NOT navigations — +page.svelte keeps
+// tab clicks out of the URL — so page.form really does survive them; that is
+// the legitimate case these legs keep alive.)
+describe('worker signature: prior-epoch seed gate (#1450)', () => {
+  const stamp = updateSignatureFormId('w-a');
+
+  /** The section mounted directly, as a tab round-trip remounts it: the loader's CURRENT form, page.form's stale reply. */
+  async function remountWith(storedSignature: string, actionResult: unknown) {
+    const initialForm = await superValidate(
+      { signature: storedSignature, trailer: '', signatureBase: storedSignature, trailerBase: '' },
+      zod4(updateSignatureSchema),
+      { errors: false, id: stamp },
+    );
+    const props = reactiveProps({
+      signature: storedSignature, trailer: null, retired: false, initialForm, actionResult,
+    });
+    const m = mountComponent(Section as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    flushSync();
+    return m.target;
+  }
+
+  it('an earlier mount’s refusal still seeds while its base matches the store — through TWO tab round-trips', async () => {
+    const reply = await actionReply('w-a', 'my round-trip draft', 'refuse', `${stamp}#old-epoch`, SIG_A);
+    const first = await remountWith(SIG_A, reply);
+    expect(sigField(first).value).toBe('my round-trip draft');
+    expect(saveButton(first).disabled).toBe(false);
+    // The second round-trip is the review's explicit pin: a refusal writes
+    // nothing, so the loader's bases are unchanged and the draft must seed
+    // this remount exactly as it seeded the last.
+    mounted.pop()!.unmount();
+    const second = await remountWith(SIG_A, reply);
+    expect(sigField(second).value).toBe('my round-trip draft');
+    expect(saveButton(second).disabled).toBe(false);
+    expect(sectionEl(second).textContent).toMatch(/can't change this worker's signature/i);
+  });
+
+  it('an earlier mount’s refusal does NOT seed once a later save has overtaken its base (Gaby’s blind P2)', async () => {
+    // The loader now holds a NEWER stored signature (mount 2's save landed,
+    // invalidateAll reran the loader); the stale refusal still carries the
+    // OLD base and the OLD draft.
+    const reply = await actionReply('w-a', 'stale doomed draft', 'refuse', `${stamp}#old-epoch`, SIG_A);
+    const target = await remountWith('A-SIG SAVED LATER', reply);
+    expect(sigField(target).value).toBe('A-SIG SAVED LATER');
+    expect(sigBase(target).value).toBe('A-SIG SAVED LATER');
+    expect(saveButton(target).disabled).toBe(true);
+    expect(sectionEl(target).textContent).not.toMatch(/can't change this worker's signature/i);
   });
 });

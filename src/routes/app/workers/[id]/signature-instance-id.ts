@@ -23,10 +23,12 @@ import { browser } from '$app/environment';
  * mounted instance, whose id always carries the uuid suffix, can never match
  * a stamped reply again.
  *
- * The uuid never reaches the DOM (superforms adds `__superform_id` to the
- * submitted FormData in code, it renders no hidden input), so minting it on
- * the client only — the server render keeps the bare stamp — cannot desync
- * hydration.
+ * The uuid never reaches the SERVER-RENDERED MARKUP (superforms adds
+ * `__superform_id` to the submitted FormData in code, it renders no hidden
+ * input), so minting it on the client only — the server render keeps the
+ * bare stamp — cannot desync hydration. Post-hydration the uuid does reach
+ * the DOM once, as the live epoch on the form's `data-superform-id`
+ * attribute (set from an effect, for devtools and tests).
  */
 export function signatureInstanceId(loaderStamp: string): string {
   return browser ? `${loaderStamp}#${crypto.randomUUID()}` : loaderStamp;

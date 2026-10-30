@@ -119,6 +119,36 @@ describe('worker signature: per-worker form identity (#1448)', () => {
   });
 });
 
+// portal#1450 — the fence is per MOUNT, which holds only if the reply really
+// carries the epoch its mount posted. An enhanced submit posts its instance
+// id as __superform_id (superForm sets it from the form's id), and
+// superValidate takes that POSTED id over the options id
+// (dist/superValidate.js: parsed.id ?? options?.id), so the reply returns to
+// the mount that sent it. The client-side half — that the real submit path
+// posts the id — is dispositioned by evidence in
+// signature-isolation.client.test.ts; these legs pin the action-side echo.
+describe('worker signature: per-mount reply identity (#1450)', () => {
+  const epoch = `${updateSignatureFormId('w-7')}#8b0b9e31-6ed0-4d88-9e63-f2a1a70c2b77`;
+
+  it('echoes a POSTED instance id — refusal', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('FORBIDDEN', 'Forbidden'));
+    const res = await runAction(
+      { signature: 'draft', signatureBase: SIG, trailer: TRL, trailerBase: TRL, __superform_id: epoch },
+      'w-7',
+    );
+    expect(res.data?.form?.id).toBe(epoch);
+  });
+
+  it('echoes a POSTED instance id — success', async () => {
+    mockRequest.mockResolvedValueOnce({ updateWorker: { id: 'w-7' } });
+    const res = await runAction(
+      { signature: 'new sig', signatureBase: SIG, trailer: TRL, trailerBase: TRL, __superform_id: epoch },
+      'w-7',
+    );
+    expect(res.form?.id).toBe(epoch);
+  });
+});
+
 describe('worker signature: save sends changed fields only', () => {
   it('sends only the changed field', async () => {
     mockRequest.mockResolvedValueOnce({ updateWorker: { id: 'w-1' } });

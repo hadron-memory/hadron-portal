@@ -47,13 +47,26 @@
   // reopen the tab), and seeding from it would put the old saved text over a
   // fresher stored value (Gene's blind P2 on #1157).
   //
+  // portal#1450 (Gaby's blind P2) — an earlier mount's refusal seeds only
+  // while it is still consistent with what the loader holds NOW: its bases
+  // must equal the loader's. A later save changed the stored text — and the
+  // loader's bases with it — so a refusal the store has overtaken no longer
+  // seeds; seeding from it would resurrect stale text over a stale base
+  // through the mount path, the very clobber the epoch fence stops on the
+  // live path. A refusal writes nothing, so the bases still match in the
+  // legitimate case and the tab-round-trip draft survives.
+  //
   // Both reads are deliberately mount-time only (untrack): the seed is what
   // this editor starts from, and a changed loader form is a worker (or ref
   // spelling) move, which remounts the section through its keyed id.
   const seedForm = untrack(() => {
     const failed = failedSubmission<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null;
-    const own = (id: string) => id === initialForm.id || id.startsWith(`${initialForm.id}#`);
-    return failed && own(failed.id) ? failed : initialForm;
+    if (!failed) return initialForm;
+    const fromEarlierMount =
+      failed.id.startsWith(`${initialForm.id}#`) &&
+      failed.data.signatureBase === initialForm.data.signatureBase &&
+      failed.data.trailerBase === initialForm.data.trailerBase;
+    return failed.id === initialForm.id || fromEarlierMount ? failed : initialForm;
   });
   // portal#1450 (George's LOCAL P2) — per MOUNT, on top of the loader's
   // per-worker stamp: a returned-to worker's fresh editor must not answer to
