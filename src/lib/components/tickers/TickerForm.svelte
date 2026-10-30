@@ -232,7 +232,7 @@
     {#if refusal}<WriteRefusalAlert {refusal} />{/if}
     {#if status}
       <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">
-        {status}{#if warningsBelow(warnings.length + moreWarnings)} {warningsBelow(warnings.length + moreWarnings)}{/if}
+        {[status, warningsBelow(warnings.length + moreWarnings)].filter(Boolean).join(' ')}
         {#if created}<a href="/app/apps/{appId}/tickers/{created.id}" class="ml-1 underline">{t('app.tickers.write.open', 'Open it')}</a>{/if}
       </p>
     {/if}

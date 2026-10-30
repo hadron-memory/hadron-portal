@@ -105,7 +105,8 @@ describe('TickerForm (create)', () => {
       data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' }, committedWithError: false, warnings: [unmappedWarning], more: 0 },
     });
     await tick(3);
-    expect(root.querySelector('[role="status"]')?.textContent).toContain('Created standup.');
+    // The status line says warnings follow (for a screen reader), as a separate sentence.
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('Created standup. 1 warning below.');
     const box = root.querySelector('[data-testid="task-warnings"]')!;
     expect(box.textContent).toContain(unmappedWarning.text);
     expect(box.querySelector('[data-warning-code="ticker.code.unmapped"] code')?.textContent).toBe('ticker.code.unmapped');
