@@ -191,3 +191,22 @@ function sameMessage(a: TeamChatMessage, b: TeamChatMessage): boolean {
   }
   return true;
 }
+
+
+/** In-page Channel state; never persisted outside this page instance. */
+export interface TranscriptView {
+  items: readonly TeamChatMessage[];
+  total: number;
+  scrollTop: number;
+  atBottom: boolean;
+  olderExhausted: boolean;
+  olderRemaining: number;
+  pendingNewer: number;
+}
+/** Keep loaded history, but never join two disjoint windows over an unseen gap. */
+export function resumeTranscript(previous: { items: readonly TeamChatMessage[]; total: number } | null,
+  items: readonly TeamChatMessage[], total: number) {
+  if (!previous?.items.length || total === 0) return { items, total };
+  if (items.length && items[0].seq > previous.items[previous.items.length - 1].seq + 1) return previous;
+  return { items: mergeTranscript(previous.items, items), total: Math.max(previous.total, total) };
+}

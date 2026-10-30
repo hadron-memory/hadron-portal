@@ -3,10 +3,10 @@ import { z } from 'zod';
 /**
  * Posting to a team App's TEAM CHAT (hadron-portal#732).
  *
- * Distinct from `sendChatMessageSchema`, which posts to a chat NODE addressed
- * by memory + node id. This one carries no chat address at all: the server owns
- * the App's one well-known team chat and resolves it from the App, which is
- * what makes a portal post structurally unable to land in the wrong thread.
+ * The default-team action ignores chat addresses and lets the server resolve
+ * the App's default. #1033's separate addressed action requires channelRef,
+ * checks its route App, and calls createChannelMessage with the same human
+ * token. Neither path accepts a worker session or silently falls back.
  *
  * Lives in `$lib/forms` rather than beside the route so the component and the
  * route action share one definition — the same reason `chat-message-schema`
@@ -26,6 +26,8 @@ export const postTeamChatMessageSchema = z.object({
   // and must reach the mutation as undefined rather than 0 — seq ascends from
   // 1, so 0 could only ever name a message that cannot exist.
   replyToSeq: z.string().trim().optional(),
+  // #1033: optional only for the default-team convenience action.
+  channelRef: z.string().trim().optional(),
 });
 
 export type PostTeamChatMessageSchema = typeof postTeamChatMessageSchema;

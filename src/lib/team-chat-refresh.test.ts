@@ -4,6 +4,7 @@ import {
   forwardPageCount,
   isAtBottom,
   mergeTranscript,
+  resumeTranscript,
   scrollTopAfterPrepend,
 } from './team-chat-refresh';
 import type { TeamChatMessage } from '$lib/types';
@@ -258,5 +259,21 @@ describe('mergeTranscript — change detection covers every rendered field', () 
     const withMentions = [msg(1, { mentions: ['ada', 'dara'] })];
     expect(mergeTranscript(withMentions, [msg(1, { mentions: ['ada', 'dara'] })])).toBe(withMentions);
     expect(mergeTranscript(withMentions, [msg(1, { mentions: ['ada'] })])).not.toBe(withMentions);
+  });
+});
+
+
+describe('Channel history restoration (#1033)', () => {
+  it('keeps loaded older rows when a fresh tail overlaps it', () => {
+    const r = resumeTranscript({ items: [msg(1), msg(2)], total: 2 }, [msg(2), msg(3)], 3);
+    expect(r.items.map(m => m.seq)).toEqual([1, 2, 3]);
+    expect(r.total).toBe(3);
+  });
+  it('does not bridge an unseen gap; forward polling must catch up from the cached server cursor', () => {
+    const previous = { items: [msg(1), msg(2)], total: 2 };
+    expect(resumeTranscript(previous, [msg(20), msg(21)], 21)).toBe(previous);
+  });
+  it('does not resurrect cached rows after an authoritative empty result', () => {
+    expect(resumeTranscript({ items: [msg(1)], total: 1 }, [], 0)).toEqual({ items: [], total: 0 });
   });
 });
