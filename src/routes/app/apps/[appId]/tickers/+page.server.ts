@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { loadTasksApp } from '$lib/server/agent-tasks';
-import { formValues, impersonationRefusal, writeFailure } from '$lib/server/agent-task-writes';
+import { formValues, impersonationRefusal, taskWrite, writeFailure } from '$lib/server/agent-task-writes';
 import {
   SET_APP_DELIVERY_SETTINGS_MUTATION,
   buildDeliveryPatch,
@@ -65,15 +65,29 @@ export const actions: Actions = {
     if (locals.impersonation) return writeFailure('create', impersonationRefusal(), values);
     const built = buildCreateInput(fd);
     if ('invalid' in built) return writeFailure('create', { kind: 'invalid', ...built.invalid }, values);
-    try {
-      const r = await gqlClient(locals.token).request<{ createTicker: { id: string; name: string } }>(CREATE_TICKER_MUTATION, {
-        appRef: params.appId,
-        input: built.input,
-      });
-      return { action: 'create' as const, ok: true as const, ticker: r.createTicker };
-    } catch (e) {
-      return writeFailure('create', classifyTickerWriteError(e, 'create'), values);
-    }
+    // portal#1384 (acceptance 9): createTicker may succeed WITH a warning (ticker.code.unmapped,
+    // hadron-server#2733) in `extensions.warnings` under its own response key, which `request()`
+    // drops. The create stays a success; the warning is shown as the server gave it.
+    const out = await taskWrite<{ createTicker: { id: string; name: string } | null }>(
+      gqlClient(locals.token),
+      CREATE_TICKER_MUTATION,
+      { appRef: params.appId, input: built.input },
+      'createTicker',
+      (e) => classifyTickerWriteError(e, 'create'),
+    );
+    if (out.kind === 'refused') return writeFailure('create', out.refusal, values);
+    const made = out.data?.createTicker;
+    const ticker = made && typeof made.id === 'string' && typeof made.name === 'string' ? { id: made.id, name: made.name } : null;
+    // No usable ticker and no warning to prove the write landed: the outcome is unknown, never "created".
+    if (!ticker && !out.committed) return writeFailure('create', { kind: 'uncertain' }, values);
+    return {
+      action: 'create' as const,
+      ok: true as const,
+      ticker,
+      committedWithError: out.kind === 'committed-error',
+      warnings: out.warnings,
+      more: out.more,
+    };
   },
 
   delivery: async ({ request, params, locals }) => {

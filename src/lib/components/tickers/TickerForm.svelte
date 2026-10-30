@@ -22,6 +22,8 @@
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import WriteRefusalAlert from '$lib/components/agent-tasks/WriteRefusal.svelte';
+  import TaskWarnings from '$lib/components/agent-tasks/TaskWarnings.svelte';
+  import { warningsBelow, type TaskWarning } from '$lib/agent-tasks/warnings';
   import { cadenceText, isKnownReason, isWellFormedReasons, reasonHelp, reasonLabel } from '$lib/tickers/format';
   import { WRITABLE_REASONS } from '$lib/tickers/write';
   import type { Ticker } from '$lib/tickers/types';
@@ -58,6 +60,9 @@
   let submitting = $state(false);
   let refusal = $state<WriteRefusal | null>(null);
   let created = $state<{ id: string; name: string } | null>(null);
+  // portal#1384 acceptance 9: what a create's response said besides "created" (ticker.code.unmapped, hadron-server#2733).
+  let warnings = $state<TaskWarning[]>([]);
+  let moreWarnings = $state(0);
   let status = $state<string | null>(null);
   let statusLine = $state<HTMLElement | null>(null);
 
@@ -77,6 +82,8 @@
       typedName = typedCadence = typedReasons = undefined;
       refusal = null;
       created = null;
+      warnings = [];
+      moreWarnings = 0;
       status = null;
       submitting = false;
       seededFor = key;
@@ -101,18 +108,29 @@
       submitting = true;
       status = null;
       created = null;
+      warnings = [];
+      moreWarnings = 0;
       return async ({ result }: { result: { type: string; data?: Record<string, unknown> } }) => {
         if (mine !== generation) return;
         submitting = false;
         if (result.type === 'success') {
-          const made = result.data && typeof result.data === 'object' ? (result.data.ticker as { id: string; name: string } | undefined) : undefined;
+          const data = result.data && typeof result.data === 'object' ? result.data : {};
+          const made = data.ticker as { id: string; name: string } | null | undefined;
+          const committedWithError = data.committedWithError === true;
           await invalidateAll();
           if (mine !== generation) return;
           typedName = typedCadence = typedReasons = undefined;
           refusal = null;
-          if (made) {
-            created = made;
+          warnings = Array.isArray(data.warnings) ? (data.warnings as TaskWarning[]) : [];
+          moreWarnings = typeof data.more === 'number' ? data.more : 0;
+          if (made) created = made;
+          if (committedWithError) {
+            status = t('app.tickers.write.created-error', 'Ticker created, but the server’s response also reported an error.');
+          } else if (made) {
             status = t('app.tickers.write.created', 'Created {name}.', { name: made.name });
+          } else if (!editing) {
+            // A create a warning proved landed, though no ticker came back to link to.
+            status = t('app.tickers.write.created-nolink', 'Ticker created.');
           } else {
             status = t('app.tickers.write.saved', 'Saved. These are the stored values.');
           }
@@ -217,10 +235,11 @@
     {#if refusal}<WriteRefusalAlert {refusal} />{/if}
     {#if status}
       <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">
-        {status}
+        {[status, warningsBelow(warnings.length + moreWarnings)].filter(Boolean).join(' ')}
         {#if created}<a href="/app/apps/{appId}/tickers/{created.id}" class="ml-1 underline">{t('app.tickers.write.open', 'Open it')}</a>{/if}
       </p>
     {/if}
+    <TaskWarnings warnings={warnings} more={moreWarnings} />
     <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
       {#if submitting}{t('app.tickers.write.saving', 'Saving…')}{:else if editing}{t('app.tickers.write.save', 'Save')}{:else}{t('app.tickers.write.create', 'Create')}{/if}
     </button>
