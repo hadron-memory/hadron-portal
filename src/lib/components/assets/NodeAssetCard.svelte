@@ -16,13 +16,47 @@
   import { t } from '$lib/i18n/t';
   import { downloadAriaLabel, downloadTitle, scanLabel, scanSignatureText } from '$lib/assets/scan-state';
   import AssetThumbnail from '$lib/components/assets/AssetThumbnail.svelte';
+  import PublicLinkConfirm from '$lib/components/assets/PublicLinkConfirm.svelte';
+  import { canSwitchPublicLink, returnFocusAfterClose } from '$lib/assets/public-link';
   import { getAssetDownloadUrl, AssetUploadError, type AssetSummary } from '$lib/api/assetUpload';
   import { assetErrorMessage } from '$lib/assets/error-messages';
 
   interface Props {
     asset: AssetSummary;
   }
-  let { asset }: Props = $props();
+  let { asset: listed }: Props = $props();
+
+  // #1131: the server's answer to a public-link switch replaces the loaded asset
+  // while that same loaded object is current, so the flag, capability, URL and
+  // the thumbnail source move together. A reload hands over a new object and the
+  // answer drops. `$state.raw`: the identity compared is the prop's, not a proxy.
+  let answer = $state.raw<{ base: AssetSummary; asset: AssetSummary } | null>(null);
+  const asset = $derived(answer && answer.base === listed ? answer.asset : listed);
+  let confirmingLink = $state(false);
+  // Plain let: read only inside handlers.
+  let linkBase: AssetSummary | null = null;
+  let linkNote = $state<string | null>(null);
+  let linkTrigger = $state<HTMLButtonElement | null>(null);
+
+  function closeLinkConfirm() {
+    confirmingLink = false;
+    void returnFocusAfterClose(() => linkTrigger);
+  }
+
+  function onLinkChanged(updated: AssetSummary) {
+    // Applies only to the object the confirmation opened against: a refetch or
+    // another asset arriving mid-request makes this answer older than the card.
+    const base = linkBase;
+    closeLinkConfirm();
+    linkBase = null;
+    if (!base || base !== listed || updated.id !== listed.id) return;
+    answer = { base, asset: updated };
+    linkNote = !updated.publicLinkEnabled
+      ? t('assets.public-link.note.off', 'Public link turned off.')
+      : updated.publicUrl
+        ? t('assets.public-link.note.on', 'Public link turned on.')
+        : t('assets.public-link.note.on-no-url', 'Public link turned on, but the server has no link to show for it yet.');
+  }
 
   // #707: null unless this is a BLOCKED row the scanner actually named.
   const signatureText = $derived(scanSignatureText(asset.scanStatus, asset.scanSignature));
@@ -117,6 +151,39 @@
       {/if}
     </div>
   </div>
+
+  <!-- #1131: shown only when the server says this reader may switch the link and
+       the deployment serves links. State first, then the verb, then the
+       consequence in place; nothing here for anyone else. -->
+  {#if canSwitchPublicLink(asset)}
+    <div class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+      {#if confirmingLink}
+        <PublicLinkConfirm {asset} onchanged={onLinkChanged} oncancel={closeLinkConfirm} />
+      {:else}
+        <span class="text-xs text-zinc-500">
+          {asset.publicLinkEnabled
+            ? t('assets.public-link.state.on', 'Public link is on')
+            : t('assets.public-link.state.off', 'Public link is off')}
+        </span>
+        <button
+          type="button"
+          bind:this={linkTrigger}
+          onclick={() => {
+            linkNote = null;
+            linkBase = listed;
+            confirmingLink = true;
+          }}
+          class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+        >{asset.publicLinkEnabled
+          ? t('assets.public-link.turn-off', 'Turn off public link')
+          : t('assets.public-link.turn-on', 'Turn on public link')}</button>
+      {/if}
+    </div>
+  {/if}
+
+  {#if linkNote}
+    <p role="status" class="mt-2 text-xs text-emerald-600 dark:text-emerald-400">{linkNote}</p>
+  {/if}
 
   {#if copied}
     <p role="status" class="mt-2 text-xs text-emerald-600 dark:text-emerald-400">
