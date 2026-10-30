@@ -71,6 +71,11 @@ export interface AgentTaskDetail extends AgentTaskRow {
   closeSessionWhenDone: boolean;
   result: AgentTaskResult | null;
   sessionEndRequest: AgentTaskSessionEndRequest | null;
+  /**
+   * portal#1340 (hadron-server#2420): the task's OWN optional JSON object, opaque to the platform.
+   * Never inherited from a parent; null when unset (and absent from a server that predates it).
+   */
+  properties?: unknown;
 }
 
 export interface AgentTeamAlarmWake {

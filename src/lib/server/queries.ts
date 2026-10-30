@@ -4840,6 +4840,7 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       closeSessionWhenDone
       result { outcome summary evidence }
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
+      properties
     }
   }
 `;
