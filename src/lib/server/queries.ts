@@ -552,6 +552,36 @@ export const APP_DETAIL_ORG_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * The org slice the MEMORY layout draws (portal#1429, S2a of #1380).
+ *
+ * `ORGANIZATION_QUERY` was loaded here and shipped `memories`, `agents`,
+ * `subscriptions` and `exchangeConnections` into every memory page's layout
+ * payload (about 803 KB for one production org) although no memory route reads
+ * them. What the routes do read: `id`/`name`/`urn` (breadcrumb, back link, info
+ * tab, the node page's runnable-install lookup) and `members` role + user id
+ * (the layout's and settings page's own-membership checks).
+ *
+ * Keep it to those fields. A nested list added here is paid for on every
+ * memory page and, being non-null in the SDL, can null `organization` when its
+ * resolver refuses — `hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers`
+ * governs changes.
+ */
+export const MEMORY_LAYOUT_ORG_QUERY = /* GraphQL */ `
+  query MemoryLayoutOrg($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      name
+      urn
+      members {
+        id
+        role
+        user { id }
+      }
+    }
+  }
+`;
+
 // #1173: bundle an Agent with another (an AgentImport edge). The Org-to-Agent
 // license that lets an org install a subscribed Agent also authorizes bundling
 // it. The server owns the rules (one level of imports, no cycle, who may);
