@@ -3,6 +3,8 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import TickerForm from '$lib/components/tickers/TickerForm.svelte';
+  import TickerDelete from '$lib/components/tickers/TickerDelete.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -14,9 +16,9 @@
   import type { PageData } from './$types';
 
   /**
-   * portal#1099 — one ticker (design §3.2), READ-ONLY (S7a). Its facts, then
-   * its subscribers. Edit, Disable, Delete, Add subscriber and Remove are S7b
-   * and are not rendered.
+   * portal#1099 — one ticker (design §3.2): its facts, then Edit and Delete
+   * (portal#1151, S7b), then its subscribers. Enabling or disabling it and
+   * Add subscriber / Remove are not in the portal yet and are not rendered.
    */
   let { data }: { data: PageData } = $props();
 
@@ -207,7 +209,13 @@
     </div>
   </dl>
   <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}
-    {t('app.ticker.where', 'In the portal this is read-only for now; use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe) to change it.')}</p>
+    {t('app.ticker.where', 'To turn it on or off, or to subscribe workers, use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe).')}</p>
+
+  <section aria-labelledby="ticker-edit-heading" class="space-y-3" data-testid="ticker-edit">
+    <h2 id="ticker-edit-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.ticker.edit.heading', 'Edit ticker')}</h2>
+    <TickerForm appId={data.app.id} ticker={tk} impersonating={data.impersonating} />
+    <TickerDelete appId={data.app.id} ticker={tk} impersonating={data.impersonating} />
+  </section>
 
   <section aria-labelledby="subscribers-heading" class="space-y-2">
     <div class="flex flex-wrap items-center justify-between gap-2">

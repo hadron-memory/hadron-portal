@@ -8,6 +8,8 @@ import {
   classifyDeliveryError,
   loadAppDeliverySettings,
 } from '$lib/server/delivery-settings';
+import { CREATE_TICKER_MUTATION, classifyTickerWriteError } from '$lib/server/ticker-writes';
+import { buildCreateInput } from '$lib/tickers/write';
 import { loadAppTickerSettings, loadTickers, SUBSCRIBER_COUNT_PAGE } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -18,10 +20,9 @@ import type { Actions, PageServerLoad } from './$types';
  * the App page's loader
  * (hrn:node:hadronmemory.com:hadron-portal:designs:tickers-and-wake §2).
  *
- * The ticker settings stay read-only (S7b's writes are not in v1). The one
- * write here is the `delivery` action (portal#1141 slice A, hadron-server S9),
- * which sends only the delivery fields the reader changed; a test pins that
- * this is the only action.
+ * The ticker settings stay read-only. The writes here are `delivery`
+ * (portal#1141 slice A, hadron-server S9), which sends only the delivery fields
+ * the reader changed, and `create` (portal#1151, S7b); a test pins the set.
  */
 export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
@@ -57,6 +58,24 @@ export const load: PageServerLoad = async ({ params, locals }) => {
  */
 
 export const actions: Actions = {
+  // portal#1151 (S7b): any participant may create, up to the cap; the server decides and its refusal renders.
+  create: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('create', impersonationRefusal(), values);
+    const built = buildCreateInput(fd);
+    if ('invalid' in built) return writeFailure('create', { kind: 'invalid', ...built.invalid }, values);
+    try {
+      const r = await gqlClient(locals.token).request<{ createTicker: { id: string; name: string } }>(CREATE_TICKER_MUTATION, {
+        appRef: params.appId,
+        input: built.input,
+      });
+      return { action: 'create' as const, ok: true as const, ticker: r.createTicker };
+    } catch (e) {
+      return writeFailure('create', classifyTickerWriteError(e, 'create'), values);
+    }
+  },
+
   delivery: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const values = formValues(fd);
