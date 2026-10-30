@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Turnstile from '$lib/components/Turnstile.svelte';
+  let challengeReset = $state(0);
   import { page } from '$app/state';
   import AppleLoginButton from '$lib/components/AppleLoginButton.svelte';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
@@ -47,6 +49,7 @@
     enhance: emailEnhance,
   } = superForm(initialEmailForm, {
     validators: zod4Client(authEmailSchema),
+    onResult: () => { challengeReset += 1; },
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
@@ -122,6 +125,7 @@
         {#if actionError && !emailError}
           <p role="alert" class="mt-2 text-sm text-red-500">{actionError}</p>
         {/if}
+        <Turnstile resetKey={challengeReset} />
         <button
           type="submit"
           disabled={$emailSubmitting}

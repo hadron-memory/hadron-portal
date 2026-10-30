@@ -15,12 +15,14 @@ export async function loadAuthEmailForm() {
 }
 
 export async function sendAuthEmailLink({ request, cookies, url }: AuthEmailActionEvent) {
-  const form = await superValidate<AuthEmailForm>(await request.formData(), authEmailFormAdapter);
+  const fields = await request.formData();
+  const token = fields.get('cf-turnstile-response');
+  const form = await superValidate<AuthEmailForm>(fields, authEmailFormAdapter);
   if (!form.valid) return fail(400, { form });
 
   const rawRedirect = form.data.redirect ?? url.searchParams.get('redirect') ?? undefined;
   const redirect = isLocalPath(rawRedirect) ? rawRedirect : undefined;
-  const result = await startBoundMagicLink(cookies, form.data.email, redirect);
+  const result = await startBoundMagicLink(cookies, form.data.email, redirect, ...(typeof token === 'string' ? [token] as [string] : []));
   if (!result.ok) {
     return message(form, { type: 'error', text: result.error }, {
       status: emailLoginErrorStatus(result.status),

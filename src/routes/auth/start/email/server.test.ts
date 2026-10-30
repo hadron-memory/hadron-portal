@@ -43,3 +43,9 @@ describe('POST /auth/start/email', () => {
     expect(res.status).toBe(400);
   });
 });
+
+it('#1470 forwards a JSON challenge', async () => {
+  startMock.mockClear();
+  await post({ email: 'a@example.test', 'cf-turnstile-response': 'challenge' });
+  expect(startMock).toHaveBeenCalledWith(expect.anything(), 'a@example.test', undefined, 'challenge');
+});

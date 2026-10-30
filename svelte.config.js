@@ -30,7 +30,8 @@ const config = {
       mode: 'auto',
       directives: {
         'default-src': ['self'],
-        'script-src': ['self'],
+        'script-src': ['self', 'https://challenges.cloudflare.com'],
+        'frame-src': ['self', 'https://challenges.cloudflare.com'],
         // Many components emit inline style="" attributes; nonces don't cover
         // style attributes, so allow inline styles (low XSS risk).
         'style-src': ['self', 'unsafe-inline'],

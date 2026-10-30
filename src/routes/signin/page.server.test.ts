@@ -193,3 +193,11 @@ describe('signin action', () => {
     expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Could not reach the server.' });
   });
 });
+
+ it('#1470 forwards a challenge without returning it in form data', async () => {
+  mockStartBoundMagicLink.mockResolvedValue({ ok: false, status: 403, error: 'Complete the check and try again.' });
+  const { actions } = await importMod();
+  const result = await actions.default(actionEvent({ email: 'a@example.test', 'cf-turnstile-response': 'private-challenge' }));
+  expect(mockStartBoundMagicLink.mock.calls[0][3]).toBe('private-challenge');
+  expect(JSON.stringify(result)).not.toContain('private-challenge');
+ });

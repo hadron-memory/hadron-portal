@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Turnstile from '$lib/components/Turnstile.svelte';
+  let challengeReset = $state(0);
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -50,6 +52,7 @@
     enhance: emailEnhance,
   } = superForm(initialEmailForm, {
     validators: zod4Client(inviteEmailSchema),
+    onResult: () => { challengeReset += 1; },
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
@@ -132,6 +135,7 @@
                   <p id="inviteEmailError" class="mt-1 text-xs text-red-400">{emailError}</p>
                 {/if}
               </div>
+              <Turnstile resetKey={challengeReset} />
               <button type="submit" disabled={$emailSubmitting} class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
                 {$emailSubmitting ? 'Sending...' : 'Continue with email'}
               </button>

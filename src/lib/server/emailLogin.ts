@@ -1,3 +1,4 @@
+import { t } from '$lib/i18n/t';
 import { env } from '$env/dynamic/private';
 import { randomBytes } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
@@ -26,6 +27,7 @@ export async function startBoundMagicLink(
   cookies: Cookies,
   email: string,
   redirect?: string,
+  turnstileToken?: string,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const clientState = randomBytes(32).toString('hex');
   cookies.set('hadron_login_state', clientState, {
@@ -41,10 +43,16 @@ export async function startBoundMagicLink(
     const res = await fetch(`${serverUrl}/auth/email`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, redirect, clientState }),
+      body: JSON.stringify({ email, redirect, clientState, ...(turnstileToken ? { 'cf-turnstile-response': turnstileToken } : {}) }),
     });
     if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+      if (data.error === 'bot_check_failed') {
+        const retry = res.status === 403 && ['missing_token', 'invalid_token'].includes(data.reason ?? '');
+        return { ok: false, status: res.status, error: retry
+          ? t('auth.checkRetry', 'Complete the check and try again.')
+          : t('auth.checkUnavailable', 'Sign-in is temporarily unavailable. Please try again later.') };
+      }
       return { ok: false, status: res.status, error: data.error ?? 'Failed to send email' };
     }
     return { ok: true };

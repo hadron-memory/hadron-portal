@@ -23,6 +23,9 @@ import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { authEmailSchema } from '$lib/forms/authEmail';
 
+const publicEnv = vi.hoisted(() => ({ env: {} as Record<string, string> }));
+vi.mock('$env/dynamic/public', () => publicEnv);
+
 const url = vi.hoisted(() => ({ value: 'http://localhost/signup' }));
 vi.mock('$app/state', () => ({
   get page() {
@@ -106,4 +109,11 @@ describe.each(PAGES)('#686 retired sign-up intent — $name', ({ Component, path
       `/auth/start/github?redirect=${encodeURIComponent('/app/dashboard')}`,
     );
   });
+});
+
+it.each(PAGES)('#1470 $name has a widget only when configured', ({ Component, path }) => {
+  publicEnv.env.PUBLIC_TURNSTILE_SITE_KEY = 'public-key';
+  try { expect(renderAt(Component, path, '')).toContain('data-testid="turnstile"'); }
+  finally { delete publicEnv.env.PUBLIC_TURNSTILE_SITE_KEY; }
+  expect(renderAt(Component, path, '')).not.toContain('data-testid="turnstile"');
 });

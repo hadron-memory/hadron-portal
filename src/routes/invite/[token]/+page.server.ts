@@ -55,14 +55,16 @@ export const actions: Actions = {
   },
 
   sendEmail: async ({ request, params, cookies }) => {
+    const fields = await request.formData();
+    const token = fields.get('cf-turnstile-response');
     const form = await superValidate<InviteEmailForm>(
-      await request.formData(),
+      fields,
       inviteEmailFormAdapter,
     );
     if (!form.valid) return fail(400, { form });
 
     // #505: set the session-fixation nonce cookie and forward it as clientState.
-    const result = await startBoundMagicLink(cookies, form.data.email, `/invite/${params.token}`);
+    const result = await startBoundMagicLink(cookies, form.data.email, `/invite/${params.token}`, ...(typeof token === 'string' ? [token] as [string] : []));
     if (!result.ok) {
       return message(form, { type: 'error', text: result.error }, {
         status: emailLoginErrorStatus(result.status),
