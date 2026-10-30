@@ -300,6 +300,26 @@ describe('ApplyAgentTickers: a late result is fenced to the mount that sent it (
     expect(update).toHaveBeenCalledWith({ reset: false, invalidateAll: false });
   });
 
+  it('a refresh that rejects does not leave the button blocked: the next apply goes through (Anne’s P2 on faa250eb)', async () => {
+    const { root } = await mountApply({ workerKey: 'w-A' });
+    const form = root.querySelector('form')!;
+    const first = await submitEnhancedDeferred(form, { update: vi.fn(async () => {}) });
+    const navigation = await import('$lib/test/stubs/app-navigation');
+    navigation.navigationHooks.onInvalidateAll = async () => { throw new Error('refresh failed'); };
+    await expect(first.finish(ok)).rejects.toThrow('refresh failed');
+    await tick(2);
+    flushSync();
+    const button = root.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
+    expect(button.getAttribute('aria-disabled')).not.toBe('true');
+    expect(button.textContent?.trim()).toBe('Apply the Agent’s tickers');
+    navigation.navigationHooks.onInvalidateAll = undefined;
+    const update = vi.fn(async () => {});
+    const second = await submitEnhancedDeferred(form, { update });
+    await second.finish(ok);
+    await tick(2);
+    expect(update).toHaveBeenCalledWith({ reset: false, invalidateAll: false });
+  });
+
   it('the live mount’s own result still goes through update (the current-request control)', async () => {
     const a = await mountApply({ workerKey: 'w-A' });
     const update = vi.fn(async () => {});
