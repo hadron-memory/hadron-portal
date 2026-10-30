@@ -59,6 +59,9 @@
   // A result written for another route (the page is reused across /workers/A → B) is not this one's.
   const shown = $derived(result && result.key === workerKey ? result : null);
   let submitting = $state(false);
+  // The worker (route key) whose apply succeeded but whose page refresh then failed. Set only by the live mount,
+  // and shown only while that worker is the one in view (George's, Uma's and Cedar's P2 on 3cc623de).
+  let refreshFailedFor = $state<string | null>(null);
   let region = $state<HTMLElement | null>(null);
   let button = $state<HTMLButtonElement | null>(null);
 
@@ -105,6 +108,7 @@
       return;
     }
     submitting = true;
+    refreshFailedFor = null;
     const focus = watchFocus(formElement);
     return async ({ result, update }: { result: { type: string }; update: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> }) => {
       try {
@@ -117,11 +121,19 @@
         // Kit refreshes before it applies a success, and what follows that await is decided by its
         // pathname check alone, which passes again on A → B → A. So the refresh is done HERE, and the
         // fence is checked again after it, before anything is applied.
+        // A refresh that fails does not undo the apply: the result is still applied below and the reader is told
+        // the page could not reload. The apply is never retried from here.
+        let refreshFailed = false;
         if (result.type === 'success') {
-          await invalidateAll();
+          try {
+            await invalidateAll();
+          } catch {
+            refreshFailed = true;
+          }
           if (live?.id !== mine) return;
         }
         await update({ reset: false, invalidateAll: false });
+        if (refreshFailed) refreshFailedFor = originKey;
         submitting = false;
         await settleFocus(focus.chosen());
       } finally {
@@ -249,6 +261,11 @@
             </div>
           {/if}
         </div>
+      {/if}
+      {#if shown && refreshFailedFor === workerKey}
+        <p role="status" class="text-xs text-amber-800 dark:text-amber-300" data-testid="apply-refresh-failed">
+          {t('worker.apply.refresh-failed', 'The tickers were applied, but this page could not reload to show the worker’s current list. Reload the page to see it; applying again is not needed.')}
+        </p>
       {/if}
     </div>
   </section>
