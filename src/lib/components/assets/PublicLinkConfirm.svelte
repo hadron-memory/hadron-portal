@@ -98,12 +98,14 @@
       ? t('assets.public-link.on.consequence', 'Anyone with the link can download this file, with no sign-in required.')
       : t('assets.public-link.off.consequence', 'The existing link will stop working for everyone who has it.')}
   </p>
-  <div class="flex items-center gap-1.5 whitespace-nowrap">
+  <!-- Wraps rather than clips: the table's Actions cell is 120px, and a nowrap row cut
+       Cancel to "Cance" there (Uma UX P2, portal#1374). Each label stays on one line. -->
+  <div class="flex flex-wrap items-center gap-1.5" data-testid="public-link-confirm-buttons">
     <button
       type="button"
       onclick={confirm}
       disabled={busy}
-      class="rounded-md px-2 py-1 text-xs font-medium text-white disabled:opacity-50 {enabling
+      class="whitespace-nowrap rounded-md px-2 py-1 text-xs font-medium text-white disabled:opacity-50 {enabling
         ? 'bg-indigo-600 hover:bg-indigo-500'
         : 'bg-red-600 hover:bg-red-500'}"
     >{enabling ? t('assets.public-link.on.confirm', 'Turn on') : t('assets.public-link.off.confirm', 'Turn off')}</button>
@@ -112,7 +114,7 @@
       bind:this={cancelButton}
       onclick={oncancel}
       disabled={busy}
-      class="text-xs text-zinc-500 hover:text-zinc-700 disabled:opacity-50 dark:hover:text-zinc-300"
+      class="whitespace-nowrap text-xs text-zinc-500 hover:text-zinc-700 disabled:opacity-50 dark:hover:text-zinc-300"
     >{t('assets.public-link.cancel', 'Cancel')}</button>
   </div>
   {#if error}
