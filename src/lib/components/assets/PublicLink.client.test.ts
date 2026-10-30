@@ -170,6 +170,17 @@ describe('asset table: the confirmation', () => {
     expect(document.activeElement).toBe(button(target, 'Cancel'));
   });
 
+  // Uma UX P2 at c2820a4f: a nowrap button row clipped Cancel in the 120px Actions
+  // cell. jsdom has no layout, so this pins the wrap, not the rendered width.
+  it('the buttons wrap rather than clip in the narrow Actions cell', () => {
+    stubFetch(() => ({ status: 200, body: switched(true) }));
+    const { target } = mountTable([asset()]);
+    pick(target, 'Turn on public link');
+    const row = target.querySelector<HTMLElement>('[data-testid="public-link-confirm-buttons"]')!;
+    expect(row.classList.contains('flex-wrap')).toBe(true);
+    expect(row.classList.contains('whitespace-nowrap')).toBe(false);
+  });
+
   it('turning it off says the existing link stops working', () => {
     stubFetch(() => ({ status: 200, body: switched(false) }));
     const { target } = mountTable([asset({ publicLinkEnabled: true, publicUrl: URL_ON })]);
