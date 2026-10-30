@@ -20,7 +20,7 @@ const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySecond
 const LOADED = '2026-10-16T10:00:00Z';
 
 const ticker = (over: Record<string, unknown> = {}) => ({
-  id: 'tk-1', name: 'engineering', slug: 'engineering', urn: 'hrn:ticker:acme.com:team:engineering',
+  id: 'tk-1', name: 'engineering', slug: 'engineering', tickCode: 'tick.engineering', urn: 'hrn:ticker:acme.com:team:engineering',
   enabled: true, cadenceSeconds: 600, anchorAt: '2026-10-01T00:00:00Z',
   nextTickAt: '2026-10-16T10:10:00Z', lastTickAt: '2026-10-16T10:00:00Z',
   quietHours: { timezone: 'Europe/Berlin', windows: [{ days: [1, 2, 3, 4, 5], from: '22:00', to: '07:00' }] },
@@ -131,6 +131,7 @@ function detail(over: Record<string, unknown> = {}) {
     props: {
       data: {
         app, ticker: ticker(), settings, paged: false, loadedAt: LOADED, impersonating: null,
+        tickerTask: { kind: 'ok', value: { registerTaskLoc: 'tasks:on-base-tick' } },
         subscribers: { kind: 'ok', value: { items: [], hasNextPage: false, endCursor: null } },
         ...over,
       },
@@ -355,5 +356,92 @@ describe('ticker reasons (portal#1144)', () => {
     expect(unknown).toContain('SOMETHING_NEW');
     expect(unknown).toContain('(unrecognised)');
     expect(detail({ ticker: reasoned([]) })).toContain('Never fires (no reasons)');
+  });
+});
+
+// portal#1384 (T-P1): the Task entry. The portal shows what the server returns and nothing it
+// would have to invent: no node fetch, no URN built from a loc, no mapping editor.
+describe('Ticker page: the Task entry (portal#1384)', () => {
+  const entry = (html: string) => html.match(/<div[^>]*data-testid="ticker-task"[\s\S]*?<\/dd>/)?.[0] ?? '';
+  const count = (hay: string, needle: string) => hay.split(needle).length - 1;
+  const noLoc = { kind: 'ok', value: { registerTaskLoc: null } };
+
+  it('mapped: the loc once in mono, the code once, and the line that each worker runs its own role’s task', () => {
+    const e = entry(detail());
+    expect(e).not.toBe('');
+    expect(count(e, 'tasks:on-base-tick')).toBe(1);
+    expect(count(e, 'tick.engineering')).toBe(1);
+    expect(e).toMatch(/<(code|span)[^>]*font-mono[^>]*>[^<]*tasks:on-base-tick/);
+    expect(e).toContain('Each worker runs the task at this location in its own role, or the shared one.');
+    expect(e).not.toContain('No task you can see');
+  });
+
+  it('no loc: says so, gives the code and how to fix it, and shows no loc, URN chip or empty chip', () => {
+    const e = entry(detail({ tickerTask: noLoc }));
+    expect(e).toContain('No task you can see is mapped to this ticker.');
+    expect(count(e, 'tick.engineering')).toBe(1);
+    expect(e).toContain('map this code in the team Agent’s system memory');
+    expect(e).not.toContain('tasks:on-base-tick');
+    expect(e).not.toContain('Each worker runs');
+    expect(e).not.toMatch(/data-testid="urn/);
+    expect(e).not.toMatch(/<(code|span)[^>]*>\s*<\/(code|span)>/);
+  });
+
+  it('never invents a URN or a node link, in either state', () => {
+    for (const tickerTask of [{ kind: 'ok', value: { registerTaskLoc: 'tasks:on-base-tick' } }, noLoc]) {
+      const e = entry(detail({ tickerTask }));
+      expect(e).not.toBe('');
+      expect(e).not.toContain('hrn:node:');
+      expect(e).not.toContain('/app/u/');
+      expect(e).not.toMatch(/<a\b/);
+    }
+  });
+
+  it('shows tickCode as the server gave it; two copies with different names and slugs share one code', () => {
+    const a = entry(detail({ ticker: ticker({ name: 'Eng A', slug: 'eng-a', tickCode: 'tick.shared' }) }));
+    const b = entry(detail({ ticker: ticker({ name: 'Eng B', slug: 'eng-b', tickCode: 'tick.shared' }) }));
+    expect(count(a, 'tick.shared')).toBe(1);
+    expect(count(b, 'tick.shared')).toBe(1);
+    expect(a).not.toContain('tick.eng-a');
+    expect(b).not.toContain('tick.eng-b');
+  });
+
+  it('a failed task read says it could not load, with a retry, and never reads as “no task mapped”', () => {
+    const html = detail({ tickerTask: { kind: 'failed' } });
+    const e = entry(html);
+    expect(e).toContain('Couldn’t load this ticker’s task.');
+    expect(e).toContain('Try again');
+    expect(e).not.toContain('No task you can see');
+    // the rest of the page is intact
+    expect(html).toContain('data-testid="ticker-facts"');
+    expect(html).toContain('Nobody follows this ticker yet.');
+  });
+
+  it('a read that says nothing about this ticker (not-participant, or the ticker gone) renders no Task entry and claims no mapping', () => {
+    for (const tickerTask of [{ kind: 'not-participant' }, { kind: 'ok', value: null }]) {
+      const html = detail({ tickerTask });
+      expect(html).not.toContain('data-testid="ticker-task"');
+      expect(html).not.toContain('No task you can see');
+      expect(html).toContain('data-testid="ticker-facts"');
+    }
+  });
+
+  it('an empty code (a stale snapshot) omits the code line and raises no error', () => {
+    const e = entry(detail({ ticker: ticker({ tickCode: '' }) }));
+    expect(e).toContain('tasks:on-base-tick');
+    expect(e).not.toMatch(/Code/);
+  });
+
+  it('escapes markup in a loc and a code', () => {
+    const e = entry(detail({ ticker: ticker({ tickCode: 'tick.<img src=x>' }), tickerTask: { kind: 'ok', value: { registerTaskLoc: 'a:<script>x</script>' } } }));
+    expect(e).not.toContain('<script>');
+    expect(e).not.toContain('<img');
+    expect(e).toContain('&lt;script>');
+  });
+
+  it('stays read-only', () => {
+    expectReadOnly(detail());
+    expectReadOnly(detail({ tickerTask: noLoc }));
+    expectReadOnly(detail({ tickerTask: { kind: 'failed' } }));
   });
 });
