@@ -56,7 +56,10 @@
   const actions = $derived(taskActions(task));
   let open = $state<TaskAction | null>(null);
   let submitting = $state(false);
-  let refusal = $state<{ action: TaskAction; refusal: WriteRefusal; inPanel: boolean } | null>(null);
+  let refusalState = $state<{ taskId: string; action: TaskAction; refusal: WriteRefusal; inPanel: boolean } | null>(null);
+  // Tagged with its task like `status`: the page reuses this bar across tasks, so a refusal shows only while
+  // the task it was about is in view (Gabriel's P2 on #1466).
+  const refusal = $derived(refusalState && refusalState.taskId === task.id ? refusalState : null);
   /**
    * The last successful write's result line and, portal#1214, the warnings its
    * response carried. Tagged with the task it was about: the page reuses this
@@ -94,7 +97,7 @@
 
   async function openPanel(a: TaskAction) {
     open = a;
-    refusal = null;
+    refusalState = null;
     status = null;
     assignee = '';
     values = {};
@@ -167,7 +170,7 @@
           // The reader moved to another task while this one was saving: its result isn't theirs to see.
           if (task.id !== forTask) return;
           open = null;
-          refusal = null;
+          refusalState = null;
           // Uma's P2 on #1216: the focused line says the warnings are there, so a screen reader hears it.
           const below = warningsBelow(warnings.length + more);
           status = { taskId: forTask, text: below ? `${text} ${below}` : text, caution, warnings, more };
@@ -181,11 +184,13 @@
             : { kind: 'uncertain' };
         if (r.kind === 'refused' && STALE.has(r.code)) {
           await invalidateAll();
+          if (task.id !== forTask) return;
           open = null;
-          refusal = { action: a, refusal: r, inPanel: false };
+          refusalState = { taskId: forTask, action: a, refusal: r, inPanel: false };
           return;
         }
-        refusal = { action: a, refusal: r, inPanel: true };
+        if (task.id !== forTask) return;
+        refusalState = { taskId: forTask, action: a, refusal: r, inPanel: true };
         if (a === 'edit' && r.kind === 'invalid') {
           await tick();
           document.getElementById(r.field === 'startBy' ? 'edit-start-by' : `edit-${r.field}`)?.focus();
