@@ -8,7 +8,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, isKnownReason, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsText, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
+  import { cadenceText, isKnownReason, isWellFormedReasons, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -134,7 +134,7 @@
     <div class="min-w-0 sm:col-span-2">
       <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('app.ticker.reasons', 'Wakes when')}</dt>
       <dd class="text-zinc-900 dark:text-white">
-        {#if reasonsText(tk.reasons) === reasonsUnavailableText()}
+        {#if !isWellFormedReasons(tk.reasons)}
           {reasonsUnavailableText()}
         {:else if tk.reasons.length === 0}
           {noReasonsText()}
