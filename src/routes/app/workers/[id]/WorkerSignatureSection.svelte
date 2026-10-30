@@ -38,6 +38,7 @@
   // a keyboard reader's focus fell to the document body. The result line is the
   // stable target: it is the one thing that always exists after a save.
   let resultEl = $state<HTMLElement | null>(null);
+  let formEl = $state<HTMLFormElement | null>(null);
   // Kit's applyAction resets focus to the body BEFORE onUpdated runs (a native
   // run saw exactly that), so the active element at that point says nothing
   // about where the reader was. Remember the last element they focused instead.
@@ -52,12 +53,12 @@
   async function focusResultAfterSave() {
     await tick();
     // Give focus back to where the reader last was, if that is still a live
-    // control other than a button (the Save that went away is disabled
+    // control other than this form’s submit button (the Save that went away is disabled
     // next, by the re-read); the result line is the fallback. After teardown
     // `bind:this` has nulled the result and the remembered element is detached,
     // so a late result is inert.
     const back = lastFocused;
-    if (back instanceof HTMLElement && back.isConnected && back !== resultEl && !(back instanceof HTMLButtonElement)) {
+    if (back instanceof HTMLElement && back.isConnected && back !== resultEl && !(back instanceof HTMLButtonElement && back.type === 'submit' && !!formEl?.contains(back))) {
       back.focus();
       return;
     }
@@ -147,7 +148,7 @@
       </p>
     {/if}
 
-    <form method="POST" action="?tab=briefing&/updateSignature" use:enhance class="space-y-3" novalidate>
+    <form bind:this={formEl} method="POST" action="?tab=briefing&/updateSignature" use:enhance class="space-y-3" novalidate>
       <input type="hidden" name="_kind" value="updateSignature" />
 
       {#if readable.signature}

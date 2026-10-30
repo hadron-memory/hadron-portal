@@ -95,6 +95,22 @@ describe('focus through a successful save (#1367)', () => {
     expect(document.activeElement).toBe(other);
   });
 
+  it('keeps focus on an unrelated button the reader picked while the save ran', async () => {
+    const { props, target } = await mountSection();
+    type(target, 'signature', 'edited sig');
+    target.querySelector<HTMLButtonElement>('button[type="submit"]')!.focus();
+    const other = document.createElement('button');
+    other.type = 'button';
+    document.body.appendChild(other);
+    other.focus();
+
+    await submitEnhancedWithResult(target.querySelector('form')!, await savedResult('edited sig'));
+    props.signature = 'edited sig';
+    await tick(4);
+
+    expect(document.activeElement).toBe(other);
+  });
+
   it('does not take focus from a template field the reader went back to while the save ran', async () => {
     const { props, target } = await mountSection();
     type(target, 'signature', 'edited sig');
