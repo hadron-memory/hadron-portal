@@ -4,7 +4,6 @@
  * is never null; refusals are the server's (FORBIDDEN, BAD_USER_INPUT,
  * WORKER_RETIRED) and the posted draft comes back with them.
  */
-import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_QUERY } from '$lib/server/queries';
 import { updateSignatureFormId } from './schema';

@@ -208,9 +208,12 @@ export const actions: Actions = {
    */
   updateSignature: async ({ request, params, locals }) => {
     const posted = await request.formData();
-    // portal#1448 — the reply carries the same per-worker id the loader
-    // stamped, so a late reply still reaches its own worker's editor (and no
-    // other; see updateSignatureFormId).
+    // portal#1448/#1450 — the reply carries the id the POST carried when it
+    // had one (superValidate echoes a posted __superform_id over this options
+    // id, so an enhanced submission's reply returns to the mount that sent
+    // it — see signature-instance-id.ts) and otherwise the loader's per-worker
+    // stamp (a no-JS POST, whose reply the server render matches the same
+    // way; see updateSignatureFormId).
     const form = await superValidate(posted, updateSignatureAdapter, { id: updateSignatureFormId(params.id) });
     if (!form.valid) return fail(400, { form });
 
