@@ -7,6 +7,9 @@ import {
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
   APP_QUERY,
+  APP_CHAT_TARGET_QUERY,
+  CHANNEL_CHAT_TARGET_QUERY,
+  CREATE_CHANNEL_MESSAGE_MUTATION,
   APP_KEYS_QUERY,
   APP_MEMBERS_QUERY,
   CAST_WORKER_MUTATION,
@@ -73,7 +76,7 @@ async function runAction(
   name:
     | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
     | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
-    | 'postTeamChatMessage',
+    | 'postTeamChatMessage' | 'postChannelMessage',
   fields: Record<string, string | string[]>,
   // #825 — the signed-in user, for actions whose COPY depends on whether the
   // caller is the party the server named. Defaults to absent, which is the
@@ -2144,6 +2147,24 @@ describe('load: key inventory (portal#1068)', () => {
     const r = await loadWith(() => Promise.reject(new Error('boom')));
     expect(r.app.id).toBe('app-1');
     expect(r.appKeys).toEqual({ kind: 'failed' });
+  });
+});
+
+
+describe('postChannelMessage (#1033)', () => {
+  it('uses the selected Channel with the human token, keeps replies, and never sends a session', async () => {
+    mockRequest.mockImplementation(async q => q === APP_CHAT_TARGET_QUERY
+      ? { app: { id: 'app-1' } } : q === CHANNEL_CHAT_TARGET_QUERY ? { channel: { id: 'pair-channel', memory: { appId: 'app-1' } } }
+      : { createChannelMessage: { seq: 20 } });
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: 'pair-channel', body: 'hello', replyToSeq: '12', sessionRef: 'forged' });
+    expect(result).toMatchObject({ form: { id: 'channel:pair-channel', message: { type: 'success' } } });
+    expect(mockRequest).toHaveBeenLastCalledWith(CREATE_CHANNEL_MESSAGE_MUTATION, { channelRef: 'pair-channel', body: 'hello', replyToSeq: 12 });
+  });
+  it('keeps the failed draft and makes no mutation when the Channel belongs to another App', async () => {
+    mockRequest.mockImplementation(async q => q === APP_CHAT_TARGET_QUERY ? { app: { id: 'app-1' } } : { channel: { id: 'pair-channel', memory: { appId: 'other' } } });
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: 'pair-channel', body: 'kept draft' });
+    expect(result).toMatchObject({ status: 500, data: { form: { data: { body: 'kept draft' }, message: { type: 'error' } } } });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 });
 

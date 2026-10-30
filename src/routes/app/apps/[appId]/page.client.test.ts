@@ -4,9 +4,9 @@ import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { setStubPage } from '$lib/test/stubs/app-stores';
+import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
@@ -1204,6 +1204,157 @@ describe('Client tab: the plugin grid follows canManageApp (#1106)', () => {
   });
 });
 
+
+describe('registered Channel chat switching (#1033)', () => {
+  it('isolates messages, late polls, form targets and drafts, using a dropdown', async () => {
+    setStubPage('http://localhost/app/apps/a1?tab=chats&chat=room-a', { appId: 'a1' });
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    let release!: (response: Response) => void;
+    const fetcher = vi.fn((url: string) => new Promise<Response>(resolve => { release = resolve; }));
+    vi.stubGlobal('fetch', fetcher);
+    vi.useFakeTimers();
+    const base = await pageData();
+    const room = async (id: string) => ({ ...base,
+      appChats: [{ key: 'room-a', label: 'A' }, { key: 'room-b', label: 'B' }],
+      selectedChatKey: id, selectedChannelId: id, chatsCapped: id === 'room-a', chatRootsShown: 200,
+      selectedChannelMessages: [{ ...message(1, 'w1'), body: `message ${id}` }], selectedChannelTotal: 1, selectedChannelError: false,
+      postChannelMessageForm: await superValidate({ channelRef: id }, zod4(postTeamChatMessageSchema), { id: `channel:${id}`, errors: false }),
+    });
+    const a = await room('room-a');
+    const b = await room('room-b');
+    const props = reactiveProps<Record<string, unknown>>({ data: a, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    expect(m.target.querySelectorAll('#app-chat-select option')).toHaveLength(2);
+    expect(m.target.textContent).toContain('Showing the first 200 chats');
+    const body = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    body.value = 'draft for A';
+    body.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const scroll = m.target.querySelector<HTMLElement>('.overscroll-y-contain')!;
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 100 });
+    scroll.scrollTop = 340;
+    scroll.dispatchEvent(new Event('scroll'));
+    flushSync();
+    flushSync(() => { props.data = b; });
+    await tick(2);
+    expect(m.target.querySelector<HTMLInputElement>('input[name=channelRef]')!.value).toBe('room-b');
+    expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('');
+    expect(m.target.textContent).toContain('message room-b');
+    expect(m.target.textContent).not.toContain('Showing the first 200 chats');
+    expect(m.target.textContent).not.toContain('message room-a');
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining('channelRef=room-b&sinceSeq=1'));
+    flushSync(() => { props.data = a; });
+    await tick(2);
+    release(new Response(JSON.stringify({ items: [{ ...message(2, 'w1'), body: 'late room B' }], total: 1, loadFailed: false })));
+    await tick(3);
+    expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('draft for A');
+    expect(m.target.textContent).not.toContain('late room B');
+    expect(m.target.querySelector<HTMLElement>('.overscroll-y-contain')!.scrollTop).toBe(340);
+    expect(m.target.querySelector<HTMLInputElement>('input[name=channelRef]')!.value).toBe('room-a');
+  });
+});
+
+
+it('keeps the default team draft separate when visiting another registered Channel', async () => {
+  setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+  const team = await pageData();
+  const other = { ...team, selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+    selectedChannelTotal: 0, selectedChannelError: false,
+    postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+  };
+  const props = reactiveProps<Record<string, unknown>>({ data: team, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(2);
+  let textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  textarea.value = 'team draft';
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync(() => { props.data = other; });
+  await tick(2);
+  textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  expect(textarea.value).toBe('');
+  textarea.value = 'other draft';
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync(() => { props.data = team; });
+  await tick(2);
+  expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('team draft');
+});
+
+
+it('preserves a cached draft when the real page store seeds the remounted form', async () => {
+  setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+  const team = await pageData();
+  const other = { ...team, selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+    selectedChannelTotal: 0, selectedChannelError: false,
+    postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+  };
+  page.update((p) => ({ ...p, data: team }));
+  const props = reactiveProps<Record<string, unknown>>({ data: team, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(2);
+  for (const [current, next, body] of [[team, other, 'team draft'], [other, team, 'channel draft']] as const) {
+    const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    textarea.value = body;
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    page.update((p) => ({ ...p, data: next }));
+    flushSync(() => { props.data = next; });
+    await tick(2);
+    page.update((p) => ({ ...p, data: current }));
+    flushSync(() => { props.data = current; });
+    await tick(2);
+    expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe(body);
+    page.update((p) => ({ ...p, data: next }));
+    flushSync(() => { props.data = next; });
+    await tick(2);
+  }
+});
+
+it.each([true, false])('keeps a pending Channel post mounted through tab changes and settles success=%s', async (success) => {
+  setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+  const base = await pageData();
+  const data = { ...base, selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+    selectedChannelTotal: 0, selectedChannelError: false,
+    postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+  };
+  const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(2);
+  const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  textarea.value = 'pending post';
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync();
+  const form = textarea.closest('form')!;
+  const result = await superValidate({ body: 'pending post', channelRef: 'other' }, zod4(postTeamChatMessageSchema), { id: 'channel:other', errors: false });
+  result.valid = success;
+  result.message = success ? { type: 'success', text: 'Posted.' } : { type: 'error', text: 'Refused; try again.' };
+  await submitEnhancedWithResult(form, { type: success ? 'success' : 'failure', status: success ? 200 : 400, data: { form: result } }, async () => {
+    await tick(2);
+    m.target.querySelector<HTMLButtonElement>('#tab-worklog')!.click();
+    flushSync();
+    expect(m.target.querySelector('textarea[name=body]')).toBe(textarea);
+    m.target.querySelector<HTMLButtonElement>('#tab-chats')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    await tick(2);
+    expect(m.target.querySelector('textarea[name=body]')).toBe(textarea);
+    expect((await submitEnhanced(form)).cancelled).toBe(true);
+  });
+  await tick(3);
+  expect(textarea.value).toBe(success ? '' : 'pending post');
+  m.target.querySelector<HTMLButtonElement>('#tab-worklog')!.click();
+  flushSync();
+  expect(m.target.querySelector('textarea[name=body]')).toBeNull();
+  m.target.querySelector<HTMLButtonElement>('#tab-chats')!.click();
+  await tick(2);
+  const restored = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  expect(restored.value).toBe(success ? '' : 'pending post');
+  if (!success) expect((await submitEnhanced(restored.closest('form')!)).cancelled).toBe(false);
+
+});
 
 describe('Cast role follows the selected Agent (#1319)', () => {
   it('has no role input and updates the read-only role when the Agent changes', async () => {

@@ -243,3 +243,22 @@ describe('TeamChatThread team filter — invalid and refused reads (#1137 review
     expect(q(m, 'team-chat-filter-refused')).toBeNull();
   });
 });
+
+it('cached transcript restoration never merges an old filter into a new filter', async () => {
+  const props = reactiveProps({
+    messages: [message(2, { teamTags: [ADA] })], total: 2,
+    filter: { kind: 'team', headRef: ADA.headId } as TeamChatFilter,
+    onViewStateChange: vi.fn(),
+    viewState: { items: [message(1, { teamTags: [ADA] }), message(2, { teamTags: [ADA] })], total: 2,
+      pendingNewer: 0, olderRemaining: 0, olderExhausted: true, scrollTop: 0, atBottom: true },
+  });
+  const m = await mountThread(props);
+  expect(m.target.textContent).toContain('body 1');
+  props.messages = [message(3, { teamTags: [BO] })];
+  props.total = 1;
+  props.filter = { kind: 'team', headRef: BO.headId };
+  await tick(3);
+  expect(m.target.textContent).toContain('body 3');
+  expect(m.target.textContent).not.toContain('body 1');
+  expect(m.target.textContent).not.toContain('body 2');
+});
