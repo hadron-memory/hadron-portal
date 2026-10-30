@@ -49,6 +49,7 @@
     result = null,
     floorSeconds = null,
     viewerId = null,
+    workerIdentity = null,
     pageHasError,
   }: {
     canManage: boolean | null;
@@ -59,6 +60,8 @@
     floorSeconds?: number | null;
     /** The signed-in viewer, to scope the refresh marker. Without one no marker is left. */
     viewerId?: string | null;
+    /** The worker's canonical ids and App, recorded in the refresh marker. Without them no marker is left. */
+    workerIdentity?: { id: string; urn: string | null; appId: string | null; orgId: string | null } | null;
     /** True when the page now shows an error (kit navigated to its error route). Read once a refresh has resolved. */
     pageHasError: () => boolean;
   } = $props();
@@ -139,7 +142,9 @@
         // showing (the refresh worked, or rejected and is said below), and kept when the panel was replaced.
         let refreshFailed = false;
         if (result.type === 'success') {
-          const attempt = viewerId ? setRefreshMarker({ viewer: viewerId, worker: originKey }) : null;
+          const attempt = viewerId && workerIdentity
+            ? setRefreshMarker({ viewer: viewerId, worker: originKey, workerId: workerIdentity.id, workerUrn: workerIdentity.urn, appId: workerIdentity.appId, orgId: workerIdentity.orgId })
+            : null;
           try {
             await invalidateAll();
           } catch {

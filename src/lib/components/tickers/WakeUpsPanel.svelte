@@ -35,7 +35,7 @@
   }: {
     wake: TickerRead<WorkerWakeSettings>;
     appSettings: TickerRead<AppTickerSettings> | null;
-    worker: { retiredAt: string | null };
+    worker: { retiredAt: string | null; id?: string; urn?: string | null; app?: { organizationId?: string | null } | null };
     appId: string | null;
     loadedAt: string;
     /** portal#1462: may the viewer manage the worker's App (null = unknown; the server decides). */
@@ -99,7 +99,7 @@
 <section class="space-y-4" data-testid="wake-panel">
   <!-- portal#1462: independent of the reads below, so a failed read never hides it. -->
   {#key applyKey}
-    <ApplyAgentTickers canManage={canManage} action={applyAction} workerKey={applyKey} result={applyResult} floorSeconds={minCadence} {viewerId} {pageHasError} />
+    <ApplyAgentTickers canManage={canManage} action={applyAction} workerKey={applyKey} result={applyResult} floorSeconds={minCadence} {viewerId} workerIdentity={worker.id ? { id: worker.id, urn: worker.urn ?? null, appId, orgId: worker.app?.organizationId ?? null } : null} {pageHasError} />
   {/key}
   {#if wake.kind === 'not-participant'}
     <TickersNotParticipant what="wake" />

@@ -16,6 +16,7 @@
   // everything below follows these, never a one-time read (Anne's P2 on 7290cfe4).
   const viewer = $derived(($page.data as { user?: { id?: string } | null } | undefined)?.user?.id ?? null);
   const worker = $derived($page.params?.id ?? null);
+  const orgId = $derived(($page.data as { activeOrgId?: string | null } | undefined)?.activeOrgId ?? null);
   const onWorker = $derived($page.route?.id === '/app/workers/[id]');
 
   // The scope whose marker this instance consumed. Replaced (or dropped) whenever the page's scope changes, so
@@ -25,8 +26,9 @@
     const v = viewer;
     const w = worker;
     const ok = onWorker;
+    const org = orgId;
     untrack(() => {
-      consumed = v && w && ok && takeRefreshMarker({ viewer: v, worker: w }) ? { viewer: v, worker: w } : null;
+      consumed = v && w && ok && takeRefreshMarker({ viewer: v, worker: w, orgId: org }) ? { viewer: v, worker: w } : null;
     });
   });
   const shown = $derived(consumed !== null && onWorker && consumed.viewer === viewer && consumed.worker === worker);
