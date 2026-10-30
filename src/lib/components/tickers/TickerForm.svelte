@@ -128,6 +128,9 @@
             status = t('app.tickers.write.created-error', 'Ticker created, but the server’s response also reported an error.');
           } else if (made) {
             status = t('app.tickers.write.created', 'Created {name}.', { name: made.name });
+          } else if (!editing) {
+            // A create a warning proved landed, though no ticker came back to link to.
+            status = t('app.tickers.write.created-nolink', 'Ticker created.');
           } else {
             status = t('app.tickers.write.saved', 'Saved. These are the stored values.');
           }
