@@ -179,7 +179,7 @@
             {#if row.s.until}<time datetime={row.s.until} class="whitespace-nowrap">{fmtRunTime(row.s.until)}</time>{:else}<span class="text-zinc-500">{t('app.stops.until-lifted', 'until lifted')}</span>{/if}
           {:else if cell.column.id === 'ended'}
             {#if row.s.endedAt}
-              <span class="whitespace-nowrap">{row.s.endKind === 'EXPIRED' ? t('app.stops.ended.expired', 'Expired') : t('app.stops.ended.lifted', 'Lifted')} {fmtRunTime(row.s.endedAt)}{#if row.s.endKind === 'LIFTED'} · {actorText(row.s.endedByUserId, row.s.endedByHostKey, data.people)}{/if}</span>
+              <span class="whitespace-nowrap">{row.s.endKind === 'EXPIRED' ? t('app.stops.ended.expired', 'Expired') : t('app.stops.ended.lifted', 'Lifted')} {fmtRunTime(row.s.endedAt)}{#if row.s.endKind === 'LIFTED'}{' · '}{actorText(row.s.endedByUserId, row.s.endedByHostKey, data.people)}{/if}</span>
             {:else}<span class="text-zinc-400">—</span>{/if}
           {:else if cell.column.id === 'id'}
             <code class="select-all font-mono text-xs">{row.s.id}</code>
