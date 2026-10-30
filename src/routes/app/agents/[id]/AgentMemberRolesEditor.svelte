@@ -139,7 +139,7 @@
       </button>
     </div>
     <p id="member-roles-hint" class="text-xs text-zinc-500">
-      {t('agent.member-roles.hint', 'Lowercase letters, digits and hyphens, for example “reviewer”. People who already have a removed role keep it.')}
+      {t('agent.member-roles.hint', '1 to 32 characters: a lowercase letter first, then lowercase letters, digits, “_” or “-”, for example “reviewer”. People who already have a removed role keep it.')}
     </p>
     {#if duplicate}
       <p role="status" class="text-sm text-amber-700 dark:text-amber-400">{t('agent.member-roles.duplicate', '“{role}” is already in the list.', { role: duplicate })}</p>

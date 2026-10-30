@@ -130,7 +130,7 @@ describe('Agent member-roles editor (portal#1405)', () => {
 
   it('shows the role format and what removal does to existing members', async () => {
     const t = await mountEditor({ canManage: true });
-    expect(t.textContent).toContain('Lowercase letters, digits and hyphens');
+    expect(t.textContent).toContain('1 to 32 characters: a lowercase letter first, then lowercase letters, digits, “_” or “-”');
     expect(t.textContent).toContain('People who already have a removed role keep it.');
   });
 });

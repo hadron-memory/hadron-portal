@@ -70,9 +70,9 @@ describe('Agent member-roles action (portal#1405)', () => {
   });
 
   it('a malformed role from the server shows its message at the roles field', async () => {
-    mockRequest.mockRejectedValue(gqlError('BAD_USER_INPUT', 'Role "Bad Role" must be lowercase letters, digits and hyphens.'));
+    mockRequest.mockRejectedValue(gqlError('BAD_USER_INPUT', 'Invalid member role "Bad Role": use 1-32 characters, a lowercase letter first, then lowercase letters, digits, "_" or "-".'));
     const result = await run(['Bad Role']);
-    expect(rolesError(result)).toBe('Role "Bad Role" must be lowercase letters, digits and hyphens.');
+    expect(rolesError(result)).toBe('Invalid member role "Bad Role": use 1-32 characters, a lowercase letter first, then lowercase letters, digits, "_" or "-".');
   });
 
   it('a refusal for lack of access is not a field error', async () => {
