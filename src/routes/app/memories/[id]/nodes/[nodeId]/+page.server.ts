@@ -4,7 +4,7 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
-import { runStartError } from '$lib/server/run-start-error';
+import { runStartError, runStartStatus } from '$lib/server/run-start-error';
 import { runAgentChoice } from '$lib/run-agent';
 import type { InstalledAgent } from '$lib/app-installed-agents';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
@@ -1161,7 +1161,7 @@ export const actions: Actions = {
       });
       runId = res.runTask;
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: runStartError(e, 'Failed to start the run', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: runStartError(e, 'Failed to start the run', NODE_WRITE_REFUSALS) }, { status: runStartStatus(e) });
     }
     // #648: run detail is the canonical org-optional /app/apps/[appId]/runs/[runId].
     redirect(303, `/app/apps/${appId}/runs/${runId}`);
