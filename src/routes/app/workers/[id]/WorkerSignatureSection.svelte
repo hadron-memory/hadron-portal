@@ -12,7 +12,7 @@
   - No reset or default control, and no client cap (the server's is tunable).
 -->
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { superForm, type SuperValidated } from 'sveltekit-superforms/client';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { failedSubmission } from '$lib/forms/submitted-form';
@@ -38,17 +38,30 @@
   // a keyboard reader's focus fell to the document body. The result line is the
   // stable target: it is the one thing that always exists after a save.
   let resultEl = $state<HTMLElement | null>(null);
-  let formEl = $state<HTMLFormElement | null>(null);
+  // Kit's applyAction resets focus to the body BEFORE onUpdated runs (a native
+  // run saw exactly that), so the active element at that point says nothing
+  // about where the reader was. Remember the last element they focused instead.
+  let lastFocused: Element | null = null;
+  onMount(() => {
+    const remember = (e: FocusEvent) => {
+      if (e.target instanceof Element) lastFocused = e.target;
+    };
+    document.addEventListener('focusin', remember);
+    return () => document.removeEventListener('focusin', remember);
+  });
   async function focusResultAfterSave() {
     await tick();
-    const focused = document.activeElement;
-    // Only when focus was LEFT behind: on the body, or on a submit button of
-    // this form (the control that just went away). A reader who has moved on,
-    // to another control or back into a template field, keeps their place.
-    const left = !focused || focused === document.body || (!!formEl && formEl.contains(focused) && focused instanceof HTMLButtonElement && focused.type === 'submit');
-    // After teardown `bind:this` has nulled the element, so a late result is inert.
-    if (!left || !resultEl?.isConnected) return;
-    resultEl.focus();
+    // Give focus back to where the reader last was, if that is still a live
+    // control other than a button (the Save that went away is disabled
+    // next, by the re-read); the result line is the fallback. After teardown
+    // `bind:this` has nulled the result and the remembered element is detached,
+    // so a late result is inert.
+    const back = lastFocused;
+    if (back instanceof HTMLElement && back.isConnected && back !== resultEl && !(back instanceof HTMLButtonElement)) {
+      back.focus();
+      return;
+    }
+    if (resultEl?.isConnected) resultEl.focus();
   }
 
   const {
@@ -134,7 +147,7 @@
       </p>
     {/if}
 
-    <form bind:this={formEl} method="POST" action="?tab=briefing&/updateSignature" use:enhance class="space-y-3" novalidate>
+    <form method="POST" action="?tab=briefing&/updateSignature" use:enhance class="space-y-3" novalidate>
       <input type="hidden" name="_kind" value="updateSignature" />
 
       {#if readable.signature}
