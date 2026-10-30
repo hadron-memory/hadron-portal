@@ -166,4 +166,15 @@ describe('worker page: Signature and trailer (#1142 P4)', () => {
     const s = section(await mount(w, res))!;
     expect(s.querySelector<HTMLTextAreaElement>('textarea[name="signature"]')!.value).toBe('my draft');
   });
+
+  // A NON-default worker: the reply's stamp is derived from the mounted
+  // worker, so the pair still matches. Under a constant default-id stamp this
+  // leg goes red — the mount stamps w-b, the reply would stamp the default,
+  // and the refusal would not seed.
+  it('a refused save for a non-default worker keeps that worker’s draft (the stamp derivation tracks the worker)', async () => {
+    const w = worker({ id: 'w-b', slug: 'bee', name: 'Bee', signature: 'stored-b' });
+    const res = await actionResult(w, 'my b draft', { type: 'error', text: "You can't change this worker's signature or trailer." });
+    const s = section(await mount(w, res))!;
+    expect(s.querySelector<HTMLTextAreaElement>('textarea[name="signature"]')!.value).toBe('my b draft');
+  });
 });
