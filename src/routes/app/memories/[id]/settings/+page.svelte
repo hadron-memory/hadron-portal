@@ -417,18 +417,23 @@
   // On demand and read-only. The result arrives as plain action data, so it is
   // read off `form` by the keys only this action sets. No invalidateAll: the
   // layout loader pages the memory's whole graph, and nothing here changed.
-  // Pending is scoped to the memory that asked: this page component is reused
-  // on a [id] navigation, so a single boolean would leave memory B's button
-  // disabled until A's whole-memory scan came back (George on #1460). A late
-  // completion only clears the flag if it is still its own.
-  let checkingFor = $state<string | null>(null);
-  const checkingHealth = $derived(checkingFor === g.id);
+  // Pending belongs to ONE request, and that request to the memory that asked:
+  // this page component is reused on a [id] navigation, so a single boolean
+  // would leave memory B's button disabled until A's whole-memory scan came back
+  // (George on #1460). Memory alone is not enough either: A1, then B1, then back
+  // on A to start A2, and A1's late completion would clear A2's flag. So the
+  // flag is an object and a completion clears it only if it is still its own.
+  let pendingScan = $state.raw<{ memoryId: string } | null>(null);
+  const checkingHealth = $derived(pendingScan?.memoryId === g.id);
   const checkHealth: SubmitFunction = () => {
-    const asked = g.id;
-    checkingFor = asked;
+    const mine = { memoryId: g.id };
+    pendingScan = mine;
     return async ({ update }) => {
-      await update({ reset: false, invalidateAll: false });
-      if (checkingFor === asked) checkingFor = null;
+      try {
+        await update({ reset: false, invalidateAll: false });
+      } finally {
+        if (pendingScan === mine) pendingScan = null;
+      }
     };
   };
   const vectorHealth = $derived((form as { vectorHealth?: VectorHealthView } | null)?.vectorHealth ?? null);

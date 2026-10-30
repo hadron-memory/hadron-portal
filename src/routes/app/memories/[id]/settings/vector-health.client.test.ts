@@ -67,4 +67,20 @@ describe('vector health pending state (#1346)', () => {
     await settle();
     expect(buttonOf(target).disabled).toBe(true);
   });
+
+  it("A1, B1, back to A and A2: A1's late completion does not clear A2", async () => {
+    const { target, props } = await mountOn('mem-A');
+    const a1 = await submitEnhancedDeferred(formOf(target));
+    props.data = await dataFor('mem-B');
+    await settle();
+    await submitEnhancedDeferred(formOf(target));
+    props.data = await dataFor('mem-A');
+    await settle();
+    await submitEnhancedDeferred(formOf(target));
+    await settle();
+    expect(buttonOf(target).disabled).toBe(true);
+    await a1.finish(OK);
+    await settle();
+    expect(buttonOf(target).disabled).toBe(true);
+  });
 });

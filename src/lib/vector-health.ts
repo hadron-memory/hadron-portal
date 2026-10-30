@@ -33,7 +33,6 @@ export interface VectorHealthView {
   truncation: { shown: number; total: number } | null;
   /** The skip reason when the EMBED_FAILED check did not run: an empty list then proves nothing. */
   skipped: string | null;
-  nodesChecked: number;
 }
 
 export function embedFailedView(res: ValidateMemoryResult): VectorHealthView {
@@ -45,6 +44,5 @@ export function embedFailedView(res: ValidateMemoryResult): VectorHealthView {
     failed,
     truncation: capped ? { shown: res.findings.length, total: res.totalFindings } : null,
     skipped: res.skippedChecks.find((c) => c.check === 'EMBED_FAILED')?.reason ?? null,
-    nodesChecked: res.nodesChecked,
   };
 }
