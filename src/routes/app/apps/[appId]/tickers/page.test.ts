@@ -30,11 +30,17 @@ const ticker = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function list(over: Record<string, unknown> = {}) {
+// portal#1151 (S7b): the New ticker and Edit ticker sections are the ticker writes, pinned in
+// write-forms.test.ts. These tests are about the READ views, so those sections are cut out here.
+const WRITE_SECTION = /<section[^>]*data-testid="ticker-(create|edit)"[\s\S]*?<\/section>/;
+const readView = (html: string) => html.replace(WRITE_SECTION, '');
+
+function listFull(over: Record<string, unknown> = {}) {
   return render(List as never, {
     props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
   } as never).body;
 }
+const list = (over: Record<string, unknown> = {}) => readView(listFull(over));
 
 /**
  * No write control: no form, no named form field (the grid's own search box
@@ -55,7 +61,7 @@ describe('Tickers list', () => {
     expect(html).toContain('No tickers yet.');
     expect(html).toContain('A mention already makes a worker due at once, unless its mentions are off or it is paused.');
     expect(html).toContain('A router delivers the wake-ups. This page only decides who is due and when.');
-    expect(html).toContain('use the MCP tool hadron_ticker_create');
+    expect(html).not.toContain('hadron_ticker_create');
     expect(html).not.toMatch(/tickers (already )?wake/i);
     expectReadOnly(html);
   });
@@ -126,7 +132,7 @@ describe('Tickers list', () => {
   });
 });
 
-function detail(over: Record<string, unknown> = {}) {
+function detailFull(over: Record<string, unknown> = {}) {
   return render(Detail as never, {
     props: {
       data: {
@@ -138,6 +144,7 @@ function detail(over: Record<string, unknown> = {}) {
     },
   } as never).body;
 }
+const detail = (over: Record<string, unknown> = {}) => readView(detailFull(over));
 
 describe('Ticker page', () => {
   it('shows the facts, read-only', () => {
@@ -165,7 +172,7 @@ describe('Ticker page', () => {
 
   // Uma's P3-1 on #1136: say where changes are made, not only who may make them.
   it('says changes are made through MCP for now', () => {
-    expect(detail()).toContain('In the portal this is read-only for now; use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe) to change it.');
+    expect(detail()).toContain('To turn it on or off, or to subscribe workers, use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe).');
   });
 
   it('no subscribers reads “Nobody follows this ticker yet.”', () => {

@@ -14,18 +14,19 @@ import type { AgentTaskRow } from './types';
  * Park (portal#1143) is the one move back: a PENDING task with no assignee
  * returns to the backlog (hrn:node:hadronmemory.com:specs:cor:agt:050:02, R6 A).
  * It is offered on that state alone; the server refuses anyone outside the
- * audience. Exhaustive: an unknown status offers nothing.
+ * audience. Edit details (portal#1357) is offered on every non-ended task; the
+ * server answers anyone outside its audience. Exhaustive: an unknown status offers nothing.
  */
-export type TaskAction = 'ready' | 'assign' | 'reassign' | 'park' | 'cancel';
+export type TaskAction = 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel';
 
 export function taskActions(task: Pick<AgentTaskRow, 'status' | 'queued' | 'assignee'>): TaskAction[] {
   switch (task.status as string) {
     case 'BACKLOG':
-      return ['ready', 'assign', 'cancel'];
+      return ['ready', 'assign', 'edit', 'cancel'];
     case 'PENDING':
-      return task.assignee ? ['reassign', 'cancel'] : ['assign', 'park', 'cancel'];
+      return task.assignee ? ['reassign', 'edit', 'cancel'] : ['assign', 'park', 'edit', 'cancel'];
     case 'STARTED':
-      return ['reassign', 'cancel'];
+      return ['reassign', 'edit', 'cancel'];
     default:
       // FINISHED, CANCELLED (an ended task never moves again), or a status the portal doesn't know.
       return [];
@@ -42,6 +43,8 @@ export function taskActionLabel(a: TaskAction): string {
       return t('app.tasks.write.reassign', 'Reassign…');
     case 'park':
       return t('app.tasks.write.park', 'Park…');
+    case 'edit':
+      return t('app.tasks.write.edit', 'Edit details');
     case 'cancel':
       return t('app.tasks.write.cancel', 'Cancel…');
   }

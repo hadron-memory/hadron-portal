@@ -1,13 +1,15 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { loadTasksApp } from '$lib/server/agent-tasks';
-import { formValues, impersonationRefusal, writeFailure } from '$lib/server/agent-task-writes';
+import { formValues, impersonationRefusal, taskWrite, writeFailure } from '$lib/server/agent-task-writes';
 import {
   SET_APP_DELIVERY_SETTINGS_MUTATION,
   buildDeliveryPatch,
   classifyDeliveryError,
   loadAppDeliverySettings,
 } from '$lib/server/delivery-settings';
+import { CREATE_TICKER_MUTATION, classifyTickerWriteError } from '$lib/server/ticker-writes';
+import { buildCreateInput } from '$lib/tickers/write';
 import { loadAppTickerSettings, loadTickers, SUBSCRIBER_COUNT_PAGE } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -18,10 +20,9 @@ import type { Actions, PageServerLoad } from './$types';
  * the App page's loader
  * (hrn:node:hadronmemory.com:hadron-portal:designs:tickers-and-wake §2).
  *
- * The ticker settings stay read-only (S7b's writes are not in v1). The one
- * write here is the `delivery` action (portal#1141 slice A, hadron-server S9),
- * which sends only the delivery fields the reader changed; a test pins that
- * this is the only action.
+ * The ticker settings stay read-only. The writes here are `delivery`
+ * (portal#1141 slice A, hadron-server S9), which sends only the delivery fields
+ * the reader changed, and `create` (portal#1151, S7b); a test pins the set.
  */
 export const load: PageServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
@@ -57,6 +58,38 @@ export const load: PageServerLoad = async ({ params, locals }) => {
  */
 
 export const actions: Actions = {
+  // portal#1151 (S7b): any participant may create, up to the cap; the server decides and its refusal renders.
+  create: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('create', impersonationRefusal(), values);
+    const built = buildCreateInput(fd);
+    if ('invalid' in built) return writeFailure('create', { kind: 'invalid', ...built.invalid }, values);
+    // portal#1384 (acceptance 9): createTicker may succeed WITH a warning (ticker.code.unmapped,
+    // hadron-server#2733) in `extensions.warnings` under its own response key, which `request()`
+    // drops. The create stays a success; the warning is shown as the server gave it.
+    const out = await taskWrite<{ createTicker: { id: string; name: string } | null }>(
+      gqlClient(locals.token),
+      CREATE_TICKER_MUTATION,
+      { appRef: params.appId, input: built.input },
+      'createTicker',
+      (e) => classifyTickerWriteError(e, 'create'),
+    );
+    if (out.kind === 'refused') return writeFailure('create', out.refusal, values);
+    const made = out.data?.createTicker;
+    const ticker = made && typeof made.id === 'string' && typeof made.name === 'string' ? { id: made.id, name: made.name } : null;
+    // No usable ticker and no warning to prove the write landed: the outcome is unknown, never "created".
+    if (!ticker && !out.committed) return writeFailure('create', { kind: 'uncertain' }, values);
+    return {
+      action: 'create' as const,
+      ok: true as const,
+      ticker,
+      committedWithError: out.kind === 'committed-error',
+      warnings: out.warnings,
+      more: out.more,
+    };
+  },
+
   delivery: async ({ request, params, locals }) => {
     const fd = await request.formData();
     const values = formValues(fd);
