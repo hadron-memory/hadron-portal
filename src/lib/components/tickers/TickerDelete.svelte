@@ -6,6 +6,7 @@
   sentence. An uncertain outcome is shown as uncertain and never retried.
 -->
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
   import { t } from '$lib/i18n/t';
@@ -35,6 +36,12 @@
       refusal = null;
       shownFor = ticker.id;
     }
+  });
+
+  // Leaving the page ends every pending write's right to touch it: a delete that lands after the
+  // reader navigated away must not send them back to the list (Juliet's P2 on #1458).
+  onDestroy(() => {
+    generation++;
   });
 
   function submitter() {

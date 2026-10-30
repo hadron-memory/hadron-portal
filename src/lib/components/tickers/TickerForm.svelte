@@ -16,7 +16,7 @@
     and is not retried.
 -->
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
@@ -81,6 +81,11 @@
       submitting = false;
       seededFor = key;
     }
+  });
+
+  // Leaving the page ends every pending write's right to touch it (Juliet's P2 on #1458).
+  onDestroy(() => {
+    generation++;
   });
 
   function toggle(reason: string, on: boolean) {
