@@ -1,5 +1,6 @@
 <script lang="ts">
   import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
+  import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
@@ -1614,6 +1615,9 @@
        took the panel bodies with them. `shrink-0` + `whitespace-nowrap` on each tab is what makes it
        SCROLL rather than compress — without them flex squeezes every label
        into an unreadable column instead. -->
+  <!-- portal#1139: the stops in effect, prominent above the sections. -->
+  <StopBanner live={data.liveStops} workers={(data.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}/stops" />
+
   <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     <!-- #768 — the ARIA tab pattern. These controls swap mutually exclusive
          panels IN PLACE, which is what role="tab" describes; the previous
@@ -1673,6 +1677,14 @@
       class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
     >
       {t('app.tabs.tickers', 'Tickers')}
+    </a>
+    <!-- #1139: Stops is a subroute: its reads answer a non-participant APP_NOT_FOUND,
+         and that must never reach this page's loader. -->
+    <a
+      href="/app/apps/{app.id}/stops"
+      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+    >
+      {t('app.tabs.stops', 'Stops')}
     </a>
     <!-- #1299: Automations is a subroute: its reads answer a reader who may not adopt
          with nothing, and that must never reach this page's loader. -->
