@@ -136,6 +136,49 @@ describe('Edit details: the panel', () => {
   });
 });
 
+describe('Edit details: an untouched start by keeps its instant (Beckett’s P2 on #1466)', () => {
+  // 2026-11-01 06:30Z is the SECOND 01:30 in America/New_York (the clocks fall back at 06:00Z):
+  // read back from the local string it would become the first one, 05:30Z, an hour earlier.
+  const withZone = async (zone: string, run: () => Promise<void>) => {
+    const was = process.env.TZ;
+    process.env.TZ = zone;
+    try {
+      await run();
+    } finally {
+      if (was === undefined) delete process.env.TZ;
+      else process.env.TZ = was;
+    }
+  };
+
+  it('posts the original instant for a control the reader did not touch', async () => {
+    await withZone('America/New_York', async () => {
+      const { root } = await mountBar({ startBy: '2026-11-01T06:30:00.000Z' });
+      const form = await openEdit(root);
+      expect(field(form, 'startBy').value).toBe('2026-11-01T01:30');
+      expect(field(form, 'startByUtc').value).toBe('2026-11-01T06:30:00.000Z');
+    });
+  });
+
+  it('computes the instant from the control once the reader changes it', async () => {
+    await withZone('America/New_York', async () => {
+      const { root } = await mountBar({ startBy: '2026-11-01T06:30:00.000Z' });
+      const form = await openEdit(root);
+      const input = field(form, 'startBy');
+      input.value = '2026-11-02T09:00';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(2);
+      flushSync();
+      expect(field(form, 'startByUtc').value).toBe('2026-11-02T14:00:00.000Z');
+    });
+  });
+
+  it('a task with no start by posts none', async () => {
+    const { root } = await mountBar({ startBy: null });
+    const form = await openEdit(root);
+    expect(field(form, 'startByUtc').value).toBe('');
+  });
+});
+
 describe('Edit details: results', () => {
   it('a save reloads, closes the panel and says "Details saved." in a status line', async () => {
     const { root } = await mountBar();
