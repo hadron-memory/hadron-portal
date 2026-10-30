@@ -70,9 +70,14 @@ async function mountPage(data: Record<string, unknown>) {
 const liftButtons = (root: HTMLElement) => [...root.querySelectorAll<HTMLButtonElement>('button')].filter((b) => b.textContent?.trim() === 'Lift');
 
 describe('the Stops page', () => {
-  it('a live row offers Lift only when the viewer can lift: yes shows it, unknown and a support session do not', async () => {
+  it('a live row offers Lift only when the viewer can lift: yes shows it, no, unknown and a support session do not', async () => {
     const yes = await mountPage(pageData());
     expect(liftButtons(yes.root)).toHaveLength(1);
+
+    // 'no' and 'unknown' are pinned separately: a regression that admits one
+    // while rejecting the other must not pass (Atilla's BLIND P3).
+    const no = await mountPage(pageData({ manages: 'no' }));
+    expect(liftButtons(no.root)).toHaveLength(0);
 
     const unknown = await mountPage(pageData({ manages: 'unknown' }));
     expect(liftButtons(unknown.root)).toHaveLength(0);
