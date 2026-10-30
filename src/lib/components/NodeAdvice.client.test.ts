@@ -38,6 +38,22 @@ describe('NodeAdvice live region (#1371, Uma P3-1)', () => {
   });
 });
 
+describe('NodeAdvice fills after mount (#1371, Uma)', () => {
+  it('advice present at first load fills the region after mount, without scrolling', () => {
+    const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const { region } = mountAdvice([INCLUDE_PIN_UNKEPT_TEXT]);
+    expect(region()!.textContent).toContain('Advice from a saved change');
+    expect(region()!.textContent).toContain(INCLUDE_PIN_UNKEPT_TEXT);
+    expect(region()!.querySelector('[data-testid="node-save-advice"]')).not.toBeNull();
+    expect(scroll).not.toHaveBeenCalled();
+  });
+  it('renders advice as plain text, never authored HTML', () => {
+    const { region } = mountAdvice(['<img src=x onerror=alert(1)>']);
+    expect(region()!.querySelector('img')).toBeNull();
+    expect(region()!.textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+});
+
 describe('NodeAdvice proximity (#1371, Uma P3-2)', () => {
   it('brings advice that arrives on a mounted page into view, without moving focus', () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
@@ -57,7 +73,8 @@ describe('NodeAdvice proximity (#1371, Uma P3-2)', () => {
 
   it('does not scroll when advice clears', () => {
     const scroll = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
-    const { set } = mountAdvice([INCLUDE_PIN_UNKEPT_TEXT]);
+    const { set } = mountAdvice([]);
+    set([INCLUDE_PIN_UNKEPT_TEXT]);
     scroll.mockClear();
     set([]);
     expect(scroll).not.toHaveBeenCalled();
