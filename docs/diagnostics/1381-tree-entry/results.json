@@ -1,12 +1,12 @@
 {
-  "sourceCommit": "67473e0efff4a89b3b1097886c0e704fe7473255",
+  "sourceCommit": "60c9a7e82308e27079ac9a3b9f3a011039725772",
   "sourceStatus": "",
   "sourceSha256": {
     "src/lib/components/TreeView.svelte": "1858b7dfa3028342e5f2952e75e9ec82f31d9f3c2d6491642c1bfc0899d5fbc5",
     "src/lib/graph-utils.ts": "83cf333326910a40f871998a9cdc5b224c2709f47da6b92b9e323a1603e3ba1b",
-    "scripts/diagnostics/tree-entry/TreeEntryHarness.svelte": "3f99cfef449e894c1e83c3f91c30b6351d03a9e605745ce8c353ee51cefaaca9",
-    "scripts/diagnostics/tree-entry/run.mjs": "9e2aef699a2fdf79201ab8e870cadcfb05be50d66f0c82c5825ab4a3cf1b1257",
-    "scripts/fixtures/synthetic-memory.ts": "86a6d53be3977e8a3c5586e0c9816e864fd7d6c9f1f2f3c0d643e750f471931c"
+    "scripts/diagnostics/tree-entry/TreeEntryHarness.svelte": "01b0ad5c61097d92344cf2b7d607b1771171269f1a8429260489c52e6e9835cb",
+    "scripts/diagnostics/tree-entry/run.mjs": "43c76f9853396a07c613f00e43a3754b91984d23b6de011eca75868a71a49c89",
+    "scripts/synth-memory.ts": "7395512fdc0dccec35a15f7a497d26499eb730698b05fa33e8040327f9510d4d"
   },
   "browser": "145.0.7632.6",
   "os": "Linux 6.12.94+deb13-amd64 x64",
@@ -24,24 +24,24 @@
       "roots": 50,
       "entries": 3292,
       "run": 1,
-      "entryMs": 218.09999990463257,
-      "largestTaskMs": 179,
-      "totalBlockingMs": 129,
+      "entryMs": 90.40000009536743,
+      "largestTaskMs": 79,
+      "totalBlockingMs": 29,
       "longTasks": [
         {
-          "start": 246.60000038146973,
-          "duration": 179
+          "start": 125.2000002861023,
+          "duration": 79
         }
       ],
       "rows": 550,
       "elements": 3314,
       "visibility": "visible",
       "focus": true,
-      "traceLargestTaskMs": 179.328,
-      "heapBeforeBytes": 1805476,
-      "heapAfterBytes": 7165188,
-      "heapRetainedBytes": 6939588,
-      "heapRetainedDeltaBytes": 5134112,
+      "traceLargestTaskMs": 79.649,
+      "heapBeforeBytes": 1775916,
+      "heapAfterBytes": 7343468,
+      "heapRetainedBytes": 6927664,
+      "heapRetainedDeltaBytes": 5151748,
       "errors": []
     },
     {
@@ -50,382 +50,337 @@
       "roots": 50,
       "entries": 3292,
       "run": 2,
-      "entryMs": 141.80000019073486,
-      "largestTaskMs": 120,
-      "totalBlockingMs": 70,
-      "longTasks": [
-        {
-          "start": 188.40000009536743,
-          "duration": 120
-        }
-      ],
-      "rows": 550,
-      "elements": 3314,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 120.766,
-      "heapBeforeBytes": 1808336,
-      "heapAfterBytes": 7165524,
-      "heapRetainedBytes": 6942184,
-      "heapRetainedDeltaBytes": 5133848,
-      "errors": []
-    },
-    {
-      "label": "small",
-      "size": 3292,
-      "roots": 50,
-      "entries": 3292,
-      "run": 3,
-      "entryMs": 158.5,
-      "largestTaskMs": 135,
-      "totalBlockingMs": 85,
-      "longTasks": [
-        {
-          "start": 180.5,
-          "duration": 135
-        }
-      ],
-      "rows": 550,
-      "elements": 3314,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 135.103,
-      "heapBeforeBytes": 1806996,
-      "heapAfterBytes": 7153492,
-      "heapRetainedBytes": 6939672,
-      "heapRetainedDeltaBytes": 5132676,
-      "errors": []
-    },
-    {
-      "label": "small",
-      "size": 3292,
-      "roots": 50,
-      "entries": 3292,
-      "run": 4,
-      "entryMs": 266.69999980926514,
-      "largestTaskMs": 243,
-      "totalBlockingMs": 193,
-      "longTasks": [
-        {
-          "start": 147,
-          "duration": 243
-        }
-      ],
-      "rows": 550,
-      "elements": 3314,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 243.392,
-      "heapBeforeBytes": 1806676,
-      "heapAfterBytes": 7156124,
-      "heapRetainedBytes": 6942504,
-      "heapRetainedDeltaBytes": 5135828,
-      "errors": []
-    },
-    {
-      "label": "small",
-      "size": 3292,
-      "roots": 50,
-      "entries": 3292,
-      "run": 5,
-      "entryMs": 144.7000002861023,
-      "largestTaskMs": 126,
-      "totalBlockingMs": 76,
-      "longTasks": [
-        {
-          "start": 153,
-          "duration": 126
-        }
-      ],
-      "rows": 550,
-      "elements": 3314,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 125.924,
-      "heapBeforeBytes": 1806636,
-      "heapAfterBytes": 7320084,
-      "heapRetainedBytes": 6940404,
-      "heapRetainedDeltaBytes": 5133768,
-      "errors": []
-    },
-    {
-      "label": "large",
-      "size": 32920,
-      "roots": 500,
-      "entries": 32920,
-      "run": 1,
-      "entryMs": 1254.2999997138977,
-      "largestTaskMs": 1171,
-      "totalBlockingMs": 1151,
-      "longTasks": [
-        {
-          "start": 239.59999990463257,
-          "duration": 1171
-        },
-        {
-          "start": 1411.4000000953674,
-          "duration": 80
-        }
-      ],
-      "rows": 5500,
-      "elements": 33014,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 1171.488,
-      "heapBeforeBytes": 5868496,
-      "heapAfterBytes": 48841508,
-      "heapRetainedBytes": 45764440,
-      "heapRetainedDeltaBytes": 39895944,
-      "errors": []
-    },
-    {
-      "label": "large",
-      "size": 32920,
-      "roots": 500,
-      "entries": 32920,
-      "run": 2,
-      "entryMs": 1011.9000000953674,
-      "largestTaskMs": 953,
-      "totalBlockingMs": 909,
-      "longTasks": [
-        {
-          "start": 175.90000009536743,
-          "duration": 953
-        },
-        {
-          "start": 1129.4000000953674,
-          "duration": 56
-        }
-      ],
-      "rows": 5500,
-      "elements": 33014,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 953.172,
-      "heapBeforeBytes": 5818784,
-      "heapAfterBytes": 48115680,
-      "heapRetainedBytes": 45730672,
-      "heapRetainedDeltaBytes": 39911888,
-      "errors": []
-    },
-    {
-      "label": "large",
-      "size": 32920,
-      "roots": 500,
-      "entries": 32920,
-      "run": 3,
-      "entryMs": 864.5999999046326,
-      "largestTaskMs": 808,
-      "totalBlockingMs": 761,
-      "longTasks": [
-        {
-          "start": 165.39999961853027,
-          "duration": 808
-        },
-        {
-          "start": 973.7999997138977,
-          "duration": 53
-        }
-      ],
-      "rows": 5500,
-      "elements": 33014,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 808.302,
-      "heapBeforeBytes": 5823124,
-      "heapAfterBytes": 48154464,
-      "heapRetainedBytes": 45726132,
-      "heapRetainedDeltaBytes": 39903008,
-      "errors": []
-    },
-    {
-      "label": "large",
-      "size": 32920,
-      "roots": 500,
-      "entries": 32920,
-      "run": 4,
-      "entryMs": 874.3000001907349,
-      "largestTaskMs": 816,
-      "totalBlockingMs": 773,
-      "longTasks": [
-        {
-          "start": 150.7000002861023,
-          "duration": 816
-        },
-        {
-          "start": 967.5,
-          "duration": 57
-        }
-      ],
-      "rows": 5500,
-      "elements": 33014,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 816.566,
-      "heapBeforeBytes": 5821344,
-      "heapAfterBytes": 48710480,
-      "heapRetainedBytes": 45712856,
-      "heapRetainedDeltaBytes": 39891512,
-      "errors": []
-    },
-    {
-      "label": "large",
-      "size": 32920,
-      "roots": 500,
-      "entries": 32920,
-      "run": 5,
-      "entryMs": 889.2000002861023,
-      "largestTaskMs": 833,
-      "totalBlockingMs": 785,
-      "longTasks": [
-        {
-          "start": 143.09999990463257,
-          "duration": 833
-        },
-        {
-          "start": 976.9000000953674,
-          "duration": 52
-        }
-      ],
-      "rows": 5500,
-      "elements": 33014,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 833.617,
-      "heapBeforeBytes": 5817804,
-      "heapAfterBytes": 48243492,
-      "heapRetainedBytes": 45707072,
-      "heapRetainedDeltaBytes": 39889268,
-      "errors": []
-    },
-    {
-      "label": "compact",
-      "size": 32920,
-      "roots": 1,
-      "entries": 32920,
-      "run": 1,
-      "entryMs": 63.5,
-      "largestTaskMs": 63,
-      "totalBlockingMs": 13,
-      "longTasks": [
-        {
-          "start": 155,
-          "duration": 63
-        }
-      ],
-      "rows": 11,
-      "elements": 80,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 63.536,
-      "heapBeforeBytes": 5739808,
-      "heapAfterBytes": 8418508,
-      "heapRetainedBytes": 8295476,
-      "heapRetainedDeltaBytes": 2555668,
-      "errors": []
-    },
-    {
-      "label": "compact",
-      "size": 32920,
-      "roots": 1,
-      "entries": 32920,
-      "run": 2,
-      "entryMs": 62.69999980926514,
-      "largestTaskMs": 59,
-      "totalBlockingMs": 9,
-      "longTasks": [
-        {
-          "start": 157.80000019073486,
-          "duration": 59
-        }
-      ],
-      "rows": 11,
-      "elements": 80,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 59.113,
-      "heapBeforeBytes": 5738408,
-      "heapAfterBytes": 8427060,
-      "heapRetainedBytes": 8294400,
-      "heapRetainedDeltaBytes": 2555992,
-      "errors": []
-    },
-    {
-      "label": "compact",
-      "size": 32920,
-      "roots": 1,
-      "entries": 32920,
-      "run": 3,
-      "entryMs": 73.2999997138977,
-      "largestTaskMs": 73,
-      "totalBlockingMs": 23,
-      "longTasks": [
-        {
-          "start": 130.40000009536743,
-          "duration": 73
-        }
-      ],
-      "rows": 11,
-      "elements": 80,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 73.457,
-      "heapBeforeBytes": 5733648,
-      "heapAfterBytes": 8420424,
-      "heapRetainedBytes": 8290532,
-      "heapRetainedDeltaBytes": 2556884,
-      "errors": []
-    },
-    {
-      "label": "compact",
-      "size": 32920,
-      "roots": 1,
-      "entries": 32920,
-      "run": 4,
-      "entryMs": 65.19999980926514,
-      "largestTaskMs": 59,
-      "totalBlockingMs": 9,
-      "longTasks": [
-        {
-          "start": 142,
-          "duration": 59
-        }
-      ],
-      "rows": 11,
-      "elements": 80,
-      "visibility": "visible",
-      "focus": true,
-      "traceLargestTaskMs": 58.918,
-      "heapBeforeBytes": 5738368,
-      "heapAfterBytes": 8423372,
-      "heapRetainedBytes": 8294332,
-      "heapRetainedDeltaBytes": 2555964,
-      "errors": []
-    },
-    {
-      "label": "compact",
-      "size": 32920,
-      "roots": 1,
-      "entries": 32920,
-      "run": 5,
-      "entryMs": 71,
+      "entryMs": 78.80000019073486,
       "largestTaskMs": 70,
       "totalBlockingMs": 20,
       "longTasks": [
         {
-          "start": 175.5,
+          "start": 99.40000009536743,
           "duration": 70
         }
       ],
+      "rows": 550,
+      "elements": 3314,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 70.866,
+      "heapBeforeBytes": 1775916,
+      "heapAfterBytes": 7341512,
+      "heapRetainedBytes": 6927472,
+      "heapRetainedDeltaBytes": 5151556,
+      "errors": []
+    },
+    {
+      "label": "small",
+      "size": 3292,
+      "roots": 50,
+      "entries": 3292,
+      "run": 3,
+      "entryMs": 91.59999990463257,
+      "largestTaskMs": 79,
+      "totalBlockingMs": 29,
+      "longTasks": [
+        {
+          "start": 112.80000019073486,
+          "duration": 79
+        }
+      ],
+      "rows": 550,
+      "elements": 3314,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 79.518,
+      "heapBeforeBytes": 1806676,
+      "heapAfterBytes": 7151200,
+      "heapRetainedBytes": 6939624,
+      "heapRetainedDeltaBytes": 5132948,
+      "errors": []
+    },
+    {
+      "label": "small",
+      "size": 3292,
+      "roots": 50,
+      "entries": 3292,
+      "run": 4,
+      "entryMs": 86.80000019073486,
+      "largestTaskMs": 74,
+      "totalBlockingMs": 24,
+      "longTasks": [
+        {
+          "start": 98.5,
+          "duration": 74
+        }
+      ],
+      "rows": 550,
+      "elements": 3314,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 74.336,
+      "heapBeforeBytes": 1775916,
+      "heapAfterBytes": 7141424,
+      "heapRetainedBytes": 6927588,
+      "heapRetainedDeltaBytes": 5151672,
+      "errors": []
+    },
+    {
+      "label": "small",
+      "size": 3292,
+      "roots": 50,
+      "entries": 3292,
+      "run": 5,
+      "entryMs": 86.30000019073486,
+      "largestTaskMs": 75,
+      "totalBlockingMs": 25,
+      "longTasks": [
+        {
+          "start": 95.40000009536743,
+          "duration": 75
+        }
+      ],
+      "rows": 550,
+      "elements": 3314,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 75.087,
+      "heapBeforeBytes": 1775916,
+      "heapAfterBytes": 7322228,
+      "heapRetainedBytes": 6927600,
+      "heapRetainedDeltaBytes": 5151684,
+      "errors": []
+    },
+    {
+      "label": "large",
+      "size": 32920,
+      "roots": 500,
+      "entries": 32920,
+      "run": 1,
+      "entryMs": 623.0999999046326,
+      "largestTaskMs": 575,
+      "totalBlockingMs": 525,
+      "longTasks": [
+        {
+          "start": 96.19999980926514,
+          "duration": 575
+        }
+      ],
+      "rows": 5500,
+      "elements": 33014,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 575.201,
+      "heapBeforeBytes": 5818444,
+      "heapAfterBytes": 48372964,
+      "heapRetainedBytes": 45721944,
+      "heapRetainedDeltaBytes": 39903500,
+      "errors": []
+    },
+    {
+      "label": "large",
+      "size": 32920,
+      "roots": 500,
+      "entries": 32920,
+      "run": 2,
+      "entryMs": 613.0999999046326,
+      "largestTaskMs": 571,
+      "totalBlockingMs": 521,
+      "longTasks": [
+        {
+          "start": 101.19999980926514,
+          "duration": 571
+        }
+      ],
+      "rows": 5500,
+      "elements": 33014,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 570.954,
+      "heapBeforeBytes": 5818964,
+      "heapAfterBytes": 48345928,
+      "heapRetainedBytes": 45710412,
+      "heapRetainedDeltaBytes": 39891448,
+      "errors": []
+    },
+    {
+      "label": "large",
+      "size": 32920,
+      "roots": 500,
+      "entries": 32920,
+      "run": 3,
+      "entryMs": 587.5,
+      "largestTaskMs": 550,
+      "totalBlockingMs": 500,
+      "longTasks": [
+        {
+          "start": 98,
+          "duration": 550
+        }
+      ],
+      "rows": 5500,
+      "elements": 33014,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 550.931,
+      "heapBeforeBytes": 5807884,
+      "heapAfterBytes": 48102696,
+      "heapRetainedBytes": 45720824,
+      "heapRetainedDeltaBytes": 39912940,
+      "errors": []
+    },
+    {
+      "label": "large",
+      "size": 32920,
+      "roots": 500,
+      "entries": 32920,
+      "run": 4,
+      "entryMs": 594.1999998092651,
+      "largestTaskMs": 553,
+      "totalBlockingMs": 503,
+      "longTasks": [
+        {
+          "start": 115.69999980926514,
+          "duration": 553
+        }
+      ],
+      "rows": 5500,
+      "elements": 33014,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 553.207,
+      "heapBeforeBytes": 5822104,
+      "heapAfterBytes": 48194884,
+      "heapRetainedBytes": 45711704,
+      "heapRetainedDeltaBytes": 39889600,
+      "errors": []
+    },
+    {
+      "label": "large",
+      "size": 32920,
+      "roots": 500,
+      "entries": 32920,
+      "run": 5,
+      "entryMs": 651.7999997138977,
+      "largestTaskMs": 608,
+      "totalBlockingMs": 558,
+      "longTasks": [
+        {
+          "start": 99.30000019073486,
+          "duration": 608
+        }
+      ],
+      "rows": 5500,
+      "elements": 33014,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 608.607,
+      "heapBeforeBytes": 5819524,
+      "heapAfterBytes": 48112740,
+      "heapRetainedBytes": 45730680,
+      "heapRetainedDeltaBytes": 39911156,
+      "errors": []
+    },
+    {
+      "label": "compact",
+      "size": 32920,
+      "roots": 1,
+      "entries": 32920,
+      "run": 1,
+      "entryMs": 40.799999713897705,
+      "largestTaskMs": 0,
+      "totalBlockingMs": 0,
+      "longTasks": [],
       "rows": 11,
       "elements": 80,
       "visibility": "visible",
       "focus": true,
-      "traceLargestTaskMs": 70.812,
-      "heapBeforeBytes": 5705568,
-      "heapAfterBytes": 8392284,
-      "heapRetainedBytes": 8268032,
-      "heapRetainedDeltaBytes": 2562464,
+      "traceLargestTaskMs": 40.725,
+      "heapBeforeBytes": 5956328,
+      "heapAfterBytes": 8585808,
+      "heapRetainedBytes": 8465732,
+      "heapRetainedDeltaBytes": 2509404,
+      "errors": []
+    },
+    {
+      "label": "compact",
+      "size": 32920,
+      "roots": 1,
+      "entries": 32920,
+      "run": 2,
+      "entryMs": 42.09999990463257,
+      "largestTaskMs": 0,
+      "totalBlockingMs": 0,
+      "longTasks": [],
+      "rows": 11,
+      "elements": 80,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 42.227,
+      "heapBeforeBytes": 5740228,
+      "heapAfterBytes": 8410344,
+      "heapRetainedBytes": 8292880,
+      "heapRetainedDeltaBytes": 2552652,
+      "errors": []
+    },
+    {
+      "label": "compact",
+      "size": 32920,
+      "roots": 1,
+      "entries": 32920,
+      "run": 3,
+      "entryMs": 45.5,
+      "largestTaskMs": 0,
+      "totalBlockingMs": 0,
+      "longTasks": [],
+      "rows": 11,
+      "elements": 80,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 45.618,
+      "heapBeforeBytes": 5738088,
+      "heapAfterBytes": 8407232,
+      "heapRetainedBytes": 8291188,
+      "heapRetainedDeltaBytes": 2553100,
+      "errors": []
+    },
+    {
+      "label": "compact",
+      "size": 32920,
+      "roots": 1,
+      "entries": 32920,
+      "run": 4,
+      "entryMs": 41.700000286102295,
+      "largestTaskMs": 0,
+      "totalBlockingMs": 0,
+      "longTasks": [],
+      "rows": 11,
+      "elements": 80,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 41.312,
+      "heapBeforeBytes": 5740648,
+      "heapAfterBytes": 8410608,
+      "heapRetainedBytes": 8292876,
+      "heapRetainedDeltaBytes": 2552228,
+      "errors": []
+    },
+    {
+      "label": "compact",
+      "size": 32920,
+      "roots": 1,
+      "entries": 32920,
+      "run": 5,
+      "entryMs": 41.200000286102295,
+      "largestTaskMs": 0,
+      "totalBlockingMs": 0,
+      "longTasks": [],
+      "rows": 11,
+      "elements": 80,
+      "visibility": "visible",
+      "focus": true,
+      "traceLargestTaskMs": 41.013,
+      "heapBeforeBytes": 5739228,
+      "heapAfterBytes": 8412844,
+      "heapRetainedBytes": 8292080,
+      "heapRetainedDeltaBytes": 2552852,
       "errors": []
     },
     {
@@ -434,28 +389,28 @@
       "roots": 0,
       "entries": 60194,
       "run": 1,
-      "entryMs": 3427.5999999046326,
-      "largestTaskMs": 3251,
-      "totalBlockingMs": 3322,
+      "entryMs": 2910.0999999046326,
+      "largestTaskMs": 2707,
+      "totalBlockingMs": 2806,
       "longTasks": [
         {
-          "start": 523.2000002861023,
-          "duration": 3251
+          "start": 456.7999997138977,
+          "duration": 2707
         },
         {
-          "start": 3775,
-          "duration": 171
+          "start": 3164.5999999046326,
+          "duration": 199
         }
       ],
       "rows": 27092,
       "elements": 162566,
       "visibility": "visible",
       "focus": true,
-      "traceLargestTaskMs": 3251.624,
+      "traceLargestTaskMs": 2707.639,
       "heapBeforeBytes": 16868716,
-      "heapAfterBytes": 202247904,
-      "heapRetainedBytes": 198846464,
-      "heapRetainedDeltaBytes": 181977748,
+      "heapAfterBytes": 202305948,
+      "heapRetainedBytes": 198903100,
+      "heapRetainedDeltaBytes": 182034384,
       "errors": []
     },
     {
@@ -464,28 +419,28 @@
       "roots": 0,
       "entries": 60194,
       "run": 2,
-      "entryMs": 3122.5999999046326,
-      "largestTaskMs": 2916,
-      "totalBlockingMs": 3018,
+      "entryMs": 3822.2000002861023,
+      "largestTaskMs": 3610,
+      "totalBlockingMs": 3718,
       "longTasks": [
         {
-          "start": 537.6999998092651,
-          "duration": 2916
+          "start": 474.90000009536743,
+          "duration": 3610
         },
         {
-          "start": 3453.8999996185303,
-          "duration": 202
+          "start": 4085.5999999046326,
+          "duration": 208
         }
       ],
       "rows": 27092,
       "elements": 162566,
       "visibility": "visible",
       "focus": true,
-      "traceLargestTaskMs": 2916.072,
+      "traceLargestTaskMs": 3610.541,
       "heapBeforeBytes": 16868716,
-      "heapAfterBytes": 202306832,
-      "heapRetainedBytes": 198905364,
-      "heapRetainedDeltaBytes": 182036648,
+      "heapAfterBytes": 202350564,
+      "heapRetainedBytes": 198949108,
+      "heapRetainedDeltaBytes": 182080392,
       "errors": []
     },
     {
@@ -494,28 +449,28 @@
       "roots": 0,
       "entries": 60194,
       "run": 3,
-      "entryMs": 3925.4000000953674,
-      "largestTaskMs": 3699,
-      "totalBlockingMs": 3822,
+      "entryMs": 2882.800000190735,
+      "largestTaskMs": 2703,
+      "totalBlockingMs": 2778,
       "longTasks": [
         {
-          "start": 528.0999999046326,
-          "duration": 3699
+          "start": 577.2000002861023,
+          "duration": 2703
         },
         {
-          "start": 4227.200000286102,
-          "duration": 223
+          "start": 3280.5999999046326,
+          "duration": 175
         }
       ],
       "rows": 27092,
       "elements": 162566,
       "visibility": "visible",
       "focus": true,
-      "traceLargestTaskMs": 3698.915,
+      "traceLargestTaskMs": 2703.327,
       "heapBeforeBytes": 16868716,
-      "heapAfterBytes": 202308560,
-      "heapRetainedBytes": 198905696,
-      "heapRetainedDeltaBytes": 182036980,
+      "heapAfterBytes": 202350648,
+      "heapRetainedBytes": 198949180,
+      "heapRetainedDeltaBytes": 182080464,
       "errors": []
     },
     {
@@ -524,28 +479,28 @@
       "roots": 0,
       "entries": 60194,
       "run": 4,
-      "entryMs": 4273.699999809265,
-      "largestTaskMs": 4047,
-      "totalBlockingMs": 4167,
+      "entryMs": 3007.199999809265,
+      "largestTaskMs": 2790,
+      "totalBlockingMs": 2903,
       "longTasks": [
         {
-          "start": 489.30000019073486,
-          "duration": 4047
+          "start": 467.30000019073486,
+          "duration": 2790
         },
         {
-          "start": 4536.800000190735,
-          "duration": 220
+          "start": 3258.2000002861023,
+          "duration": 213
         }
       ],
       "rows": 27092,
       "elements": 162566,
       "visibility": "visible",
       "focus": true,
-      "traceLargestTaskMs": 4047.511,
+      "traceLargestTaskMs": 2790.689,
       "heapBeforeBytes": 16868716,
-      "heapAfterBytes": 202353140,
-      "heapRetainedBytes": 198951672,
-      "heapRetainedDeltaBytes": 182082956,
+      "heapAfterBytes": 202303924,
+      "heapRetainedBytes": 198902456,
+      "heapRetainedDeltaBytes": 182033740,
       "errors": []
     },
     {
@@ -554,28 +509,28 @@
       "roots": 0,
       "entries": 60194,
       "run": 5,
-      "entryMs": 4041.300000190735,
-      "largestTaskMs": 3700,
-      "totalBlockingMs": 3939,
+      "entryMs": 3422.8999996185303,
+      "largestTaskMs": 3186,
+      "totalBlockingMs": 3317,
       "longTasks": [
         {
-          "start": 833.2999997138977,
-          "duration": 3700
+          "start": 548.2000002861023,
+          "duration": 3186
         },
         {
-          "start": 4533.5,
-          "duration": 339
+          "start": 3735.1000003814697,
+          "duration": 231
         }
       ],
       "rows": 27092,
       "elements": 162566,
       "visibility": "visible",
       "focus": true,
-      "traceLargestTaskMs": 3699.979,
+      "traceLargestTaskMs": 3186.69,
       "heapBeforeBytes": 16868716,
-      "heapAfterBytes": 202353568,
-      "heapRetainedBytes": 198952112,
-      "heapRetainedDeltaBytes": 182083396,
+      "heapAfterBytes": 202306968,
+      "heapRetainedBytes": 198905512,
+      "heapRetainedDeltaBytes": 182036796,
       "errors": []
     }
   ],
@@ -587,20 +542,20 @@
       "n": 5,
       "metrics": {
         "entryMs": {
-          "median": 158.5,
-          "worst": 266.69999980926514
+          "median": 86.80000019073486,
+          "worst": 91.59999990463257
         },
         "largestTaskMs": {
-          "median": 135,
-          "worst": 243
+          "median": 75,
+          "worst": 79
         },
         "traceLargestTaskMs": {
-          "median": 135.103,
-          "worst": 243.392
+          "median": 75.087,
+          "worst": 79.649
         },
         "totalBlockingMs": {
-          "median": 85,
-          "worst": 193
+          "median": 25,
+          "worst": 29
         },
         "elements": {
           "median": 3314,
@@ -611,20 +566,20 @@
           "worst": 550
         },
         "heapBeforeBytes": {
-          "median": 1806676,
-          "worst": 1808336
+          "median": 1775916,
+          "worst": 1806676
         },
         "heapAfterBytes": {
-          "median": 7165188,
-          "worst": 7320084
+          "median": 7322228,
+          "worst": 7343468
         },
         "heapRetainedBytes": {
-          "median": 6940404,
-          "worst": 6942504
+          "median": 6927600,
+          "worst": 6939624
         },
         "heapRetainedDeltaBytes": {
-          "median": 5133848,
-          "worst": 5135828
+          "median": 5151672,
+          "worst": 5151748
         }
       }
     },
@@ -635,20 +590,20 @@
       "n": 5,
       "metrics": {
         "entryMs": {
-          "median": 889.2000002861023,
-          "worst": 1254.2999997138977
+          "median": 613.0999999046326,
+          "worst": 651.7999997138977
         },
         "largestTaskMs": {
-          "median": 833,
-          "worst": 1171
+          "median": 571,
+          "worst": 608
         },
         "traceLargestTaskMs": {
-          "median": 833.617,
-          "worst": 1171.488
+          "median": 570.954,
+          "worst": 608.607
         },
         "totalBlockingMs": {
-          "median": 785,
-          "worst": 1151
+          "median": 521,
+          "worst": 558
         },
         "elements": {
           "median": 33014,
@@ -659,20 +614,20 @@
           "worst": 5500
         },
         "heapBeforeBytes": {
-          "median": 5821344,
-          "worst": 5868496
+          "median": 5818964,
+          "worst": 5822104
         },
         "heapAfterBytes": {
-          "median": 48243492,
-          "worst": 48841508
+          "median": 48194884,
+          "worst": 48372964
         },
         "heapRetainedBytes": {
-          "median": 45726132,
-          "worst": 45764440
+          "median": 45720824,
+          "worst": 45730680
         },
         "heapRetainedDeltaBytes": {
-          "median": 39895944,
-          "worst": 39911888
+          "median": 39903500,
+          "worst": 39912940
         }
       }
     },
@@ -683,20 +638,20 @@
       "n": 5,
       "metrics": {
         "entryMs": {
-          "median": 65.19999980926514,
-          "worst": 73.2999997138977
+          "median": 41.700000286102295,
+          "worst": 45.5
         },
         "largestTaskMs": {
-          "median": 63,
-          "worst": 73
+          "median": 0,
+          "worst": 0
         },
         "traceLargestTaskMs": {
-          "median": 63.536,
-          "worst": 73.457
+          "median": 41.312,
+          "worst": 45.618
         },
         "totalBlockingMs": {
-          "median": 13,
-          "worst": 23
+          "median": 0,
+          "worst": 0
         },
         "elements": {
           "median": 80,
@@ -707,20 +662,20 @@
           "worst": 11
         },
         "heapBeforeBytes": {
-          "median": 5738368,
-          "worst": 5739808
+          "median": 5740228,
+          "worst": 5956328
         },
         "heapAfterBytes": {
-          "median": 8420424,
-          "worst": 8427060
+          "median": 8410608,
+          "worst": 8585808
         },
         "heapRetainedBytes": {
-          "median": 8294332,
-          "worst": 8295476
+          "median": 8292876,
+          "worst": 8465732
         },
         "heapRetainedDeltaBytes": {
-          "median": 2555992,
-          "worst": 2562464
+          "median": 2552652,
+          "worst": 2553100
         }
       }
     },
@@ -731,20 +686,20 @@
       "n": 5,
       "metrics": {
         "entryMs": {
-          "median": 3925.4000000953674,
-          "worst": 4273.699999809265
+          "median": 3007.199999809265,
+          "worst": 3822.2000002861023
         },
         "largestTaskMs": {
-          "median": 3699,
-          "worst": 4047
+          "median": 2790,
+          "worst": 3610
         },
         "traceLargestTaskMs": {
-          "median": 3698.915,
-          "worst": 4047.511
+          "median": 2790.689,
+          "worst": 3610.541
         },
         "totalBlockingMs": {
-          "median": 3822,
-          "worst": 4167
+          "median": 2903,
+          "worst": 3718
         },
         "elements": {
           "median": 162566,
@@ -759,16 +714,16 @@
           "worst": 16868716
         },
         "heapAfterBytes": {
-          "median": 202308560,
-          "worst": 202353568
+          "median": 202306968,
+          "worst": 202350648
         },
         "heapRetainedBytes": {
-          "median": 198905696,
-          "worst": 198952112
+          "median": 198905512,
+          "worst": 198949180
         },
         "heapRetainedDeltaBytes": {
-          "median": 182036980,
-          "worst": 182083396
+          "median": 182036796,
+          "worst": 182080464
         }
       }
     }
