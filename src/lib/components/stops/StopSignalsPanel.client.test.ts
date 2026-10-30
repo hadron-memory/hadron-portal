@@ -3,6 +3,10 @@
  * shows, the confirmation (Cancel focused, per-level copy, no notice promise),
  * single-flight, a refusal that sets nothing, and a late result that must not
  * land on another App or after teardown. Both directions are pinned.
+ *
+ * portal#1413 D1 — this file runs under a forced non-UTC zone so the
+ * reader's-instant pin cannot pass vacuously on a UTC runner: the expected
+ * instant is a literal, not the component's own expression evaluated again.
  */
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
@@ -11,6 +15,13 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { beginEnhanced, submitEnhanced } from '$lib/test/stubs/app-forms';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import Panel from './StopSignalsPanel.svelte';
+
+// Node re-reads process.env.TZ on assignment (tzset), POSIX only — CI is Linux.
+// Restored in afterAll so a reused worker doesn't leak the zone to other files.
+// Safe because vitest's default forks pool gives each test FILE its own process
+// (under a threads pool this would leak to concurrently-running files instead).
+const prevTz = process.env.TZ;
+process.env.TZ = 'America/Los_Angeles';
 
 const workers = [
   { id: 'w1', name: 'Gaby', urn: 'hrn:worker:acme.com:team:gaby' },
@@ -30,6 +41,8 @@ afterAll(() => {
     if (old) Object.defineProperty(HTMLDialogElement.prototype, key, old);
     else Reflect.deleteProperty(HTMLDialogElement.prototype, key);
   }
+  if (prevTz === undefined) delete process.env.TZ;
+  else process.env.TZ = prevTz;
 });
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -153,10 +166,16 @@ describe('the set form', () => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await tick(2);
     expect(input.name).toBe('');
-    expect(root.querySelector<HTMLInputElement>('input[type="hidden"][name="until"]')!.value).toBe(new Date('2099-10-30T14:00').toISOString());
+    // 14:00 wall-clock in the forced zone (PDT, UTC-7) is 21:00Z. The literal
+    // is the point: an implementation that treats the value as UTC (or appends
+    // Z without converting) sends 14:00Z and fails here — on a UTC runner the
+    // component's own expression would have agreed with either (portal#1413 D1).
+    expect(root.querySelector<HTMLInputElement>('input[type="hidden"][name="until"]')!.value).toBe('2099-10-30T21:00:00.000Z');
     await review(root);
     const dialog = root.querySelector('dialog')!;
-    expect(dialog.textContent).toContain(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    // The zone name is asserted literally for the same reason: it proves this
+    // file really runs in America/Los_Angeles, not the runner's default.
+    expect(dialog.textContent).toContain('America/Los_Angeles');
     expect(dialog.textContent).not.toContain('2099-10-30T14:00');
     expect(dialog.textContent).toContain('acme.com:team:gaby');
   });
@@ -345,6 +364,17 @@ describe('lifting', () => {
     await tick(3);
     expect(root.querySelector('dialog[aria-labelledby="stop-lift-title"]')).not.toBeNull();
     props.manages = 'unknown';
+    await tick(3);
+    expect(root.querySelector('dialog[aria-labelledby="stop-lift-title"]')).toBeNull();
+  });
+
+  // portal#1413 D4 — Riana's S7 pin. Not reachable through the page today (it
+  // gates Lift on canLiftStops and impersonation is fixed for the load, and the
+  // server refuses impersonated lifts), so this is a mutant pin: `controls`
+  // must keep `!impersonating`, and with the hint at yes that term is the only
+  // thing suppressing this dialog.
+  it('a support session never sees the lift confirmation, even with a lift pending', async () => {
+    const { root } = await mountPanel({ lifting, impersonating: 'Dana' });
     await tick(3);
     expect(root.querySelector('dialog[aria-labelledby="stop-lift-title"]')).toBeNull();
   });
