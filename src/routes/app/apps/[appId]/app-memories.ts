@@ -37,8 +37,19 @@ export async function readAppMemories(client: ReturnType<typeof gqlClient>, orgI
   } catch { return null; }
 }
 
-export function canCreateAppMemory(org: { members?: { role: string; user: { id: string } }[] } | null, userId: string | null): boolean {
-  return !!userId && !!org?.members?.some(m => m.user.id === userId && (m.role === 'OWNER' || m.role === 'ADMIN'));
+// Whether to OFFER the form; the server's createAppMemory gate stays the
+// authority. An org App follows the viewer's org role. A user-owned App has no
+// org, so it follows the viewer's manage right on the App (effectiveAccess
+// grants it to the owner); unknown (null) hides it, since the server would
+// refuse a non-owner anyway.
+export function canCreateAppMemory(
+  org: { members?: { role: string; user: { id: string } }[] } | null,
+  userId: string | null,
+  app: { userOwned: boolean; canManageApp: boolean | null } = { userOwned: false, canManageApp: null },
+): boolean {
+  if (!userId) return false;
+  if (app.userOwned) return app.canManageApp === true;
+  return !!org?.members?.some(m => m.user.id === userId && (m.role === 'OWNER' || m.role === 'ADMIN'));
 }
 
 export async function createMemory({ request, params, locals }: { request: Request; params: { appId: string }; locals: { token?: string | null } }) {
@@ -50,10 +61,9 @@ export async function createMemory({ request, params, locals }: { request: Reque
   } catch (e: unknown) {
     // Only known codes select fixed copy; no raw GraphQL or transport text.
     const code = extractGqlErrorCode(e);
-    const refusal = code === 'FORBIDDEN' ? [403, t('app.memory.forbidden', 'Adding a memory needs an owner or admin of this organization, acting as themselves.')] as const
+    const refusal = code === 'FORBIDDEN' ? [403, t('app.memory.forbidden', 'Adding a memory needs the App’s owner, or an owner or admin of its organization, acting as themselves.')] as const
       : code === 'UNAUTHENTICATED' ? [401, t('app.memory.sign-in', 'Sign in again to add a memory.')] as const
       : code === 'AGENT_NOT_INSTALLED' ? [409, t('app.memory.no-agent', 'Install an Agent in this App before adding a memory.')] as const
-      : code === 'USER_OWNED_APP_UNSUPPORTED' ? [400, t('app.memory.org-only', 'New App memories are supported for organization Apps.')] as const
       : code === 'BAD_USER_INPUT' ? [400, t('app.memory.invalid', 'Check the memory name and try again.')] as const
       : [500, t('app.memory.failed', 'Could not create the memory. Please try again.')] as const;
     return message(form, { type: 'error', text: refusal[1] }, { status: refusal[0] });
