@@ -110,6 +110,20 @@ export const WORKER_WAKE_SETTINGS_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1462 — apply the Agent's ticker templates to ONE worker (hadron-server#2860).
+ * The manager acts as themselves; the server decides, and the route's worker
+ * is the only one ever sent.
+ */
+export const APPLY_AGENT_TICKER_TEMPLATES_MUTATION = /* GraphQL */ `
+  mutation ApplyAgentTickerTemplates($workerRef: String!) {
+    applyAgentTickerTemplates(workerRef: $workerRef) {
+      created { effectiveCadenceSeconds template { id name } ticker { id name urn } }
+      alreadyPresent { id name }
+    }
+  }
+`;
+
 // Its OWN request, never a field on the keys list: `scopes` is non-null and
 // throws FORBIDDEN for anyone who doesn't manage the App, and a field error on
 // a non-null list member nulls the whole list. Selected beside the keys, it

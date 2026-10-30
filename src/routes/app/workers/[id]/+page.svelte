@@ -5,11 +5,15 @@
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import WorkerSessionsTable from '$lib/components/WorkerSessionsTable.svelte';
   import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
+  import type { ApplyResult } from '$lib/tickers/apply';
+  import { workerOfPage } from '$lib/tickers/refresh-page';
   import WorkerSignatureSection from './WorkerSignatureSection.svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
   import { onMount, tick, untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
+  import { page } from '$app/stores';
+  import { get } from 'svelte/store';
   import { t } from '$lib/i18n/t';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
@@ -649,6 +653,11 @@
         worker={data.worker}
         appId={data.worker.app?.id ?? null}
         loadedAt={data.wakeLoadedAt}
+        canManage={data.canManageWorkerApp}
+        applyKey={data.applyKey}
+        viewerId={data.user?.id ?? null}
+        errorPageWorker={() => { const p = get(page); return p.error != null ? workerOfPage(p) : null; }}
+        applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
       />
     </div>
   {/if}

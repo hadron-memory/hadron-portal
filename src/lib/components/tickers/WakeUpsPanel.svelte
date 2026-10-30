@@ -9,6 +9,8 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
+  import ApplyAgentTickers from '$lib/components/tickers/ApplyAgentTickers.svelte';
+  import type { ApplyResult } from '$lib/tickers/apply';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -24,12 +26,26 @@
     worker,
     appId,
     loadedAt,
+    canManage = false,
+    applyKey,
+    applyAction = '?tab=wake&/applyTickerTemplates',
+    applyResult = null,
+    viewerId = null,
+    errorPageWorker,
   }: {
     wake: TickerRead<WorkerWakeSettings>;
     appSettings: TickerRead<AppTickerSettings> | null;
-    worker: { retiredAt: string | null };
+    worker: { retiredAt: string | null; id?: string; urn?: string | null; app?: { organizationId?: string | null } | null };
     appId: string | null;
     loadedAt: string;
+    /** portal#1462: may the viewer manage the worker's App (null = unknown; the server decides). */
+    canManage?: boolean | null;
+    /** The route's identity for this worker: what the apply action keys its result with. */
+    applyKey: string;
+    applyAction?: string;
+    applyResult?: ApplyResult | null;
+    viewerId?: string | null;
+    errorPageWorker: () => string | null;
   } = $props();
 
   const now = $derived(Date.parse(loadedAt));
@@ -81,6 +97,10 @@
 </script>
 
 <section class="space-y-4" data-testid="wake-panel">
+  <!-- portal#1462: independent of the reads below, so a failed read never hides it. -->
+  {#key applyKey}
+    <ApplyAgentTickers canManage={canManage} action={applyAction} workerKey={applyKey} result={applyResult} floorSeconds={minCadence} {viewerId} workerIdentity={worker.id ? { id: worker.id, urn: worker.urn ?? null, appId, orgId: worker.app?.organizationId ?? null } : null} {errorPageWorker} />
+  {/key}
   {#if wake.kind === 'not-participant'}
     <TickersNotParticipant what="wake" />
   {:else if wake.kind === 'failed'}
