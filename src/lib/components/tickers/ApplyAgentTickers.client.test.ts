@@ -11,7 +11,7 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { applyAction, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { holdInvalidateAll, navigationCalls, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import { REFRESH_MARKER_KEY, setRefreshMarker } from '$lib/tickers/refresh-marker';
 import { refreshScope } from '$lib/test/refreshScope';
 import ApplyAgentTickers from './ApplyAgentTickers.svelte';
@@ -30,6 +30,7 @@ afterEach(() => {
   identity = { id: 'w-A', urn: null, appId: 'app-1', orgId: 'org-1' };
   while (mounted.length) mounted.pop()!.unmount();
   resetNavigationCalls();
+  resetNavigationGuards();
 });
 
 async function mountApply(props: Record<string, unknown>) {
@@ -512,6 +513,49 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
     await finish(ok);
     await tick(2);
     expect(marker()).toMatchObject({ worker: 'gaby' });
+  });
+
+  // Kit's `invalidateAll` is not a navigation: it fires no `beforeNavigate`. A real navigation, which cancels the
+  // pending refresh, does. So a marker whose refresh is still in flight is cleared the moment the reader navigates,
+  // not when the cancelled refresh finally resolves (George's P2 on 704ad591: an unrelated A error could consume
+  // it in between).
+  const fireBeforeNavigate = () => { for (const g of navigationGuards) if (g.fn === 'beforeNavigate') (g.callback as () => void)(); };
+
+  it('is cleared when the reader navigates while the refresh is still pending, so an error before the refresh resolves cannot consume it (George’s P2 on 704ad591)', async () => {
+    asViewer('u-1');
+    const nav = await import('$lib/test/stubs/app-navigation');
+    const { root } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
+    let midFlight: unknown = 'unset';
+    nav.navigationHooks.onInvalidateAll = () => {
+      fireBeforeNavigate();
+      midFlight = marker();
+      mounted.pop()!.unmount();
+      errorAt = 'w-A';
+    };
+    await finish(ok);
+    await tick(2);
+    expect(midFlight).toBeNull();
+    expect(marker()).toBeNull();
+  });
+
+  it('a navigation clears only this panel’s own pending attempt: a newer attempt survives, and so does a marker after the refresh settled', async () => {
+    asViewer('u-1');
+    const nav = await import('$lib/test/stubs/app-navigation');
+    const { root } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
+    let newer: string | null = null;
+    nav.navigationHooks.onInvalidateAll = () => {
+      newer = setRefreshMarker(refreshScope('u-1', 'w-A'));
+      fireBeforeNavigate();
+      mounted.pop()!.unmount();
+      errorAt = 'w-A';
+    };
+    await finish(ok);
+    await tick(2);
+    expect(marker()).toMatchObject({ attempt: newer });
+    fireBeforeNavigate();
+    expect(marker()).toMatchObject({ attempt: newer });
   });
 
   it('is cleared when the panel was unmounted but the refresh WORKED (the reader moved A to B): no error page, so nothing may claim a failed reload later', async () => {
