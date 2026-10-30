@@ -410,6 +410,73 @@ describe('node asset card', () => {
   });
 });
 
+// Uma UX P2 at c2820a4f: closing the confirmation removed the focused button and
+// left focus on <body>. It goes back to the control that opened the panel, and
+// only when focus was actually lost.
+describe('focus when the confirmation closes', () => {
+  const tableTrigger = (root: HTMLElement) => root.querySelector('button[aria-label="Actions for notes.md"]');
+
+  it('table: Cancel returns focus to the row\'s ⋯ trigger', async () => {
+    stubFetch(() => ({ status: 200, body: switched(true) }));
+    const { target } = mountTable([asset()]);
+    pick(target, 'Turn on public link');
+    button(target, 'Cancel')!.click();
+    await tick(2);
+    expect(document.activeElement).toBe(tableTrigger(target));
+  });
+
+  it('table: a successful switch returns focus to the row\'s ⋯ trigger', async () => {
+    stubFetch(() => ({ status: 200, body: switched(true) }));
+    const { target } = mountTable([asset()]);
+    pick(target, 'Turn on public link');
+    button(target, 'Turn on')!.focus();
+    button(target, 'Turn on')!.click();
+    await settle();
+    expect(document.activeElement).toBe(tableTrigger(target));
+  });
+
+  it('card: Cancel returns focus to the switch button', async () => {
+    stubFetch(() => ({ status: 200, body: switched(true) }));
+    const { target } = mountCard(asset());
+    button(target, 'Turn on public link')!.click();
+    flushSync();
+    button(target, 'Cancel')!.click();
+    await tick(2);
+    expect(document.activeElement).toBe(button(target, 'Turn on public link'));
+  });
+
+  it('card: a successful switch returns focus to the (now flipped) switch button', async () => {
+    stubFetch(() => ({ status: 200, body: switched(true) }));
+    const { target } = mountCard(asset());
+    button(target, 'Turn on public link')!.click();
+    flushSync();
+    button(target, 'Turn on')!.focus();
+    button(target, 'Turn on')!.click();
+    await settle();
+    expect(document.activeElement).toBe(button(target, 'Turn off public link'));
+  });
+
+  it('focus the reader moved elsewhere while the panel was open stays there', async () => {
+    let release!: (r: Reply) => void;
+    stubFetch(() => new Promise<Reply>((r) => (release = r)));
+    const { target } = mountCard(asset());
+    const elsewhere = document.createElement('input');
+    document.body.appendChild(elsewhere);
+    try {
+      button(target, 'Turn on public link')!.click();
+      flushSync();
+      button(target, 'Turn on')!.click();
+      flushSync();
+      elsewhere.focus();
+      release({ status: 200, body: switched(true) });
+      await settle();
+      expect(document.activeElement).toBe(elsewhere);
+    } finally {
+      elsewhere.remove();
+    }
+  });
+});
+
 describe('a refetch or navigation while the request is out', () => {
   function mountHost(kind: 'table' | 'card', initial: AssetSummary[]) {
     const m = mountComponent(Host as never, { kind, initial } as never) as Mounted<Record<string, unknown>>;
