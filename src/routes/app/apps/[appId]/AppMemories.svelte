@@ -12,8 +12,10 @@
   import type { AppMemoryMessage, AppMemoryRow } from './app-memories';
   import { createAppMemorySchema } from './schema';
   type Fields = Infer<typeof createAppMemorySchema, 'zod4'>;
-  let { memories, canCreate, initial, result }: {
+  let { memories, canCreate, initial, result, showDescription = true }: {
     memories: AppMemoryRow[] | null; canCreate: boolean;
+    // false when the rows come from a read with no description (a user-owned App).
+    showDescription?: boolean;
     initial: SuperValidated<Fields, AppMemoryMessage>; result: unknown;
   } = $props();
   const { form, errors, message, submitting, enhance } = superForm(untrack(() => {
@@ -25,7 +27,7 @@
   let search = $state('');
   const columns: PortalColumnDef<AppMemoryRow>[] = [
     { accessorKey: 'name', header: t('app.memory.name', 'Name'), enableHiding: false, size: 260 },
-    { accessorKey: 'description', header: t('app.memory.description', 'Description'), size: 360 },
+    ...(untrack(() => showDescription) ? [{ accessorKey: 'description', header: t('app.memory.description', 'Description'), size: 360 }] : []),
   ];
   const table = createSvelteTable<AppMemoryRow>({
     get data() { return memories ?? []; }, columns,
