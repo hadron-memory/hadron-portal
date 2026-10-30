@@ -1,6 +1,6 @@
 /** Real graphql-request transport: request() discards extensions after our middleware sees them. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { captureNodeAdvice, nodeAdviceHandle, takeNodeAdvice } from './node-advice';
+import { captureNodeAdvice, nodeAdviceHandle } from './node-advice';
 import { INCLUDE_PIN_UNKEPT, INCLUDE_PIN_UNKEPT_TEXT } from '$lib/node-advice';
 vi.mock('$env/dynamic/private', () => ({ env: { LOCAL_SERVER_URL: 'https://server.test' } }));
 import { gqlClient } from './api';
@@ -13,7 +13,7 @@ const NODE_ADVICE_SPEC_MUTATION = /* GraphQL */ `mutation NodeAdviceSpec($input:
 const NODE_ADVICE_REVIEW_MUTATION = /* GraphQL */ `mutation NodeAdviceReview($input: UpdateNodeInput!) { saved: updateReviewNode(input: $input) { id } }`;
 const NODE_ADVICE_RESTORE_MUTATION = /* GraphQL */ `mutation NodeAdviceRestore($revisionId: ID!) { saved: restoreNodeRevision(revisionId: $revisionId) { id } }`;
 const NODE_ADVICE_BULK_MUTATION = /* GraphQL */ `mutation NodeAdviceBulk($input: SearchReplaceInNodesInput!) { saved: searchReplaceInNodes(input: $input) { totalReplacements } }`;
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 function requestEvent() {
   const jar = new Map<string, string>();
@@ -62,4 +62,25 @@ describe('shared node advice transport', () => {
   it('without a request scope, optional advice capture does nothing', () => {
     expect(() => captureNodeAdvice({ data: { n: {} }, extensions: { warnings: [] } })).not.toThrow();
   });
+  // #1371: graphql-request awaits responseMiddleware, so a throw in capture would reject a write
+  // the server already committed. JSON.parse is the only place a parsed body can carry a getter.
+  it.each([
+    ['data', () => ({ data: { get saved(): unknown { throw new Error('getter'); } } })],
+    ['extensions', () => ({ data: { saved: { id: 'n' } }, extensions: { get warnings(): unknown { throw new Error('getter'); } } })],
+  ])('a throwing %s getter through the real transport still resolves the saved write once', async (_, body) => {
+    const marker = '{"marker":"1371"}';
+    const parse = JSON.parse;
+    vi.spyOn(JSON, 'parse').mockImplementation((text: string, ...rest) => (text === marker ? body() : parse(text, ...rest)));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(marker, { headers: { 'content-type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const e = requestEvent();
+    const result = await nodeAdviceHandle({ event: e, resolve: async () => {
+      await expect(gqlClient('token').request(NODE_ADVICE_UPDATE_MUTATION, { input: { id: 'n', content: 'edit' } })).resolves.toBeDefined();
+      return new Response(null, { status: 200 });
+    } } as never);
+    expect(result.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.headers.get('set-cookie')).toBeNull();
+  });
 });
+
