@@ -12,7 +12,7 @@
   - No reset or default control, and no client cap (the server's is tunable).
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { superForm, type SuperValidated } from 'sveltekit-superforms/client';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { failedSubmission } from '$lib/forms/submitted-form';
@@ -81,6 +81,39 @@
     formEl?.setAttribute('data-superform-id', instanceId);
   });
 
+  // #1367: after a successful save the focused Save button is disabled (while
+  // the request runs, and again once nothing differs from the stored text), so
+  // a keyboard reader's focus fell to the document body. The result line is the
+  // stable target: it is the one thing that always exists after a save.
+  let resultEl = $state<HTMLElement | null>(null);
+  // Kit's applyAction resets focus to the body BEFORE onUpdated runs (a native
+  // run saw exactly that), so the active element at that point says nothing
+  // about where the reader was. Remember the last element they focused instead.
+  let lastFocused: Element | null = null;
+  onMount(() => {
+    const remember = (e: FocusEvent) => {
+      // Kit's own reset lands on the body and fires focusin there: that is not
+      // the reader moving, so it must not overwrite where they actually were.
+      if (e.target instanceof Element && e.target !== document.body && e.target !== document.documentElement) lastFocused = e.target;
+    };
+    document.addEventListener('focusin', remember);
+    return () => document.removeEventListener('focusin', remember);
+  });
+  async function focusResultAfterSave() {
+    await tick();
+    // Give focus back to where the reader last was, if that is still a live
+    // control other than this form’s submit button (the Save that went away is disabled
+    // next, by the re-read); the result line is the fallback. After teardown
+    // `bind:this` has nulled the result and the remembered element is detached,
+    // so a late result is inert.
+    const back = lastFocused;
+    if (back instanceof HTMLElement && back.isConnected && back !== resultEl && !(back instanceof HTMLButtonElement && back.type === 'submit' && !!formEl?.contains(back))) {
+      back.focus();
+      return;
+    }
+    if (resultEl?.isConnected) resultEl.focus();
+  }
+
   const {
     form: data,
     message: result,
@@ -97,6 +130,11 @@
     validationMethod: 'submit-only',
     resetForm: false,
     invalidateAll: true,
+    // #1367: a successful save disables the Save button the reader used, so
+    // hand focus back (to them, if their control is still live, else here).
+    onUpdated: ({ form }) => {
+      if (form.message?.type === 'success') void focusResultAfterSave();
+    },
     taintedMessage: t('worker.signature.discard', 'You have unsaved changes to this worker’s signature or trailer. Leave the page and lose them?'),
   });
 
@@ -150,6 +188,14 @@
       )}
     </p>
 
+    {#if retired}
+      <!-- #1367: say why the editors are disabled and Save is absent. States the
+           worker's state only; it infers nothing about who could have edited. -->
+      <p id="worker-signature-retired" data-testid="signature-retired" class="text-sm text-zinc-600 dark:text-zinc-400">
+        {t('worker.signature.retired', 'This worker is retired, so its signature and trailer templates are read-only.')}
+      </p>
+    {/if}
+
     <form bind:this={formEl} method="POST" action="?tab=briefing&/updateSignature" use:enhance class="space-y-3" novalidate>
       <input type="hidden" name="_kind" value="updateSignature" />
 
@@ -159,7 +205,7 @@
           <label for="workerSignature" class="text-sm font-medium text-zinc-900 dark:text-white">
             {t('worker.signature.signature-label', 'Signature template')}
           </label>
-          <textarea id="workerSignature" name="signature" bind:value={$data.signature} disabled={retired} rows="2" spellcheck="false" class={fieldClass}></textarea>
+          <textarea id="workerSignature" name="signature" bind:value={$data.signature} disabled={retired} aria-describedby={retired ? 'worker-signature-retired' : undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
         </div>
       {:else}
         <p class="text-sm text-zinc-500">{t('worker.signature.signature-not-shown', 'Signature template: not shown.')}</p>
@@ -171,7 +217,7 @@
           <label for="workerTrailer" class="text-sm font-medium text-zinc-900 dark:text-white">
             {t('worker.signature.trailer-label', 'Trailer template')}
           </label>
-          <textarea id="workerTrailer" name="trailer" bind:value={$data.trailer} disabled={retired} rows="2" spellcheck="false" class={fieldClass}></textarea>
+          <textarea id="workerTrailer" name="trailer" bind:value={$data.trailer} disabled={retired} aria-describedby={retired ? 'worker-signature-retired' : undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
         </div>
       {:else}
         <p class="text-sm text-zinc-500">{t('worker.signature.trailer-not-shown', 'Trailer template: not shown.')}</p>
@@ -189,8 +235,10 @@
 
       {#if $result}
         <p
+          bind:this={resultEl}
+          tabindex="-1"
           role={$result.type === 'error' ? 'alert' : 'status'}
-          class="rounded-lg border px-3 py-2 text-sm {$result.type === 'error'
+          class="rounded-lg border px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {$result.type === 'error'
             ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300'
             : 'border-green-300 bg-green-50 text-green-700 dark:border-green-900 dark:bg-green-950/40 dark:text-green-300'}"
         >{$result.text}</p>

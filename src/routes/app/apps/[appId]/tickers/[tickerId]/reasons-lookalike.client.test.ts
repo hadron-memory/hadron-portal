@@ -17,7 +17,7 @@ afterEach(() => {
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const ticker = (reasons: unknown) => ({
-  id: 'tk-1', name: 'eng', slug: 'eng', urn: 'hrn:ticker:acme.com:team:eng',
+  id: 'tk-1', name: 'eng', slug: 'eng', tickCode: 'tick.eng', urn: 'hrn:ticker:acme.com:team:eng',
   enabled: true, cadenceSeconds: 600, anchorAt: '2026-10-01T00:00:00Z',
   nextTickAt: null, lastTickAt: null, quietHours: null, relevance: 'ALL', channels: [],
   owner: null, createdAt: '2026-10-01T00:00:00Z', updatedAt: null, reasons,
@@ -26,7 +26,7 @@ const ticker = (reasons: unknown) => ({
 async function reasonsRow(reasons: unknown): Promise<string> {
   setStubPage('https://example.test/app/apps/app-1/tickers/tk-1', { appId: 'app-1', tickerId: 'tk-1' });
   const m = mountComponent(Page as never, {
-    data: { app, ticker: ticker(reasons), subscribers: { kind: 'failed' }, paged: false, impersonating: null },
+    data: { app, ticker: ticker(reasons), subscribers: { kind: 'failed' }, tickerTask: { kind: 'ok', value: { registerTaskLoc: null } }, paged: false, impersonating: null },
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);

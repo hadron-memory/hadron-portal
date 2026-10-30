@@ -3889,6 +3889,19 @@ export const ORG_APP_INSTALLS_QUERY = /* GraphQL */ `
   }
 `;
 
+// The node page's "Test this flow" App list (#478), with each App's installed
+// Agents so the run can name one (hadron-server#2849, portal#1444). Its own
+// query, not a field on ORG_APP_INSTALLS_QUERY: that one feeds pages that do
+// not render the roster.
+export const ORG_APPS_RUNNABLE_QUERY = /* GraphQL */ `
+  query OrgAppsRunnable($orgId: ID, $limit: Int, $offset: Int) {
+    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+      items { id name appAgents { agent { id name urn } } }
+      total
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Headless runs (spec 040 / #478) — the audit surface + kill switch
 // ---------------------------------------------------------------------------
@@ -3981,12 +3994,14 @@ export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
 
 // "Test this flow" (#478): runTask with appRef mints a MANUAL AppRun and
 // returns its id (#529) — the walker executes it in the background.
+// agentRef (hadron-server#2849, portal#1444) names the Agent when the App has
+// several installed; omitted, the server uses the single one or refuses.
 // `urn:` -> `nodeRef:` per hadron-server#542. That rename shipped a while ago
 // and broke this mutation at runtime until #681; nothing caught it because the
 // portal had no build-time validation.
 export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
-  mutation RunTaskApp($nodeRef: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean) {
-    runTask(nodeRef: $nodeRef, args: $args, appRef: $appRef, runAsSelf: $runAsSelf)
+  mutation RunTaskApp($nodeRef: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean, $agentRef: ID) {
+    runTask(nodeRef: $nodeRef, args: $args, appRef: $appRef, runAsSelf: $runAsSelf, agentRef: $agentRef)
   }
 `;
 

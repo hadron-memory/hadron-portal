@@ -12,6 +12,12 @@
  *
  * Adding a second form to a page, or a new multi-form page, fails this test
  * until the page's loader is guarded; there is no table to forget to update.
+ *
+ * Limit: this is a lexical backstop, not a semantic guard. It counts direct
+ * superValidate/superForm calls and recognises an expectDistinctFormIds call by
+ * its text in a sibling test. A refactor that moves form creation into a helper
+ * hides the forms from the count, and the sweep stays green; a route that does
+ * that must be pinned by hand.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';

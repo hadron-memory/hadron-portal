@@ -4,12 +4,15 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { runStartError, runStartStatus } from '$lib/server/run-start-error';
+import { runAgentChoice } from '$lib/run-agent';
+import type { InstalledAgent } from '$lib/app-installed-agents';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { fetchAllItems } from '$lib/server/paginate';
 import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
@@ -282,13 +285,15 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // runnable nodes; a fetch failure just hides the button (auxiliary UI,
   // not the page's core load — hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   const org = (parentData as { org?: { id: string } | null }).org;
-  let testFlowApps: Array<{ id: string; name: string }> = [];
+  // `agents` is the picker's options (#1444): null unless the App has several
+  // installed Agents, where the server would refuse a run that names none.
+  let testFlowApps: Array<{ id: string; name: string; agents: InstalledAgent[] | null }> = [];
   if (node.isRunnable && org?.id) {
     try {
-      const apps = await fetchAllItems<{ id: string; name: string }>(
-        gqlClient(locals.token), ORG_APP_INSTALLS_QUERY, 'apps', { orgId: org.id },
+      const apps = await fetchAllItems<{ id: string; name: string; appAgents: Array<{ agent: InstalledAgent | null }> | null }>(
+        gqlClient(locals.token), ORG_APPS_RUNNABLE_QUERY, 'apps', { orgId: org.id },
       );
-      testFlowApps = apps.map((a) => ({ id: a.id, name: a.name }));
+      testFlowApps = apps.map((a) => ({ id: a.id, name: a.name, agents: runAgentChoice(a.appAgents) }));
     } catch (e) {
       console.warn('[node-detail] test-flow app list failed:', e);
     }
@@ -514,7 +519,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const [moveForm, testFlowForm, deleteForm, createParentForm, updateMetaForm, duplicateForm, convertToTaskForm, flowForm, edgesForm, sendChatMessageForm, approveForm, verifyForm] = await Promise.all([
     superValidate<NodeMoveForm>({ target: '' }, nodeMoveFormAdapter, { errors: false }),
     superValidate<NodeTestFlowForm>(
-      { appId: '', orgId: org?.id ?? '', payload: '' },
+      { appId: '', orgId: org?.id ?? '', agentRef: '', payload: '' },
       nodeTestFlowFormAdapter,
       { errors: false },
     ),
@@ -1152,10 +1157,11 @@ export const actions: Actions = {
         args,
         appRef: appId,
         runAsSelf: false,
+        ...(form.data.agentRef ? { agentRef: form.data.agentRef } : {}),
       });
       runId = res.runTask;
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to start the run', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: runStartError(e, 'Failed to start the run', NODE_WRITE_REFUSALS) }, { status: runStartStatus(e) });
     }
     // #648: run detail is the canonical org-optional /app/apps/[appId]/runs/[runId].
     redirect(303, `/app/apps/${appId}/runs/${runId}`);

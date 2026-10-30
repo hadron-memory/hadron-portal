@@ -870,8 +870,10 @@
     'testFlow',
     $testFlowMessage,
     $testFlowErrors,
-    ['_kind', 'appId', 'orgId', 'payload'],
+    ['_kind', 'appId', 'orgId', 'agentRef', 'payload'],
   ));
+  // The Agent picker shows only for an App with several installed Agents (#1444).
+  const testFlowAgents = $derived(testFlowApps.find((a) => a.id === $testFlowFormData.appId)?.agents ?? null);
   const flowActionError = $derived(scopedActionError<NodeUpdateFlowForm>(
     form,
     'updateFlow',
@@ -2287,6 +2289,7 @@
       skillExportOpen = false;
       testFlowOpen = false;
       $testFlowFormData.appId = '';
+      $testFlowFormData.agentRef = '';
       $testFlowFormData.orgId = data.org?.id ?? '';
       $testFlowFormData.payload = '';
       moveOpen = false;
@@ -2528,6 +2531,7 @@
                     id="testFlowApp"
                     name="appId"
                     bind:value={$testFlowFormData.appId}
+                    onchange={() => ($testFlowFormData.agentRef = '')}
                     class={inputClass}
                     aria-invalid={$testFlowErrors.appId?.[0] ? 'true' : undefined}
                   >
@@ -2538,6 +2542,22 @@
                   </select>
                   <p class="mt-1 text-xs text-zinc-400">The run uses this App's budgets and permissions.</p>
                 </div>
+                {#if testFlowAgents}
+                  <div>
+                    <label for="testFlowAgent" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('node-actions.test-flow.agent', 'Run as Agent')}</label>
+                    <select
+                      id="testFlowAgent"
+                      name="agentRef"
+                      bind:value={$testFlowFormData.agentRef}
+                      class={inputClass}
+                    >
+                      <option value="" disabled>{t('node-actions.test-flow.agent-pick', 'Choose an Agent…')}</option>
+                      {#each testFlowAgents as agent (agent.id)}
+                        <option value={agent.id}>{agent.name}</option>
+                      {/each}
+                    </select>
+                  </div>
+                {/if}
                 <div>
                   <label for="testFlowPayload" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Test payload (optional JSON)</label>
                   <textarea
