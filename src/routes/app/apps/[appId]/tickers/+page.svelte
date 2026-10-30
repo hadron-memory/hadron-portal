@@ -10,7 +10,7 @@
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, isKnownReason, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonHelp, reasonLabel, reasonsSearchText, reasonsText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel, unrecognisedReasonText } from '$lib/tickers/format';
+  import { cadenceText, isKnownReason, isWellFormedReasons, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonHelp, reasonLabel, reasonsSearchText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel, unrecognisedReasonText } from '$lib/tickers/format';
   import type { TickerListRow } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -209,7 +209,7 @@
             <span class="block max-w-full truncate" title={row.quiet}>{row.quiet}</span>
           {:else if cell.column.id === 'reasons'}
             <span class="flex min-w-0 flex-wrap items-center gap-1">
-              {#if reasonsText(row.ticker.reasons) === reasonsUnavailableText()}
+              {#if !isWellFormedReasons(row.ticker.reasons)}
                 <span class="text-zinc-500 dark:text-zinc-400">{reasonsUnavailableText()}</span>
               {:else if row.ticker.reasons.length === 0}
                 <span class="text-zinc-500 dark:text-zinc-400">{noReasonsText()}</span>
