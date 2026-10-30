@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
 import { mountComponent } from '$lib/test/mountComponent';
 import TreeView from './TreeView.svelte';
+import { graphState } from './GraphState.svelte.js';
 import type { TreeEntry } from '$lib/types';
 
 // #1381 Slice 2: the Nodes tree renders a bounded window of rows whatever the
@@ -112,6 +113,21 @@ describe('TreeView bounded window (#1381)', () => {
       (rows[rows.length - 1].querySelector('a') as HTMLElement).focus();
       flushSync();
       expect(target.querySelectorAll('.tree-row').length).toBeGreaterThan(before);
+      done();
+    });
+
+    it('scrolls a selected node outside the window into view by position', async () => {
+      const { scroller, target, done } = mountInScroller();
+      const scrollToCalls: ScrollToOptions[] = [];
+      scroller.scrollTo = ((o: ScrollToOptions) => { scrollToCalls.push(o); }) as never;
+      graphState.selectedNodeId = 'pk-r5:c0300';
+      flushSync();
+      await new Promise((r) => setTimeout(r, 0));
+      // Not mounted (far outside the window), yet the scroller was sent to its computed row.
+      expect(target.querySelector('.tree-row[data-node-id="r5:c0300"]')).toBeNull();
+      expect(scrollToCalls).toHaveLength(1);
+      expect(scrollToCalls[0].top).toBeGreaterThan(28 * 1000);
+      graphState.selectedNodeId = null;
       done();
     });
 
