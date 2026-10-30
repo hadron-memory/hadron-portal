@@ -117,11 +117,14 @@ const SERVER_PAGE = 2000;
 
 type QueryStat = { calls: number; responseBytes: number };
 
-function serve(world: ReturnType<typeof synthMemory>, stats: Map<string, QueryStat>) {
+// `countBytes` is off during the timed loads: JSON.stringify per response is
+// instrumentation the real client's returned-object path does not pay, so it
+// runs only in a separate, untimed load.
+function serve(world: ReturnType<typeof synthMemory>, stats: Map<string, QueryStat>, opts: { countBytes: boolean }) {
   const note = (name: string, payload: unknown) => {
     const s = stats.get(name) ?? { calls: 0, responseBytes: 0 };
     s.calls += 1;
-    s.responseBytes += JSON.stringify(payload).length;
+    if (opts.countBytes) s.responseBytes += JSON.stringify(payload).length;
     stats.set(name, s);
     return payload;
   };
@@ -148,7 +151,8 @@ const KEYS = ['org', 'graph', 'canWriteMemory', 'graphNodes', 'nodesTotal', 'nod
 export async function profile(nodeCount: number, runs = 3) {
   const world = synthMemory(nodeCount);
   const stats = new Map<string, QueryStat>();
-  serve(world, stats);
+  const opts = { countBytes: false };
+  serve(world, stats, opts);
   const { load } = await import('../src/routes/app/memories/[id]/+layout.server');
   const event = { params: { id: world.memory.id }, locals: { token: 't', user: { id: 'u' } } } as never;
 
@@ -163,8 +167,12 @@ export async function profile(nodeCount: number, runs = 3) {
     result = (await load(event)) as Record<string, unknown>;
     loadMs.push(performance.now() - t0);
   }
-  // Per-run counts: stats accumulated over `runs` loads.
-  const perRun = (n: number) => n / runs;
+  // Page counts accumulated over the `runs` timed loads (no byte counting).
+  const pages = { nodes: (stats.get('memoryNodes')?.calls ?? 0) / runs, edges: (stats.get('memoryEdges')?.calls ?? 0) / runs };
+  // One extra, untimed load measures response bytes.
+  stats.clear();
+  opts.countBytes = true;
+  await load(event);
 
   // The builders again, on the same input, to split their share out of the load.
   const nodes = result.graphNodes as Parameters<typeof buildTreeEntries>[0];
@@ -181,12 +189,20 @@ export async function profile(nodeCount: number, runs = 3) {
 
   const keyRows = KEYS.map((key) => {
     const value = result[key];
-    let t = performance.now();
     const html = devalue.uneval(value);
-    const unevalMs = performance.now() - t;
-    t = performance.now();
-    const json = JSON.stringify(value) ?? '';
-    const jsonMs = performance.now() - t;
+    const unevalSamples: number[] = [];
+    const jsonSamples: number[] = [];
+    let json = '';
+    for (let i = 0; i < runs; i++) {
+      let t = performance.now();
+      devalue.uneval(value);
+      unevalSamples.push(performance.now() - t);
+      t = performance.now();
+      json = JSON.stringify(value) ?? '';
+      jsonSamples.push(performance.now() - t);
+    }
+    const unevalMs = median(unevalSamples);
+    const jsonMs = median(jsonSamples);
     return {
       key,
       unevalBytes: Buffer.byteLength(html),
@@ -197,9 +213,14 @@ export async function profile(nodeCount: number, runs = 3) {
       brotliBytes: brotliCompressSync(html, { params: { [zc.BROTLI_PARAM_QUALITY]: 5 } }).length,
     };
   });
-  let t = performance.now();
   const whole = devalue.uneval(result);
-  const wholeUnevalMs = performance.now() - t;
+  const wholeSamples: number[] = [];
+  for (let i = 0; i < runs; i++) {
+    const t = performance.now();
+    devalue.uneval(result);
+    wholeSamples.push(performance.now() - t);
+  }
+  const wholeUnevalMs = median(wholeSamples);
 
   return {
     nodeCount,
@@ -209,11 +230,8 @@ export async function profile(nodeCount: number, runs = 3) {
     loadMsMedian: median(loadMs),
     treeMsMedian: median(treeMs),
     graphMsMedian: median(graphMs),
-    pages: {
-      nodes: perRun(stats.get('memoryNodes')?.calls ?? 0),
-      edges: perRun(stats.get('memoryEdges')?.calls ?? 0),
-    },
-    responseBytes: Object.fromEntries([...stats].map(([k, v]) => [k, perRun(v.responseBytes)])),
+    pages,
+    responseBytes: Object.fromEntries([...stats].map(([k, v]) => [k, v.responseBytes])),
     keyRows,
     wholeBytes: Buffer.byteLength(whole),
     wholeUnevalMs,
@@ -222,34 +240,34 @@ export async function profile(nodeCount: number, runs = 3) {
   };
 }
 
-const mb = (n: number) => (n / 1048576).toFixed(2);
+const mib = (n: number) => (n / 1048576).toFixed(2);
 const kb = (n: number) => (n / 1024).toFixed(1);
 
-const PRODUCTION_MB_AT_32920: Record<string, number> = { graphNodes: 18.8, graphViewData: 9.3, usageByNode: 4.0, treeEntries: 3.7 };
+const PRODUCTION_REPORTED_MB_AT_32920: Record<string, number> = { graphNodes: 18.8, graphViewData: 9.3, usageByNode: 4.0, treeEntries: 3.7 };
 
 export function renderProfile(p: Awaited<ReturnType<typeof profile>>): string {
   const lines: string[] = [];
-  lines.push(`### ${p.nodeCount} nodes, ${p.edgeCount} edges, ${p.usageEntries} usage entries (median of ${p.runs} loads)`);
+  lines.push(`### ${p.nodeCount} nodes, ${p.edgeCount} edges, ${p.usageEntries} usage entries (median of ${p.runs} samples per timing)`);
   lines.push('');
-  lines.push(`- layout \`load\` (portal side, stub server answers instantly): **${p.loadMsMedian.toFixed(0)} ms**`);
-  lines.push(`  - of which \`buildTreeEntries\` ${p.treeMsMedian.toFixed(0)} ms + \`buildGraphViewData\` ${p.graphMsMedian.toFixed(0)} ms (re-timed on the same input)`);
-  lines.push(`  - remainder (paging loop, reconstructNodes, usage map): ${(p.loadMsMedian - p.treeMsMedian - p.graphMsMedian).toFixed(0)} ms (derived)`);
+  lines.push(`- layout \`load\` elapsed wall time (portal side, stub server answers instantly; byte accounting off): **${p.loadMsMedian.toFixed(0)} ms**`);
+  lines.push(`  - of which \`buildTreeEntries\` ${p.treeMsMedian.toFixed(0)} ms + \`buildGraphViewData\` ${p.graphMsMedian.toFixed(0)} ms (timed separately on the same input; wall time)`);
+  lines.push(`  - remainder (paging loop, reconstructNodes, usage map): ${(p.loadMsMedian - p.treeMsMedian - p.graphMsMedian).toFixed(0)} ms (estimate: load minus separately timed builders, not an isolated measurement)`);
   lines.push(`- graph pages per load: ${p.pages.nodes} node pages + ${p.pages.edges} edge pages, ${SERVER_PAGE} rows each, issued as two sequential chains`);
-  lines.push(`- server response bytes per load (JSON, the input to wire/parse cost): ` +
-    Object.entries(p.responseBytes).map(([k, v]) => `${k} ${mb(v)} MB`).join(', '));
+  lines.push(`- server response bytes per load (JSON, measured in one extra untimed load): ` +
+    Object.entries(p.responseBytes).map(([k, v]) => `${k} ${mib(v)} MiB`).join(', '));
   lines.push('');
-  lines.push('| key | devalue uneval (HTML) | JSON | gzip | brotli | uneval ms |');
+  lines.push('| key | devalue uneval (HTML) | JSON | gzip | brotli | uneval wall ms (median of samples) |');
   lines.push('|---|---:|---:|---:|---:|---:|');
   for (const r of [...p.keyRows].sort((a, b) => b.unevalBytes - a.unevalBytes)) {
-    lines.push(`| ${r.key} | ${mb(r.unevalBytes)} MB | ${mb(r.jsonBytes)} MB | ${kb(r.gzipBytes)} KB | ${kb(r.brotliBytes)} KB | ${r.unevalMs.toFixed(0)} |`);
+    lines.push(`| ${r.key} | ${mib(r.unevalBytes)} MiB | ${mib(r.jsonBytes)} MiB | ${kb(r.gzipBytes)} KB | ${kb(r.brotliBytes)} KB | ${r.unevalMs.toFixed(0)} |`);
   }
-  lines.push(`| **whole layout** | **${mb(p.wholeBytes)} MB** | | **${kb(p.wholeGzip)} KB** | **${kb(p.wholeBrotli)} KB** | ${p.wholeUnevalMs.toFixed(0)} |`);
+  lines.push(`| **whole layout** | **${mib(p.wholeBytes)} MiB** | | **${kb(p.wholeGzip)} KB** | **${kb(p.wholeBrotli)} KB** | ${p.wholeUnevalMs.toFixed(0)} |`);
   lines.push('');
-  lines.push(`Calibration: bytes per node against the production sizes Cloe reported at 32,920 nodes (graphNodes 18.8 MB, graphViewData 9.3 MB, usageByNode 4.0 MB, treeEntries 3.7 MB; MB as reported). The fixture is a stand-in, not that memory.`);
+  lines.push(`Calibration: bytes per node against the production sizes Cloe reported at 32,920 nodes (graphNodes 18.8, graphViewData 9.3, usageByNode 4.0, treeEntries 3.7; the report's unit is unspecified, so this assumes its MB meant MiB). The fixture is a stand-in, not that memory.`);
   lines.push('');
-  lines.push('| key | this fixture B/node | production B/node | ratio |');
+  lines.push('| key | this fixture B/node | production B/node (assuming MB = MiB) | ratio |');
   lines.push('|---|---:|---:|---:|');
-  for (const [key, mbReported] of Object.entries(PRODUCTION_MB_AT_32920)) {
+  for (const [key, mbReported] of Object.entries(PRODUCTION_REPORTED_MB_AT_32920)) {
     const row = p.keyRows.find((r) => r.key === key)!;
     const mine = row.unevalBytes / p.nodeCount;
     const prod = (mbReported * 1048576) / 32920;
