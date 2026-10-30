@@ -552,6 +552,36 @@ export const APP_DETAIL_ORG_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * The org slice the MEMORY layout draws (portal#1429, S2a of #1380).
+ *
+ * `ORGANIZATION_QUERY` was loaded here and shipped `memories`, `agents`,
+ * `subscriptions` and `exchangeConnections` into every memory page's layout
+ * payload (about 803 KB for one production org) although no memory route reads
+ * them. What the routes do read: `id`/`name`/`urn` (breadcrumb, back link, info
+ * tab, the node page's runnable-install lookup) and `members` role + user id
+ * (the layout's and settings page's own-membership checks).
+ *
+ * Keep it to those fields. A nested list added here is paid for on every
+ * memory page and, being non-null in the SDL, can null `organization` when its
+ * resolver refuses — `hrn:node:hadronmemory.com:hadron-portal:review:shared-layout-payload-consumers`
+ * governs changes.
+ */
+export const MEMORY_LAYOUT_ORG_QUERY = /* GraphQL */ `
+  query MemoryLayoutOrg($ref: ID!) {
+    organization(ref: $ref) {
+      id
+      name
+      urn
+      members {
+        id
+        role
+        user { id }
+      }
+    }
+  }
+`;
+
 // #1173: bundle an Agent with another (an AgentImport edge). The Org-to-Agent
 // license that lets an org install a subscribed Agent also authorizes bundling
 // it. The server owns the rules (one level of imports, no cycle, who may);
@@ -4588,9 +4618,9 @@ export const DELETE_REGISTER_ENTRY_MUTATION = /* GraphQL */ `
 `;
 
 // #942 slice 4 — an attendee's RESOLVED register (spec 049 phase 6): one
-// winning row per Channel. `canRead` / `canPost` / `disclosure` describe the
-// CALLER's standing (resolveRegister's actor is the request), NOT the
-// attendee's, so the portal must not present them as the attendee's.
+// winning row per Channel. Since server #1560, canRead/canPost/disclosure
+// describe the ATTENDEE. Viewer visibility separately gates hostMemoryUrn;
+// the portal words standing only when that host memory is visible.
 export const ATTENDEE_REGISTER_QUERY = /* GraphQL */ `
   query AttendeeRegister($workerRef: ID, $agentRef: ID, $appRef: ID) {
     attendeeRegister(workerRef: $workerRef, agentRef: $agentRef, appRef: $appRef) {
@@ -4739,8 +4769,8 @@ export const AGENT_TASKS_APP_QUERY = /* GraphQL */ `
 
 export const AGENT_TASKS_BOARD_QUERY = /* GraphQL */ `
   ${AGENT_TASK_ROW_FIELDS}
-  query AgentTasksBoard($appRef: ID!, $status: [AgentTaskStatus!], $queued: Boolean, $limit: Int, $text: String) {
-    agentTasks(appRef: $appRef, rootsOnly: true, status: $status, queued: $queued, limit: $limit, text: $text) {
+  query AgentTasksBoard($appRef: ID!, $status: [AgentTaskStatus!], $queued: Boolean, $limit: Int, $text: String, $overdue: Boolean, $tagsAll: [String!]) {
+    agentTasks(appRef: $appRef, rootsOnly: true, status: $status, queued: $queued, limit: $limit, text: $text, overdue: $overdue, tagsAll: $tagsAll) {
       ...AgentTaskRowFields
     }
   }

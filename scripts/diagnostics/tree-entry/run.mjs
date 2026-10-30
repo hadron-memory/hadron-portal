@@ -135,7 +135,7 @@ try {
   });
   const sourceFiles = ['src/lib/components/TreeView.svelte', 'src/lib/graph-utils.ts',
     'scripts/diagnostics/tree-entry/TreeEntryHarness.svelte', 'scripts/diagnostics/tree-entry/run.mjs',
-    'scripts/fixtures/synthetic-memory.ts'];
+    'scripts/synth-memory.ts'];
   const sourceSha256 = Object.fromEntries(await Promise.all(sourceFiles.map(async (file) =>
     [file, createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')])));
   const report = { sourceCommit, sourceStatus, sourceSha256,

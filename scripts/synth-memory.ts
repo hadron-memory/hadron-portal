@@ -1,5 +1,10 @@
-// Shared deterministic synthetic data for portal#1380/#1381 diagnostics.
-// Extracted without changing the generator or its seed/default shape.
+/**
+ * Deterministic synthetic memory shared by the memory-entry profile (portal#1380
+ * S1) and the layout payload pin (portal#1429): one fixture, so the byte bound
+ * the pin states is measured at the scale the profile reported.
+ */
+// --- deterministic synthetic memory ---------------------------------------
+
 function rng(seed: number) {
   let s = seed >>> 0;
   return () => {

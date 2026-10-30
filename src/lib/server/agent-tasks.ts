@@ -16,6 +16,7 @@ import {
 } from '$lib/server/queries';
 import { rosterOf } from '$lib/withheld';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
+import { NO_NARROW, narrowArgs, type BoardNarrow } from '$lib/agent-tasks/narrow';
 import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TaskRefs, TeamComposition, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
 
 /**
@@ -52,12 +53,14 @@ export async function loadBoard(
   appRef: string,
   filter: BoardFilter,
   text = '',
+  narrow: BoardNarrow = NO_NARROW,
 ): Promise<TaskRead<{ tasks: AgentTaskRow[]; capped: boolean }> | { kind: 'invalid-search' }> {
   try {
     const r = await client.request<{ agentTasks: AgentTaskRow[] }>(AGENT_TASKS_BOARD_QUERY, {
       appRef,
       ...boardFilterArgs(filter),
       ...(text.trim() ? { text: text.trim() } : {}),
+      ...narrowArgs(narrow),
       limit: BOARD_LIMIT,
     });
     return { kind: 'ok', value: { tasks: r.agentTasks, capped: r.agentTasks.length >= BOARD_LIMIT } };

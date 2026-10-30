@@ -20,10 +20,32 @@ async function mount(over = {}) {
 }
 const button = (m: Mounted<any>, text: string) => [...m.target.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!;
 
+describe('Overdue where it cannot match (portal#1427, Uma #48051)', () => {
+  const box = (m: Mounted<any>) => m.target.querySelector<HTMLInputElement>('input[name=overdue]')!;
+  it('stays focusable but cannot be checked in Ended or Backlog', async () => {
+    for (const filter of ['ended', 'backlog']) {
+      const m = await mount({ filter, text: '' });
+      box(m).focus();
+      expect(document.activeElement === box(m) || m.target.contains(document.activeElement)).toBe(true);
+      box(m).click(); await tick(2);
+      expect(box(m).checked).toBe(false);
+      expect(box(m).getAttribute('aria-disabled')).toBe('true');
+    }
+  });
+  it('is an ordinary checkbox in Active, Queued and All', async () => {
+    for (const filter of ['active', 'queued', 'all']) {
+      const m = await mount({ filter, text: '' });
+      box(m).click(); await tick(2);
+      expect(box(m).checked).toBe(true);
+    }
+  });
+});
+
 describe('task board native search', () => {
   it('renders only one search, preserves status, uses native GET and encodes clear/status links', async () => {
     const m = await mount({ text: '%_\\ &+' });
-    expect(m.target.querySelectorAll('input[type=search],input[type=text]')).toHaveLength(1);
+    // One search (the DataTable's own is off); the only other text field is the tag list (portal#1427).
+    expect([...m.target.querySelectorAll<HTMLInputElement>('input[type=search],input[type=text]')].map((i) => i.name)).toEqual(['text', 'tags']);
     const f = m.target.querySelector('form')!;
     expect(f.method).toBe('get'); expect(f.hasAttribute('data-sveltekit-reload')).toBe(true);
     expect(f.querySelector<HTMLInputElement>('[name=status]')!.value).toBe('all');

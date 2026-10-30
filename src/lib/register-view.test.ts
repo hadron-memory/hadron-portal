@@ -65,13 +65,31 @@ describe('effectiveRows', () => {
     expect(effectiveRows([view({ namedBy, entry: { ownerType } })])[0].because).toBe(because);
   });
 
-  it('NEVER turns the caller’s standing into a claim about the attendee', () => {
-    // The caller cannot post and the server discloses why; that is about the
-    // VIEWER, so nothing of it reaches the attendee's row.
+  it('words attendee standing without exposing raw flags or accepting caller standing', () => {
+    // Server #1560 computes these flags for the attendee, separately from the viewer.
     const row = effectiveRows([view({ canRead: true, canPost: false, disclosure: 'DRIVER_NOT_PARTICIPANT' })])[0];
-    expect(JSON.stringify(row)).not.toMatch(/participant|can’t|cannot|not allowed|access/i);
-    expect(Object.keys(row)).not.toContain('canPost');
-    expect(row.note).toBe('');
+    expect(row.note).toBe('Their driver is not a participant of the host App (watch only)');
+    expect(JSON.stringify(row)).not.toMatch(/canRead|canPost|disclosure|DRIVER_NOT_PARTICIPANT/);
+    const input = { ...view(), callerStanding: { canPost: false, disclosure: 'IMPERSONATION' } };
+    expect(effectiveRows([input])[0].note).toBe('They can read and post');
+  });
+
+  it.each([
+    ['HOST_MEMORY_NOT_READABLE', 'They cannot read its host memory'],
+    ['HOST_MEMORY_NOT_WRITABLE', 'They cannot write its host memory (watch only)'],
+    ['CHANNEL_DELETED', 'Channel deleted'],
+    ['DRIVER_NOT_PARTICIPANT', 'Their driver is not a participant of the host App (watch only)'],
+    ['UNKNOWN_ACTOR', 'Their posting rights cannot be evaluated (no eligible driver)'],
+    ['IMPERSONATION', 'Their support view is read only'],
+  ])('words attendee disclosure %s only for a visible host memory', (disclosure, note) => {
+    expect(effectiveRows([view({ canPost: false, disclosure })])[0].note).toBe(note);
+    expect(effectiveRows([view({ disclosure, channel: { hostMemoryUrn: null } })])[0].note)
+      .toBe('Its memory isn’t visible to you');
+  });
+
+  it('leaves unknown disclosure and unevaluated flags unworded rather than inventing standing', () => {
+    expect(effectiveRows([view({ disclosure: 'FUTURE_REASON' })])[0].note).toBe('');
+    expect(effectiveRows([view({ canPost: null })])[0].note).toBe('');
   });
 
   it('a hidden host memory is worded as the VIEWER’s fact; a deleted channel as the channel’s', () => {

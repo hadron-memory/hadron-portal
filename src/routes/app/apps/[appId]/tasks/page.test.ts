@@ -54,6 +54,62 @@ function barButtons(html: string): string[] {
   return [...bar.matchAll(/<button[^>]*>([^<]*)<\/button>/g)].map((m) => m[1].trim());
 }
 
+describe('board narrowing (portal#1427)', () => {
+  const overdueBox = (html: string) => html.match(/<input[^>]*name="overdue"[^>]*>/)?.[0] ?? '';
+
+  it('offers Overdue and a tag field, unset, when nothing is narrowed', () => {
+    const html = board();
+    expect(html).toContain('Tagged with all of');
+    expect(html).toContain('Overdue only');
+    expect(overdueBox(html)).not.toMatch(/\bchecked\b/);
+    expect(overdueBox(html)).not.toMatch(/aria-disabled/);
+    expect(html).toMatch(/name="tags"[^>]*value=""/);
+  });
+
+  it('shows the narrowing it was loaded with', () => {
+    const html = board({ filter: 'queued', overdue: true, tags: ['ops', 'infra'] });
+    expect(overdueBox(html)).toMatch(/\bchecked\b/);
+    expect(html).toMatch(/name="tags"[^>]*value="ops, infra"/);
+  });
+
+  // Uma #48051: aria-disabled, not native disabled, so it stays focusable and the reason is heard.
+  it('Overdue is aria-disabled and focusable, with its reason, in Ended and Backlog', () => {
+    for (const filter of ['ended', 'backlog']) {
+      const html = board({ filter });
+      expect(overdueBox(html)).toMatch(/aria-disabled="true"/);
+      expect(overdueBox(html)).not.toMatch(/\sdisabled\b/);
+      expect(overdueBox(html)).toMatch(/aria-describedby="task-overdue-guidance"/);
+      expect(html).toMatch(/id="task-overdue-guidance"[^>]*>\s*Overdue applies to Active, Queued and All tasks\./);
+    }
+    for (const filter of ['active', 'queued', 'all']) expect(overdueBox(board({ filter }))).not.toMatch(/aria-disabled/);
+  });
+
+  it('says so when Overdue was dropped for the bucket', () => {
+    expect(board({ filter: 'ended', overdueDropped: true })).toContain('Overdue was turned off: it does not apply to Ended tasks.');
+    expect(board({ filter: 'ended' })).not.toContain('Overdue was turned off');
+  });
+
+  it('status links, views and Clear keep the narrowing the right way', () => {
+    const html = board({ filter: 'active', overdue: true, tags: ['ops'], text: 'x' });
+    expect(html).toContain('href="/app/apps/app-1/tasks?status=ended&amp;text=x&amp;overdue=1&amp;tags=ops"');
+    expect(html).toContain('href="/app/apps/app-1/tasks?text=x&amp;overdue=1&amp;tags=ops"');
+    expect(html).toMatch(/href="\/app\/apps\/app-1\/tasks"[^>]*>\s*Clear/);
+  });
+
+  it('a filtered-empty board says the filters matched nothing, not that the App has no tasks', () => {
+    const empty = { kind: 'ok', value: { tasks: [], capped: false } };
+    expect(board({ filter: 'all', overdue: true, board: empty })).toContain('No tasks match these filters.');
+    expect(board({ filter: 'all', tags: ['ops'], board: empty })).toContain('No tasks match these filters.');
+    expect(board({ filter: 'all', board: empty })).toContain('No tasks in this App yet.');
+  });
+
+  it('a failed read stays an error with the narrowing on, never an empty board', () => {
+    const html = board({ overdue: true, tags: ['ops'], board: { kind: 'failed' } });
+    expect(html).toContain('Couldn’t load tasks.');
+    expect(html).not.toContain('No tasks match these filters.');
+  });
+});
+
 describe('board', () => {
   it('renders backlog, queued and pending as three different states', () => {
     const html = board({

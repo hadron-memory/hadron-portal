@@ -5,7 +5,7 @@
   import TreeView from '$lib/components/TreeView.svelte';
   import type { TreeEntry, MemoryNode } from '$lib/types';
   import { buildTreeEntries } from '$lib/graph-utils';
-  import { synthMemory } from '../../fixtures/synthetic-memory';
+  import { synthMemory } from '../../synth-memory';
 
   // MemoryBrowser builds fresh plain entries in $derived.by; do not add deep proxies.
   let entries = $state.raw<TreeEntry[]>([]);

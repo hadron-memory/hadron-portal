@@ -29,10 +29,10 @@ import {
   SELF_CAN_WRITE_QUERY,
   MEMORY_NODES_QUERY,
   MEMORY_EDGES_QUERY,
-  MEMORY_USAGE_SUMMARY_QUERY,
-  ORGANIZATION_QUERY,
+  MEMORY_LAYOUT_ORG_QUERY,
 } from '$lib/server/queries';
 import { buildGraphViewData, buildTreeEntries } from '$lib/graph-utils';
+import { DEFAULT_SHAPE, synthMemory } from './synth-memory';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({
@@ -43,11 +43,6 @@ vi.mock('$lib/server/api', () => ({
 // does not hide it.
 const requireFromKit = createRequire(join(realpathSync(resolve(process.cwd(), 'node_modules/@sveltejs/kit')), 'package.json'));
 const devalue = requireFromKit('devalue') as { uneval: (v: unknown) => string; stringify: (v: unknown) => string };
-
-// --- deterministic synthetic memory ---------------------------------------
-
-import { synthMemory, DEFAULT_SHAPE } from './fixtures/synthetic-memory';
-export { synthMemory, DEFAULT_SHAPE } from './fixtures/synthetic-memory';
 
 // The server clamps a page to 2000 rows, like production (GRAPH_PAGE).
 const SERVER_PAGE = 2000;
@@ -70,8 +65,7 @@ function serve(world: ReturnType<typeof synthMemory>, stats: Map<string, QuerySt
     const offset = Number(vars?.offset ?? 0);
     if (query === MEMORY_BY_ID_QUERY) return note('memory', { memory: world.memory });
     if (query === SELF_CAN_WRITE_QUERY) return note('canWrite', { effectiveAccess: { canWrite: true } });
-    if (query === ORGANIZATION_QUERY) return note('organization', { organization: null });
-    if (query === MEMORY_USAGE_SUMMARY_QUERY) return note('usage', { memoryUsageSummary: world.usage });
+    if (query === MEMORY_LAYOUT_ORG_QUERY) return note('organization', { organization: null });
     if (query === MEMORY_NODES_QUERY) {
       return note('memoryNodes', { memoryNodes: { nodes: world.nodes.slice(offset, offset + limit), total: world.nodes.length } });
     }
@@ -83,7 +77,10 @@ function serve(world: ReturnType<typeof synthMemory>, stats: Map<string, QuerySt
 }
 
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
-const KEYS = ['org', 'graph', 'canWriteMemory', 'graphNodes', 'nodesTotal', 'nodesFailed', 'treeEntries', 'graphViewData', 'usageByNode'] as const;
+// portal#1429 (S2a) removed treeEntries, graphViewData and usageByNode from the
+// layout return, so they are no longer keys of it. The Slice 1 profile node
+// holds their sizes; the builders are still timed below on the same input.
+const KEYS = ['org', 'graph', 'canWriteMemory', 'graphNodes', 'nodesTotal', 'nodesFailed'] as const;
 
 export async function profile(nodeCount: number, runs = 3) {
   const world = synthMemory(nodeCount);
@@ -180,7 +177,7 @@ export async function profile(nodeCount: number, runs = 3) {
 const mib = (n: number) => (n / 1048576).toFixed(2);
 const kb = (n: number) => (n / 1024).toFixed(1);
 
-const PRODUCTION_REPORTED_MB_AT_32920: Record<string, number> = { graphNodes: 18.8, graphViewData: 9.3, usageByNode: 4.0, treeEntries: 3.7 };
+const PRODUCTION_REPORTED_MB_AT_32920: Record<string, number> = { graphNodes: 18.8 };
 
 export function renderProfile(p: Awaited<ReturnType<typeof profile>>): string {
   const lines: string[] = [];
@@ -188,7 +185,7 @@ export function renderProfile(p: Awaited<ReturnType<typeof profile>>): string {
   lines.push('');
   lines.push(`- layout \`load\` elapsed wall time (portal side, stub server answers instantly; byte accounting off): **${p.loadMsMedian.toFixed(0)} ms**`);
   lines.push(`  - of which \`buildTreeEntries\` ${p.treeMsMedian.toFixed(0)} ms + \`buildGraphViewData\` ${p.graphMsMedian.toFixed(0)} ms (timed separately on the same input; wall time)`);
-  lines.push(`  - remainder (paging loop, reconstructNodes, usage map): ${(p.loadMsMedian - p.treeMsMedian - p.graphMsMedian).toFixed(0)} ms (estimate: load minus separately timed builders, not an isolated measurement)`);
+  lines.push(`  - remainder (paging loop, reconstructNodes): ${(p.loadMsMedian - p.treeMsMedian - p.graphMsMedian).toFixed(0)} ms (estimate: load minus separately timed builders, not an isolated measurement)`);
   lines.push(`- graph pages per load: ${p.pages.nodes} node pages + ${p.pages.edges} edge pages, ${SERVER_PAGE} rows each, issued as two sequential chains`);
   lines.push(`- server response bytes per load (JSON, measured in one extra untimed load): ` +
     Object.entries(p.responseBytes).map(([k, v]) => `${k} ${mib(v)} MiB`).join(', '));
@@ -200,7 +197,7 @@ export function renderProfile(p: Awaited<ReturnType<typeof profile>>): string {
   }
   lines.push(`| **whole layout** | **${mib(p.wholeBytes)} MiB** | | **${kb(p.wholeGzip)} KB** | **${kb(p.wholeBrotli)} KB** | ${p.wholeUnevalMs.toFixed(0)} |`);
   lines.push('');
-  lines.push(`Calibration: bytes per node against the production sizes Cloe reported at 32,920 nodes (graphNodes 18.8, graphViewData 9.3, usageByNode 4.0, treeEntries 3.7; the report's unit is unspecified, so this assumes its MB meant MiB). The fixture is a stand-in, not that memory.`);
+  lines.push(`Calibration: bytes per node against the production sizes Cloe reported at 32,920 nodes (graphNodes 18.8; graphViewData 9.3, usageByNode 4.0 and treeEntries 3.7 left the layout in #1429, so they are no longer measured here; the report's unit is unspecified, so this assumes its MB meant MiB). The fixture is a stand-in, not that memory.`);
   lines.push('');
   lines.push('| key | this fixture B/node | production B/node (assuming MB = MiB) | ratio |');
   lines.push('|---|---:|---:|---:|');
