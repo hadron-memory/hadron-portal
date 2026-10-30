@@ -10,6 +10,7 @@ import Page from './+page.svelte';
 
 function worker(id: string, extraText: string | null) {
   return {
+    hasLiveSession: false,
     id,
     appId: 'app-1',
     agentId: 'agent-1',

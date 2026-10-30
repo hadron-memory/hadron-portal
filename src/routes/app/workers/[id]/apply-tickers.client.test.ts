@@ -17,6 +17,7 @@ import Page from './+page.svelte';
 
 const URN = 'hrn:worker:a.com:team:w-a';
 const worker = {
+  hasLiveSession: false,
   id: 'uuid-a', appId: 'app-1', agentId: 'agent-1', name: 'Worker A', slug: 'w-a', urn: URN,
   role: 'engineer', prompt: 'P', memoryId: null, retiredAt: null, heldByUserId: null, heldAt: null, createdAt: '1789430400000',
   agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:a.com:engineer' },

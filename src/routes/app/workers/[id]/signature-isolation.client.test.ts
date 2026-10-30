@@ -43,6 +43,7 @@ const SIG_B = '— B’s own signature {{worker.name}}';
 
 function worker(id: string, signature: string) {
   return {
+    hasLiveSession: false,
     id, appId: 'app-1', agentId: 'agent-1', name: id.toUpperCase(), slug: id,
     urn: `hrn:worker:hadronmemory.com:team:${id}`, role: 'engineer',
     prompt: null, memoryId: null, retiredAt: null,

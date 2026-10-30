@@ -14,6 +14,7 @@ import Page from './+page.svelte';
 
 function worker(over: Record<string, unknown>) {
   return {
+    hasLiveSession: false,
     id: 'w-a', appId: 'app-1', agentId: 'agent-1', name: 'Dara', slug: 'dara',
     urn: 'hrn:worker:hadronmemory.com:team:dara', role: 'engineer',
     prompt: null, memoryId: null, retiredAt: null,

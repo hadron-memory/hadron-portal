@@ -1,4 +1,4 @@
-# Exported from hadron-server da80cbb443238ab723765c4ec011623881674588 (da80cbb443238ab723765c4ec011623881674588, 2026-10-30T12:25:56-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server ff9b3160ef50e1e5ab4279ff2b0b182d2d1c4f06 (ff9b3160, 2026-10-30T16:22:18-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -228,7 +228,7 @@ type Agent {
   systemMemoryId: String
 
   """
-  Templated Agent prompt. {{name}}/{{role}} bind to the Agent in chats or the named Worker in briefings.
+  Templated Agent prompt. {{worker.name}}/{{worker.role}} bind to the Agent in chats or the named Worker in briefings; the old {{name}}/{{role}} tokens no longer bind (#1772).
   """
   systemPrompt: String
 
@@ -2606,7 +2606,7 @@ type CastWorkerPreview {
   name: String!
 
   """
-  The composed boot prompt, post {{name}}/{{role}} substitution with
+  The composed boot prompt, post {{worker.name}}/{{worker.role}} substitution with
   promptOverride appended — the same composition Worker.prompt performs,
   reviewable BEFORE the name is permanent. Null when the agent carries no
   template and no override was given.
@@ -3133,6 +3133,40 @@ type ConnectionGrant {
 type ConnectionGrantsPage {
   items: [ConnectionGrant!]!
   total: Int!
+}
+
+"""
+The provider a connection is made to: a Microsoft 365 mailbox, a Gmail
+mailbox, a Google Calendar or a Google Drive. Each is its own OAuth client
+and its own capability tool.
+"""
+enum ConnectionProvider {
+  GMAIL
+  GOOGLE_CAL
+  GOOGLE_DRIVE
+  MS_EXCHANGE
+}
+
+"""
+The start of a connection's OAuth flow (#2897). Open authorizeUrl in a
+browser; the consent step belongs to the provider and the browser ends on a
+page this server hosts, so the portal is not involved. Confirm the result by
+listing the org's connections.
+"""
+type ConnectionStart {
+  """
+  The server URL to open in a browser. Its nonce is single-use and short-lived
+  (expiresAt); a second visit is refused. Treat the URL like a password until
+  it has been opened once.
+  """
+  authorizeUrl: String!
+
+  """When authorizeUrl stops working. Start again after this."""
+  expiresAt: DateTime!
+
+  """The org the connection will be attached to."""
+  orgId: ID!
+  provider: ConnectionProvider!
 }
 
 enum ContentValidator {
@@ -6760,7 +6794,7 @@ type Mutation {
   (org XOR user).
   
   personaRole and systemPrompt are the persona dressing (cor:agt:020:01) —
-  the reusable role plus the '{{name}}'-templated prompt. The NAMED
+  the reusable role plus the '{{worker.name}}'-templated prompt. The NAMED
   identity is a Worker, cast with castWorker; names never live on agents.
   
   orgId accepts the org's ID or URN.
@@ -8419,6 +8453,18 @@ type Mutation {
   recordAgentTaskProgress(taskId: ID!): AgentTask!
 
   """
+  #2896 — report a session's outcome: outcome is a number from 0 to 1, outcomeRef an opaque reference of the
+  reporter's (a ticket, a survey id) and outcomeMeta any JSON it wants kept. The same implementation as
+  POST /sessions/:id/outcome, which stays for edge devices and webhooks. An outcome is a WRITE to the session, so
+  it takes the session write gate: the attributed user, or a pure App key for its own App's user-less session
+  (hrn:node:hadronmemory.com:specs:cor:dmo:070:05); the strict owner of a personal or private memory's session wins
+  over a platform admin (hrn:node:hadronmemory.com:specs:cor:acl:010:02). Reporting is not driving: a lapsed session
+  stays lapsed. A number outside 0..1 is BAD_USER_INPUT; an unknown or deleted session is BAD_USER_INPUT; a refused
+  write is FORBIDDEN, and an OAuth credential limited to the MCP surface is FORBIDDEN with its reason.
+  """
+  recordSessionOutcome(outcome: Float!, outcomeMeta: JSON, outcomeRef: String, sessionId: ID!): Session!
+
+  """
   Record an externally visible work milestone into the team App's worklog
   (#947) — the append-only, authoritative PR-session join (spec
   cor:agt:020:03). The session must be writable by the caller and a session
@@ -9180,6 +9226,23 @@ type Mutation {
   Accepts the entity's ID or URN.
   """
   startChat(agentId: ID!, conversationName: String, isTestRun: Boolean = false, scope: ChatScope = private, userId: String): ChatStartResult!
+
+  """
+  Start the OAuth flow that connects a mailbox, calendar or Drive to an org
+  (#2897; hrn:node:hadronmemory.com:specs:cor:api:240:02). The same start as
+  POST /auth/{provider}/start, which stays for the portal: the same org-ADMIN
+  gate and the same single-use, provider-bound nonce. A flow started here ends
+  on a page the server hosts, not on the portal.
+  
+  Only a signed-in user acting as themselves may call it: a portal sign-in or
+  a user API key, who is an ADMIN of orgRef (ID or URN). An App key, a bound
+  worker session, an impersonated request and an OAuth credential limited to
+  the MCP surface are refused, because this mints a credential-bearing start
+  for a person's mailbox, calendar or Drive (hrn:node:hadronmemory.com:specs:cor:dmo:050:05).
+  A caller who is not an ADMIN, and an unknown org, get the same Forbidden.
+  An unconfigured provider is CONNECTION_PROVIDER_NOT_CONFIGURED.
+  """
+  startConnection(orgRef: ID!, provider: ConnectionProvider!): ConnectionStart!
 
   """
   Start impersonating another member of orgRef (admin support/diagnostics).
@@ -13448,10 +13511,16 @@ type Query {
   lost to a context compaction, instead of opening a second session or
   forcing a takeover of itself.
   
-  Authorization: an AppMember of the worker's App (any role), an org member
-  with CONTRIBUTOR+ on its org, the owner of a user-owned App, or the App's
-  own key. For the NAME form the gate runs BEFORE the lookup and a denial is
-  reported as WORKER_NOT_FOUND, so the roster is not an existence oracle.
+  Authorization (#1149, hrn:node:hadronmemory.com:specs:cor:dmo:050:11): by id or URN,
+  any signed-in user reads the worker's PROFILE (identity scalars, appName,
+  ownerName, appUrn), and `agent` when the Agent's own visibility admits
+  them; the working-state fields stay masked unless the caller participates
+  in the App (an AppMember at any role, org CONTRIBUTOR+, the owner of a
+  user-owned App, or the App's own key). An anonymous caller, another App's
+  key or run, a support session outside the App's org and a deleted App are
+  refused WORKER_NOT_FOUND exactly as an absent worker. The NAME form stays
+  participant-only: its gate runs BEFORE the lookup and a denial is reported
+  as WORKER_NOT_FOUND, so the roster is not an existence oracle.
   """
   worker(appRef: ID, ref: ID!): Worker
 
@@ -17236,18 +17305,34 @@ cor:agt:020:02); rows survive the agent's uninstall. A Worker is addressable
 by its id or by the computed `urn` below (#991).
 """
 type Worker {
-  """The role-agent behind the casting."""
+  """
+  The role-agent behind the casting. DETAILS tier (#1149,
+  hrn:node:hadronmemory.com:specs:cor:dmo:050:11): resolved for whoever the Agent's own
+  visibility admits (PUBLIC, else READER on the Agent), evaluated per read;
+  null otherwise and for a deleted Agent.
+  """
   agent: Agent
   agentId: ID!
 
-  """The App whose staff this casting fills."""
+  """
+  The App whose staff this casting fills. Never part of a worker's profile (#1149): null unless the caller may read the App itself.
+  """
   app: App
   appId: ID!
 
   """
+  #1149 — the App's display name ('Team'), so a worker's profile page can say
+  whose staff it is without the App object. PROFILE field
+  (hrn:node:hadronmemory.com:specs:cor:dmo:050:11): readable by any signed-in user who
+  names the worker; null for a caller who may not see its profile.
+  """
+  appName: String
+
+  """
   The App's canonical URN (the same value App.urn returns, e.g.
   hrn:app:acme.com:team), as a scalar identity suitable for cross-App
-  worker lists. Null when the caller cannot inspect this App's workers. This
+  worker lists. PROFILE field (#1149, hrn:node:hadronmemory.com:specs:cor:dmo:050:11):
+  null only for a caller who may not see this worker's profile. This
   intentionally does not return the App object, whose nested keys and
   members have a narrower read audience.
   """
@@ -17284,6 +17369,10 @@ type Worker {
   """
   continuity: WorkerContinuity
   createdAt: DateTime!
+
+  """
+  Who cast this worker. WORKING-STATE field (#1149): null for a caller who may see only the worker's profile.
+  """
   createdBy: String
 
   """
@@ -17386,6 +17475,14 @@ type Worker {
   name: String!
 
   """
+  #1149 — the owner atom of the worker's URN: the user handle of a user-owned
+  App or the organization slug of an org App, and nothing more (no display
+  name, no email). PROFILE field, gated like appName; also null when the App's
+  URN predates the grammar-v2 shape (as urn).
+  """
+  ownerName: String
+
+  """
   #1026 — the portal link that opens this worker, mirroring Node.portalUrl
   (#881), so a worker signing an artifact under #1008 hands over a URL
   instead of assembling one out of a URN spelling the /app/u route may not
@@ -17400,7 +17497,7 @@ type Worker {
 
   """
   The worker's boot prompt, resolved: the agent's systemPrompt template
-  with {{name}}/{{role}} bound, then promptOverride appended as its own
+  with {{worker.name}}/{{worker.role}} bound, then promptOverride appended as its own
   paragraph. Null when the agent carries no template and the worker no
   override.
   """
@@ -17455,6 +17552,10 @@ type Worker {
   Retirement instant — a retired worker stops authoring and takes no new sessions; the name stays reserved.
   """
   retiredAt: DateTime
+
+  """
+  Who retired this worker. WORKING-STATE field (#1149), masked like createdBy.
+  """
   retiredBy: String
 
   """The cast-list role this filling answers ('backend-engineer')."""

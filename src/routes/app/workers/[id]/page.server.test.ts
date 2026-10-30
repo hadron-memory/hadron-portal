@@ -59,6 +59,7 @@ function gqlError(code: string) {
 }
 
 const WORKER = {
+  hasLiveSession: false,
   id: 'w-1',
   appId: 'app-1',
   agentId: 'a-1',
@@ -515,6 +516,8 @@ it('#1334 Profile tier skips every working-state read even when App metadata is 
   mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, hasLiveSession: null, appName: 'Public Team', ownerName: 'owner' } });
   const data = await runLoad();
   expect(data.worker.name).toBe('Gil');
+  expect(data.worker.memoryId).toBeNull();
+  expect(data.worker.app).toBeUndefined();
   expect(mockRequest).toHaveBeenCalledTimes(1);
   expect(data.initialTab).toBe('profile');
 });

@@ -357,6 +357,11 @@ export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
  * absence as "this App's URN predates the flat grammar", never as an error.
  */
 export interface Worker {
+  /** Profile scalars supplied by server#1149; never reconstructed from App. */
+  portalUrl?: string | null;
+  appUrn?: string | null;
+  appName?: string | null;
+  ownerName?: string | null;
   id: string;
   appId: string;
   agentId: string;
