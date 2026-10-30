@@ -18,22 +18,22 @@ import ApplyAgentTickers from './ApplyAgentTickers.svelte';
 
 // portal#1462: the signed-in viewer a test mounts the panel for (null: none known).
 let viewer: string | null = null;
-// portal#1462: whether the page store holds an error once a refresh resolves (kit's error-route path).
-let pageErrored = false;
+// portal#1462: which worker the page showing an error is for, once a refresh resolves (kit's error-route path); null: no error.
+let errorAt: string | null = null;
 // portal#1462: the worker's canonical ids the panel records in the marker (null: unavailable, so no marker).
 let identity: { id: string; urn: string | null; appId: string | null; orgId: string | null } | null = { id: 'w-A', urn: null, appId: 'app-1', orgId: 'org-1' };
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   sessionStorage.clear();
   viewer = null;
-  pageErrored = false;
+  errorAt = null;
   identity = { id: 'w-A', urn: null, appId: 'app-1', orgId: 'org-1' };
   while (mounted.length) mounted.pop()!.unmount();
   resetNavigationCalls();
 });
 
 async function mountApply(props: Record<string, unknown>) {
-  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, viewerId: viewer, workerIdentity: identity, pageHasError: () => pageErrored, ...props });
+  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, viewerId: viewer, workerIdentity: identity, pageHasError: () => errorAt !== null, errorPageWorker: () => errorAt, ...props });
   const m = mountComponent(ApplyAgentTickers as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
@@ -485,10 +485,33 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
     const nav = await import('$lib/test/stubs/app-navigation');
     const { root } = await mountApply({ workerKey: 'w-A' });
     const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
-    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); pageErrored = true; };
+    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); errorAt = 'w-A'; };
     await finish(ok);
     await tick(2);
     expect(marker()).toMatchObject({ viewer: 'u-1', worker: 'w-A' });
+  });
+
+  it('is cleared when the panel was unmounted and the refresh was cut short by a navigation to ANOTHER worker whose page errors (George’s P2 on b3fa8201)', async () => {
+    asViewer('u-1');
+    const nav = await import('$lib/test/stubs/app-navigation');
+    const { root } = await mountApply({ workerKey: 'w-A' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
+    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); errorAt = 'w-B'; };
+    await finish(ok);
+    await tick(2);
+    expect(marker()).toBeNull();
+  });
+
+  it('is kept when the error page is for this worker spelled by its canonical URN', async () => {
+    asViewer('u-1');
+    identity = { id: 'w-A', urn: 'hrn:worker:a.com:team:gaby', appId: 'app-1', orgId: 'org-1' };
+    const nav = await import('$lib/test/stubs/app-navigation');
+    const { root } = await mountApply({ workerKey: 'gaby' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
+    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); errorAt = 'hrn:worker:a.com:team:gaby'; };
+    await finish(ok);
+    await tick(2);
+    expect(marker()).toMatchObject({ worker: 'gaby' });
   });
 
   it('is cleared when the panel was unmounted but the refresh WORKED (the reader moved A to B): no error page, so nothing may claim a failed reload later', async () => {
@@ -496,7 +519,7 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
     const nav = await import('$lib/test/stubs/app-navigation');
     const { root } = await mountApply({ workerKey: 'w-A' });
     const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
-    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); pageErrored = false; };
+    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); errorAt = null; };
     await finish(ok);
     await tick(2);
     expect(marker()).toBeNull();
@@ -511,7 +534,7 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
     nav.navigationHooks.onInvalidateAll = () => {
       mounted.pop()!.unmount();
       newer = setRefreshMarker(refreshScope('u-1', 'w-A'));
-      pageErrored = false;
+      errorAt = null;
     };
     await finish(ok);
     await tick(2);

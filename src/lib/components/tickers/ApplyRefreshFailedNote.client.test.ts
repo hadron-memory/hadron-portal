@@ -14,6 +14,10 @@ const mounted: Array<Mounted<Record<string, unknown>>> = [];
 function at(params: Record<string, string>, viewer: string | null, routeId = '/app/workers/[id]', activeOrgId: string | null = null) {
   page.update((p) => ({ ...p, params, route: { id: routeId }, status: 500, data: { ...(viewer ? { user: { id: viewer } } : {}), ...(activeOrgId ? { activeOrgId } : {}) } }));
 }
+/** The page kit's ROOT error boundary shows when the refresh's data request fails: no params, no route, the real URL (Cedar's QA on b3fa8201). */
+function atRoot(pathname: string, viewer: string | null, error: Error | null = new Error('boom')) {
+  page.update((p) => ({ ...p, url: new URL(`http://localhost${pathname}`), params: {}, route: { id: null }, status: 500, error, data: viewer ? { user: { id: viewer } } : {} }));
+}
 async function mountNote() {
   const m = mountComponent(ApplyRefreshFailedNote as never, {} as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -139,5 +143,54 @@ describe('ApplyRefreshFailedNote', () => {
     at({ id: urn }, 'u-1', '/app/workers/[id]', 'org-1');
     setRefreshMarker(refreshScope('u-1', 'w-A', { workerUrn: urn, orgId: 'org-1' }));
     expect(line(await mountNote())).not.toBeNull();
+  });
+
+  describe('the root error boundary: kit gives it no params and no route (Cedar’s QA P2 on b3fa8201, #1471)', () => {
+    it('says it for the worker named by the URL, to the viewer whose marker is live', async () => {
+      setRefreshMarker(refreshScope('u-1', 'w-A'));
+      atRoot('/app/workers/w-A', 'u-1');
+      expect(line(await mountNote())).not.toBeNull();
+      expect(sessionStorage.getItem(REFRESH_MARKER_KEY)).toBeNull();
+    });
+
+    it('says nothing for another worker’s URL, another viewer, a nested path or a path that is not a worker’s', async () => {
+      for (const [path, viewer] of [['/app/workers/w-B', 'u-1'], ['/app/workers/w-A', 'u-2'], ['/app/workers/w-A/x', 'u-1'], ['/app/memories/w-A', 'u-1'], ['/app/workers', 'u-1']] as const) {
+        sessionStorage.clear();
+        setRefreshMarker(refreshScope('u-1', 'w-A'));
+        atRoot(path, viewer);
+        expect(line(await mountNote()), `${path} ${viewer}`).toBeNull();
+      }
+    });
+
+    it('reads a URL-encoded URN the way the route spelled it', async () => {
+      const urn = 'hrn:worker:a.com:team:gaby';
+      setRefreshMarker(refreshScope('u-1', 'w-A', { workerUrn: urn }));
+      atRoot(`/app/workers/${encodeURIComponent(urn)}`, 'u-1');
+      expect(line(await mountNote())).not.toBeNull();
+    });
+  });
+
+  describe('a consumed claim belongs to the error it was consumed for (George’s P2 on b3fa8201)', () => {
+    it('is dropped when a later, different error or status arrives at the same viewer, worker and org', async () => {
+      at({ id: 'w-A' }, 'u-1');
+      setRefreshMarker(refreshScope('u-1', 'w-A'));
+      page.update((p) => ({ ...p, error: new Error('first'), status: 500 }));
+      const root = await mountNote();
+      expect(line(root)).not.toBeNull();
+      page.update((p) => ({ ...p, error: new Error('second'), status: 404 }));
+      await tick(2);
+      expect(line(root)).toBeNull();
+    });
+
+    it('stays while the same error is merely re-published with other page state', async () => {
+      at({ id: 'w-A' }, 'u-1');
+      setRefreshMarker(refreshScope('u-1', 'w-A'));
+      const err = new Error('first');
+      page.update((p) => ({ ...p, error: err, status: 500 }));
+      const root = await mountNote();
+      page.update((p) => ({ ...p, form: { other: true } }));
+      await tick(2);
+      expect(line(root)).not.toBeNull();
+    });
   });
 });
