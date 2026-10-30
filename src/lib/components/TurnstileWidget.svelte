@@ -37,7 +37,7 @@
 
   /**
    * #1470 — the Cloudflare Turnstile check for an email sign-in form (R210,
-   * `cor:aut:030:01`). Rendered inside the `<form>`: Cloudflare adds the hidden
+   * `hrn:node:hadronmemory.com:specs:cor:aut:030:01`). Rendered inside the `<form>`: Cloudflare adds the hidden
    * `cf-turnstile-response` input to the closest form itself, so the token
    * posts with the rest of it.
    *

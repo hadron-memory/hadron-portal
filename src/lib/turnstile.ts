@@ -1,6 +1,6 @@
 /**
  * #1470 — Cloudflare Turnstile on the email sign-in forms (hadron-server#2878,
- * R210 `cor:aut:030:01`).
+ * R210 `hrn:node:hadronmemory.com:specs:cor:aut:030:01`).
  *
  * The widget puts its one-time challenge response in a hidden input with
  * Cloudflare's own field name, and hadron-server reads the same name, so the
