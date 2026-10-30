@@ -348,6 +348,17 @@ describe('portal#1151 — the create action', () => {
     expect(r.data).not.toHaveProperty('ok');
   });
 
+  // Caspian's BLIND P2 on #1467: `committed` means a warning NAMED this path, so an answer with
+  // no usable ticker but a warning under the path is a committed create, never "uncertain" (which
+  // would invite a duplicate retry). The guard above is the other half of this pair.
+  it('an answer with no ticker but a warning under the path is a committed create, not uncertain', async () => {
+    rawRequest.mockResolvedValue({ data: { createTicker: null }, extensions: { warnings: [unmapped] } });
+    expect(await run(good)).toEqual({
+      action: 'create', ok: true, ticker: null, committedWithError: false,
+      warnings: [{ code: 'ticker.code.unmapped', text: unmapped.text }], more: 0,
+    });
+  });
+
   it('an unknown warning code under the path passes through verbatim, never reworded', async () => {
     rawRequest.mockResolvedValue({ ...created, extensions: { warnings: [{ path: 'createTicker', code: 'ticker.future.thing', text: 'Fixed server text.' }] } });
     expect(await run(good)).toMatchObject({ warnings: [{ code: 'ticker.future.thing', text: 'Fixed server text.' }] });
