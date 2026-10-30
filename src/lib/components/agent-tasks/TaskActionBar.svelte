@@ -13,7 +13,7 @@
     in a status line; a refusal stays next to the submit, with the values.
 -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
@@ -27,6 +27,7 @@
   } from '$lib/agent-tasks/actions';
   import type { AgentTaskDetail, WriteCandidates } from '$lib/agent-tasks/types';
   import PartyPicker from './PartyPicker.svelte';
+  import TaskEditFields from './TaskEditFields.svelte';
   import WriteRefusalAlert from './WriteRefusal.svelte';
   import TaskWarnings from './TaskWarnings.svelte';
   import { warningsBelow, type TaskWarning } from '$lib/agent-tasks/warnings';
@@ -36,6 +37,8 @@
     canWrite,
     impersonating = null,
     candidates,
+    roles = [],
+    families = [],
     openChildren,
     created = false,
   }: {
@@ -43,6 +46,9 @@
     canWrite: boolean;
     impersonating?: string | null;
     candidates: WriteCandidates;
+    /** portal#1357: the Edit details requirement pickers. */
+    roles?: string[];
+    families?: string[];
     openChildren: { count: number; capped: boolean; unknown?: boolean };
     created?: boolean;
   } = $props();
@@ -61,6 +67,20 @@
   const shown = $derived(status && status.taskId === task.id ? status : null);
   let values = $state<Record<string, string>>({});
   let assignee = $state('');
+
+  // portal#1357: an Edit details draft belongs to the task it was opened on. The page reuses
+  // this bar across tasks, so moving to another one closes it, and a draft never posts to a task it wasn't written for.
+  let editTaskId = untrack(() => task.id);
+  $effect(() => {
+    const id = task.id;
+    untrack(() => {
+      if (id !== editTaskId) {
+        editTaskId = id;
+        if (open === 'edit') open = null;
+      }
+    });
+  });
+  const editInvalid = $derived(refusal && refusal.action === 'edit' && refusal.refusal.kind === 'invalid' ? refusal.refusal : null);
 
   const toggles: Partial<Record<TaskAction, HTMLButtonElement>> = {};
   let panelHeading = $state<HTMLElement | null>(null);
@@ -106,8 +126,10 @@
     return other.trim();
   }
 
-  function successText(a: TaskAction, fd: FormData): string {
+  function successText(a: TaskAction, fd: FormData, d: Record<string, unknown> = {}): string {
     switch (a) {
+      case 'edit':
+        return d.unchanged === true ? t('app.tasks.write.done.edit-unchanged', 'No changes to save.') : t('app.tasks.write.done.edit', 'Details saved.');
       case 'ready':
         return t('app.tasks.write.done.ready', 'Made ready: it’s now queued.');
       case 'park':
@@ -138,7 +160,7 @@
           const caution = d.committedWithError === true;
           const text = caution
             ? t('app.tasks.write.done.committed-error', 'Saved, but the server’s response also reported an error. Reload to check the task.')
-            : successText(a, formData);
+            : successText(a, formData, d);
           const warnings = Array.isArray(d.warnings) ? (d.warnings as TaskWarning[]) : [];
           const more = typeof d.more === 'number' ? d.more : 0;
           await invalidateAll();
@@ -164,7 +186,10 @@
           return;
         }
         refusal = { action: a, refusal: r, inPanel: true };
-        if (r.kind === 'invalid' || (r.kind === 'refused' && r.code === 'TASK_ASSIGNEE_INVALID')) {
+        if (a === 'edit' && r.kind === 'invalid') {
+          await tick();
+          document.getElementById(r.field === 'startBy' ? 'edit-start-by' : `edit-${r.field}`)?.focus();
+        } else if (r.kind === 'invalid' || (r.kind === 'refused' && r.code === 'TASK_ASSIGNEE_INVALID')) {
           await tick();
           document.getElementById('task-assignee')?.focus();
         }
@@ -271,6 +296,27 @@
         <div class="flex flex-wrap items-center gap-3">
           <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
             {submitting ? t('app.tasks.write.assigning', 'Assigning…') : reassigning ? t('app.tasks.write.reassign.submit', 'Reassign') : t('app.tasks.write.assign.submit', 'Assign')}
+          </button>
+          <button type="button" onclick={closePanel} class="text-sm text-zinc-600 hover:underline dark:text-zinc-300">{t('app.tasks.write.close', 'Cancel')}</button>
+        </div>
+      </form>
+    {:else if open === 'edit'}
+      <form
+        id="task-panel-edit"
+        aria-labelledby="task-panel-edit-title"
+        method="POST"
+        action="?/edit"
+        use:enhance={submitter('edit')}
+        class="w-full space-y-4 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <h3 id="task-panel-edit-title" bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
+          {t('app.tasks.write.edit.title', 'Edit details')}
+        </h3>
+        <TaskEditFields {task} workers={candidates.workers} {roles} {families} invalid={editInvalid} />
+        {#if !editInvalid}{@render refusalFor('edit', true)}{/if}
+        <div class="flex flex-wrap items-center gap-3">
+          <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+            {submitting ? t('app.tasks.write.saving', 'Saving…') : t('app.tasks.write.edit.submit', 'Save details')}
           </button>
           <button type="button" onclick={closePanel} class="text-sm text-zinc-600 hover:underline dark:text-zinc-300">{t('app.tasks.write.close', 'Cancel')}</button>
         </div>

@@ -13,7 +13,7 @@ const delegate = async (q: string, v: unknown) => ({ data: await request(q, v), 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const gated = async (q: string, v?: unknown) => {
   if (q === AGENT_TASKS_APP_QUERY) return { app };
-  if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: (v as { id: string }).id === 'AT3.405' ? 'canon-1' : (v as { id: string }).id, appId: 'app-1' } };
+  if (q === AGENT_TASK_REF_QUERY) return { agentTask: { id: ((v as { id: string }).id === 'AT3.405' || (v as { id: string }).id.endsWith(':AT3.405')) ? 'canon-1' : (v as { id: string }).id, appId: 'app-1' } };
   return request(q, v);
 };
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: gated, rawRequest }) }));

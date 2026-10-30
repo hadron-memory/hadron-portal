@@ -4609,6 +4609,13 @@ export const SET_APP_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
   }
 `;
 
+/** portal#1357 (hadron-server#2645): a strict patch of a task's descriptive fields. */
+export const UPDATE_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentTask($taskId: ID!, $input: UpdateAgentTaskInput!) {
+    updateAgentTask(taskId: $taskId, input: $input) { id }
+  }
+`;
+
 export const SET_WORKER_BOOT_PROMPT_MUTATION = /* GraphQL */ `
   mutation SetWorkerBootPrompt($workerRef: ID!, $nodeRef: String) {
     setWorkerBootPrompt(workerRef: $workerRef, nodeRef: $nodeRef) { id bootPromptRef bootPromptTargetDeleted }

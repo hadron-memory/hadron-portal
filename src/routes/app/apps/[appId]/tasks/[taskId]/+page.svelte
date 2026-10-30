@@ -115,6 +115,8 @@
           canWrite={data.canWrite}
           impersonating={data.impersonating}
           candidates={data.candidates}
+          roles={data.roles}
+          families={data.families}
           {openChildren}
           created={data.created}
         />

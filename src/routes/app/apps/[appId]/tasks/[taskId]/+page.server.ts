@@ -12,6 +12,7 @@ import {
   MAKE_AGENT_TASK_READY_MUTATION,
   PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
+  UPDATE_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
 import { canonicalTaskId, loadAncestors, loadHistory, loadTasksApp, loadTree, loadWriteCandidates } from '$lib/server/agent-tasks';
 import {
@@ -24,6 +25,7 @@ import {
 } from '$lib/server/agent-task-writes';
 import { t } from '$lib/i18n/t';
 import { resolveSegment } from '$lib/agent-tasks/handle';
+import { taskEditPatch } from '$lib/agent-tasks/edit';
 import type { AgentTaskDetail } from '$lib/agent-tasks/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -78,6 +80,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     canWrite,
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
     candidates: { workers: candidates.workers, people: candidates.people, peopleWithheld: candidates.peopleWithheld, peopleFailed: candidates.peopleFailed },
+    // portal#1357: the Edit details panel's requirement pickers.
+    roles: candidates.roles,
+    families: candidates.families,
     // tasks/new redirects here with ?created=1 (design §6).
     created: url.searchParams.get('created') === '1',
   };
@@ -90,18 +95,20 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * refusal, which goes back verbatim with the reader's values. Park (portal#1143)
  * is offered on state alone; the same refusal answers anyone outside its audience.
  */
-type TaskWrite = 'ready' | 'assign' | 'reassign' | 'park' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker';
+type TaskWrite = 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker';
 
 async function write(
   action: TaskWrite,
   { request, params, locals }: Parameters<Actions[string]>[0],
-  build: (fd: FormData) => { doc: string; vars: Record<string, unknown>; path?: string } | { invalid: { field: string; message: string } },
+  build: (fd: FormData) => { doc: string; vars: Record<string, unknown>; path?: string } | { invalid: { field: string; message: string } } | { unchanged: true },
 ) {
   const fd = await request.formData();
   const values = formValues(fd);
   if (locals.impersonation) return writeFailure(action, impersonationRefusal(), values);
   const built = build(fd);
   if ('invalid' in built) return writeFailure(action, { kind: 'invalid', ...built.invalid }, values);
+  // portal#1357: a save that changes nothing asks the server nothing and says so.
+  if ('unchanged' in built) return { action, ok: true as const, unchanged: true as const };
   // The mutation identity is the canonical id the server resolved for THIS App's
   // route, never the raw URL segment (portal#1349).
   let taskId: string;
@@ -166,5 +173,12 @@ export const actions: Actions = {
   assign: (event) => write('assign', event, assignment(ASSIGN_AGENT_TASK_MUTATION, 'assignAgentTask')),
   reassign: (event) => write('reassign', event, assignment(REASSIGN_AGENT_TASK_MUTATION, 'reassignAgentTask')),
   park: (event) => write('park', event, () => ({ doc: PARK_AGENT_TASK_MUTATION, vars: {} })),
+  // portal#1357 (hadron-server#2645): the changed descriptive fields only; the server decides who may.
+  edit: (event) => write('edit', event, (fd) => {
+    const patch = taskEditPatch(fd);
+    if ('invalid' in patch) return patch;
+    if (Object.keys(patch.input).length === 0) return { unchanged: true };
+    return { doc: UPDATE_AGENT_TASK_MUTATION, path: 'updateAgentTask', vars: { input: patch.input } };
+  }),
   cancel: (event) => write('cancel', event, () => ({ doc: CANCEL_AGENT_TASK_MUTATION, vars: {} })),
 };
