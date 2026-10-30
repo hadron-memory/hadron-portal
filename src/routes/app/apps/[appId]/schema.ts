@@ -1,3 +1,4 @@
+import { t } from '$lib/i18n/t';
 import { z } from 'zod';
 
 const agentToolsField = z.preprocess(
@@ -14,7 +15,6 @@ export const appSettingsSchema = z.object({
   appType: z.enum(['WORKSTATION', 'CHATBOT', 'AGENT', 'AUTOMATION', 'CLOUD', 'IOT']).prefault('WORKSTATION'),
   role: z.enum(['OWNER', 'ADMIN', 'CONTRIBUTOR', 'READER']).prefault('READER'),
   description: z.string().trim().default(''),
-  systemPrompt: z.string().trim().default(''),
   createUserPermission: z.enum(['DENY', 'EXPLICIT', 'IMPLICIT']).prefault('DENY'),
   identifyUserMethod: z.enum(['USER_ID', 'SECRET']).prefault('USER_ID'),
   sessionTimeoutSeconds: z.string()
@@ -85,15 +85,11 @@ export const deleteAppSchema = z.object({
 // work — it makes the form recommend a request the server rejects, which is
 // exactly what #760 reports.
 //
-// `role` stays optional and must still reach the mutation as UNDEFINED rather
-// than '': an omitted role inherits the agent's personaRole, while an empty
-// string would be an explicit (invalid) role. That distinction is unchanged.
+// R222: the selected Agent determines the role; casting cannot override it.
 export const castWorkerSchema = z.object({
   _kind: z.literal('castWorker').default('castWorker'),
   agentId: z.string().trim().min(1, 'Select an agent to cast.').prefault(''),
   name: z.string().trim().min(1, 'Give the worker a name — the platform no longer picks one.').prefault(''),
-  role: z.string().trim().optional(),
-  promptOverride: z.string().trim().optional(),
 });
 
 export const retireWorkerSchema = z.object({
@@ -195,4 +191,12 @@ export const deleteWorkerSchema = z.object({
   _kind: z.literal('deleteWorker'),
   workerRef: z.string().trim().min(1, 'Worker is required.'),
   confirmation: z.literal('verified-no-external-attribution'),
+});
+
+// #487: only a NEW memory, born on this App. No caller-controlled App,
+// Agent, class, or existing-memory reference is part of this form.
+export const createAppMemorySchema = z.object({
+  _kind: z.literal('createAppMemory').default('createAppMemory'),
+  name: z.string().trim().min(1, t('app.memory.name-required', 'Give the memory a name.')).prefault(''),
+  description: z.string().trim().prefault(''),
 });

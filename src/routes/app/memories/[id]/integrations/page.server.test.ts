@@ -4,6 +4,7 @@ import {
   SYNC_MEMORY_MUTATION,
   UPDATE_MEMORY_MUTATION,
 } from '$lib/server/queries';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 const mockRequest = vi.fn();
 const mockRequireNonConsumer = vi.fn();
@@ -148,6 +149,23 @@ describe('memory integrations load()', () => {
   });
 });
 
+describe('memory integrations form ids (#1320)', () => {
+  it('gives Sync and Push their own Superforms ids (both schemas are _kind-only)', async () => {
+    const { load } = await importMod();
+    expectDistinctFormIds(await load(loadEvent()), 3);
+  });
+
+  it('validates each command action under the id its loader form carries', async () => {
+    const { load, actions } = await importMod();
+    const data = (await load(loadEvent())) as { syncForm: { id: string }; pushForm: { id: string } };
+    mockRequest.mockResolvedValue({ syncMemory: { syncStatus: 'OK' }, pushMemoryToGit: {} });
+    const sync = superFormFrom(await actions.sync(commandEvent({ _kind: 'syncMemory' })));
+    const push = superFormFrom(await actions.pushToGit(commandEvent({ _kind: 'pushMemory' })));
+    expect((sync as { id?: string }).id).toBe(data.syncForm.id);
+    expect((push as { id?: string }).id).toBe(data.pushForm.id);
+  });
+});
+
 describe('memory integrations update action', () => {
   it('updates integration fields with trimmed values', async () => {
     mockRequest.mockResolvedValueOnce({ updateMemory: { id: 'memory-1' } });
@@ -208,7 +226,7 @@ describe('memory integrations update action', () => {
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({
       type: 'error',
-      text: 'Only owners can update integrations',
+      text: 'Something went wrong on our side.',
     });
   });
 

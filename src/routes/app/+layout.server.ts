@@ -1,3 +1,4 @@
+import { takeNodeAdvice } from '$lib/server/node-advice';
 import { redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { fetchAllItems } from '$lib/server/paginate';
@@ -200,7 +201,9 @@ export const load: LayoutServerLoad = async ({ locals, url, params, cookies, par
     redirect(302, segments.join('/') + url.search);
   }
 
+  const nodeAdvice = takeNodeAdvice(cookies, sessionUser.id);
   return {
+    ...(nodeAdvice.length ? { nodeAdvice } : {}),
     user,
     // Admin impersonation: the acting-as facts for the banner (null normally).
     // `user` above already IS the target under impersonation — hooks.server

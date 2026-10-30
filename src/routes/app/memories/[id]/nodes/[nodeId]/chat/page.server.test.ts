@@ -272,7 +272,7 @@ describe('chat sendMessage action', () => {
     expect(result.status).toBe(500);
     expect(superFormFrom(result)?.message).toEqual({
       type: 'error',
-      text: 'Cannot create message',
+      text: 'Something went wrong on our side.',
     });
   });
 });

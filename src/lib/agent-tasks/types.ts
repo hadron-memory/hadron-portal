@@ -36,7 +36,12 @@ export interface AgentTaskSessionEndRequest {
 
 /** A board or tree row. */
 export interface AgentTaskRow {
+  /** Missing data stays unknown; the blocked flag is never reconstructed from relations. */
+  priority?: number | null;
+  blocked?: boolean | null;
   id: string;
+  /** The immutable short handle (`AT3.405`), from server#2579. */
+  handle: string;
   parentTaskId: string | null;
   title: string;
   status: AgentTaskStatus;
@@ -120,6 +125,38 @@ export interface TeamRoster {
   workers: TeamRosterEntry[];
 }
 
+/**
+ * portal#1316 (hadron-server#2061 / #2475) — `teamComposition`: the roster's
+ * workers grouped by their direct `reportsTo` coordinator, with the server's
+ * own headcounts. Lanes arrive ordered by coordinator name, the unassigned
+ * (null-coordinator) lane last; roles and families arrive null-last. The page
+ * keeps that order and recounts nothing.
+ */
+export interface TeamCompositionWorker {
+  worker: AgentTaskParty;
+  role: string | null;
+  family: string | null;
+  /** A session is bound, and a live session is another fact: neither alone is availability or permission. */
+  bound: boolean;
+  liveSession: boolean;
+  state: string;
+}
+
+export interface TeamCompositionLane {
+  /** Null for the single unassigned lane. */
+  coordinator: AgentTaskParty | null;
+  coordinatorRetired: boolean;
+  workers: TeamCompositionWorker[];
+  countsByRole: { role: string | null; count: number }[];
+  countsByRoleFamily: { role: string | null; family: string | null; count: number }[];
+}
+
+export interface TeamComposition {
+  appId: string;
+  asOf: string;
+  lanes: TeamCompositionLane[];
+}
+
 /** An alarm as the Alarms list reads it: `AgentTeamEvent` with `alarmsOnly`. */
 export interface AgentAlarm {
   id: string;
@@ -148,3 +185,19 @@ export type WriteCandidates = {
   /** The members read FAILED (a reload can fix it): `people` is unknown, not empty, and not withheld. */
   peopleFailed?: boolean;
 };
+
+/**
+ * portal#1349 — what a bare task id resolved to for display: its title and
+ * immutable handle, read through the server's readable-task gate. `null` in a
+ * refs map means unavailable (missing, unreadable, another App, or the read
+ * failed); callers render a neutral label and never a stale title or handle.
+ */
+export interface TaskRefInfo {
+  id: string;
+  handle: string;
+  title: string;
+}
+export type TaskRefs = Record<string, TaskRefInfo | null>;
+
+export interface TaskChoice { id: string; appId: string; title: string; handle: string; status: string }
+export interface TaskDependencyPage { items: TaskChoice[]; hasMore: boolean }

@@ -1,11 +1,13 @@
 /**
  * portal#1099 — the Tickers list, a ticker page and the Wake-ups panel,
  * rendered on the server. S7a is read-only (Holger via Vera, team chat
- * #11540): no view renders a write control.
+ * #11540): no view renders a write control, except the Delivery section's own
+ * form for a manager (portal#1141 slice A).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
 
+vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
 import List from './+page.svelte';
@@ -14,6 +16,7 @@ import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 480, dailyWakeBudgetDerived: true } };
+const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: false, standbyEffective: false } };
 const LOADED = '2026-10-16T10:00:00Z';
 
 const ticker = (over: Record<string, unknown> = {}) => ({
@@ -29,7 +32,7 @@ const ticker = (over: Record<string, unknown> = {}) => ({
 
 function list(over: Record<string, unknown> = {}) {
   return render(List as never, {
-    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
+    props: { data: { app, tickers: { kind: 'ok', value: [] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null, ...over } },
   } as never).body;
 }
 
@@ -37,7 +40,10 @@ function list(over: Record<string, unknown> = {}) {
  * No write control: no form, no named form field (the grid's own search box
  * is chrome, not a field), and no button or link naming an S7b write.
  */
-function expectReadOnly(html: string) {
+function expectReadOnly(rendered: string) {
+  // portal#1141 A: the list now carries the Delivery section, whose form is its own write
+  // (pinned in its tests below). This helper is about the TICKER views, so that section is cut out.
+  const html = rendered.replace(/<section[^>]*data-testid="delivery-settings"[\s\S]*?<\/section>/, '');
   expect(html).not.toMatch(/<form/);
   expect(html).not.toMatch(/<(input|select|textarea)[^>]*\bname=/);
   expect(html).not.toMatch(/<(button|a)\b[^>]*>\s*(Create ticker|Edit|Disable|Enable|Delete|Add subscriber|Remove|Subscribe|Pause|Resume|Give scope|Take scope back|Save)\b/i);
@@ -90,6 +96,24 @@ describe('Tickers list', () => {
     expect(html).toContain('role="alert"');
     expect(html).toContain('Couldn’t load tickers.');
     expect(html).not.toContain('No tickers yet.');
+  });
+
+  // portal#1141 A: the Delivery section is the one write on this page, offered to every participant
+  // (the server's refusal answers anyone who may not; no client rights check).
+  it('offers exactly one form, the Delivery one; the ticker settings stay read-only', () => {
+    const html = list();
+    expect(html.match(/<form/g)).toHaveLength(1);
+    expect(html).toContain('action="?/delivery"');
+    expect(html).toContain('Save delivery settings');
+    expect(html).toContain('Only whoever manages the App can change these settings.');
+    expect(html).toContain('data-testid="ticker-settings"');
+    expect(html).not.toContain('name="standbyEnabled"');
+  });
+
+  it('a support session gets the Delivery values without a form', () => {
+    const html = list({ impersonating: 'Rae' });
+    expect(html).not.toMatch(/<form/);
+    expect(html).toContain('Busy delay (seconds)');
   });
 
   it('shows the App’s settings read-only, saying who can change them', () => {
@@ -249,5 +273,87 @@ describe('expectReadOnly (positive control)', () => {
     '<button class="x">Pause for…</button>',
   ])('rejects %s', (html) => {
     expect(() => expectReadOnly(html)).toThrow();
+  });
+});
+
+describe('ticker reasons (portal#1144)', () => {
+  const reasoned = (reasons: unknown) => ticker({ reasons });
+  it('the list shows a Reasons column with a badge per reason, Every tick explicit', () => {
+    const html = list({ tickers: { kind: 'ok', value: [reasoned(['READ_TEAM_CHANNEL']), reasoned(['EVERY_TICK', 'READ_TEAM_CHANNEL'])].map((tk, i) => ({ ...tk, id: `tk-${i}` })) } });
+    expect(html).toContain('Wakes when');
+    expect(html).toContain('Team chat');
+    expect(html).toContain('Every tick');
+    expectReadOnly(html);
+  });
+  it('an unknown reason shows its raw name, and is not turned into a known one', () => {
+    const html = list({ tickers: { kind: 'ok', value: [reasoned(['SOMETHING_NEW'])] } });
+    expect(html).toContain('SOMETHING_NEW');
+    expect(html).toContain('(unrecognised)');
+    expect(html).not.toContain('Team chat');
+  });
+  it('an empty reason list reads as never firing in the list', () => {
+    expect(list({ tickers: { kind: 'ok', value: [reasoned([])] } })).toContain('Never fires (no reasons)');
+  });
+  it('the detail page lists "Wakes when" with the every-tick limits in the same item', () => {
+    const html = detail({ ticker: reasoned(['EVERY_TICK']) });
+    expect(html).toContain('Wakes when');
+    const item = html.match(/<li[^>]*>(?:(?!<\/li>)[\s\S])*Every tick(?:(?!<\/li>)[\s\S])*<\/li>/)?.[0] ?? '';
+    expect(item).toContain('even with no new chat');
+    expect(item).toContain('quiet hours');
+    expect(item).toContain('pause');
+    expectReadOnly(html);
+  });
+  it('markup in a reason value is escaped in the list and the detail, never rendered', () => {
+    const list_ = list({ tickers: { kind: 'ok', value: [reasoned(['<b>X</b>'])] } });
+    const detail_ = detail({ ticker: reasoned(['<b>X</b>']) });
+    for (const html of [list_, detail_]) {
+      expect(html).toContain('&lt;b>X&lt;/b>');
+      expect(html).not.toContain('<b>X</b>');
+    }
+  });
+  it('a missing or non-array reasons reads as unavailable in both views, never as never firing', () => {
+    for (const bad of [undefined, 'EVERY_TICK', null]) {
+      const l = list({ tickers: { kind: 'ok', value: [reasoned(bad)] } });
+      const d = detail({ ticker: reasoned(bad) });
+      for (const html of [l, d]) {
+        expect(html).toContain('Reasons unavailable');
+        expect(html).not.toMatch(/never fires/i);
+      }
+    }
+  });
+  it('renders Live check, and the any-of note only when there are several reasons', () => {
+    const one = detail({ ticker: reasoned(['LIVE_CHECK']) });
+    expect(one).toContain('Live check');
+    expect(one).toContain('has not checked its team channel');
+    expect(one).not.toContain('Any one of these wakes a subscriber.');
+    const two = detail({ ticker: reasoned(['LIVE_CHECK', 'EVERY_TICK']) });
+    expect(two).toContain('Any one of these wakes a subscriber.');
+  });
+  it('the every-tick sentence names the cost clause next to the limits', () => {
+    const html = detail({ ticker: reasoned(['EVERY_TICK']) });
+    expect(html).toContain('costs up to one wake per subscriber per tick against the daily budget');
+  });
+  it('the list badges for Live check and Every tick carry a title with what they do; a known reason shows no unrecognised note', () => {
+    const html = list({ tickers: { kind: 'ok', value: [reasoned(['LIVE_CHECK', 'EVERY_TICK'])] } });
+    expect(html).toMatch(/title="Wakes a subscriber that has not checked[^"]*"[^>]*>Live check/);
+    expect(html).toMatch(/title="Wakes subscribers every tick[^"]*"[^>]*>Every tick/);
+    expect(html).not.toContain('(unrecognised)');
+  });
+  it('a list with a non-string element is unavailable in the list and the detail, never badges for its string members', () => {
+    for (const bad of [[null], ['EVERY_TICK', 3]]) {
+      const l = list({ tickers: { kind: 'ok', value: [reasoned(bad)] } });
+      const d = detail({ ticker: reasoned(bad) });
+      for (const html of [l, d]) {
+        expect(html).toContain('Reasons unavailable');
+        expect(html).not.toContain('Every tick');
+        expect(html).not.toContain('(unrecognised)');
+      }
+    }
+  });
+  it('the detail page shows an unknown reason raw and an empty list as never firing', () => {
+    const unknown = detail({ ticker: reasoned(['SOMETHING_NEW']) });
+    expect(unknown).toContain('SOMETHING_NEW');
+    expect(unknown).toContain('(unrecognised)');
+    expect(detail({ ticker: reasoned([]) })).toContain('Never fires (no reasons)');
   });
 });

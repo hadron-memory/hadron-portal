@@ -23,7 +23,7 @@ function channel(over: Record<string, unknown> = {}) {
   return {
     id: 'ch-1', name: 'All hands', description: null, kind: 'CHAT', loc: 'chats:all-hands',
     chatRootUrn: 'hrn:node:acme.com:shared:chats:all-hands', chatRootNodeId: 'root-1',
-    lastSeq: 3, lastMessageAt: null, createdAt: '', memory: MEM, ...over,
+    lastSeq: 3, lastMessageAt: null, createdAt: '', memoryId: 'mem-org', memory: MEM, ...over,
   };
 }
 function row(over: Record<string, unknown> = {}) {
@@ -94,6 +94,17 @@ describe('the organization Channels page', () => {
     const root = await mountPage({ orgRows: [row({ channel: null, channelId: 'ch-secret' })] });
     expect(root.textContent).toContain('A channel you can’t read');
     expect(root.innerHTML).not.toContain('ch-secret');
+  });
+
+  it('renders a Channel whose host memory record is concealed (#2509): no crash, link by memoryId, host withheld', async () => {
+    const root = await mountPage({ channels: [channel({ memory: null })] });
+    // The channel itself is still listed…
+    expect(root.textContent).toContain('All hands');
+    // …its chat root stays reachable through the non-null memoryId…
+    expect(root.querySelector(`a[href="/app/memories/mem-org/nodes/root-1"]`)).not.toBeNull();
+    // …and the concealed host renders as withheld prose, never an empty URN chip.
+    expect(root.textContent).toContain('Memory not shown');
+    expect(root.innerHTML).not.toContain('hrn:mem:acme.com:shared');
   });
 
   it('Remove → confirm actually submits (the form store carries the ref)', async () => {

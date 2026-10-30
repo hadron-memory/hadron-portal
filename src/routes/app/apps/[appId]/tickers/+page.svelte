@@ -5,11 +5,12 @@
   import Urn from '$lib/components/Urn.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
   import TickerSettingsPanel from '$lib/components/tickers/TickerSettingsPanel.svelte';
+  import DeliverySettingsPanel from '$lib/components/tickers/DeliverySettingsPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, noVisibleChannelsText, quietHoursSummary, relativeTime, tickerSearchText, tickerStateLabel } from '$lib/tickers/format';
+  import { cadenceText, isKnownReason, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonHelp, reasonLabel, reasonsSearchText, reasonsText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel, unrecognisedReasonText } from '$lib/tickers/format';
   import type { TickerListRow } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -17,7 +18,8 @@
   /**
    * portal#1099 — the App's tickers (design §3.1), READ-ONLY: S7a (Holger via
    * Vera, team chat #11540). No Create, Edit, Subscribe or Delete control is
-   * rendered; those are S7b and not in v1.
+   * rendered; those are S7b and not in v1. The one write is the Delivery
+   * section below the settings (portal#1141 slice A, hadron-server S9).
    */
   let { data }: { data: PageData } = $props();
 
@@ -35,6 +37,7 @@
     stateText: string;
     cadence: number;
     quiet: string;
+    reasonsText: string;
     channelsText: string;
     subscriberCount: number;
     nextMs: number;
@@ -63,6 +66,7 @@
           stateText: stateLabel(tk.enabled),
           cadence: tk.cadenceSeconds,
           quiet: quietHoursSummary(tk.quietHours),
+          reasonsText: reasonsSearchText(tk.reasons),
           channelsText: channelsText(tk),
           subscriberCount: tk.subscribers.hasNextPage ? Number.MAX_SAFE_INTEGER : tk.subscribers.items.length,
           // A disabled ticker has no next tick; it sorts last, not first.
@@ -83,6 +87,7 @@
     { id: 'state', accessorFn: (r) => r.stateText, header: t('app.tickers.col.state', 'State'), size: 84 },
     { id: 'cadence', accessorFn: (r) => r.cadence, header: t('app.tickers.col.every', 'Every'), size: 76 },
     { id: 'quiet', accessorFn: (r) => r.quiet, header: t('app.tickers.col.quiet', 'Quiet hours'), size: 240 },
+    { id: 'reasons', accessorFn: (r) => r.reasonsText, header: t('app.tickers.col.reasons', 'Wakes when'), size: 200 },
     { id: 'channels', accessorFn: (r) => r.channelsText, header: t('app.tickers.col.counts', 'Counts'), size: 240 },
     { id: 'subscribers', accessorFn: (r) => r.subscriberCount, header: t('app.tickers.col.subscribers', 'Subscribers'), enableGlobalFilter: false, size: 120 },
     { id: 'next', accessorFn: (r) => r.nextMs, header: t('app.tickers.col.next', 'Next tick'), size: 150 },
@@ -202,6 +207,20 @@
             <span class="whitespace-nowrap">{cadenceText(row.ticker.cadenceSeconds)}</span>
           {:else if cell.column.id === 'quiet'}
             <span class="block max-w-full truncate" title={row.quiet}>{row.quiet}</span>
+          {:else if cell.column.id === 'reasons'}
+            <span class="flex min-w-0 flex-wrap items-center gap-1">
+              {#if reasonsText(row.ticker.reasons) === reasonsUnavailableText()}
+                <span class="text-zinc-500 dark:text-zinc-400">{reasonsUnavailableText()}</span>
+              {:else if row.ticker.reasons.length === 0}
+                <span class="text-zinc-500 dark:text-zinc-400">{noReasonsText()}</span>
+              {:else}
+                {#each row.ticker.reasons as reason (reason)}
+                  <span class="rounded px-1.5 py-0.5 text-xs {reason === 'EVERY_TICK'
+                    ? 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200'
+                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'}" title={reasonHelp(reason) ?? undefined}>{reasonLabel(reason)}{#if !isKnownReason(reason)} <span class="text-zinc-600 dark:text-zinc-400">{unrecognisedReasonText()}</span>{/if}</span>
+                {/each}
+              {/if}
+            </span>
           {:else if cell.column.id === 'channels'}
             <span class="flex min-w-0 flex-wrap items-center gap-1">
               <span class="block max-w-full truncate" title={row.channelsText}>{row.channelsText}</span>
@@ -235,5 +254,6 @@
     {/if}
 
     <TickerSettingsPanel settings={data.settings} />
+    <DeliverySettingsPanel appId={data.app.id} settings={data.delivery} impersonating={data.impersonating} />
   {/if}
 </div>

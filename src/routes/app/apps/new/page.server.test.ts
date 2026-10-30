@@ -156,3 +156,26 @@ describe('/app/apps/new default action', () => {
     expect(result.data.form.errors.urn).toBeDefined();
   });
 });
+
+
+it.each(['BAD_USER_INPUT', 'UNAUTHENTICATED', 'FORBIDDEN', 'AGENT_NOT_FOUND', 'ORGANIZATION_MISMATCH', 'INSTALL_MEMORIES_REMAIN'])(
+  'keeps createApp %s as an intentional 400 refusal', async (code) => {
+    routeFetch({ mine: [OWN] });
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Intentional create refusal.', extensions: { code } }] } });
+    const { actions } = await importMod();
+    const result = await actions.default(actionEv({ agentId: 'a-own', name: 'My App', urn: 'my-app', appType: 'WORKSTATION' }));
+    expect(result).toMatchObject({ status: 400 });
+    expect(JSON.stringify(result)).toContain('Intentional create refusal.');
+  },
+);
+
+it.each(['INTERNAL_SERVER_ERROR', 'FUTURE_UNKNOWN_CODE'])(
+  'keeps createApp %s generic and distinct from a client refusal', async (code) => {
+    routeFetch({ mine: [OWN] });
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'private diagnostics', extensions: { code } }] } });
+    const { actions } = await importMod();
+    const result = await actions.default(actionEv({ agentId: 'a-own', name: 'My App', urn: 'my-app', appType: 'WORKSTATION' }));
+    expect(result).toMatchObject({ status: 500 });
+    expect(JSON.stringify(result)).not.toContain('private diagnostics');
+  },
+);

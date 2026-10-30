@@ -16,6 +16,8 @@ import {
   MEMORY_NODES_QUERY,
   MEMORY_EDGES_QUERY,
   MEMORY_USAGE_SUMMARY_QUERY,
+  MEMORY_LAYOUT_ORG_QUERY,
+  ORGANIZATION_QUERY,
 } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
@@ -206,5 +208,39 @@ describe('reader-shared memory controls (#646)', () => {
     const data = await (await importLoad())(event) as any;
     expect(data.graph.id).toBe('mem-1');
     expect(data.canWriteMemory).toBe(false);
+  });
+});
+
+describe('memory layout payload slimming (portal#1429)', () => {
+  it('returns no treeEntries, graphViewData or usageByNode, and never asks for memory usage', async () => {
+    routeMock({ nodePages: [[node('n1')]], total: 1 });
+    const data = (await (await importLoad())(ev())) as Record<string, unknown>;
+    for (const key of ['treeEntries', 'graphViewData', 'usageByNode']) expect(data).not.toHaveProperty(key);
+    expect(mockRequest.mock.calls.map((c) => c[0])).not.toContain(MEMORY_USAGE_SUMMARY_QUERY);
+  });
+
+  it('loads the owning org through the slim selection, not ORGANIZATION_QUERY', async () => {
+    routeMock({});
+    const normal = mockRequest.getMockImplementation()!;
+    mockRequest.mockImplementation((q, v) => {
+      if (q === MEMORY_BY_ID_QUERY) return Promise.resolve({ memory: { id: 'mem-1', urn: 'org::mem', name: 'Mem', organizationId: 'org-1' } });
+      if (q === MEMORY_LAYOUT_ORG_QUERY) return Promise.resolve({ organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:o', members: [] } });
+      return normal(q, v);
+    });
+    const data = (await (await importLoad())(ev())) as { org: { id: string } | null };
+    const queries = mockRequest.mock.calls.map((c) => c[0]);
+    expect(queries).toContain(MEMORY_LAYOUT_ORG_QUERY);
+    expect(queries).not.toContain(ORGANIZATION_QUERY);
+    expect(data.org?.id).toBe('org-1');
+  });
+
+  it('the slim org document selects none of the list resolvers no memory route reads', () => {
+    for (const field of ['memories', 'agents', 'subscriptions', 'exchangeConnections']) {
+      expect(MEMORY_LAYOUT_ORG_QUERY).not.toMatch(new RegExp(`\\b${field}\\b`));
+    }
+    // What the routes do read must stay selected.
+    for (const field of ['id', 'name', 'urn', 'members', 'role', 'user']) {
+      expect(MEMORY_LAYOUT_ORG_QUERY).toMatch(new RegExp(`\\b${field}\\b`));
+    }
   });
 });

@@ -43,7 +43,7 @@ export function includeRefusalOf(e: unknown): IncludeRefusal | null {
   if (typeof code !== 'string' || !(INCLUDE_REFUSAL_CODES as readonly string[]).includes(code)) return null;
   return {
     code: code as IncludeRefusalCode,
-    message: extractGqlError(e, ''),
+    message: extractGqlError(e, '', INCLUDE_REFUSAL_CODES),
     tag: typeof ext?.tag === 'string' ? ext.tag : null,
   };
 }

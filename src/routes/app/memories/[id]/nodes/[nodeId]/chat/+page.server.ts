@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       parent().catch((err) => {
         console.error('[chat-page] parent() failed:', err);
         // Return minimal safe structure if parent fails
-        return { graphNodes: [], graph: null, org: null, treeEntries: [], graphViewData: null, usageByNode: {} };
+        return { graphNodes: [], graph: null, org: null };
       }),
       gqlClient(locals.token).request<{ node: MemoryNode | null }>(
         NODE_BY_ID_QUERY, { ref: params.nodeId },

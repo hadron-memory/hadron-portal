@@ -3,6 +3,7 @@ import {
   AGENT_CHAT_KEY,
   TEAM_CHAT_LOC,
   buildAppChatList,
+  withRegisteredChannels,
   chatFullViewFromParams,
   resolveSelectedChat,
   sortChatMessages,
@@ -180,4 +181,32 @@ describe('withChatView', () => {
     withChatView(base, true);
     expect(base.searchParams.has('view')).toBe(false);
   });
+});
+
+
+describe('registered Channels (#1033)', () => {
+  it('uses server identities, retains unambiguous loc links, and does not duplicate the default team', () => {
+    const channels = [
+      { id: 'team', name: 'Team', loc: 'chats:team', chatRootUrn: null, memoryId: 'm1' },
+      { id: 'pair', name: 'Ada & Fiona', loc: 'chats:ada-fiona', chatRootUrn: 'hrn:node:acme.com:shared:chats:ada-fiona', memoryId: 'm1' },
+    ];
+    const list = withRegisteredChannels(buildAppChatList([root('chats:ada-fiona', 'Ada & Fiona', 'm1')], { hasAgentChat: false }), channels, 'team');
+    expect(list).toHaveLength(2);
+    expect(resolveSelectedChat(list, 'chats:ada-fiona').selected?.channelId).toBe('pair');
+    expect(resolveSelectedChat(list, channels[1].chatRootUrn).selected?.channelId).toBe('pair');
+  });
+  it('does not alias two memories channels with the same loc to one arbitrary target', () => {
+    const list = withRegisteredChannels(buildAppChatList([], { hasAgentChat: false }), ['one', 'two'].map(id => ({ id, name: 'Same', loc: 'chats:pair', chatRootUrn: null, memoryId: id })));
+    expect(resolveSelectedChat(list, 'chats:pair').requestedMissing).toBe(true);
+    expect(resolveSelectedChat(list, 'one').selected?.channelId).toBe('one');
+  });
+});
+
+
+it('keeps registered Channels usable in the selector when their host memory record is concealed', () => {
+  const channels = [{ id: 'private-channel', name: 'Room', loc: 'chats:room', chatRootUrn: null, memoryId: 'm1', memory: null }];
+  const list = withRegisteredChannels(buildAppChatList([root('chats:room', 'Room', 'm1')], { hasAgentChat: false }), channels);
+  expect(list.filter(c => c.key === 'chats:room')).toHaveLength(0);
+  expect(resolveSelectedChat(list, 'private-channel').selected?.channelId).toBe('private-channel');
+  expect(resolveSelectedChat(list, 'private-channel').selected?.memoryId).toBe('m1');
 });

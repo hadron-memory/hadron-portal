@@ -32,6 +32,8 @@ describe('Last changed meaning (#1219)', () => {
   it('explains the live update and saved snapshot clocks, only where the column is offered', () => {
     const explanation = 'Last changed is when the node was last updated. Revisions show when snapshots were saved; these times can differ.';
     expect(render(NodeList, { props: { nodes, showColumns: true, columnData } }).body).toContain(explanation);
+    const column = tableOptions.columns.find((c: any) => c.id === 'updatedAt');
+    expect(column.header).toBe('Last changed');
     expect(render(NodeList, { props: { nodes } }).body).not.toContain(explanation);
   });
 
@@ -40,7 +42,9 @@ describe('Last changed meaning (#1219)', () => {
     for (const instant of updates) expect(body).toContain(new Date(instant).toLocaleString());
     expect(body).not.toContain(new Date(nodes[0].createdAt).toLocaleString());
     expect(body).not.toContain(new Date(nodes[0].revisions[0].createdAt).toLocaleString());
-    if (process.env.TZ === 'America/Los_Angeles') {
+    if (process.env.NODELIST_TIMEZONE_BOUNDARY === '1') {
+      // The isolated child must actually start in the requested zone.
+      expect(process.env.TZ).toBe('America/Los_Angeles');
       // Beta is Oct 21 UTC but Oct 20 locally: prove this run crosses midnight.
       expect(new Date(updates[1]).getDate()).toBe(20);
       expect(new Date(updates[1]).getUTCDate()).toBe(21);

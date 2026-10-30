@@ -1,5 +1,11 @@
+import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
+import { withRegisteredChannels } from '$lib/app-chats';
+
+import { createMemory, readAppMemories, canCreateAppMemory } from './app-memories';
+import { writeCustomisation } from '$lib/server/install-customisation';
 import { deleteWorkerSchema } from './schema';
 import type { DeleteWorkerResult } from './delete-worker';
+
 import { fail, error, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -13,7 +19,7 @@ import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
 import { loadAppTeamRoster } from '$lib/server/app-team-roster';
 import { fetchAllItems } from '$lib/server/paginate';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlError, extractGqlErrorCode, gqlErrorBody } from '$lib/server/gqlError';
 import { loadOrgDetail } from '$lib/server/org-detail';
 import { mergeInstallableAgents, type OrgAgentPool } from '$lib/server/installable-agents';
 import { t } from '$lib/i18n/t';
@@ -34,6 +40,7 @@ import {
   REVOKE_APP_KEY_MUTATION,
   DELETE_APP_MUTATION,
   APP_NODES_QUERY,
+  APP_CHANNELS_QUERY,
   AI_SERVICE_CONFIGS_QUERY,
   RESOLVE_AI_SERVICE_CONFIGS_QUERY,
   WORKERS_QUERY,
@@ -55,7 +62,8 @@ import {
   chatFullViewFromParams,
   resolveSelectedChat,
 } from '$lib/app-chats';
-import { loadTeamChatTail } from '$lib/server/team-chat';
+import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
+import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
 import { loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
 import {
@@ -80,6 +88,7 @@ import { loadAppKeyScopes } from '$lib/server/tickers';
 import { loadAppKeys } from '$lib/server/app-keys';
 import type { Actions, PageServerLoad } from './$types';
 import {
+  createAppMemorySchema,
   addAgentSchema,
   appSettingsSchema,
   castWorkerSchema,
@@ -93,6 +102,7 @@ import {
   updateAppAgentToolsSchema,
 } from './schema';
 import { isCapped } from '$lib/server/capped';
+import { loadLiveStops } from '$lib/server/stop-signals';
 import type { ReleaseWorkerMessage } from './schema';
 
 // appNodes and the chat-root read take a limit but have no continuation
@@ -377,6 +387,10 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
     'app.staff.error.agent-ambiguous',
     'Several installed agents match that role. Pick an agent explicitly.',
   ),
+  WORKER_ROLE_OVERRIDE_REFUSED: () => t(
+    'app.staff.error.role-override-refused',
+    'A worker’s role comes from its agent. Reload this page and choose the agent for the role you need.',
+  ),
   // #760: WORKER_NAME_REQUIRED replaced WORKER_REGISTER_EXHAUSTED when
   // hadron-server#1050 removed the cast-list register. The old code can no
   // longer fire — there is no register to exhaust — and the new one had no
@@ -468,6 +482,8 @@ const WORKLOG_PAGE_SIZE = 200;
 // 100, that nothing kept in step is the drift this module's own TEAM_CHAT_LOC
 // comment warns about.
 
+const APP_CONCEALED_REFUSALS: readonly string[] = ['FORBIDDEN', 'NOT_FOUND', 'APP_NOT_FOUND', 'UNAUTHENTICATED', 'BAD_USER_INPUT'];
+
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   // #785: this load no longer carries the team chat's refresh. The poll reads
   // `team-chat/+server.ts` directly, because a background tick must not be able
@@ -494,6 +510,16 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // URL state so the page reads it once at init, like `initialTab`; toggling
   // it afterwards is `replaceState`, not a navigation.
   const initialChatFullView = chatFullViewFromParams(url.searchParams);
+  // #1137: the team chat's team filter, `?team=<headRef>` or `?team=untagged`.
+  // Read here with the other URL state and applied by the SERVER on the tail
+  // read below. A malformed value is NOT the unfiltered thread: the chat reads
+  // nothing and says the filter is invalid (`teamFilterInvalid`).
+  const teamParam = parseTeamParam(url.searchParams.get('team'));
+  const teamFilter = teamParam.ok ? teamParam.filter : NO_TEAM_FILTER;
+  // The server's typed refusal of the head, when it gave one. Set from the tail
+  // read's catch so the chat can show the server's own text instead of the
+  // generic load error.
+  let teamChatRefusal: { code: string; message: string } | null = null;
   // #648: canonical org-optional App detail. No requireNonConsumer — this
   // resolves BOTH org-owned apps (member-gated) and user-owned (org-less) apps
   // (owner-gated) through one owner-accessible path, exactly like /app/agents/[id]
@@ -507,13 +533,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         // present. A non-critical NULLABLE field erroring (e.g. installedAgentUrn,
         // whose composeInstalledAgentUrn throws on a malformed app/agent urn)
         // must not 404 the whole page — salvage the app from the partial
-        // response so it stays viewable/editable. A genuinely missing app (no
-        // data) still falls through to the 404 below. Only a GraphQL error
+        // response so it stays viewable/editable. Only a clean absence or the existing explicit
+        // absence/refusal codes fall through to the 404 below. A null App
+        // accompanied by a generic/unknown fault remains a 500. Only a GraphQL error
         // carries `response`; rethrow transport/network errors so they surface
         // as a 500, not a misleading 404.
         if (e && typeof e === 'object' && 'response' in e) {
           const partial = (e as { response?: { data?: { app?: App | null } } }).response?.data;
-          return { app: partial?.app ?? null };
+          if (partial?.app) return { app: partial.app };
+          const code = extractGqlErrorCode(e);
+          if (!APP_CONCEALED_REFUSALS.includes(code ?? '')) throw error(500, gqlErrorBody(e, t('app.load-failed', 'Could not load App.')));
+          return { app: null };
         }
         throw e;
       }),
@@ -641,7 +671,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster, bootPointers] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, teamRoster, bootPointers, liveStops] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -680,7 +710,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // Coerced to null (never an empty page) on failure, for the same reason as
     // the staff fetch above: "couldn't load the team chat" and "the team chat
     // is empty" are different statements (hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
-    loadTeamChatTail(client, params.appId).catch((e) => {
+    // #1137: an invalid `?team=` reads nothing at all — never the unfiltered
+    // thread under a filter the reader believes is on.
+    (teamParam.ok ? loadTeamChatTail(client, params.appId, teamFilter) : Promise.resolve(null)).catch((e) => {
+      teamChatRefusal = teamFilter.kind === 'team' ? teamChatRefusalOf(e) : null;
       console.warn(`[team-chat] transcript fetch failed for ${params.appId}:`, e);
       return null;
     }),
@@ -744,6 +777,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     loadAppTeamRoster(client, app.id),
     // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
     readAppPointers(client, app.id),
+    // portal#1139: the stops in effect, for the banner, in its OWN classified request
+    // (never throws): a stop read that fails must not take the App page with it.
+    loadLiveStops(client, app.id),
   ]);
   const [appSettingsForm, addAgentForm, createKeyForm, removeAgentForm, updateAgentToolsForm, revokeKeyForm, deleteAppForm, castWorkerForm, retireWorkerForm, releaseWorkerForm, addMemberForm, ensureMemberForm, removeMemberForm] = await Promise.all([
     superValidate<AppSettingsForm>(
@@ -753,7 +789,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         appType: appData.app.appType,
         role: appData.app.role,
         description: appData.app.description ?? '',
-        systemPrompt: appData.app.systemPrompt ?? '',
+
         createUserPermission: appData.app.createUserPermission,
         identifyUserMethod: appData.app.identifyUserMethod,
         sessionTimeoutSeconds: String(appData.app.sessionTimeoutSeconds),
@@ -811,23 +847,23 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { errors: false },
     ),
     // #1005: userId is empty until the operator picks someone via the search
-    // modal; the role starts at the linked Agent's first member role.
+    // modal; the role starts at the first role the App offers (App.availableMemberRoles).
     superValidate(
-      { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
+      { userId: '', role: appData.app.availableMemberRoles?.[0] ?? '' },
       addAppMemberFormAdapter,
-      { errors: false },
+      { errors: false, id: 'addAppMember' },
     ),
     superValidate(
-      { userId: '', role: appData.app.agent?.installationPolicy?.memberRoles?.[0] ?? '' },
+      { userId: '', role: appData.app.availableMemberRoles?.[0] ?? '' },
       ensureAppMemberFormAdapter,
-      { errors: false },
+      { errors: false, id: 'ensureAppMember' },
     ),
     superValidate({ userId: '' }, removeAppMemberFormAdapter, { errors: false }),
   ]);
   const postTeamChatMessageForm = await superValidate<PostTeamChatMessageForm>(
     {},
     postTeamChatMessageFormAdapter,
-    { errors: false },
+    { errors: false, id: `team:${params.appId}` },
   );
 
   // #744 — the App's chats as one browsable set.
@@ -835,20 +871,25 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // The agent chat is offered only when the App actually has one, matching the
   // condition the retired `chat` tab used, so an App with no linked agent does
   // not gain an entry that cannot render.
-  const appChats = buildAppChatList(chatRoots ?? [], { hasAgentChat: !!app.agentId });
+  const registeredChannels = await fetchAllItems<import('$lib/types').Channel>(client, APP_CHANNELS_QUERY, 'channels', { appRef: params.appId })
+    .catch(() => null);
+  const appChats = withRegisteredChannels(
+    buildAppChatList(chatRoots ?? [], { hasAgentChat: !!app.agentId }), registeredChannels ?? [],
+    (app as typeof app & { defaultChannel?: { id: string } | null }).defaultChannel?.id,
+  );
   const { selected: selectedChat, requestedMissing: chatNotFound } = resolveSelectedChat(
     appChats,
     requestedChat,
   );
 
-  // Only an `other` chat needs loading here: the team chat came through its own
-  // typed operation above (which returns the author envelope a node read
-  // cannot), and the agent chat is fetched by its own component.
-  //
-  // Read-only by necessity, not by choice: the write surfaces are
-  // `createTeamChatMessage` (team chat) and `sendChatMessage` (agent chat).
-  // There is no operation to post into an arbitrary App chat, so the tab says
-  // so rather than rendering a composer that cannot work.
+  // Registered Channels use the addressed operation and the same envelope as
+  // the default team chat. Unregistered old roots retain their node transcript;
+  // this read never creates a Channel or routes a post to the default thread.
+  const selectedChannelMessages = selectedChat?.channelId
+    ? await readChannelPage(client, params.appId, selectedChat.channelId, {}).catch(() => null) : null;
+  const postChannelMessageForm = selectedChat?.channelId
+    ? await superValidate({ channelRef: selectedChat.channelId }, postTeamChatMessageFormAdapter,
+      { errors: false, id: `channel:${selectedChat.channelId}` }) : null;
   const selectedChatMessages =
     selectedChat?.kind === 'other' && selectedChat.memoryId
       ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key)
@@ -858,7 +899,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
           })
       : null;
 
+  const [appMemories, createMemoryForm] = await Promise.all([
+    readAppMemories(client, app.organizationId, app.id),
+    superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
+  ]);
+
   return {
+    appMemories,
+    createMemoryForm,
+    canCreateMemory: canCreateAppMemory(org, locals.user?.id ?? null),
     app,
     org,
     availableAgents,
@@ -879,6 +928,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     teamChatMessages: teamChat?.items ?? [],
     teamChatTotal: teamChat?.total ?? 0,
     teamChatError: teamChat === null,
+    // #1137: what the transcript was read UNDER, so the thread and its poll
+    // carry the same filter, plus why a filtered read produced nothing.
+    teamFilter,
+    teamFilterInvalid: !teamParam.ok,
+    teamChatRefusal,
     // #733: the worklog page, plus the filters that produced it so the tab can
     // render its own controls from the URL rather than keeping a second copy of
     // that state in the component.
@@ -889,9 +943,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // chat is neither the team chat nor the agent chat. `chatsError` is the
     // discovery failing — distinct from an App that genuinely has one chat.
     appChats,
-    chatsError: chatRoots === null,
+    chatsError: chatRoots === null || registeredChannels === null,
     chatRootsShown: chatRoots?.length ?? 0,
     chatsCapped: chatRoots !== null && isCapped(chatRoots?.length ?? 0, APP_CHAT_ROOTS_LIMIT),
+    selectedChannelId: selectedChat?.channelId ?? null,
+    selectedChannelMessages: selectedChannelMessages?.items ?? [],
+    selectedChannelTotal: selectedChannelMessages?.total ?? 0,
+    selectedChannelError: !!selectedChat?.channelId && selectedChannelMessages === null,
+    postChannelMessageForm,
     selectedChatKey: selectedChat?.key ?? null,
     selectedChatMessages: selectedChatMessages?.messages ?? [],
     // #793 (@copilot on PR #797): gate on the KIND. `selectedChatMessages` is
@@ -921,6 +980,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
     bootPointers,
+    liveStops,
     // The App half of a pointer result's key (the action's own params.appId).
     bootPointerAppKey: params.appId,
     keyScopes,
@@ -947,6 +1007,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 };
 
 export const actions: Actions = {
+  createMemory,
+  createCustomisation: async ({ request, params, locals }) =>
+    writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),
+  saveCustomisation: async ({ request, params, locals }) =>
+    writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), false),
   // #1005: the Human Team tab's actions (see member-actions.ts).
   addMember,
   ensureMember,
@@ -977,7 +1042,7 @@ export const actions: Actions = {
         appType: form.data.appType,
         role: form.data.role,
         description: form.data.description || null,
-        systemPrompt: form.data.systemPrompt || null,
+
         createUserPermission: form.data.createUserPermission,
         identifyUserMethod: form.data.identifyUserMethod,
         sessionTimeoutSeconds: Number(form.data.sessionTimeoutSeconds),
@@ -1077,9 +1142,7 @@ export const actions: Actions = {
   // register, so there is no "let the server choose" path left and the schema
   // rejects a blank one before we get here.
   //
-  // `role` is still optional and still must be sent as UNDEFINED when blank:
-  // an omitted role inherits the agent's personaRole, while '' would be an
-  // explicit (and invalid) role — a different request entirely.
+  // R222: role comes from the selected Agent, never from a posted override.
   castWorker: async ({ request, params, locals }) => {
     const form = await superValidate<CastWorkerForm>(
       await request.formData(),
@@ -1096,8 +1159,7 @@ export const actions: Actions = {
         // has nothing to express — and leaving it would quietly turn a
         // validation gap into a nameless cast the server refuses.
         name: form.data.name,
-        role: form.data.role || undefined,
-        promptOverride: form.data.promptOverride || undefined,
+
       });
       return message(form, {
         type: 'success',
@@ -1139,6 +1201,7 @@ export const actions: Actions = {
     const form = await superValidate<PostTeamChatMessageForm>(
       await request.formData(),
       postTeamChatMessageFormAdapter,
+      { id: `team:${params.appId}` },
     );
     if (!form.valid) return fail(400, { form });
 
@@ -1175,6 +1238,22 @@ export const actions: Actions = {
         },
         { status: 500 },
       );
+    }
+  },
+
+  postChannelMessage: async ({ request, params, locals }) => {
+    const input = await request.formData();
+    const channelRef = String(input.get('channelRef') ?? '');
+    const form = await superValidate(input, postTeamChatMessageFormAdapter, { id: `channel:${channelRef}` });
+    if (!form.valid) return fail(400, { form });
+    if (!form.data.channelRef) return message(form, { type: 'error', text: t('app.channel.choose', 'Choose a chat before posting.') }, { status: 400 });
+    const reply = Number(form.data.replyToSeq);
+    try {
+      await postToChannel(gqlClient(locals.token), params.appId, form.data.channelRef, form.data.body,
+        Number.isSafeInteger(reply) && reply > 0 ? reply : undefined);
+      return message(form, { type: 'success', text: t('app.channel.post.success', 'Posted to the chat.') });
+    } catch {
+      return message(form, { type: 'error', text: t('app.channel.post.failed', 'Could not post to this chat. Your message has been kept; check your access and try again.') }, { status: 500 });
     }
   },
 
@@ -1215,6 +1294,7 @@ export const actions: Actions = {
       return fail(forbidden ? 403 : 500, { pauseResult: { ok: false as const, workerId, message: forbidden
         ? t('app.staff.pause.error.forbidden', 'You can’t pause or unpause this worker. Only the worker, its holder or an App manager can.')
         : t('app.staff.pause.error.failed', 'Could not confirm the change. Check the worker’s status and try again.') } });
+
     }
   },
 

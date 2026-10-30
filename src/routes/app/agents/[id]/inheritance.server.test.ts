@@ -52,3 +52,9 @@ it('preserves an index-node refusal without changing the other pointer', async (
   expect(result).toMatchObject({ status: 500, data: { form: { message: { text: 'NODE_NOT_FOUND: index unavailable' } } } });
   expect(request).toHaveBeenLastCalledWith(SET_AGENT_INDEX_REFS_MUTATION, { ref: 'child', processesIndexRef: 'hrn:node:example.com:system:processes' });
 });
+
+it.each(['licensed', 'public'])('#1278 saves a granted %s parent through setAgentBase', async (id) => {
+  const baseRef = `hrn:agent:other.example:${id}`;
+  await actions.setBase(event({ _kind: 'setAgentBase', operation: 'set', baseRef }));
+  expect(request).toHaveBeenLastCalledWith(SET_AGENT_BASE_MUTATION, { ref: 'child', baseRef });
+});

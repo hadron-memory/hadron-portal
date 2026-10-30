@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import type { GraphQLClient } from 'graphql-request';
 import { t } from '$lib/i18n/t';
 import { pointerRefusalLead, type AppPointers, type PointerOwner, type PointerRead, type PointerRefusal } from '$lib/boot-prompt-pointer';
-import { extractGqlErrorCode } from './gqlError';
+import { extractGqlError, extractGqlErrorCode } from './gqlError';
 import { APP_BOOT_POINTERS_QUERY, SELF_CAN_MANAGE_QUERY } from './queries';
 
 /**
@@ -83,10 +83,9 @@ export function pointerNodeRef(fd: FormData): { nodeRef: string | null } | { inv
  */
 export function pointerRefusal(e: unknown, owner: PointerOwner): PointerRefusal {
   const code = extractGqlErrorCode(e);
-  const serverMessage = (e as { response?: { errors?: { message?: unknown }[] } } | null)?.response?.errors?.[0]?.message;
-  const message = typeof serverMessage === 'string' && serverMessage
-    ? serverMessage
-    : t('boot-pointer.refusal.unknown', 'The pointer couldn’t be changed. Reload the page and try again.');
+  const message = extractGqlError(e,
+    t('boot-pointer.refusal.unknown', 'The pointer couldn’t be changed. Reload the page and try again.'),
+    code && pointerRefusalLead(code, owner) !== null ? [code] : [], { transport: 'fallback' });
   return { code, lead: pointerRefusalLead(code, owner), message };
 }
 

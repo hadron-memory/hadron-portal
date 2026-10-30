@@ -11,14 +11,18 @@
     taskStateLabel,
     waitingOnSubtasksLabel,
   } from '$lib/agent-tasks/status';
+  import { t } from '$lib/i18n/t';
   import type { AgentTaskRow } from '$lib/agent-tasks/types';
 
-  let { task }: { task: Pick<AgentTaskRow, 'status' | 'queued' | 'waitingOnChildren'> } = $props();
+  let { task }: { task: Pick<AgentTaskRow, 'status' | 'queued' | 'waitingOnChildren' | 'blocked'> } = $props();
   const state = $derived(taskDisplayState(task));
 </script>
 
 <span class="inline-flex flex-wrap items-center gap-1">
   <span class={taskStateChipClass(state)} data-state={state}>{taskStateLabel(state, task.status)}</span>
+  {#if task.blocked === true}
+    <span class={WAITING_CHIP_CLASS}>{t('app.tasks.blocked', 'Blocked')}</span>
+  {/if}
   {#if task.waitingOnChildren && task.status === 'STARTED'}
     <span class={WAITING_CHIP_CLASS}>{waitingOnSubtasksLabel()}</span>
   {/if}

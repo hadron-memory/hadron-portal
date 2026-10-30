@@ -15,6 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
@@ -70,6 +71,8 @@ async function mountPage(node = NODE) {
     url: new URL('http://localhost/app/memories/mem-A/nodes/leaf-pk'),
     parent: vi.fn().mockResolvedValue(PARENT),
   } as never)) as Record<string, unknown>;
+  // #1320: the shared guard, on the real loader's result.
+  expectDistinctFormIds(loaded, 4);
   const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
