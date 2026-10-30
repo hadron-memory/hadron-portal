@@ -877,6 +877,7 @@ export const APP_QUERY = /* GraphQL */ `
       # a server that hasn't picked up spec-021-US1 yet without
       # breaking unrelated app queries.
       installedAgentUrn
+      defaultChannel { id }
     }
   }
 `;
@@ -1503,6 +1504,27 @@ export const NODE_REVISIONS_QUERY = /* GraphQL */ `
       revLabel
       # #620: which node fields the edit changed (empty on legacy rows).
       changes
+      createdAt
+    }
+  }
+`;
+
+// portal#1355 (server#2562, #2517): the audit entries a HARD delete left on
+// this node when it removed edges the node held to the deleted target
+// (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). A separate record from NodeRevision — revisions stay
+// snapshots of the node's own fields — read through the same gate as
+// nodeRevisions. edgeLoc/targetLoc come back null when the deleted target's
+// memory is not one the viewer can read.
+export const NODE_EDGE_REMOVALS_QUERY = /* GraphQL */ `
+  query NodeEdgeRemovals($nodeRef: ID!, $limit: Int) {
+    nodeEdgeRemovals(nodeRef: $nodeRef, limit: $limit) {
+      id
+      edgeLoc
+      edgeName
+      targetId
+      targetLoc
+      reason
+      removedBy
       createdAt
     }
   }
@@ -2666,8 +2688,29 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
   # is the point: an offset is an index into a list whose length changes under a
   # reader while workers post, so it skips or duplicates mid-scroll. seq is
   # atomic and unique per chat, so the cursor is stable.
-  query TeamChatMessages($appRef: ID!, $sinceSeq: Int, $beforeSeq: Int, $limit: Int, $offset: Int) {
-    teamChatMessages(appRef: $appRef, sinceSeq: $sinceSeq, beforeSeq: $beforeSeq, limit: $limit, offset: $offset) {
+  #
+  # #1137: teamHeadRef / untagged are the S3 team filter (server#2019),
+  # mutually exclusive and applied SERVER-SIDE before paging and total. Both
+  # are omitted for the unfiltered thread. teamTags is the stored head
+  # identity per message — headId is the identity, label display only.
+  query TeamChatMessages(
+    $appRef: ID!
+    $sinceSeq: Int
+    $beforeSeq: Int
+    $limit: Int
+    $offset: Int
+    $teamHeadRef: ID
+    $untagged: Boolean
+  ) {
+    teamChatMessages(
+      appRef: $appRef
+      sinceSeq: $sinceSeq
+      beforeSeq: $beforeSeq
+      limit: $limit
+      offset: $offset
+      teamHeadRef: $teamHeadRef
+      untagged: $untagged
+    ) {
       items {
         nodeId
         seq
@@ -2684,6 +2727,10 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
         # when it cannot be emitted in grammar v2; the thread then shows no
         # message chip.
         urn
+        teamTags {
+          headId
+          label
+        }
       }
       total
     }
@@ -5017,5 +5064,49 @@ export const TASK_DEPENDENCIES_QUERY = /* GraphQL */ `
       blockedBy(limit: 200, offset: $offset) { items { id appId title handle status } hasMore }
       blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore }
     }
+  }
+`;
+
+// #1033: arbitrary registered Channels use the same envelope and stable seq cursors.
+export const CHANNEL_MESSAGES_QUERY = /* GraphQL */ `
+  # #793: beforeSeq (server #1116) is the BACKWARD mirror of sinceSeq — only
+  # messages with seq strictly less than it are considered, and the NEWEST of
+  # those are returned. The server IGNORES offset when beforeSeq is given, which
+  # is the point: an offset is an index into a list whose length changes under a
+  # reader while workers post, so it skips or duplicates mid-scroll. seq is
+  # atomic and unique per chat, so the cursor is stable.
+  query ChannelMessages($channelRef: ID!, $sinceSeq: Int, $beforeSeq: Int, $limit: Int, $offset: Int) {
+    channelMessages(channelRef: $channelRef, sinceSeq: $sinceSeq, beforeSeq: $beforeSeq, limit: $limit, offset: $offset) {
+      items {
+        nodeId
+        seq
+        body
+        at
+        authorUserId
+        authorWorkerId
+        authorName
+        sessionId
+        replyToSeq
+        mentions
+        # #855 / server#1209: the message node's canonical URN, composed
+        # server-side since a message loc carries a random component. Null
+        # when it cannot be emitted in grammar v2; the thread then shows no
+        # message chip.
+        urn
+      }
+      total
+    }
+  }
+`;
+
+export const APP_CHAT_TARGET_QUERY = /* GraphQL */ `
+  query AppChatTarget($ref: ID!) { app(ref: $ref) { id } }
+`;
+export const CHANNEL_CHAT_TARGET_QUERY = /* GraphQL */ `
+  query ChannelChatTarget($ref: ID!) { channel(ref: $ref) { id memory { appId } } }
+`;
+export const CREATE_CHANNEL_MESSAGE_MUTATION = /* GraphQL */ `
+  mutation CreateChannelMessage($channelRef: ID!, $body: String!, $replyToSeq: Int) {
+    createChannelMessage(channelRef: $channelRef, body: $body, replyToSeq: $replyToSeq) { nodeId seq body at authorName }
   }
 `;

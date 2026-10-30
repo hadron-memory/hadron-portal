@@ -7,6 +7,7 @@ import {
   TEAM_CHAT_MESSAGES_QUERY,
 } from '$lib/server/queries';
 import { TEAM_CHAT_LOC } from '$lib/app-chats';
+import { NO_TEAM_FILTER, filterVariablesOf, type TeamChatFilter } from '$lib/team-chat-filter';
 import type { MemoryNode, TeamChatMessage } from '$lib/types';
 
 // A chat node holds a message thread one level down, under `<chat.loc>:messages:`.
@@ -550,11 +551,12 @@ const TEAM_CHAT_TAIL_CURSOR = 2147483647;
 export async function loadTeamChatTail(
   client: GraphQLClient,
   appRef: string,
+  filter: TeamChatFilter = NO_TEAM_FILTER,
 ): Promise<{ items: TeamChatMessage[]; total: number }> {
   return client
     .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
       TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, beforeSeq: TEAM_CHAT_TAIL_CURSOR, limit: TEAM_CHAT_PAGE_SIZE },
+      { appRef, beforeSeq: TEAM_CHAT_TAIL_CURSOR, limit: TEAM_CHAT_PAGE_SIZE, ...filterVariablesOf(filter) },
     )
     .then((r) => r.teamChatMessages);
 }
@@ -581,11 +583,12 @@ export async function loadTeamChatOlder(
   appRef: string,
   beforeSeq: number,
   limit = TEAM_CHAT_PAGE_SIZE,
+  filter: TeamChatFilter = NO_TEAM_FILTER,
 ): Promise<{ items: TeamChatMessage[]; total: number }> {
   return client
     .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
       TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, beforeSeq, limit },
+      { appRef, beforeSeq, limit, ...filterVariablesOf(filter) },
     )
     .then((r) => r.teamChatMessages);
 }
@@ -600,11 +603,35 @@ export async function loadTeamChatNewer(
   client: GraphQLClient,
   appRef: string,
   sinceSeq: number,
+  filter: TeamChatFilter = NO_TEAM_FILTER,
 ): Promise<{ items: TeamChatMessage[]; total: number }> {
   return client
     .request<{ teamChatMessages: { items: TeamChatMessage[]; total: number } }>(
       TEAM_CHAT_MESSAGES_QUERY,
-      { appRef, sinceSeq, limit: TEAM_CHAT_PAGE_SIZE },
+      { appRef, sinceSeq, limit: TEAM_CHAT_PAGE_SIZE, ...filterVariablesOf(filter) },
     )
     .then((r) => r.teamChatMessages);
+}
+
+/**
+ * The server's typed refusal of a team filter (#1137), or null for any other
+ * failure.
+ *
+ * `TEAM_CHAT_TEAM_HEAD_INVALID` is the ONE shape the server answers an unknown,
+ * retired-and-unavailable or foreign head with, deliberately non-oracular: its
+ * fixed text does not say which. The portal shows that text as-is and never
+ * retries the read unfiltered (a fallback would show more than the reader asked
+ * for under a filter they believe is on), and adds no candidate list of its own.
+ * Any other failure stays a degraded read, not a refusal the reader is told
+ * about (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+ */
+export const TEAM_CHAT_HEAD_REFUSAL_CODE = 'TEAM_CHAT_TEAM_HEAD_INVALID';
+
+export function teamChatRefusalOf(e: unknown): { code: string; message: string } | null {
+  const errors = (e as { response?: { errors?: Array<{ message?: unknown; extensions?: { code?: unknown } }> } })
+    ?.response?.errors;
+  const first = Array.isArray(errors) ? errors[0] : undefined;
+  if (first?.extensions?.code !== TEAM_CHAT_HEAD_REFUSAL_CODE) return null;
+  if (typeof first.message !== 'string' || first.message === '') return null;
+  return { code: TEAM_CHAT_HEAD_REFUSAL_CODE, message: first.message };
 }

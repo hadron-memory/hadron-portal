@@ -5,7 +5,7 @@
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
-  import { afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+  import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
@@ -17,7 +17,29 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
+  import type { TranscriptView } from '$lib/team-chat-refresh';
+  import ChannelChatThread from '$lib/components/ChannelChatThread.svelte';
   import { createRosterRefreshers, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
+  import { NO_TEAM_FILTER, filterKeyOf, teamChatReadUrl, withTeamFilter, type TeamChatFilter } from '$lib/team-chat-filter';
+
+  let channelPostBusy = $state(false);
+  // Keep the submitting thread mounted until its result clears/keeps its own
+  // draft. A navigation mid-post would make that outcome ambiguous.
+  beforeNavigate((navigation) => { if (channelPostBusy) navigation.cancel(); });
+  let channelViews = $state<Record<string, TranscriptView>>({});
+  let channelDrafts = $state<Record<string, { body: string; replyToSeq?: string }>>({});
+  let chatSwitchBusy = $state(false);
+  let chatSwitchFailed = $state(false);
+  async function selectChat(key: string) {
+    const next = new URL(window.location.href);
+    next.searchParams.set('tab', 'chats');
+    next.searchParams.set('chat', key);
+    chatSwitchBusy = true;
+    chatSwitchFailed = false;
+    try { await goto(next, { noScroll: true }); }
+    catch { chatSwitchFailed = true; }
+    finally { chatSwitchBusy = false; }
+  }
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating
   // this page's load. The load is a six-query parallel fetch whose failure
@@ -31,11 +53,19 @@
   // one. Measured under #754: one refetch in 20s where three were due, because
   // the 8s clock kept resetting. A prop that changes identity every render is
   // not a callback, it is a dependency.
+  // #1137: every read carries the team filter this page was loaded with
+  // (`data.teamFilter`, from `?team=`), so the filter and the transcript it
+  // produced always travel together. A read that lands after the page moved to
+  // another filter or App is dropped by the thread's generation guard: `data`
+  // changes only together with the transcript props that guard watches.
+  // An invalid `?team=` reads NOTHING: the loader stored the unfiltered value
+  // next to `teamFilterInvalid`, so a read here would broaden the request behind
+  // the alert. Leaving it takes an explicit All messages navigation.
   const refreshTeamChat = async (sinceSeq?: number) => {
-    const cursor = sinceSeq === undefined ? '' : `?sinceSeq=${sinceSeq}`;
-    const res = await fetch(`/app/apps/${app.id}/team-chat${cursor}`);
+    if (data.teamFilterInvalid) return null;
+    const res = await fetch(teamChatReadUrl(app.id, { sinceSeq }, data.teamFilter));
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
-    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
     // The initial page can contain workers whose roster lookup failed. Later
     // forward pages may be empty, so keep seeding those bounded first-page
     // authors while the refresher retries its pending IDs.
@@ -46,12 +76,22 @@
   // null means "the fetch failed, retry on the next scroll", which the thread
   // keeps distinct from an empty page meaning "start of the conversation".
   const loadOlderTeamChat = async (beforeSeq: number) => {
-    const res = await fetch(`/app/apps/${app.id}/team-chat?beforeSeq=${beforeSeq}`);
+    if (data.teamFilterInvalid) return null;
+    const res = await fetch(teamChatReadUrl(app.id, { beforeSeq }, data.teamFilter));
     if (!res.ok) return null;
-    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
-    if (body.loadFailed) return null;
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
+    // A typed head refusal is an answer the thread must show; any other failure
+    // stays null so the next scroll retries.
+    if (body.loadFailed) return body.refusal ? { refusal: body.refusal } : null;
     void refreshRosterFor(body.items);
     return { items: body.items, total: body.total };
+  };
+  // #1137: choosing a filter is a NAVIGATION to `?team=`, not component state:
+  // the loader re-reads the tail under it (server-side), the cursors and loaded
+  // page reset with the new props, and the URL is linkable. `keepFocus` and
+  // `noScroll` leave the composer and its draft alone.
+  const selectTeamFilter = (next: TeamChatFilter) => {
+    void goto(withTeamFilter(new URL(window.location.href), next), { keepFocus: true, noScroll: true });
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
@@ -63,7 +103,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AppKey, TeamChatMessage, Worker } from '$lib/types';
+  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
@@ -818,6 +858,7 @@
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
   async function focusTab(id: TabId) {
+    if (channelPostBusy) return;
     activeTab = id;
     await tick();
     document.getElementById(`tab-${id}`)?.focus();
@@ -1593,7 +1634,7 @@
           aria-selected={activeTab === tab.id}
           aria-controls="panel-{tab.id}"
           tabindex={activeTab === tab.id ? 0 : -1}
-          onclick={() => activeTab = tab.id}
+          onclick={() => { if (!channelPostBusy) activeTab = tab.id; }}
           onkeydown={onTabKeydown}
           class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
             {activeTab === tab.id
@@ -1659,7 +1700,9 @@
        an answer you cannot link to is half an answer. It also means switching
        chats re-runs the loader, which is what fetches a 1:1 transcript. -->
   {#if activeTab === 'chats'}
-    <div id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    {#if chatSwitchBusy}<p role="status">{t('app.chats.opening', 'Opening chat…')}</p>{/if}
+    {#if chatSwitchFailed}<p role="status">{t('app.chats.open-failed', 'Could not open that chat. Your current conversation is still here.')}</p>{/if}
+    <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
       {#if data.chatsError}
         <!-- Discovery failed. NOT the same as "this App has one chat", so the
@@ -1674,19 +1717,16 @@
           )}
         </span>
       {/if}
-      {#each data.appChats ?? [] as entry (entry.key)}
-        <a
-          href="?tab=chats&chat={encodeURIComponent(entry.key)}"
-          data-sveltekit-noscroll
-          aria-current={entry.key === data.selectedChatKey ? 'page' : undefined}
-          class="rounded-lg border px-3 py-1.5 text-xs font-medium transition {entry.key ===
-          data.selectedChatKey
-            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-            : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
-        >
-          {entry.labelKey ? t(entry.labelKey, entry.label) : entry.label}
-        </a>
-      {/each}
+      <label for="app-chat-select" class="text-sm text-zinc-500">{t('app.chats.select', 'Chat')}</label>
+      <select id="app-chat-select" class="min-w-0 max-w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        disabled={channelPostBusy} value={data.selectedChatKey ?? ''} onchange={(e) => { const key = e.currentTarget.value; e.currentTarget.value = data.selectedChatKey ?? ''; void selectChat(key); }}>
+        {#each data.appChats ?? [] as entry (entry.key)}
+          <option value={entry.key}>{entry.labelKey ? t(entry.labelKey, entry.label) : entry.label}</option>
+        {/each}
+      </select>
+      {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
+        <Urn value={data.selectedChatKey} type="node" />
+      {/if}
       {#if data.chatsCapped}
         <CappedNotice shown={data.chatRootsShown ?? 0} what={t('capped.chats', 'chats')} />
       {/if}
@@ -1908,7 +1948,13 @@
            but minting new links that depend on a back-compat shim is how a
            shim stops being removable (Copilot on #759). -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+        {#key `${app.id}:${data.postTeamChatMessageForm.id}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
+          {@const teamStateKey = `${app.id}:team`}
+          {@const teamViewKey = `${teamStateKey}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
         <TeamChatThread
+          draft={channelDrafts[teamStateKey]} onDraftChange={(draft) => { channelDrafts[teamStateKey] = draft; }}
+          viewState={channelViews[teamViewKey]} onViewStateChange={(view) => { channelViews[teamViewKey] = view; }}
+          onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
           messages={data.teamChatMessages ?? []}
           total={data.teamChatTotal ?? 0}
           loadError={data.teamChatError ?? false}
@@ -1918,15 +1964,31 @@
           onRefresh={refreshTeamChat}
           onLoadOlder={loadOlderTeamChat}
           {workerUrns}
+          filter={data.teamFilter}
+          filterInvalid={data.teamFilterInvalid}
+          refusal={data.teamChatRefusal}
+          onSelectTeam={selectTeamFilter}
         />
+        {/key}
       </div>
     </div>
+    {:else if data.selectedChannelId && data.postChannelMessageForm}
+      {#key `${app.id}:${data.selectedChannelId}`}
+        {@const channelId = data.selectedChannelId}
+        {@const channelStateKey = `${app.id}:${channelId}`}
+        <div class="flex flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+          <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
+            total={data.selectedChannelTotal} loadError={data.selectedChannelError}
+            postForm={data.postChannelMessageForm} {form} {workerUrns}
+            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}&/postChannelMessage`}
+            onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
+            viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
+            draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />
+        </div>
+      {/key}
     {:else if data.selectedChatKey}
-      <!-- Any other chat root in the App's shared memory — a 1:1 between two
-           participants. READ-ONLY, and not by choice: the write surfaces are
-           `createTeamChatMessage` (team chat) and `sendChatMessage` (agent
-           chat), and there is no operation to post into an arbitrary App chat.
-           Rendering a composer that cannot work would be worse than saying so. -->
+      <!-- An old, unregistered chat root has no Channel identity. Keep its
+           existing readable transcript without inventing a post target. -->
       <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
         {#if data.selectedChatError}
           <p role="status" class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
