@@ -1,6 +1,6 @@
 /** portal#1099 — how a ticker's cadence, quiet hours and times read. */
 import { describe, expect, it } from 'vitest';
-import { cadenceText, daysText, reasonsSearchText, isKnownReason, noReasonsText, unrecognisedReasonText, parseQuietHours, quietHoursSummary, reasonHelp, reasonLabel, reasonsText, relativeTime, subscriptionSearchText, tickerSearchText, windowText } from './format';
+import { isWellFormedReasons, cadenceText, daysText, reasonsSearchText, isKnownReason, noReasonsText, unrecognisedReasonText, parseQuietHours, quietHoursSummary, reasonHelp, reasonLabel, reasonsText, relativeTime, subscriptionSearchText, tickerSearchText, windowText } from './format';
 
 describe('cadenceText', () => {
   it('uses the largest unit that divides the cadence', () => {
@@ -142,5 +142,22 @@ describe('ticker reasons (portal#1144)', () => {
     const tk = { name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['EVERY_TICK'] };
     expect(tickerSearchText(tk)).toContain('Every tick');
     expect(tickerSearchText({ ...tk, reasons: ['READ_TEAM_CHANNEL'] })).not.toContain('Every tick');
+  });
+  // portal#1341: well-formedness is a property of the list, never of the text it renders as.
+  it('isWellFormedReasons is true for an array of strings, empty included, and false otherwise', () => {
+    expect(isWellFormedReasons(['EVERY_TICK'])).toBe(true);
+    expect(isWellFormedReasons([])).toBe(true);
+    expect(isWellFormedReasons([null])).toBe(false);
+    expect(isWellFormedReasons(['EVERY_TICK', 3])).toBe(false);
+    expect(isWellFormedReasons(undefined)).toBe(false);
+    expect(isWellFormedReasons('EVERY_TICK')).toBe(false);
+  });
+  it('a real reason spelled like the unavailable text is a reason, not the malformed case', () => {
+    expect(isWellFormedReasons(['Reasons unavailable'])).toBe(true);
+    expect(reasonsText(['Reasons unavailable'])).toBe('Reasons unavailable');
+    // A well-formed unknown reason carries the unrecognised note in search; the malformed case does not.
+    expect(reasonsSearchText(['Reasons unavailable'])).toBe('Reasons unavailable (unrecognised)');
+    expect(tickerSearchText({ name: 'eng', urn: null, enabled: true, relevance: 'ALL', reasons: ['Reasons unavailable'] })).toContain('(unrecognised)');
+    expect(reasonsSearchText(['Reasons unavailable', 3])).toBe('Reasons unavailable');
   });
 });
