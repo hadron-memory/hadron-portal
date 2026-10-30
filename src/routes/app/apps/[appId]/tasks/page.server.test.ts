@@ -34,6 +34,37 @@ describe('board loader', () => {
     expect(request).toHaveBeenLastCalledWith(AGENT_TASKS_BOARD_QUERY, expect.objectContaining({ queued: true }));
   });
 
+  // portal#1427
+  it('reads overdue and tags from the URL and sends only those', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    const r = await loadBoard('?status=all&overdue=1&tags=ops,infra');
+    expect(r).toMatchObject({ overdue: true, tags: ['ops', 'infra'], overdueDropped: false });
+    expect(request).toHaveBeenLastCalledWith(AGENT_TASKS_BOARD_QUERY, expect.objectContaining({ overdue: true, tagsAll: ['ops', 'infra'] }));
+  });
+
+  it('sends neither argument when the URL sets neither', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    await loadBoard();
+    const vars = request.mock.calls.find((c) => c[0] === AGENT_TASKS_BOARD_QUERY)![1];
+    expect(vars).not.toHaveProperty('overdue');
+    expect(vars).not.toHaveProperty('tagsAll');
+  });
+
+  it('Overdue with Ended or Backlog is dropped, not sent, and the page is told', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    for (const status of ['ended', 'backlog']) {
+      request.mockClear();
+      const r = await loadBoard(`?status=${status}&overdue=1`);
+      expect(r).toMatchObject({ overdue: false, overdueDropped: true });
+      expect(request.mock.calls.find((c) => c[0] === AGENT_TASKS_BOARD_QUERY)![1]).not.toHaveProperty('overdue');
+    }
+  });
+
+  it('a blank tags value is canonicalized away, like blank text', async () => {
+    request.mockImplementation(async (q: string) => (q === AGENT_TASKS_APP_QUERY ? { app } : { agentTasks: [] }));
+    await expect(loadBoard('?status=all&tags=%20,')).rejects.toMatchObject({ status: 303, location: '/app/apps/app-1/tasks?status=all' });
+  });
+
   it('a missing App is a 404', async () => {
     request.mockResolvedValueOnce({ app: null });
     await expect(loadBoard()).rejects.toMatchObject({ status: 404 });

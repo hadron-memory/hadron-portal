@@ -25,6 +25,40 @@ describe('loadBoard', () => {
     expect(AGENT_TASKS_BOARD_QUERY).toContain('rootsOnly: true');
   });
 
+  // portal#1427: each filter sends only its own argument, and none when unset.
+  it('sends no overdue or tag argument when nothing is narrowed', async () => {
+    request.mockResolvedValueOnce({ agentTasks: [] });
+    await loadBoard(client, 'app-1', 'all', '', { overdue: false, tags: [] });
+    const vars = request.mock.calls[0][1];
+    expect(Object.keys(vars).sort()).toEqual(['appRef', 'limit']);
+  });
+
+  it('sends overdue: true and tagsAll, ANDed with the bucket and the text', async () => {
+    request.mockResolvedValueOnce({ agentTasks: [] });
+    await loadBoard(client, 'app-1', 'queued', ' hello ', { overdue: true, tags: ['ops', 'infra'] });
+    expect(request).toHaveBeenCalledWith(AGENT_TASKS_BOARD_QUERY, {
+      appRef: 'app-1', queued: true, text: 'hello', overdue: true, tagsAll: ['ops', 'infra'], limit: BOARD_LIMIT,
+    });
+  });
+
+  it('never sends overdue: false', async () => {
+    request.mockResolvedValueOnce({ agentTasks: [] });
+    await loadBoard(client, 'app-1', 'active', '', { overdue: false, tags: ['a'] });
+    expect(request.mock.calls[0][1]).not.toHaveProperty('overdue');
+  });
+
+  it('declares the new arguments in the query', () => {
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('$overdue: Boolean');
+    expect(AGENT_TASKS_BOARD_QUERY).toContain('$tagsAll: [String!]');
+    expect(AGENT_TASKS_BOARD_QUERY).toMatch(/overdue: \$overdue/);
+    expect(AGENT_TASKS_BOARD_QUERY).toMatch(/tagsAll: \$tagsAll/);
+  });
+
+  it('a failed narrowed read stays a failure, not an empty board', async () => {
+    request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
+    expect(await loadBoard(client, 'app-1', 'active', '', { overdue: true, tags: [] })).toEqual({ kind: 'failed' });
+  });
+
   it('a full page is reported as capped, a short one is not', async () => {
     request.mockResolvedValueOnce({ agentTasks: Array.from({ length: BOARD_LIMIT }, (_, i) => ({ id: `t${i}` })) });
     expect(await loadBoard(client, 'app-1', 'all')).toMatchObject({ kind: 'ok', value: { capped: true } });
