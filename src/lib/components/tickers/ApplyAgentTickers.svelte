@@ -31,7 +31,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
+  import { beforeNavigate, invalidateAll } from '$app/navigation';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -94,6 +94,15 @@
     if (live?.id === mine) live = null;
   });
 
+  // This panel's attempt while its refresh is in flight. `invalidateAll` fires no `beforeNavigate`; a real
+  // navigation does, and it is what cancels the refresh, so the marker goes then: an error that arrives before
+  // the cancelled refresh resolves is not that refresh's failure (George's P2 on 704ad591). Only this attempt.
+  let pendingAttempt: string | null = null;
+  beforeNavigate(() => {
+    if (pendingAttempt) clearRefreshMarker(pendingAttempt);
+    pendingAttempt = null;
+  });
+
   /**
    * Where the reader's focus went while the request ran, if anywhere else. Kit's `applyAction` resets
    * focus to the body BEFORE the callback's `await update` resolves, which erases the evidence, so the
@@ -153,11 +162,13 @@
           const attempt = viewerId && workerIdentity
             ? setRefreshMarker({ viewer: viewerId, worker: originKey, workerId: workerIdentity.id, workerUrn: workerIdentity.urn, appId: workerIdentity.appId, orgId: workerIdentity.orgId })
             : null;
+          pendingAttempt = attempt;
           try {
             await invalidateAll();
           } catch {
             refreshFailed = true;
           }
+          if (pendingAttempt === attempt) pendingAttempt = null;
           if (live?.id !== mine) {
             // Gone during the refresh. Kit's error route unmounts this panel too, and the refresh resolves either
             // way, so the page store says which it was: an error page for THIS worker is the refresh's own failure
