@@ -6,6 +6,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_TASKS_APP_QUERY } from '$lib/server/queries';
 import { APP_DELIVERY_SETTINGS_QUERY, SET_APP_DELIVERY_SETTINGS_MUTATION } from '$lib/server/delivery-settings';
+import { CREATE_TICKER_MUTATION } from '$lib/server/ticker-writes';
 import { APP_TICKER_SETTINGS_QUERY, APP_TICKERS_QUERY, TICKER_QUERY, TICKER_SUBSCRIBERS_QUERY, TICKER_TASK_QUERY } from '$lib/server/tickers';
 
 const request = vi.fn();
@@ -40,12 +41,12 @@ async function loadDetail(search = '') {
   } as never)) as Record<string, unknown>;
 }
 
-describe('no write path (S7a, Holger via Vera #11540)', () => {
-  it('the list route exports only the delivery action; the detail route none', async () => {
+describe('write surface (S7a read-only, then portal#1151 S7b)', () => {
+  it('the list route exports the delivery and create actions; the detail route update and delete (no activation, no subscribe)', async () => {
     const list = await import('./+page.server');
     const detail = await import('./[tickerId]/+page.server');
-    expect(Object.keys((list as { actions?: object }).actions ?? {})).toEqual(['delivery']);
-    expect('actions' in detail).toBe(false);
+    expect(Object.keys((list as { actions?: object }).actions ?? {}).sort()).toEqual(['create', 'delivery']);
+    expect(Object.keys((detail as { actions?: object }).actions ?? {}).sort()).toEqual(['delete', 'update']);
   });
 
   it('the list issues only its reads: tickers, ticker settings and delivery settings (no manage audit)', async () => {
@@ -249,6 +250,69 @@ describe('portal#1141 A — the delivery action', () => {
 
   it('an impersonation session writes nothing', async () => {
     const r = (await run({ ...was, ...same, busyDelaySeconds: '5' }, { sessionId: 's', actorUserId: 'a', orgId: 'o', expiresAt: 0 })) as { status: number };
+    expect(r.status).toBe(403);
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe('portal#1151 — the create action', () => {
+  function event(fields: Record<string, string | string[]>, impersonation: unknown = null) {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(fields)) for (const x of Array.isArray(v) ? v : [v]) fd.append(k, x);
+    return { request: { formData: async () => fd }, params: { appId: 'app-1' }, locals: { token: 'tok', user: { id: 'u1' }, impersonation } } as never;
+  }
+  const good = { name: 'standup', cadenceSeconds: '600', reasons: ['READ_TEAM_CHANNEL'] };
+  async function run(fields: Record<string, string | string[]>, impersonation: unknown = null) {
+    const { actions } = (await import('./+page.server')) as unknown as { actions: Record<string, (e: never) => Promise<unknown>> };
+    return actions.create(event(fields, impersonation));
+  }
+
+  it('creates with an explicit reasons set and nothing else', async () => {
+    request.mockResolvedValue({ createTicker: { id: 'tk-9', name: 'standup' } });
+    expect(await run(good)).toEqual({ action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' } });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith(CREATE_TICKER_MUTATION, {
+      appRef: 'app-1',
+      input: { name: 'standup', cadenceSeconds: 600, reasons: ['READ_TEAM_CHANNEL'] },
+    });
+  });
+
+  it('an empty reasons set answers 400 on the reasons field and calls nothing', async () => {
+    const r = (await run({ name: 'a', cadenceSeconds: '60' })) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(400);
+    expect(r.data).toMatchObject({ action: 'create', refusal: { kind: 'invalid', field: 'reasons' } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['TICKER_NAME_TAKEN', 409],
+    ['TICKER_LIMIT_REACHED', 409],
+    ['TICKER_CADENCE_OUT_OF_RANGE', 400],
+    ['APP_NOT_FOUND', 404],
+  ])('%s is the server’s sentence with the typed values, never a success', async (code, status) => {
+    request.mockRejectedValueOnce(gqlError(code));
+    const r = (await run(good)) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(status);
+    expect(r.data).toMatchObject({ action: 'create', refusal: { kind: 'refused', code, message: code }, values: { name: 'standup' } });
+    expect(r.data).not.toHaveProperty('ok');
+  });
+
+  it('the cap and the name refusals have their own codes (not one generic line)', async () => {
+    request.mockRejectedValueOnce(gqlError('TICKER_LIMIT_REACHED', 'The App has reached its ticker limit.'));
+    const r = (await run(good)) as { data: { refusal: { message: string } } };
+    expect(r.data.refusal.message).toBe('The App has reached its ticker limit.');
+  });
+
+  it('an unknown failure is uncertain, shows no raw text and is not retried', async () => {
+    request.mockRejectedValueOnce(gqlError('INTERNAL_SERVER_ERROR', 'prisma stack'));
+    const r = (await run(good)) as { data: Record<string, unknown> };
+    expect(r.data).toMatchObject({ refusal: { kind: 'uncertain' } });
+    expect(JSON.stringify(r.data)).not.toContain('prisma');
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('an impersonation session writes nothing', async () => {
+    const r = (await run(good, { sessionId: 's', actorUserId: 'a', orgId: 'o', expiresAt: 0 })) as { status: number };
     expect(r.status).toBe(403);
     expect(request).not.toHaveBeenCalled();
   });
