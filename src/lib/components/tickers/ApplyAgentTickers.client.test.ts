@@ -13,23 +13,27 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { applyAction, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { REFRESH_MARKER_KEY, setRefreshMarker } from '$lib/tickers/refresh-marker';
+import { refreshScope } from '$lib/test/refreshScope';
 import ApplyAgentTickers from './ApplyAgentTickers.svelte';
 
 // portal#1462: the signed-in viewer a test mounts the panel for (null: none known).
 let viewer: string | null = null;
 // portal#1462: whether the page store holds an error once a refresh resolves (kit's error-route path).
 let pageErrored = false;
+// portal#1462: the worker's canonical ids the panel records in the marker (null: unavailable, so no marker).
+let identity: { id: string; urn: string | null; appId: string | null; orgId: string | null } | null = { id: 'w-A', urn: null, appId: 'app-1', orgId: 'org-1' };
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   sessionStorage.clear();
   viewer = null;
   pageErrored = false;
+  identity = { id: 'w-A', urn: null, appId: 'app-1', orgId: 'org-1' };
   while (mounted.length) mounted.pop()!.unmount();
   resetNavigationCalls();
 });
 
 async function mountApply(props: Record<string, unknown>) {
-  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, viewerId: viewer, pageHasError: () => pageErrored, ...props });
+  const p = reactiveProps<Record<string, unknown>>({ canManage: true, action: '?tab=wake&/applyTickerTemplates', workerKey: 'w-1', result: null, floorSeconds: 300, viewerId: viewer, workerIdentity: identity, pageHasError: () => pageErrored, ...props });
   const m = mountComponent(ApplyAgentTickers as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
@@ -506,7 +510,7 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
     let newer: string | null = null;
     nav.navigationHooks.onInvalidateAll = () => {
       mounted.pop()!.unmount();
-      newer = setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+      newer = setRefreshMarker(refreshScope('u-1', 'w-A'));
       pageErrored = false;
     };
     await finish(ok);
@@ -538,10 +542,10 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
 
   it('a stale marker is cleared when the panel mounts, and when the next apply starts', async () => {
     asViewer('u-1');
-    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+    setRefreshMarker(refreshScope('u-1', 'w-A'));
     const { root } = await mountApply({ workerKey: 'w-A' });
     expect(marker()).toBeNull();
-    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+    setRefreshMarker(refreshScope('u-1', 'w-A'));
     await submitEnhancedDeferred(root.querySelector('form')!);
     expect(marker()).toBeNull();
   });
@@ -579,5 +583,30 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
     expect(update).toHaveBeenCalledTimes(1);
     expect(root.querySelector('[data-testid="apply-receipt"]')).not.toBeNull();
+  });
+
+  it('records the App and the worker’s canonical ids in the marker (Xavier #51470)', async () => {
+    asViewer('u-1');
+    const nav = await import('$lib/test/stubs/app-navigation');
+    let seen: Record<string, unknown> | null = null;
+    nav.navigationHooks.onInvalidateAll = () => { seen = marker(); };
+    identity = { id: 'w-A', urn: 'hrn:worker:a.com:team:gaby', appId: 'app-1', orgId: 'org-1' };
+    const { root } = await mountApply({ workerKey: 'hrn:worker:a.com:team:gaby' });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!);
+    await finish(ok);
+    expect(seen).toMatchObject({ worker: 'hrn:worker:a.com:team:gaby', workerId: 'w-A', workerUrn: 'hrn:worker:a.com:team:gaby', appId: 'app-1', orgId: 'org-1' });
+  });
+
+  it('fails closed without the App: no marker is written, and the apply and refresh still run', async () => {
+    asViewer('u-1');
+    identity = { id: 'w-A', urn: null, appId: null, orgId: null };
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => { props.result = receipt; });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update });
+    await finish(ok);
+    await tick(2);
+    expect(marker()).toBeNull();
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(update).toHaveBeenCalledTimes(1);
   });
 });

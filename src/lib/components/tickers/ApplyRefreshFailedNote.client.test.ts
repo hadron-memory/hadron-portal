@@ -7,11 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page } from '$lib/test/stubs/app-stores';
 import { REFRESH_MARKER_KEY, setRefreshMarker } from '$lib/tickers/refresh-marker';
+import { refreshScope } from '$lib/test/refreshScope';
 import ApplyRefreshFailedNote from './ApplyRefreshFailedNote.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
-function at(params: Record<string, string>, viewer: string | null, routeId = '/app/workers/[id]') {
-  page.update((p) => ({ ...p, params, route: { id: routeId }, status: 500, data: viewer ? { user: { id: viewer } } : {} }));
+function at(params: Record<string, string>, viewer: string | null, routeId = '/app/workers/[id]', activeOrgId: string | null = null) {
+  page.update((p) => ({ ...p, params, route: { id: routeId }, status: 500, data: { ...(viewer ? { user: { id: viewer } } : {}), ...(activeOrgId ? { activeOrgId } : {}) } }));
 }
 async function mountNote() {
   const m = mountComponent(ApplyRefreshFailedNote as never, {} as never) as Mounted<Record<string, unknown>>;
@@ -30,7 +31,7 @@ afterEach(() => {
 describe('ApplyRefreshFailedNote', () => {
   it('says the tickers were applied and not to apply again, for the viewer and worker whose marker is live', async () => {
     at({ id: 'w-A' }, 'u-1');
-    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+    setRefreshMarker(refreshScope('u-1', 'w-A'));
     const note = line(await mountNote())!;
     expect(note).not.toBeNull();
     expect(note.getAttribute('role')).toBe('status');
@@ -42,7 +43,7 @@ describe('ApplyRefreshFailedNote', () => {
 
   it('is consumed by being shown: the marker is gone afterwards', async () => {
     at({ id: 'w-A' }, 'u-1');
-    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+    setRefreshMarker(refreshScope('u-1', 'w-A'));
     await mountNote();
     expect(sessionStorage.getItem(REFRESH_MARKER_KEY)).toBeNull();
   });
@@ -54,19 +55,19 @@ describe('ApplyRefreshFailedNote', () => {
 
   it('says nothing for another worker’s error page, and leaves that worker’s marker alone', async () => {
     at({ id: 'w-B' }, 'u-1');
-    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+    setRefreshMarker(refreshScope('u-1', 'w-A'));
     expect(line(await mountNote())).toBeNull();
     expect(sessionStorage.getItem(REFRESH_MARKER_KEY)).not.toBeNull();
   });
 
   it('says nothing to another viewer', async () => {
     at({ id: 'w-A' }, 'u-2');
-    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+    setRefreshMarker(refreshScope('u-1', 'w-A'));
     expect(line(await mountNote())).toBeNull();
   });
 
   it('says nothing when the viewer is unknown, or the error is not on a worker route', async () => {
-    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+    setRefreshMarker(refreshScope('u-1', 'w-A'));
     at({ id: 'w-A' }, null);
     expect(line(await mountNote())).toBeNull();
     at({ id: 'w-A' }, 'u-1', '/app/memories/[id]');
@@ -75,7 +76,7 @@ describe('ApplyRefreshFailedNote', () => {
 
   it('says nothing for an expired marker', async () => {
     at({ id: 'w-A' }, 'u-1');
-    setRefreshMarker({ viewer: 'u-1', worker: 'w-A' }, Date.now() - 10 * 60_000);
+    setRefreshMarker(refreshScope('u-1', 'w-A'), Date.now() - 10 * 60_000);
     expect(line(await mountNote())).toBeNull();
   });
 
@@ -88,7 +89,7 @@ describe('ApplyRefreshFailedNote', () => {
   describe('a boundary that is REUSED across scope changes (Anne’s P2 on 7290cfe4)', () => {
     it('drops the line when the worker changes, and does not bring it back on returning to the first worker', async () => {
       at({ id: 'w-A' }, 'u-1');
-      setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+      setRefreshMarker(refreshScope('u-1', 'w-A'));
       const root = await mountNote();
       expect(line(root)).not.toBeNull();
       at({ id: 'w-B' }, 'u-1');
@@ -101,7 +102,7 @@ describe('ApplyRefreshFailedNote', () => {
 
     it('drops the line when the viewer changes, and when the route is no longer a worker', async () => {
       at({ id: 'w-A' }, 'u-1');
-      setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+      setRefreshMarker(refreshScope('u-1', 'w-A'));
       const root = await mountNote();
       expect(line(root)).not.toBeNull();
       at({ id: 'w-A' }, 'u-2');
@@ -109,7 +110,7 @@ describe('ApplyRefreshFailedNote', () => {
       expect(line(root)).toBeNull();
       at({ id: 'w-A' }, 'u-1');
       await tick(2);
-      setRefreshMarker({ viewer: 'u-1', worker: 'w-A' });
+      setRefreshMarker(refreshScope('u-1', 'w-A'));
       at({ id: 'w-A' }, 'u-1', '/app/memories/[id]');
       await tick(2);
       expect(line(root)).toBeNull();
@@ -119,11 +120,24 @@ describe('ApplyRefreshFailedNote', () => {
       at({ id: 'w-A' }, 'u-1');
       const root = await mountNote();
       expect(line(root)).toBeNull();
-      setRefreshMarker({ viewer: 'u-1', worker: 'w-B' });
+      setRefreshMarker(refreshScope('u-1', 'w-B'));
       at({ id: 'w-B' }, 'u-1');
       await tick(2);
       expect(line(root)).not.toBeNull();
       expect(sessionStorage.getItem(REFRESH_MARKER_KEY)).toBeNull();
     });
+  });
+
+  it('says nothing when the page is in an org that is not the worker’s App’s org (Xavier #51470)', async () => {
+    at({ id: 'w-A' }, 'u-1', '/app/workers/[id]', 'org-2');
+    setRefreshMarker(refreshScope('u-1', 'w-A', { orgId: 'org-1' }));
+    expect(line(await mountNote())).toBeNull();
+  });
+
+  it('says it for the same org, and for a worker spelled by its URN when the marker recorded that URN', async () => {
+    const urn = 'hrn:worker:a.com:team:gaby';
+    at({ id: urn }, 'u-1', '/app/workers/[id]', 'org-1');
+    setRefreshMarker(refreshScope('u-1', 'w-A', { workerUrn: urn, orgId: 'org-1' }));
+    expect(line(await mountNote())).not.toBeNull();
   });
 });
