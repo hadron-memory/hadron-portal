@@ -10,12 +10,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { applyAction, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import ApplyAgentTickers from './ApplyAgentTickers.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
+  resetNavigationCalls();
 });
 
 async function mountApply(props: Record<string, unknown>) {
@@ -111,13 +113,17 @@ describe('ApplyAgentTickers: submit and isolation', () => {
     const done = submitEnhancedWithResult(root.querySelector('form')!, { type: 'success', status: 200, data: { applyTickers: { key: 'w-1', ok: true, created: [], alreadyPresent: [] } } }, { update });
     await tick(2);
     flushSync();
-    expect(root.querySelector<HTMLButtonElement>('form button[type="submit"]')!.disabled).toBe(true);
+    const pending = root.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
+    // Not `disabled`: a disabled button drops keyboard focus mid-request (Uma's P3 on #1464).
+    expect(pending.getAttribute('aria-disabled')).toBe('true');
+    expect(pending.disabled).toBe(false);
+    expect(pending.textContent?.trim()).toBe('Adding…');
     release();
     await done;
     await tick(2);
     flushSync();
     expect(update).toHaveBeenCalledWith({ reset: false });
-    expect(root.querySelector<HTMLButtonElement>('form button[type="submit"]')!.disabled).toBe(false);
+    expect(root.querySelector<HTMLButtonElement>('form button[type="submit"]')!.getAttribute('aria-disabled')).not.toBe('true');
   });
 
   it('a result written for another worker is not shown (A→B→A late result)', async () => {
@@ -128,5 +134,122 @@ describe('ApplyAgentTickers: submit and isolation', () => {
     await tick(2);
     flushSync();
     expect(root.querySelector('[data-testid="apply-receipt"]')).not.toBeNull();
+  });
+});
+
+describe('ApplyAgentTickers: the receipt is the shared grid (George’s P2-3 on #1464)', () => {
+  it('created tickers and already-present templates are DataTable rows, not hand-rolled lists', async () => {
+    const { root } = await mountApply({ result: { key: 'w-1', ok: true, created: [created(), created({ tickerId: 'k2', tickerName: 'Digest · gaby', templateName: 'Digest' })], alreadyPresent: [{ id: 't2', name: 'Daily digest' }] } });
+    const receipt = root.querySelector('[data-testid="apply-receipt"]')!;
+    expect(receipt.querySelectorAll('table')).toHaveLength(2);
+    expect(receipt.querySelector('ul')).toBeNull();
+    const text = receipt.textContent!;
+    for (const s of ['Heartbeat · gaby', 'Digest · gaby', 'Daily digest']) expect(text).toContain(s);
+  });
+  it('says how many were created with a real plural', async () => {
+    const one = await mountApply({ result: { key: 'w-1', ok: true, created: [created()], alreadyPresent: [] } });
+    expect(one.root.textContent).toContain('Created 1 ticker:');
+    expect(one.root.textContent).not.toContain('ticker(s)');
+    const three = await mountApply({ result: { key: 'w-1', ok: true, created: [created(), created({ tickerId: 'a' }), created({ tickerId: 'b' })], alreadyPresent: [] } });
+    expect(three.root.textContent).toContain('Created 3 tickers:');
+  });
+});
+
+describe('ApplyAgentTickers: one live region, mounted before any result (Uma’s P3-1)', () => {
+  it('is present and empty before the first apply, and holds the receipt or refusal afterwards', async () => {
+    const { root, props } = await mountApply({});
+    const region = root.querySelector('#apply-tickers-result')!;
+    expect(region).not.toBeNull();
+    expect(region.getAttribute('aria-live')).toBe('polite');
+    expect(region.textContent?.trim()).toBe('');
+    props.result = { key: 'w-1', ok: true, created: [], alreadyPresent: [] };
+    await tick(2);
+    flushSync();
+    expect(root.querySelector('#apply-tickers-result')).toBe(region);
+    expect(region.textContent).toMatch(/nothing to create/i);
+  });
+});
+
+describe('ApplyAgentTickers: keyboard focus after an apply (Uma’s P2 on #1464)', () => {
+  const ok = { type: 'success' as const, status: 200, data: { applyTickers: { key: 'w-1', ok: true, created: [], alreadyPresent: [] } } };
+  const keepKitBehaviour = (result: typeof ok) => async () => { await applyAction(result); };
+
+  it('lands on the result region after kit’s applyAction resets focus to the body', async () => {
+    const { root, props } = await mountApply({});
+    const button = root.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
+    button.focus();
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update: async () => { await applyAction(ok); props.result = ok.data.applyTickers; } });
+    await finish(ok);
+    await tick(3);
+    flushSync();
+    const region = root.querySelector('#apply-tickers-result')!;
+    expect(region.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(region);
+  });
+
+  it('does not steal focus from a control the reader moved to while the request ran', async () => {
+    const { root } = await mountApply({});
+    const other = document.createElement('input');
+    document.body.appendChild(other);
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update: async () => {} });
+    other.focus();
+    await finish(ok);
+    await tick(3);
+    expect(document.activeElement).toBe(other);
+    other.remove();
+  });
+  void keepKitBehaviour;
+});
+
+describe('ApplyAgentTickers: a late result is fenced to the mount that sent it (George’s P2-2 on #1464)', () => {
+  const ok = { type: 'success' as const, status: 200, data: { applyTickers: { key: 'w-A', ok: true, created: [created()], alreadyPresent: [] } } };
+
+  it('a result that arrives after the reader moved A → B reaches neither update nor the loader', async () => {
+    const a = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => {});
+    const { finish } = await submitEnhancedDeferred(a.root.querySelector('form')!, { update });
+    mounted.pop()!.unmount();
+    await mountApply({ workerKey: 'w-B' });
+    await finish(ok);
+    await tick(2);
+    expect(update).not.toHaveBeenCalled();
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+  });
+
+  it('A → B → A: the old A result is not applied to the fresh A panel, but A’s data is refreshed once', async () => {
+    const a1 = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => {});
+    const { finish } = await submitEnhancedDeferred(a1.root.querySelector('form')!, { update });
+    mounted.pop()!.unmount();
+    await mountApply({ workerKey: 'w-B' });
+    mounted.pop()!.unmount();
+    const a2 = await mountApply({ workerKey: 'w-A' });
+    await finish(ok);
+    await tick(2);
+    flushSync();
+    expect(update).not.toHaveBeenCalled();
+    expect(a2.root.querySelector('[data-testid="apply-receipt"]')).toBeNull();
+    expect(a2.root.querySelector('[data-testid="apply-refusal"]')).toBeNull();
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
+  it('a late refusal is fenced the same way', async () => {
+    const a1 = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => {});
+    const { finish } = await submitEnhancedDeferred(a1.root.querySelector('form')!, { update });
+    mounted.pop()!.unmount();
+    await mountApply({ workerKey: 'w-B' });
+    await finish({ type: 'failure', status: 409, data: { applyTickers: { key: 'w-A', refusal: { code: 'TICKER_LIMIT_REACHED', message: 'x', outcomeUnknown: false } } } });
+    await tick(2);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('the live mount’s own result still goes through update (the current-request control)', async () => {
+    const a = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => {});
+    const { finish } = await submitEnhancedDeferred(a.root.querySelector('form')!, { update });
+    await finish(ok);
+    await tick(2);
+    expect(update).toHaveBeenCalledWith({ reset: false });
   });
 });

@@ -128,7 +128,11 @@ export async function submitEnhancedWithResult(
  * submit time) and `finish(result)` delivers the result after the test has
  * moved the page on. That is the interleaving a delayed response creates.
  */
-export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
+export async function submitEnhancedDeferred(
+  form: HTMLFormElement,
+  // portal#1462: a test that needs to see whether a LATE result reached kit's `update` passes its own.
+  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> } = {},
+): Promise<{
   finish: (result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> }) => Promise<void>;
 }> {
   const submit = enhanced.get(form);
@@ -142,7 +146,7 @@ export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
   if (typeof handler !== 'function') throw new Error('submitEnhancedDeferred: no result handler');
   return {
     finish: async (result) => {
-      await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+      await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: opts.update ?? (async () => {}) });
     },
   };
 }
