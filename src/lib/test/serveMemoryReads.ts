@@ -57,7 +57,9 @@ export function serveMemoryReads(
     if (doc === NODE_CHILDREN_QUERY) {
       if ((vars.offset ?? 0) !== 0) return { findNodes: { hits: [] } };
       const parent = (vars.childrenOf ?? '') as string;
+      const ids = (vars.memoryIds ?? [memory.id]) as string[];
       const hits = rows
+        .filter((n) => ids.includes(n.memoryId ?? memory.id))
         .filter((n) => {
           if (parent === '') return !n.loc.includes(':');
           return n.loc.startsWith(`${parent}:`) && !n.loc.slice(parent.length + 1).includes(':');

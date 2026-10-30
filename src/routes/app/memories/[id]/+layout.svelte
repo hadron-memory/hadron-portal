@@ -9,6 +9,7 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { t } from '$lib/i18n/t';
+  import { isNodeDetailPath } from '$lib/memory/is-node-detail';
   import ApproveAllDialog from '$lib/components/memory/ApproveAllDialog.svelte';
   import MintDialog from '$lib/components/memory/MintDialog.svelte';
   import { canSeeShares } from '$lib/memory/can-manage-shares';
@@ -160,7 +161,7 @@
   const path = $derived($page.url.pathname);
   // Node detail / create pages bring their own chrome — hide the tab layout there
   // (the regex matches /nodes/<id> and /nodes/new).
-  const isNodeDetail = $derived(/\/nodes\/[^/]+/.test(path));
+  const isNodeDetail = $derived(isNodeDetailPath(path));
   const tabs = $derived([
     { id: 'info', label: t('memory-detail.tab.info', 'Info'), href: `${basePath}/info` },
     { id: 'nodes', label: t('memory-detail.tab.nodes', 'Nodes'), href: `${basePath}/nodes` },

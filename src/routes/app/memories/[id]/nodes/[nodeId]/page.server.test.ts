@@ -437,6 +437,7 @@ describe('node-detail load — breadcrumb is memory-scoped (#234)', () => {
  * the contract per action so a future refactor can't silently regress.
  */
 import type { Actions } from './$types';
+import { MEMORY_NODES_QUERY, MEMORY_EDGES_QUERY } from '$lib/server/queries';
 import { serveMemoryReads, type SeedNode } from '$lib/test/serveMemoryReads';
 
 async function importActions() {
@@ -1492,5 +1493,30 @@ describe('node-detail load — an ancestor crumb carries a qualified URN', () =>
     const seg = result.breadcrumb.find((s) => s.path === 'form-fbar');
     expect(seg?.label).toBe('form-fbar');
     expect(seg?.nodeId).toBeNull();
+  });
+});
+
+describe('node-detail load drains no graph (portal#1433)', () => {
+  it('issues no memoryNodes or memoryEdges request, and returns children from the server read', async () => {
+    mockRequest.mockResolvedValueOnce({
+      node: {
+        id: 'n1', memoryId: 'mem-A', loc: 'specs:x', name: 'x', nodeType: 'info', alias: null,
+        description: null, content: null, tokens: null, tags: [], seq: null, data: null,
+        ownerRepo: null, isRunnable: null, createdAt: '', updatedAt: '', outgoingEdges: [], incomingEdges: [],
+      },
+    });
+    const result = (await runLoad(loadEvent({
+      gid: 'mem-A', nodeId: 'n1',
+      parentGraphNodes: [
+        { id: 'c2', memoryId: 'mem-A', loc: 'specs:x:b', name: 'B' },
+        { id: 'c1', memoryId: 'mem-A', loc: 'specs:x:a', name: 'A' },
+        { id: 'g1', memoryId: 'mem-A', loc: 'specs:x:a:deep', name: 'Deep' },
+      ],
+    }))) as unknown as { children: Array<{ id: string }>; childrenFailed: boolean };
+    expect(result.childrenFailed).toBe(false);
+    expect(result.children.map((c) => c.id)).toEqual(['c1', 'c2']);
+    const docs = mockRequest.mock.calls.map(([d]) => d);
+    expect(docs).not.toContain(MEMORY_NODES_QUERY);
+    expect(docs).not.toContain(MEMORY_EDGES_QUERY);
   });
 });
