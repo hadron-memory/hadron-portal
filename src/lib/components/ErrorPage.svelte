@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
   import { validRequestId } from '$lib/error-request-id';
@@ -11,7 +12,8 @@
   let {
     homeHref = '/',
     homeLabel = t('app.error.home', 'Go home'),
-  }: { homeHref?: string; homeLabel?: string } = $props();
+    children,
+  }: { homeHref?: string; homeLabel?: string; /** Extra context a boundary knows, shown under the message. */ children?: Snippet } = $props();
 
   const title = $derived.by(() => {
     switch ($page.status) {
@@ -43,6 +45,7 @@
     {#if $page.status >= 500 && validRequestId($page.error?.requestId)}
       <p class="mt-3 break-all select-all text-sm text-zinc-600 dark:text-zinc-400">{t('error.request-id', 'Request ID: {id}', { id: $page.error?.requestId ?? '' })}</p>
     {/if}
+    {@render children?.()}
     <div class="mt-8 flex items-center justify-center gap-3">
       <button
         type="button"

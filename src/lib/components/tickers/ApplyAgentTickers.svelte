@@ -31,13 +31,15 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
+  import { page } from '$app/stores';
   import { invalidateAll } from '$app/navigation';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import { floorLabel, type AppliedTicker, type ApplyResult } from '$lib/tickers/apply';
+  import { applyRefreshFailedLine, floorLabel, type AppliedTicker, type ApplyResult } from '$lib/tickers/apply';
+  import { clearRefreshMarker, setRefreshMarker } from '$lib/tickers/refresh-marker';
   import { cadenceText } from '$lib/tickers/format';
   import { t } from '$lib/i18n/t';
 
@@ -69,6 +71,8 @@
   const originKey = untrack(() => workerKey);
   onMount(() => {
     live = { id: mine, key: originKey };
+    // The page showing this panel is a page that loaded: a marker left by an earlier refresh is not about it.
+    clearRefreshMarker();
   });
   onDestroy(() => {
     if (live?.id === mine) live = null;
@@ -109,6 +113,7 @@
     }
     submitting = true;
     refreshFailedFor = null;
+    clearRefreshMarker();
     const focus = watchFocus(formElement);
     return async ({ result, update }: { result: { type: string }; update: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> }) => {
       try {
@@ -123,14 +128,21 @@
         // fence is checked again after it, before anything is applied.
         // A refresh that fails does not undo the apply: the result is still applied below and the reader is told
         // the page could not reload. The apply is never retried from here.
+        // In the real kit a failing refresh does not reject: it navigates to the error page and unmounts this
+        // panel (portal#1462, Cedar's QA), so the line cannot come from here. A marker left just before the
+        // refresh lets the worker error boundary say it; it is removed here when this panel is still the one
+        // showing (the refresh worked, or rejected and is said below), and kept when the panel was replaced.
         let refreshFailed = false;
         if (result.type === 'success') {
+          const viewer = ($page.data as { user?: { id?: string } | null } | undefined)?.user?.id;
+          const attempt = viewer ? setRefreshMarker({ viewer, worker: originKey }) : null;
           try {
             await invalidateAll();
           } catch {
             refreshFailed = true;
           }
           if (live?.id !== mine) return;
+          if (attempt) clearRefreshMarker(attempt);
         }
         await update({ reset: false, invalidateAll: false });
         if (refreshFailed) refreshFailedFor = originKey;
@@ -264,7 +276,7 @@
       {/if}
       {#if shown && refreshFailedFor === workerKey}
         <p role="status" class="text-xs text-amber-800 dark:text-amber-300" data-testid="apply-refresh-failed">
-          {t('worker.apply.refresh-failed', 'The tickers were applied, but this page could not reload to show the worker’s current list. Reload the page to see it; applying again is not needed.')}
+          {applyRefreshFailedLine()}
         </p>
       {/if}
     </div>

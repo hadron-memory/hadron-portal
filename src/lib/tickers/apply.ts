@@ -65,3 +65,8 @@ export function applyRefusal(code: string | null): ApplyRefusal & { status: numb
       };
   }
 }
+
+/** The one line both the panel and the error boundary say when the refresh after a committed apply failed. */
+export function applyRefreshFailedLine(): string {
+  return t('worker.apply.refresh-failed', 'The tickers were applied, but this page could not reload to show the worker’s current list. Reload the page to see it; applying again is not needed.');
+}
