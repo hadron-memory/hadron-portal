@@ -23,7 +23,8 @@ const button = (m: Mounted<any>, text: string) => [...m.target.querySelectorAll(
 describe('task board native search', () => {
   it('renders only one search, preserves status, uses native GET and encodes clear/status links', async () => {
     const m = await mount({ text: '%_\\ &+' });
-    expect(m.target.querySelectorAll('input[type=search],input[type=text]')).toHaveLength(1);
+    // One search (the DataTable's own is off); the only other text field is the tag list (portal#1427).
+    expect([...m.target.querySelectorAll<HTMLInputElement>('input[type=search],input[type=text]')].map((i) => i.name)).toEqual(['text', 'tags']);
     const f = m.target.querySelector('form')!;
     expect(f.method).toBe('get'); expect(f.hasAttribute('data-sveltekit-reload')).toBe(true);
     expect(f.querySelector<HTMLInputElement>('[name=status]')!.value).toBe('all');
