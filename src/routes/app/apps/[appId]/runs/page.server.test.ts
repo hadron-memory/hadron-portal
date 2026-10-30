@@ -286,4 +286,16 @@ describe('app runs: choosing the Agent (#1444)', () => {
     expect(text).toMatch(/choose an agent/i);
     expect(text).not.toContain('RUN_AGENT_REQUIRED');
   });
+
+  // portal#1454 — a correctable refusal is the reader's input, not a server fault.
+  it('RUN_AGENT_REQUIRED answers 400; any other failure to start stays 500', async () => {
+    mockRequest.mockRejectedValueOnce(gqlError('RUN_AGENT_REQUIRED', 'RUN_AGENT_REQUIRED: name one of the installed Agents'));
+    const { actions } = await importServer();
+    const refused = (await actions.run(actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry' }) as never)) as { status: number };
+    expect(refused.status).toBe(400);
+
+    mockRequest.mockRejectedValueOnce(new Error('boom'));
+    const failed = (await actions.run(actionEvent({ entryUrn: 'hrn:node:acme.com::flows::entry' }) as never)) as { status: number };
+    expect(failed.status).toBe(500);
+  });
 });
