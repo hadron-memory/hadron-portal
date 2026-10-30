@@ -58,11 +58,15 @@ export function writeRefusalStatus(r: WriteRefusal): number {
     case 'FORBIDDEN':
       return 403;
     case 'TASK_NOT_FOUND':
+    case 'TICKER_NOT_FOUND':
     case 'APP_NOT_FOUND':
       return 404;
     case 'TASK_ENDED':
     case 'TASK_INVALID_TRANSITION':
     case 'APP_UNINSTALLED':
+    case 'TICKER_NAME_TAKEN':
+    case 'TICKER_LIMIT_REACHED':
+    case 'TICKER_CADENCE_NEEDS_CONSENT':
       return 409;
     default:
       return 400;
