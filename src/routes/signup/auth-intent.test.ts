@@ -37,6 +37,8 @@ vi.mock('$app/stores', async () => {
 });
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn(), invalidateAll: vi.fn() }));
+const publicEnv = vi.hoisted(() => ({} as Record<string, string | undefined>));
+vi.mock('$env/dynamic/public', () => ({ env: publicEnv }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
 
 import SignUp from './+page.svelte';
@@ -105,5 +107,24 @@ describe.each(PAGES)('#686 retired sign-up intent — $name', ({ Component, path
     expect(html).toContain(
       `/auth/start/github?redirect=${encodeURIComponent('/app/dashboard')}`,
     );
+  });
+});
+
+// #1470 — the Turnstile widget is on both email forms, and absent without a key.
+describe.each(PAGES)('#1470 Turnstile widget — $name', ({ Component, path }) => {
+  it('renders the widget container inside the email form when a site key is set', () => {
+    publicEnv.PUBLIC_TURNSTILE_SITE_KEY = '0xSITEKEY';
+    try {
+      const html = renderAt(Component, path, '');
+      expect(html).toContain('data-testid="turnstile-widget"');
+      expect(html.indexOf('<form')).toBeLessThan(html.indexOf('data-testid="turnstile-widget"'));
+      expect(html.indexOf('data-testid="turnstile-widget"')).toBeLessThan(html.indexOf('</form>'));
+    } finally {
+      delete publicEnv.PUBLIC_TURNSTILE_SITE_KEY;
+    }
+  });
+
+  it('renders no widget without a site key (the page matches main)', () => {
+    expect(renderAt(Component, path, '')).not.toContain('turnstile');
   });
 });
