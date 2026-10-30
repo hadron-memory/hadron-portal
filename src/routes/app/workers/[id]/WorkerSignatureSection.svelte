@@ -59,14 +59,23 @@
   // Both reads are deliberately mount-time only (untrack): the seed is what
   // this editor starts from, and a changed loader form is a worker (or ref
   // spelling) move, which remounts the section through its keyed id.
+  //
+  // The chosen form is handed over as a COPY, never the prop object itself:
+  // superForm assigns the live instance id onto the form it is given
+  // (dist/client/superForm.js: `form.id = options.id ?? form.id`), so passing
+  // the loader's object would let a library mutate page data in place —
+  // compounding a `#uuid` onto data.signatureForm.id at every remount
+  // (Cedric's QA on #1450 saw the id grow per tab flip), which starves the
+  // prefix arm above on the second round-trip and loses the refused draft.
   const seedForm = untrack(() => {
     const failed = failedSubmission<UpdateSignatureForm>(actionResult, 'updateSignature') as SuperValidated<UpdateSignatureForm> | null;
-    if (!failed) return initialForm;
     const fromEarlierMount =
+      failed != null &&
       failed.id.startsWith(`${initialForm.id}#`) &&
       failed.data.signatureBase === initialForm.data.signatureBase &&
       failed.data.trailerBase === initialForm.data.trailerBase;
-    return failed.id === initialForm.id || fromEarlierMount ? failed : initialForm;
+    const chosen = failed && (failed.id === initialForm.id || fromEarlierMount) ? failed : initialForm;
+    return { ...chosen };
   });
   // portal#1450 (George's LOCAL P2) — per MOUNT, on top of the loader's
   // per-worker stamp: a returned-to worker's fresh editor must not answer to

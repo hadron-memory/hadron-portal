@@ -23,13 +23,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, tick } from 'svelte';
 import { get } from 'svelte/store';
-import { superValidate } from 'sveltekit-superforms';
+import { superValidate, type SuperValidated } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { setStubPage, page } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { updateSignatureFormId, updateSignatureSchema } from './schema';
+import { updateSignatureFormId, updateSignatureSchema, type UpdateSignatureForm } from './schema';
 import Page from './+page.svelte';
 import Section from './WorkerSignatureSection.svelte';
 
@@ -271,16 +271,28 @@ describe('worker signature: late-reply isolation (#1448)', () => {
 describe('worker signature: prior-epoch seed gate (#1450)', () => {
   const stamp = updateSignatureFormId('w-a');
 
-  /** The section mounted directly, as a tab round-trip remounts it: the loader's CURRENT form, page.form's stale reply. */
-  async function remountWith(storedSignature: string, actionResult: unknown) {
-    const initialForm = await superValidate(
-      { signature: storedSignature, trailer: '', signatureBase: storedSignature, trailerBase: '' },
+  /**
+   * The loader's form for one stored signature — ONE object per loader run,
+   * shared by every remount while that run stands, exactly as the page
+   * passes data.signatureForm itself (a fresh object only when the loader
+   * reruns).
+   */
+  const loaderFormFor = (stored: string) =>
+    superValidate(
+      { signature: stored, trailer: '', signatureBase: stored, trailerBase: '' },
       zod4(updateSignatureSchema),
       { errors: false, id: stamp },
-    );
-    const props = reactiveProps({
+    ) as Promise<SuperValidated<UpdateSignatureForm>>;
+
+  /** The section's props for one remount, as the page builds them per render from the SAME loader form object. */
+  function sectionProps(initialForm: SuperValidated<UpdateSignatureForm>, actionResult: unknown, storedSignature: string) {
+    return reactiveProps({
       signature: storedSignature, trailer: null, retired: false, initialForm, actionResult,
     });
+  }
+
+  /** The section mounted directly, as a tab round-trip remounts it. */
+  function mountSection(props: Record<string, unknown>) {
     const m = mountComponent(Section as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     flushSync();
@@ -289,16 +301,41 @@ describe('worker signature: prior-epoch seed gate (#1450)', () => {
 
   it('an earlier mount’s refusal still seeds while its base matches the store — through TWO tab round-trips', async () => {
     const reply = await actionReply('w-a', 'my round-trip draft', 'refuse', `${stamp}#old-epoch`, SIG_A);
-    const first = await remountWith(SIG_A, reply);
+    const props = sectionProps(await loaderFormFor(SIG_A), reply, SIG_A);
+    const first = mountSection(props);
     expect(sigField(first).value).toBe('my round-trip draft');
     expect(saveButton(first).disabled).toBe(false);
     // The second round-trip is the review's explicit pin: a refusal writes
     // nothing, so the loader's bases are unchanged and the draft must seed
-    // this remount exactly as it seeded the last.
+    // this remount exactly as it seeded the last. The SAME props object is
+    // reused, as the page re-delivers the same data.signatureForm.
     mounted.pop()!.unmount();
-    const second = await remountWith(SIG_A, reply);
+    const second = mountSection(props);
     expect(sigField(second).value).toBe('my round-trip draft');
     expect(saveButton(second).disabled).toBe(false);
+    expect(sectionEl(second).textContent).toMatch(/can't change this worker's signature/i);
+  });
+
+  it('the form the section was given is never mutated: each mount mints ONE epoch, never a compounding id', async () => {
+    // superForm assigns the live id onto the form it is GIVEN (superForm.js:
+    // `form.id = options.id ?? form.id`). Handing it the loader's own object
+    // — which a CLEAN mount does, before any reply exists — let a library
+    // mutate page data in place: the id grew a `#uuid` per remount (Cedric's
+    // QA on #1450 saw it in a real browser), and the compounded id starves
+    // the seed gate's prefix arm on the next round-trip, losing the refused
+    // draft. The first mount here is clean, exactly like the real sequence's.
+    const loaderForm = await loaderFormFor(SIG_A);
+    const props = sectionProps(loaderForm, undefined, SIG_A);
+    const first = mountSection(props);
+    expect((props.initialForm as SuperValidated<UpdateSignatureForm>).id).toBe(stamp);
+    expect(instanceIdOf(first).split('#')).toHaveLength(2);
+    // This mount's own refusal, then the tab round-trip: the draft must
+    // still seed from the loader's UNMUTATED stamp.
+    const reply = await actionReply('w-a', 'my round-trip draft', 'refuse', instanceIdOf(first), SIG_A);
+    mounted.pop()!.unmount();
+    const second = mountSection(sectionProps(loaderForm, reply, SIG_A));
+    expect(instanceIdOf(second).split('#')).toHaveLength(2);
+    expect(sigField(second).value).toBe('my round-trip draft');
     expect(sectionEl(second).textContent).toMatch(/can't change this worker's signature/i);
   });
 
@@ -307,7 +344,7 @@ describe('worker signature: prior-epoch seed gate (#1450)', () => {
     // invalidateAll reran the loader); the stale refusal still carries the
     // OLD base and the OLD draft.
     const reply = await actionReply('w-a', 'stale doomed draft', 'refuse', `${stamp}#old-epoch`, SIG_A);
-    const target = await remountWith('A-SIG SAVED LATER', reply);
+    const target = mountSection(sectionProps(await loaderFormFor('A-SIG SAVED LATER'), reply, 'A-SIG SAVED LATER'));
     expect(sigField(target).value).toBe('A-SIG SAVED LATER');
     expect(sigBase(target).value).toBe('A-SIG SAVED LATER');
     expect(saveButton(target).disabled).toBe(true);
