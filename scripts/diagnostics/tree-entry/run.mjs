@@ -13,8 +13,12 @@ import { build } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { chromium } from 'playwright';
 
-const root = process.cwd();
 const fixture = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(fixture, '../../..');
+const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+const sourceCommit = git('rev-parse', 'HEAD');
+const sourceStatus = git('status', '--porcelain');
+assert.equal(sourceStatus, '', 'Commit measurement sources before running the diagnostic');
 assert.ok(process.argv[2] && path.isAbsolute(process.argv[2]), 'Pass an absolute scratch output directory outside the checkout');
 const output = path.resolve(process.argv[2]);
 assert.ok(!output.startsWith(root + path.sep), 'Keep traces and build output outside the checkout');
@@ -39,6 +43,7 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const url = `http://127.0.0.1:${server.address().port}`;
 let browser;
 const runs = [];
+const traceSlices = [];
 const scenarios = [
   { label: 'small', size: 3292, roots: 50 },
   { label: 'large', size: 32920, roots: 500 },
@@ -95,7 +100,7 @@ try {
         await cdp.send('Tracing.end');
         const { stream } = await complete;
         let trace = '';
-        while (true) { const chunk = await cdp.send('IO.read', { handle: stream }); trace += chunk.data; if (chunk.eof) break; }
+        while (true) { const chunk = await cdp.send('IO.read', { handle: stream }); trace += chunk.base64Encoded ? Buffer.from(chunk.data, 'base64').toString('utf8') : chunk.data; if (chunk.eof) break; }
         await cdp.send('IO.close', { handle: stream });
         const traceName = `trace-${label}-${run}.json`;
         await writeFile(path.join(output, traceName), trace);
@@ -110,13 +115,14 @@ try {
         const traceSlice = { traceName, sha256: createHash('sha256').update(trace).digest('hex'),
           start: startMark, end: endMark, mainTasks: tasks };
         await writeFile(path.join(output, `slice-${label}-${run}.json`), JSON.stringify(traceSlice, null, 2));
+        traceSlices.push(traceSlice);
         const result = { label, size, roots, entries: prepared.entries, run, ...measured, traceLargestTaskMs: Math.max(0, ...tasks.map((e) => e.dur / 1000)),
           heapBeforeBytes: before.usedSize, heapAfterBytes: after.usedSize,
           heapRetainedBytes: retained.usedSize, heapRetainedDeltaBytes: retained.usedSize - before.usedSize, errors };
-        assert.deepEqual(errors, []);
         runs.push(result);
         console.log(JSON.stringify(result));
       }
+      assert.deepEqual(errors, [], `${label} run ${run} (0 is warm-up)`);
       await context.close();
     }
   }
@@ -132,10 +138,13 @@ try {
     'scripts/fixtures/synthetic-memory.ts'];
   const sourceSha256 = Object.fromEntries(await Promise.all(sourceFiles.map(async (file) =>
     [file, createHash('sha256').update(await readFile(path.join(root, file))).digest('hex')])));
-  const report = { sourceCommit: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), sourceSha256,
+  const report = { sourceCommit, sourceStatus, sourceSha256,
     browser: browser.version(), os: `${os.type()} ${os.release()} ${os.arch()}`, cpu: os.cpus()[0]?.model,
     headed: true, display: process.env.DISPLAY, extensionsDisabled: true, viewport: '1280x900',
     productionCompiled: true, traceCategories: 'devtools.timeline,toplevel,v8,blink.user_timing', runs, summary };
+  assert.equal(git('rev-parse', 'HEAD'), sourceCommit, 'Source commit changed during measurement');
+  assert.equal(git('status', '--porcelain'), sourceStatus, 'Source tree changed during measurement');
+  await writeFile(path.join(output, 'trace-slices.json'), JSON.stringify(traceSlices, null, 2));
   await writeFile(path.join(output, 'results.json'), JSON.stringify(report, null, 2));
   console.log(JSON.stringify({ summary }));
 } finally {

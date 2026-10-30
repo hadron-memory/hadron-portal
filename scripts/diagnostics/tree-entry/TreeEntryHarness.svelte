@@ -3,15 +3,18 @@
   // This is not the authenticated MemoryBrowser route or a performance fix.
   import { tick } from 'svelte';
   import TreeView from '$lib/components/TreeView.svelte';
-  import type { TreeEntry } from '$lib/types';
-  import type { MemoryNode } from '$lib/types';
+  import type { TreeEntry, MemoryNode } from '$lib/types';
   import { buildTreeEntries } from '$lib/graph-utils';
   import { synthMemory } from '../../fixtures/synthetic-memory';
 
-  let entries = $state<TreeEntry[]>([]);
+  // MemoryBrowser builds fresh plain entries in $derived.by; do not add deep proxies.
+  let entries = $state.raw<TreeEntry[]>([]);
   let visible = $state(false);
   let done = $state(false);
   function makeEntries(size: number, roots: number): TreeEntry[] {
+    if (!Number.isInteger(roots) || roots < 1 || !Number.isInteger(size) || size < roots * 11) {
+      throw new Error('Shape requires integer roots >= 1 and size >= roots * 11');
+    }
     const result: TreeEntry[] = [];
     const add = (id: string) => result.push({ id, nodeId: `synthetic-${id}`, name: `Synthetic ${id}`, seq: null,
       nodeType: 'info', hasActions: false, isVirtual: false });
@@ -49,8 +52,8 @@
       const world = synthMemory(size);
       generated = buildTreeEntries(world.nodes as unknown as MemoryNode[], world.memory.urn);
     } else generated = makeEntries(size, roots);
-    // Count on plain data BEFORE assigning reactive state. Traversing entries
-    // here would eagerly materialize Svelte proxies and move work out of entry.
+    // These colon-delimited ids match TreeView default expansion: top-level roots
+    // are expanded, so only roots and their immediate children are initially visible.
     const expectedRows = generated.filter((e) => e.id.split(':').length <= 2).length;
     entries = generated;
     await tick();
