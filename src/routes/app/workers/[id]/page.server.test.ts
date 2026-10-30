@@ -510,3 +510,16 @@ describe('Wake-ups tab (portal#1099)', () => {
     expect(((await runLoad()) as unknown as { wake: unknown }).wake).toEqual({ kind: 'failed' });
   });
 });
+
+it('#1334 Profile tier skips every working-state read even when App metadata is readable', async () => {
+  mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, hasLiveSession: null, appName: 'Public Team', ownerName: 'owner' } });
+  const data = await runLoad();
+  expect(data.worker.name).toBe('Gil');
+  expect(mockRequest).toHaveBeenCalledTimes(1);
+  expect(data.initialTab).toBe('profile');
+});
+it('#1334 an unbound participant (false, not null) retains working-state reads', async () => {
+  mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, hasLiveSession: false } });
+  await runLoad();
+  expect(mockRequest.mock.calls.some(([doc]) => doc === WORKER_SESSIONS_QUERY)).toBe(true);
+});
