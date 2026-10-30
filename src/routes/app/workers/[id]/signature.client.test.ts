@@ -92,6 +92,34 @@ describe('worker page: Signature and trailer (#1142 P4)', () => {
     expect(s.textContent).not.toMatch(/empty|none set/i);
   });
 
+  // portal#1366 — mixed masking, both directions (Ruth's scoped §10 carry on
+  // #1157 kept these as test gaps). A masked (null) field renders no editor AND
+  // no hidden base input, so the browser's serialization carries the readable
+  // field and its base only — the masked field is absent outright, never
+  // default-cleared to an empty string.
+  const posted = (s: HTMLElement) =>
+    Object.fromEntries([...new FormData(s.querySelector('form')!)].map(([k, v]) => [k, String(v)]));
+
+  it('a masked signature with a readable trailer: only the trailer is submittable, the masked field absent from the serialization', async () => {
+    const s = section(await mount(worker({ signature: null, trailer: 'T-KEEP' })))!;
+    expect(s.querySelector('textarea[name="signature"]')).toBeNull();
+    expect(s.querySelector('[name="signatureBase"]')).toBeNull();
+    const trailer = s.querySelector<HTMLTextAreaElement>('textarea[name="trailer"]')!;
+    expect(trailer.value).toBe('T-KEEP');
+    expect(trailer.disabled).toBe(false);
+    expect(posted(s)).toEqual({ _kind: 'updateSignature', trailer: 'T-KEEP', trailerBase: 'T-KEEP' });
+  });
+
+  it('a readable signature with a masked trailer: the mirror image', async () => {
+    const s = section(await mount(worker({ signature: 'S-KEEP', trailer: null })))!;
+    expect(s.querySelector('textarea[name="trailer"]')).toBeNull();
+    expect(s.querySelector('[name="trailerBase"]')).toBeNull();
+    const signature = s.querySelector<HTMLTextAreaElement>('textarea[name="signature"]')!;
+    expect(signature.value).toBe('S-KEEP');
+    expect(signature.disabled).toBe(false);
+    expect(posted(s)).toEqual({ _kind: 'updateSignature', signature: 'S-KEEP', signatureBase: 'S-KEEP' });
+  });
+
   it('names variables as examples, not as the complete set', async () => {
     const s = section(await mount(worker({})))!;
     expect(s.textContent).toMatch(/for example/i);
