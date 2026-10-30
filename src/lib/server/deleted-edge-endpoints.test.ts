@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ClientError } from 'graphql-request';
+import { GraphQLError } from 'graphql';
 import { RECOVERY_EDGES_QUERY } from '$lib/server/queries';
 import { deletedEdgeEndpoints } from './deleted-edge-endpoints';
 
@@ -73,10 +75,13 @@ describe('deletedEdgeEndpoints (#1161)', () => {
     expect(out.e449.source?.id).toBe('gone');
   });
 
-  it.each(['throw', 'missing'] as const)('a %s on the second batch discards earlier marks and stops', async failure => {
+  it.each(['transport', 'graphql'] as const)('a %s failure on the second batch discards earlier marks and stops', async failure => {
     request.mockResolvedValueOnce({ recoveryEdges: { items: [edge('e0', ep('gone', '2026-10-19T10:00:00Z'), ep('live'))], total: 1 } });
-    if (failure === 'throw') request.mockRejectedValueOnce(new Error('FORBIDDEN'));
-    else request.mockResolvedValueOnce({ recoveryEdges: null });
+    if (failure === 'transport') request.mockRejectedValueOnce(new Error('socket unavailable'));
+    else request.mockRejectedValueOnce(new ClientError({
+      status: 200, headers: new Headers(), body: '', data: null,
+      errors: [new GraphQLError('Internal server error.', { extensions: { code: 'INTERNAL_SERVER_ERROR' } })],
+    }, { query: RECOVERY_EDGES_QUERY }));
     const out = await deletedEdgeEndpoints(client, 'mem-1', Array.from({ length: 450 }, (_, i) => ({ id: `e${i}`, source: null, target: {} })));
     expect(out).toEqual({});
     expect(request).toHaveBeenCalledTimes(2);
