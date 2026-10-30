@@ -372,6 +372,9 @@ describe('task handles', () => {
   it('AT0: a null tree is a neutral note, not a failure', () => {
     const s = subtasks(taskPage({ task: at0(), tree: { kind: 'ok', value: null } }));
     expect(s).toContain('data-testid="project-zero-tree"');
+    // Uma UX P2: say where AT0.<n> tasks are (the board), not that AT0 has none.
+    expect(s).toContain('Tasks that belong to no project are listed on the');
+    expect(s).toMatch(/<a href="\/app\/apps\/[^"]+\/tasks"[^>]*>Tasks page<\/a>, not under this one\./);
     expect(s).not.toContain('role="alert"');
     expect(s).not.toContain('Couldn’t load the subtasks.');
   });
