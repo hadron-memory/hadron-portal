@@ -124,6 +124,7 @@
       appId={data.app.id}
       manages={data.manages}
       workers={data.workers}
+      rosterFailed={data.rosterFailed}
       impersonating={data.impersonating}
       {lifting}
       onliftclose={() => (lifting = null)}
@@ -143,7 +144,12 @@
       </div>
     {:else if rows.length === 0}
       <div role="status" class="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 p-6 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-testid="stops-empty">
-        {t('app.stops.empty', 'No stops have been set on this App.')}
+        {#if data.after}
+          {t('app.stops.empty-older', 'No older stops.')}
+          <a href="?" class="ml-2 font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.first-page', 'Back to the first stops')}</a>
+        {:else}
+          {t('app.stops.empty', 'No stops have been set on this App.')}
+        {/if}
       </div>
     {:else}
       <DataTable
@@ -179,7 +185,7 @@
             <code class="select-all font-mono text-xs">{row.s.id}</code>
           {:else if cell.column.id === 'actions'}
             {#if row.s.live && canLift}
-              <button type="button" onclick={() => (lifting = { id: row.s.id, label: liftLabel(row.s) })} class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+              <button type="button" onclick={() => (lifting = { id: row.s.id, label: liftLabel(row.s) })} class="min-h-11 min-w-11 rounded-md border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
                 {t('app.stops.lift', 'Lift')}
               </button>
             {/if}
@@ -187,7 +193,7 @@
         {/snippet}
       </DataTable>
       {#if data.page.kind === 'ok' && data.page.value.pageInfo.hasNextPage && data.page.value.pageInfo.endCursor}
-        <a href="?after={encodeURIComponent(data.page.value.pageInfo.endCursor)}" class="inline-block text-sm font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.next-page', 'Show later stops')}</a>
+        <a href="?after={encodeURIComponent(data.page.value.pageInfo.endCursor)}" class="inline-block text-sm font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.next-page', 'Show older stops')}</a>
       {/if}
       {#if data.after}<a href="?" class="ml-3 inline-block text-sm font-medium text-indigo-600 underline dark:text-indigo-300">{t('app.stops.first-page', 'Back to the first stops')}</a>{/if}
     {/if}

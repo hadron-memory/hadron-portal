@@ -344,6 +344,8 @@ describe('lifting', () => {
       data: { action: 'lift', refusal: { kind: 'refused', code: 'APP_MANAGER_REQUIRED', message: 'Only whoever manages this App can set or lift a stop.' } },
     });
     await tick(3);
-    expect(alertText(root)).toContain('Only whoever manages this App');
+    // portal#1413 B2: a refused lift lands in the lift status line, not the set form's alert.
+    expect(root.querySelector('[data-testid="stop-lift-status"]')?.textContent).toContain('Only whoever manages this App');
+    expect(alertText(root)).toBe('');
   });
 });

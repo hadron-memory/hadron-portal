@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 async function mountPanel(over: Record<string, unknown> = {}) {
-  const props = reactiveProps({ appId: 'app-1', manages: 'yes', workers, impersonating: null, lifting: null, onliftclose: () => {}, ...over });
+  const props = reactiveProps({ appId: 'app-1', manages: 'yes', workers, impersonating: null, lifting: null as { id: string; label: string } | null, onliftclose: () => {}, ...over });
   const m = mountComponent(Panel as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
