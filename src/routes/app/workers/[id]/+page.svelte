@@ -5,6 +5,7 @@
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import WorkerSessionsTable from '$lib/components/WorkerSessionsTable.svelte';
   import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
+  import type { ApplyResult } from '$lib/tickers/apply';
   import WorkerSignatureSection from './WorkerSignatureSection.svelte';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
@@ -649,6 +650,8 @@
         worker={data.worker}
         appId={data.worker.app?.id ?? null}
         loadedAt={data.wakeLoadedAt}
+        canManage={data.canManageWorkerApp}
+                applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
       />
     </div>
   {/if}

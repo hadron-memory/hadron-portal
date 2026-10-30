@@ -8,11 +8,18 @@ import { t } from '$lib/i18n/t';
 import { SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
-import { loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
+import { APPLY_AGENT_TICKER_TEMPLATES_MUTATION, loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
+import { applyRefusal } from '$lib/tickers/apply';
 import type { Actions, PageServerLoad } from './$types';
 import { updateSignatureFormId, updateSignatureSchema } from './schema';
 
 const updateSignatureAdapter = zod4(updateSignatureSchema);
+
+/** What `applyAgentTickerTemplates` selects (see APPLY_AGENT_TICKER_TEMPLATES_MUTATION). */
+interface ApplyAgentTickerTemplatesResponse {
+  created: Array<{ effectiveCadenceSeconds: number; template: { id: string; name: string }; ticker: { id: string; name: string; urn: string | null } }>;
+  alreadyPresent: Array<{ id: string; name: string }>;
+}
 
 /**
  * #758 — the worker page's tab ids. These are ADDRESSES, not labels: they are
@@ -192,6 +199,38 @@ export const actions: Actions = {
   setBootPrompt: async ({ request, params, locals }) =>
     pointerAction(await request.formData(), 'app', params.id, (nodeRef) =>
       gqlClient(locals.token).request(SET_WORKER_BOOT_PROMPT_MUTATION, { workerRef: params.id, nodeRef })),
+
+  /**
+   * portal#1462 (hadron-server#2860) — apply the Agent's ticker templates to
+   * THIS worker. The worker is the route's, never a posted field, and the
+   * caller is whoever is signed in: the server decides who may. A refusal comes
+   * back keyed to this worker and local to the Wake-ups tab; a call that fails
+   * without a recognised refusal is outcome-unknown, and is never retried.
+   */
+  applyTickerTemplates: async ({ params, locals }) => {
+    try {
+      const r = await gqlClient(locals.token).request<{ applyAgentTickerTemplates: ApplyAgentTickerTemplatesResponse }>(APPLY_AGENT_TICKER_TEMPLATES_MUTATION, { workerRef: params.id });
+      return {
+        applyTickers: {
+          key: params.id,
+          ok: true as const,
+          created: r.applyAgentTickerTemplates.created.map((c) => ({
+            tickerId: c.ticker.id,
+            tickerName: c.ticker.name,
+            tickerUrn: c.ticker.urn ?? null,
+            templateId: c.template.id,
+            templateName: c.template.name,
+            effectiveCadenceSeconds: c.effectiveCadenceSeconds,
+          })),
+          alreadyPresent: r.applyAgentTickerTemplates.alreadyPresent.map((a) => ({ id: a.id, name: a.name })),
+        },
+      };
+    } catch (e: unknown) {
+      const { status, ...refusal } = applyRefusal(extractGqlErrorCode(e));
+      if (refusal.outcomeUnknown) console.warn(`[worker-page] apply tickers for ${params.id} failed:`, e);
+      return fail(status, { applyTickers: { key: params.id, refusal } });
+    }
+  },
 
   /**
    * portal#1142 P4 (hadron-server#1602 / #2120) — save the signature and/or

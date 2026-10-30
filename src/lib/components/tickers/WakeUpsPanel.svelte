@@ -9,6 +9,8 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
+  import ApplyAgentTickers from '$lib/components/tickers/ApplyAgentTickers.svelte';
+  import type { ApplyResult } from '$lib/tickers/apply';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -24,12 +26,19 @@
     worker,
     appId,
     loadedAt,
+    canManage = false,
+    applyAction = '?tab=wake&/applyTickerTemplates',
+    applyResult = null,
   }: {
     wake: TickerRead<WorkerWakeSettings>;
     appSettings: TickerRead<AppTickerSettings> | null;
-    worker: { retiredAt: string | null };
+    worker: { id?: string; retiredAt: string | null };
     appId: string | null;
     loadedAt: string;
+    /** portal#1462: may the viewer manage the worker's App (null = unknown; the server decides). */
+    canManage?: boolean | null;
+    applyAction?: string;
+    applyResult?: ApplyResult | null;
   } = $props();
 
   const now = $derived(Date.parse(loadedAt));
@@ -81,6 +90,10 @@
 </script>
 
 <section class="space-y-4" data-testid="wake-panel">
+  <!-- portal#1462: independent of the reads below, so a failed read never hides it. -->
+  {#key worker.id}
+    <ApplyAgentTickers canManage={canManage} action={applyAction} workerKey={worker.id ?? ''} result={applyResult} floorSeconds={minCadence} />
+  {/key}
   {#if wake.kind === 'not-participant'}
     <TickersNotParticipant what="wake" />
   {:else if wake.kind === 'failed'}
