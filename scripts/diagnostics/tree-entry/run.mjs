@@ -86,10 +86,12 @@ try {
         window.observer.disconnect();
         return { entryMs: end - start, largestTaskMs: Math.max(0, ...tasks.map((t) => t.duration)),
           totalBlockingMs: tasks.reduce((sum, t) => sum + Math.max(0, t.duration - 50), 0), longTasks: tasks,
-          rows: document.querySelectorAll('.tree-row').length, elements: document.querySelectorAll('*').length,
+          rows: document.querySelectorAll('.tree-row').length, totalRows: Number(document.querySelector('nav.tree-view')?.dataset.rowCount), elements: document.querySelectorAll('*').length,
           visibility: document.visibilityState, focus: document.hasFocus() };
       });
-      assert.equal(measured.rows, prepared.expectedRows);
+      // #1381 Slice 2: the tree mounts a bounded window; the full expansion is reported by data-row-count.
+      assert.equal(measured.totalRows, prepared.expectedRows);
+      assert.ok(measured.rows <= Math.min(prepared.expectedRows, 150), `mounted ${measured.rows} rows`);
       assert.equal(measured.visibility, 'visible');
       assert.equal(measured.focus, true);
       const after = await cdp.send('Runtime.getHeapUsage');
