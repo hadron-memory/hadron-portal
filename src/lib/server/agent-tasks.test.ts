@@ -5,8 +5,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQLClient } from 'graphql-request';
-import { APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
-import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadOpenTaskTitles, loadRoster, loadTree } from './agent-tasks';
+import { APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
 
 const request = vi.fn();
 const client = { request } as unknown as GraphQLClient;
@@ -108,12 +108,6 @@ describe('slice 2: roster, titles and alarms', () => {
     expect(await loadRoster(client, 'app-1')).toEqual({ kind: 'failed' });
   });
 
-  it('titles map ids to titles; a failure costs only the titles', async () => {
-    request.mockResolvedValueOnce({ agentTasks: [{ id: 't1', title: 'Ship it' }] });
-    expect(await loadOpenTaskTitles(client, 'app-1')).toEqual({ t1: 'Ship it' });
-    request.mockRejectedValueOnce(new Error('down'));
-    expect(await loadOpenTaskTitles(client, 'app-1')).toEqual({});
-  });
 
   it('alarms walk forward by the last id, alarmsOnly, up to the bound', async () => {
     const page = (n: number, from: number) => Array.from({ length: n }, (_, i) => ({ id: `a${from + i}` }));
@@ -164,5 +158,87 @@ describe('loadWriteCandidates: withheld members', () => {
   it('a GraphQL error (not just a transport error) is failed too', async () => {
     route(Object.assign(new Error('x'), { response: { errors: [{ message: 'x', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } }));
     expect(await loadWriteCandidates(client, 'app-1')).toMatchObject({ peopleFailed: true });
+  });
+});
+
+// portal#1349: bare ids hydrated through the readable-task gate.
+describe('hydrateTaskRefs', () => {
+  const task = (id: string, over: Record<string, unknown> = {}) => ({ agentTask: { id, appId: 'app-1', handle: `AT${id}`, title: `T ${id}`, ...over } });
+
+  it('reads each distinct id once, by id, through agentTask — terminal children included, no open-list scan', async () => {
+    request.mockImplementation(async (_q: string, v: { id: string }) => task(v.id));
+    const refs = await hydrateTaskRefs(client, 'app-1', ['1', '2', '1', null, undefined, '']);
+    expect(refs).toEqual({ 1: { id: '1', handle: 'AT1', title: 'T 1' }, 2: { id: '2', handle: 'AT2', title: 'T 2' } });
+    expect(request.mock.calls.map((c) => c[1])).toEqual([{ id: '1' }, { id: '2' }]);
+    expect(request.mock.calls.every((c) => c[0] === AGENT_TASK_REF_QUERY)).toBe(true);
+  });
+
+  it('a task of another App is unavailable: never used to decorate this App’s row', async () => {
+    request.mockResolvedValueOnce(task('1', { appId: 'app-2' }));
+    expect(await hydrateTaskRefs(client, 'app-1', ['1'])).toEqual({ 1: null });
+  });
+
+  it('missing, unreadable and failed reads are all the same null, and one failure does not cost the rest', async () => {
+    request.mockImplementation(async (_q: string, v: { id: string }) => {
+      if (v.id === 'missing') return { agentTask: null };
+      if (v.id === 'denied') throw gqlError('FORBIDDEN');
+      if (v.id === 'down') throw new Error('ECONNRESET');
+      return task(v.id);
+    });
+    expect(await hydrateTaskRefs(client, 'app-1', ['missing', 'denied', 'down', 'ok'])).toEqual({
+      missing: null, denied: null, down: null, ok: { id: 'ok', handle: 'ATok', title: 'T ok' },
+    });
+  });
+
+  it('concurrency is bounded', async () => {
+    let live = 0;
+    let peak = 0;
+    request.mockImplementation(async (_q: string, v: { id: string }) => {
+      peak = Math.max(peak, ++live);
+      await new Promise((r) => setTimeout(r, 1));
+      live--;
+      return task(v.id);
+    });
+    const ids = Array.from({ length: HYDRATE_CONCURRENCY * 3 }, (_, i) => String(i));
+    expect(Object.keys(await hydrateTaskRefs(client, 'app-1', ids))).toHaveLength(ids.length);
+    expect(peak).toBeLessThanOrEqual(HYDRATE_CONCURRENCY);
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it('no ids, no reads', async () => {
+    expect(await hydrateTaskRefs(client, 'app-1', [])).toEqual({});
+    expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe('canonicalTaskId (the identity a write uses)', () => {
+  const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
+  const answer = (found: unknown) => request.mockImplementation(async (q: string) => (q === AGENT_TASK_REF_QUERY ? { agentTask: found } : { app }));
+
+  it('a handle is qualified with the route App and resolves to the server’s canonical id', async () => {
+    answer({ id: 'canon-1', appId: 'app-1' });
+    expect(await canonicalTaskId(client, 'app-1', 'AT3.405')).toBe('canon-1');
+    expect(request).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+  });
+  it('a raw id is forwarded unchanged', async () => {
+    answer({ id: 'abc', appId: 'app-1' });
+    await canonicalTaskId(client, 'app-1', 'abc');
+    expect(request).toHaveBeenLastCalledWith(AGENT_TASK_REF_QUERY, { id: 'abc' });
+  });
+  it('another App’s qualified handle is a 404 with NO task read', async () => {
+    answer({ id: 'x', appId: 'app-2' });
+    await expect(canonicalTaskId(client, 'app-1', 'hrn:agenttask:acme.com:other:AT3')).rejects.toMatchObject({ status: 404 });
+    expect(request.mock.calls.map((c) => c[0])).not.toContain(AGENT_TASK_REF_QUERY);
+  });
+  it('a task of another App, or none, is the same 404', async () => {
+    answer({ id: 'x', appId: 'app-2' });
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
+    answer(null);
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
+  });
+  it('a refused App is a 404 before any task read', async () => {
+    request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
+    await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });

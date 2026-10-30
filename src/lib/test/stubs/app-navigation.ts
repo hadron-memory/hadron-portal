@@ -42,9 +42,25 @@ export function goto(...args: unknown[]): Promise<void> {
   return Promise.resolve();
 }
 
+// portal#1141: a test can hold the NEXT invalidateAll open, to prove what a
+// handler does after the reload it started finishes late. Released by the
+// returned function; unheld, invalidateAll resolves at once as before.
+let heldInvalidate: Promise<void> | null = null;
+export function holdInvalidateAll(): () => void {
+  let release!: () => void;
+  heldInvalidate = new Promise<void>((r) => (release = r));
+  return () => {
+    heldInvalidate = null;
+    release();
+  };
+}
+
 export async function invalidateAll(): Promise<void> {
   navigationCalls.push({ fn: 'invalidateAll', args: [] });
   await navigationHooks.onInvalidateAll?.();
+  const held = heldInvalidate;
+  heldInvalidate = null;
+  await held;
 }
 
 // #668: `sveltekit-superforms` registers a tainted-form guard through these on

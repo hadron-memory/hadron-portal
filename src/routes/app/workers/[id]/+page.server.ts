@@ -5,14 +5,13 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
-import { SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_MUTATION, UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import { SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import { loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
 import type { Actions, PageServerLoad } from './$types';
-import { updateBriefingSchema, updateSignatureSchema } from './schema';
+import { updateSignatureSchema } from './schema';
 
-const updateBriefingAdapter = zod4(updateBriefingSchema);
 const updateSignatureAdapter = zod4(updateSignatureSchema);
 
 /**
@@ -151,15 +150,6 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     selfCanManage(client, locals.user?.id, worker.app?.urn),
   ]);
 
-  // #1010: seeded with the worker's CURRENT override, so the Source view opens
-  // on what is stored rather than on an empty box a reader could mistake for
-  // "there is no override" and save over.
-  const briefingForm = await superValidate(
-    { promptOverride: worker.promptOverride ?? '' },
-    updateBriefingAdapter,
-    { errors: false },
-  );
-
   // portal#1142 P4: seeded with the stored templates and, as bases, the same
   // values, so a save sends only what the reader changed. A masked (null) field
   // seeds as '': the page shows it as "not shown" (it reads worker.signature,
@@ -177,7 +167,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   return {
     worker,
-    briefingForm,
+
     signatureForm,
     initialTab,
     initialView,
@@ -245,7 +235,7 @@ export const actions: Actions = {
         );
       }
       if (code === 'BAD_USER_INPUT' || code === 'WORKER_RETIRED') {
-        return message(form, { type: 'error', text: extractGqlError(e, '') }, { status: 400 });
+        return message(form, { type: 'error', text: extractGqlError(e, '', ["BAD_USER_INPUT","WORKER_RETIRED"]) }, { status: 400 });
       }
       return message(
         form,
@@ -255,62 +245,4 @@ export const actions: Actions = {
     }
   },
 
-  /**
-   * #1010 — save the worker's prompt OVERRIDE.
-   *
-   * Named for what it writes. It is deliberately not `updateBriefing` on the
-   * wire either: the briefing is composed and underivable from this input, so a
-   * name promising to save "the briefing" would misdescribe the one thing this
-   * action can do.
-   */
-  updateBriefing: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), updateBriefingAdapter);
-    if (!form.valid) return fail(400, { form });
-
-    try {
-      await gqlClient(locals.token).request(UPDATE_WORKER_MUTATION, {
-        workerRef: params.id,
-        // The mutation null-clears by PRESENCE, so an empty textarea must reach
-        // the server as an empty STRING to clear the override. Sending null
-        // here would be indistinguishable from "leave it untouched", and the
-        // reader who just emptied the box would see their text come back.
-        promptOverride: form.data.promptOverride,
-      });
-      return message(form, {
-        type: 'success',
-        text: t('worker.briefing.saved', 'Override saved. It reaches this worker at its next bind.'),
-      });
-    } catch (e: unknown) {
-      const code = extractGqlErrorCode(e);
-      // Both refusals are the server's to make and are reported as it stated
-      // them: the portal does not pre-derive staffing access to hide the editor
-      // (the App page's own note on STAFFING_FORBIDDEN explains why a hidden
-      // control is worse than a refused one), and a retired worker is a fact
-      // the payload carries, so the UI disables the editor for it too.
-      const text =
-        code === 'WORKER_RETIRED'
-          ? t(
-              'worker.briefing.error.retired',
-              'This worker is retired — it takes no new session bindings, so an override would never be delivered.',
-            )
-          : code === 'FORBIDDEN'
-            ? t(
-                'worker.briefing.error.forbidden',
-                'You don’t have permission to amend this worker. Editing a casting needs contributor access to the App’s organization, or a non-reader role in the App.',
-              )
-            : extractGqlError(e, 'Failed to save the override');
-      // @copilot on #857: only KNOWN client-error codes get a 4xx. The previous
-      // `: 400` swept transport failures and unrecognised codes in with them,
-      // labelling an outage as bad input — the same defect this repo just spent
-      // #843 and #851 removing from two other surfaces, written fresh here.
-      //
-      // 500 rather than a rethrow, deliberately: a rethrow renders the error
-      // page and DISCARDS the override the reader just typed, which for a
-      // multi-KB briefing is a worse outcome than the status code was worth.
-      // The message keeps their text on screen; the status stops monitoring and
-      // retry logic from reading a server fault as a user mistake.
-      const status = code === 'FORBIDDEN' ? 403 : code === 'WORKER_RETIRED' ? 400 : 500;
-      return message(form, { type: 'error', text }, { status });
-    }
-  },
 };

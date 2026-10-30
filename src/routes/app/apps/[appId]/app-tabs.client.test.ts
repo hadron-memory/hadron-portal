@@ -58,7 +58,7 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
   const data = {
     app: {
       id: 'a1', urn: 'hrn:app:acme.com:team', name: 'Team', appType: 'WORKSTATION', role: 'OWNER',
-      surfaces: [], agentId: 'ag1', agent: { ...agentOne, installationPolicy: { memberRoles: ['reader'], maxMembers: 'unlimited' } },
+      surfaces: [], agentId: 'ag1', availableMemberRoles: ['reader'], agent: { ...agentOne, installationPolicy: { memberRoles: ['reader'], maxMembers: 'unlimited' } },
       agents: [agentOne, agentTwo], memberCount: 1,
       createUserPermission: 'DENY', identifyUserMethod: 'USER_ID', sessionTimeoutSeconds: 3600, anonymousTtlDays: 14,
       createdAt: '2026-01-01T00:00:00.000Z',
@@ -66,7 +66,7 @@ async function mountTab(tab: string, over: { app?: Record<string, unknown>; data
     },
     org: null, availableAgents: [agentOne, { id: 'ag3', urn: 'hrn:agent:acme.com:extra', name: 'Extra' }],
     staff: [], staffError: false, members: [{ appId: 'a1', userId: 'u2', role: 'reader', user: reader }],
-    teamChatMessages: [], teamChatTotal: 0, teamChatError: false,
+    teamChatMessages: [], teamChatTotal: 0, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
     appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
     selectedChatKey: 'chats:team', initialTab: tab, initialChatFullView: false,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,

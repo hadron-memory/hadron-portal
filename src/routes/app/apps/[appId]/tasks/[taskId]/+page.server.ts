@@ -1,14 +1,19 @@
-import { error, redirect } from '@sveltejs/kit';
+import { taskDependencies } from '$lib/server/task-planning';
+import { readTaskPriority } from '$lib/agent-tasks/planning';
+import { error, redirect, isHttpError } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
   AGENT_TASK_DETAIL_QUERY,
+  SET_AGENT_TASK_PRIORITY_MUTATION,
+  ADD_AGENT_TASK_BLOCKER_MUTATION,
+  REMOVE_AGENT_TASK_BLOCKER_MUTATION,
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
   PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
-import { loadAncestors, loadHistory, loadTasksApp, loadTree, loadWriteCandidates } from '$lib/server/agent-tasks';
+import { canonicalTaskId, loadAncestors, loadHistory, loadTasksApp, loadTree, loadWriteCandidates } from '$lib/server/agent-tasks';
 import {
   classifyWriteError,
   formValues,
@@ -18,6 +23,7 @@ import {
   writeFailure,
 } from '$lib/server/agent-task-writes';
 import { t } from '$lib/i18n/t';
+import { resolveSegment } from '$lib/agent-tasks/handle';
 import type { AgentTaskDetail } from '$lib/agent-tasks/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -37,13 +43,18 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // before any task read (Uma's P2-2 on #1127).
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
-  const taskData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: params.taskId });
+  // portal#1349: a handle in the URL is qualified with THIS route's App and
+  // forwarded to the server's own resolver; another App's qualified handle is
+  // unknown before any task read, same as a task that does not exist.
+  const seg = resolveSegment(params.taskId, app.urn);
+  if (seg.kind === 'unknown') throw error(404, 'Task not found, or you can’t see it');
+  const taskData = await client.request<{ agentTask: AgentTaskDetail | null }>(AGENT_TASK_DETAIL_QUERY, { id: seg.ref });
   const task = taskData.agentTask;
   if (!task) throw error(404, 'Task not found, or you can’t see it');
 
   // A task resolves by id alone; one reached under another App's URL moves to
   // its own (the runs/[runId] pattern).
-  if (task.appId !== app.id) redirect(303, `/app/apps/${task.appId}/tasks/${task.id}`);
+  if (task.appId !== app.id) redirect(303, `/app/apps/${task.appId}/tasks/${encodeURIComponent(task.id)}`);
 
   // portal#1090: an impersonation session writes nothing, so it gets no bar
   // and no picker read. Everyone else gets the bar; the server decides.
@@ -58,6 +69,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   return {
     app,
     task,
+    dependencies: await taskDependencies(client, app.id, task.id),
     // The tree's first row is the task itself; the view shows what is below it.
     tree,
     history,
@@ -78,7 +90,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * refusal, which goes back verbatim with the reader's values. Park (portal#1143)
  * is offered on state alone; the same refusal answers anyone outside its audience.
  */
-type TaskWrite = 'ready' | 'assign' | 'reassign' | 'park' | 'cancel';
+type TaskWrite = 'ready' | 'assign' | 'reassign' | 'park' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker';
 
 async function write(
   action: TaskWrite,
@@ -90,7 +102,18 @@ async function write(
   if (locals.impersonation) return writeFailure(action, impersonationRefusal(), values);
   const built = build(fd);
   if ('invalid' in built) return writeFailure(action, { kind: 'invalid', ...built.invalid }, values);
-  const vars = { taskId: params.taskId, ...built.vars };
+  // The mutation identity is the canonical id the server resolved for THIS App's
+  // route, never the raw URL segment (portal#1349).
+  let taskId: string;
+  try {
+    taskId = await canonicalTaskId(gqlClient(locals.token), params.appId, params.taskId);
+  } catch (e) {
+    // The neutral 404 stands; a failed resolution read is the uncertain line, like any write fault.
+    if (isHttpError(e)) throw e;
+    return writeFailure(action, { kind: 'uncertain' }, values);
+  }
+  const planning = action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
+  const vars: Record<string, unknown> = { ...(planning ? { taskRef: taskId } : { taskId }), ...built.vars };
   // portal#1214: a write whose response can carry warnings keeps them.
   if (built.path) {
     const out = await taskWrite(gqlClient(locals.token), built.doc, vars, built.path);
@@ -122,7 +145,23 @@ function assignment(doc: string, path: string) {
   };
 }
 
+function blockerEdit(doc: string, path: string) {
+  return (fd: FormData) => {
+    const ref = String(fd.get('blockerTaskRef') ?? '').trim();
+    if (!ref) return { invalid: { field: 'blockerTaskRef', message: t('app.tasks.blocker.required', 'Choose a task.') } };
+    return { doc, path, vars: { blockerTaskRef: ref } };
+  };
+}
+
 export const actions: Actions = {
+  priority: (event) => write('priority', event, (fd) => {
+    const priority = readTaskPriority(fd.get('priority'));
+    if (typeof priority === 'object') return { invalid: priority };
+    if (priority === undefined) return { invalid: { field: 'priority', message: t('app.tasks.priority.required', 'Choose a priority.') } };
+    return { doc: SET_AGENT_TASK_PRIORITY_MUTATION, path: 'setAgentTaskPriority', vars: { priority } };
+  }),
+  addBlocker: (event) => write('addBlocker', event, blockerEdit(ADD_AGENT_TASK_BLOCKER_MUTATION, 'addAgentTaskBlocker')),
+  removeBlocker: (event) => write('removeBlocker', event, blockerEdit(REMOVE_AGENT_TASK_BLOCKER_MUTATION, 'removeAgentTaskBlocker')),
   ready: (event) => write('ready', event, () => ({ doc: MAKE_AGENT_TASK_READY_MUTATION, vars: {} })),
   assign: (event) => write('assign', event, assignment(ASSIGN_AGENT_TASK_MUTATION, 'assignAgentTask')),
   reassign: (event) => write('reassign', event, assignment(REASSIGN_AGENT_TASK_MUTATION, 'reassignAgentTask')),

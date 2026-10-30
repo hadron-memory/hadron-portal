@@ -14,17 +14,67 @@ const entry = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 });
 const client = (impl: () => unknown) => ({ request: vi.fn(async () => impl()) }) as never;
+// The grid's handle is hydrated per current task (portal#1349): answer the roster, then each task ref.
+const refClient = (workers: unknown[], refs: Record<string, unknown>) =>
+  ({
+    request: vi.fn(async (q: string, v?: { id: string }) => (q.includes('AgentTaskRef') ? { agentTask: refs[v!.id] ?? null } : { teamRoster: { workers } })),
+  }) as never;
 const gqlErr = (code: string) => ({ response: { errors: [{ extensions: { code } }] } });
 
 describe('loadAppTeamRoster (#1168)', () => {
   it('reads once and keys the entries by worker id', async () => {
-    const c = client(() => ({ teamRoster: { workers: [entry('w1', { currentTask: { id: 't1', title: 'Ship', status: 'STARTED' } }), entry('w2')] } }));
+    const c = refClient([entry('w1', { currentTask: { id: 't1', title: 'Ship', status: 'STARTED' } }), entry('w2')], {
+      t1: { id: 't1', appId: 'app-1', handle: 'AT1', title: 'Ship' },
+    });
     const r = await loadAppTeamRoster(c, 'app-1');
     expect(r.kind).toBe('ok');
     if (r.kind !== 'ok') return;
     expect(r.byWorker.w1.currentTask?.title).toBe('Ship');
     expect(r.byWorker.w2.currentTask).toBeNull();
-    expect((c as unknown as { request: { mock: { calls: unknown[] } } }).request.mock.calls).toHaveLength(1);
+    expect(r.byWorker.w2.currentTaskUnavailable).toBeUndefined();
+    // The roster is read once; the only other read is the task-ref hydration.
+    const calls = (c as unknown as { request: { mock: { calls: unknown[][] } } }).request.mock.calls;
+    expect(calls.filter((x) => String(x[0]).includes('TasksTeamRoster') || String(x[0]).includes('AppTeamRoster'))).toHaveLength(1);
+  });
+
+  it('the current task gets its immutable handle through the readable-task gate', async () => {
+    const r = await loadAppTeamRoster(
+      refClient([entry('w1', { currentTask: { id: 't1', title: 'Ship', status: 'STARTED' } })], {
+        t1: { id: 't1', appId: 'app-1', handle: 'AT3.405', title: 'Ship' },
+      }),
+      'app-1',
+    );
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.byWorker.w1.currentTask).toEqual({ id: 't1', title: 'Ship', status: 'STARTED', handle: 'AT3.405' });
+    expect(r.byWorker.w1.currentTaskUnavailable).toBeUndefined();
+  });
+
+  // Greta LOCAL P2 on portal#1375: an unresolved current task keeps nothing of
+  // the roster's summary (no stale title, id or link), and is not "no task".
+  it('a missing, foreign or failed current-task read is unavailable: no stale title or id, and not "no task"', async () => {
+    const workers = [
+      entry('w1', { currentTask: { id: 't-null', title: 'Stale private title', status: 'STARTED' } }),
+      entry('w2', { currentTask: { id: 't-foreign', title: 'Stale private title', status: 'STARTED' } }),
+      entry('w3', { currentTask: { id: 't-boom', title: 'Stale private title', status: 'STARTED' } }),
+      entry('w4'),
+    ];
+    const c = {
+      request: vi.fn(async (q: string, v?: { id: string }) => {
+        if (!q.includes('AgentTaskRef')) return { teamRoster: { workers } };
+        if (v!.id === 't-boom') throw new Error('socket hang up');
+        if (v!.id === 't-foreign') return { agentTask: { id: 't-foreign', appId: 'app-2', handle: 'AT9', title: 'Foreign' } };
+        return { agentTask: null };
+      }),
+    } as never;
+    const r = await loadAppTeamRoster(c, 'app-1');
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    for (const w of ['w1', 'w2', 'w3']) {
+      expect(r.byWorker[w].currentTask).toBeNull();
+      expect(r.byWorker[w].currentTaskUnavailable).toBe(true);
+      expect(JSON.stringify(r.byWorker[w])).not.toMatch(/Stale private title|t-null|t-foreign|t-boom|AT9/);
+    }
+    expect(r.byWorker.w4.currentTask).toBeNull();
+    expect(r.byWorker.w4.currentTaskUnavailable).toBeUndefined();
   });
 
   it('a refusal (APP_NOT_FOUND, FORBIDDEN) is hidden, not an empty roster', async () => {

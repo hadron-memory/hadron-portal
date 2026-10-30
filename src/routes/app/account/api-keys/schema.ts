@@ -21,3 +21,9 @@ export const revokeUserApiKeySchema = z.object({
 });
 
 export type RevokeUserApiKeySchema = typeof revokeUserApiKeySchema;
+
+// Boolean strings are explicit: omitted, blank and arbitrary truthy values are invalid.
+export const keyVisibilitySchema = z.object({
+  id: z.string().trim().min(1),
+  hidden: z.enum(['true', 'false']).transform(value => value === 'true'),
+});

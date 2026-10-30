@@ -58,7 +58,7 @@ describe('create agent action', () => {
       displayName: 'Research Assistant',
       slug: 'research-assistant',
       description: 'Helps with research',
-      systemPrompt: 'Be precise.',
+      systemPrompt: 'stale form text must not be forwarded',
       visibility: 'ORGANIZATION',
     });
 
@@ -67,7 +67,7 @@ describe('create agent action', () => {
       orgId: 'org-1',
       name: 'research-assistant',
       description: 'Helps with research',
-      systemPrompt: 'Be precise.',
+
       visibility: 'ORGANIZATION',
     });
     expect(mockRequest).toHaveBeenCalledWith(UPDATE_AGENT_MUTATION, {

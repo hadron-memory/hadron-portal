@@ -10,16 +10,15 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { updateBriefingSchema } from './schema';
 import Page from './+page.svelte';
 
 function worker(over: Record<string, unknown>) {
   return {
     id: 'w-a', appId: 'app-1', agentId: 'agent-1', name: 'Dara', slug: 'dara',
     urn: 'hrn:worker:hadronmemory.com:team:dara', role: 'engineer',
-    promptOverride: null, prompt: null, memoryId: null, retiredAt: null,
+    prompt: null, memoryId: null, retiredAt: null,
     heldByUserId: null, heldAt: null, createdAt: '1789430400000',
-    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:x:engineer', systemPrompt: null },
+    agent: { id: 'agent-1', name: 'Engineer', urn: 'hrn:agent:x:engineer', },
     app: { id: 'app-1', name: 'Team', urn: 'hrn:app:x:team', organizationId: 'org-1' },
     reportsToWorkerId: null, reportsToRetired: false, reportsTo: null,
     ...over,
@@ -39,7 +38,7 @@ async function mount(w: ReturnType<typeof worker>) {
   const m = mountComponent(Page as never, {
     data: {
       worker: w,
-      briefingForm: await superValidate({ promptOverride: '' }, zod4(updateBriefingSchema), { errors: false }),
+
       initialTab: 'profile', initialView: null,
       workerSessions: [], sessionsTruncated: false, worklog: [], worklogTotal: 0,
     },

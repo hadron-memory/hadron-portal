@@ -157,16 +157,31 @@ export function mergeTranscript(
  * it is added, by nobody.
  *
  * Shallow by design: every field on `TeamChatMessage` is a primitive except
- * `mentions`, which is a flat `string[]`. If a nested object is ever added this
- * becomes wrong — and wrong in the quiet direction, reporting "unchanged" for a
- * changed row — so the array branch below is deliberately the only structural
- * case, and anything deeper should fail review rather than be absorbed here.
+ * `mentions` (a flat `string[]`) and `teamTags` (#1137, `{ headId, label }`
+ * pairs, compared by value below). Any other nested field would be wrong in the
+ * quiet direction, reporting "unchanged" for a changed row, so it should fail
+ * review rather than be absorbed here.
  */
 function sameMessage(a: TeamChatMessage, b: TeamChatMessage): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof TeamChatMessage>;
   for (const key of keys) {
     const av = a[key];
     const bv = b[key];
+    if (key === 'teamTags') {
+      // #1137: the one NESTED field. Tag snapshots are fresh objects on every
+      // read, so reference equality would call every polled row changed and a
+      // quiet poll would re-render (and re-scroll) the thread. null and [] are
+      // different statements (withheld/absent vs known no-team), so they differ.
+      const at = av as TeamChatMessage['teamTags'];
+      const bt = bv as TeamChatMessage['teamTags'];
+      if (at === null || bt === null || at === undefined || bt === undefined) {
+        if (at !== bt) return false;
+        continue;
+      }
+      if (at.length !== bt.length) return false;
+      if (at.some((tag, i) => tag.headId !== bt[i].headId || tag.label !== bt[i].label)) return false;
+      continue;
+    }
     if (Array.isArray(av) || Array.isArray(bv)) {
       if (!Array.isArray(av) || !Array.isArray(bv) || av.length !== bv.length) return false;
       if (av.some((item, i) => item !== bv[i])) return false;
@@ -175,4 +190,23 @@ function sameMessage(a: TeamChatMessage, b: TeamChatMessage): boolean {
     if (av !== bv) return false;
   }
   return true;
+}
+
+
+/** In-page Channel state; never persisted outside this page instance. */
+export interface TranscriptView {
+  items: readonly TeamChatMessage[];
+  total: number;
+  scrollTop: number;
+  atBottom: boolean;
+  olderExhausted: boolean;
+  olderRemaining: number;
+  pendingNewer: number;
+}
+/** Keep loaded history, but never join two disjoint windows over an unseen gap. */
+export function resumeTranscript(previous: { items: readonly TeamChatMessage[]; total: number } | null,
+  items: readonly TeamChatMessage[], total: number) {
+  if (!previous?.items.length || total === 0) return { items, total };
+  if (items.length && items[0].seq > previous.items[previous.items.length - 1].seq + 1) return previous;
+  return { items: mergeTranscript(previous.items, items), total: Math.max(previous.total, total) };
 }

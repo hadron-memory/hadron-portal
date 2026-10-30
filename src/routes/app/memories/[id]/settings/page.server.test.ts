@@ -126,7 +126,7 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect((thrown as { location: string }).location).toBe('/app/orgs/org%2Fwith%20space/memories');
   });
 
-  it('GraphQL transport error — returns fail(500) with the extracted error message', async () => {
+  it('uncoded GraphQL error returns fail(500) with generic copy', async () => {
     // Shape: graphql-request style error with response.errors[0].message
     const gqlError = Object.assign(new Error('outer'), {
       response: { errors: [{ message: 'Forbidden: only the owner can delete a personal memory' }] },
@@ -142,7 +142,7 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect(result!.status).toBe(500);
     expect(result!.data.form?.message).toEqual({
       type: 'error',
-      text: 'Forbidden: only the owner can delete a personal memory',
+      text: 'Something went wrong on our side.',
     });
   });
 
@@ -377,7 +377,7 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     }))) as { status: number; data: { form?: { message?: App.Superforms.Message }; needsEncryptedAck?: boolean } } | undefined;
 
     expect(result!.status).toBe(500);
-    expect(result!.data.form?.message).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(result!.data.form?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
     expect(result!.data.needsEncryptedAck).toBeUndefined();
   });
 
@@ -778,7 +778,7 @@ describe('memory-detail `updateSchema` action (#588)', () => {
     const result = await actions.updateSchema(schemaEv({ schemaJson: VALID_SCHEMA }));
 
     expect(result).toMatchObject({ status: 500 });
-    expect(successMessage(result)).toEqual({ type: 'error', text: 'boom' });
+    expect(successMessage(result)).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });
 
@@ -1054,7 +1054,7 @@ describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
     expect((superFormFrom(result) as { id?: string })?.id).toBe('updateMarketplaceListing:mem-id-abc');
   });
 
-  it('a denied writer sees the server’s refusal, not the request payload (#468 leak class)', async () => {
+  it('an uncoded denied write suppresses server prose and request payload (#468 leak class)', async () => {
     // graphql-request packs the whole query and variables into a
     // ClientError's message; extractGqlError must surface the server's
     // errors[0].message instead.
@@ -1065,7 +1065,7 @@ describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
     const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
 
     const text = (superFormFrom(result)?.message as { text: string }).text;
-    expect(text).toBe('You do not have write access to this memory.');
+    expect(text).toBe('Something went wrong on our side.');
     expect(text).not.toContain('updateMemory');
     expect(text).not.toContain('listedOnMarketplace');
   });

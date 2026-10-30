@@ -94,7 +94,6 @@ export interface Agent {
   urn: string;
   name: string;
   description: string | null;
-  systemPrompt: string | null;
   systemMemoryId: string | null;
   // Spec 035: Agent.visibility is its own AgentVisibility enum (decoupled from
   // MemoryVisibility). PERSONAL = creator-only draft (named PERSONAL, not
@@ -102,8 +101,8 @@ export interface Agent {
   visibility: 'PUBLIC' | 'ORGANIZATION' | 'PERSONAL';
   type?: 'ASSISTANT' | 'CHATBOT';
   surfaces?: string[];
-  // The role is dressing on the reusable Agent; systemPrompt supplies the
-  // shared template for chats and bound Worker briefings (#1241).
+  // The role is dressing on the reusable Agent; the compiled boot prompt supplies the
+  // shared instructions for chats and bound Worker briefings.
   personaRole?: string | null;
   // 036-ai-service-config: server shim — true when the agent's `default`
   // config has a key. Used by the Chat-tab readiness gate.
@@ -210,6 +209,19 @@ export interface TeamChatMessage {
    * the thread then shows nothing, never a guessed address.
    */
   urn: string | null;
+  /**
+   * Immutable head identity/display pairs stamped when the message was posted
+   * (S3, server#2019). `label` is a post-time display snapshot, never identity:
+   * chips key and filter by `headId`. `[]` is a known no-team post; NULL is a
+   * historical absence OR a withheld value, indistinguishable by design — render
+   * no chip and make no claim, never "untagged" or "private".
+   */
+  teamTags: TeamTagSnapshot[] | null;
+}
+
+export interface TeamTagSnapshot {
+  headId: string;
+  label: string;
 }
 
 /**
@@ -280,7 +292,6 @@ export interface App {
   appType: AppType;
   role: AppMembershipRole;
   description: string | null;
-  systemPrompt: string | null;
   agentTools: string[];
   expiresAt: string | null;
   // App-original fields
@@ -291,6 +302,12 @@ export interface App {
   // 008-agent-installation: direct FK to Agent (replaces the AppAgent join).
   agentId: string | null;
   agent: AppAgentSummary | null;
+  /**
+   * #1405 (R211, hrn:node:hadronmemory.com:specs:cor:dmo:050:04): the member roles the App offers, the union
+   * over its installed Agents, primary first. Optional because only the
+   * AppFields fragment selects it.
+   */
+  availableMemberRoles?: string[];
   // Spec 021 US1: server-computed R2 canonical install URN
   // (hrn:agent:<installing-org>::<app-slug>::<author-org>:<agent-slug>).
   // Optional because not every query that returns App fetches this
@@ -357,15 +374,12 @@ export interface Worker {
   app?: { id: string; name: string; urn: string; organizationId?: string | null } | null;
   /** The cast-list role this filling answers ("backend-engineer"). */
   role: string | null;
-  /** Per-worker individuality layered over the agent's template prompt. */
-  promptOverride: string | null;
   /** portal#1142 P4: the signature template; null when masked. Only WORKER_QUERY selects it. */
   signature?: string | null;
   /** portal#1142 P4: the commit-trailer template; null when masked. */
   trailer?: string | null;
   /**
-   * The RESOLVED boot briefing — the agent's template with {{name}}/{{role}}
-   * bound, then `promptOverride` appended. Multi-KB.
+   * The resolved, served boot briefing. Multi-KB; read-only.
    *
    * Optional because only the single-worker read selects it: the roster
    * projection deliberately does not, since shipping every worker's briefing on
@@ -381,18 +395,6 @@ export interface Worker {
     name: string;
     urn: string;
     personaRole?: string | null;
-    /**
-     * #1010/#1241 — the agent's RAW shared prompt template, selected only by
-     * WORKER_QUERY and never by WorkerFields (which feeds the Staff
-     * roster, where a template per row is the hadron-cli#459 mistake).
-     *
-     * Optional because the roster does not ask for it, and nullable for
-     * TWO different reasons a consumer must tell apart: the agent carries
-     * no template, or the AGENT read gate denied it — which is a
-     * different gate from the one guarding the composed `prompt`, so a
-     * caller can legitimately have one and not the other.
-     */
-    systemPrompt?: string | null;
     /** portal#1168 — the role agent's system memory, selected by the roster
      *  only. Null when the agent has none or the read is withheld. */
     systemMemoryId?: string | null;
@@ -413,7 +415,7 @@ export interface Worker {
    *
    * THREE-VALUED, and the third value is the one that bites. This is a
    * WORKING-STATE field behind the worker read gate, MASKED TO NULL ON DENY
-   * (like `promptOverride` and `memoryId`, unlike `name`/`role`/`urn`). So
+   * (like `prompt` and `memoryId`, unlike `name`/`role`/`urn`). So
    * `null` means EITHER "nobody holds it" OR "you may not see who does", and a
    * UI that renders those the same is asserting something the data does not
    * support. `undefined` additionally means "not selected".
@@ -507,7 +509,6 @@ export interface AppAgentSummary {
   urn: string;
   name: string;
   description: string | null;
-  systemPrompt?: string | null;
   surfaces?: string[];
   memoryItems?: AgentMemoryItem[];
   installationPolicy?: InstallationPolicy;
@@ -633,6 +634,24 @@ export interface NodeRevision {
   // #620: node fields the edit changed, e.g. ["abstract","tags"]; empty on
   // legacy rows captured before the column existed.
   changes?: string[];
+  createdAt: string;
+}
+
+// portal#1355 (server#2562, #2517): one audit entry a HARD delete left on this
+// node when it removed an edge the node held to the deleted target
+// (hrn:node:hadronmemory.com:specs:cor:dmo:010:04). Deliberately not a NodeRevision — revisions stay snapshots
+// of the node's own fields. edgeLoc/targetLoc are null when the deleted
+// target's memory is not one the viewer can read (the locs derive from the
+// target's address); render that as absent, never as an empty value.
+export interface NodeEdgeRemoval {
+  id: string;
+  edgeLoc: string | null;
+  edgeName: string | null;
+  targetId: string;
+  targetLoc: string | null;
+  reason: string;
+  // The same actor a soft delete records as deletedBy; null when unattributed.
+  removedBy: string | null;
   createdAt: string;
 }
 
@@ -912,6 +931,7 @@ export interface AiServiceConfig {
 // ---------------------------------------------------------------------------
 
 export interface UserApiKey {
+  hiddenAt: string | null;
   id: string;
   keyPreview: string;
   label: string | null;
@@ -1001,3 +1021,6 @@ export interface RegisterEntry {
   description: string | null;
   createdAt: string;
 }
+
+/** The server's typed refusal of a team head (#1137), shown verbatim. */
+export type TeamChatRefusal = { code: string; message: string };

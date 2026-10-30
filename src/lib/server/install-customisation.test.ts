@@ -160,7 +160,7 @@ describe('customisation refusal and revision safety', () => {
         true,
       );
       expect(JSON.stringify(result)).toContain(
-        'Own server prose <b>verbatim</b>',
+        code === 'UNKNOWN_REFUSAL' ? 'Something went wrong on our side.' : 'Own server prose <b>verbatim</b>',
       );
       expect(JSON.stringify(result)).not.toContain('secret');
       expect(c.request).toHaveBeenCalledTimes(1);

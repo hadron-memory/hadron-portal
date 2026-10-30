@@ -2,7 +2,7 @@ import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlErrorCode, gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { CREATE_AGENT_MUTATION, UPDATE_AGENT_MUTATION, ORG_CHROME_QUERY } from '$lib/server/queries';
 import type { Organization } from '$lib/types';
@@ -32,11 +32,11 @@ export const actions: Actions = {
     const name = form.data.slug;
     const displayName = form.data.displayName;
     const description = form.data.description || null;
-    const systemPrompt = form.data.systemPrompt || null;
+
     const visibility = form.data.visibility;
     try {
       const result = await gqlClient(locals.token).request<{ createAgent: { id: string } }>(CREATE_AGENT_MUTATION, {
-        orgId: params.id, name, description, systemPrompt, visibility,
+        orgId: params.id, name, description, visibility,
       });
       if (displayName && displayName !== name) {
         await gqlClient(locals.token).request(UPDATE_AGENT_MUTATION, {
@@ -46,8 +46,8 @@ export const actions: Actions = {
       redirect(303, `/app/orgs/${params.id}/agents`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      const msg = extractGqlError(e, 'Failed to create agent');
-      if (/agent with URN/i.test(msg)) return setError(form, 'slug', msg, { status: 409 });
+      const msg = extractGqlError(e, 'Failed to create agent', ["AGENT_URN_TAKEN"]);
+      if (extractGqlErrorCode(e) === 'AGENT_URN_TAKEN' || /agent with URN/i.test(gqlErrorTextForBranching(e, ['AGENT_URN_TAKEN']))) return setError(form, 'slug', msg, { status: 409 });
       return message(form, { type: 'error', text: msg }, { status: 500 });
     }
   },

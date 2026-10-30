@@ -170,7 +170,7 @@ describe('memory subscriptions subscribe action', () => {
     expect(result).toMatchObject({ status: 500 });
     expect(superFormFrom(result)?.message).toEqual({
       type: 'error',
-      text: 'Subscription already exists',
+      text: 'Something went wrong on our side.',
     });
   });
 

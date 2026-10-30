@@ -1,8 +1,9 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { ALARMS_LIMIT, BOARD_LIMIT, loadAlarms, loadBoard, loadComposition, loadOpenTaskTitles, loadRoster, loadTasksApp } from '$lib/server/agent-tasks';
+import { ALARMS_LIMIT, BOARD_LIMIT, loadAlarms, loadBoard, hydrateTaskRefs, loadComposition, loadRoster, loadTasksApp } from '$lib/server/agent-tasks';
 import { parseBoardFilter } from '$lib/agent-tasks/status';
-import { parseAlarmFilter } from '$lib/agent-tasks/roster';
+import { parseAlarmFilter, rosterTaskIds } from '$lib/agent-tasks/roster';
+import type { TaskRefs } from '$lib/agent-tasks/types';
 import { parseTaskView } from '$lib/agent-tasks/views';
 import type { PageServerLoad } from './$types';
 
@@ -19,6 +20,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ params, locals, url }) => {
   const client = gqlClient(locals.token);
   const view = parseTaskView(url.searchParams.get('view'));
+  const text = (url.searchParams.get('text') ?? '').trim();
   const filter = parseBoardFilter(url.searchParams.get('status'));
   const alarmFilter = parseAlarmFilter(url.searchParams.get('alarms'));
 
@@ -27,11 +29,19 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
 
+  // Canonicalize crafted blank GETs too (including with JavaScript disabled).
+  if (view === 'board' && url.searchParams.has('text') && !text) {
+    const canonical = new URL(url);
+    canonical.searchParams.delete('text');
+    throw redirect(303, canonical.pathname + canonical.search);
+  }
+
   const base = {
     app,
     view,
     filter,
     alarmFilter,
+    text,
     boardLimit: BOARD_LIMIT,
     alarmsLimit: ALARMS_LIMIT,
     loadedAt: new Date().toISOString(),
@@ -40,16 +50,19 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   };
 
   if (view === 'roster') {
-    const [roster, titles] = await Promise.all([loadRoster(client, app.id), loadOpenTaskTitles(client, app.id)]);
-    return { ...base, board: null, roster, composition: null, alarms: null, titles };
+    const roster = await loadRoster(client, app.id);
+    // Only the references the loaded roster carries, each through the readable-task gate.
+    const refs = await hydrateTaskRefs(client, app.id, roster.kind === 'ok' ? rosterTaskIds(roster.value) : []);
+    return { ...base, board: null, roster, composition: null, alarms: null, refs };
   }
   if (view === 'composition') {
-    return { ...base, board: null, roster: null, composition: await loadComposition(client, app.id), alarms: null, titles: {} as Record<string, string> };
+    return { ...base, board: null, roster: null, composition: await loadComposition(client, app.id), alarms: null, refs: {} as TaskRefs };
   }
   if (view === 'alarms') {
-    const [alarms, titles] = await Promise.all([loadAlarms(client, app.id), loadOpenTaskTitles(client, app.id)]);
-    return { ...base, board: null, roster: null, composition: null, alarms, titles };
+    const alarms = await loadAlarms(client, app.id);
+    const refs = await hydrateTaskRefs(client, app.id, alarms.kind === 'ok' ? alarms.value.alarms.map((a) => a.taskId) : []);
+    return { ...base, board: null, roster: null, composition: null, alarms, refs };
   }
-  const board = await loadBoard(client, app.id, filter);
-  return { ...base, board, roster: null, composition: null, alarms: null, titles: {} as Record<string, string> };
+  const board = await loadBoard(client, app.id, filter, text);
+  return { ...base, board, roster: null, composition: null, alarms: null, refs: {} as TaskRefs };
 };

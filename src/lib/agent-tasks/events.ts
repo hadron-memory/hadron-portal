@@ -56,6 +56,17 @@ export function eventSentence(
 ): EventSentence {
   const p = e.payload ?? {};
   switch (e.type) {
+    // server#2644 S1: fixed event vocabulary; never recover a blocker identity from payload ids.
+    case 'task.blocker-added':
+      return { known: true, text: t('app.tasks.history.blocker-added', 'added a blocker') };
+    case 'task.blocker-removed':
+      return { known: true, text: t('app.tasks.history.blocker-removed', 'removed a blocker') };
+    case 'task.priority':
+      return { known: true, text: typeof p.priority === 'number' && Number.isInteger(p.priority) && p.priority >= 1 && p.priority <= 5
+        ? t('app.tasks.history.priority', 'set priority to {priority}', { priority: p.priority })
+        : t('app.tasks.history.priority-unknown', 'changed the priority') };
+    case 'task.released':
+      return { known: true, text: t('app.tasks.history.released', 'released this task after its last open blocker ended or was removed') };
     case 'task.created':
       return { known: true, text: t('app.tasks.history.created', 'created this task') };
     case 'task.assigned':

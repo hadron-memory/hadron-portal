@@ -9,7 +9,6 @@ export const createChatbotSchema = z
     agentName: z.string().trim().min(1, 'Agent name is required.'),
     agentSlug: agentSlugField(),
     agentDescription: z.string().trim().default(''),
-    systemPrompt: z.string().trim().default(''),
     visibility: z.enum(['PERSONAL', 'ORGANIZATION', 'PUBLIC']).default('PERSONAL'),
     includeKnowledge: booleanField.default(true),
     knowledgeMemoryName: z.string().trim().default(''),
