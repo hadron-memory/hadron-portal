@@ -306,7 +306,7 @@ describe('ApplyAgentTickers: a late result is fenced to the mount that sent it (
     const first = await submitEnhancedDeferred(form, { update: vi.fn(async () => {}) });
     const navigation = await import('$lib/test/stubs/app-navigation');
     navigation.navigationHooks.onInvalidateAll = async () => { throw new Error('refresh failed'); };
-    await expect(first.finish(ok)).rejects.toThrow('refresh failed');
+    await first.finish(ok);
     await tick(2);
     flushSync();
     const button = root.querySelector<HTMLButtonElement>('form button[type="submit"]')!;
@@ -328,5 +328,114 @@ describe('ApplyAgentTickers: a late result is fenced to the mount that sent it (
     await tick(2);
     expect(update).toHaveBeenCalledWith({ reset: false, invalidateAll: false });
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+  });
+});
+
+describe('ApplyAgentTickers: a refresh that fails after a committed apply says so (George’s, Uma’s and Cedar’s P2 on 3cc623de)', () => {
+  const receipt = { key: 'w-A', ok: true as const, created: [created()], alreadyPresent: [] };
+  const ok = { type: 'success' as const, status: 200, data: { applyTickers: receipt } };
+  const guidance = (root: Element) => root.querySelector('#apply-tickers-result [data-testid="apply-refresh-failed"]');
+  async function rejectRefresh(after?: () => Promise<void>) {
+    const navigation = await import('$lib/test/stubs/app-navigation');
+    navigation.navigationHooks.onInvalidateAll = async () => {
+      await after?.();
+      throw new Error('refresh failed');
+    };
+    return () => { navigation.navigationHooks.onInvalidateAll = undefined; };
+  }
+
+  it('still applies the result the server returned, and says the page could not reload, without calling the apply unconfirmed or "nothing created"', async () => {
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => { props.result = receipt; });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update });
+    const restore = await rejectRefresh();
+    await finish(ok);
+    await tick(3);
+    flushSync();
+    restore();
+    expect(update).toHaveBeenCalledWith({ reset: false, invalidateAll: false });
+    expect(root.querySelector('[data-testid="apply-receipt"]')).not.toBeNull();
+    const note = guidance(root)!;
+    expect(note).not.toBeNull();
+    expect(note.textContent).toMatch(/reload|refresh/i);
+    expect(note.textContent).not.toMatch(/nothing was created|not created|may or may not/i);
+  });
+
+  it('never retries the apply by itself: one refresh attempt, no second submit, and the button is usable again', async () => {
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => { props.result = receipt; });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update });
+    const restore = await rejectRefresh();
+    await finish(ok);
+    await tick(3);
+    flushSync();
+    restore();
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(root.querySelector('form button[type="submit"]')!.getAttribute('aria-disabled')).not.toBe('true');
+  });
+
+  it('is fenced to its mount: a mount that was replaced during the failing refresh shows nothing and applies nothing', async () => {
+    const a1 = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => {});
+    const { finish } = await submitEnhancedDeferred(a1.root.querySelector('form')!, { update });
+    let go!: () => void;
+    const gate = new Promise<void>((r) => (go = r));
+    const restore = await rejectRefresh(() => gate);
+    const done = finish(ok);
+    await tick(2);
+    mounted.pop()!.unmount();
+    const b = await mountApply({ workerKey: 'w-B' });
+    go();
+    await done;
+    await tick(3);
+    flushSync();
+    restore();
+    expect(update).not.toHaveBeenCalled();
+    expect(guidance(b.root)).toBeNull();
+  });
+
+  it('belongs to the worker it was written for: the reused page moving to another worker drops it', async () => {
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const update = vi.fn(async () => { props.result = receipt; });
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update });
+    const restore = await rejectRefresh();
+    await finish(ok);
+    await tick(3);
+    flushSync();
+    restore();
+    expect(guidance(root)).not.toBeNull();
+    props.workerKey = 'w-B';
+    props.result = null;
+    await tick(2);
+    flushSync();
+    expect(guidance(root)).toBeNull();
+  });
+
+  it('clears on the next apply, and is absent after an apply whose refresh worked', async () => {
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const form = root.querySelector('form')!;
+    const first = await submitEnhancedDeferred(form, { update: vi.fn(async () => { props.result = receipt; }) });
+    const restore = await rejectRefresh();
+    await first.finish(ok);
+    await tick(3);
+    flushSync();
+    restore();
+    expect(guidance(root)).not.toBeNull();
+    const second = await submitEnhancedDeferred(form, { update: vi.fn(async () => { props.result = receipt; }) });
+    await second.finish(ok);
+    await tick(3);
+    flushSync();
+    expect(guidance(root)).toBeNull();
+  });
+
+  it('a refusal attempts no refresh, so it never carries the refresh line', async () => {
+    const { root, props } = await mountApply({ workerKey: 'w-A' });
+    const refusal = { key: 'w-A', refusal: { code: 'TICKER_LIMIT_REACHED', message: 'x', outcomeUnknown: false } };
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update: vi.fn(async () => { props.result = refusal; }) });
+    await finish({ type: 'failure', status: 409, data: { applyTickers: refusal } });
+    await tick(3);
+    flushSync();
+    expect(guidance(root)).toBeNull();
   });
 });
