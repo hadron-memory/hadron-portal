@@ -18,6 +18,8 @@ import Panel from './StopSignalsPanel.svelte';
 
 // Node re-reads process.env.TZ on assignment (tzset), POSIX only — CI is Linux.
 // Restored in afterAll so a reused worker doesn't leak the zone to other files.
+// Safe because vitest's default forks pool gives each test FILE its own process
+// (under a threads pool this would leak to concurrently-running files instead).
 const prevTz = process.env.TZ;
 process.env.TZ = 'America/Los_Angeles';
 

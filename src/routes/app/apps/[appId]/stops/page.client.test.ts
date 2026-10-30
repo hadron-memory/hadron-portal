@@ -107,9 +107,11 @@ describe('the Stops page', () => {
     expect(root.querySelector('form[action="?/set"]')).toBeNull();
   });
 
-  it('a page with a next page links to it by cursor', async () => {
-    const { root } = await mountPage(pageData({ page: { kind: 'ok', value: { signals: [signal()], pageInfo: { hasNextPage: true, endCursor: 'abc' } } } }));
-    const link = root.querySelector<HTMLAnchorElement>('a[href="?after=abc"]');
+  it('a page with a next page links to it by cursor, URL-encoded', async () => {
+    // A cursor with reserved characters pins the encodeURIComponent the href
+    // relies on (Jonas's LOCAL P3) — 'abc' would leave it unpinned.
+    const { root } = await mountPage(pageData({ page: { kind: 'ok', value: { signals: [signal()], pageInfo: { hasNextPage: true, endCursor: 'a/b+c=' } } } }));
+    const link = root.querySelector<HTMLAnchorElement>('a[href="?after=a%2Fb%2Bc%3D"]');
     expect(link).not.toBeNull();
     expect(link!.textContent).toContain('Show later stops');
   });
