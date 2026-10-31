@@ -240,8 +240,8 @@ describe('bare-loc boundary on the demand read (#1368)', () => {
     const r = await readCustomisation(c as never, context, 0, 'x');
     expect(c.request).toHaveBeenCalledTimes(5);
     expect(c.request.mock.calls.slice(3).map((call: unknown[]) => call[1])).toEqual([
-      { memoryRef: 'install', ref: 'x' },
-      { memoryRef: 'original', ref: 'x' },
+      { memoryRef: 'install', ref: 'loc:x' },
+      { memoryRef: 'original', ref: 'loc:x' },
     ]);
     expect(queries(c).slice(3).map((q) => /query (\w+)/.exec(q)?.[1])).toEqual([
       'InstallNode',
@@ -352,4 +352,43 @@ describe('fixed refusal lead per mapped code (#1368)', () => {
     expect(JSON.stringify(r)).not.toContain('secret');
     expect(JSON.stringify(r)).not.toContain('Own server prose');
   });
+});
+
+// #1504 §10 (Riana): node(ref:) resolves a PK or a urn:node: ref on its own and
+// ignores memoryRef, so those shapes could still show another readable node.
+// Every customisation node read pins the ref to its memory with `loc:`, which
+// the server reads as a loc inside memoryRef whatever the string looks like.
+describe('every customisation node read is pinned to its memory (#1504 §10)', () => {
+  const listed = () => [
+    app,
+    { installMemory: { id: 'install', urn: null } },
+    { memoryNodes: { nodes: [], total: 0 } },
+  ];
+  it.each([
+    '0123456789abcdef0123456789abcdef',
+    'cjld2cjxh0000qzrmn831i7rn',
+    'urn:node:acme.com:other:secret',
+    'loc:x',
+    'x',
+  ])('demand reads send ref loc:%s', async (loc) => {
+    const c = client([...listed(), { node: null }, { node: null }]);
+    await readCustomisation(c as never, context, 0, loc);
+    expect(c.request.mock.calls.slice(3).map((call: unknown[]) => call[1])).toEqual([
+      { memoryRef: 'install', ref: `loc:${loc}` },
+      { memoryRef: 'original', ref: `loc:${loc}` },
+    ]);
+  });
+  it.each(['0123456789abcdef0123456789abcdef', 'urn:node:acme.com:other:secret', 'x'])(
+    'the save door pre-read sends ref loc:%s',
+    async (loc) => {
+      const c = client([{ installMemory: { id: 'install' } }, { node: { role: null, isRunnable: false } }, {}]);
+      const fd = new FormData();
+      for (const [k, v] of Object.entries({ agentRef: 'agent-a', loc, content: 'new', baseContent: 'old', expectedRevision: '7' }))
+        fd.set(k, v);
+      await writeCustomisation(c as never, 'app-a', fd, false);
+      expect(c.request.mock.calls[1]?.[1]).toEqual({ memoryRef: 'install', ref: `loc:${loc}` });
+      // The write itself still addresses the literal loc.
+      expect(c.request.mock.calls[2]?.[1]).toMatchObject({ input: { loc } });
+    },
+  );
 });
