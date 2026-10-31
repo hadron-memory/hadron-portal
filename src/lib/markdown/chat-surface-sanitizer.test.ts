@@ -32,13 +32,20 @@ const EXPECTED_SURFACES = [
   'routes/app/workers/[id]/+page.svelte',
 ];
 
-const RENDERER_PATH = /markdown\/chat-markdown['"]/;
+/**
+ * Any spelling that can name the renderer module: `$lib/markdown/chat-markdown`,
+ * `./chat-markdown`, `../markdown/chat-markdown.js`, a dynamic `import('…')`.
+ * Deliberately a loose text match — discovery fails closed, so a false hit is a
+ * visible test failure to resolve by hand, never a silent miss.
+ */
+const RENDERER_PATH = /chat-markdown/;
+const RENDERER_NAME = /renderChatMarkdown/;
 
 function walkFiles(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) walkFiles(p, out);
-    else if (p.endsWith('.svelte')) out.push(p);
+    else if (/\.(svelte|ts|js)$/.test(p) && !/\.test\.ts$/.test(p)) out.push(p);
   }
   return out;
 }
@@ -106,12 +113,25 @@ export function unsanitizedUses(source: string): string[] {
   // Gather every Identifier with its parent, once.
   const refs: { id: Node; parent: Node | null }[] = [];
   walk(ast, (n, parent) => {
-    if (n.type === 'Identifier' && parent?.type !== 'ImportSpecifier') refs.push({ id: n, parent });
+    if (n.type === 'Identifier' && !(parent?.type ?? '').startsWith('Import')) refs.push({ id: n, parent });
   });
   const named = (name: string) => refs.filter((r) => (r.id as unknown as { name: string }).name === name);
 
   const parents = new Map<Node, Node | null>();
   walk(ast, (n, parent) => parents.set(n, parent));
+
+  // The sanitizer is matched by name, so the name must mean the import everywhere
+  // in the file: every reference has to be `<name>.sanitize` and nothing may
+  // reassign it. A parameter, local or `{#each}` binding called DOMPurify would
+  // otherwise shadow the import with an identity `sanitize`.
+  if (purify) {
+    for (const { id, parent } of named(purify)) {
+      const isMember =
+        parent?.type === 'MemberExpression' && parent.object === id && !parent.computed;
+      const assigned = isMember && ['AssignmentExpression', 'UpdateExpression'].includes(parents.get(parent!)?.type ?? '');
+      if (!isMember || assigned) problems.push(`${purify} is rebound, shadowed or reassigned (not just ${purify}.x)`);
+    }
+  }
 
   for (const name of rendererNames) {
     for (const { id, parent } of named(name)) {
@@ -137,29 +157,53 @@ export function unsanitizedUses(source: string): string[] {
 const wrap = (script: string, markup = '') => `<script lang="ts">\n${script}\n</script>\n${markup}`;
 const IMPORTS = `import DOMPurify from 'dompurify';\nimport { renderChatMarkdown } from '$lib/markdown/chat-markdown';`;
 
+/**
+ * Problem text when `file` (a src-relative path) may reach the renderer without
+ * being one of the audited `.svelte` surfaces; empty when it is fine.
+ */
+export function unauditedImporter(file: string, text: string): string[] {
+  if (file === 'lib/markdown/chat-markdown.ts') return [];
+  if (!RENDERER_PATH.test(text) && !RENDERER_NAME.test(text)) return [];
+  if (file.endsWith('.svelte') && EXPECTED_SURFACES.includes(file)) return [];
+  return [`${file} reaches the chat renderer but is not an audited surface`];
+}
+
 describe('chat surfaces sanitize renderChatMarkdown (#1512)', () => {
-  const surfaces = walkFiles(SRC)
-    .filter((f) => RENDERER_PATH.test(readFileSync(f, 'utf8')))
-    .map((f) => relative(SRC, f).split('\\').join('/'))
-    .sort();
+  const all = walkFiles(SRC).map((f) => ({
+    file: relative(SRC, f).split('\\').join('/'),
+    text: readFileSync(f, 'utf8'),
+  }));
 
   it('covers exactly the known surfaces (a new one must be added here on purpose)', () => {
-    expect(surfaces).toEqual([...EXPECTED_SURFACES].sort());
+    const svelte = all.filter((f) => f.file.endsWith('.svelte') && (RENDERER_PATH.test(f.text) || RENDERER_NAME.test(f.text)));
+    expect(svelte.map((f) => f.file).sort()).toEqual([...EXPECTED_SURFACES].sort());
   });
 
-  it('no non-Svelte module imports the renderer except its own tests (the AST guard reads .svelte only)', () => {
-    const importers: string[] = [];
-    const walkTs = (dir: string) => {
-      for (const name of readdirSync(dir)) {
-        const p = join(dir, name);
-        if (statSync(p).isDirectory()) walkTs(p);
-        else if (/\.(ts|js)$/.test(p) && !/\.test\.ts$/.test(p) && RENDERER_PATH.test(readFileSync(p, 'utf8'))) {
-          importers.push(relative(SRC, p).split('\\').join('/'));
-        }
-      }
-    };
-    walkTs(SRC);
-    expect(importers).toEqual([]);
+  it('no other module (.ts/.js sibling, helper, dynamic import) reaches the renderer', () => {
+    expect(all.flatMap((f) => unauditedImporter(f.file, f.text))).toEqual([]);
+  });
+
+  describe('discovery (mutants)', () => {
+    it.each([
+      ['alias import', "import { renderChatMarkdown } from '$lib/markdown/chat-markdown';"],
+      ['relative sibling, no extension', "import { renderChatMarkdown } from './chat-markdown';"],
+      ['.js spelling', "import { renderChatMarkdown } from '$lib/markdown/chat-markdown.js';"],
+      ['parent-relative', "import { renderChatMarkdown } from '../markdown/chat-markdown';"],
+      ['dynamic import', "const m = await import('$lib/markdown/chat-markdown');"],
+      ['re-export under another name', "export { renderChatMarkdown as md } from './chat-markdown';"],
+      ['the name alone, wrapped elsewhere', 'export const md = (t: string) => renderChatMarkdown(t);'],
+    ])('rejects an unaudited .ts importer: %s', (_n, text) => {
+      expect(unauditedImporter('lib/foo/helper.ts', text).length).toBeGreaterThan(0);
+    });
+    it('rejects an unlisted .svelte file and allows a listed one', () => {
+      const t = "import { renderChatMarkdown } from '$lib/markdown/chat-markdown';";
+      expect(unauditedImporter('lib/components/New.svelte', t).length).toBeGreaterThan(0);
+      expect(unauditedImporter(EXPECTED_SURFACES[0], t)).toEqual([]);
+    });
+    it('leaves unrelated files and the module itself alone', () => {
+      expect(unauditedImporter('lib/foo/other.ts', "import x from 'y';")).toEqual([]);
+      expect(unauditedImporter('lib/markdown/chat-markdown.ts', 'export function renderChatMarkdown() {}')).toEqual([]);
+    });
   });
 
   it.each(EXPECTED_SURFACES)('%s sanitizes every use', (file) => {
@@ -188,6 +232,10 @@ describe('chat surfaces sanitize renderChatMarkdown (#1512)', () => {
       ['function passed around uncalled', 'const g = renderChatMarkdown; const f = (t) => g(t);'],
       ['indirect call hides the callee', 'const f = (t) => DOMPurify.sanitize((0, renderChatMarkdown)(t));'],
       ['sanitizer given a weakening config', 'const f = (t) => DOMPurify.sanitize(renderChatMarkdown(t), { FORBID_TAGS: [] });'],
+      ['parameter shadows DOMPurify', 'function f(DOMPurify, t) { return DOMPurify.sanitize(renderChatMarkdown(t)); }'],
+      ['nested arrow shadows DOMPurify', 'const f = (t) => ((DOMPurify) => DOMPurify.sanitize(renderChatMarkdown(t)))({ sanitize: (x) => x });'],
+      ['local declaration shadows DOMPurify', 'function f(t) { const DOMPurify = { sanitize: (x) => x }; return DOMPurify.sanitize(renderChatMarkdown(t)); }'],
+      ['sanitize reassigned', 'DOMPurify.sanitize = (x) => x;\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
       ['the wrapper is not the sanitizer', 'const f = (t) => notPurify.sanitize(renderChatMarkdown(t));'],
     ])('rejects: %s', (_n, body) => {
       expect(unsanitizedUses(wrap(`${IMPORTS}\n${body}`)).length).toBeGreaterThan(0);
@@ -209,6 +257,11 @@ describe('chat surfaces sanitize renderChatMarkdown (#1512)', () => {
     it('refuses a namespace or default import it cannot follow', () => {
       const ns = `import DOMPurify from 'dompurify';\nimport * as cm from '$lib/markdown/chat-markdown';`;
       expect(unsanitizedUses(wrap(`${ns}\nconst f = (t) => DOMPurify.sanitize(cm.renderChatMarkdown(t));`)).length).toBeGreaterThan(0);
+    });
+
+    it('rejects an {#each} binding that shadows DOMPurify in the markup', () => {
+      const markup = '{#each items as DOMPurify}{@html DOMPurify.sanitize(renderChatMarkdown(text))}{/each}';
+      expect(unsanitizedUses(wrap(IMPORTS, markup)).length).toBeGreaterThan(0);
     });
 
     it('sees a call written in the markup', () => {
