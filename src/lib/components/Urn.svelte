@@ -31,7 +31,7 @@
      * which is invalid and would swallow the copy clicks.
      *
      * Opt-in rather than default-on because `resolveUrn` does not handle every
-     * type: it covers mem/memory, node, org, agent, app, user and worker, so an
+     * type: it covers mem/memory, node, org, agent, app, user, worker and action, so an
      * `asset` or `edge` URN would render a link that resolves to nothing. Pass
      * this only where the target actually resolves.
      *
@@ -47,7 +47,7 @@
      *
      * Defaults TRUE (every existing call site keeps it). Pass false for a type
      * `resolveUrn` cannot resolve — it handles mem/memory, node, org, agent, app,
-     * user and worker, so for an `asset` URN the button would copy a URL that lands
+     * user, worker and action, so for an `asset` URN the button would copy a URL that lands
      * on an error page rather than the file (PR #705 review, codex P2).
      */
     copyUrl?: boolean;
