@@ -188,6 +188,39 @@ describe('startBoundMagicLink: bounded call and a confirmed send (portal#1528)',
     expect(await startBoundMagicLink(cookies, 'user@example.test')).toEqual({ ok: false, status: 502, error: 'Failed to send email' });
   });
 
+  /** Headers arrive with `status`, then the body never finishes; the read honours an abort. */
+  function stalledBodyFetch(status: number) {
+    return vi.fn((_url: string, init?: { signal?: AbortSignal }) =>
+      Promise.resolve({
+        ok: status >= 200 && status < 300,
+        status,
+        json: () =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal!.reason ?? new Error('aborted')));
+          }),
+      }),
+    );
+  }
+
+  // Greta's LOCAL P2 on #1531: the bound covers the body read on BOTH branches,
+  // so a stalled refusal body is "couldn't confirm" like a stalled 2xx body.
+  it.each([200, 403, 503])('a %i whose body stalls past the bound gives the could-not-confirm 504', async (status) => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', stalledBodyFetch(status));
+    const result = startBoundMagicLink(cookieStub().cookies, 'user@example.test');
+    await vi.advanceTimersByTimeAsync(EMAIL_LOGIN_TIMEOUT_MS);
+    const settled = settledOrPending(result);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await settled).toEqual({ ok: false, status: 504, error: expect.stringMatching(/^We couldn't confirm/) });
+  });
+
+  it('control: a refusal whose body is not JSON keeps its own status when it arrives in time', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 403, json: async () => { throw new SyntaxError("Unexpected token '<'"); },
+    }));
+    expect(await startBoundMagicLink(cookieStub().cookies, 'user@example.test')).toEqual({ ok: false, status: 403, error: 'Failed to send email' });
+  });
+
   it('control: a 200 { ok: true } is still a send', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) }));
     const { cookies } = cookieStub();
