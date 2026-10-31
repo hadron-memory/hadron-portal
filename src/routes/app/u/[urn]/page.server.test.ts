@@ -224,6 +224,35 @@ describe('/app/u/[urn] — the redirect carries the query string', () => {
     );
   });
 
+  it('resolves the decoded form of an encoded chat-wikilink URN (#1512)', async () => {
+    // SvelteKit hands the loader the DECODED param; the chat href carries it as
+    // one encoded segment (`..%2F..%2F`), so the resolver sees the original URN.
+    const urn = 'hrn:node:a.com:m:../../../settings/tokens';
+    mockRequest.mockResolvedValueOnce({
+      resolveUrn: { kind: 'node', id: 'n1', memoryId: 'm1', organizationId: null },
+    });
+    const r = await expectRedirect(urn);
+    expect(r.status).toBe(307);
+    expect(mockRequest.mock.calls[0][1]).toEqual({ urn });
+  });
+
+  it('keeps the signin redirect inside /app/u/ for a URN containing a slash (#1512)', async () => {
+    mockRequest.mockRejectedValueOnce(
+      new ClientError(
+        {
+          errors: [{ message: 'rejected', extensions: { code: 'UNAUTHENTICATED' } }],
+          status: 200,
+        } as unknown as ClientError['response'],
+        { query: 'query', variables: {} },
+      ),
+    );
+    const r = await expectRedirect('hrn:node:a.com:m:../../../settings/tokens');
+    const dest = new URL(`http://localhost${r.location}`).searchParams.get('redirect')!;
+    const u = new URL(dest, 'http://localhost/app/team-chat');
+    expect(u.pathname.startsWith('/app/u/')).toBe(true);
+    expect(u.pathname.slice('/app/u/'.length)).not.toContain('/');
+  });
+
   it('carries the query through the signin round-trip, encoded once', async () => {
     // Signing in to reach a deep link must not be what costs you the deep link.
     mockRequest.mockRejectedValueOnce(

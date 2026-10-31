@@ -5,6 +5,7 @@ import { RESOLVE_URN_QUERY } from '$lib/server/queries';
 import { loadTicker } from '$lib/server/tickers';
 import { withQuery } from '$lib/safeRedirect';
 import { normalizeUrn } from '$lib/urn/parse-urn';
+import { encodeUrnPathSegment } from '$lib/urn/encode-urn-segment';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -98,7 +99,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         // what costs you the deep link's state.
         redirect(
           303,
-          `/signin?redirect=${encodeURIComponent(withQuery(`/app/u/${params.urn}`, url.search))}`,
+          `/signin?redirect=${encodeURIComponent(withQuery(`/app/u/${encodeUrnPathSegment(params.urn)}`, url.search))}`,
         );
       }
       if (

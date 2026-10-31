@@ -79,4 +79,25 @@ describe('renderChatMarkdown (#1493)', () => {
     expect(html).toContain('<strong>bold</strong>');
     expect(html).toContain(`<code>[[${URN}|x]]</code>`);
   });
+
+  it('keeps a traversal target under /app/u/ as one encoded segment (#1512)', () => {
+    const target = 'hrn:node:a:b:../../../settings/tokens';
+    const a = new DOMParser().parseFromString(render(`[[${target}|x]]`), 'text/html').querySelector('a')!;
+    const href = a.getAttribute('href')!;
+    const u = new URL(href, 'http://portal.test/app/team-chat');
+    expect(u.pathname.startsWith('/app/u/')).toBe(true);
+    expect(u.pathname.slice('/app/u/'.length)).not.toContain('/');
+    expect(decodeURIComponent(href.slice('/app/u/'.length))).toBe(target);
+  });
+
+  it('an HTML entity in a target cannot decode into a path separator (#1512 §10)', () => {
+    // `&sol;` / `&bsol;` are not touched by the segment encoder; only escaping
+    // `&` in the attribute keeps them literal instead of `/` and `\\`.
+    const target = 'hrn:node:a:b:..&sol;..&sol;..&bsol;settings&sol;tokens';
+    const a = new DOMParser().parseFromString(render(`[[${target}|x]]`), 'text/html').querySelector('a')!;
+    const u = new URL(a.getAttribute('href')!, 'http://portal.test/app/team-chat');
+    expect(u.pathname.startsWith('/app/u/')).toBe(true);
+    expect(u.pathname.slice('/app/u/'.length)).not.toContain('/');
+    expect(decodeURIComponent(u.pathname.slice('/app/u/'.length))).toBe(target);
+  });
 });
