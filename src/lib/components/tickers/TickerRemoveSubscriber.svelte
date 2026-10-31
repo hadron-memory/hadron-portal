@@ -54,10 +54,8 @@
 -->
 <script lang="ts">
   import { onDestroy, tick as tickFn } from 'svelte';
-  import { get } from 'svelte/store';
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
-  import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
   import Urn from '$lib/components/Urn.svelte';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
@@ -74,8 +72,7 @@
     type TickerRemoveOutcome,
     type TickerRemoveRefreshFailed,
   } from '$lib/tickers/controls';
-  import { tickerOfPage } from '$lib/tickers/refresh-page';
-  import { createTickerRefreshFence } from '$lib/tickers/refresh-fence';
+  import { createTickerRefreshFence, routeTickerIdOf } from '$lib/tickers/refresh-fence';
   import {
     clearTickerRemoveOutcomeMarker,
     setTickerRemoveOutcomeMarker,
@@ -121,10 +118,10 @@
   let refusal = $state<WriteRefusal | null>(null);
   let refreshFailed = $state<TickerRemoveRefreshFailed>(false);
   // portal#1502 (Uma P2 / Gizelle delta): a stale-row refusal whose reload
-  // FAILED shows this base sentence in the live region instead of the server's
-  // own (whose second sentence claims the first-page navigation that did not
-  // happen). Null in every other state.
-  let staleBase = $state<string | null>(null);
+  // FAILED renders the corrected base ("No longer subscribed.", from
+  // noLongerSubscribedText) in the live region instead of the server's own
+  // sentence — DERIVED from refreshFailed === 'refused', never a second
+  // $state that could drift from its caveat (28b680ce review).
   let shownFor = $state<string | null>(null);
   let generation = 0;
 
@@ -146,7 +143,6 @@
       announcementFailed = false;
       refusal = null;
       refreshFailed = false;
-      staleBase = null;
       // The composite the guard compares against (portal#1502, Uma P3-3: it
       // was assigned only ticker.id, so the guard read always-true and the
       // reset held merely because this effect's deps are the same ids).
@@ -217,7 +213,6 @@
       announcementFailed = false;
       refusal = null;
       refreshFailed = false;
-      staleBase = null;
       return async ({ result }: { result: { type: string; data?: unknown } }) => {
         if (mine !== generation) return;
         if (result.type === 'success') {
@@ -235,15 +230,18 @@
           // failure to reload does not undo the write: in the real kit it does not
           // even reject — it navigates to this route's error boundary and unmounts
           // this control (#1462 pattern), so the marker is left just before it and
-          // cleared here only while this panel is still mounted.
-          const attempt = fence.begin(viewerId, 'unsubscribe', workerId);
+          // cleared here only while this panel is still mounted. A FOREIGN
+          // result opens NO fence (28b680ce review): the marker names the
+          // worker the write was about, and this panel's worker was not
+          // written — the boundary may not claim a removal that never ran.
+          const attempt = ownRow ? fence.begin(viewerId, 'unsubscribe', workerId) : null;
           if (!ownRow) {
             // A FOREIGN result is not this removal (the ownRow guard's whole
             // case): it owes no exclusivity window either, so the lock
             // releases with the result — the other rows are not held for a
             // reload a crossed result merely caused (cd0ded22 self-review).
-            // The reload still runs as it always did, and its fence
-            // bookkeeping settles below.
+            // The reload still runs as it always did; its settlement owes
+            // this panel nothing further (no caveat, no outcome) below.
             submitting = false;
             busy = false;
           }
@@ -255,14 +253,19 @@
           // 'committed' names the one claim this failed reload may make: the
           // write stands, so "Saved;" is true of it (Gizelle P2-2).
           const settle = (failed: false | 'committed') => {
-            refreshFailed = failed;
             fence.refreshSettled(attempt);
             if (ownRow) {
               // Reported BEFORE the unmount check: the reload above drops the row,
               // the row is what keeps this panel mounted, so the outcome is the
               // page's to show — with or without this instance (portal#1502 delta).
+              refreshFailed = failed;
               onOutcome({ tickerId: tId, subscriptionId: subId, text: removedWorkerText(wLabel), workerUrn: wUrn, announcementFailed, refreshFailed: failed });
             }
+            // A foreign settle writes NOTHING else (28b680ce review): the
+            // early release above can have re-keyed this panel under a newer
+            // submit while this reload was in flight, and a caveat or state
+            // write here would decorate — or clobber — that attempt with a
+            // claim about a write that was neither's.
             if (mine !== generation) {
               // Unmounted during the reload. The marker survives only when the failure
               // was THIS reload's (this ticker's error page); anything else may not
@@ -296,16 +299,15 @@
           // page that lands on, this sentence (the server's own, TRUE there)
           // reaches the reader only through this marker. The LIVE navigation
           // clears it at settlement below, so the sentence and the corrected
-          // failed-reload copy never both apply. Under the fence's own
-          // spelling rule: the route's ticker NOW, the canonical id when the
-          // page store is not this route's.
-          const routeAt = tickerOfPage(get(page));
+          // failed-reload copy never both apply. The route spelling comes from
+          // the fence's own rule (routeTickerIdOf): the route's ticker NOW,
+          // the canonical id when the page store is not this route's.
           const markerAttempt = viewerId
             ? setTickerRemoveOutcomeMarker({
                 viewer: viewerId,
                 appId,
                 tickerId: tId,
-                routeTickerId: routeAt && routeAt.appId === appId ? routeAt.tickerId : tId,
+                routeTickerId: routeTickerIdOf(appId, tId),
                 subscriptionId: subId,
                 sentence: staleMessage,
               })
@@ -326,9 +328,8 @@
               // ran. Every surface (this panel's region, the refusal alert
               // below it, the page's outcome) shows only the first truth; the
               // caveat carries the reload (Uma P2 / Gizelle delta).
-              staleBase = noLongerSubscribedText();
               refusal = null;
-              onOutcome({ tickerId: tId, subscriptionId: subId, text: staleBase, workerUrn: null, announcementFailed: false, refreshFailed: failed });
+              onOutcome({ tickerId: tId, subscriptionId: subId, text: noLongerSubscribedText(), workerUrn: null, announcementFailed: false, refreshFailed: failed });
             } else {
               // The reload dropped the stale row and unmounted this panel with
               // it, so its sentence — now true — is the page's to keep showing
@@ -415,8 +416,9 @@
        line (block), so they cannot run into the result text or each other
        (portal#1502 UX delta, Uma P2). The refresh caveat states only what is
        true: "Saved;" only when a write stands (Gizelle P2-2), and a stale-row
-       refusal whose reload failed shows the corrected base (staleBase), never
-       the server's first-page sentence (Uma P2 / Gizelle delta). -->
-  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : staleBase ?? ''}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-refresh-failed-" + subscription.id}>{tickerReloadFailedLine(refreshFailed)}</span>{/if}</p>
+       refusal whose reload failed shows the corrected base (derived from
+       refreshFailed === 'refused'), never the server's first-page sentence
+       (Uma P2 / Gizelle delta). -->
+  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : refreshFailed === 'refused' ? noLongerSubscribedText() : ''}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-refresh-failed-" + subscription.id}>{tickerReloadFailedLine(refreshFailed)}</span>{/if}</p>
   {#if refusal}<WriteRefusalAlert {refusal} />{/if}
 </div>

@@ -197,12 +197,15 @@
   // always-present region above (so it is announced as a change, never
   // inserted already-populated — Gaby P3-1). A live navigation never gets
   // this far: the panel clears its marker at settlement, so the sentence and
-  // the corrected failed-reload copy never both apply.
+  // the corrected failed-reload copy never both apply. FIRST PAGE ONLY
+  // (28b680ce review): the sentence says "the list is back at its first
+  // page", so a ?after view — where it is not — may not claim it; the marker
+  // is left in place for a first-page arrival inside its window.
   $effect(() => {
     const viewer = viewerId;
     const appIdNow = data.app.id;
     const current = tk.id;
-    if (!viewer || !appIdNow || !current) return;
+    if (!viewer || !appIdNow || !current || data.after) return;
     untrack(() => {
       const claim = takeTickerRemoveOutcomeMarker({ viewer, appId: appIdNow, tickerId: current });
       if (claim) {

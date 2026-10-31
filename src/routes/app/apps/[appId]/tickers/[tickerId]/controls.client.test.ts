@@ -123,12 +123,12 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     value: { ...SUBSCRIBERS.value, items: SUBSCRIBERS.value.items.filter((s) => s.id !== id) },
   });
 
-  async function mountReactivePage(withViewer = false) {
+  async function mountReactivePage(withViewer = false, after: string | null = null) {
     setStubPage('http://localhost/app/apps/app-1/tickers/tk-1', { appId: 'app-1', tickerId: 'tk-1' });
     const loader = reactiveProps({
       data: {
         app, ticker: ticker(true), subscribers: SUBSCRIBERS, tickerTask: { kind: 'ok', value: { registerTaskLoc: null } },
-        roster: ROSTER, paged: false, after: null, impersonating: null,
+        roster: ROSTER, paged: false, after, impersonating: null,
         ...(withViewer ? { user: { id: 'u-1' } } : {}),
       },
     });
@@ -258,6 +258,17 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     const second = await mountReactivePage(true);
     expect(second.root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent?.trim()).toBe('');
     expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).not.toBeNull(); // left for its own page
+  });
+
+  it('…and not on a LATER page either: the sentence says "back at its first page", so a ?after view may not claim it (28b680ce review)', async () => {
+    setStubPage('http://localhost/app/apps/app-1/tickers/tk-1?after=cur', { appId: 'app-1', tickerId: 'tk-1' });
+    setTickerRemoveOutcomeMarker({
+      viewer: 'u-1', appId: 'app-1', tickerId: 'tk-1', routeTickerId: 'tk-1', subscriptionId: 's1',
+      sentence: 'No longer subscribed. The list is back at its first page.',
+    });
+    const { root } = await mountReactivePage(true, 'cur');
+    expect(root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent?.trim()).toBe('');
+    expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).not.toBeNull(); // the first page, if reached in time, may still claim it
   });
 
   it('a removal holds every other row’s Remove trigger locked until its reload settles (portal#1502 BLIND delta, Gizelle P2-1)', async () => {

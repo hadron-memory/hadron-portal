@@ -260,6 +260,45 @@ describe('TickerRemoveSubscriber: submits', () => {
     expect(outcomes).toHaveLength(0); // and nothing is reported for a row that wasn't removed
   });
 
+  it('a foreign result claims NOTHING of its reload either: no refresh marker is left in this row’s name, and a failed reload decorates this panel with no caveat (28b680ce review)', async () => {
+    const { root } = await mountRemove();
+    navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
+    await submitEnhancedWithResult(formOf(root), { type: 'success', status: 200, data: { action: 'unsubscribe', ok: true, target: 'w-9' } });
+    await tick(2);
+    // The write was someone else's: this panel's confirmation may not say
+    // "Saved; the page couldn't reload." for a removal that never ran, and no
+    // refresh marker may name THIS row's worker on the error boundary.
+    expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
+    const panel = root.querySelector('#ticker-remove-panel-s-17')!;
+    expect(panel.textContent).not.toContain('Saved');
+    expect(root.querySelector('[data-testid="ticker-remove-refresh-failed-s-17"]')).toBeNull();
+    expect(outcomes).toHaveLength(0);
+  });
+
+  it('a stale FOREIGN settle may not clobber a newer submit’s panel: its reload caveat arrives only for the attempt that owns the panel (28b680ce review)', async () => {
+    const { root } = await mountRemove();
+    // Two independent reloads: the foreign one (held), then the reader's OWN
+    // re-submit the early release makes possible.
+    const settles: Array<() => void> = [];
+    const rejects: Array<(reason?: unknown) => void> = [];
+    navigationHooks.onGoto = () => new Promise<void>((resolve, reject) => { settles.push(resolve); rejects.push(reject); });
+    await submitEnhancedWithResult(formOf(root), { type: 'success', status: 200, data: { action: 'unsubscribe', ok: true, target: 'w-9' } });
+    await tick(2);
+    await submitEnhancedWithResult(formOf(root), STALE_ROW);
+    await tick(2);
+    // The OLD, foreign goto now fails — its settle must write nothing into a
+    // panel the new attempt owns: no "Saved;" for a write that was neither.
+    rejects[0]!(new Error('refresh failed'));
+    await tick(2);
+    const panel = root.querySelector('#ticker-remove-panel-s-17')!;
+    expect(panel.textContent).not.toContain('Saved');
+    expect(root.querySelector('[data-testid="ticker-remove-refresh-failed-s-17"]')).toBeNull();
+    // The NEW attempt settles its own reload and delivers its own outcome.
+    settles[1]!();
+    await tick(2);
+    expect(outcomes).toContainEqual({ tickerId: 'tk-1', subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', workerUrn: null, announcementFailed: false, refreshFailed: false });
+  });
+
   it('changing the ticker (a reused page) resets the panel', async () => {
     const { root, props } = await mountRemove();
     await submitEnhancedWithResult(formOf(root), { type: 'failure', status: 403, data: { refusal: { kind: 'refused', code: 'SUBSCRIBE_FORBIDDEN', message: 'x' } } });

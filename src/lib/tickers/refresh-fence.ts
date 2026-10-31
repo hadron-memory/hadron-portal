@@ -65,6 +65,19 @@ export interface TickerRefreshFenceOptions {
   reloadHref: (() => string) | null;
 }
 
+/**
+ * The route's spelling of the ticker under this App NOW — the canonical id
+ * when the page store is not showing this route under it. The ONE copy of
+ * the #1462 rule (the marker and the boundary both know only spellings, so
+ * two copies of this rule can drift and mis-scope one), shared by the
+ * fence's marker and the refused outcome marker
+ * ($lib/tickers/ticker-remove-outcome-marker).
+ */
+export function routeTickerIdOf(appId: string, canonical: string): string {
+  const at = tickerOfPage(get(page));
+  return at && at.appId === appId ? at.tickerId : canonical;
+}
+
 export function createTickerRefreshFence(opts: TickerRefreshFenceOptions): TickerRefreshFence {
   let pendingAttempt: string | null = null;
   // This attempt's spellings, kept past the own-refresh navigation for
@@ -106,8 +119,7 @@ export function createTickerRefreshFence(opts: TickerRefreshFenceOptions): Ticke
       const canonical = opts.tickerId();
       // The route's spelling NOW, while the page store still shows this route
       // under this App; the canonical id when it does not.
-      const at = tickerOfPage(get(page));
-      const route = at && at.appId === appId ? at.tickerId : canonical;
+      const route = routeTickerIdOf(appId, canonical);
       const attempt = viewerId
         ? setTickerRefreshMarker({ viewer: viewerId, appId, tickerId: canonical, routeTickerId: route, action, targetWorkerId })
         : null;
