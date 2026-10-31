@@ -2,7 +2,7 @@
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { failedSubmission } from '$lib/forms/submitted-form';
@@ -395,7 +395,7 @@
     // author-controlled markdown during SSR or the pre-hydration render
     // (hrn:node:hadronmemory.com:hadron-portal:review:sanitize-html-with-dompurify).
     if (!isBrowser || !text) return '';
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    return DOMPurify.sanitize(renderChatMarkdown(text));
   }
 
   function scrollToBottom() {
