@@ -6,6 +6,7 @@ import { mountComponent, tick } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { setStubPage } from '$lib/test/stubs/app-stores';
+import { navigationCalls } from '$lib/test/stubs/app-navigation';
 import Page from './+page.svelte';
 import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
 let mounted: ReturnType<typeof mountComponent> | undefined;
@@ -232,5 +233,78 @@ describe('visibility feedback: each result lands in an empty region (#1359, #150
     await finish('success', 'Key hidden.');
     expect(status(root).textContent).toBe('Key hidden.');
     expect(alert(root).textContent).toBe('');
+  });
+});
+
+// #1500 second fix head (George 6541390638, Colette 6541410873): dropping the
+// notice is not enough. Kit's fallback update applies the ActionResult to the
+// page's `form` (its action match ignores the query string, so both
+// includeHidden views match) and, on success, resets focus. The page then shows
+// the old reply through its no-JS `form.visibility` fallback. So a reply to a
+// submit started in another view must never reach `update`. A stale success
+// still refreshes the current view's data, without applying the result.
+describe('a reply from another view is never applied (#1500 second fix head)', () => {
+  const status = (root: HTMLElement) => root.querySelector<HTMLElement>('#key-visibility-status')!;
+  const alert = (root: HTMLElement) => root.querySelector<HTMLElement>('#key-visibility-alert')!;
+  const formOf = (root: HTMLElement, id: string) => root.querySelector<HTMLFormElement>(`[data-key-id="${id}"] form`)!;
+  const keys = () => [key('a', '2026-10-28T00:00:00Z'), key('b', '2026-10-28T00:00:00Z')];
+  type Result = { type: 'success' | 'failure'; status: number; data: Record<string, unknown> };
+  const result = (type: 'success' | 'failure', text: string, id: string): Result =>
+    ({ type, status: type === 'success' ? 200 : 500, data: { visibility: { type: type === 'success' ? 'success' : 'error', text, id } } });
+  async function setup() {
+    setStubPage('http://localhost/app/account/api-keys?includeHidden=true');
+    const props = reactiveProps({ data: { keys: keys(), includeHidden: true, form: await superValidate({}, zod4(createUserApiKeySchema), {errors:false}), revokeForm: await superValidate({}, zod4(revokeUserApiKeySchema), {errors:false}) } as Record<string, unknown>, form: null as unknown });
+    mounted = mountComponent(Page as never, props as never);
+    await tick(2);
+    // Kit's update, as far as the page can see it: the result becomes the
+    // page's `form` prop, and a success resets focus (forms.js fallback ->
+    // applyAction). `invalidateAll` is recorded, not run.
+    const updates: { reset?: boolean; invalidateAll?: boolean }[] = [];
+    let pending: Result | null = null;
+    const update = async (o: { reset?: boolean; invalidateAll?: boolean } = {}) => {
+      updates.push(o);
+      const r = pending!;
+      props.form = r.data;
+      if (r.type === 'success' && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      await tick(1);
+    };
+    const start = async (id: string) => {
+      const d = await submitEnhancedDeferred(formOf(mounted!.target, id), { update }); flushSync(); await tick(1);
+      return async (r: Result) => { pending = r; await d.finish(r); await tick(2); };
+    };
+    const toggleView = async (includeHidden: boolean) => {
+      // A navigation: new data, and kit clears the action data.
+      props.data = { ...props.data, includeHidden };
+      props.form = null;
+      await tick(2);
+    };
+    return { root: mounted.target, start, toggleView, updates };
+  }
+
+  it.each(['success', 'failure'] as const)('drops an old-view %s: never applied, never shown, focus kept', async (type) => {
+    const { root, start, toggleView, updates } = await setup();
+    const finish = await start('a');
+    await toggleView(false);
+    const other = document.createElement('input'); document.body.append(other); other.focus();
+    navigationCalls.length = 0;
+    try {
+      await finish(result(type, 'OLD VIEW RESULT', 'a'));
+      expect(updates).toEqual([]);
+      expect(status(root).textContent).toBe('');
+      expect(alert(root).textContent).toBe('');
+      expect(root.textContent).not.toContain('OLD VIEW RESULT');
+      expect(document.activeElement).toBe(other);
+      // The write did land, so a success refreshes the current view's data; a refusal changed nothing.
+      expect(navigationCalls.map((c) => c.fn)).toEqual(type === 'success' ? ['invalidateAll'] : []);
+    } finally { other.remove(); }
+  });
+
+  it.each(['success', 'failure'] as const)('control: a %s started after the view change is applied and shown', async (type) => {
+    const { root, start, toggleView, updates } = await setup();
+    await toggleView(false);
+    const finish = await start('b');
+    await finish(result(type, 'NEW VIEW RESULT', 'b'));
+    expect(updates).toEqual([{ reset: false, invalidateAll: type === 'success' }]);
+    expect((type === 'success' ? status : alert)(root).textContent).toBe('NEW VIEW RESULT');
   });
 });
