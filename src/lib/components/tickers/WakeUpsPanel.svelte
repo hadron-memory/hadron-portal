@@ -3,13 +3,16 @@
   The answer first: one sentence saying why this worker is or isn't woken
   (§4.1, `wakeStatus`), then its settings and subscriptions as they are.
   Mentions, Pause and Subscribe controls are S7b and not rendered; the line
-  under the settings says who can change them instead.
+  under the settings says who can change them instead, and (portal#1496) the
+  hadron CLI commands that change them.
 -->
 <script lang="ts">
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
   import ApplyAgentTickers from '$lib/components/tickers/ApplyAgentTickers.svelte';
+  import CliCommand from '$lib/components/tickers/CliCommand.svelte';
+  import { cliRef, wakeCommands } from '$lib/cli-command';
   import type { ApplyResult } from '$lib/tickers/apply';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
@@ -50,6 +53,8 @@
 
   const now = $derived(Date.parse(loadedAt));
   const status = $derived(wake.kind === 'ok' ? wakeStatus(wake.value, worker, now) : null);
+  const cliTarget = $derived(cliRef(worker));
+  const cli = $derived(cliTarget ? wakeCommands(cliTarget) : null);
   const minCadence = $derived(appSettings?.kind === 'ok' ? appSettings.value.minCadenceSeconds : null);
 
   interface Row {
@@ -162,8 +167,16 @@
         </dd>
       </div>
     </dl>
-    <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('worker.wake.who', 'Only the worker itself, its holder, or whoever manages the App can change its mentions, pause or subscriptions. A pause covers every session and router of this worker.')}
-      {t('worker.wake.where', 'In the portal this is read-only for now; use the MCP tool hadron_worker_wake_settings to change it.')}</p>
+    <div class="min-w-0 space-y-2 text-xs text-zinc-500 dark:text-zinc-400" data-testid="wake-cli">
+      <p>{t('worker.wake.who-settings', 'Only the worker itself, its holder, or whoever manages the App can change its mentions or pause. A pause covers every session and router of this worker.')}</p>
+      {#if cli}
+        <p>{t('worker.wake.cli.where', 'In the portal this is read-only for now; use the hadron CLI to change it.')}</p>
+        <CliCommand label={t('worker.wake.cli.mentions-off', 'To stop waking it when mentioned:')} command={cli.mentionsOff} />
+        <CliCommand label={t('worker.wake.cli.mentions-immediate', 'To wake it at once when mentioned:')} command={cli.mentionsImmediate} />
+        <CliCommand label={t('worker.wake.cli.clear-pause', 'To end a pause:')} command={cli.clearPause} />
+        <CliCommand label={t('worker.wake.cli.pause-until', 'To pause it until a time (RFC 3339):')} command={cli.pauseUntil} />
+      {/if}
+    </div>
 
     <div class="space-y-2">
       <h3 class="text-sm font-semibold text-zinc-900 dark:text-white">{t('worker.wake.subscriptions', 'Subscriptions')}</h3>
