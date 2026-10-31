@@ -267,16 +267,19 @@ describe('TickerRemoveSubscriber: submits', () => {
     // here, where nothing has cleared it yet (efae752b review, Gemma P3 /
     // Riana P3-3: an end-state-only assert cannot see it — the settle of a
     // rejected goto clears while mounted, so the mutant survives).
-    let settleReload!: () => void;
-    navigationHooks.onGoto = () => new Promise<void>((resolve) => { settleReload = resolve; });
+    let rejectReload!: (reason?: unknown) => void;
+    navigationHooks.onGoto = () => new Promise<void>((_resolve, reject) => { rejectReload = reject; });
     await submitEnhancedWithResult(formOf(root), { type: 'success', status: 200, data: { action: 'unsubscribe', ok: true, target: 'w-9' } });
     await tick(2);
     // The write was someone else's: no refresh marker may name THIS row's
     // worker — MID-FLIGHT, before any settlement could hide it.
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
-    settleReload();
+    // The reload FAILS from here (044fdfc6 BLIND review, Gizelle P3: a
+    // resolved goto exercises only settle(false) — the failure settle is the
+    // path a wrong implementation decorates, so this must reject).
+    rejectReload(new Error('refresh failed'));
     await tick(2);
-    // …and its failure decorates this panel with nothing: the confirmation
+    // …and the failure decorates this panel with nothing: the confirmation
     // may not say "Saved; the page couldn't reload." for a removal that never
     // ran.
     const panel = root.querySelector('#ticker-remove-panel-s-17')!;

@@ -38,12 +38,14 @@ beforeEach(() => {
 });
 
 describe('portal#1497 — the actions’ event', () => {
-  function event(fields: Record<string, string | string[]>, impersonation: unknown = null) {
+  function event(fields: Record<string, string | string[]>, impersonation: unknown = null, routeTickerId = 'tk-1') {
     const fd = new FormData();
     for (const [k, v] of Object.entries(fields)) for (const x of Array.isArray(v) ? v : [v]) fd.append(k, x);
     return {
       request: { formData: async () => fd },
-      params: { appId: 'app-1', tickerId: 'tk-1' },
+      // portal#1515: the route may spell the ticker as a URN or alias — the
+      // default is the bare canonical id, as every earlier test posted it.
+      params: { appId: 'app-1', tickerId: routeTickerId },
       locals: { token: 'tok', user: { id: 'u1' }, impersonation },
     } as never;
   }
@@ -51,8 +53,12 @@ describe('portal#1497 — the actions’ event', () => {
   async function actions(): Promise<Actions> {
     return ((await import('./+page.server')) as unknown as { actions: Actions }).actions;
   }
-  const run = async (name: 'set-enabled' | 'subscribe' | 'unsubscribe', fields: Record<string, string | string[]>, impersonation: unknown = null) =>
-    (await actions())[name](event(fields, impersonation));
+  const run = async (
+    name: 'set-enabled' | 'subscribe' | 'unsubscribe',
+    fields: Record<string, string | string[]>,
+    impersonation: unknown = null,
+    routeTickerId = 'tk-1',
+  ) => (await actions())[name](event(fields, impersonation, routeTickerId));
   const imp = { sessionId: 's', actorUserId: 'a', orgId: 'o', expiresAt: 0 };
   /** The refusal an action returned, with its HTTP status. */
   const refusalOf = (r: unknown) => (r as { status: number; data: { refusal: { kind: string; code?: string; message: string } } }).data.refusal;
@@ -156,6 +162,36 @@ describe('portal#1497 — the actions’ event', () => {
       await run('subscribe', { worker: 'w-2' });
       expect(loadTasksApp).toHaveBeenCalledWith(expect.anything(), 'app-1');
       expect(loadTicker).toHaveBeenCalledWith(expect.anything(), 'tk-1');
+    });
+  });
+
+  describe('a URN-spelled route still keys the mutation by the CANONICAL id (portal#1515)', () => {
+    // Riana §10 P3-1 on #1502: the URL may spell the ticker as a URN or alias;
+    // the guard resolved that spelling to the canonical id, and each mutation
+    // must be keyed by exactly that id — the server re-resolving the route
+    // spelling could diverge from the association the guard just proved
+    // (#1497 review). The fixture ticker's own URN is the route's spelling
+    // here; the canonical id it resolves to is tk-1.
+    const URN_ROUTE = TICKER.urn;
+
+    it('set-enabled sends the guard’s canonical id, never the route’s spelling', async () => {
+      request.mockResolvedValue({ updateTicker: { id: 'tk-1', enabled: false } });
+      const r = await run('set-enabled', { enabled: 'false' }, null, URN_ROUTE);
+      // The guard read the route's spelling to resolve the ticker…
+      expect(loadTicker).toHaveBeenCalledWith(expect.anything(), URN_ROUTE);
+      // …but the mutation is keyed by the canonical id that read proved.
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request).toHaveBeenCalledWith(SET_TICKER_ENABLED_MUTATION, { ref: 'tk-1', input: { enabled: false } });
+      expect(r).toMatchObject({ action: 'set-enabled', ok: true, target: { tickerId: 'tk-1' } });
+    });
+
+    it('subscribe sends the guard’s canonical id, never the route’s spelling', async () => {
+      request.mockResolvedValue({ subscribeWorker: { announcement: null, subscription: { id: 's1', endedAt: null } } });
+      const r = await run('subscribe', { worker: 'w-2' }, null, URN_ROUTE);
+      expect(loadTicker).toHaveBeenCalledWith(expect.anything(), URN_ROUTE);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request).toHaveBeenCalledWith(SUBSCRIBE_WORKER_MUTATION, { tickerRef: 'tk-1', workerRef: 'w-2' });
+      expect(r).toMatchObject({ action: 'subscribe', ok: true, target: 'w-2' });
     });
   });
 
