@@ -87,6 +87,9 @@
   });
 
   const rows = $derived(read.list.state === 'ok' ? read.list.value.nodes : []);
+  // The search box filters only the loaded page (its label says so); without
+  // this state slice DataTable's bound input changed nothing (QA #1508 F1).
+  let globalFilter = $state('');
   const columns: PortalColumnDef<
     Pick<InstallNode, 'id' | 'urn' | 'loc' | 'name'>
   >[] = [
@@ -103,6 +106,9 @@
       return rows;
     },
     columns,
+    state: { get globalFilter() { return globalFilter; } },
+    onGlobalFilterChange: (u) => { globalFilter = typeof u === 'function' ? u(globalFilter) : u; },
+    globalFilterFn: 'includesString',
   });
   async function load(nextOffset = offset, nextLoc = loc, discard = false) {
     pendingSave++;
@@ -255,7 +261,7 @@
   {:else if read.list.state==='not-shown'}<p>{t('customisation.not-shown','Not shown')}</p>
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
-    <DataTable {table} searchPlaceholder={t('customisation.search-page','Search this page…')} searchAriaLabel={t('customisation.search-page-label','Search the customisations on this page')} listKey={`install-customisation:${appRef}:${agent.id}`}>
+    <DataTable {table} bind:globalFilter searchPlaceholder={t('customisation.search-page','Search this page…')} searchAriaLabel={t('customisation.search-page-label','Search the customisations on this page')} listKey={`install-customisation:${appRef}:${agent.id}`}>
       {#snippet cell(cell)}
         <div class="min-w-0 whitespace-normal break-words font-medium">{cell.row.original.name}</div>
         <div class="mt-1 whitespace-normal break-all font-mono text-xs text-zinc-500">{cell.row.original.loc}</div>
