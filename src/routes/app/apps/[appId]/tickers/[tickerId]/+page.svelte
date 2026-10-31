@@ -14,7 +14,8 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { cadenceText, isKnownReason, isWellFormedReasons, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
-  import { tickerSubscribeWhoText } from '$lib/tickers/controls';
+  import { announcementFailedText, tickerSubscribeWhoText, type TickerRemoveOutcome } from '$lib/tickers/controls';
+  import TickerRefreshFailedLine from '$lib/components/tickers/TickerRefreshFailedLine.svelte';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -106,14 +107,45 @@
   // exists to prevent).
   let removingId = $state<string | null>(null);
   let removeBusy = $state(false);
-  const removeTriggers: Record<string, HTMLButtonElement | null> = {};
+  // portal#1502 (delta seats): a removal's outcome belongs to the PAGE. The
+  // reload a committed removal (or the stale-row SUBSCRIPTION_NOT_FOUND
+  // refusal) performs drops the row, and the row is what keeps the Remove
+  // panel mounted — so "Removed", the stale-row sentence, the announcement
+  // caveat and the refresh line all vanished with the panel at the last head
+  // (Gemma + Gaby, independently proven). The panel reports through onOutcome
+  // once its reload has settled; this state is what survives it.
+  let removeOutcome = $state<TickerRemoveOutcome | null>(null);
+  // $state, not a plain object: `bind:this` writes into it every row render,
+  // and a non-reactive target is the runtime warning Svelte raises per row
+  // (portal#1502 delta, Gemma P3-1). Focus restore still reads it imperatively.
+  const removeTriggers: Record<string, HTMLButtonElement | null> = $state({});
   let subscribersHeading: HTMLHeadingElement | null = $state(null);
   const removingRow = $derived(removingId === null ? null : rows.find((r) => r.sub.id === removingId) ?? null);
+  // The panel renders from the subscription it was OPENED for, not from the
+  // live row lookup: the reload a removal performs can take the row out of
+  // `rows` a flush before this template tears the panel down, and a prop read
+  // through `removingRow` would throw in that window (portal#1502 delta —
+  // both reload paths proved it). The row-gone effect below closes the panel.
+  let removePanelSub = $state<TickerSubscriber | null>(null);
+  // While the panel that produced an outcome is still open, the panel shows
+  // its own result line and this region stays empty — one announcement, not
+  // two. The region itself is present (and empty) from first paint, so the
+  // sentence that lands in it is announced as a change.
+  const removeOutcomeText = $derived(
+    removeOutcome !== null && removePanelSub === null ? removeOutcome.text : '',
+  );
+  const removeOutcomeAnnouncement = $derived(
+    removeOutcome !== null && removePanelSub === null && removeOutcome.announcementFailed,
+  );
+  const removeOutcomeRefreshFailed = $derived(
+    removeOutcome !== null && removePanelSub === null && removeOutcome.refreshFailed,
+  );
 
   /** Cancel/Escape: close the panel and refocus the row's own trigger. */
   function closeRemove() {
     const was = removingId;
     removingId = null;
+    removePanelSub = null;
     if (was !== null) removeTriggers[was]?.focus({ preventScroll: true });
   }
 
@@ -123,6 +155,7 @@
   $effect(() => {
     if (removingId !== null && removingRow === null) {
       removingId = null;
+      removePanelSub = null;
       subscribersHeading?.focus({ preventScroll: true });
     }
   });
@@ -297,18 +330,35 @@
       {#if data.impersonating}
         <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: data.impersonating })}</p>
       {/if}
+      <!-- The Remove outcome, at page level: it outlives the panel below (the
+           reload that carries it drops the row the panel is mounted on). Empty
+           — and present — from first paint, so the sentence that lands in it is
+           announced as a change, never swapped in. -->
+      <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid="ticker-remove-outcome">{removeOutcomeText}</p>
+      {#if removeOutcomeAnnouncement}
+        <span role="status" class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-announcement">{announcementFailedText()}</span>
+      {/if}
+      {#if removeOutcomeRefreshFailed}
+        <span class="block"><TickerRefreshFailedLine testid="ticker-remove-outcome-refresh-failed" /></span>
+      {/if}
       <!-- The Remove panel, above the table beside Add: one removal at a time,
-           whatever the roster read said (the row keeps its trigger). -->
-      {#if removingRow}
-        <TickerRemoveSubscriber
-          appId={data.app.id}
-          ticker={tk}
-          subscription={removingRow.sub}
-          worker={removingRow.sub.worker}
-          viewerId={viewerId}
-          onClose={closeRemove}
-          bind:busy={removeBusy}
-        />
+           whatever the roster read said (the row keeps its trigger). KEYED on
+           the subscription: another row's Remove starts from a fresh instance —
+           one panel never carries one row's refusal into another row's
+           confirmation (portal#1502 delta, Gaby + Uma). -->
+      {#if removePanelSub}
+        {#key removePanelSub.id}
+          <TickerRemoveSubscriber
+            appId={data.app.id}
+            ticker={tk}
+            subscription={removePanelSub}
+            worker={removePanelSub.worker}
+            viewerId={viewerId}
+            onClose={closeRemove}
+            onOutcome={(outcome) => { removeOutcome = outcome; }}
+            bind:busy={removeBusy}
+          />
+        {/key}
       {/if}
     {/if}
     {#if subscribers.kind === 'not-participant'}
@@ -363,7 +413,7 @@
               <button
                 type="button"
                 bind:this={removeTriggers[row.sub.id]}
-                onclick={() => { removingId = row.sub.id; }}
+                onclick={() => { removeOutcome = null; removingId = row.sub.id; removePanelSub = row.sub; }}
                 disabled={removeBusy}
                 aria-expanded={removingId === row.sub.id}
                 aria-controls={removingId === row.sub.id ? 'ticker-remove-panel-' + row.sub.id : undefined}

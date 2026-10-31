@@ -26,6 +26,15 @@
     a reloaded list that a stale page could hide. The line renders as an
     empty live region from the panel's first paint, so the text that later
     lands in it is a change (portal#1502 review).
+  - The result OUTLIVES the panel (portal#1502 delta seats): the reload a
+    committed removal (or the stale-row refusal) performs drops the row, and
+    the row is what keeps this panel mounted — so every outcome the reader
+    must still see after that reload is handed to the PAGE through onOutcome,
+    once the reload has settled. Escape closes only from inside the panel
+    (a containment-scoped listener, so an Escape elsewhere on the page is not
+    this panel's to answer), and one panel instance never carries one row's
+    result into another row's confirmation (keyed reset on ticker AND
+    subscription).
 -->
 <script lang="ts">
   import { onDestroy, tick as tickFn } from 'svelte';
@@ -42,6 +51,7 @@
     asTickerSuccess,
     removedText,
     tickerFirstPageHref,
+    type TickerRemoveOutcome,
   } from '$lib/tickers/controls';
   import { createTickerRefreshFence } from '$lib/tickers/refresh-fence';
 
@@ -52,6 +62,7 @@
     worker,
     viewerId = null,
     onClose,
+    onOutcome = () => {},
     busy = $bindable(false),
   }: {
     appId: string;
@@ -62,6 +73,13 @@
     viewerId?: string | null;
     /** Cancel/Escape: the page closes the panel and refocuses its trigger. */
     onClose: () => void;
+    /**
+     * A finished removal, reported once its reload has settled (so refreshFailed
+     * is final). The outcome belongs to the page: the reload drops the row, the
+     * row is what keeps this panel mounted, so the result is handed up to
+     * wherever outlives it (portal#1502 delta seats, Gemma + Gaby).
+     */
+    onOutcome?: (outcome: TickerRemoveOutcome) => void;
     /** True while this panel's POST is in flight — the page mutes other rows. */
     busy?: boolean;
   } = $props();
@@ -78,10 +96,13 @@
 
   const workerLabel = $derived(worker.name ?? worker.urn ?? worker.id);
 
-  // A reused page (another ticker under the same route) resets every result:
-  // a result belongs to the ticker it was written for, keyed on its id.
+  // A reused page (another ticker under the same route) or another row's panel
+  // reuse resets every result: a result belongs to the subscription it was
+  // written for. Keyed on ticker AND subscription — one panel instance must
+  // never carry one row's refusal or result into another row's confirmation
+  // (portal#1502 delta seats, Gaby + Uma).
   $effect.pre(() => {
-    if (shownFor !== ticker.id) {
+    if (shownFor !== `${ticker.id}/${subscription.id}`) {
       generation++;
       submitting = false;
       busy = false;
@@ -119,9 +140,14 @@
     reloadHref: () => tickerFirstPageHref(appId, ticker.id),
   });
 
-  // Escape closes the panel; focus returns to the row's trigger (the page's job).
-  async function onWindowKeydown(e: KeyboardEvent) {
+  // Escape closes the panel — only from INSIDE it (portal#1502 delta, Gaby,
+  // thrice flagged): the listener is scoped by containment, so an Escape
+  // anywhere else on the page leaves this confirmation alone. Focus returns
+  // to the row's trigger (the page's job).
+  let panel: HTMLDivElement | null = $state(null);
+  function onWindowKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape' || submitting) return;
+    if (!(e.target instanceof Node) || !panel?.contains(e.target)) return;
     onClose();
   }
 
@@ -132,6 +158,13 @@
         return;
       }
       const mine = ++generation;
+      // Captured before any await: the reload below can drop the row and
+      // unmount this panel MID-FLIGHT (the page's row-gone effect runs during
+      // the goto), after which this component's props read as null — a
+      // continuation may not reach back through them (portal#1502 delta).
+      const subId = subscription.id;
+      const workerId = worker.id;
+      const reloadHref = tickerFirstPageHref(appId, ticker.id);
       submitting = true;
       busy = true;
       ok = null;
@@ -146,8 +179,11 @@
           const success = asTickerSuccess(result.data);
           // A result names WHAT it was about: only this row's own unsubscribe,
           // for the worker this row names, decorates this panel.
-          if (success?.action === 'unsubscribe' && success.target === worker.id) {
-            ok = success.target;
+          const ownRow = success?.action === 'unsubscribe' && success.target === workerId;
+          if (ownRow) {
+            // ok is the "this row was removed" gate; ownRow implies the result's
+            // target IS this row's worker, whose ref is already a string here.
+            ok = workerId;
             announcementFailed = success.announcementFailed === true;
           }
           // The reload starts at the FIRST subscriber page (?after= dropped). A
@@ -155,13 +191,21 @@
           // even reject — it navigates to this route's error boundary and unmounts
           // this control (#1462 pattern), so the marker is left just before it and
           // cleared here only while this panel is still mounted.
-          const attempt = fence.begin(viewerId, 'unsubscribe', worker.id);
+          const attempt = fence.begin(viewerId, 'unsubscribe', workerId);
+          let reloadFailed = false;
           try {
-            await goto(tickerFirstPageHref(appId, ticker.id), { invalidateAll: true });
+            await goto(reloadHref, { invalidateAll: true });
           } catch {
             refreshFailed = true;
+            reloadFailed = true;
           }
           fence.refreshSettled(attempt);
+          if (ownRow) {
+            // Reported BEFORE the unmount check: the reload above drops the row,
+            // the row is what keeps this panel mounted, so the outcome is the
+            // page's to show — with or without this instance (portal#1502 delta).
+            onOutcome({ subscriptionId: subId, text: removedText(), announcementFailed, refreshFailed: reloadFailed });
+          }
           if (mine !== generation) {
             // Unmounted during the reload. The marker survives only when the failure
             // was THIS reload's (this ticker's error page); anything else may not
@@ -178,11 +222,20 @@
         // list is back at its first page — make that true, without a marker (a
         // refused write must never claim "the write stands" on the boundary).
         if (refusal.kind === 'refused' && refusal.code === 'SUBSCRIPTION_NOT_FOUND') {
+          // Read before the await: the sentence is the server's own, and the
+          // state it came from may not survive the reload's state changes.
+          const staleMessage = refusal.message;
+          let reloadFailed = false;
           try {
-            await goto(tickerFirstPageHref(appId, ticker.id), { invalidateAll: true });
+            await goto(reloadHref, { invalidateAll: true });
           } catch {
             refreshFailed = true;
+            reloadFailed = true;
           }
+          // The same reload drops the stale row and unmounts this panel with it,
+          // so its sentence — the one that says where the list went — is the
+          // page's to keep showing (portal#1502 delta).
+          onOutcome({ subscriptionId: subId, text: staleMessage, announcementFailed: false, refreshFailed: reloadFailed });
         }
         // Any other refusal keeps the confirmation open (as Add keeps its draft):
         // the reader can retry by hand or cancel.
@@ -193,7 +246,7 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-<div id={"ticker-remove-panel-" + subscription.id} class="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60" data-testid={"ticker-remove-confirm-" + subscription.id} role="group" aria-label={t('app.ticker.controls.remove.panel', 'Remove a subscriber')}>
+<div bind:this={panel} id={"ticker-remove-panel-" + subscription.id} class="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60" data-testid={"ticker-remove-confirm-" + subscription.id} role="group" aria-label={t('app.ticker.controls.remove.panel', 'Remove a subscriber')}>
   {#if ok === null}
     <form
       id={"unsubscribe-" + subscription.id}

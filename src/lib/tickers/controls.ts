@@ -42,6 +42,23 @@ export function asTickerRefusal(data: unknown): WriteRefusal {
 /** The subscriber list's first page: add/remove reload from the top, so `?after=` is dropped. */
 export const tickerFirstPageHref = (appId: string, tickerId: string) => `/app/apps/${appId}/tickers/${tickerId}`;
 
+/**
+ * What a finished removal reports to the PAGE (portal#1502 delta seats): the
+ * reload a committed removal (or the stale-row SUBSCRIPTION_NOT_FOUND refusal)
+ * triggers drops the row, the row is what keeps the Remove panel mounted, so
+ * the result must outlive the panel — it is handed up as it happens, and the
+ * page owns where it renders. Only outcomes the panel will not itself keep
+ * showing are reported: a committed own-row removal and the stale-row refusal.
+ */
+export interface TickerRemoveOutcome {
+  /** The row's own subscription: a late result of another row attaches to nothing. */
+  subscriptionId: string;
+  /** The sentence to show, already resolved ('Removed', or the stale-row refusal's own). */
+  text: string;
+  announcementFailed: boolean;
+  refreshFailed: boolean;
+}
+
 export const tickerRefreshFailedLine = () => t('app.ticker.controls.refresh-failed', 'Saved; the page couldn’t reload.');
 
 /**

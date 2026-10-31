@@ -180,10 +180,14 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
       data: { refusal: { kind: 'refused', code: 'SUBSCRIBE_FORBIDDEN', message: 'Only this worker’s holder or whoever manages the App can subscribe or unsubscribe it.' } },
     });
     await tick(2);
-    expect(root.textContent).toContain('holder'); // Liam’s refusal is showing
+    // the refusal is asserted on the PANEL, not the page: the page's own who
+    // lines legitimately say "holder" (both pinned above), so only the panel's
+    // subtree can prove what the panel is carrying. The refusal's code is the
+    // distinctive marker of the carried alert.
+    expect(root.querySelector('#ticker-remove-panel-s1')!.textContent).toContain('SUBSCRIBE_FORBIDDEN'); // Liam’s refusal is showing
     await openRemove(root, 's2');
     expect(root.querySelector('#unsubscribe-s2')).toBeTruthy(); // Vera’s confirmation form is there
-    expect(root.textContent).not.toContain('holder'); // …carrying nothing of Liam’s refusal
+    expect(root.querySelector('#ticker-remove-panel-s2')!.textContent).not.toContain('SUBSCRIBE_FORBIDDEN'); // …carrying nothing of Liam’s refusal
     expect(document.activeElement).toBe(root.querySelector('#unsubscribe-s2 button[type="submit"]')); // focus starts on her Remove
   });
 });
