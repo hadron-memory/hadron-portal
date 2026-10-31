@@ -1,4 +1,4 @@
-# Exported from hadron-server 53d02f371269534a0877a1238aff7f8e54aace84 (53d02f371269534a0877a1238aff7f8e54aace84, 2026-10-31T12:30:14-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 31d638284211a972719abd84baf5af6bd370b102 (origin/main, 2026-10-31T15:14:03-06:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -666,6 +666,11 @@ type AgentTaskRequirements {
   excludeWorkerIds: [ID!]
   familyIn: [String!]
   familyNotIn: [String!]
+
+  """
+  The lowest model tier the assignee may run at: low, mid or high (hrn:node:hadronmemory.com:specs:cor:agt:060:06). Null when the task names none.
+  """
+  minTier: String
   role: String
 }
 
@@ -678,6 +683,11 @@ input AgentTaskRequirementsInput {
   """
   familyIn: [String!]
   familyNotIn: [String!]
+
+  """
+  The lowest model tier the assignee may run at: low, mid or high, in that order (hrn:node:hadronmemory.com:specs:cor:agt:060:06). A worker below it, or whose tier is unknown, is never matched; the lowest sufficient tier wins. There is no maximum.
+  """
+  minTier: String
   role: String
 }
 

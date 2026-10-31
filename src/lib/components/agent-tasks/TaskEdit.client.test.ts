@@ -84,7 +84,7 @@ describe('Edit details: the panel', () => {
     expect(field(form, 'tagsBase').value).toBe('a, b');
     expect(field(form, 'startByBase').value).toBe('2026-11-02T15:30:00.000Z');
     expect(field(form, 'closeSessionWhenDoneBase').value).toBe('false');
-    expect(JSON.parse(field(form, 'requirementsBase').value)).toEqual({ role: 'qa-engineer', familyIn: [], familyNotIn: ['glm'], excludeWorkers: ['w2'] });
+    expect(JSON.parse(field(form, 'requirementsBase').value)).toEqual({ role: 'qa-engineer', familyIn: [], familyNotIn: ['glm'], excludeWorkers: ['w2'], minTier: null });
   });
 
   it('opening and saving untouched changes nothing: every posted field equals its base', async () => {
@@ -109,6 +109,17 @@ describe('Edit details: the panel', () => {
     expect(form.querySelector<HTMLSelectElement>('[name="role"]')!.value).toBe('retired-role');
     expect([...form.querySelectorAll<HTMLOptionElement>('[name="familyIn"] option')].filter((o) => o.selected).map((o) => o.value)).toEqual(['gemini']);
     expect([...form.querySelectorAll<HTMLOptionElement>('[name="excludeWorkers"] option')].filter((o) => o.selected).map((o) => o.value)).toEqual(['w-gone']);
+  });
+
+  it('seeds the stored minimum tier, posts it in the base, and shows a tier the picker does not list as it is (portal#1523)', async () => {
+    const { root } = await mountBar({ requirements: { role: null, familyIn: null, familyNotIn: null, excludeWorkerIds: null, minTier: 'mid' } });
+    const form = await openEdit(root);
+    expect(form.querySelector<HTMLSelectElement>('[name="minTier"]')!.value).toBe('mid');
+    expect(JSON.parse((form.querySelector('[name="requirementsBase"]') as HTMLInputElement).value).minTier).toBe('mid');
+    root.remove();
+    const odd = await mountBar({ requirements: { role: null, familyIn: null, familyNotIn: null, excludeWorkerIds: null, minTier: 'ultra' } });
+    const f2 = await openEdit(odd.root);
+    expect(f2.querySelector<HTMLSelectElement>('[name="minTier"]')!.value).toBe('ultra');
   });
 
   it('says tags and requirements are replaced as shown, and that a started or assigned task keeps its worker', async () => {

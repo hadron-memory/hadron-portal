@@ -30,6 +30,7 @@ interface Requirements {
   familyIn: string[];
   familyNotIn: string[];
   excludeWorkers: string[];
+  minTier: string | null;
 }
 
 function readBaseRequirements(raw: FormDataEntryValue | null): Requirements | null {
@@ -38,7 +39,7 @@ function readBaseRequirements(raw: FormDataEntryValue | null): Requirements | nu
     const b = JSON.parse(raw) as Partial<Requirements> | null;
     if (!b || typeof b !== 'object') return null;
     const list = (x: unknown) => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : []);
-    return { role: typeof b.role === 'string' && b.role.trim() ? b.role.trim() : null, familyIn: list(b.familyIn), familyNotIn: list(b.familyNotIn), excludeWorkers: list(b.excludeWorkers) };
+    return { role: typeof b.role === 'string' && b.role.trim() ? b.role.trim() : null, familyIn: list(b.familyIn), familyNotIn: list(b.familyNotIn), excludeWorkers: list(b.excludeWorkers), minTier: typeof b.minTier === 'string' && b.minTier.trim() ? b.minTier.trim() : null };
   } catch {
     return null;
   }
@@ -88,13 +89,15 @@ export function taskEditPatch(fd: FormData): TaskEditPatch {
     // The server takes one family list or the other; "run as" wins, as on the create form.
     const familyNotIn = familyIn.length ? [] : all(fd, 'familyNotIn');
     const excludeWorkers = all(fd, 'excludeWorkers');
+    const minTier = str(fd, 'minTier') || null;
     const baseNotIn = base.familyIn.length ? [] : base.familyNotIn;
-    if (role !== base.role || !sameSet(familyIn, base.familyIn) || !sameSet(familyNotIn, baseNotIn) || !sameSet(excludeWorkers, base.excludeWorkers)) {
+    if (role !== base.role || !sameSet(familyIn, base.familyIn) || !sameSet(familyNotIn, baseNotIn) || !sameSet(excludeWorkers, base.excludeWorkers) || minTier !== base.minTier) {
       const requirements: Record<string, unknown> = {};
       if (role) requirements.role = role;
       if (familyIn.length) requirements.familyIn = familyIn;
       else if (familyNotIn.length) requirements.familyNotIn = familyNotIn;
       if (excludeWorkers.length) requirements.excludeWorkers = excludeWorkers;
+      if (minTier) requirements.minTier = minTier;
       input.requirements = Object.keys(requirements).length ? requirements : null;
     }
   }

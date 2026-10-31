@@ -77,4 +77,12 @@ describe('create page: a warned create (no JS)', () => {
     expect(html).toContain('No source &lt;b>here&lt;/b>');
     expect(html).toContain('href="/app/apps/app-1/tasks/t9"');
   });
+
+  it('the who-may section has a Minimum model tier choice: Any, Low, Mid, High (portal#1523)', () => {
+    const html = page();
+    expect(html).toMatch(/<label[^>]*for="new-min-tier"[^>]*>Minimum model tier<\/label>/);
+    const sel = html.match(/<select[^>]*name="minTier"[\s\S]*?<\/select>/)![0];
+    expect([...sel.matchAll(/<option[^>]*value="([^"]*)"/g)].map((m) => m[1])).toEqual(['', 'low', 'mid', 'high']);
+    expect(html).toContain('won’t be picked');
+  });
 });

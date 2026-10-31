@@ -67,6 +67,7 @@
     if (r?.role) parts.push(t('app.tasks.req.role', 'role {role}', { role: r.role }));
     if (r?.familyIn?.length) parts.push(t('app.tasks.req.family-in', 'model family {families}', { families: r.familyIn.join(', ') }));
     if (r?.familyNotIn?.length) parts.push(t('app.tasks.req.family-not-in', 'not {families}', { families: r.familyNotIn.join(', ') }));
+    if (r?.minTier) parts.push(t('app.tasks.req.min-tier', 'a {tier}-tier model or higher', { tier: r.minTier }));
     return parts.join(', ');
   });
 

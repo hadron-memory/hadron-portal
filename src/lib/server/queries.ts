@@ -4925,7 +4925,7 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       ...AgentTaskRowFields
       appId
       description
-      requirements { role familyIn familyNotIn excludeWorkerIds }
+      requirements { role familyIn familyNotIn excludeWorkerIds minTier }
       createdBy { ...AgentTaskPartyFields }
       createdByRunId
       assignedAt
