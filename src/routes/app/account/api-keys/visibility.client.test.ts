@@ -3,6 +3,7 @@ import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 import Page from './+page.svelte';
@@ -152,5 +153,84 @@ describe('visibility feedback live regions (#1359)', () => {
     const { status, alert } = regions(mounted.target);
     expect(alert?.textContent).toContain('KEY_ACTIVE');
     expect(status?.textContent?.trim()).toBe('');
+  });
+});
+
+// #1500 fix head (Xavier #55397): an accepted submit empties the page
+// feedback, so each result lands once into an EMPTY region, even when its text
+// equals the last one. A cancelled duplicate submit clears nothing, and a reply
+// to a submit started before an in-page navigation is dropped. No timer, no
+// clear-and-reset of a region that already holds the new text.
+describe('visibility feedback: each result lands in an empty region (#1359, #1500 fix head)', () => {
+  const status = (root: HTMLElement) => root.querySelector<HTMLElement>('#key-visibility-status')!;
+  const alert = (root: HTMLElement) => root.querySelector<HTMLElement>('#key-visibility-alert')!;
+  const formOf = (root: HTMLElement, id: string) => root.querySelector<HTMLFormElement>(`[data-key-id="${id}"] form`)!;
+  const result = (type: 'success' | 'failure', text: string, id: string) =>
+    ({ type, status: type === 'success' ? 200 : 500, data: { visibility: { type: type === 'success' ? 'success' : 'error', text, id } } });
+  async function start(root: HTMLElement, id: string) {
+    const d = await submitEnhancedDeferred(formOf(root, id)); flushSync(); await tick(1);
+    return async (type: 'success' | 'failure', text: string) => { await d.finish(result(type, text, id)); await tick(2); };
+  }
+  const keys = () => [key('a', '2026-10-28T00:00:00Z'), key('b', '2026-10-28T00:00:00Z'), key('c', '2026-10-28T00:00:00Z')];
+  async function mountReactive(form: unknown = null) {
+    setStubPage('http://localhost/app/account/api-keys?includeHidden=true');
+    const props = reactiveProps({ data: { keys: keys(), includeHidden: true, form: await superValidate({}, zod4(createUserApiKeySchema), {errors:false}), revokeForm: await superValidate({}, zod4(revokeUserApiKeySchema), {errors:false}) } as Record<string, unknown>, form });
+    mounted = mountComponent(Page as never, props as never);
+    await tick(2);
+    return { root: mounted.target, props };
+  }
+
+  it.each([
+    ['identical successes', 'success', 'Key hidden.', 'success', 'Key hidden.'],
+    ['identical refusals', 'failure', 'KEY_ACTIVE', 'failure', 'KEY_ACTIVE'],
+    ['success then refusal', 'success', 'Key hidden.', 'failure', 'KEY_ACTIVE'],
+    ['refusal then success', 'failure', 'KEY_ACTIVE', 'success', 'Key hidden.'],
+  ] as const)('%s: the second submit empties both regions, then its result lands once', async (_l, t1, x1, t2, x2) => {
+    const { root } = await mountReactive();
+    const s = status(root), a = alert(root);
+    await (await start(root, 'a'))(t1, x1);
+    expect((t1 === 'success' ? s : a).textContent).toBe(x1);
+    const finish = await start(root, 'b');
+    expect(s.textContent).toBe('');
+    expect(a.textContent).toBe('');
+    await finish(t2, x2);
+    expect(status(root)).toBe(s);
+    expect(alert(root)).toBe(a);
+    expect((t2 === 'success' ? s : a).textContent).toBe(x2);
+    expect((t2 === 'success' ? a : s).textContent).toBe('');
+  });
+
+  it('a cancelled duplicate submit does not clear a result already showing', async () => {
+    const { root } = await mountReactive();
+    await start(root, 'a');                          // a stays pending
+    await (await start(root, 'b'))('success', 'Key hidden.');
+    expect(status(root).textContent).toBe('Key hidden.');
+    expect(await submitEnhanced(formOf(root, 'a'))).toEqual({ cancelled: true });
+    flushSync(); await tick(1);
+    expect(status(root).textContent).toBe('Key hidden.');
+  });
+
+  it('drops a reply to a submit started before an in-page navigation, without moving focus', async () => {
+    const { root, props } = await mountReactive();
+    const finish = await start(root, 'a');
+    props.data = { ...props.data, includeHidden: false };   // Show hidden keys toggled: same page, new view
+    await tick(2);
+    const other = document.createElement('input'); document.body.append(other); other.focus();
+    try {
+      await finish('success', 'Key hidden.');
+      expect(status(root).textContent).toBe('');
+      expect(alert(root).textContent).toBe('');
+      expect(document.activeElement).toBe(other);
+    } finally { other.remove(); }
+  });
+
+  it('keeps a no-JS result until a client submit is accepted, then replaces it', async () => {
+    const { root } = await mountReactive({ visibility: { type: 'error', text: 'KEY_ACTIVE', id: 'a' } });
+    expect(alert(root).textContent).toBe('KEY_ACTIVE');
+    const finish = await start(root, 'b');
+    expect(alert(root).textContent).toBe('');
+    await finish('success', 'Key hidden.');
+    expect(status(root).textContent).toBe('Key hidden.');
+    expect(alert(root).textContent).toBe('');
   });
 });
