@@ -494,3 +494,89 @@ describe('late save reply fence (#1368)', () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads + 1);
   });
 });
+
+describe('install customisation polish (#1369)', () => {
+  const listOf = (total: number, nodes = [node]) => ({
+    list: {
+      state: 'ok',
+      value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes, total, offset: 0 },
+    },
+    replacement: { state: 'not-shown' },
+    original: { state: 'not-shown' },
+  });
+  const serve = (body: unknown) =>
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body))));
+
+  it('counts one customisation in the singular', async () => {
+    serve(listOf(1));
+    const root = await panel();
+    expect(root.textContent).toContain('1 customisation');
+    expect(root.textContent).not.toContain('1 customisations');
+  });
+
+  it('says which rows are shown out of the server total, so disabled paging is explained in text', async () => {
+    const root = await panel();
+    expect(root.textContent).toContain('Showing 1–1 of 25 customisations');
+  });
+
+  it('scopes search to the loaded page in its accessible name', async () => {
+    const root = await panel();
+    const search = root.querySelector<HTMLInputElement>('input[type="text"]')!;
+    expect(search.getAttribute('aria-label')).toBe('Search the customisations on this page');
+  });
+
+  it('names each row action with the row it opens', async () => {
+    const root = await panel();
+    expect(button(root, 'Open').getAttribute('aria-label')).toBe('Open Note (note)');
+  });
+
+  it('shows read-only guidance only for an explicit non-manager', async () => {
+    const sentence = 'You can view these customisations. Only someone who manages this App can change them.';
+    expect((await panel(false)).textContent).toContain(sentence);
+    expect((await panel(null)).textContent).not.toContain(sentence);
+    expect((await panel(true)).textContent).not.toContain(sentence);
+  });
+
+  it('keeps both feedback regions mounted and empty before a save, and fills the same nodes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, options) =>
+        options?.method === 'POST'
+          ? new Response(JSON.stringify({
+              type: 'failure',
+              status: 409,
+              data: { customisationFailed: { code: 'unavailable', detail: 'Gone.' } },
+            }))
+          : new Response(JSON.stringify(payload())),
+      ),
+    );
+    const root = await panel();
+    button(root, 'Open').click();
+    await settle();
+    const status = root.querySelector<HTMLElement>('section [role="status"][data-feedback]');
+    const alert = root.querySelector<HTMLElement>('section [role="alert"][data-feedback]');
+    expect(status?.textContent).toBe('');
+    expect(alert?.textContent).toBe('');
+    await edit(root, 'my draft');
+    submit(root);
+    await settle();
+    expect(root.querySelector('section [role="alert"][data-feedback]')).toBe(alert);
+    expect(alert?.textContent).toBe('Gone.');
+    expect(status?.textContent).toBe('');
+  });
+
+  it('treats a typed loc with unchanged empty content as unsaved', async () => {
+    const root = await panel();
+    button(root, 'Start customising').click();
+    await settle();
+    const locInput = root.querySelector<HTMLInputElement>('form input')!;
+    locInput.value = 'boot:extra';
+    locInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    button(root, 'Next').click();
+    await settle();
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(root.querySelector<HTMLInputElement>('form input')?.value).toBe('boot:extra');
+  });
+});
