@@ -22,21 +22,26 @@
     const { deliver, current } = onstart();
     return async ({ result, update }) => {
       try {
-        // A reply to a submit started in another view (#1500): kit's update
-        // would apply it to the page's form (its action match ignores the
-        // query) and reset focus, so the old result would surface in the new
-        // view. Never apply it; a success still refreshes the current view.
-        if ((result.type === 'success' || result.type === 'failure') && !current()) {
+        if (result.type === 'success' || result.type === 'failure') {
+          // deliver() drops a notice whose page scope ended (another view, or
+          // the page was destroyed).
+          if (result.data?.visibility) deliver(result.data.visibility as Notice);
+          // The write landed, so a success refreshes whatever page is current.
+          // Refresh here rather than in kit's update, which would refresh and
+          // then apply with no check between: the scope can end during it.
           if (result.type === 'success') await invalidateAll();
+          // Never apply a reply whose scope ended: kit would set the CURRENT
+          // page's form (its action match ignores the query) and reset focus,
+          // so the old result would surface there (#1500).
+          if (!current()) return;
+          await update({ reset: false, invalidateAll: false });
           return;
         }
-        if ((result.type === 'success' || result.type === 'failure') && result.data?.visibility) {
-          deliver(result.data.visibility as Notice);
-        } else if (result.type === 'error') {
+        if (result.type === 'error') {
           deliver({type:'error', text:i18n.visibilityFailed()});
           return;
         }
-        await update({ reset: false, invalidateAll: result.type === 'success' });
+        await update({ reset: false, invalidateAll: false });
       } finally { pending = false; }
     };
   };

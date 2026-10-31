@@ -307,8 +307,11 @@ describe('a reply from another view is never applied (#1500 second fix head)', (
     const { root, start, toggleView, updates } = await setup();
     await toggleView(false);
     const finish = await start('b');
+    navigationCalls.length = 0;
     await finish(result(type, 'NEW VIEW RESULT', 'b'));
-    expect(updates).toEqual([{ reset: false, invalidateAll: type === 'success' }]);
+    // Third fix head: the row refreshes itself, then update only applies.
+    expect(updates).toEqual([{ reset: false, invalidateAll: false }]);
+    expect(navigationCalls.map((c) => c.fn)).toEqual(type === 'success' ? ['invalidateAll'] : []);
     expect((type === 'success' ? status : alert)(root).textContent).toBe('NEW VIEW RESULT');
   });
 });

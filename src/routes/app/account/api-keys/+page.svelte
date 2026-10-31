@@ -17,7 +17,7 @@
   Constitution Principle III; no hardcoded copy.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -58,6 +58,9 @@
     data.includeHidden;
     untrack(() => { view++; visibilityNotice = null; });
   });
+  // A destroyed page never sees a view change, so its scope ends with it: a
+  // late reply must not reach the page mounted after it (#1500).
+  onDestroy(() => { view++; });
   function startVisibility() {
     const startedIn = view;
     visibilityNotice = 'cleared';
