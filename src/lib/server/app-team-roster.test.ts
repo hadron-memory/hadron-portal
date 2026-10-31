@@ -5,6 +5,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { loadAppTeamRoster } from './app-team-roster';
+import { APP_TEAM_ROSTER_QUERY } from './queries';
 
 const entry = (id: string, over: Record<string, unknown> = {}) => ({
   worker: { id },
@@ -92,5 +93,22 @@ describe('loadAppTeamRoster (#1168)', () => {
   it('a genuinely empty roster is ok with no entries', async () => {
     const r = await loadAppTeamRoster(client(() => ({ teamRoster: { workers: [] } })), 'app-1');
     expect(r).toEqual({ kind: 'ok', byWorker: {} });
+  });
+});
+
+describe('terminal status (portal#1492)', () => {
+  it('selects status, reason and checkedAt only: no host label, prompt or last turn on the grid read', () => {
+    const sel = APP_TEAM_ROSTER_QUERY.match(/terminal\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(sel.split(/\s+/).filter(Boolean).sort()).toEqual(['checkedAt', 'reason', 'status']);
+    expect(APP_TEAM_ROSTER_QUERY).not.toMatch(/host|prompt|lastTurnAt|reportedAt/);
+  });
+
+  it('passes a returned terminal through, and keeps a returned null as null', async () => {
+    const terminal = { status: 'locked', reason: 'model_at_capacity', checkedAt: '2026-10-31T11:55:00.000Z' };
+    const r = await loadAppTeamRoster(refClient([entry('w1', { terminal }), entry('w2', { terminal: null })], {}), 'app-1');
+    if (r.kind !== 'ok') throw new Error('expected ok');
+    expect(r.byWorker.w1.terminal).toEqual(terminal);
+    expect(r.byWorker.w2.terminal).toBeNull();
+    expect(r.byWorker.w3).toBeUndefined();
   });
 });

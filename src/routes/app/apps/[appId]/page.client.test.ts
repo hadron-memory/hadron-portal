@@ -791,6 +791,129 @@ describe('Worker agents tab (#1009)', () => {
     const target = await mountStaff([worker({ id: 'w5', name: 'Eve', retiredAt: '2026-09-01T00:00:00.000Z', memoryId: null, agent: null })]);
     expect(menuOf(target, 'Eve').map(([label]) => label)).toEqual(['Delete verified-unused worker']);
   });
+
+  // portal#1492 (PT1) — a separate, hideable Terminal column: the terminal's own
+  // state, never folded into the session Status cell.
+  describe('Terminal column (#1492)', () => {
+    const PAGE_NOW = '2026-10-31T12:00:00.000Z';
+    const term = (over: Record<string, unknown> = {}) => ({ status: 'locked', reason: 'model_at_capacity', checkedAt: '2026-10-31T11:55:00.000Z', ...over });
+    const ok = (byWorker: Record<string, unknown>) => ({ kind: 'ok', byWorker });
+    async function mountTerminal(staff: unknown[], roster: unknown) {
+      setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+      window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+      const data = await pageData();
+      const m = mountComponent(Page as never, {
+        data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff, teamRoster: roster, terminalNow: PAGE_NOW },
+        form: null,
+      } as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      return m.target;
+    }
+    const w = (id: string, name: string, over: Record<string, unknown> = {}) =>
+      worker({ id, name, urn: `hrn:worker:acme.com:team:${name.toLowerCase()}`, hasLiveSession: false, ...over });
+    function colTexts(target: HTMLElement, header: string): string[] {
+      const ths = [...target.querySelectorAll('thead th')];
+      const idx = ths.findIndex((th) => th.textContent?.trim().startsWith(header));
+      if (idx < 0) throw new Error(`no ${header} column`);
+      return [...target.querySelectorAll('tbody tr')].map((tr) => tr.children[idx]?.textContent?.trim() ?? '');
+    }
+    async function search(target: HTMLElement, q: string): Promise<string[]> {
+      const input = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+      input.value = q;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(3);
+      return [...target.querySelectorAll<HTMLAnchorElement>('tbody a[href^="/app/workers/"]')].map((a) => a.textContent!.trim());
+    }
+
+    it('is its own column, apart from Status, with each state in words and its age', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo'), w('w3', 'Cy'), w('w4', 'Dee')],
+        ok({
+          w1: entry({ terminal: term() }),
+          w2: entry({ terminal: term({ status: 'idle', reason: null }) }),
+          w3: entry({ terminal: term({ status: 'busy', reason: null }) }),
+          w4: entry({ terminal: term({ status: 'dark', reason: 'no_turn_for_due_ticker' }) }),
+        }),
+      );
+      const col = colTexts(target, 'Terminal');
+      expect(col[0]).toContain('Locked: Model at capacity');
+      expect(col[1]).toContain('Idle');
+      expect(col[2]).toContain('Busy');
+      expect(col[3]).toContain('Dark: Missed its tick');
+      for (const c of col) expect(c).toMatch(/checked .*ago/);
+      // The session Status cell is untouched by the terminal.
+      expect(colTexts(target, 'Status')).toEqual(Array(4).fill('No recorded activity'));
+    });
+
+    it('a returned entry with terminal null is Not reported', async () => {
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: null }) }));
+      expect(colTexts(target, 'Terminal')[0]).toContain('Not reported');
+    });
+
+    it('missing entry, failed read and hidden read show no badge, and never Not reported', async () => {
+      const missing = await mountTerminal([w('w1', 'Ada'), w('w2', 'Bo')], ok({ w1: entry({ terminal: null }) }));
+      const col = colTexts(missing, 'Terminal');
+      expect(col[0]).toContain('Not reported');
+      expect(col[1]).not.toContain('Not reported');
+      expect(col[1]).not.toMatch(/Idle|Busy|Locked|Dark|checked/);
+      for (const roster of [{ kind: 'failed' }, { kind: 'hidden' }]) {
+        const t2 = await mountTerminal([w('w1', 'Ada')], roster);
+        expect(colTexts(t2, 'Terminal')[0]).not.toMatch(/Not reported|Idle|Busy|Locked|Dark|checked/);
+      }
+    });
+
+    it('a reader without internals sees no badge even if a terminal object arrives, and search finds no hidden value', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada', { hasLiveSession: null }), w('w2', 'Bo', { hasLiveSession: true })],
+        ok({
+          w1: entry({ terminal: term({ status: 'dark', reason: 'bare_shell' }) }),
+          w2: entry({ terminal: term({ status: 'dark', reason: 'bare_shell' }) }),
+        }),
+      );
+      const col = colTexts(target, 'Terminal');
+      expect(col[0]).not.toMatch(/Dark|plain shell|checked/);
+      expect(col[1]).toContain('Dark');
+      expect(await search(target, 'plain shell')).toEqual(['Bo']);
+      expect(await search(target, 'Dark')).toEqual(['Bo']);
+    });
+
+    it('a stale report keeps its server state', async () => {
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'busy', reason: null, checkedAt: '2026-10-01T00:00:00.000Z' }) }) }));
+      const cell = colTexts(target, 'Terminal')[0];
+      expect(cell).toContain('Busy');
+      expect(cell).toMatch(/checked .*ago/);
+      expect(cell).not.toMatch(/Dark|Idle/);
+    });
+
+    it('a future or unparsable checkedAt is time unknown', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo')],
+        ok({ w1: entry({ terminal: term({ checkedAt: '2026-11-30T00:00:00.000Z' }) }), w2: entry({ terminal: term({ checkedAt: 'garbage' }) }) }),
+      );
+      const col = colTexts(target, 'Terminal');
+      expect(col[0]).toContain('checked: time unknown');
+      expect(col[1]).toContain('checked: time unknown');
+    });
+
+    it('an unknown state or reason shows fixed copy, never the raw code, in the page or the console', async () => {
+      const spies = (['log', 'warn', 'error', 'info'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'quantum', reason: 'solar_flare' }) }) }));
+      const cell = colTexts(target, 'Terminal')[0];
+      expect(cell).toContain('Unknown state: Other reason');
+      expect(target.textContent).not.toContain('solar_flare');
+      expect(target.textContent).not.toContain('quantum');
+      for (const s of spies) {
+        for (const call of s.mock.calls) expect(JSON.stringify(call)).not.toMatch(/solar_flare|quantum/);
+      }
+    });
+
+    it('is hideable from the column toggle', async () => {
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
+      expect(target.textContent).toContain('Terminal');
+      expect(target.querySelector('[aria-label*="olumns"], button[aria-label*="olumn"]')).not.toBeNull();
+    });
+  });
 });
 
 describe('App header (#1010)', () => {

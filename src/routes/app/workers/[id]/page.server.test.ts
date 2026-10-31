@@ -526,3 +526,33 @@ it('#1334 an unbound participant (false, not null) retains working-state reads',
   await runLoad();
   expect(mockRequest.mock.calls.some(([doc]) => doc === WORKER_SESSIONS_QUERY)).toBe(true);
 });
+
+describe('terminal status (portal#1492)', () => {
+  const terminal = { status: 'locked', reason: 'model_at_capacity', checkedAt: '2026-10-31T11:55:00.000Z', lastTurnAt: null };
+
+  it('selects status, reason, checkedAt and lastTurnAt only: no host label or prompt', () => {
+    const sel = WORKER_QUERY.match(/terminal\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(sel.split(/\s+/).filter(Boolean).sort()).toEqual(['checkedAt', 'lastTurnAt', 'reason', 'status']);
+    expect(WORKER_QUERY).not.toMatch(/host\s*\{|prompt|reportedAt/);
+  });
+
+  it('a participant keeps the terminal and gets one page clock', async () => {
+    mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, hasLiveSession: false, terminal } });
+    const data = (await runLoad()) as Record<string, unknown> & { worker: Record<string, unknown> };
+    expect(data.worker.terminal).toEqual(terminal);
+    expect(Number.isNaN(Date.parse(String(data.terminalNow)))).toBe(false);
+  });
+
+  it('a returned null terminal stays null for a participant (Not reported)', async () => {
+    mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, hasLiveSession: true, terminal: null } });
+    const data = await runLoad();
+    expect(data.worker.terminal).toBeNull();
+  });
+
+  it('the Profile projection drops the terminal even when a fixture supplies it', async () => {
+    mockRequest.mockResolvedValueOnce({ worker: { ...WORKER, hasLiveSession: null, terminal } });
+    const data = await runLoad();
+    expect(data.worker.terminal).toBeUndefined();
+    expect(JSON.stringify(data)).not.toContain('model_at_capacity');
+  });
+});
