@@ -17,7 +17,7 @@
   Constitution Principle III; no hardcoded copy.
 -->
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -42,13 +42,38 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const keys = $derived(data.keys);
-  let visibilityNotice = $state<{type:'success'|'error';text:string} | null>(null);
+  type VisibilityNotice = { type: 'success' | 'error'; text: string };
+  // 'cleared' while an accepted Hide/Unhide submit is pending: both feedback
+  // regions stay empty (the row's own status says Saving…), so the result lands
+  // in an empty region and is a change even when its text equals the last one
+  // (#1359, #1500 fix head). It also hides a no-JS result the submit supersedes.
+  let visibilityNotice = $state<VisibilityNotice | 'cleared' | null>(null);
   let hiddenToggle: HTMLInputElement;
-  const visibilityFeedback = $derived(visibilityNotice ?? (form && 'visibility' in form ? form.visibility : null));
-  function showVisibilityResult(notice: {type:'success'|'error';text:string}) {
-    visibilityNotice = notice;
-    // The row can disappear on success; keep keyboard focus on the persistent toggle.
-    if (notice.type === 'success') hiddenToggle?.focus();
+  const visibilityFeedback = $derived(visibilityNotice === 'cleared' ? null
+    : visibilityNotice ?? (form && 'visibility' in form ? form.visibility : null));
+  // Toggling Show hidden keys is an in-page navigation to another view. It drops
+  // the shown result, and a reply to a submit started before it is not shown.
+  let view = 0;
+  $effect(() => {
+    data.includeHidden;
+    untrack(() => { view++; visibilityNotice = null; });
+  });
+  // A destroyed page never sees a view change, so its scope ends with it: a
+  // late reply must not reach the page mounted after it (#1500).
+  onDestroy(() => { view++; });
+  function startVisibility() {
+    const startedIn = view;
+    visibilityNotice = 'cleared';
+    const current = () => startedIn === view;
+    return {
+      current,
+      deliver: (notice: VisibilityNotice) => {
+        if (!current()) return;
+        visibilityNotice = notice;
+        // The row can disappear on success; keep keyboard focus on the persistent toggle.
+        if (notice.type === 'success') hiddenToggle?.focus();
+      },
+    };
   }
   const loadError = $derived('loadError' in data ? data.loadError : undefined);
   const inputClass =
@@ -306,22 +331,26 @@
 
   <!-- Key list (TanStack table, same chrome as /app/usage/sessions). -->
   <section class="space-y-4">
-    <form method="GET" class="space-y-1">
-      <label class="inline-flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-        <input type="checkbox" name="includeHidden" value="true" checked={data.includeHidden}
-          bind:this={hiddenToggle} aria-describedby="key-visibility-help"
-          onchange={(event) => event.currentTarget.form?.requestSubmit()} />
-        {i18n.showHidden()}
-      </label>
-      <noscript><button type="submit">{i18n.apply()}</button></noscript>
-      <p id="key-visibility-help" class="text-xs text-zinc-500 dark:text-zinc-400">{i18n.visibilityHelp()}</p>
-    </form>
-    {#if visibilityFeedback}
-      <p role={visibilityFeedback.type === 'error' ? 'alert' : 'status'}
-        class={visibilityFeedback.type === 'error'
-          ? 'text-sm text-red-700 dark:text-red-300'
-          : 'text-sm text-green-700 dark:text-green-300'}>{visibilityFeedback.text}</p>
-    {/if}
+    <!-- One sibling in the section's space-y-4 stack, so the empty regions add no gap. -->
+    <div class="space-y-1">
+      <form method="GET" class="space-y-1">
+        <label class="inline-flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+          <input type="checkbox" name="includeHidden" value="true" checked={data.includeHidden}
+            bind:this={hiddenToggle} aria-describedby="key-visibility-help"
+            onchange={(event) => event.currentTarget.form?.requestSubmit()} />
+          {i18n.showHidden()}
+        </label>
+        <noscript><button type="submit">{i18n.apply()}</button></noscript>
+        <p id="key-visibility-help" class="text-xs text-zinc-500 dark:text-zinc-400">{i18n.visibilityHelp()}</p>
+      </form>
+      <!-- #1359: both regions are mounted, empty, before any result, so assistive
+           technology is already watching them; each keeps one role, and only the
+           one matching the result holds text. -->
+      <div class="text-sm">
+        <p id="key-visibility-status" role="status" class="text-green-700 dark:text-green-300">{visibilityFeedback?.type === 'success' ? visibilityFeedback.text : ''}</p>
+        <p id="key-visibility-alert" role="alert" class="text-red-700 dark:text-red-300">{visibilityFeedback?.type === 'error' ? visibilityFeedback.text : ''}</p>
+      </div>
+    </div>
     {#if keys.length === 0}
       <p class="text-sm text-zinc-500 dark:text-zinc-400">{data.includeHidden ? i18n.emptyState() : i18n.noVisibleKeys()}</p>
     {:else}
@@ -359,7 +388,7 @@
                 compact
               />
             {:else}
-              <ApiKeyVisibilityAction id={key.id} preview={key.keyPreview} hidden={!!key.hiddenAt} includeHidden={data.includeHidden} onresult={showVisibilityResult} />
+              <ApiKeyVisibilityAction id={key.id} preview={key.keyPreview} hidden={!!key.hiddenAt} includeHidden={data.includeHidden} onstart={startVisibility} />
             {/if}
           {:else}
             {@const f = fmt[cell.column.id]}

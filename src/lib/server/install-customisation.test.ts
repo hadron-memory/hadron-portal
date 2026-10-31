@@ -203,3 +203,192 @@ describe('customisation refusal and revision safety', () => {
     expect(r.original).toMatchObject({ state: 'ok', value: { content: '' } });
   });
 });
+
+// #1368: the demand read honours the same bare-loc boundary as the write.
+describe('bare-loc boundary on the demand read (#1368)', () => {
+  const listed = () => [
+    app,
+    { installMemory: { id: 'install', urn: 'hrn:mem:acme.com:install' } },
+    { memoryNodes: { nodes: [{ id: 'n', loc: 'x', name: 'X' }], total: 1 } },
+  ];
+  const queries = (c: ReturnType<typeof client>) =>
+    c.request.mock.calls.map((call: unknown[]) => String(call[0]));
+  it.each([
+    'hrn:node:acme.com:other:secret',
+    '  hrn:node:acme.com:other:secret',
+    'hrn:mem:acme.com:other',
+  ])('sends no node read for the qualified ref %j and keeps the list', async (loc) => {
+    const c = client([
+      ...listed(),
+      { node: { id: 'o', loc: 'secret', name: 'Other', content: 'foreign', revision: 1 } },
+      { node: { id: 'o', loc: 'secret', name: 'Other', content: 'foreign', revision: 1 } },
+    ]);
+    const r = await readCustomisation(c as never, context, 0, loc);
+    expect(c.request).toHaveBeenCalledTimes(3);
+    expect(queries(c).some((q) => q.includes('raw: true'))).toBe(false);
+    expect(r.list).toMatchObject({ state: 'ok', value: { total: 1 } });
+    expect(r.replacement).toEqual({ state: 'not-shown' });
+    expect(r.original).toEqual({ state: 'not-shown' });
+    expect(JSON.stringify(r)).not.toContain('foreign');
+  });
+  it('reads a bare loc from exactly the install and system memories', async () => {
+    const c = client([
+      ...listed(),
+      { node: { id: 'r', loc: 'x', name: 'X', content: 'mine', revision: 2 } },
+      { node: { id: 'o', loc: 'x', name: 'X', content: 'base', revision: 1 } },
+    ]);
+    const r = await readCustomisation(c as never, context, 0, 'x');
+    expect(c.request).toHaveBeenCalledTimes(5);
+    expect(c.request.mock.calls.slice(3).map((call: unknown[]) => call[1])).toEqual([
+      { memoryRef: 'install', ref: 'loc:x' },
+      { memoryRef: 'original', ref: 'loc:x' },
+    ]);
+    expect(queries(c).slice(3).map((q) => /query (\w+)/.exec(q)?.[1])).toEqual([
+      'InstallNode',
+      'OriginalNode',
+    ]);
+    expect(r.replacement).toMatchObject({ state: 'ok', value: { content: 'mine' } });
+    expect(r.original).toMatchObject({ state: 'ok', value: { content: 'base' } });
+  });
+  it.each([undefined, ''])('sends no node read without a selection (%j)', async (loc) => {
+    const c = client(listed());
+    const r = await readCustomisation(c as never, context, 0, loc);
+    expect(c.request).toHaveBeenCalledTimes(3);
+    expect(r.replacement).toEqual({ state: 'not-shown' });
+    expect(r.original).toEqual({ state: 'not-shown' });
+  });
+  it('keeps missing, withheld and failed apart', async () => {
+    const withheld = client([
+      { app: { id: 'app-a', agents: [{ id: 'agent-a', systemMemoryId: null }] } },
+      { installMemory: { id: 'install', urn: null } },
+      { memoryNodes: { nodes: [], total: 0 } },
+      { node: null },
+    ]);
+    const w = await readCustomisation(withheld as never, context, 0, 'x');
+    expect(withheld.request).toHaveBeenCalledTimes(4);
+    expect(w.replacement).toEqual({ state: 'not-shown' });
+    expect(w.original).toEqual({ state: 'not-shown' });
+    const failed = client([...listed(), new Error('down'), new Error('down')]);
+    const f = await readCustomisation(failed as never, context, 0, 'x');
+    expect(f.replacement).toEqual({ state: 'failed' });
+    expect(f.original).toEqual({ state: 'failed' });
+  });
+});
+
+describe('bare-loc boundary on the write (#1368)', () => {
+  it.each([
+    ['create', true],
+    ['save', false],
+  ])('refuses a qualified loc on %s before any request', async (_kind, create) => {
+    for (const loc of ['hrn:node:acme.com:other:x', ' hrn:node:acme.com:other:x']) {
+      const c = client([]);
+      const fd = new FormData();
+      for (const [k, v] of Object.entries({
+        agentRef: 'agent-a',
+        loc,
+        name: 'X',
+        content: 'new',
+        baseContent: 'old',
+        expectedRevision: '7',
+      }))
+        fd.set(k, v);
+      expect(await writeCustomisation(c as never, 'app-a', fd, create)).toMatchObject({
+        status: 400,
+        data: { customisationFailed: { code: 'invalid' } },
+      });
+      expect(c.request).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('fixed refusal lead per mapped code (#1368)', () => {
+  const changed = 'The installation changed. Reload before trying again.';
+  const leads: Record<string, string> = {
+    AGENT_NOT_INSTALLED: changed,
+    INSTALL_TARGET_CHANGED: changed,
+    APP_UNINSTALLED: changed,
+    INSTALL_MEMORY_NOT_FOUND:
+      'The customisation is not available. Reload before trying again.',
+    NODE_WRITE_CONFLICT:
+      'Another edit was saved. Your draft is kept; reload to start from the current version.',
+    NodeLocConflictError:
+      'Another edit was saved. Your draft is kept; reload to start from the current version.',
+    FORBIDDEN: 'This change was refused. Your draft is kept.',
+    URN_NOT_QUALIFIED: 'Use a bare loc for this customisation.',
+  };
+  const refuse = async (code: string) => {
+    const error = Object.assign(new Error('request credential=secret'), {
+      response: {
+        errors: [{ message: 'Own server prose <b>verbatim</b>', extensions: { code } }],
+      },
+    });
+    const fd = new FormData();
+    for (const [k, v] of Object.entries({
+      agentRef: 'agent-a',
+      loc: 'x',
+      name: 'X',
+      content: 'new',
+    }))
+      fd.set(k, v);
+    return (await writeCustomisation(client([error]) as never, 'app-a', fd, true)) as {
+      status: number;
+      data: { customisationFailed: { code: string; detail: string } };
+    };
+  };
+  it.each(Object.entries(leads))('%s leads with its fixed sentence', async (code, lead) => {
+    const r = await refuse(code);
+    expect(r.data.customisationFailed).toEqual({
+      code,
+      detail: `${lead} Own server prose <b>verbatim</b>`,
+    });
+    expect(r.status).toBe(code === 'FORBIDDEN' ? 403 : code === 'NODE_WRITE_CONFLICT' ? 409 : 400);
+    expect(JSON.stringify(r)).not.toContain('secret');
+  });
+  it('adds no lead for an unmapped code', async () => {
+    const r = await refuse('UNKNOWN_REFUSAL');
+    expect(r.status).toBe(500);
+    for (const lead of new Set(Object.values(leads)))
+      expect(r.data.customisationFailed.detail).not.toContain(lead);
+    expect(JSON.stringify(r)).not.toContain('secret');
+    expect(JSON.stringify(r)).not.toContain('Own server prose');
+  });
+});
+
+// #1504 §10 (Riana): node(ref:) resolves a PK or a urn:node: ref on its own and
+// ignores memoryRef, so those shapes could still show another readable node.
+// Every customisation node read pins the ref to its memory with `loc:`, which
+// the server reads as a loc inside memoryRef whatever the string looks like.
+describe('every customisation node read is pinned to its memory (#1504 §10)', () => {
+  const listed = () => [
+    app,
+    { installMemory: { id: 'install', urn: null } },
+    { memoryNodes: { nodes: [], total: 0 } },
+  ];
+  it.each([
+    '0123456789abcdef0123456789abcdef',
+    'cjld2cjxh0000qzrmn831i7rn',
+    'urn:node:acme.com:other:secret',
+    'loc:x',
+    'x',
+  ])('demand reads send ref loc:%s', async (loc) => {
+    const c = client([...listed(), { node: null }, { node: null }]);
+    await readCustomisation(c as never, context, 0, loc);
+    expect(c.request.mock.calls.slice(3).map((call: unknown[]) => call[1])).toEqual([
+      { memoryRef: 'install', ref: `loc:${loc}` },
+      { memoryRef: 'original', ref: `loc:${loc}` },
+    ]);
+  });
+  it.each(['0123456789abcdef0123456789abcdef', 'urn:node:acme.com:other:secret', 'x'])(
+    'the save door pre-read sends ref loc:%s',
+    async (loc) => {
+      const c = client([{ installMemory: { id: 'install' } }, { node: { role: null, isRunnable: false } }, {}]);
+      const fd = new FormData();
+      for (const [k, v] of Object.entries({ agentRef: 'agent-a', loc, content: 'new', baseContent: 'old', expectedRevision: '7' }))
+        fd.set(k, v);
+      await writeCustomisation(c as never, 'app-a', fd, false);
+      expect(c.request.mock.calls[1]?.[1]).toEqual({ memoryRef: 'install', ref: `loc:${loc}` });
+      // The write itself still addresses the literal loc.
+      expect(c.request.mock.calls[2]?.[1]).toMatchObject({ input: { loc } });
+    },
+  );
+});

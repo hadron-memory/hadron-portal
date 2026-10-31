@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import AgentExtendedBy from './AgentExtendedBy.svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
@@ -206,4 +206,81 @@ it('Retry intercepts plain primary clicks and ignores modified activations durin
   expect(modified.defaultPrevented).toBe(false);
   expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(1);
   finish(); await tick(5);
+});
+
+// #1311: Retry gives a pending cue and makes a repeated identical failure
+// perceivable again. Both regions are mounted before any retry so a screen
+// reader has already seen them; the table is never remounted to refresh them.
+// Node identity and text changes are DOM evidence, not a native announcement.
+describe('Retry feedback (#1311)', () => {
+  const FAILED = 'Could not load extending Agents. Retry this page.';
+  const status = (root: HTMLElement) => root.querySelector<HTMLElement>('#extended-by-status');
+  const alert = (root: HTMLElement) => root.querySelector<HTMLElement>('#extended-by-alert');
+  const retryLink = (root: HTMLElement) => root.querySelector<HTMLAnchorElement>('nav a')!;
+  async function mountLoader() {
+    setStubPage('http://localhost/app/agents/base');
+    const loader = reactiveProps({ result: { ...empty, failed: true } as typeof empty });
+    const props = { agentId: 'base', requestedAfter: null, get result() { return loader.result; } };
+    const m = mountComponent(AgentExtendedBy, props as never); mounted.push(m); await tick(5);
+    return { root: m.target, loader };
+  }
+  function hold() {
+    let finish!: () => void; let fail!: (e: unknown) => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((res, rej) => { finish = res; fail = rej; });
+    return { finish: () => finish(), fail: (e: unknown) => fail(e) };
+  }
+
+  it('mounts an empty polite status and the failure alert before any retry', async () => {
+    const { root } = await mountLoader();
+    expect(status(root)?.getAttribute('role')).toBe('status');
+    expect(status(root)?.textContent?.trim()).toBe('');
+    expect(alert(root)?.getAttribute('role')).toBe('alert');
+    expect(alert(root)?.textContent).toBe(FAILED);
+  });
+
+  it('shows and announces Retrying… while pending, without claiming no extending Agents', async () => {
+    const { root } = await mountLoader();
+    const before = { s: status(root), a: alert(root), table: root.querySelector('table') };
+    hold();
+    retryLink(root).click(); await tick(2);
+    expect(retryLink(root).textContent).toBe('Retrying…');
+    expect(retryLink(root).getAttribute('aria-disabled')).toBe('true');
+    expect(status(root)).toBe(before.s);
+    expect(status(root)!.textContent).toBe('Retrying…');
+    expect(root.textContent).not.toMatch(/No (readable )?(extending )?Agents/);
+    expect(root.querySelector('table')).toBe(before.table);
+  });
+
+  it.each([
+    ['the reload settles still failed', (h: ReturnType<typeof hold>) => h.finish()],
+    ['the reload itself rejects', (h: ReturnType<typeof hold>) => h.fail(new Error('route reload failed'))],
+  ] as const)('re-announces an identical failure when %s, in the same alert node', async (_l, settle) => {
+    const { root } = await mountLoader();
+    const a = alert(root), s = status(root), table = root.querySelector('table');
+    const h = hold();
+    retryLink(root).click(); await tick(2);
+    // Emptied while pending, so the same text arriving again is a change.
+    expect(alert(root)).toBe(a);
+    expect(a!.textContent?.trim()).toBe('');
+    settle(h); await tick(5);
+    expect(alert(root)).toBe(a);
+    expect(a!.textContent).toBe(FAILED);
+    expect(status(root)).toBe(s);
+    expect(s!.textContent?.trim()).toBe('');
+    expect(retryLink(root).textContent).toBe('Retry');
+    expect(root.querySelector('table')).toBe(table);
+    expect(document.activeElement).toBe(root.querySelector('#extended-by'));
+  });
+
+  it('clears pending on success and announces no failure', async () => {
+    const { root, loader } = await mountLoader();
+    const a = alert(root), s = status(root);
+    navigationHooks.onInvalidateAll = () => { loader.result = { items: [{ id: 'c', name: 'Child', urn: 'hrn:agent:example.com:c' }] as never, hasMore: false, endCursor: null, failed: false }; };
+    retryLink(root).click(); await tick(5);
+    expect(alert(root)).toBe(a);
+    expect(a!.textContent?.trim()).toBe('');
+    expect(status(root)).toBe(s);
+    expect(s!.textContent?.trim()).toBe('');
+    expect(root.querySelector('a[href="/app/agents/c"]')?.textContent).toBe('Child');
+  });
 });

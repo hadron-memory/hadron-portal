@@ -1940,6 +1940,18 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
 // An argument and its $variable share a name — `appKeys(appRef: $appRef)`.
 // `pnpm gql:validate` checks that, and cross-checks the keys every caller
 // passes, so a mismatch is a build error rather than a convention to remember.
+/**
+ * portal#1153 (hadron-server#2109): `App.viewerManages`, in its OWN request. A
+ * server that predates the field answers with a hard GraphQL error, and on the
+ * shared App fragment that would take down every App surface; here the loader
+ * classifies it as unknown and the key controls render as before.
+ */
+export const APP_VIEWER_MANAGES_QUERY = /* GraphQL */ `
+  query AppViewerManages($ref: ID!) {
+    app(ref: $ref) { id viewerManages }
+  }
+`;
+
 export const APP_KEYS_QUERY = /* GraphQL */ `
   query AppKeys($appRef: ID!) {
     appKeys(appRef: $appRef) {
