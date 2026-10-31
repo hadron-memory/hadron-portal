@@ -1,5 +1,6 @@
 <script lang="ts">
   import TurnstileWidget from '$lib/components/TurnstileWidget.svelte';
+  import { emailSubmitFailure } from '$lib/forms/email-submit-failure.svelte';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -42,6 +43,7 @@
   });
 
   let turnstile: TurnstileWidget | undefined = $state();
+  const submitFailure = emailSubmitFailure({ providers: ['Google', 'GitHub'], resetCheck: () => turnstile?.reset() });
 
   const initialEmailForm = untrack(() => submittedForm<InviteEmailForm>(form, 'sendEmail') as InviteEmailSuperform | null ?? data.form);
   const {
@@ -57,13 +59,17 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    // #1470: a Turnstile token verifies once, so a fresh one is needed after any submit.
-    onUpdated: () => turnstile?.reset(),
-    onError: () => turnstile?.reset(),
+    // #1470 + portal#1528: reset Turnstile after any submit, and SAY when the
+    // submit failed before an ActionResult came back (edge page, network, CSRF).
+    onSubmit: submitFailure.onSubmit,
+    onUpdated: submitFailure.onUpdated,
+    onError: submitFailure.onError,
   });
   const emailError = $derived($emailErrors.email?.[0] ?? null);
   const acceptActionError = $derived(scopedActionError<AcceptInvitationForm>(form, 'acceptInvitation', $acceptMessage));
-  const emailActionError = $derived(scopedActionError<InviteEmailForm>(form, 'sendEmail', $emailMessage, $emailErrors, ['email']));
+  const emailActionError = $derived(
+    submitFailure.text ?? scopedActionError<InviteEmailForm>(form, 'sendEmail', $emailMessage, $emailErrors, ['email']),
+  );
   const emailSentMessage = $derived(scopedActionSuccess<InviteEmailForm>(form, 'sendEmail', $emailMessage));
 </script>
 

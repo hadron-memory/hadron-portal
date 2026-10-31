@@ -39,7 +39,7 @@ afterEach(() => {
  */
 function mountPage<P extends Record<string, unknown>>(component: unknown, data: Record<string, unknown>): HTMLElement {
   const props = reactiveProps({ data, form: null as unknown }) as unknown as P;
-  unsubs.push(page.subscribe((p) => ((props as { form: unknown }).form = p.form)));
+  unsubs.push(page.subscribe((p) => ((props as unknown as { form: unknown }).form = p.form)));
   const m = mountComponent(component as never, props as never);
   mounted.push(m);
   return m.target;
