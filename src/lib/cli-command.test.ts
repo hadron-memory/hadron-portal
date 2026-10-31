@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cliRef, shellArg, tickerCommands, wakeCommands } from './cli-command';
+import { cliRef, shellArg, wakeCommands } from './cli-command';
 
 describe('shellArg', () => {
   it.each(['hrn:ticker:acme.com:team:engineering', 'tk-1', 'a.b_c-d:e'])('prints %s bare', (v) => {
@@ -28,14 +28,8 @@ describe('cliRef', () => {
 });
 
 describe('the commands', () => {
-  it('ticker on/off and subscribe', () => {
-    expect(tickerCommands("t'k")).toEqual({
-      off: "hadron ticker update 't'\\''k' --enabled=false",
-      on: "hadron ticker update 't'\\''k' --enabled",
-      subscribe: "hadron ticker subscribe 't'\\''k' --worker <worker-id-or-URN>",
-      unsubscribe: "hadron ticker unsubscribe 't'\\''k' --worker <worker-id-or-URN>",
-    });
-  });
+  // portal#1497 D4 removed tickerCommands with the ticker page's CLI block
+  // (the portal controls replaced it); the wake-settings commands stay.
 
   it('wake settings, each with a setting', () => {
     expect(Object.values(wakeCommands('w-1'))).toEqual([

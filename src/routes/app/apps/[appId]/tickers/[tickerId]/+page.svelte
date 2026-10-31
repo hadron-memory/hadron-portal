@@ -1,35 +1,48 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import TickerForm from '$lib/components/tickers/TickerForm.svelte';
   import TickerDelete from '$lib/components/tickers/TickerDelete.svelte';
+  import TickerEnabledControl from '$lib/components/tickers/TickerEnabledControl.svelte';
+  import TickerAddSubscriber from '$lib/components/tickers/TickerAddSubscriber.svelte';
+  import TickerRemoveSubscriber from '$lib/components/tickers/TickerRemoveSubscriber.svelte';
+  import TickerRemoveOutcomeLine from '$lib/components/tickers/TickerRemoveOutcomeLine.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
-  import CliCommand from '$lib/components/tickers/CliCommand.svelte';
-  import { cliRef, tickerCommands } from '$lib/cli-command';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { cadenceText, isKnownReason, isWellFormedReasons, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
+  import { tickerSubscribeWhoText, type TickerRemoveOutcome } from '$lib/tickers/controls';
+  import { takeTickerRemoveOutcomeMarker } from '$lib/tickers/ticker-remove-outcome-marker';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   /**
    * portal#1099 — one ticker (design §3.2): its facts, then Edit and Delete
-   * (portal#1151, S7b), then its subscribers. Enabling or disabling it and
-   * Add subscriber / Remove are not in the portal yet and are not rendered;
-   * portal#1496 gives the hadron CLI commands for them instead.
+   * (portal#1151, S7b), then its subscribers.
+   *
+   * portal#1497 (MCP cut R7a) adds the controls the MCP cut took away: turning
+   * the ticker on or off beside its badge, and Add subscriber / Remove on the
+   * operations the disabled tools used. Every participant sees them (D1); the
+   * server's refusal answers anyone else. The on/off control is rendered for
+   * every participant; the subscriber controls sit under the list, with
+   * hrn:node:hadronmemory.com:specs:cor:agt:080:20's sentence beside them (the same sentence the server's
+   * SUBSCRIBE_FORBIDDEN refusal answers with).
+   *
+   * portal#1498's CLI commands for these same operations are gone from here
+   * (D4): the controls replaced them. The Wake-ups tab keeps its commands —
+   * its settings have no portal controls (D3).
    */
   let { data }: { data: PageData } = $props();
 
   const basePath = $derived(`/app/apps/${data.app.id}`);
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
   const tk = $derived(data.ticker);
-  const cliTarget = $derived(cliRef(tk));
-  const cli = $derived(cliTarget ? tickerCommands(cliTarget) : null);
   const quiet = $derived(parseQuietHours(tk.quietHours));
   const subscribers = $derived(data.subscribers);
   const task = $derived(data.tickerTask);
@@ -52,11 +65,17 @@
       : [],
   );
 
+  // portal#1497: the signed-in viewer (from the layout), to scope the ticker
+  // refresh marker a committed write leaves behind.
+  const viewerId = $derived(data.user?.id ?? null);
+
   let globalFilter = $state('');
   const columns: PortalColumnDef<Row>[] = [
     { id: 'worker', accessorFn: (r) => r.workerText, header: t('app.ticker.col.worker', 'Worker'), enableHiding: false, size: 280 },
     { id: 'by', accessorFn: (r) => r.byText, header: t('app.ticker.col.by', 'Subscribed by'), size: 240 },
     { id: 'since', accessorFn: (r) => r.sinceMs, header: t('app.ticker.col.since', 'Since'), size: 170 },
+    // portal#1497: each row's own Remove, whatever the roster read said.
+    { id: 'actions', accessorFn: () => '', header: t('app.ticker.col.actions', 'Actions'), enableSorting: false, enableHiding: false, enableGlobalFilter: false, size: 120 },
   ];
   const fmtMs = (v: unknown) => (typeof v === 'number' && v > 0 ? fmtRunTime(String(v)) : '');
   const table = createSvelteTable<Row>({
@@ -80,6 +99,123 @@
       refreshing = false;
     }
   }
+
+  // portal#1502 (review, Uma P2): the Remove confirmation never fit the Actions
+  // column (a 278px form in a 120px cell; Cancel was clipped at 390 and 1280),
+  // so it is a page-level PANEL above the table, opened by the row's trigger —
+  // the Add control's own shape. The page owns which row's panel is open, the
+  // focus contract, and muting every other row's trigger while a removal is in
+  // flight (a swallowed result is exactly the late-result bug the control
+  // exists to prevent).
+  let removingId = $state<string | null>(null);
+  let removeBusy = $state(false);
+  // portal#1502 (delta seats): a removal's outcome belongs to the PAGE. The
+  // reload a committed removal (or the stale-row SUBSCRIPTION_NOT_FOUND
+  // refusal) performs drops the row, and the row is what keeps the Remove
+  // panel mounted — so "Removed", the stale-row sentence, the announcement
+  // caveat and the refresh line all vanished with the panel at the last head
+  // (Gemma + Gaby, independently proven). The panel reports through onOutcome
+  // once its reload has settled; this state is what survives it.
+  let removeOutcome = $state<TickerRemoveOutcome | null>(null);
+  // The row whose Remove was last opened (plain, not $state: nothing renders
+  // from it). The page checks every arriving outcome against it, so the
+  // contract on TickerRemoveOutcome — a late result of another row attaches
+  // to nothing — is enforced HERE, not just by the busy-muting that makes a
+  // mid-flight row switch impossible (portal#1502 delta, Gemma P3-a).
+  let removeOpenedFor: string | null = null;
+  // $state, not a plain object: `bind:this` writes into it every row render,
+  // and a non-reactive target is the runtime warning Svelte raises per row
+  // (portal#1502 delta, Gemma P3-1). Focus restore still reads it imperatively.
+  const removeTriggers: Record<string, HTMLButtonElement | null> = $state({});
+  let subscribersHeading: HTMLHeadingElement | null = $state(null);
+  const removingRow = $derived(removingId === null ? null : rows.find((r) => r.sub.id === removingId) ?? null);
+  // The panel renders from the subscription it was OPENED for, not from the
+  // live row lookup: the reload a removal performs can take the row out of
+  // `rows` a flush before this template tears the panel down, and a prop read
+  // through `removingRow` would throw in that window (portal#1502 delta —
+  // both reload paths proved it). The row-gone effect below closes the panel.
+  let removePanelSub = $state<TickerSubscriber | null>(null);
+  // While the panel that produced an outcome is still open, the panel shows
+  // its own result line and this region stays empty — one announcement, not
+  // two. The region itself is present (and empty) from first paint, so the
+  // sentence that lands in it is announced as a change.
+  //
+  // portal#1502 (BLIND delta, Gaby P2): the outcome also belongs to ONE
+  // TICKER. Kit reuses this page component for the next ticker under the
+  // route, so `data.ticker` can swap in place under any state this page
+  // holds — without this fence, a removal of ticker A would leave "Removed"
+  // in ticker B's status region, claiming a removal that never happened on
+  // B (the page-state twin of the reused-[id]-route bleed
+  // hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation
+  // fences in superForm ids). The panel below is already keyed per
+  // subscription; this guard is the page-level half of that fence.
+  function showsOutcome(o: TickerRemoveOutcome | null): o is TickerRemoveOutcome {
+    return o !== null && o.tickerId === tk.id && removePanelSub === null;
+  }
+  const removeOutcomeText = $derived(showsOutcome(removeOutcome) ? removeOutcome.text : '');
+  const removeOutcomeAnnouncement = $derived(showsOutcome(removeOutcome) && removeOutcome.announcementFailed);
+  const removeOutcomeRefreshFailed = $derived(showsOutcome(removeOutcome) && removeOutcome.refreshFailed);
+
+  /** Cancel/Escape: close the panel and refocus the row's own trigger. */
+  function closeRemove() {
+    const was = removingId;
+    removingId = null;
+    removePanelSub = null;
+    if (was !== null) removeTriggers[was]?.focus({ preventScroll: true });
+  }
+
+  // A reload that took the open row away (a committed removal, or the
+  // stale-row SUBSCRIPTION_NOT_FOUND reload) ends the panel: focus lands on
+  // the Subscribers heading, not nowhere (portal#1502 review, Uma P3-2).
+  $effect(() => {
+    if (removingId !== null && removingRow === null) {
+      removingId = null;
+      removePanelSub = null;
+      subscribersHeading?.focus({ preventScroll: true });
+    }
+  });
+
+  // portal#1502 (BLIND delta, Gaby P2 + Uma P3-2): the fence above hides an
+  // outcome on the wrong ticker; this one stops it RESURFACING if the reader
+  // comes back — cleared, not merely hidden. The guard reads removeOutcome,
+  // but the write makes the guard false (an effect re-run sees null and
+  // stops), so this converges rather than latching — the case
+  // hrn:node:hadronmemory.com:hadron-portal:review:no-read-modify-write-state-in-effect
+  // distinguishes. Tracked on the scalar id, so a same-ticker refresh that
+  // replaces the data object clears nothing.
+  $effect(() => {
+    const current = tk.id;
+    if (removeOutcome !== null && removeOutcome.tickerId !== current) removeOutcome = null;
+  });
+
+  // portal#1502 (Colette QA delta): a stale-row refusal's reload can end in a
+  // full document FALLBACK (an aborted data refresh does not reject in a real
+  // kit) — the fresh first page it lands on is this component, mounted anew
+  // with every client state gone, and the server's refusal sentence reaches
+  // it only through the outcome marker the panel left behind. Taken once
+  // here, on THIS viewer's render of the same ticker, into the same
+  // always-present region above (so it is announced as a change, never
+  // inserted already-populated — Gaby P3-1). A live navigation never gets
+  // this far: the panel clears its marker at settlement, so the sentence and
+  // the corrected failed-reload copy never both apply. FIRST PAGE ONLY
+  // (28b680ce review): the sentence says "the list is back at its first
+  // page", so a paginated view — where it is not — may not claim it; the
+  // marker is left in place for a first-page arrival inside its window. The
+  // gate is the LOADER's own first-page signal, `paged` (efae752b review,
+  // Gemma P2: ?after= spells a falsy after:"" with paged:true — `after`
+  // itself cannot carry this condition).
+  $effect(() => {
+    const viewer = viewerId;
+    const appIdNow = data.app.id;
+    const current = tk.id;
+    if (!viewer || !appIdNow || !current || data.paged) return;
+    untrack(() => {
+      const claim = takeTickerRemoveOutcomeMarker({ viewer, appId: appIdNow, tickerId: current });
+      if (claim) {
+        removeOutcome = { tickerId: current, subscriptionId: claim.subscriptionId, text: claim.sentence, workerUrn: null, announcementFailed: false, refreshFailed: false };
+      }
+    });
+  });
 </script>
 
 <svelte:head><title>{tk.name} · {t('app.tickers.head', 'Tickers')} · {data.app.name} · Hadron</title></svelte:head>
@@ -100,6 +236,9 @@
           ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
           : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'}"
       >{tk.enabled ? t('app.tickers.state.ticking', 'Ticking') : t('app.tickers.state.disabled', 'Disabled')}</span>
+      <!-- portal#1497: the on/off control beside its badge, for every participant
+           (D1); the server's refusal answers anyone else. -->
+      <TickerEnabledControl appId={data.app.id} ticker={tk} after={data.after} viewerId={viewerId} impersonating={data.impersonating} />
     </div>
     {#if tk.urn}<Urn value={tk.urn} size={10} label={t('app.tickers.urn-label', 'ticker')} />{/if}
     {#if !tk.enabled}
@@ -213,17 +352,11 @@
       </dd>
     </div>
   </dl>
-  <div class="min-w-0 space-y-2 text-xs text-zinc-500 dark:text-zinc-400" data-testid="ticker-cli">
-    <p>{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}</p>
-    {#if cli}
-      <p>{t('app.ticker.cli.where', 'To turn it on or off, or to subscribe workers, use the hadron CLI.')}</p>
-      <CliCommand label={t('app.ticker.cli.off', 'To turn it off:')} command={cli.off} />
-      <CliCommand label={t('app.ticker.cli.on', 'To turn it on:')} command={cli.on} />
-      <p>{t('app.ticker.cli.subscribe-who', 'Only a worker’s holder or whoever manages the App can subscribe or unsubscribe that worker.')}</p>
-      <CliCommand label={t('app.ticker.cli.subscribe', 'To subscribe a worker:')} command={cli.subscribe} />
-      <CliCommand label={t('app.ticker.cli.unsubscribe', 'To unsubscribe a worker:')} command={cli.unsubscribe} />
-    {/if}
-  </div>
+  <!-- portal#1497 (D4): the MCP-tools pointer is gone, and so is portal#1498's
+       CLI block for these operations — the controls above and below are it.
+       `app.ticker.who` (hrn:node:hadronmemory.com:specs:cor:agt:080:18) stays the governing line for On/off;
+       the subscriber controls carry their own (hrn:node:hadronmemory.com:specs:cor:agt:080:20). -->
+  <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}</p>
 
   <section aria-labelledby="ticker-edit-heading" class="space-y-3" data-testid="ticker-edit">
     <h2 id="ticker-edit-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.ticker.edit.heading', 'Edit ticker')}</h2>
@@ -233,7 +366,7 @@
 
   <section aria-labelledby="subscribers-heading" class="space-y-2">
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <h2 id="subscribers-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.ticker.subscribers', 'Subscribers')}</h2>
+      <h2 id="subscribers-heading" tabindex="-1" bind:this={subscribersHeading} class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.ticker.subscribers', 'Subscribers')}</h2>
       <button
         type="button"
         onclick={refresh}
@@ -241,6 +374,58 @@
         class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >{t('app.tickers.refresh', 'Refresh')}</button>
     </div>
+    {#if subscribers.kind !== 'not-participant'}
+      <!-- portal#1497: hrn:node:hadronmemory.com:specs:cor:agt:080:20, the same sentence the server's
+           SUBSCRIBE_FORBIDDEN refusal answers with (one copy, $lib/tickers/controls).
+           A non-participant is offered nothing here (the roster's "not offered"
+           state): the not-participant box below is all they see. -->
+      <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="ticker-subscriber-who">{tickerSubscribeWhoText()}</p>
+      <TickerAddSubscriber appId={data.app.id} ticker={tk} roster={data.roster} viewerId={viewerId} impersonating={data.impersonating} onRosterRetry={refresh} />
+      <!-- portal#1502 (review): the impersonation note is ONE page-level line
+           for the table's Remove triggers (it was one per row); the Add control
+           carries its own beside itself. -->
+      {#if data.impersonating}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: data.impersonating })}</p>
+      {/if}
+      <!-- The Remove outcome, at page level: it outlives the panel below (the
+           reload that carries it drops the row the panel is mounted on). Empty
+           — and present — from first paint, so the sentence that lands in it is
+           announced as a change, never swapped in. The caveat and refresh
+           lines render INSIDE it for the same reason (portal#1502 BLIND delta,
+           Gaby P3: an element inserted already-populated beside the region is
+           not announced), and so does the worker's Urn chip — once the row is
+           gone, this sentence is the only thing that names whom (Uma P3-1 /
+           Gaby P3-2, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn).
+           Each caveat is its OWN LINE (block), still inside the region: inline
+           after the chip they ran into it and into each other —
+           "stands.Saved;" (portal#1502 UX delta, Uma P2). Its own component
+           (not page markup) so the layout harness can mount the populated
+           region directly — a populated outcome needs a delivered action
+           result, which a page mounted outside kit cannot produce. The
+           fallback case (Colette QA delta) is the exception that proves that
+           last clause: there the outcome arrives through the marker, not an
+           action result, and lands here the same way. -->
+      <TickerRemoveOutcomeLine text={removeOutcomeText} workerUrn={showsOutcome(removeOutcome) ? removeOutcome.workerUrn : null} announcementFailed={removeOutcomeAnnouncement} refreshFailed={removeOutcomeRefreshFailed} />
+      <!-- The Remove panel, above the table beside Add: one removal at a time,
+           whatever the roster read said (the row keeps its trigger). KEYED on
+           the subscription: another row's Remove starts from a fresh instance —
+           one panel never carries one row's refusal into another row's
+           confirmation (portal#1502 delta, Gaby + Uma). -->
+      {#if removePanelSub}
+        {#key removePanelSub.id}
+          <TickerRemoveSubscriber
+            appId={data.app.id}
+            ticker={tk}
+            subscription={removePanelSub}
+            worker={removePanelSub.worker}
+            viewerId={viewerId}
+            onClose={closeRemove}
+            onOutcome={(outcome) => { if (outcome.subscriptionId === removeOpenedFor && outcome.tickerId === tk.id) removeOutcome = outcome; }}
+            bind:busy={removeBusy}
+          />
+        {/key}
+      {/if}
+    {/if}
     {#if subscribers.kind === 'not-participant'}
       <TickersNotParticipant impersonating={data.impersonating} />
     {:else if subscribers.kind === 'failed'}
@@ -279,6 +464,28 @@
             </span>
           {:else if cell.column.id === 'since'}
             <time datetime={row.sub.createdAt} class="whitespace-nowrap">{fmtRunTime(row.sub.createdAt)}</time>
+          {:else if cell.column.id === 'actions'}
+            <!-- portal#1497: the row's own Remove trigger, kept whatever the
+                 roster read said — a worker the chooser doesn't list may still
+                 be subscribed. portal#1502 (review): the confirmation is the
+                 page-level panel above the table, so the cell holds only the
+                 trigger, muted while any removal is in flight. An impersonation
+                 session renders no trigger at all (the page-level note says
+                 why) — the server refuses the POST anyway. -->
+            {#if data.impersonating}
+              <span class="text-zinc-400 dark:text-zinc-500">—</span>
+            {:else}
+              <button
+                type="button"
+                bind:this={removeTriggers[row.sub.id]}
+                onclick={() => { removeOutcome = null; removeOpenedFor = row.sub.id; removingId = row.sub.id; removePanelSub = row.sub; }}
+                disabled={removeBusy}
+                aria-expanded={removingId === row.sub.id}
+                aria-controls={removingId === row.sub.id ? 'ticker-remove-panel-' + row.sub.id : undefined}
+                data-testid={"ticker-remove-" + row.sub.id}
+                class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >{t('app.ticker.controls.remove.start', 'Remove…')}</button>
+            {/if}
           {/if}
         {/snippet}
       </DataTable>

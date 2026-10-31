@@ -10,6 +10,9 @@ import { render } from 'svelte/server';
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
+// portal#1497: the on/off control reads the page store (its refresh fence), the
+// same one-line store the other node-lane table tests use.
+vi.mock('$app/stores', () => ({ page: { subscribe: (fn: (v: unknown) => void) => (fn({ url: new URL('http://x/') }), () => {}) } }));
 import List from './+page.svelte';
 import Detail from './[tickerId]/+page.svelte';
 import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
@@ -49,7 +52,17 @@ const list = (over: Record<string, unknown> = {}) => readView(listFull(over));
 function expectReadOnly(rendered: string) {
   // portal#1141 A: the list now carries the Delivery section, whose form is its own write
   // (pinned in its tests below). This helper is about the TICKER views, so that section is cut out.
-  const html = rendered.replace(/<section[^>]*data-testid="delivery-settings"[\s\S]*?<\/section>/, '');
+  // portal#1497: the ticker page's own controls are writes too — the on/off form
+  // beside the badge, the Add-subscriber chooser under the list, each row's
+  // Remove — pinned in controls.client.test.ts / controls.server.test.ts. They
+  // are cut the same way; what this helper still guards is that nothing ELSE
+  // writes. (Server render only: each cut is flat in SSR — a control's result
+  // markup mounts client-side after a submit.)
+  const html = rendered
+    .replace(/<section[^>]*data-testid="delivery-settings"[\s\S]*?<\/section>/, '')
+    .replace(/<div[^>]*data-testid="ticker-enabled-control"[\s\S]*?<\/div>/, '')
+    .replace(/<div[^>]*data-testid="ticker-add-subscriber"[\s\S]*?<\/div>/, '')
+    .replace(/<button[^>]*data-testid="ticker-remove-[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
   expect(html).not.toMatch(/<form/);
   expect(html).not.toMatch(/<(input|select|textarea)[^>]*\bname=/);
   expect(html).not.toMatch(/<(button|a)\b[^>]*>\s*(Create ticker|Edit|Disable|Enable|Delete|Add subscriber|Remove|Subscribe|Pause|Resume|Give scope|Take scope back|Save)\b/i);
@@ -138,6 +151,10 @@ function detailFull(over: Record<string, unknown> = {}) {
       data: {
         app, ticker: ticker(), settings, paged: false, loadedAt: LOADED, impersonating: null,
         tickerTask: { kind: 'ok', value: { registerTaskLoc: 'tasks:on-base-tick' } },
+        // portal#1497: the Add-subscriber chooser's one roster read, ok by
+        // default here (its own bad states are the client controls' tests).
+        roster: { kind: 'ok', workers: [{ id: 'w-dara', name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' }] },
+        user: null,
         subscribers: { kind: 'ok', value: { items: [], hasNextPage: false, endCursor: null } },
         ...over,
       },
@@ -171,49 +188,20 @@ describe('Ticker page', () => {
   });
 
   // Uma's P3-1 on #1136: say where changes are made, not only who may make them.
-  // portal#1496 (MCP cut P1): that is the hadron CLI now, as commands to copy.
-  it('gives the CLI commands to turn it on or off and to subscribe workers, naming no MCP tool', () => {
+  // portal#1497 D4: the portal controls replaced portal#1498's CLI commands for
+  // these operations — the ticker page names no MCP tool and carries no hadron
+  // ticker command; the controls are the surface. The Wake-ups tab keeps its
+  // commands (D3: no writes there), pinned in its own describe below. The
+  // who-sentences stay: hrn:node:hadronmemory.com:specs:cor:agt:080:18 above the on/off control (pinned by
+  // 'shows the facts'), hrn:node:hadronmemory.com:specs:cor:agt:080:20 beside the subscriber controls.
+  it('carries the controls, not CLI commands: no MCP tool, no hadron ticker command', () => {
     const html = detail();
     expect(html).not.toContain('hadron_');
-    expect(html).toContain('hadron ticker update hrn:ticker:acme.com:team:engineering --enabled=false');
-    expect(html).toContain('hadron ticker update hrn:ticker:acme.com:team:engineering --enabled<');
-    expect(html).toContain('hadron ticker subscribe hrn:ticker:acme.com:team:engineering --worker &lt;worker-id-or-URN>');
-    expect(html).toContain('hadron ticker unsubscribe hrn:ticker:acme.com:team:engineering --worker &lt;worker-id-or-URN>');
-  });
-
-  // hrn:node:hadronmemory.com:specs:cor:agt:080:18 stays above the on/off command;
-  // hrn:node:hadronmemory.com:specs:cor:agt:080:20 sits directly
-  // before the subscribe commands.
-  it('says who may change it before the on/off command, and who may subscribe before subscribing', () => {
-    const html = detail();
-    const who = html.indexOf('Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.');
-    const off = html.indexOf('--enabled=false');
-    const subWho = html.indexOf('Only a worker’s holder or whoever manages the App can subscribe or unsubscribe that worker.');
-    const sub = html.indexOf('hadron ticker subscribe');
-    expect(who).toBeGreaterThan(-1);
-    expect(who).toBeLessThan(off);
-    expect(off).toBeLessThan(subWho);
-    expect(subWho).toBeLessThan(sub);
-    // Nothing else is offered in between: the only command opened before
-    // `hadron ticker subscribe` is that command's own.
-    expect(html.slice(subWho, sub).match(/<code/g)).toHaveLength(1);
-  });
-
-  it('falls back to the ticker id when it has no URN', () => {
-    const html = detail({ ticker: ticker({ urn: null }) });
-    expect(html).toContain('hadron ticker update tk-1 --enabled=false');
-    expect(html).toContain('hadron ticker subscribe tk-1 --worker');
-  });
-
-  it('quotes a ref the shell would split', () => {
-    const html = detail({ ticker: ticker({ urn: null, id: "tk 1'x" }) });
-    expect(html).toContain("hadron ticker update 'tk 1'\\''x' --enabled=false");
-  });
-
-  it('renders no command with an empty operand when there is neither URN nor id', () => {
-    const html = detail({ ticker: ticker({ urn: null, id: '' }) });
     expect(html).not.toContain('hadron ticker update');
     expect(html).not.toContain('hadron ticker subscribe');
+    expect(html).not.toContain('hadron ticker unsubscribe');
+    expect(html).toContain('data-testid="ticker-enabled-control"');
+    expect(html).toContain('data-testid="ticker-subscriber-who"');
   });
 
   it('no subscribers reads “Nobody follows this ticker yet.”', () => {

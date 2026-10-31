@@ -16,7 +16,7 @@ import { t } from '$lib/i18n/t';
 export const WRITABLE_REASONS = ['READ_TEAM_CHANNEL', 'EVERY_TICK', 'LIVE_CHECK'] as const;
 export type WritableReason = (typeof WRITABLE_REASONS)[number];
 
-export type TickerInvalid = { invalid: { field: 'name' | 'cadenceSeconds' | 'reasons' | 'form'; message: string } };
+export type TickerInvalid = { invalid: { field: 'name' | 'cadenceSeconds' | 'reasons' | 'enabled' | 'worker' | 'form'; message: string } };
 
 const GRAPHQL_INT_MAX = 2_147_483_647;
 
@@ -80,3 +80,37 @@ export function buildUpdatePatch(
   }
   return { patch };
 }
+
+/*
+ * portal#1497 (MCP cut R7a) — the CONTROL forms' intent, parsed strictly. The
+ * POST must carry the write's intent itself (hrn:node:hadronmemory.com:hadron-portal:review:explicit-mutation-intent):
+ * the desired value of `enabled` as a literal true/false, and exactly one
+ * worker ref. A missing value, a repeated field, or anything else is invalid
+ * and sends nothing — never a default, never a toggle inferred from the page.
+ */
+
+/** `enabled` as exactly one `true` or `false`; anything else, or a repeat, is no intent at all. */
+export function parseEnabledIntent(fd: FormData): boolean | null {
+  const all = fd.getAll('enabled');
+  if (all.length !== 1) return null;
+  const v = all[0];
+  if (v !== 'true' && v !== 'false') return null;
+  return v === 'true';
+}
+
+/** A worker id or URN: one value, bounded length, and a charset that cannot carry markup or a list. */
+const WORKER_REF = /^[A-Za-z0-9._:-]{1,512}$/;
+
+/** Exactly one `worker` value that looks like an id or a URN; anything else names no worker. */
+export function parseWorkerRef(fd: FormData): string | null {
+  const all = fd.getAll('worker');
+  if (all.length !== 1 || typeof all[0] !== 'string') return null;
+  const v = all[0];
+  return WORKER_REF.test(v) ? v : null;
+}
+
+export const enabledInvalidMessage = () =>
+  t('app.ticker.controls.enabled-invalid', 'That isn’t a value this control can send. Reload the page and try again.');
+
+export const workerInvalidMessage = () =>
+  t('app.ticker.controls.worker-invalid', 'Choose one worker from the list.');

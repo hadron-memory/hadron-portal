@@ -6,6 +6,7 @@ import type {
   TickerDetail,
   TickerListRow,
   TickerRead,
+  TickerRosterRead,
   TickerTask,
   WorkerWakeSettings,
 } from '$lib/tickers/types';
@@ -205,6 +206,39 @@ export async function loadSubscribers(
     return { kind: 'ok', value: r.ticker?.subscribers ?? null };
   } catch (e) {
     return classify(e, `subscribers read for ${ref}`, APP_CONCEALED);
+  }
+}
+
+/**
+ * portal#1497 — the App's workers for the Add-subscriber chooser (D5): ONE
+ * `teamRoster` read, unpaged, retired workers already left out by the server.
+ * A typed refusal is `hidden` (this reader may not list the App's workers), an
+ * outage is `failed`, and neither is ever an empty list. A null name is kept:
+ * the chooser shows the id or URN, never drops the worker.
+ */
+export type { TickerRosterRead };
+
+export const TICKER_ROSTER_QUERY = /* GraphQL */ `
+  query TickerRoster($appRef: ID!) {
+    teamRoster(appRef: $appRef) {
+      workers { worker { id name urn } }
+    }
+  }
+`;
+
+export async function loadTickerRoster(client: GraphQLClient, appRef: string): Promise<TickerRosterRead> {
+  try {
+    const r = await client.request<{ teamRoster: { workers: { worker: { id: string; name: string | null; urn: string | null } }[] } }>(
+      TICKER_ROSTER_QUERY,
+      { appRef },
+    );
+    const workers = r.teamRoster.workers.map((w) => w.worker).filter((w) => typeof w?.id === 'string' && w.id !== '');
+    return { kind: 'ok', workers };
+  } catch (e) {
+    const code = extractGqlErrorCode(e);
+    if (code === 'APP_NOT_FOUND' || code === 'FORBIDDEN') return { kind: 'hidden' };
+    console.warn(`[tickers] roster read for ${appRef} failed (${code ?? 'transport'})`);
+    return { kind: 'failed' };
   }
 }
 

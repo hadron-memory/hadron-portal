@@ -5,6 +5,7 @@
  * refusal) or is a raw "Forbidden" (hadron-portal#1106); the fixed uncertainty
  * line for everything else.
  */
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { classifyTickerWriteError } from './ticker-writes';
 
@@ -54,5 +55,22 @@ describe('classifyTickerWriteError', () => {
     expect(classifyTickerWriteError(gqlError('INTERNAL_SERVER_ERROR', 'prisma stack'), 'create')).toEqual({ kind: 'uncertain' });
     expect(classifyTickerWriteError(new Error('socket hang up'), 'delete')).toEqual({ kind: 'uncertain' });
     expect(classifyTickerWriteError({ response: { errors: [{ message: 'x' }] } }, 'update')).toEqual({ kind: 'uncertain' });
+  });
+});
+
+describe('portal#1502 (review): the FAILED announcement literal the actions compare', () => {
+  // +page.server.ts compares `announcement === 'FAILED'` on subscribe and
+  // unsubscribe. That literal is the server's GrantAnnouncement enum value
+  // (#1747), not a portal coinage — if the server's spelling ever differs, the
+  // failed-notice branch is dead and nothing fails loudly. This pin reads the
+  // schema snapshot the repo builds against, so a renamed enum value breaks a
+  // test instead of silently killing the branch.
+  it('schema/schema.graphql’s GrantAnnouncement carries FAILED (and POSTED)', () => {
+    const schema = readFileSync('schema/schema.graphql', 'utf8');
+    const m = /enum GrantAnnouncement \{([^}]*)\}/.exec(schema);
+    expect(m, 'the GrantAnnouncement enum must exist in the schema snapshot').not.toBeNull();
+    const values = (m?.[1] ?? '').trim().split(/\s+/);
+    expect(values).toContain('FAILED');
+    expect(values).toContain('POSTED');
   });
 });

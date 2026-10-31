@@ -19,22 +19,10 @@ export function cliRef(entity: { urn?: string | null; id?: string | null }): str
   return entity.urn || entity.id || null;
 }
 
-export interface TickerCommands {
-  off: string;
-  on: string;
-  subscribe: string;
-  unsubscribe: string;
-}
-
-export function tickerCommands(ref: string): TickerCommands {
-  const r = shellArg(ref);
-  return {
-    off: `hadron ticker update ${r} --enabled=false`,
-    on: `hadron ticker update ${r} --enabled`,
-    subscribe: `hadron ticker subscribe ${r} --worker <worker-id-or-URN>`,
-    unsubscribe: `hadron ticker unsubscribe ${r} --worker <worker-id-or-URN>`,
-  };
-}
+// portal#1497 D4: `tickerCommands` (ticker update/subscribe/unsubscribe) was
+// removed with the ticker page's CLI block — the portal's own on/off and
+// subscriber controls replaced it. The wake-settings commands stay: the
+// Wake-ups tab is read-only (portal#1497 D3).
 
 export interface WakeCommands {
   mentionsOff: string;

@@ -25,3 +25,26 @@ export function workerOfPage(p: PageFacts | null | undefined): string | null {
     return null;
   }
 }
+
+/**
+ * portal#1497 — which ticker page the page store is showing (the route's App
+ * and its spelling of the ticker), or null when it is not one. The ticker
+ * error boundary and a control's refresh fence share this, exactly as the
+ * worker boundary shares `workerOfPage` (#1462): a boundary kit reuses across
+ * error navigations has neither params nor route id, only the real URL.
+ */
+const TICKER_PATH = /^\/app\/apps\/([^/]+)\/tickers\/([^/]+)\/?$/;
+
+export function tickerOfPage(p: PageFacts | null | undefined): { appId: string; tickerId: string } | null {
+  if (!p) return null;
+  if (p.route?.id === '/app/apps/[appId]/tickers/[tickerId]' && p.params?.appId && p.params?.tickerId) {
+    return { appId: p.params.appId, tickerId: p.params.tickerId };
+  }
+  const match = p.url?.pathname ? TICKER_PATH.exec(p.url.pathname) : null;
+  if (!match) return null;
+  try {
+    return { appId: decodeURIComponent(match[1]), tickerId: decodeURIComponent(match[2]) };
+  } catch {
+    return null;
+  }
+}

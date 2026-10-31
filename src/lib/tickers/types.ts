@@ -121,6 +121,18 @@ export interface WorkerWakeSettings {
 export type TickerRead<T> = { kind: 'ok'; value: T } | { kind: 'not-participant' } | { kind: 'failed' };
 
 /**
+ * portal#1497 — the App's workers for the Add-subscriber chooser: ONE
+ * `teamRoster` read, retired workers left out by the server. `hidden` is the
+ * server's typed refusal (this reader may not list the App's workers),
+ * `failed` is anything else — neither is ever an empty list, and a null name
+ * is kept (the chooser shows the id or URN).
+ */
+export type TickerRosterRead =
+  | { kind: 'ok'; workers: Array<{ id: string; name: string | null; urn: string | null }> }
+  | { kind: 'hidden' }
+  | { kind: 'failed' };
+
+/**
  * portal#1141 slice A — the App's delivery settings (hadron-server S9,
  * `appDeliverySettings`). `standbyEnabled` is the stored switch and
  * `standbyEffective` is the server's word on whether it does anything; the
