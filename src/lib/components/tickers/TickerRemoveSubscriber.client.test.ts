@@ -18,6 +18,7 @@ const ROW = { subscription: { id: 's-17' }, worker: { id: 'w-2', name: 'Liam', u
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 let closed = 0;
+let outcomes: Array<Record<string, unknown>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   resetNavigationCalls();
@@ -26,6 +27,7 @@ afterEach(() => {
 
 async function mountRemove(props: Record<string, unknown> = {}) {
   closed = 0;
+  outcomes = [];
   const p = reactiveProps<Record<string, unknown>>({
     appId: 'app-1',
     ticker: { id: 'tk-1', name: 'standup' },
@@ -33,6 +35,7 @@ async function mountRemove(props: Record<string, unknown> = {}) {
     worker: ROW.worker,
     viewerId: 'u-1',
     onClose: () => { closed++; },
+    onOutcome: (o: Record<string, unknown>) => { outcomes.push(o); },
     busy: false,
     ...props,
   });
@@ -72,18 +75,28 @@ describe('TickerRemoveSubscriber: the panel', () => {
     expect(formOf(root).textContent).toContain('hrn:worker:acme.com:team:nine');
   });
 
-  it('the result line is an always-present live region, empty until there is a result', async () => {
+  it('Escape inside the panel closes it (the page refocuses the row’s trigger)', async () => {
     const { root } = await mountRemove();
-    const region = root.querySelector<HTMLParagraphElement>('[data-testid="ticker-remove-result-s-17"]')!;
-    expect(region.getAttribute('role')).toBe('status');
-    expect(region.textContent).toBe('');
-  });
-
-  it('Escape closes the panel (the page refocuses the row’s trigger)', async () => {
-    await mountRemove();
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    formOf(root).querySelector<HTMLButtonElement>('button[type="submit"]')!.focus();
+    root.querySelector('[data-testid="ticker-remove-confirm-s-17"]')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await tick(2);
     expect(closed).toBe(1);
+  });
+
+  it('Escape OUTSIDE the panel leaves it open (portal#1502 delta: the handler is the panel’s own, not the window’s)', async () => {
+    const { root } = await mountRemove();
+    const other = document.createElement('input');
+    document.body.append(other);
+    other.focus();
+    try {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await tick(2);
+      expect(closed).toBe(0);
+      expect(formOf(root)).toBeTruthy();
+    } finally {
+      other.remove();
+    }
   });
 
   it('Cancel closes the panel too', async () => {
@@ -119,22 +132,22 @@ describe('TickerRemoveSubscriber: submits', () => {
     await pending.finish(UNSUB_SUCCESS);
   });
 
-  it('a success says "Removed", reloads from the FIRST subscriber page, and closes the fence', async () => {
+  it('a success reports "Removed" to the page (it outlives the panel’s unmount), reloads from the FIRST subscriber page, and closes the fence', async () => {
     const { root } = await mountRemove();
     await submitEnhancedWithResult(formOf(root), UNSUB_SUCCESS);
     await tick(2);
-    expect(root.querySelector('[data-testid="ticker-remove-result-s-17"]')!.textContent).toContain('Removed');
+    expect(outcomes).toContainEqual({ subscriptionId: 's-17', text: 'Removed', announcementFailed: false, refreshFailed: false });
     const goto = navigationCalls.find((c) => c.fn === 'goto');
     expect(goto?.args[0]).toBe('/app/apps/app-1/tickers/tk-1');
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
   });
 
-  it('a stale-row refusal (SUBSCRIPTION_NOT_FOUND) reloads to the FIRST page — the copy says the list is back there', async () => {
+  it('a stale-row refusal (SUBSCRIPTION_NOT_FOUND) reports its sentence to the page and reloads to the FIRST page — the copy says the list is back there', async () => {
     const { root } = await mountRemove();
     await submitEnhancedWithResult(formOf(root), STALE_ROW);
     await tick(2);
     expect(root.querySelector('[data-refusal="refused"]')!.textContent).toContain('No longer subscribed');
-    expect(root.querySelector('[data-testid="ticker-remove-result-s-17"]')!.textContent).not.toContain('Removed');
+    expect(outcomes).toContainEqual({ subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', announcementFailed: false, refreshFailed: false });
     const goto = navigationCalls.find((c) => c.fn === 'goto');
     expect(goto?.args[0]).toBe('/app/apps/app-1/tickers/tk-1');
   });
@@ -146,12 +159,12 @@ describe('TickerRemoveSubscriber: submits', () => {
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
   });
 
-  it('…and when the reload itself fails: the inline refresh line, still no marker', async () => {
+  it('…and when the reload itself fails: the page’s outcome learns refreshFailed, still no marker', async () => {
     const { root } = await mountRemove();
     navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
     await submitEnhancedWithResult(formOf(root), STALE_ROW);
     await tick(2);
-    expect(root.querySelector('[data-testid="ticker-remove-refresh-failed-s-17"]')).not.toBeNull();
+    expect(outcomes).toContainEqual({ subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', announcementFailed: false, refreshFailed: true });
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
   });
 
