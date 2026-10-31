@@ -123,6 +123,35 @@ export async function submitEnhancedWithResult(
 }
 
 /**
+ * portal#1528 — like `submitEnhancedWithResult`, but hands the result handler
+ * EXACTLY what kit's `enhance` would, including the shapes that are not an
+ * ActionResult: `{ type: 'error', error }` for a rejected fetch or a body that
+ * is not action JSON (an edge HTML page), and a bare `{ message }` for kit's own
+ * CSRF 403. Superforms decides what each one means; this only delivers it.
+ */
+export async function submitEnhancedWithRawResult(form: HTMLFormElement, result: unknown): Promise<{ cancelled: boolean }> {
+  const submit = enhanced.get(form);
+  if (!submit) throw new Error('submitEnhancedWithRawResult: this form was never enhanced');
+  let cancelled = false;
+  const action = new URL(form.action || 'http://localhost/');
+  const formData = new FormData(form);
+  const handler = await submit({
+    action,
+    formData,
+    formElement: form,
+    controller: new AbortController(),
+    submitter: form.querySelector('[type="submit"]'),
+    cancel: () => {
+      cancelled = true;
+    },
+  });
+  if (cancelled) return { cancelled };
+  if (typeof handler !== 'function') throw new Error('submitEnhancedWithRawResult: superforms returned no result handler');
+  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+  return { cancelled };
+}
+
+/**
  * portal#1237 — like `submitEnhancedWithResult`, but the server's answer arrives
  * LATER: the submit callback runs now (capturing whatever the page held at
  * submit time) and `finish(result)` delivers the result after the test has

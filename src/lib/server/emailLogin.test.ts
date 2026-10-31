@@ -3,11 +3,11 @@
  * it to the server as clientState, so the minted handoff code binds to this
  * browser.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$env/dynamic/private', () => ({ env: { LOCAL_SERVER_URL: 'http://server.internal:4000' } }));
 
-import { emailLoginErrorStatus, startBoundMagicLink } from './emailLogin';
+import { EMAIL_LOGIN_TIMEOUT_MS, emailLoginErrorStatus, startBoundMagicLink } from './emailLogin';
 
 type CookieSet = { name: string; value: string; opts: Record<string, unknown> };
 
@@ -134,5 +134,63 @@ describe('startBoundMagicLink with a Turnstile token', () => {
     }));
     const result = await startBoundMagicLink(cookieStub().cookies, 'user@example.test', undefined, TOKEN);
     expect(JSON.stringify(result)).not.toMatch(/bot_check_failed|brand_new_reason/);
+  });
+});
+
+// portal#1528 — the server call is bounded, and only hadron-server's own
+// `{ ok: true }` counts as "sent".
+describe('startBoundMagicLink: bounded call and a confirmed send (portal#1528)', () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** A server that accepted the connection and never answers; it honours an abort. */
+  function hangingFetch() {
+    return vi.fn((_url: string, init?: { signal?: AbortSignal }) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason ?? new Error('aborted')));
+      }),
+    );
+  }
+  const PENDING = Symbol('pending');
+  const settledOrPending = <T,>(p: Promise<T>) => Promise.race([p, new Promise<typeof PENDING>((r) => setTimeout(() => r(PENDING), 0))]);
+
+  it('gives up at 20 s with the could-not-confirm message (504), not before', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', hangingFetch());
+    const { cookies } = cookieStub();
+    const result = startBoundMagicLink(cookies, 'user@example.test');
+
+    await vi.advanceTimersByTimeAsync(20_000 - 1);
+    const early = settledOrPending(result);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await early).toBe(PENDING);
+
+    await vi.advanceTimersByTimeAsync(1);
+    const late = settledOrPending(result);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await late).toEqual({
+      ok: false,
+      status: 504,
+      error: "We couldn't confirm your sign-in link was sent. If it hasn't arrived in a minute, try again or use another sign-in method.",
+    });
+  });
+
+  it('the bound is 20 seconds', () => {
+    expect(EMAIL_LOGIN_TIMEOUT_MS).toBe(20_000);
+  });
+
+  it.each([
+    ['an empty object', async () => ({})],
+    ['ok: false', async () => ({ ok: false })],
+    ['an HTML page', async () => { throw new SyntaxError("Unexpected token '<'"); }],
+  ])('a 2xx whose body is %s is not a send', async (_label, json) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json }));
+    const { cookies } = cookieStub();
+    expect(await startBoundMagicLink(cookies, 'user@example.test')).toEqual({ ok: false, status: 502, error: 'Failed to send email' });
+  });
+
+  it('control: a 200 { ok: true } is still a send', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ ok: true }) }));
+    const { cookies } = cookieStub();
+    expect(await startBoundMagicLink(cookies, 'user@example.test')).toEqual({ ok: true });
   });
 });
