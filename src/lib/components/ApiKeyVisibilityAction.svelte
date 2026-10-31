@@ -1,15 +1,17 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
   import { t } from '$lib/i18n/t';
   type Notice = { type: 'success' | 'error'; text: string };
   // onstart runs only for an ACCEPTED submit (never a cancelled duplicate) and
-  // returns where that submit's result goes.
+  // returns where that submit's result goes, and whether the page is still on
+  // the view the submit started in.
   let { id, preview, hidden, includeHidden, onstart }: {
     id: string; preview: string; hidden: boolean; includeHidden: boolean;
-    onstart: () => (notice: Notice) => void;
+    onstart: () => { deliver: (notice: Notice) => void; current: () => boolean };
   } = $props();
   let formEl: HTMLFormElement;
   let pending = $state(false);
@@ -17,9 +19,17 @@
   const submit: SubmitFunction = ({ cancel }) => {
     if (pending) { cancel(); return; }
     pending = true;
-    const deliver = onstart();
+    const { deliver, current } = onstart();
     return async ({ result, update }) => {
       try {
+        // A reply to a submit started in another view (#1500): kit's update
+        // would apply it to the page's form (its action match ignores the
+        // query) and reset focus, so the old result would surface in the new
+        // view. Never apply it; a success still refreshes the current view.
+        if ((result.type === 'success' || result.type === 'failure') && !current()) {
+          if (result.type === 'success') await invalidateAll();
+          return;
+        }
         if ((result.type === 'success' || result.type === 'failure') && result.data?.visibility) {
           deliver(result.data.visibility as Notice);
         } else if (result.type === 'error') {

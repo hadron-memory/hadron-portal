@@ -61,11 +61,15 @@
   function startVisibility() {
     const startedIn = view;
     visibilityNotice = 'cleared';
-    return (notice: VisibilityNotice) => {
-      if (startedIn !== view) return;
-      visibilityNotice = notice;
-      // The row can disappear on success; keep keyboard focus on the persistent toggle.
-      if (notice.type === 'success') hiddenToggle?.focus();
+    const current = () => startedIn === view;
+    return {
+      current,
+      deliver: (notice: VisibilityNotice) => {
+        if (!current()) return;
+        visibilityNotice = notice;
+        // The row can disappear on success; keep keyboard focus on the persistent toggle.
+        if (notice.type === 'success') hiddenToggle?.focus();
+      },
     };
   }
   const loadError = $derived('loadError' in data ? data.loadError : undefined);
