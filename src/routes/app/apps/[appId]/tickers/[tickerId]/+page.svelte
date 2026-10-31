@@ -30,6 +30,10 @@
    * every participant; the subscriber controls sit under the list, with
    * cor:agt:080:20's sentence beside them (the same sentence the server's
    * SUBSCRIBE_FORBIDDEN refusal answers with).
+   *
+   * portal#1498's CLI commands for these same operations are gone from here
+   * (D4): the controls replaced them. The Wake-ups tab keeps its commands —
+   * its settings have no portal controls (D3).
    */
   let { data }: { data: PageData } = $props();
 
@@ -228,9 +232,10 @@
       </dd>
     </div>
   </dl>
-  <!-- portal#1497 (D4): the MCP-tools pointer is gone — the controls above and
-       below are it. `app.ticker.who` (cor:agt:080:18) stays the governing line
-       for On/off; the subscriber controls carry their own (cor:agt:080:20). -->
+  <!-- portal#1497 (D4): the MCP-tools pointer is gone, and so is portal#1498's
+       CLI block for these operations — the controls above and below are it.
+       `app.ticker.who` (cor:agt:080:18) stays the governing line for On/off;
+       the subscriber controls carry their own (cor:agt:080:20). -->
   <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}</p>
 
   <section aria-labelledby="ticker-edit-heading" class="space-y-3" data-testid="ticker-edit">

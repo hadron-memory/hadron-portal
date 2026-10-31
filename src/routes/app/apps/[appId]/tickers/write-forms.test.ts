@@ -9,6 +9,8 @@ import { render } from 'svelte/server';
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
+// portal#1497: the on/off control on the detail page reads the page store.
+vi.mock('$app/stores', () => ({ page: { subscribe: (fn: (v: unknown) => void) => (fn({ url: new URL('http://x/') }), () => {}) } }));
 import List from './+page.svelte';
 import Detail from './[tickerId]/+page.svelte';
 
@@ -33,6 +35,10 @@ const detail = (over: Record<string, unknown> = {}) =>
       data: {
         app, ticker: ticker(), settings, paged: false, loadedAt: '2026-10-16T10:00:00Z', impersonating: null,
         tickerTask: { kind: 'ok', value: null },
+        // portal#1497: the detail page's controls read these; roster ok keeps
+        // the Add-subscriber chooser out of these S7b assertions' way.
+        roster: { kind: 'ok', workers: [] },
+        user: null,
         subscribers: { kind: 'ok', value: { items: [], hasNextPage: false, endCursor: null } },
         ...over,
       },

@@ -10,6 +10,9 @@ import { render } from 'svelte/server';
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), beforeNavigate: () => {} }));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
+// portal#1497: the on/off control reads the page store (its refresh fence), the
+// same one-line store the other node-lane table tests use.
+vi.mock('$app/stores', () => ({ page: { subscribe: (fn: (v: unknown) => void) => (fn({ url: new URL('http://x/') }), () => {}) } }));
 import List from './+page.svelte';
 import Detail from './[tickerId]/+page.svelte';
 import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
@@ -49,7 +52,17 @@ const list = (over: Record<string, unknown> = {}) => readView(listFull(over));
 function expectReadOnly(rendered: string) {
   // portal#1141 A: the list now carries the Delivery section, whose form is its own write
   // (pinned in its tests below). This helper is about the TICKER views, so that section is cut out.
-  const html = rendered.replace(/<section[^>]*data-testid="delivery-settings"[\s\S]*?<\/section>/, '');
+  // portal#1497: the ticker page's own controls are writes too — the on/off form
+  // beside the badge, the Add-subscriber chooser under the list, each row's
+  // Remove — pinned in controls.client.test.ts / controls.server.test.ts. They
+  // are cut the same way; what this helper still guards is that nothing ELSE
+  // writes. (Server render only: each cut is flat in SSR — a control's result
+  // markup mounts client-side after a submit.)
+  const html = rendered
+    .replace(/<section[^>]*data-testid="delivery-settings"[\s\S]*?<\/section>/, '')
+    .replace(/<div[^>]*data-testid="ticker-enabled-control"[\s\S]*?<\/div>/, '')
+    .replace(/<div[^>]*data-testid="ticker-add-subscriber"[\s\S]*?<\/div>/, '')
+    .replace(/<button[^>]*data-testid="ticker-remove-[^"]*"[^>]*>[\s\S]*?<\/button>/g, '');
   expect(html).not.toMatch(/<form/);
   expect(html).not.toMatch(/<(input|select|textarea)[^>]*\bname=/);
   expect(html).not.toMatch(/<(button|a)\b[^>]*>\s*(Create ticker|Edit|Disable|Enable|Delete|Add subscriber|Remove|Subscribe|Pause|Resume|Give scope|Take scope back|Save)\b/i);
@@ -138,6 +151,10 @@ function detailFull(over: Record<string, unknown> = {}) {
       data: {
         app, ticker: ticker(), settings, paged: false, loadedAt: LOADED, impersonating: null,
         tickerTask: { kind: 'ok', value: { registerTaskLoc: 'tasks:on-base-tick' } },
+        // portal#1497: the Add-subscriber chooser's one roster read, ok by
+        // default here (its own bad states are the client controls' tests).
+        roster: { kind: 'ok', workers: [{ id: 'w-dara', name: 'Dara', urn: 'hrn:worker:acme.com:team:dara' }] },
+        user: null,
         subscribers: { kind: 'ok', value: { items: [], hasNextPage: false, endCursor: null } },
         ...over,
       },
@@ -171,8 +188,20 @@ describe('Ticker page', () => {
   });
 
   // Uma's P3-1 on #1136: say where changes are made, not only who may make them.
-  it('says changes are made through MCP for now', () => {
-    expect(detail()).toContain('To turn it on or off, or to subscribe workers, use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe).');
+  // portal#1497 D4: the portal controls replaced portal#1498's CLI commands for
+  // these operations — the ticker page names no MCP tool and carries no hadron
+  // ticker command; the controls are the surface. The Wake-ups tab keeps its
+  // commands (D3: no writes there), pinned in its own describe below. The
+  // who-sentences stay: cor:agt:080:18 above the on/off control (pinned by
+  // 'shows the facts'), cor:agt:080:20 beside the subscriber controls.
+  it('carries the controls, not CLI commands: no MCP tool, no hadron ticker command', () => {
+    const html = detail();
+    expect(html).not.toContain('hadron_');
+    expect(html).not.toContain('hadron ticker update');
+    expect(html).not.toContain('hadron ticker subscribe');
+    expect(html).not.toContain('hadron ticker unsubscribe');
+    expect(html).toContain('data-testid="ticker-enabled-control"');
+    expect(html).toContain('data-testid="ticker-subscriber-who"');
   });
 
   it('no subscribers reads “Nobody follows this ticker yet.”', () => {
@@ -244,8 +273,30 @@ describe('Wake-ups panel', () => {
     expect(html).toContain('effectiveCadenceSeconds');
   });
 
-  it('says wake settings are changed through MCP for now', () => {
-    expect(panel()).toContain('In the portal this is read-only for now; use the MCP tool hadron_worker_wake_settings to change it.');
+  // portal#1496 (MCP cut P1): the CLI commands, each with a setting operand.
+  it('gives the CLI commands to change wake settings, naming no MCP tool', () => {
+    const html = panel({ worker: { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:acme.com:team:liam' } });
+    expect(html).not.toContain('hadron_');
+    for (const setting of ['--mentions off', '--mentions immediate', '--clear-pause', '--paused-until &lt;RFC3339>']) {
+      expect(html).toContain(`hadron team wake-settings set --worker hrn:worker:acme.com:team:liam ${setting}`);
+    }
+  });
+
+  // hrn:node:hadronmemory.com:specs:cor:agt:080:21: mentions and pause only;
+  // subscriptions follow hrn:node:hadronmemory.com:specs:cor:agt:080:20.
+  it('says who may change mentions and pause, not subscriptions', () => {
+    const html = panel({ worker: { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:acme.com:team:liam' } });
+    expect(html).toContain('Only the worker itself, its holder, or whoever manages the App can change its mentions or pause.');
+    expect(html).not.toContain('mentions, pause or subscriptions');
+  });
+
+  it('falls back to the worker id when it has no URN, and quotes what the shell would split', () => {
+    expect(panel({ worker: { retiredAt: null, id: 'w-liam', urn: null } })).toContain('hadron team wake-settings set --worker w-liam --mentions off');
+    expect(panel({ worker: { retiredAt: null, id: "w liam's", urn: null } })).toContain("hadron team wake-settings set --worker 'w liam'\\''s' --mentions off");
+  });
+
+  it('renders no command with an empty operand when the worker has neither URN nor id', () => {
+    expect(panel()).not.toContain('hadron team wake-settings');
   });
 
   it('a non-participant sees the inline state, not the worker’s settings', () => {

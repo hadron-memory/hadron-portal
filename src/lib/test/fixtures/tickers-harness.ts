@@ -66,11 +66,21 @@ const rosters = {
   'detail-refresh-failed': rosterOk,
 } as const;
 
+// portal#1496: the Wake-ups CLI commands carry the worker ref, so a
+// 200-character unbroken URN is what pushes them wide. (The ticker page's own
+// commands were removed by portal#1497 D4 — the portal controls replaced them
+// — so only the worker ref still needs a long variant.)
+const LONG_WORKER_URN = `hrn:worker:hadronmemory.com:hadron-dev-team:${'y'.repeat(200 - 'hrn:worker:hadronmemory.com:hadron-dev-team:'.length)}`;
+const wakeWorker = {
+  'wake': { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:hadronmemory.com:hadron-dev-team:liam' },
+  'wake-long-urn': { retiredAt: null, id: 'w-liam', urn: LONG_WORKER_URN },
+} as Record<string, Record<string, unknown>>;
+
 export type TickersView =
   | 'list'
   | keyof typeof detailTask
   | keyof typeof rosters
-  | 'wake';
+  | keyof typeof wakeWorker;
 
 export function mountTickers(target: HTMLElement, view: TickersView): () => void {
   let page;
@@ -116,7 +126,7 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
             subscriptions: [{ id: 's1', createdAt: '2026-10-10T00:00:00Z', viaGrant: true, createdBy: subscriber.createdBy, ticker }],
           },
         },
-        appSettings: settings, worker: { retiredAt: null }, appId: 'app-1', loadedAt: LOADED,
+        appSettings: settings, worker: wakeWorker[view], appId: 'app-1', loadedAt: LOADED,
       } as never,
     });
   }
