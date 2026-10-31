@@ -205,6 +205,16 @@ describe('switching Agents with an unsaved customisation draft (#1369)', () => {
     const posts = vi.mocked(fetch).mock.calls.filter(([, o]) => (o as RequestInit | undefined)?.method === 'POST');
     expect(posts).toHaveLength(0);
   });
+  it('re-picking the same Agent only reveals the panel: no question, draft kept', async () => {
+    const { target } = await dirtyBeta();
+    const confirm = vi.spyOn(window, 'confirm');
+    pickCustomisation(target, 'Beta');
+    await settle();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(
+      target.querySelector<HTMLInputElement>('section[aria-label="Customisation"] form input')?.value,
+    ).toBe('boot:extra');
+  });
   it('a clean panel switches without asking', async () => {
     const target = await mountTab('agents', [AGENT, GAMMA]);
     const confirm = vi.spyOn(window, 'confirm');

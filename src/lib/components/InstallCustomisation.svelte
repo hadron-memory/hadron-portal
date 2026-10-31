@@ -72,6 +72,19 @@
   function close() {
     if (mayDiscard()) onClose?.();
   }
+  /** The page asks before it re-keys this panel for another Agent (#1369). */
+  export function mayLeave() {
+    return mayDiscard();
+  }
+  const countText = $derived.by(() => {
+    if (read.list.state !== 'ok') return '';
+    const { total, offset: from, nodes } = read.list.value;
+    if (total === 0) return t('customisation.total-none', 'No customisations yet.');
+    const vars = { from: String(from + 1), to: String(from + nodes.length), total: String(total) };
+    return total === 1
+      ? t('customisation.showing-one', 'Showing {from}–{to} of {total} customisation', vars)
+      : t('customisation.showing', 'Showing {from}–{to} of {total} customisations', vars);
+  });
 
   const rows = $derived(read.list.state === 'ok' ? read.list.value.nodes : []);
   const columns: PortalColumnDef<
@@ -230,26 +243,27 @@
 </script>
 <section aria-label={t('customisation.title','Customisation')} class="mt-3 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
   <div class="flex items-start justify-between gap-3">
-  <h3 bind:this={heading} tabindex="-1" class="min-w-0 text-lg font-semibold text-zinc-900 dark:text-white">{t('customisation.title-for','Customisation for {name}',{name:agent.name})}</h3>
+  <h3 bind:this={heading} tabindex="-1" class="min-w-0 rounded text-lg font-semibold text-zinc-900 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:text-white">{t('customisation.title-for','Customisation for {name}',{name:agent.name})}</h3>
   {#if onClose}<button type="button" class={secondaryButton} disabled={busy} onclick={close}>{t('customisation.close','Close')}</button>{/if}
   </div>
   {#if agent.urn}<div class="mt-1"><Urn value={agent.urn} compact /></div>{/if}
   <p class="mt-3 text-sm text-zinc-500">{t('customisation.not-served','Customisations are recorded but not used to start agents yet.')}</p>
   <p class="text-sm text-zinc-500">{t('customisation.compile-only','Replacements apply when compiling for this App. Ordinary node reads are unchanged.')}</p>
+  {#if canManage===false}<p class="text-sm text-zinc-500">{t('customisation.read-only','You can view these customisations. Only someone who manages this App can change them.')}</p>{/if}
   {#if read.list.state==='loading'}<p role="status">{t('customisation.loading','Loading…')}</p>
   {:else if read.list.state==='failed'}<p role="alert">{t('customisation.load-failed','Couldn’t load customisations.')}</p><button type="button" class={secondaryButton} disabled={busy} onclick={()=>openPage(offset,loc)}>{t('customisation.retry','Retry')}</button>
   {:else if read.list.state==='not-shown'}<p>{t('customisation.not-shown','Not shown')}</p>
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
-    <DataTable {table} searchPlaceholder={t('customisation.search','Search customisations…')} searchAriaLabel={t('customisation.search-label','Search customisations')} listKey={`install-customisation:${appRef}:${agent.id}`}>
+    <DataTable {table} searchPlaceholder={t('customisation.search-page','Search this page…')} searchAriaLabel={t('customisation.search-page-label','Search the customisations on this page')} listKey={`install-customisation:${appRef}:${agent.id}`}>
       {#snippet cell(cell)}
         <div class="min-w-0 whitespace-normal break-words font-medium">{cell.row.original.name}</div>
         <div class="mt-1 whitespace-normal break-all font-mono text-xs text-zinc-500">{cell.row.original.loc}</div>
         {#if cell.row.original.urn}<div class="mt-1 min-w-0"><Urn value={cell.row.original.urn} compact /></div>{/if}
-        <button type="button" class={`mt-2 ${secondaryButton}`} disabled={busy} onclick={()=>openPage(offset,cell.row.original.loc)}>{t('customisation.open','Open')}</button>
+        <button type="button" class={`mt-2 ${secondaryButton}`} disabled={busy} aria-label={t('customisation.open-row','Open {name} ({loc})',{name:cell.row.original.name,loc:cell.row.original.loc})} onclick={()=>openPage(offset,cell.row.original.loc)}>{t('customisation.open','Open')}</button>
       {/snippet}
     </DataTable>
-    <div class="mt-2 flex flex-wrap gap-3"><button type="button" class={secondaryButton} disabled={busy||offset===0} title={offset===0?t('customisation.first-page','Already on the first page'):undefined} onclick={()=>openPage(Math.max(0,offset-20),null)}>{t('customisation.previous','Previous')}</button><button type="button" class={secondaryButton} disabled={busy||offset+20>=read.list.value.total} title={offset+20>=read.list.value.total?t('customisation.last-page','No more customisations'):undefined} onclick={()=>openPage(offset+20,null)}>{t('customisation.next','Next')}</button><span>{t('customisation.total','{total} customisations',{total:String(read.list.value.total)})}</span></div>
+    <div class="mt-2 flex flex-wrap gap-3"><button type="button" class={secondaryButton} disabled={busy||offset===0} title={offset===0?t('customisation.first-page','Already on the first page'):undefined} onclick={()=>openPage(Math.max(0,offset-20),null)}>{t('customisation.previous','Previous')}</button><button type="button" class={secondaryButton} disabled={busy||offset+20>=read.list.value.total} title={offset+20>=read.list.value.total?t('customisation.last-page','No more customisations'):undefined} onclick={()=>openPage(offset+20,null)}>{t('customisation.next','Next')}</button><span>{countText}</span></div>
   {/if}
   {#if canManage!==false}<button type="button" class={`mt-3 ${secondaryButton}`} disabled={busy} onclick={start}>{t('customisation.start','Start customising')}</button>{/if}
   {#if loc||creating}
@@ -273,7 +287,9 @@
         {:else if read.replacement.state==='failed'}<p role="alert">{t('customisation.node-failed','Couldn’t load this replacement.')}</p>
         {:else}<p>{t('customisation.not-shown','Not shown')}</p>{/if}
         <button type="button" disabled={busy} onclick={()=>openPage(offset,loc)} class={`mt-2 ${secondaryButton}`}>{t('customisation.reload-discard','Reload and discard draft')}</button>
-        {#if feedback}<p role={failed?'alert':'status'} class="mt-2 text-sm">{feedback}</p>{/if}
+        <!-- Both regions are mounted empty before any save, so a result lands in a region already observed (#1369). -->
+        <p role="status" data-feedback class="text-sm [&:not(:empty)]:mt-2">{failed?'':feedback}</p>
+        <p role="alert" data-feedback class="text-sm [&:not(:empty)]:mt-2">{failed?feedback:''}</p>
       </div>
     </div>
   {/if}

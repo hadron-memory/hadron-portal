@@ -620,7 +620,8 @@
     }
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
-  let customisationPanel = $state<{ reveal: () => void }>();
+  let customisationPanel = $state<{ reveal: () => void; mayLeave: () => boolean }>();
+  let agentsHeading = $state<HTMLHeadingElement>();
   let customisationChoice = $state<{ appRef: string; agentId: string } | null>(null);
   const customisationAgent = $derived(
     customisationChoice?.appRef === data.bootPointerAppKey
@@ -648,6 +649,9 @@
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
     if (id === 'customisation') {
+      // #1369: another Agent's panel re-keys this one and drops its draft, so
+      // ask BEFORE the choice changes. The same Agent only reveals it again.
+      if (customisationAgent && customisationAgent.id !== agent.id && customisationPanel && !customisationPanel.mayLeave()) return;
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
       void tick().then(() => {
@@ -2605,7 +2609,7 @@
     <div id="panel-agents" role="tabpanel" aria-labelledby="tab-agents" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">
       <div>
-        <h2 class="font-semibold text-zinc-900 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
+        <h2 bind:this={agentsHeading} tabindex="-1" class="rounded font-semibold text-zinc-900 focus:outline-2 focus:outline-offset-2 focus:outline-indigo-600 dark:text-white">{t('app.agents.title', 'Agents')}</h2>
         <p class="mt-1 max-w-2xl text-sm text-zinc-500">
           {t(
             'app.agents.description',
@@ -2682,7 +2686,14 @@
               const label = t('app.agents.actions.label', 'Actions for {name}', { name: customisationAgent.name });
               customisationChoice = null;
               await tick();
-              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+              // Back to the opener; when its row is filtered or paged out (#1369),
+              // to the Agents heading rather than leaving focus on <body>.
+              const opener = document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`);
+              if (opener) opener.focus();
+              else {
+                agentsHeading?.focus();
+                agentsHeading?.scrollIntoView?.({ block: 'nearest' });
+              }
             }} />
           {/key}
         {/if}

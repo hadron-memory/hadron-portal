@@ -452,7 +452,7 @@ describe('late save reply fence (#1368)', () => {
     await settle();
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads);
     expect(m.target.textContent).not.toContain('Saved.');
-    expect(m.target.querySelector('[role="status"]')).toBeNull();
+    expect(m.target.querySelector('[role="status"][data-feedback]')?.textContent).toBe('');
     expect(m.target.querySelector('textarea')?.value).toBe('saved for A');
   });
   it('drops a refusal that lands after the target changed', async () => {
@@ -469,7 +469,7 @@ describe('late save reply fence (#1368)', () => {
     await settle();
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads);
     expect(m.target.textContent).not.toContain('Changed for A');
-    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+    expect(m.target.querySelector('[role="alert"][data-feedback]')?.textContent).toBe('');
   });
   it('control: the same reply on an unchanged target is shown and reloads', async () => {
     let reply!: (r: Response) => void;
