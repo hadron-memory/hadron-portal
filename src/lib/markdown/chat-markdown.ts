@@ -21,6 +21,7 @@
 import { Marked } from 'marked';
 import { t } from '$lib/i18n/t';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { encodeUrnPathSegment } from '$lib/urn/encode-urn-segment';
 import { createNodeMarkdownRenderer } from './node-renderer';
 import { extractWikilinks, type WikilinkMap } from './wikilink';
 
@@ -31,7 +32,8 @@ export function renderChatMarkdown(source: string): string {
     if (!ref.memoryUrn || !/^(?:hrn|urn):node:/i.test(ref.target)) continue;
     try {
       links[ref.target] = {
-        href: `/app/u/${composeNodeUrn(ref.memoryUrn, ref.loc)}`,
+        // #1512: one encoded segment, so an authored `../` cannot leave /app/u/.
+        href: `/app/u/${encodeUrnPathSegment(composeNodeUrn(ref.memoryUrn, ref.loc))}`,
         label: ref.target,
       };
     } catch {

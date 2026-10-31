@@ -79,4 +79,14 @@ describe('renderChatMarkdown (#1493)', () => {
     expect(html).toContain('<strong>bold</strong>');
     expect(html).toContain(`<code>[[${URN}|x]]</code>`);
   });
+
+  it('keeps a traversal target under /app/u/ as one encoded segment (#1512)', () => {
+    const target = 'hrn:node:a:b:../../../settings/tokens';
+    const a = new DOMParser().parseFromString(render(`[[${target}|x]]`), 'text/html').querySelector('a')!;
+    const href = a.getAttribute('href')!;
+    const u = new URL(href, 'http://portal.test/app/team-chat');
+    expect(u.pathname.startsWith('/app/u/')).toBe(true);
+    expect(u.pathname.slice('/app/u/'.length)).not.toContain('/');
+    expect(decodeURIComponent(href.slice('/app/u/'.length))).toBe(target);
+  });
 });
