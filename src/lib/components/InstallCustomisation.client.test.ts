@@ -494,3 +494,52 @@ describe('late save reply fence (#1368)', () => {
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads + 1);
   });
 });
+
+describe('stale save target (#1370)', () => {
+  it('keeps the draft and the opened base on an unavailable target, and reloads only on request', async () => {
+    const posts: FormData[] = [];
+    let reads = 0;
+    const detail =
+      'This customisation is no longer available. Your draft is kept.';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, options) => {
+        if (options?.method === 'POST') {
+          posts.push(options.body as FormData);
+          return new Response(
+            JSON.stringify({
+              type: 'failure',
+              status: 409,
+              data: { customisationFailed: { code: 'unavailable', detail } },
+            }),
+          );
+        }
+        reads++;
+        return new Response(JSON.stringify(payload()));
+      }),
+    );
+    const root = await panel();
+    button(root, 'Open').click();
+    await settle();
+    await edit(root, 'my draft');
+    const readsBeforeSave = reads;
+    submit(root);
+    await settle();
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe(detail);
+    expect(root.querySelector('textarea')?.value).toBe('my draft');
+    expect(reads).toBe(readsBeforeSave);
+    submit(root);
+    await settle();
+    expect(posts).toHaveLength(2);
+    for (const fd of posts) {
+      expect(fd.get('expectedRevision')).toBe('7');
+      expect(fd.get('baseContent')).toBe('original draft');
+      expect(fd.get('content')).toBe('my draft');
+    }
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    button(root, 'Reload and discard draft').click();
+    await settle();
+    expect(reads).toBe(readsBeforeSave + 1);
+    expect(root.querySelector('textarea')?.value).toBe('original draft');
+  });
+});

@@ -392,3 +392,81 @@ describe('every customisation node read is pinned to its memory (#1504 §10)', (
     },
   );
 });
+
+describe('stale save target is not malformed input (#1370)', () => {
+  const valid = () => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries({
+      agentRef: 'agent-a',
+      loc: 'x',
+      content: 'new',
+      baseContent: 'old',
+      expectedRevision: '7',
+    }))
+      fd.set(k, v);
+    return fd;
+  };
+  const unavailable = {
+    status: 409,
+    data: { customisationFailed: { code: 'unavailable' } },
+  };
+  const isMutation = (call: unknown[]) => /mutation/i.test(String(call[0]));
+
+  it('a valid draft whose install memory vanished gets changed-target guidance, no write', async () => {
+    const c = client([{ installMemory: null }]);
+    const r = await writeCustomisation(c as never, 'app-a', valid(), false);
+    expect(r).toMatchObject(unavailable);
+    expect(c.request).toHaveBeenCalledTimes(1);
+    expect(c.request.mock.calls.some(isMutation)).toBe(false);
+  });
+
+  it('a valid draft whose replacement vanished gets changed-target guidance, no write', async () => {
+    const c = client([{ installMemory: { id: 'install' } }, { node: null }]);
+    const r = await writeCustomisation(c as never, 'app-a', valid(), false);
+    expect(r).toMatchObject(unavailable);
+    expect(c.request).toHaveBeenCalledTimes(2);
+    expect(c.request.mock.calls.some(isMutation)).toBe(false);
+  });
+
+  it('says the same thing whether the install or the replacement is gone (deleted, hidden or foreign alike)', async () => {
+    const gone = await writeCustomisation(
+      client([{ installMemory: null }]) as never, 'app-a', valid(), false,
+    );
+    const hidden = await writeCustomisation(
+      client([{ installMemory: { id: 'install' } }, { node: null }]) as never, 'app-a', valid(), false,
+    );
+    expect(hidden).toEqual(gone);
+  });
+
+  it('guides to Reload, keeps the draft, and does not blame the input', async () => {
+    const r = (await writeCustomisation(
+      client([{ installMemory: null }]) as never, 'app-a', valid(), false,
+    )) as { data: { customisationFailed: { detail: string } } };
+    const detail = r.data.customisationFailed.detail;
+    expect(detail).toMatch(/no longer available/i);
+    expect(detail).toMatch(/draft is kept/i);
+    expect(detail).toMatch(/reload/i);
+    expect(detail).not.toMatch(/bare loc|revision you opened/i);
+  });
+
+  it('keeps malformed fields invalid (negative control): no request, invalid guidance', async () => {
+    const fd = valid();
+    fd.delete('expectedRevision');
+    const c = client([]);
+    expect(await writeCustomisation(c as never, 'app-a', fd, false)).toMatchObject({
+      status: 400,
+      data: { customisationFailed: { code: 'invalid' } },
+    });
+    expect(c.request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['install reread', [new Error('socket hang up')]],
+    ['replacement reread', [{ installMemory: { id: 'install' } }, new Error('socket hang up')]],
+  ])('keeps an infrastructure failure on the %s a failure, not stale guidance', async (_k, results) => {
+    const c = client([...results]);
+    const r = await writeCustomisation(c as never, 'app-a', valid(), false);
+    expect(r).toMatchObject({ status: 500, data: { customisationFailed: { code: 'failed' } } });
+    expect(c.request.mock.calls.some(isMutation)).toBe(false);
+  });
+});
