@@ -21,6 +21,11 @@ import {
   CREATE_CUSTOMISATION_MUTATION,
 } from './queries';
 type Client = Pick<GraphQLClient, 'request'>;
+// node(ref:) resolves a PK or a urn:node: ref by itself and ignores memoryRef
+// (#1504 §10), so a customisation read would show a different node than the
+// save, which addresses the literal loc. `loc:` makes the server read any
+// string as a loc inside memoryRef.
+const memoryPinnedRef = (loc: string) => `loc:${loc}`;
 export async function readCustomisation(
   client: Client,
   target: { appRef: string; agentRef: string },
@@ -81,7 +86,7 @@ export async function readCustomisation(
         try {
           const { node } = await client.request<{ node: InstallNode | null }>(
             query,
-            { memoryRef, ref: loc },
+            { memoryRef, ref: memoryPinnedRef(loc) },
           );
           return node ? { state: 'ok', value: node } : { state: 'not-shown' };
         } catch {
@@ -144,7 +149,7 @@ export async function writeCustomisation(
       if (!installMemory) return invalid();
       const { node } = await client.request<{ node: GovernedState | null }>(
         INSTALL_NODE_QUERY,
-        { memoryRef: installMemory.id, ref: loc },
+        { memoryRef: installMemory.id, ref: memoryPinnedRef(loc) },
       );
       if (!node) return invalid();
       await client.request(nodeUpdateDocument(node, input), { input });
