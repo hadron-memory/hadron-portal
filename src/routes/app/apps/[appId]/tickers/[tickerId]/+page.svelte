@@ -28,7 +28,7 @@
    * operations the disabled tools used. Every participant sees them (D1); the
    * server's refusal answers anyone else. The on/off control is rendered for
    * every participant; the subscriber controls sit under the list, with
-   * cor:agt:080:20's sentence beside them (the same sentence the server's
+   * hrn:node:hadronmemory.com:specs:cor:agt:080:20's sentence beside them (the same sentence the server's
    * SUBSCRIBE_FORBIDDEN refusal answers with).
    *
    * portal#1498's CLI commands for these same operations are gone from here
@@ -234,8 +234,8 @@
   </dl>
   <!-- portal#1497 (D4): the MCP-tools pointer is gone, and so is portal#1498's
        CLI block for these operations — the controls above and below are it.
-       `app.ticker.who` (cor:agt:080:18) stays the governing line for On/off;
-       the subscriber controls carry their own (cor:agt:080:20). -->
+       `app.ticker.who` (hrn:node:hadronmemory.com:specs:cor:agt:080:18) stays the governing line for On/off;
+       the subscriber controls carry their own (hrn:node:hadronmemory.com:specs:cor:agt:080:20). -->
   <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}</p>
 
   <section aria-labelledby="ticker-edit-heading" class="space-y-3" data-testid="ticker-edit">
@@ -255,7 +255,7 @@
       >{t('app.tickers.refresh', 'Refresh')}</button>
     </div>
     {#if subscribers.kind !== 'not-participant'}
-      <!-- portal#1497: cor:agt:080:20, the same sentence the server's
+      <!-- portal#1497: hrn:node:hadronmemory.com:specs:cor:agt:080:20, the same sentence the server's
            SUBSCRIBE_FORBIDDEN refusal answers with (one copy, $lib/tickers/controls).
            A non-participant is offered nothing here (the roster's "not offered"
            state): the not-participant box below is all they see. -->

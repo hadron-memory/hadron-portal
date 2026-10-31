@@ -83,7 +83,7 @@ export function buildUpdatePatch(
 
 /*
  * portal#1497 (MCP cut R7a) — the CONTROL forms' intent, parsed strictly. The
- * POST must carry the write's intent itself (review:explicit-mutation-intent):
+ * POST must carry the write's intent itself (hrn:node:hadronmemory.com:hadron-portal:review:explicit-mutation-intent):
  * the desired value of `enabled` as a literal true/false, and exactly one
  * worker ref. A missing value, a repeated field, or anything else is invalid
  * and sends nothing — never a default, never a toggle inferred from the page.

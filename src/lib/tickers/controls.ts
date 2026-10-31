@@ -45,7 +45,7 @@ export const tickerFirstPageHref = (appId: string, tickerId: string) => `/app/ap
 export const tickerRefreshFailedLine = () => t('app.ticker.controls.refresh-failed', 'Saved; the page couldn’t reload.');
 
 /**
- * cor:agt:080:20 as the portal states it, beside the subscriber controls AND as the SUBSCRIBE_FORBIDDEN
+ * hrn:node:hadronmemory.com:specs:cor:agt:080:20 as the portal states it, beside the subscriber controls AND as the SUBSCRIBE_FORBIDDEN
  * sentence — ONE copy (D4): the refusal copy in $lib/server/ticker-writes imports this, and the page
  * renders it next to Add/Remove, so they can never drift apart.
  */

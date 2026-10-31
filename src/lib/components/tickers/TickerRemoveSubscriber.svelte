@@ -6,7 +6,7 @@
 
   - A confirmation that names the worker, with its Urn, sits between the row's
     button and the POST; Escape cancels it and focus returns to the button.
-  - The POST states the worker ref itself (review:explicit-mutation-intent):
+  - The POST states the worker ref itself (hrn:node:hadronmemory.com:hadron-portal:review:explicit-mutation-intent):
     no row shape, no "submitted value written on click".
   - After a commit the reload goes to the FIRST subscriber page (?after=
     dropped). A refresh that fails does not undo the write: the ticker refresh

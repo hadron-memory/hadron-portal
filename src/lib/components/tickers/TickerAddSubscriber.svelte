@@ -14,7 +14,7 @@
     dropped), so the chooser never re-anchors a later page. A refresh that
     fails does not undo the write: the ticker refresh marker + this route's
     error boundary say it (#1462 pattern, ticker-scoped).
-  - cor:agt:080:20's sentence is rendered by the page beside these controls.
+  - hrn:node:hadronmemory.com:specs:cor:agt:080:20's sentence is rendered by the page beside these controls.
 -->
 <script lang="ts">
   import { onDestroy, tick as tickFn } from 'svelte';

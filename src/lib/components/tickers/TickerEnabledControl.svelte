@@ -6,7 +6,7 @@
 
   - Who may: the server's call (hrn:node:hadronmemory.com:specs:cor:agt:080:18 — the page's
     `app.ticker.who` line above states the rule); the refusal answers anyone else.
-  - Turning off never removes anyone (cor:agt:080:06): the copy says so, and the
+  - Turning off never removes anyone (hrn:node:hadronmemory.com:specs:cor:agt:080:06): the copy says so, and the
     subscriber list below is untouched by this control.
   - An uncertain outcome is shown as such and never retried; a committed write
     whose refresh fails says "Saved; the page couldn't reload" (the ticker

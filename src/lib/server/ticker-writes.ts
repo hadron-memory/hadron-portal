@@ -126,7 +126,7 @@ export function classifyTickerWriteError(e: unknown, action: TickerWriteAction):
  * because a ticker/worker the viewer cannot even name (TICKER_NOT_FOUND,
  * WORKER_NOT_FOUND, APP_NOT_FOUND) must render as ONE sentence so the page is
  * never an existence oracle, and the subscription refusals carry rules the
- * portal restates in its own words (cor:agt:080:20 for who may; :06 for what
+ * portal restates in its own words (hrn:node:hadronmemory.com:specs:cor:agt:080:20 for who may; hrn:node:hadronmemory.com:specs:cor:agt:080:06 for what
  * turning off does not do).
  */
 export type TickerControlAction = 'set-enabled' | 'subscribe' | 'unsubscribe';
@@ -135,7 +135,7 @@ export type TickerControlAction = 'set-enabled' | 'subscribe' | 'unsubscribe';
 export const tickerNotAvailableText = () =>
   t('app.ticker.controls.not-available', 'This ticker or worker isn’t available to you. Reload the page.');
 
-// cor:agt:080:20's sentence lives in $lib/tickers/controls (the page renders it
+// hrn:node:hadronmemory.com:specs:cor:agt:080:20's sentence lives in $lib/tickers/controls (the page renders it
 // beside the subscriber controls too); re-exported here so the classifier and
 // the page share ONE copy (D4).
 export { tickerSubscribeWhoText };
@@ -143,7 +143,7 @@ export { tickerSubscribeWhoText };
 function controlForbiddenSentence(action: TickerControlAction): string {
   switch (action) {
     case 'set-enabled':
-      // cor:agt:080:18 governs on/off; the page's `app.ticker.who` line states the same rule.
+      // hrn:node:hadronmemory.com:specs:cor:agt:080:18 governs on/off; the page's `app.ticker.who` line states the same rule.
       return t(
         'app.ticker.controls.forbidden.set-enabled',
         'You can’t turn this ticker on or off. Its owner, the owning worker’s holder, or whoever manages the App can.',

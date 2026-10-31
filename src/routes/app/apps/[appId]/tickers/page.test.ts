@@ -192,8 +192,8 @@ describe('Ticker page', () => {
   // these operations — the ticker page names no MCP tool and carries no hadron
   // ticker command; the controls are the surface. The Wake-ups tab keeps its
   // commands (D3: no writes there), pinned in its own describe below. The
-  // who-sentences stay: cor:agt:080:18 above the on/off control (pinned by
-  // 'shows the facts'), cor:agt:080:20 beside the subscriber controls.
+  // who-sentences stay: hrn:node:hadronmemory.com:specs:cor:agt:080:18 above the on/off control (pinned by
+  // 'shows the facts'), hrn:node:hadronmemory.com:specs:cor:agt:080:20 beside the subscriber controls.
   it('carries the controls, not CLI commands: no MCP tool, no hadron ticker command', () => {
     const html = detail();
     expect(html).not.toContain('hadron_');

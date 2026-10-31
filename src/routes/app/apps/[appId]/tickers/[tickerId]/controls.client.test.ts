@@ -1,8 +1,8 @@
 /**
  * portal#1497 (MCP cut R7a) — the three controls ON THE RENDERED PAGE: turning
- * the ticker off keeps the subscriber list exactly as it was (cor:agt:080:06 —
+ * the ticker off keeps the subscriber list exactly as it was (hrn:node:hadronmemory.com:specs:cor:agt:080:06 —
  * the page never implies that off removes anyone), each control is a real
- * focusable button in the page's tab order, and the page carries cor:agt:080:20's
+ * focusable button in the page's tab order, and the page carries hrn:node:hadronmemory.com:specs:cor:agt:080:20's
  * sentence beside the subscriber controls (the same sentence the server's
  * SUBSCRIBE_FORBIDDEN refusal answers with).
  */
@@ -57,7 +57,7 @@ const rowWorkers = (root: HTMLElement) =>
   [...root.querySelectorAll('[data-testid="subscribers-empty"], table tbody tr')].map((r) => r.textContent ?? '');
 
 describe('portal#1497 — the controls on the rendered page', () => {
-  it('turning the ticker OFF leaves the subscriber list exactly as it was (cor:agt:080:06)', async () => {
+  it('turning the ticker OFF leaves the subscriber list exactly as it was (hrn:node:hadronmemory.com:specs:cor:agt:080:06)', async () => {
     const root = await mountPage(true);
     const before = rowWorkers(root);
     expect(before.length).toBe(2);
@@ -79,11 +79,11 @@ describe('portal#1497 — the controls on the rendered page', () => {
     for (const b of focusable) expect(b.tabIndex).toBe(0); // nothing is reached by pointer only
   });
 
-  it('cor:agt:080:20’s sentence sits beside the subscriber controls — the same text the SUBSCRIBE_FORBIDDEN refusal uses', async () => {
+  it('hrn:node:hadronmemory.com:specs:cor:agt:080:20’s sentence sits beside the subscriber controls — the same text the SUBSCRIBE_FORBIDDEN refusal uses', async () => {
     const root = await mountPage(true);
     const line = root.querySelector('[data-testid="ticker-subscriber-who"]')!;
     expect(line.textContent).toBe('Only a worker’s holder or whoever manages the App can subscribe or unsubscribe that worker.');
-    // and the on/off line above still states cor:agt:080:18's rule, with no tool pointer left (D4)
+    // and the on/off line above still states hrn:node:hadronmemory.com:specs:cor:agt:080:18's rule, with no tool pointer left (D4)
     const who = [...root.querySelectorAll('p')].map((p) => p.textContent ?? '').find((t) => t.includes('Only its owner'));
     expect(who).toContain('Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.');
     expect(who).not.toContain('MCP');
