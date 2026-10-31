@@ -910,8 +910,13 @@ describe('Worker agents tab (#1009)', () => {
 
     it('is hideable from the column toggle', async () => {
       const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
-      expect(target.textContent).toContain('Terminal');
-      expect(target.querySelector('[aria-label*="olumns"], button[aria-label*="olumn"]')).not.toBeNull();
+      const headers = () => [...target.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+      expect(headers().some((h) => h?.startsWith('Terminal'))).toBe(true);
+      const box = [...target.querySelectorAll('label')].find((l) => l.textContent?.trim() === 'Terminal')?.querySelector('input');
+      expect(box).toBeTruthy();
+      box!.click();
+      await tick(2);
+      expect(headers().some((h) => h?.startsWith('Terminal'))).toBe(false);
     });
   });
 });

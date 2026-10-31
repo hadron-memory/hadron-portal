@@ -1048,6 +1048,9 @@ export const WORKER_QUERY = /* GraphQL */ `
       appName
       ownerName
       hasLiveSession
+      # portal#1492: the terminal report, masked to null on the same gate as
+      # hasLiveSession. State, reason and age only — never the host label or prompt.
+      terminal { status reason checkedAt lastTurnAt }
       # portal#1142 P4 — the signature and trailer TEMPLATES, masked to null for
       # a reader who may not see worker internals. Null is "not shown", never
       # "empty": the empty string is a real, deliverable-as-nothing value.
@@ -5009,6 +5012,8 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
         checkStatus { status pendingReason }
         pausedUntil
         currentTask { id title status }
+        # portal#1492: state, reason and age only — never the host label or prompt.
+        terminal { status reason checkedAt }
       }
     }
   }

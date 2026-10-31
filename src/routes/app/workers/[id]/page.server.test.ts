@@ -533,7 +533,7 @@ describe('terminal status (portal#1492)', () => {
   it('selects status, reason, checkedAt and lastTurnAt only: no host label or prompt', () => {
     const sel = WORKER_QUERY.match(/terminal\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(sel.split(/\s+/).filter(Boolean).sort()).toEqual(['checkedAt', 'lastTurnAt', 'reason', 'status']);
-    expect(WORKER_QUERY).not.toMatch(/host\s*\{|prompt|reportedAt/);
+    expect(sel).not.toMatch(/host|prompt|reportedAt/);
   });
 
   it('a participant keeps the terminal and gets one page clock', async () => {

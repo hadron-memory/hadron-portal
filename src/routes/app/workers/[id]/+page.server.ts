@@ -179,6 +179,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
   return {
     worker,
+    // portal#1492: one clock for the terminal ages, so server render and hydration agree.
+    terminalNow: new Date().toISOString(),
 
     signatureForm,
     initialTab: internals ? initialTab : 'profile',

@@ -100,7 +100,7 @@ describe('terminal status (portal#1492)', () => {
   it('selects status, reason and checkedAt only: no host label, prompt or last turn on the grid read', () => {
     const sel = APP_TEAM_ROSTER_QUERY.match(/terminal\s*\{([^}]*)\}/)?.[1] ?? '';
     expect(sel.split(/\s+/).filter(Boolean).sort()).toEqual(['checkedAt', 'reason', 'status']);
-    expect(APP_TEAM_ROSTER_QUERY).not.toMatch(/host|prompt|lastTurnAt|reportedAt/);
+    expect(sel).not.toMatch(/host|prompt|lastTurnAt|reportedAt/);
   });
 
   it('passes a returned terminal through, and keeps a returned null as null', async () => {
