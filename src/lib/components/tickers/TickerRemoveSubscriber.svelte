@@ -16,16 +16,13 @@
 -->
 <script lang="ts">
   import { onDestroy, tick as tickFn } from 'svelte';
-  import { get } from 'svelte/store';
   import { enhance } from '$app/forms';
-  import { beforeNavigate, goto } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import Urn from '$lib/components/Urn.svelte';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import WriteRefusalAlert from '$lib/components/agent-tasks/WriteRefusal.svelte';
   import TickerRefreshFailedLine from '$lib/components/tickers/TickerRefreshFailedLine.svelte';
-  import { tickerOfPage } from '$lib/tickers/refresh-page';
   import {
     announcementFailedText,
     asTickerRefusal,
@@ -33,7 +30,7 @@
     removedText,
     tickerFirstPageHref,
   } from '$lib/tickers/controls';
-  import { clearTickerRefreshMarker, setTickerRefreshMarker } from '$lib/tickers/ticker-refresh-marker';
+  import { createTickerRefreshFence } from '$lib/tickers/refresh-fence';
 
   let {
     appId,
@@ -88,26 +85,16 @@
     generation++;
   });
 
-  // This row's attempt while its refresh is in flight. `goto` (our own reload) and
-  // `invalidateAll` fire no beforeNavigate; a real navigation does, and it cancels
-  // the refresh, so the marker goes then. Only this attempt's marker is touched.
-  let pendingAttempt: string | null = null;
-  beforeNavigate((nav) => {
-    // Our own deliberate reload targets the ticker's first page; that navigation IS the
-    // refresh, so its marker survives it. Everything else cancels.
-    const to = nav.to?.url;
-    const isOwnRefresh = pendingAttempt !== null && to !== undefined && to.pathname + to.search === `${tickerFirstPageHref(appId, ticker.id)}`;
-    if (pendingAttempt && !isOwnRefresh) clearTickerRefreshMarker(pendingAttempt);
-    pendingAttempt = null;
+  // The refresh fence, shared by every ticker control (#1497 review): it owns the
+  // marker attempt (canonical id AND the route's spelling), cancels it on a
+  // navigation that is not this control's own reload — the goto to the ticker's
+  // FIRST subscriber page below IS that reload, so its marker survives it — and
+  // rules whether the page's error is THIS refresh's failure.
+  const fence = createTickerRefreshFence({
+    appId: () => appId,
+    tickerId: () => ticker.id,
+    reloadHref: () => tickerFirstPageHref(appId, ticker.id),
   });
-
-  // Whether the page store is showing this ticker's ERROR page: the refresh's own
-  // failure, as opposed to a destination that failed on its own.
-  function failedHere(): boolean {
-    const p = get(page);
-    const at = tickerOfPage(p);
-    return p.error !== null && at !== null && at.appId === appId && at.tickerId === ticker.id;
-  }
 
   async function openConfirmation() {
     confirming = true;
@@ -157,24 +144,21 @@
           // even reject — it navigates to this route's error boundary and unmounts
           // this control (#1462 pattern), so the marker is left just before it and
           // cleared here only while this row is still mounted.
-          const attempt = viewerId
-            ? setTickerRefreshMarker({ viewer: viewerId, appId, tickerId: ticker.id, action: 'unsubscribe', targetWorkerId: worker.id })
-            : null;
-          pendingAttempt = attempt;
+          const attempt = fence.begin(viewerId, 'unsubscribe', worker.id);
           try {
             await goto(tickerFirstPageHref(appId, ticker.id), { invalidateAll: true });
           } catch {
             refreshFailed = true;
           }
-          if (pendingAttempt === attempt) pendingAttempt = null;
+          fence.refreshSettled(attempt);
           if (mine !== generation) {
             // Unmounted during the reload. The marker survives only when the failure
             // was THIS reload's (this ticker's error page); anything else may not
             // claim a failed reload later.
-            if (attempt && !failedHere()) clearTickerRefreshMarker(attempt);
+            if (!fence.failedHere(attempt)) fence.clear(attempt);
             return;
           }
-          if (attempt) clearTickerRefreshMarker(attempt);
+          fence.clear(attempt);
           return;
         }
         refusal = result.type === 'failure' ? asTickerRefusal(result.data) : { kind: 'uncertain' };

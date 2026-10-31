@@ -16,17 +16,14 @@
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { get } from 'svelte/store';
   import { enhance } from '$app/forms';
-  import { beforeNavigate, invalidateAll } from '$app/navigation';
-  import { page } from '$app/stores';
+  import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import WriteRefusalAlert from '$lib/components/agent-tasks/WriteRefusal.svelte';
   import TickerRefreshFailedLine from '$lib/components/tickers/TickerRefreshFailedLine.svelte';
-  import { tickerOfPage } from '$lib/tickers/refresh-page';
   import { asTickerRefusal, asTickerSuccess } from '$lib/tickers/controls';
-  import { clearTickerRefreshMarker, setTickerRefreshMarker } from '$lib/tickers/ticker-refresh-marker';
+  import { createTickerRefreshFence } from '$lib/tickers/refresh-fence';
 
   let {
     appId,
@@ -71,22 +68,17 @@
     generation++;
   });
 
-  // This control's attempt while its refresh is in flight. `invalidateAll` fires no
-  // beforeNavigate; a real navigation does, and it is what cancels the refresh, so
-  // the marker goes then. Only this attempt's marker is touched.
-  let pendingAttempt: string | null = null;
-  beforeNavigate(() => {
-    if (pendingAttempt) clearTickerRefreshMarker(pendingAttempt);
-    pendingAttempt = null;
+  // The refresh fence, shared by every ticker control (#1497 review): it owns the
+  // marker attempt (canonical id AND the route's spelling), cancels it on a
+  // navigation that is not this control's own reload, and rules whether the page's
+  // error is THIS refresh's failure. This control reloads with `invalidateAll`
+  // only — no navigation of its own — so EVERY navigation while a refresh is in
+  // flight cancels it.
+  const fence = createTickerRefreshFence({
+    appId: () => appId,
+    tickerId: () => ticker.id,
+    reloadHref: null,
   });
-
-  // Whether the page store is showing this ticker's ERROR page: the refresh's own
-  // failure, as opposed to a destination that failed on its own.
-  function failedHere(): boolean {
-    const p = get(page);
-    const at = tickerOfPage(p);
-    return p.error !== null && at !== null && at.appId === appId && at.tickerId === ticker.id;
-  }
 
   const actionHref = $derived(`?/set-enabled${after ? `&after=${encodeURIComponent(after)}` : ''}`);
 
@@ -112,24 +104,21 @@
           // navigates to this route's error boundary and unmounts this control
           // (#1462 pattern), so the marker is left just before it and cleared
           // here only while this control is still the one showing.
-          const attempt = viewerId
-            ? setTickerRefreshMarker({ viewer: viewerId, appId, tickerId: ticker.id, action: ticker.enabled ? 'disable' : 'enable', targetWorkerId: null })
-            : null;
-          pendingAttempt = attempt;
+          const attempt = fence.begin(viewerId, ticker.enabled ? 'disable' : 'enable', null);
           try {
             await invalidateAll();
           } catch {
             refreshFailed = true;
           }
-          if (pendingAttempt === attempt) pendingAttempt = null;
+          fence.refreshSettled(attempt);
           if (mine !== generation) {
             // Unmounted during the refresh. The marker survives only when the
             // failure was THIS refresh's (this ticker's error page); anything
             // else may not claim a failed reload later.
-            if (attempt && !failedHere()) clearTickerRefreshMarker(attempt);
+            if (!fence.failedHere(attempt)) fence.clear(attempt);
             return;
           }
-          if (attempt) clearTickerRefreshMarker(attempt);
+          fence.clear(attempt);
           return;
         }
         refusal = result.type === 'failure' ? asTickerRefusal(result.data) : { kind: 'uncertain' };

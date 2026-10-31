@@ -23,6 +23,10 @@ const SCOPE = {
   viewer: 'u1',
   appId: 'app-1',
   tickerId: 'tk-1',
+  // The route's spelling at write time: the same id in the common case, a URN
+  // or alias when the URL carried one (#1462 rule — the boundary knows only
+  // the URL).
+  routeTickerId: 'tk-1',
   action: 'subscribe' as const,
   targetWorkerId: 'w-2',
 };
@@ -41,6 +45,27 @@ describe('portal#1497 — the ticker refresh marker', () => {
     setTickerRefreshMarker(SCOPE, AT);
     expect(takeTickerRefreshMarker({ viewer: 'u1', appId: 'app-2', tickerId: 'tk-1' }, AT + 1000)).toBe(false);
     expect(takeTickerRefreshMarker({ viewer: 'u1', appId: 'app-1', tickerId: 'tk-9' }, AT + 1000)).toBe(false);
+  });
+
+  it('a URN-spelled route still claims its marker: EITHER stored spelling matches (#1462 rule)', () => {
+    // The write was keyed by the canonical id, but the URL spelled a URN —
+    // the boundary reads the URL, so the marker stores both and matches both.
+    setTickerRefreshMarker({ ...SCOPE, routeTickerId: 'hrn:ticker:hadronmemory.com:team:eng' }, AT);
+    expect(takeTickerRefreshMarker({ viewer: 'u1', appId: 'app-1', tickerId: 'hrn:ticker:hadronmemory.com:team:eng' }, AT + 1000)).toBe(true);
+    sessionStorage.clear();
+
+    setTickerRefreshMarker({ ...SCOPE, routeTickerId: 'hrn:ticker:hadronmemory.com:team:eng' }, AT);
+    expect(takeTickerRefreshMarker({ viewer: 'u1', appId: 'app-1', tickerId: 'tk-1' }, AT + 1000)).toBe(true);
+  });
+
+  it('a v1 marker (no route spelling) is refused and removed', () => {
+    setTickerRefreshMarker(SCOPE, AT);
+    const stored = JSON.parse(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)!);
+    delete stored.routeTickerId;
+    stored.v = 1;
+    sessionStorage.setItem(TICKER_REFRESH_MARKER_KEY, JSON.stringify(stored));
+    expect(takeTickerRefreshMarker({ viewer: 'u1', appId: 'app-1', tickerId: 'tk-1' }, AT + 1000)).toBe(false);
+    expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
   });
 
   it('a marker this context did not write (another tab, an earlier load) says nothing', () => {
@@ -65,9 +90,10 @@ describe('portal#1497 — the ticker refresh marker', () => {
     expect(takeTickerRefreshMarker({ viewer: 'u1', appId: 'app-1', tickerId: 'tk-1' }, AT + TICKER_REFRESH_MARKER_WINDOW_MS + 1)).toBe(false);
   });
 
-  it('fails closed: no viewer, App or ticker id, no marker is written', () => {
+  it('fails closed: no viewer, App, ticker id or route spelling, no marker is written', () => {
     expect(setTickerRefreshMarker({ ...SCOPE, appId: '' }, AT)).toBeNull();
     expect(setTickerRefreshMarker({ ...SCOPE, tickerId: '' }, AT)).toBeNull();
+    expect(setTickerRefreshMarker({ ...SCOPE, routeTickerId: '' }, AT)).toBeNull();
     expect(setTickerRefreshMarker({ ...SCOPE, viewer: '' }, AT)).toBeNull();
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
   });

@@ -41,15 +41,21 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   }
 
   const after = url.searchParams.get('after');
-  const [subscribers, settings, tickerTask, roster] = await Promise.all([
+  const [subscribers, settings, tickerTask] = await Promise.all([
     loadSubscribers(client, ticker.id, after),
     loadAppTickerSettings(client, app.id),
     loadTickerTask(client, ticker.id),
-    // portal#1497: ONE roster read per page load feeds the Add-subscriber
-    // chooser (D5). No per-row reads, no drain loop; its refusal/empty states
-    // are the chooser's, never an empty list in disguise.
-    loadTickerRoster(client, app.id),
   ]);
+  // portal#1497: ONE roster read per page load feeds the Add-subscriber
+  // chooser (D5); its refusal/empty states are the chooser's, never an empty
+  // list in disguise. The chooser is offered only to a participant, so the
+  // read starts only when the subscribers read says this viewer is one —
+  // serialized after it, the price of not billing every non-participant page
+  // view a roster round-trip the server must refuse (#1497 review). The
+  // synthesized 'hidden' is never rendered: the Add control sits behind the
+  // same not-participant gate.
+  const roster: Awaited<ReturnType<typeof loadTickerRoster>> =
+    subscribers.kind === 'not-participant' ? { kind: 'hidden' } : await loadTickerRoster(client, app.id);
   return {
     app,
     ticker,
@@ -126,7 +132,10 @@ export const actions: Actions = {
     if (!guard) return writeFailure('set-enabled', tickerNotAvailableRefusal(), values);
     try {
       const r = await client.request<{ updateTicker: { id: string; enabled: boolean } }>(SET_TICKER_ENABLED_MUTATION, {
-        ref: params.tickerId,
+        // The guard's CANONICAL id, exactly as subscribe/unsubscribe key it: the
+        // route param may be a URN or alias spelling, and updateTicker re-resolving
+        // it could diverge from the association the guard just proved (#1497 review).
+        ref: guard.tickerId,
         input: { enabled },
       });
       // The echo must equal the DESIRED value: a payload that doesn't is not a

@@ -55,11 +55,14 @@ try {
   // whole set is checked in light AND in dark (.dark on the root). The Wake-ups
   // panel keeps its four CLI commands (portal#1496; portal#1497 D3 leaves that
   // tab read-only), so its long-ref variant stays; the ticker page's commands
-  // are gone (D4) and must stay gone.
+  // are gone (D4) and must stay gone. detail-long-urn (review) restores the
+  // page's own width stress: a 200-character worker URN in the subscribers
+  // row, in the row's open Remove confirmation, and in the chooser's
+  // selected-worker chip.
   const views = [
     'list', 'detail', 'detail-unmapped', 'detail-task-failed', 'detail-stale-row',
     'detail-roster-hidden', 'detail-roster-failed', 'detail-roster-empty',
-    'detail-uncertain', 'detail-refresh-failed', 'wake', 'wake-long-urn',
+    'detail-uncertain', 'detail-refresh-failed', 'detail-long-urn', 'wake', 'wake-long-urn',
   ];
   for (const width of [390, 1280]) {
     for (const view of views) {
@@ -125,12 +128,22 @@ try {
           assert.ok((await measure()).scrollWidth > width, `${label}: the wide mutant must overflow`);
           await mutant.evaluate((el) => el.remove());
           assert.equal((await measure()).scrollWidth, width);
-          if (view.endsWith('long-urn')) {
+          if (view.startsWith('wake') && view.endsWith('long-urn')) {
             // portal#1496: and a command that may not break its long ref runs off the column.
             const unbroken = await page.addStyleTag({ content: '[data-testid="cli-command"] { word-break: normal !important; overflow-wrap: normal !important; }' });
             const wide = await measure();
             assert.ok(wide.scrollWidth > width || wide.commands.some((c) => !c.on), `${label}: the unbroken-command mutant must overflow`);
             await unbroken.evaluate((el) => el.remove());
+          }
+          if (view === 'detail-long-urn') {
+            // portal#1497 (review): and a Urn chip that may not truncate its
+            // 200-character value runs off the column. max-content beats the
+            // chip's (and its value span's) min-w-0 shrinking, so the BOX
+            // itself — not just painted text — goes wide.
+            const untruncated = await page.addStyleTag({ content: '[data-testid^="ticker-remove-confirm-"] .font-mono, [data-testid="ticker-add-form"] .font-mono, [data-testid^="ticker-remove-confirm-"] .font-mono span, [data-testid="ticker-add-form"] .font-mono span { width: max-content !important; min-width: max-content !important; overflow: visible !important; }' });
+            const wide = await measure();
+            assert.ok(wide.scrollWidth > width, `${label}: the untruncated-chip mutant must overflow`);
+            await untruncated.evaluate((el) => el.remove());
           }
         }
         if (process.env.TICKERS_SHOTS) await page.screenshot({ path: `${process.env.TICKERS_SHOTS}/${view}-${width}-${scheme}.png`, fullPage: true });

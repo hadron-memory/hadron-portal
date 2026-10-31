@@ -27,6 +27,13 @@ export interface TickerRefreshMarkerScope {
   appId: string;
   /** The ticker's canonical id: required, the marker fails closed without it. */
   tickerId: string;
+  /**
+   * The ROUTE's spelling of the ticker at the moment of the write (what the URL
+   * showed — an id or a URN), stored beside the canonical id exactly as the
+   * #1462 worker marker stores its route spelling: the boundary the failed
+   * refresh lands on knows only the URL, which may be either spelling.
+   */
+  routeTickerId: string;
   action: TickerRefreshAction;
   /** The worker the action was about, when there was one. An id only, never a name. */
   targetWorkerId: string | null;
@@ -36,14 +43,16 @@ export interface TickerRefreshMarkerScope {
 export interface TickerRefreshMarkerContext {
   viewer: string;
   appId: string;
+  /** The ticker as the page's URL spells it — matched against both stored spellings. */
   tickerId: string;
 }
 
 interface Marker {
-  v: 1;
+  v: 2;
   viewer: string;
   appId: string;
   tickerId: string;
+  routeTickerId: string;
   action: TickerRefreshAction;
   targetWorkerId: string | null;
   attempt: string;
@@ -64,7 +73,7 @@ function read(): Marker | null {
   try {
     const m = JSON.parse(raw) as Partial<Marker> | null;
     if (
-      m && m.v === 1 && str(m.viewer) && str(m.appId) && str(m.tickerId) && isAction(m.action) &&
+      m && m.v === 2 && str(m.viewer) && str(m.appId) && str(m.tickerId) && str(m.routeTickerId) && isAction(m.action) &&
       str(m.attempt) && typeof m.at === 'number' && (m.targetWorkerId === null || str(m.targetWorkerId))
     ) return m as Marker;
   } catch {
@@ -75,14 +84,15 @@ function read(): Marker | null {
 
 /** Leave the marker. Returns its attempt id, or null when it could not be written (the action goes on without it). */
 export function setTickerRefreshMarker(scope: TickerRefreshMarkerScope, now: number = Date.now()): string | null {
-  if (!str(scope.viewer) || !str(scope.appId) || !str(scope.tickerId)) return null;
+  if (!str(scope.viewer) || !str(scope.appId) || !str(scope.tickerId) || !str(scope.routeTickerId)) return null;
   try {
     const attempt = `${now.toString(36)}-${(++counter).toString(36)}`;
     const marker: Marker = {
-      v: 1,
+      v: 2,
       viewer: scope.viewer,
       appId: scope.appId,
       tickerId: scope.tickerId,
+      routeTickerId: scope.routeTickerId,
       action: scope.action,
       targetWorkerId: scope.targetWorkerId || null,
       attempt,
@@ -109,9 +119,12 @@ export function clearTickerRefreshMarker(attempt?: string): void {
 
 /**
  * True once for the marker of THIS viewer, App and ticker inside its window, and the marker is
- * consumed. A live marker for another App or ticker is left alone (it says nothing here). Another
- * viewer's, an expired, future-dated, corrupt, foreign-attempt one is removed. A context with no
- * ticker id cannot claim anything, and removes nothing.
+ * consumed. The ticker matches EITHER stored spelling — the canonical id the write was keyed by,
+ * or the route spelling the URL had when it was made — because the boundary reading this knows
+ * only the URL (#1462 worker marker's rule). A live marker for another App or ticker is left
+ * alone (it says nothing here). Another viewer's, an expired, future-dated, corrupt,
+ * foreign-attempt one is removed. A context with no ticker id cannot claim anything, and removes
+ * nothing.
  */
 export function takeTickerRefreshMarker(ctx: TickerRefreshMarkerContext, now: number = Date.now()): boolean {
   try {
@@ -125,7 +138,7 @@ export function takeTickerRefreshMarker(ctx: TickerRefreshMarkerContext, now: nu
       sessionStorage.removeItem(KEY);
       return false;
     }
-    if (!str(ctx.appId) || !str(ctx.tickerId) || ctx.appId !== m.appId || ctx.tickerId !== m.tickerId) return false;
+    if (!str(ctx.appId) || !str(ctx.tickerId) || ctx.appId !== m.appId || (ctx.tickerId !== m.tickerId && ctx.tickerId !== m.routeTickerId)) return false;
     sessionStorage.removeItem(KEY);
     latestAttempt = null;
     return true;

@@ -46,6 +46,13 @@ const detailTask = {
   'detail-task-failed': { kind: 'failed' },
 } as const;
 
+// portal#1496: the Wake-ups CLI commands carry the worker ref, so a
+// 200-character unbroken URN is what pushes them wide. portal#1497's controls
+// made the same URN the ticker page's own widest label — the subscribers
+// table row, the row's open Remove confirmation, the chooser's selected-worker
+// chip — so its long variant (detail-long-urn) rides on the same constant.
+const LONG_WORKER_URN = `hrn:worker:hadronmemory.com:hadron-dev-team:${'y'.repeat(200 - 'hrn:worker:hadronmemory.com:hadron-dev-team:'.length)}`;
+
 // portal#1497: the roster read behind the Add-subscriber chooser. The named
 // workers are long on purpose — a nameless one shows its URN, the widest
 // label the select offers — and the subscribed row's worker (Liam) is NOT in
@@ -64,13 +71,22 @@ const rosters = {
   'detail-roster-empty': { kind: 'ok', workers: [] },
   'detail-uncertain': rosterOk,
   'detail-refresh-failed': rosterOk,
+  // The chooser's widest state: the nameless worker whose URN IS the label,
+  // at the 200-character extreme.
+  'detail-long-urn': { kind: 'ok', workers: [
+    { id: 'w-dara', name: 'Dara (coordinator with a fairly long display name)', urn: 'hrn:worker:hadronmemory.com:hadron-dev-team:dara' },
+    { id: 'w-longnameless', name: null, urn: LONG_WORKER_URN },
+  ] },
 } as const;
 
-// portal#1496: the Wake-ups CLI commands carry the worker ref, so a
-// 200-character unbroken URN is what pushes them wide. (The ticker page's own
-// commands were removed by portal#1497 D4 — the portal controls replaced them
-// — so only the worker ref still needs a long variant.)
-const LONG_WORKER_URN = `hrn:worker:hadronmemory.com:hadron-dev-team:${'y'.repeat(200 - 'hrn:worker:hadronmemory.com:hadron-dev-team:'.length)}`;
+// portal#1497 (review): the subscribers table row is the page's other URN
+// carrier — the long variant gives it the same 200-character worker URN.
+const subscribersByView: Record<string, unknown> = {
+  'detail-long-urn': { kind: 'ok', value: { items: [
+    { ...subscriber, worker: { id: 'w-longnameless', name: null, urn: LONG_WORKER_URN, retiredAt: null } },
+  ], hasNextPage: true, endCursor: 's1' } },
+};
+
 const wakeWorker = {
   'wake': { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:hadronmemory.com:hadron-dev-team:liam' },
   'wake-long-urn': { retiredAt: null, id: 'w-liam', urn: LONG_WORKER_URN },
@@ -97,10 +113,26 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
           app, ticker: { ...ticker, tickCode: LONG_CODE }, settings, paged: false, after: null, loadedAt: LOADED, impersonating: null,
           tickerTask: view in detailTask ? detailTask[view as keyof typeof detailTask] : { kind: 'ok', value: { registerTaskLoc: LONG_LOC } },
           roster: rosters[view as keyof typeof rosters],
-          subscribers: { kind: 'ok', value: { items: [subscriber], hasNextPage: true, endCursor: 's1' } },
+          subscribers: subscribersByView[view] ?? { kind: 'ok', value: { items: [subscriber], hasNextPage: true, endCursor: 's1' } },
         },
       } as never,
     });
+    // portal#1497 (review): the long-URN view mounts the page in its two
+    // widest control states, the ones a reader can leave on screen — the
+    // row's Remove confirmation open (its Urn chip), and the chooser open
+    // with the nameless long-URN worker selected (its selected-worker chip).
+    if (view === 'detail-long-urn') {
+      target.querySelector<HTMLButtonElement>('[data-testid="ticker-remove-s1"]')?.click();
+      flushSync();
+      target.querySelector<HTMLButtonElement>('[data-testid="ticker-add-subscriber"] button')?.click();
+      flushSync();
+      const select = target.querySelector<HTMLSelectElement>('[data-testid="ticker-add-worker"]');
+      if (select) {
+        select.value = 'w-longnameless';
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      flushSync();
+    }
     // portal#1497: the two states only a delivered action result reaches. The
     // real alert and the real line are mounted beside the real page, in the
     // exact place the controls render them (under the subscriber controls).
