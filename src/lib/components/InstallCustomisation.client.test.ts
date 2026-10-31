@@ -525,6 +525,25 @@ describe('install customisation polish (#1369)', () => {
     expect(search.getAttribute('aria-label')).toBe('Search the customisations on this page');
   });
 
+  it('filters the loaded rows by the search text (QA #1508 F1)', async () => {
+    const other = { ...node, id: 'n2', loc: 'boot', name: 'Boot prompt' };
+    serve(listOf(2, [node, other]));
+    const root = await panel();
+    const search = root.querySelector<HTMLInputElement>('input[type="text"]')!;
+    const rowNames = () =>
+      [...root.querySelectorAll('tbody tr')].map((r) => r.textContent ?? '');
+    expect(rowNames()).toHaveLength(2);
+    search.value = 'boot';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(4);
+    expect(rowNames()).toHaveLength(1);
+    expect(rowNames()[0]).toContain('Boot prompt');
+    search.value = 'no-such-customisation';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick(4);
+    expect(root.querySelectorAll('tbody tr')).toHaveLength(0);
+  });
+
   it('names each row action with the row it opens', async () => {
     const root = await panel();
     expect(button(root, 'Open').getAttribute('aria-label')).toBe('Open Note (note)');
