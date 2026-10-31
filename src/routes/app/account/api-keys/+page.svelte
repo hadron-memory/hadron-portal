@@ -42,13 +42,31 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const keys = $derived(data.keys);
-  let visibilityNotice = $state<{type:'success'|'error';text:string} | null>(null);
+  type VisibilityNotice = { type: 'success' | 'error'; text: string };
+  // 'cleared' while an accepted Hide/Unhide submit is pending: both feedback
+  // regions stay empty (the row's own status says Saving…), so the result lands
+  // in an empty region and is a change even when its text equals the last one
+  // (#1359, #1500 fix head). It also hides a no-JS result the submit supersedes.
+  let visibilityNotice = $state<VisibilityNotice | 'cleared' | null>(null);
   let hiddenToggle: HTMLInputElement;
-  const visibilityFeedback = $derived(visibilityNotice ?? (form && 'visibility' in form ? form.visibility : null));
-  function showVisibilityResult(notice: {type:'success'|'error';text:string}) {
-    visibilityNotice = notice;
-    // The row can disappear on success; keep keyboard focus on the persistent toggle.
-    if (notice.type === 'success') hiddenToggle?.focus();
+  const visibilityFeedback = $derived(visibilityNotice === 'cleared' ? null
+    : visibilityNotice ?? (form && 'visibility' in form ? form.visibility : null));
+  // Toggling Show hidden keys is an in-page navigation to another view. It drops
+  // the shown result, and a reply to a submit started before it is not shown.
+  let view = 0;
+  $effect(() => {
+    data.includeHidden;
+    untrack(() => { view++; visibilityNotice = null; });
+  });
+  function startVisibility() {
+    const startedIn = view;
+    visibilityNotice = 'cleared';
+    return (notice: VisibilityNotice) => {
+      if (startedIn !== view) return;
+      visibilityNotice = notice;
+      // The row can disappear on success; keep keyboard focus on the persistent toggle.
+      if (notice.type === 'success') hiddenToggle?.focus();
+    };
   }
   const loadError = $derived('loadError' in data ? data.loadError : undefined);
   const inputClass =
@@ -363,7 +381,7 @@
                 compact
               />
             {:else}
-              <ApiKeyVisibilityAction id={key.id} preview={key.keyPreview} hidden={!!key.hiddenAt} includeHidden={data.includeHidden} onresult={showVisibilityResult} />
+              <ApiKeyVisibilityAction id={key.id} preview={key.keyPreview} hidden={!!key.hiddenAt} includeHidden={data.includeHidden} onstart={startVisibility} />
             {/if}
           {:else}
             {@const f = fmt[cell.column.id]}

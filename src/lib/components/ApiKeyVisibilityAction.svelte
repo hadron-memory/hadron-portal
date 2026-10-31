@@ -4,9 +4,12 @@
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
   import { t } from '$lib/i18n/t';
-  let { id, preview, hidden, includeHidden, onresult }: {
+  type Notice = { type: 'success' | 'error'; text: string };
+  // onstart runs only for an ACCEPTED submit (never a cancelled duplicate) and
+  // returns where that submit's result goes.
+  let { id, preview, hidden, includeHidden, onstart }: {
     id: string; preview: string; hidden: boolean; includeHidden: boolean;
-    onresult: (notice: { type: 'success' | 'error'; text: string }) => void;
+    onstart: () => (notice: Notice) => void;
   } = $props();
   let formEl: HTMLFormElement;
   let pending = $state(false);
@@ -14,12 +17,13 @@
   const submit: SubmitFunction = ({ cancel }) => {
     if (pending) { cancel(); return; }
     pending = true;
+    const deliver = onstart();
     return async ({ result, update }) => {
       try {
         if ((result.type === 'success' || result.type === 'failure') && result.data?.visibility) {
-          onresult(result.data.visibility as {type: 'success' | 'error'; text: string});
+          deliver(result.data.visibility as Notice);
         } else if (result.type === 'error') {
-          onresult({type:'error', text:i18n.visibilityFailed()});
+          deliver({type:'error', text:i18n.visibilityFailed()});
           return;
         }
         await update({ reset: false, invalidateAll: result.type === 'success' });
