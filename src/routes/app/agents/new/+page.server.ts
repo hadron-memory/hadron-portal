@@ -2,7 +2,7 @@ import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError } from '$lib/server/gqlError';
+import { extractGqlErrorCode, gqlErrorTextForBranching, extractGqlError } from '$lib/server/gqlError';
 import { CREATE_PERSONAL_AGENT_MUTATION, UPDATE_AGENT_MUTATION } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 import { createPersonalAgentSchema } from './schema';
@@ -44,8 +44,8 @@ export const actions: Actions = {
       redirect(303, `/app/agents/${result.createAgent.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      const error = extractGqlError(e, 'Failed to create agent');
-      if (/agent with URN/i.test(error)) {
+      const error = extractGqlError(e, 'Failed to create agent', ["AGENT_URN_TAKEN"]);
+      if (extractGqlErrorCode(e) === 'AGENT_URN_TAKEN' || /agent with URN/i.test(gqlErrorTextForBranching(e, ['AGENT_URN_TAKEN']))) {
         return setError(form, 'slug', error, { status: 409 });
       }
       return message(form, { type: 'error', text: error }, { status: 500 });

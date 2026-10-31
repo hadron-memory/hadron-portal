@@ -150,9 +150,18 @@ export function reasonHelp(reason: string): string | null {
 export const noReasonsText = () => t('tickers.reasons.none', 'Never fires (no reasons)');
 export const reasonsUnavailableText = () => t('tickers.reasons.unavailable', 'Reasons unavailable');
 
+/**
+ * Whether the server sent a usable reasons list: an array of strings (empty included).
+ * Callers branch on this, never on the text a list renders as, because a real reason
+ * can be spelled like the "unavailable" sentence (portal#1341).
+ */
+export function isWellFormedReasons(reasons: unknown): reasons is string[] {
+  return Array.isArray(reasons) && reasons.every((r) => typeof r === 'string');
+}
+
 /** The reasons as the server sent them. Empty never fires; a missing list is unavailable, not empty. */
 export function reasonsText(reasons: unknown): string {
-  if (!Array.isArray(reasons) || !reasons.every((r) => typeof r === 'string')) return reasonsUnavailableText();
+  if (!isWellFormedReasons(reasons)) return reasonsUnavailableText();
   if (reasons.length === 0) return noReasonsText();
   return reasons.map((r) => reasonLabel(String(r))).join(', ');
 }
@@ -164,7 +173,7 @@ export function reasonsText(reasons: unknown): string {
  */
 export function reasonsSearchText(reasons: unknown): string {
   const text = reasonsText(reasons);
-  if (!Array.isArray(reasons) || text === reasonsUnavailableText()) return text;
+  if (!isWellFormedReasons(reasons)) return text;
   return reasons.some((r) => !isKnownReason(String(r))) ? `${text} ${unrecognisedReasonText()}` : text;
 }
 

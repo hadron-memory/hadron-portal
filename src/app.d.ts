@@ -24,7 +24,7 @@ declare global {
     namespace Superforms {
       type Message = { type: 'success' | 'error'; text: string };
     }
-    // interface Error {}
+    interface Error { message: string; requestId?: string }
     // interface PageData {}
     // interface Platform {}
   }

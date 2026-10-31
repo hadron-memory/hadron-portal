@@ -81,7 +81,7 @@ describe('Worker page: setBootPrompt and its loader', () => {
   });
 
   it('a manager who does not hold the worker gets the form: the audit asks about the worker’s App, never its holder', async () => {
-    const worker = {
+    const worker = { hasLiveSession: false,
       id: 'w-1', appId: 'app-1', agentId: 'a-1', name: 'Gil', slug: 'gil', urn: 'hrn:worker:a.com:team:gil', role: 'eng',
       promptOverride: null, memoryId: 'm', retiredAt: null, createdAt: '2026-10-01T00:00:00Z',
       heldByUserId: 'someone-else', heldByUser: { id: 'someone-else', handle: 'other' },
@@ -102,7 +102,7 @@ describe('Worker page: setBootPrompt and its loader', () => {
   });
 
   it('a failed pointer read is unavailable, not a null pointer', async () => {
-    const worker = { id: 'w-1', urn: 'hrn:worker:a.com:team:gil', name: 'Gil', app: { id: 'app-1', urn: 'hrn:app:a.com:team' } };
+    const worker = { hasLiveSession: false, id: 'w-1', urn: 'hrn:worker:a.com:team:gil', name: 'Gil', app: { id: 'app-1', urn: 'hrn:app:a.com:team' } };
     mockRequest.mockImplementation(async (doc: string) => {
       if (doc === WORKER_QUERY) return { worker };
       if (doc === WORKER_BOOT_POINTER_QUERY) throw new Error('boom');

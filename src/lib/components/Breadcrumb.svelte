@@ -18,6 +18,13 @@
      * copy. Defaults to `label`, so a truncated crumb is always recoverable.
      */
     title?: string;
+    /**
+     * A short immutable code shown as a quiet chip after the label (a task's
+     * handle, portal#1349): secondary to the label, outside the link so the
+     * link's name stays the label, with `chipLabel` as its accessible name.
+     */
+    chip?: string | null;
+    chipLabel?: string;
   }
 
   let { items }: { items: Crumb[] } = $props();
@@ -61,6 +68,14 @@
         title={item.title ?? item.label}
         class="block max-w-[8rem] truncate text-zinc-700 sm:max-w-[12rem] lg:max-w-[18rem] dark:text-zinc-300"
         >{item.label}</span
+      >
+    {/if}
+    {#if item.chip}
+      <code
+        class="inline-block max-w-[8rem] shrink-0 truncate rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+        title={item.chip}
+        aria-label={item.chipLabel ?? item.chip}
+        data-crumb-chip>{item.chip}</code
       >
     {/if}
   {/each}

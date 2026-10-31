@@ -119,3 +119,47 @@ describe('testFlow action Superforms validation', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 });
+
+// portal#1444 (hadron-server#2849): the same choice on the node page's "Test this flow".
+describe('testFlow action: choosing the Agent (#1444)', () => {
+  const gqlError = (code: string, message: string) => ({ response: { errors: [{ message, extensions: { code } }] } });
+  const base = { _kind: 'testFlow', appId: 'app-1', orgId: 'org-1', payload: '' };
+
+  function answer(run: () => unknown) {
+    mockRequest.mockImplementation(async (query: string) => {
+      if (query === NODE_BY_ID_QUERY) return { node };
+      if (query === RUN_TASK_APP_MUTATION) return run();
+      throw new Error('unexpected query');
+    });
+  }
+  const sent = () => mockRequest.mock.calls.find(([q]) => q === RUN_TASK_APP_MUTATION)?.[1];
+
+  it('sends agentRef when an Agent was chosen', async () => {
+    answer(() => ({ runTask: 'run-1' }));
+    await expect(runTestFlow({ ...base, agentRef: 'ag-b' })).rejects.toMatchObject({ status: 303 });
+    expect(sent()).toMatchObject({ appRef: 'app-1', agentRef: 'ag-b' });
+  });
+
+  it('sends no agentRef key when none was chosen', async () => {
+    answer(() => ({ runTask: 'run-1' }));
+    await expect(runTestFlow({ ...base, agentRef: '' })).rejects.toMatchObject({ status: 303 });
+    expect(sent()).not.toHaveProperty('agentRef');
+  });
+
+  it('RUN_AGENT_REQUIRED reads as a plain prompt to choose an Agent, never as the code', async () => {
+    answer(() => { throw gqlError('RUN_AGENT_REQUIRED', 'RUN_AGENT_REQUIRED: name one of the installed Agents'); });
+    const result = await runTestFlow(base);
+    const text = (superFormFrom(result)?.message as { text: string }).text;
+    expect(text).toMatch(/choose an agent/i);
+    expect(text).not.toContain('RUN_AGENT_REQUIRED');
+  });
+
+  // portal#1454 — a correctable refusal is the reader's input, not a server fault.
+  it('RUN_AGENT_REQUIRED answers 400; any other failure to start stays 500', async () => {
+    answer(() => { throw gqlError('RUN_AGENT_REQUIRED', 'RUN_AGENT_REQUIRED: name one of the installed Agents'); });
+    expect(((await runTestFlow(base)) as { status: number }).status).toBe(400);
+
+    answer(() => { throw new Error('boom'); });
+    expect(((await runTestFlow(base)) as { status: number }).status).toBe(500);
+  });
+});

@@ -241,6 +241,6 @@ describe('node-detail sendChatMessage action', () => {
     const result = (await send({ _kind: 'sendChatMessage', content: 'hello' })) as { status: number };
 
     expect(result.status).toBe(500);
-    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Cannot create message' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });

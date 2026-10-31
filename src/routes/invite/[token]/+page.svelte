@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TurnstileWidget from '$lib/components/TurnstileWidget.svelte';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -40,6 +41,8 @@
     clearOnSubmit: 'none',
   });
 
+  let turnstile: TurnstileWidget | undefined = $state();
+
   const initialEmailForm = untrack(() => submittedForm<InviteEmailForm>(form, 'sendEmail') as InviteEmailSuperform | null ?? data.form);
   const {
     form: emailForm,
@@ -54,6 +57,9 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #1470: a Turnstile token verifies once, so a fresh one is needed after any submit.
+    onUpdated: () => turnstile?.reset(),
+    onError: () => turnstile?.reset(),
   });
   const emailError = $derived($emailErrors.email?.[0] ?? null);
   const acceptActionError = $derived(scopedActionError<AcceptInvitationForm>(form, 'acceptInvitation', $acceptMessage));
@@ -132,6 +138,7 @@
                   <p id="inviteEmailError" class="mt-1 text-xs text-red-400">{emailError}</p>
                 {/if}
               </div>
+              <TurnstileWidget bind:this={turnstile} />
               <button type="submit" disabled={$emailSubmitting} class="w-full rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50">
                 {$emailSubmitting ? 'Sending...' : 'Continue with email'}
               </button>

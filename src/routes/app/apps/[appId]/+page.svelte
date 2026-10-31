@@ -1,20 +1,51 @@
 <script lang="ts">
+  import { taskHref } from '$lib/agent-tasks/handle';
+  import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
+  import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
-  import { afterNavigate, invalidateAll, replaceState } from '$app/navigation';
+  import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import JSZip from 'jszip';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import InstallCustomisation from '$lib/components/InstallCustomisation.svelte';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { appAgentPointerKey, appRowPointer, pointerResultFor, pointerText, pointerView, type PointerResult } from '$lib/boot-prompt-pointer';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
+  import TeamChatSearch from '$lib/components/TeamChatSearch.svelte';
+  import { teamChatSearchStrings } from '$lib/i18n/team-chat-search-strings';
+  import type { TranscriptView } from '$lib/team-chat-refresh';
+  import ChannelChatThread from '$lib/components/ChannelChatThread.svelte';
   import { createRosterRefreshers, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
+  import { NO_TEAM_FILTER, filterKeyOf, teamChatReadUrl, withTeamFilter, type TeamChatFilter } from '$lib/team-chat-filter';
+
+  let channelPostBusy = $state(false);
+  // #1013: the team-chat history search panel; the live thread below stays mounted.
+  let teamSearchOpen = $state(false);
+  let teamSearchToggle: HTMLButtonElement | undefined = $state();
+  // Keep the submitting thread mounted until its result clears/keeps its own
+  // draft. A navigation mid-post would make that outcome ambiguous.
+  beforeNavigate((navigation) => { if (channelPostBusy) navigation.cancel(); });
+  let channelViews = $state<Record<string, TranscriptView>>({});
+  let channelDrafts = $state<Record<string, { body: string; replyToSeq?: string }>>({});
+  let chatSwitchBusy = $state(false);
+  let chatSwitchFailed = $state(false);
+  async function selectChat(key: string) {
+    const next = new URL(window.location.href);
+    next.searchParams.set('tab', 'chats');
+    next.searchParams.set('chat', key);
+    chatSwitchBusy = true;
+    chatSwitchFailed = false;
+    try { await goto(next, { noScroll: true }); }
+    catch { chatSwitchFailed = true; }
+    finally { chatSwitchBusy = false; }
+  }
 
   // #754/#785: read the transcript from its OWN endpoint, not by invalidating
   // this page's load. The load is a six-query parallel fetch whose failure
@@ -28,11 +59,19 @@
   // one. Measured under #754: one refetch in 20s where three were due, because
   // the 8s clock kept resetting. A prop that changes identity every render is
   // not a callback, it is a dependency.
+  // #1137: every read carries the team filter this page was loaded with
+  // (`data.teamFilter`, from `?team=`), so the filter and the transcript it
+  // produced always travel together. A read that lands after the page moved to
+  // another filter or App is dropped by the thread's generation guard: `data`
+  // changes only together with the transcript props that guard watches.
+  // An invalid `?team=` reads NOTHING: the loader stored the unfiltered value
+  // next to `teamFilterInvalid`, so a read here would broaden the request behind
+  // the alert. Leaving it takes an explicit All messages navigation.
   const refreshTeamChat = async (sinceSeq?: number) => {
-    const cursor = sinceSeq === undefined ? '' : `?sinceSeq=${sinceSeq}`;
-    const res = await fetch(`/app/apps/${app.id}/team-chat${cursor}`);
+    if (data.teamFilterInvalid) return null;
+    const res = await fetch(teamChatReadUrl(app.id, { sinceSeq }, data.teamFilter));
     if (!res.ok) return null; // treated as a degraded tick, not an empty thread
-    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
     // The initial page can contain workers whose roster lookup failed. Later
     // forward pages may be empty, so keep seeding those bounded first-page
     // authors while the refresher retries its pending IDs.
@@ -43,23 +82,37 @@
   // null means "the fetch failed, retry on the next scroll", which the thread
   // keeps distinct from an empty page meaning "start of the conversation".
   const loadOlderTeamChat = async (beforeSeq: number) => {
-    const res = await fetch(`/app/apps/${app.id}/team-chat?beforeSeq=${beforeSeq}`);
+    if (data.teamFilterInvalid) return null;
+    const res = await fetch(teamChatReadUrl(app.id, { beforeSeq }, data.teamFilter));
     if (!res.ok) return null;
-    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean };
-    if (body.loadFailed) return null;
+    const body = (await res.json()) as { items: TeamChatMessage[]; total: number; loadFailed: boolean; refusal?: TeamChatRefusal };
+    // A typed head refusal is an answer the thread must show; any other failure
+    // stays null so the next scroll retries.
+    if (body.loadFailed) return body.refusal ? { refusal: body.refusal } : null;
     void refreshRosterFor(body.items);
     return { items: body.items, total: body.total };
+  };
+  // #1137: choosing a filter is a NAVIGATION to `?team=`, not component state:
+  // the loader re-reads the tail under it (server-side), the cursors and loaded
+  // page reset with the new props, and the URL is linkable. `keepFocus` and
+  // `noScroll` leave the composer and its draft alone.
+  const selectTeamFilter = (next: TeamChatFilter) => {
+    void goto(withTeamFilter(new URL(window.location.href), next), { keepFocus: true, noScroll: true });
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
+  import TerminalStatus from '$lib/components/TerminalStatus.svelte';
+  import { pageClock, terminalBadge, terminalSummary } from '$lib/workers/terminal';
+  import { workerInternalsVisible } from '$lib/worker-profile';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
+  import AppMemories from './AppMemories.svelte';
   import AppMembersPanel from './AppMembersPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { AppKey, TeamChatMessage, Worker } from '$lib/types';
+  import type { AppKey, TeamChatMessage, TeamChatRefusal, Worker } from '$lib/types';
   import { chooseAppChatTabRender } from '$lib/components/app-chat-tab.js';
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
@@ -128,6 +181,8 @@
   const staff = $derived(data.staff);
   // portal#1168: Task and Paused, one bulk read joined by worker id.
   const teamRoster = $derived(data.teamRoster);
+  // portal#1492: the loader's one clock, so server render and hydration agree on every age.
+  const terminalNow = $derived(pageClock(data.terminalNow));
   // #855: worker id → URN for the team chat's author chip. Null when the roster
   // failed to load, so the chat renders no chip rather than an empty one;
   // workers whose URN is null (pre-v2 App URN) are simply absent.
@@ -293,7 +348,11 @@
     // three-valued read the profile's held-workers grid uses: masked is "Not
     // shown to you", never "idle".
     { accessorFn: (row) => workerStatusLabel(row), id: 'status', header: t('app.staff.column.status', 'Status'), size: 150 },
-    { accessorFn: (row) => rosterEntry(row.id)?.currentTask?.title ?? '', id: 'task', header: t('app.staff.column.task', 'Task'), size: 220 },
+    // portal#1492 — the terminal's own state, apart from the session Status above
+    // so a session "Idle" and a terminal "Idle" never read as one thing. The accessor
+    // returns only what the cell shows, so search and sort never reach a hidden value.
+    { accessorFn: (row) => { const b = terminalBadgeOf(row); return b ? terminalSummary(b) : ''; }, id: 'terminal', header: t('app.staff.column.terminal', 'Terminal'), size: 220 },
+    { accessorFn: (row) => [rosterEntry(row.id)?.currentTask?.title, rosterEntry(row.id)?.currentTask?.handle].filter(Boolean).join(' '), id: 'task', header: t('app.staff.column.task', 'Task'), size: 220 },
     { accessorFn: (row) => row.family ?? '', id: 'family', header: t('app.staff.column.family', 'Model family'), size: 130 },
     {
       accessorFn: (row) => {
@@ -324,14 +383,20 @@
     { id: 'actions', header: t('app.staff.column.actions', 'Actions'), enableSorting: false, enableHiding: false, size: 80 },
   ];
   // #1009: a worker row's actions, as ⋯ menu items.
-  // - Edit opens the worker page's briefing editor: `updateWorker` takes only
-  //   `promptOverride`, so a worker's ROLE is not editable anywhere yet.
+  // - Edit opens the worker page for its prompt pointer and signature templates.
   // - Release / Force-release only when a hold is actually KNOWN (#756/#1050):
   //   `none` is not "unheld" — the field is masked to null on a denied read.
   // - Retire (danger) only for an active worker; a retired one keeps its
   //   name forever and has nothing left to retire or release.
   function rosterEntry(workerId: string) {
     return teamRoster?.kind === 'ok' ? teamRoster.byWorker[workerId] ?? null : null;
+  }
+  // portal#1492: no badge without a roster entry (failed, hidden or missing read)
+  // and none for a reader the server withholds internals from. `terminal` undefined
+  // is "not answered"; only a returned null is "Not reported".
+  function terminalBadgeOf(worker: Worker) {
+    const entry = rosterEntry(worker.id);
+    return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker)) : null;
   }
   const TASK_STATUS = {
     STARTED: () => t('app.staff.task.started', 'Started'),
@@ -525,6 +590,13 @@
     }
     return id ? (installedAgents.find((a) => a.id === id) ?? null) : null;
   });
+  let customisationPanel = $state<{ reveal: () => void }>();
+  let customisationChoice = $state<{ appRef: string; agentId: string } | null>(null);
+  const customisationAgent = $derived(
+    customisationChoice?.appRef === data.bootPointerAppKey
+      ? installedAgents.find((a) => a.id === customisationChoice?.agentId)
+      : null,
+  );
   const choosePointerRow = (agentId: string | null) => (pointerChoice = { appKey: data.bootPointerAppKey, agentId });
 
   // #1020 + #1142 S8: the agents grid's row actions. Set boot prompt opens
@@ -533,6 +605,7 @@
   // below the table for the picked row.
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
     return [
+      { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
         ? [{
             id: 'set-boot-prompt',
@@ -544,7 +617,13 @@
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
-    if (id === 'set-boot-prompt') {
+    if (id === 'customisation') {
+      customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
+      const appKey = data.bootPointerAppKey;
+      void tick().then(() => {
+        if (appKey === data.bootPointerAppKey && customisationAgent?.id === agent.id) customisationPanel?.reveal();
+      });
+    } else if (id === 'set-boot-prompt') {
       choosePointerRow(pointerAgent?.id === agent.id ? null : agent.id);
     } else if (id === 'unlink') {
       unlinkAgent(agent);
@@ -657,6 +736,7 @@
     ) {
       return 'members';
     }
+    if (submittedForm(result, 'createAppMemory')) return 'memory';
     if (submittedForm<DeleteAppForm>(result, 'deleteApp')) {
       return 'settings';
     }
@@ -800,6 +880,7 @@
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
   async function focusTab(id: TabId) {
+    if (channelPostBusy) return;
     activeTab = id;
     await tick();
     document.getElementById(`tab-${id}`)?.focus();
@@ -962,7 +1043,7 @@
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
         castWorkerForm.update(
-          (current) => ({ ...current, agentId: '', name: '', promptOverride: '' }),
+          (current) => ({ ...current, agentId: '', name: '' }),
           { taint: false },
         );
         castOpen = false;
@@ -1173,7 +1254,7 @@
         appType: app.appType,
         role: app.role,
         description: app.description ?? '',
-        systemPrompt: app.systemPrompt ?? '',
+
         createUserPermission: app.createUserPermission,
         identifyUserMethod: app.identifyUserMethod,
         sessionTimeoutSeconds: String(app.sessionTimeoutSeconds),
@@ -1557,6 +1638,9 @@
        took the panel bodies with them. `shrink-0` + `whitespace-nowrap` on each tab is what makes it
        SCROLL rather than compress — without them flex squeezes every label
        into an unreadable column instead. -->
+  <!-- portal#1139: the stops in effect, prominent above the sections. -->
+  <StopBanner live={data.liveStops} workers={(data.staff ?? []).map((w) => ({ id: w.id, name: w.name, urn: w.urn ?? null }))} href="/app/apps/{app.id}/stops" />
+
   <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     <!-- #768 — the ARIA tab pattern. These controls swap mutually exclusive
          panels IN PLACE, which is what role="tab" describes; the previous
@@ -1575,7 +1659,7 @@
           aria-selected={activeTab === tab.id}
           aria-controls="panel-{tab.id}"
           tabindex={activeTab === tab.id ? 0 : -1}
-          onclick={() => activeTab = tab.id}
+          onclick={() => { if (!channelPostBusy) activeTab = tab.id; }}
           onkeydown={onTabKeydown}
           class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
             {activeTab === tab.id
@@ -1617,6 +1701,14 @@
     >
       {t('app.tabs.tickers', 'Tickers')}
     </a>
+    <!-- #1139: Stops is a subroute: its reads answer a non-participant APP_NOT_FOUND,
+         and that must never reach this page's loader. -->
+    <a
+      href="/app/apps/{app.id}/stops"
+      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+    >
+      {t('app.tabs.stops', 'Stops')}
+    </a>
     <!-- #1299: Automations is a subroute: its reads answer a reader who may not adopt
          with nothing, and that must never reach this page's loader. -->
     <a
@@ -1641,7 +1733,9 @@
        an answer you cannot link to is half an answer. It also means switching
        chats re-runs the loader, which is what fetches a 1:1 transcript. -->
   {#if activeTab === 'chats'}
-    <div id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    {#if chatSwitchBusy}<p role="status">{t('app.chats.opening', 'Opening chat…')}</p>{/if}
+    {#if chatSwitchFailed}<p role="status">{t('app.chats.open-failed', 'Could not open that chat. Your current conversation is still here.')}</p>{/if}
+    <div inert={chatSwitchBusy} aria-busy={chatSwitchBusy} id="panel-chats" role="tabpanel" aria-labelledby="tab-chats" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="mb-3 flex flex-wrap items-center gap-2">
       {#if data.chatsError}
         <!-- Discovery failed. NOT the same as "this App has one chat", so the
@@ -1656,19 +1750,16 @@
           )}
         </span>
       {/if}
-      {#each data.appChats ?? [] as entry (entry.key)}
-        <a
-          href="?tab=chats&chat={encodeURIComponent(entry.key)}"
-          data-sveltekit-noscroll
-          aria-current={entry.key === data.selectedChatKey ? 'page' : undefined}
-          class="rounded-lg border px-3 py-1.5 text-xs font-medium transition {entry.key ===
-          data.selectedChatKey
-            ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300'
-            : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
-        >
-          {entry.labelKey ? t(entry.labelKey, entry.label) : entry.label}
-        </a>
-      {/each}
+      <label for="app-chat-select" class="text-sm text-zinc-500">{t('app.chats.select', 'Chat')}</label>
+      <select id="app-chat-select" class="min-w-0 max-w-full rounded-lg border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+        disabled={channelPostBusy} value={data.selectedChatKey ?? ''} onchange={(e) => { const key = e.currentTarget.value; e.currentTarget.value = data.selectedChatKey ?? ''; void selectChat(key); }}>
+        {#each data.appChats ?? [] as entry (entry.key)}
+          <option value={entry.key}>{entry.labelKey ? t(entry.labelKey, entry.label) : entry.label}</option>
+        {/each}
+      </select>
+      {#if data.selectedChannelId && data.selectedChatKey?.startsWith('hrn:')}
+        <Urn value={data.selectedChatKey} type="node" />
+      {/if}
       {#if data.chatsCapped}
         <CappedNotice shown={data.chatRootsShown ?? 0} what={t('capped.chats', 'chats')} />
       {/if}
@@ -1854,6 +1945,15 @@
              decoration, kept out of that name. -->
         <button
           type="button"
+          bind:this={teamSearchToggle}
+          onclick={() => { teamSearchOpen = !teamSearchOpen; if (!teamSearchOpen) teamSearchToggle?.focus(); }}
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          data-testid="team-chat-search-toggle"
+        >
+          {teamSearchOpen ? teamChatSearchStrings.back() : teamChatSearchStrings.toggle()}
+        </button>
+        <button
+          type="button"
           onclick={() => setChatMaximized(!chatFullView)}
           class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
@@ -1890,7 +1990,19 @@
            but minting new links that depend on a back-compat shim is how a
            shim stops being removable (Copilot on #759). -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+        {#if teamSearchOpen}
+          <div id="team-chat-search-panel" class="min-h-0 flex-1 overflow-y-auto">
+            {#key app.id}<TeamChatSearch appId={app.id} />{/key}
+          </div>
+        {/if}
+        <div class={teamSearchOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
+        {#key `${app.id}:${data.postTeamChatMessageForm.id}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
+          {@const teamStateKey = `${app.id}:team`}
+          {@const teamViewKey = `${teamStateKey}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
         <TeamChatThread
+          draft={channelDrafts[teamStateKey]} onDraftChange={(draft) => { channelDrafts[teamStateKey] = draft; }}
+          viewState={channelViews[teamViewKey]} onViewStateChange={(view) => { channelViews[teamViewKey] = view; }}
+          onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
           messages={data.teamChatMessages ?? []}
           total={data.teamChatTotal ?? 0}
           loadError={data.teamChatError ?? false}
@@ -1900,15 +2012,32 @@
           onRefresh={refreshTeamChat}
           onLoadOlder={loadOlderTeamChat}
           {workerUrns}
+          filter={data.teamFilter}
+          filterInvalid={data.teamFilterInvalid}
+          refusal={data.teamChatRefusal}
+          onSelectTeam={selectTeamFilter}
         />
+        {/key}
+        </div>
       </div>
     </div>
+    {:else if data.selectedChannelId && data.postChannelMessageForm}
+      {#key `${app.id}:${data.selectedChannelId}`}
+        {@const channelId = data.selectedChannelId}
+        {@const channelStateKey = `${app.id}:${channelId}`}
+        <div class="flex flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
+          <ChannelChatThread appId={app.id} {channelId} messages={data.selectedChannelMessages}
+            total={data.selectedChannelTotal} loadError={data.selectedChannelError}
+            postForm={data.postChannelMessageForm} {form} {workerUrns}
+            action={`?tab=chats&chat=${encodeURIComponent(data.selectedChatKey ?? '')}&/postChannelMessage`}
+            onSubmittingChange={(submitting) => { channelPostBusy = submitting; }}
+            viewState={channelViews[channelStateKey]} onViewStateChange={(view) => { channelViews[channelStateKey] = view; }}
+            draft={channelDrafts[channelStateKey]} onDraftChange={(draft) => { channelDrafts[channelStateKey] = draft; }} />
+        </div>
+      {/key}
     {:else if data.selectedChatKey}
-      <!-- Any other chat root in the App's shared memory — a 1:1 between two
-           participants. READ-ONLY, and not by choice: the write surfaces are
-           `createTeamChatMessage` (team chat) and `sendChatMessage` (agent
-           chat), and there is no operation to post into an arbitrary App chat.
-           Rendering a composer that cannot work would be worse than saying so. -->
+      <!-- An old, unregistered chat root has no Channel identity. Keep its
+           existing readable transcript without inventing a post target. -->
       <div class="flex flex-col" style="height: calc(100vh - 280px); height: calc(100dvh - 280px);">
         {#if data.selectedChatError}
           <p role="status" class="rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900">
@@ -2167,22 +2296,6 @@
               {/if}
             </p>
           </div>
-          <div>
-            <label for="castPromptOverride" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {t('app.staff.field.prompt-override', 'Prompt override')}
-            </label>
-            <textarea
-              id="castPromptOverride"
-              name="promptOverride"
-              rows="3"
-              bind:value={$castWorkerForm.promptOverride}
-              aria-describedby="castPromptOverrideHelp"
-              class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
-            ></textarea>
-            <p id="castPromptOverrideHelp" class="mt-1 text-xs text-zinc-400">
-              {t('app.staff.field.prompt-override.help', 'Optional. Appended to the agent’s prompt template as this worker’s own paragraph.')}
-            </p>
-          </div>
           <div class="flex gap-3">
             <button
               type="submit"
@@ -2338,14 +2451,22 @@
               {#if pauseBadge(worker.id)}
                 <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">{pauseBadge(worker.id)}</span>
               {/if}
+            {:else if cell.column.id === 'terminal'}
+              <TerminalStatus badge={terminalBadgeOf(worker)} now={terminalNow} compact />
             {:else if cell.column.id === 'task'}
               {@const task = rosterEntry(worker.id)?.currentTask}
               {#if !rosterEntry(worker.id)}
                 <!-- Failed, withheld, or a worker the read did not return: never the "no task" dash. -->
                 <span class="text-xs text-zinc-500">{t('app.staff.na', 'Not available')}</span>
+              {:else if rosterEntry(worker.id)?.currentTaskUnavailable}
+                <!-- portal#1349: a current task this App could not resolve. Neutral, no link, unsearchable. -->
+                <span class="text-xs text-zinc-500">{t('app.tasks.task-ref-unavailable', 'Task unavailable')}</span>
               {:else if task}
                 <div class="min-w-0 text-xs">
-                  <a href="/app/apps/{app.id}/tasks/{task.id}" class="block truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
+                  <span class="flex min-w-0 items-center gap-1.5">
+                    <a href={taskHref(`/app/apps/${app.id}`, task)} class="min-w-0 truncate text-indigo-600 hover:underline dark:text-indigo-400">{task.title}</a>
+                    <TaskHandle handle={task.handle} />
+                  </span>
                   <span class="text-zinc-500">{TASK_STATUS[task.status]?.() ?? task.status}</span>
                 </div>
               {:else}
@@ -2525,6 +2646,16 @@
             {/if}
           {/snippet}
         </DataTable>
+        {#if customisationAgent}
+          {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
+            <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} onClose={async () => {
+              const label = t('app.agents.actions.label', 'Actions for {name}', { name: customisationAgent.name });
+              customisationChoice = null;
+              await tick();
+              document.querySelector<HTMLButtonElement>(`button[aria-label="${CSS.escape(label)}"]`)?.focus();
+            }} />
+          {/key}
+        {/if}
         {#if pointerAgent}
           <!-- portal#1142 S8: one install's pointer. Re-keyed per row, so a draft
                or result typed for one agent never shows on another. -->
@@ -2616,6 +2747,11 @@
 
   {#if activeTab === 'memory'}
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    {#if data.createMemoryForm}
+      {#key app.id}
+        <AppMemories memories={data.appMemories ?? null} canCreate={data.canCreateMemory === true} showDescription={!!app.organizationId} initial={data.createMemoryForm} result={form} />
+      {/key}
+    {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's
          rights across this App. Omit the partial writable set so the browser
          makes no read-only claim from omission; server writes stay authoritative.
@@ -2800,13 +2936,6 @@
             <div>
               <label for="description" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Description</label>
               <input id="description" type="text" name="description" bind:value={$appSettingsForm.description} placeholder="What this app is for" class={inputClass} />
-            </div>
-            <div>
-              <label for="systemPrompt" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">System Prompt</label>
-              <textarea id="systemPrompt" name="systemPrompt" rows="4" bind:value={$appSettingsForm.systemPrompt}
-                placeholder="Instructions for the LLM when using this app"
-                class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500"></textarea>
-              <p class="mt-1 text-xs text-zinc-400">Sent to the LLM at the start of each agent chat.</p>
             </div>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>

@@ -50,12 +50,43 @@ function subject(e: Pick<AgentTeamEvent, 'subjectWorker' | 'payload'>, people: K
   return (userId && people[userId]) || t('app.tasks.history.a-person', 'a person');
 }
 
+/** The editable fields the platform names in a `task.edited` payload (hadron-server#2645), in its order. */
+const TASK_EDIT_FIELD_ORDER = ['title', 'description', 'tags', 'requirements', 'startBy', 'closeSessionWhenDone'] as const;
+
+function taskEditFieldLabel(f: (typeof TASK_EDIT_FIELD_ORDER)[number]): string {
+  switch (f) {
+    case 'title': return t('app.tasks.edit.field.title', 'title');
+    case 'description': return t('app.tasks.edit.field.description', 'description');
+    case 'tags': return t('app.tasks.edit.field.tags', 'tags');
+    case 'requirements': return t('app.tasks.edit.field.requirements', 'requirements');
+    case 'startBy': return t('app.tasks.edit.field.start-by', 'start by');
+    case 'closeSessionWhenDone': return t('app.tasks.edit.field.close-session', 'end-session choice');
+  }
+}
+
+/** "a", "a and b", "a, b and c". */
+function listWords(xs: string[]): string {
+  if (xs.length < 2) return xs.join('');
+  return `${xs.slice(0, -1).join(', ')} ${t('app.tasks.edit.and', 'and')} ${xs[xs.length - 1]}`;
+}
+
 export function eventSentence(
   e: Pick<AgentTeamEvent, 'type' | 'payload' | 'subjectWorker'>,
   people: KnownPeople = {},
 ): EventSentence {
   const p = e.payload ?? {};
   switch (e.type) {
+    // server#2644 S1: fixed event vocabulary; never recover a blocker identity from payload ids.
+    case 'task.blocker-added':
+      return { known: true, text: t('app.tasks.history.blocker-added', 'added a blocker') };
+    case 'task.blocker-removed':
+      return { known: true, text: t('app.tasks.history.blocker-removed', 'removed a blocker') };
+    case 'task.priority':
+      return { known: true, text: typeof p.priority === 'number' && Number.isInteger(p.priority) && p.priority >= 1 && p.priority <= 5
+        ? t('app.tasks.history.priority', 'set priority to {priority}', { priority: p.priority })
+        : t('app.tasks.history.priority-unknown', 'changed the priority') };
+    case 'task.released':
+      return { known: true, text: t('app.tasks.history.released', 'released this task after its last open blocker ended or was removed') };
     case 'task.created':
       return { known: true, text: t('app.tasks.history.created', 'created this task') };
     case 'task.assigned':
@@ -100,6 +131,16 @@ export function eventSentence(
       return { known: true, text: t('app.tasks.history.parked', 'moved it to backlog') };
     case 'task.ready':
       return { known: true, text: t('app.tasks.history.ready', 'made it ready to be worked') };
+    case 'task.edited': {
+      // portal#1357 (hadron-server#2645): the payload names the changed fields and never a value.
+      const names = TASK_EDIT_FIELD_ORDER.filter((f) => Array.isArray(p.fields) && p.fields.includes(f)).map(taskEditFieldLabel);
+      return {
+        known: true,
+        text: names.length
+          ? t('app.tasks.history.edited-fields', 'edited the {fields}', { fields: listWords(names) })
+          : t('app.tasks.history.edited', 'edited the task'),
+      };
+    }
     case 'task.session-end-requested':
       return {
         known: true,

@@ -83,15 +83,12 @@ describe('personal (org-less) create-memory action (#627)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('maps a duplicate-URN rejection onto the slug field (409)', async () => {
+  it('an untyped collision is a generic fault rather than a guessed field refusal', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'A memory with URN "ada:my-notes" already exists' }] },
       message: 'A memory with URN "ada:my-notes" already exists',
     });
     const result = await runCreate({ displayName: 'My notes', slug: 'my-notes', memoryClass: 'personal' });
-    expect(result).toMatchObject({
-      status: 409,
-      data: { form: { errors: { slug: ['A memory with URN "ada:my-notes" already exists'] } } },
-    });
+    expect(result).toMatchObject({ status: 500, data: { form: { message: { type: 'error', text: 'Something went wrong on our side.' } } } });
   });
 });

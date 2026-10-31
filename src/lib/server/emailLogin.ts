@@ -2,6 +2,7 @@ import { env } from '$env/dynamic/private';
 import { randomBytes } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
 import type { ErrorStatus } from 'sveltekit-superforms';
+import { BOT_CHECK_ERROR, TURNSTILE_FIELD, botCheckMessage } from '$lib/turnstile';
 
 export function emailLoginErrorStatus(status: number): ErrorStatus {
   if (Number.isInteger(status) && status >= 400 && status <= 599) return status as ErrorStatus;
@@ -18,6 +19,9 @@ export function emailLoginErrorStatus(status: number): ErrorStatus {
  * makes magic links same-browser-only by design — the fixation defense requires
  * the redeeming browser to be the requesting one.
  *
+ * With `turnstileToken` (#1470) it also forwards the Turnstile response as
+ * `cf-turnstile-response`; the token is never logged or stored.
+ *
  * Shared by Superforms-backed email auth actions, the invite sendEmail action,
  * and the backwards-compatible /auth/start/email JSON endpoint so the binding is
  * established identically everywhere.
@@ -26,6 +30,7 @@ export async function startBoundMagicLink(
   cookies: Cookies,
   email: string,
   redirect?: string,
+  turnstileToken?: string,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const clientState = randomBytes(32).toString('hex');
   cookies.set('hadron_login_state', clientState, {
@@ -41,10 +46,21 @@ export async function startBoundMagicLink(
     const res = await fetch(`${serverUrl}/auth/email`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ email, redirect, clientState }),
+      // #1470: the token joins the body only when there is one, so with no
+      // widget the request is byte-identical to what it was before.
+      body: JSON.stringify({
+        email,
+        redirect,
+        clientState,
+        ...(turnstileToken ? { [TURNSTILE_FIELD]: turnstileToken } : {}),
+      }),
     });
     if (!res.ok) {
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+      // #1470: a refused bot check carries a machine code, not something to show.
+      if (data.error === BOT_CHECK_ERROR) {
+        return { ok: false, status: res.status, error: botCheckMessage(data.reason) };
+      }
       return { ok: false, status: res.status, error: data.error ?? 'Failed to send email' };
     }
     return { ok: true };

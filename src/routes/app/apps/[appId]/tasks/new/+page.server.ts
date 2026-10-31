@@ -1,3 +1,4 @@
+import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { CREATE_AGENT_TASK_MUTATION } from '$lib/server/queries';
@@ -10,6 +11,8 @@ import {
   writeFailure,
 } from '$lib/server/agent-task-writes';
 import { t } from '$lib/i18n/t';
+import { parseHandle, taskHref } from '$lib/agent-tasks/handle';
+import { startByIso } from '$lib/agent-tasks/start-by';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -39,22 +42,6 @@ const str = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim();
 const list = (fd: FormData, k: string) => fd.getAll(k).map((v) => String(v).trim()).filter(Boolean);
 
 /**
- * Start by as an instant. The browser sends `startByUtc`, computed with the
- * CHOSEN date's own offset (Diego's P2-3 on #1135: today's offset is an hour
- * off across a DST change). Without JS there is none, and the local value is
- * read as UTC, which the form's label says.
- */
-function startByIso(local: string, utc: string): string | null {
-  if (utc) {
-    const d = new Date(utc);
-    if (/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(utc) && !Number.isNaN(d.getTime())) return d.toISOString();
-  }
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local);
-  if (!m) return null;
-  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])).toISOString();
-}
-
-/**
  * Diego's P2-2 on #1135: "Someone else…" with nothing usable typed is not a
  * default. Only `me` (owner) or `nobody` (assignee) mean "no party"; an
  * explicit choice that names nobody is refused on its field.
@@ -80,6 +67,12 @@ export const actions: Actions = {
 
     const backlog = str(fd, 'start') === 'backlog';
     const input: Record<string, unknown> = { appRef: app.id, title };
+    const priority = readTaskPriority(fd.get('priority'));
+    if (typeof priority === 'object') return writeFailure('create', { kind: 'invalid', ...priority }, values);
+    if (priority !== undefined) input.priority = priority;
+    const blockedBy = fd.getAll('blockedBy').filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+    if (blockedBy.length) input.blockedBy = blockedBy;
+
     const description = str(fd, 'description');
     if (description) input.description = description;
     if (backlog) input.status = 'BACKLOG';
@@ -123,20 +116,23 @@ export const actions: Actions = {
     if (tags.length) input.tags = tags;
     input.closeSessionWhenDone = fd.get('closeSessionWhenDone') === 'on';
 
-    const out = await taskWrite<{ createAgentTask: { id: string } | null }>(client, CREATE_AGENT_TASK_MUTATION, { input }, 'createAgentTask');
+    const out = await taskWrite<{ createAgentTask: { id: string; handle?: string | null } | null }>(client, CREATE_AGENT_TASK_MUTATION, { input }, 'createAgentTask');
     if (out.kind === 'refused') return writeFailure('create', out.refusal, values);
     const id = taskId(out.data?.createAgentTask?.id);
+    // portal#1349: the link carries the immutable handle when the server returned a valid one.
+    const rawHandle = out.data?.createAgentTask?.handle;
+    const handle = typeof rawHandle === 'string' && parseHandle(rawHandle) ? rawHandle : null;
 
     // portal#1214: a create with nothing to show goes to its page, as before.
     if (out.kind === 'ok' && out.warnings.length === 0 && out.more === 0) {
-      if (id) redirect(303, `/app/apps/${app.id}/tasks/${id}?created=1`);
+      if (id) redirect(303, `${taskHref(`/app/apps/${app.id}`, { id, handle })}?created=1`);
       // No usable id and no warning to prove the write: the outcome is unknown.
       if (!out.committed) return writeFailure('create', { kind: 'uncertain' }, values);
     }
     // Warnings, or a committed write whose response errored: shown here, in the
     // same response, in place of the form. Nothing crosses a request.
     return {
-      created: { id },
+      created: { id, handle },
       committedWithError: out.kind === 'committed-error',
       warnings: out.warnings,
       more: out.more,

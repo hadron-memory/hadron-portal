@@ -74,3 +74,65 @@ describe('startBoundMagicLink', () => {
     expect(result).toMatchObject({ ok: false, status: 502 });
   });
 });
+
+// #1470 — Turnstile token forwarding (hadron-server#2878 contract).
+describe('startBoundMagicLink with a Turnstile token', () => {
+  const TOKEN = 'cf-token-123';
+
+  it('forwards the token as cf-turnstile-response and keeps it out of cookies', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const { cookies, sets } = cookieStub();
+
+    await startBoundMagicLink(cookies, 'user@example.test', '/x', TOKEN);
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as { body: string }).body);
+    expect(body['cf-turnstile-response']).toBe(TOKEN);
+    expect(JSON.stringify(sets)).not.toContain(TOKEN);
+  });
+
+  it('without a token the body is byte-identical to main (no field, not even null)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+    vi.stubGlobal('fetch', fetchMock);
+    const { cookies, sets } = cookieStub();
+
+    await startBoundMagicLink(cookies, 'user@example.test', '/x');
+
+    const state = sets.find((c) => c.name === 'hadron_login_state')!.value;
+    expect((fetchMock.mock.calls[0][1] as { body: string }).body).toBe(
+      JSON.stringify({ email: 'user@example.test', redirect: '/x', clientState: state }),
+    );
+  });
+
+  it('maps 403 invalid_token and missing_token to a retry message with no reason code', async () => {
+    for (const reason of ['invalid_token', 'missing_token']) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false, status: 403, json: async () => ({ error: 'bot_check_failed', reason }),
+      }));
+      const result = await startBoundMagicLink(cookieStub().cookies, 'user@example.test', undefined, TOKEN);
+      expect(result).toEqual({ ok: false, status: 403, error: 'Complete the check and try again.' });
+    }
+  });
+
+  it('maps 503 provider_error and not_configured to the unavailable message with no reason code', async () => {
+    for (const reason of ['provider_error', 'not_configured']) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+        ok: false, status: 503, json: async () => ({ error: 'bot_check_failed', reason }),
+      }));
+      const result = await startBoundMagicLink(cookieStub().cookies, 'user@example.test', undefined, TOKEN);
+      expect(result).toEqual({
+        ok: false,
+        status: 503,
+        error: 'Sign-in is temporarily unavailable. Please try again later.',
+      });
+    }
+  });
+
+  it('never shows the raw code, even for a reason this build has not met', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false, status: 403, json: async () => ({ error: 'bot_check_failed', reason: 'brand_new_reason' }),
+    }));
+    const result = await startBoundMagicLink(cookieStub().cookies, 'user@example.test', undefined, TOKEN);
+    expect(JSON.stringify(result)).not.toMatch(/bot_check_failed|brand_new_reason/);
+  });
+});

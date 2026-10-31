@@ -1,3 +1,4 @@
+import { extractGqlError, extractGqlErrorCode } from '$lib/gql-error';
 /**
  * Extracts a plain-language error message from a server response when an
  * edge-condition mutation fails. The hadron-server emits structured
@@ -16,11 +17,10 @@ export function userFacingErrorMessage(err: unknown, fallback: string): string {
   if (errors && errors.length > 0) {
     const first = errors[0];
     const ext = first.extensions as { messageId?: string } | undefined;
-    if (typeof first.message === 'string') {
+    if (extractGqlErrorCode(err) === 'EDGE_CONDITION_FAILED' && typeof first.message === 'string') {
       if (ext?.messageId) return t(ext.messageId, first.message);
       return first.message;
     }
   }
-  if (err instanceof Error) return err.message;
-  return fallback;
+  return extractGqlError(err, fallback);
 }

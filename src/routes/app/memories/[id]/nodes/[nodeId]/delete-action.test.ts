@@ -113,7 +113,7 @@ describe('delete action (#621)', () => {
     expect(result.data.deleteRefusedDescendants).toBe(3);
   });
 
-  it('keeps other server errors as 500s with the server text, no refusal key', async () => {
+  it('keeps unknown server errors as generic 500s with no refusal key', async () => {
     mockRequest.mockImplementation(async (query: string) => {
       if (query === NODE_BY_ID_QUERY) return { node };
       if (query === DELETE_NODE_MUTATION) {
@@ -129,7 +129,7 @@ describe('delete action (#621)', () => {
       data?: { deleteRefusedDescendants?: number };
     };
     expect(result.status).toBe(500);
-    expect((superFormFrom(result)?.message as { text: string }).text).toContain('Memory is syncing');
+    expect((superFormFrom(result)?.message as { text: string }).text).toContain('Something went wrong on our side.');
     expect(result.data?.deleteRefusedDescendants).toBeUndefined();
   });
 });

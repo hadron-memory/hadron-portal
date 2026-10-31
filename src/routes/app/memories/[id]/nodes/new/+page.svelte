@@ -129,8 +129,14 @@
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
-  function onLocInput(e: Event) {
+  // #1477: ONE handler sets the flag and stores the value, in that order. With
+  // `bind:value` the store write ran in bind's own listener, and a real
+  // keystroke drains microtasks before the root-delegated `oninput` fires — so
+  // the derive effect saw the cleared Loc with the flag still false and wrote
+  // the Name slug back over the user's edit.
+  function onLocInput(e: Event & { currentTarget: HTMLInputElement }) {
     locManuallyEdited = true;
+    $formData.loc = e.currentTarget.value;
   }
 
   // Toggling "advanced types" OFF while system/reference is selected
@@ -198,7 +204,7 @@
         name="loc"
         type="text"
         required
-        bind:value={$formData.loc}
+        value={$formData.loc}
         oninput={onLocInput}
         aria-invalid={!!locError}
         aria-describedby={locError ? 'locError locHint' : 'locHint'}

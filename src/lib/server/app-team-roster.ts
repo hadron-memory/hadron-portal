@@ -1,6 +1,8 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { APP_TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { hydrateTaskRefs } from '$lib/server/agent-tasks';
+import type { TerminalRead } from '$lib/workers/terminal';
 
 /**
  * portal#1168 (hadron-server#2178) — what the AI Team grid shows beyond the
@@ -21,7 +23,15 @@ export type RosterEntry = {
   worker: { id: string };
   checkStatus: { status: string; pendingReason: string | null } | null;
   pausedUntil: string | null;
-  currentTask: { id: string; title: string; status: string } | null;
+  // portal#1492: null is a returned "no report"; a worker with no entry at all has no terminal to show.
+  terminal?: TerminalRead | null;
+  // `handle` is not on the server's roster summary; it is hydrated (portal#1349).
+  currentTask: { id: string; title: string; status: string; handle?: string | null } | null;
+  // portal#1349: the worker HAS a current task, but its hydration did not resolve
+  // it in this App (missing, unreadable, another App's, or the read failed).
+  // `currentTask` is then null, so no stale title, id or link survives; this flag
+  // keeps that apart from a worker the server says has no task.
+  currentTaskUnavailable?: true;
 };
 
 export type TeamRosterRead =
@@ -34,6 +44,17 @@ export async function loadAppTeamRoster(client: GraphQLClient, appRef: string): 
     const r = await client.request<{ teamRoster: { workers: RosterEntry[] } }>(APP_TEAM_ROSTER_QUERY, { appRef });
     const byWorker: Record<string, RosterEntry> = {};
     for (const w of r.teamRoster.workers) byWorker[w.worker.id] = w;
+    // portal#1349: the immutable handle for each current task, through the readable-task gate.
+    const refs = await hydrateTaskRefs(client, appRef, Object.values(byWorker).map((w) => w.currentTask?.id));
+    for (const w of Object.values(byWorker)) {
+      if (!w.currentTask) continue;
+      const ref = refs[w.currentTask.id];
+      if (ref) w.currentTask = { ...w.currentTask, title: ref.title, handle: ref.handle };
+      else {
+        w.currentTask = null;
+        w.currentTaskUnavailable = true;
+      }
+    }
     return { kind: 'ok', byWorker };
   } catch (e) {
     const code = extractGqlErrorCode(e);
