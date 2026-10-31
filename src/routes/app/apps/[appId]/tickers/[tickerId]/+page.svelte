@@ -96,6 +96,36 @@
       refreshing = false;
     }
   }
+
+  // portal#1502 (review, Uma P2): the Remove confirmation never fit the Actions
+  // column (a 278px form in a 120px cell; Cancel was clipped at 390 and 1280),
+  // so it is a page-level PANEL above the table, opened by the row's trigger —
+  // the Add control's own shape. The page owns which row's panel is open, the
+  // focus contract, and muting every other row's trigger while a removal is in
+  // flight (a swallowed result is exactly the late-result bug the control
+  // exists to prevent).
+  let removingId = $state<string | null>(null);
+  let removeBusy = $state(false);
+  const removeTriggers: Record<string, HTMLButtonElement | null> = {};
+  let subscribersHeading: HTMLHeadingElement | null = $state(null);
+  const removingRow = $derived(removingId === null ? null : rows.find((r) => r.sub.id === removingId) ?? null);
+
+  /** Cancel/Escape: close the panel and refocus the row's own trigger. */
+  function closeRemove() {
+    const was = removingId;
+    removingId = null;
+    if (was !== null) removeTriggers[was]?.focus({ preventScroll: true });
+  }
+
+  // A reload that took the open row away (a committed removal, or the
+  // stale-row SUBSCRIPTION_NOT_FOUND reload) ends the panel: focus lands on
+  // the Subscribers heading, not nowhere (portal#1502 review, Uma P3-2).
+  $effect(() => {
+    if (removingId !== null && removingRow === null) {
+      removingId = null;
+      subscribersHeading?.focus({ preventScroll: true });
+    }
+  });
 </script>
 
 <svelte:head><title>{tk.name} · {t('app.tickers.head', 'Tickers')} · {data.app.name} · Hadron</title></svelte:head>
@@ -246,7 +276,7 @@
 
   <section aria-labelledby="subscribers-heading" class="space-y-2">
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <h2 id="subscribers-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.ticker.subscribers', 'Subscribers')}</h2>
+      <h2 id="subscribers-heading" tabindex="-1" bind:this={subscribersHeading} class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.ticker.subscribers', 'Subscribers')}</h2>
       <button
         type="button"
         onclick={refresh}
@@ -261,6 +291,25 @@
            state): the not-participant box below is all they see. -->
       <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="ticker-subscriber-who">{tickerSubscribeWhoText()}</p>
       <TickerAddSubscriber appId={data.app.id} ticker={tk} roster={data.roster} viewerId={viewerId} impersonating={data.impersonating} onRosterRetry={refresh} />
+      <!-- portal#1502 (review): the impersonation note is ONE page-level line
+           for the table's Remove triggers (it was one per row); the Add control
+           carries its own beside itself. -->
+      {#if data.impersonating}
+        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: data.impersonating })}</p>
+      {/if}
+      <!-- The Remove panel, above the table beside Add: one removal at a time,
+           whatever the roster read said (the row keeps its trigger). -->
+      {#if removingRow}
+        <TickerRemoveSubscriber
+          appId={data.app.id}
+          ticker={tk}
+          subscription={removingRow.sub}
+          worker={removingRow.sub.worker}
+          viewerId={viewerId}
+          onClose={closeRemove}
+          bind:busy={removeBusy}
+        />
+      {/if}
     {/if}
     {#if subscribers.kind === 'not-participant'}
       <TickersNotParticipant impersonating={data.impersonating} />
@@ -301,9 +350,27 @@
           {:else if cell.column.id === 'since'}
             <time datetime={row.sub.createdAt} class="whitespace-nowrap">{fmtRunTime(row.sub.createdAt)}</time>
           {:else if cell.column.id === 'actions'}
-            <!-- portal#1497: the row's own Remove, kept whatever the roster read
-                 said — a worker the chooser doesn't list may still be subscribed. -->
-            <TickerRemoveSubscriber appId={data.app.id} ticker={tk} subscription={row.sub} worker={row.sub.worker} viewerId={viewerId} impersonating={data.impersonating} />
+            <!-- portal#1497: the row's own Remove trigger, kept whatever the
+                 roster read said — a worker the chooser doesn't list may still
+                 be subscribed. portal#1502 (review): the confirmation is the
+                 page-level panel above the table, so the cell holds only the
+                 trigger, muted while any removal is in flight. An impersonation
+                 session renders no trigger at all (the page-level note says
+                 why) — the server refuses the POST anyway. -->
+            {#if data.impersonating}
+              <span class="text-zinc-400 dark:text-zinc-500">—</span>
+            {:else}
+              <button
+                type="button"
+                bind:this={removeTriggers[row.sub.id]}
+                onclick={() => { removingId = row.sub.id; }}
+                disabled={removeBusy}
+                aria-expanded={removingId === row.sub.id}
+                aria-controls={removingId === row.sub.id ? 'ticker-remove-panel-' + row.sub.id : undefined}
+                data-testid={"ticker-remove-" + row.sub.id}
+                class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              >{t('app.ticker.controls.remove.start', 'Remove…')}</button>
+            {/if}
           {/if}
         {/snippet}
       </DataTable>

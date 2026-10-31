@@ -135,6 +135,15 @@ export type TickerControlAction = 'set-enabled' | 'subscribe' | 'unsubscribe';
 export const tickerNotAvailableText = () =>
   t('app.ticker.controls.not-available', 'This ticker or worker isn’t available to you. Reload the page.');
 
+/**
+ * portal#1502 (review): the one sentence for a stamped refusal the allowlist
+ * above does not word for the reader. Definite — the write did not happen —
+ * but naming no rule (the code alone says which one, and it is shown beside
+ * the sentence).
+ */
+export const tickerRefusedGenericText = () =>
+  t('app.ticker.controls.refused-generic', 'This change was refused, so nothing was changed.');
+
 // hrn:node:hadronmemory.com:specs:cor:agt:080:20's sentence lives in $lib/tickers/controls (the page renders it
 // beside the subscriber controls too); re-exported here so the classifier and
 // the page share ONE copy (D4).
@@ -200,7 +209,12 @@ export function classifyTickerControlError(e: unknown, action: TickerControlActi
         : internalErrorText(),
     };
   }
-  return { kind: 'uncertain' };
+  // portal#1502 (review, Gaby): any OTHER code the server stamped is still a
+  // definite refusal — this write certainly did not happen — so it gets ONE
+  // generic refusal sentence: never the server's prose, and never the
+  // maybe-went-through copy, which belongs to transport and parse failures
+  // alone (a typed error is an answer, not an outage).
+  return { kind: 'refused', code, message: tickerRefusedGenericText() };
 }
 
 /** The refusal the route-to-ticker App check answers with: the same one sentence, before any mutation is sent. */

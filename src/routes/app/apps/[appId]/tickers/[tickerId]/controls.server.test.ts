@@ -113,9 +113,16 @@ describe('portal#1497 — the actions’ event', () => {
       expect(text).not.toContain('/srv/private.ts');
     });
 
-    it('an unknown code and a transport failure are both uncertain', async () => {
+    it('an unknown stamped code is a definite refusal with one generic sentence; a transport failure is uncertain', async () => {
+      // portal#1502 (review, Gaby): a typed error is an answer, not an outage —
+      // the write certainly did not happen, so it may not wear the
+      // maybe-went-through copy. Only transport and parse failures are uncertain.
       request.mockRejectedValueOnce(gqlError('SOMETHING_NEW', 'nope'));
-      expect(refusalOf(await run('set-enabled', { enabled: 'false' })).kind).toBe('uncertain');
+      const r = (await run('set-enabled', { enabled: 'false' })) as { status: number };
+      expect(r.status).toBe(400);
+      expect(refusalOf(r)).toMatchObject({ kind: 'refused', code: 'SOMETHING_NEW' });
+      expect(refusalOf(r).message).toBe('This change was refused, so nothing was changed.');
+      expect(refusalOf(r).message).not.toContain('nope');
       request.mockRejectedValueOnce(new Error('socket hang up'));
       expect(refusalOf(await run('set-enabled', { enabled: 'false' })).kind).toBe('uncertain');
     });

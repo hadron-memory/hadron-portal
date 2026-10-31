@@ -67,8 +67,12 @@ export interface TickerRefreshFenceOptions {
 
 export function createTickerRefreshFence(opts: TickerRefreshFenceOptions): TickerRefreshFence {
   let pendingAttempt: string | null = null;
-  // This attempt's spellings, kept past the own-refresh navigation for failedHere().
-  let pendingIds: { appId: string; canonical: string; route: string } | null = null;
+  // This attempt's spellings, kept past the own-refresh navigation for
+  // failedHere(). TAGGED with its attempt (portal#1502 review): a stale clear
+  // from an earlier attempt of the same control must not wipe the newer
+  // attempt's ruling — the marker itself is already attempt-guarded, but these
+  // ids are what failedHere() reads.
+  let pendingIds: { attempt: string; appId: string; canonical: string; route: string } | null = null;
 
   beforeNavigate((nav: { to?: { url: URL } | null }) => {
     if (pendingAttempt === null) return;
@@ -108,14 +112,14 @@ export function createTickerRefreshFence(opts: TickerRefreshFenceOptions): Ticke
         ? setTickerRefreshMarker({ viewer: viewerId, appId, tickerId: canonical, routeTickerId: route, action, targetWorkerId })
         : null;
       pendingAttempt = attempt;
-      pendingIds = attempt === null ? null : { appId, canonical, route };
+      pendingIds = attempt === null ? null : { attempt, appId, canonical, route };
       return attempt;
     },
     refreshSettled(attempt) {
       if (pendingAttempt === attempt) pendingAttempt = null;
     },
     failedHere(attempt) {
-      if (attempt === null || pendingIds === null) return false;
+      if (attempt === null || pendingIds === null || pendingIds.attempt !== attempt) return false;
       const p = get(page);
       const at = tickerOfPage(p);
       return (
@@ -126,7 +130,7 @@ export function createTickerRefreshFence(opts: TickerRefreshFenceOptions): Ticke
     clear(attempt) {
       if (attempt === null) return;
       if (pendingAttempt === attempt) pendingAttempt = null;
-      if (pendingIds !== null) pendingIds = null;
+      if (pendingIds !== null && pendingIds.attempt === attempt) pendingIds = null;
       clearTickerRefreshMarker(attempt);
     },
   };

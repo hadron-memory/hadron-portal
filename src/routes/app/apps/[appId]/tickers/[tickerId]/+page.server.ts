@@ -168,6 +168,9 @@ export const actions: Actions = {
       const sub = r.subscribeWorker?.subscription;
       if (!sub?.id || sub.endedAt !== null) return writeFailure('subscribe', { kind: 'uncertain' }, values);
       const out: { action: 'subscribe'; ok: true; target: string; announcementFailed?: true } = { action: 'subscribe', ok: true, target: worker };
+      // 'FAILED' is the server's GrantAnnouncement enum value (#1747), not a
+      // portal coinage — pinned against schema/schema.graphql in
+      // src/lib/server/ticker-writes.test.ts (portal#1502 review).
       if (r.subscribeWorker?.announcement === 'FAILED') out.announcementFailed = true;
       return out;
     } catch (e) {
@@ -193,6 +196,7 @@ export const actions: Actions = {
       const sub = r.unsubscribeWorker?.subscription;
       if (!sub?.id || sub.endedAt === null) return writeFailure('unsubscribe', { kind: 'uncertain' }, values);
       const out: { action: 'unsubscribe'; ok: true; target: string; announcementFailed?: true } = { action: 'unsubscribe', ok: true, target: worker };
+      // Same GrantAnnouncement enum value as subscribe, same pin.
       if (r.unsubscribeWorker?.announcement === 'FAILED') out.announcementFailed = true;
       return out;
     } catch (e) {

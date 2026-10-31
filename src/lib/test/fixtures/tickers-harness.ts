@@ -71,6 +71,7 @@ const rosters = {
   'detail-roster-empty': { kind: 'ok', workers: [] },
   'detail-uncertain': rosterOk,
   'detail-refresh-failed': rosterOk,
+  'detail-impersonating': rosterOk,
   // The chooser's widest state: the nameless worker whose URN IS the label,
   // at the 200-character extreme.
   'detail-long-urn': { kind: 'ok', workers: [
@@ -92,6 +93,12 @@ const wakeWorker = {
   'wake-long-urn': { retiredAt: null, id: 'w-liam', urn: LONG_WORKER_URN },
 } as Record<string, Record<string, unknown>>;
 
+// portal#1502 (review): an impersonation session renders no Remove trigger —
+// the page-level note instead of one per row.
+const impersonatingByView: Record<string, string | null> = {
+  'detail-impersonating': 'Ada',
+};
+
 export type TickersView =
   | 'list'
   | keyof typeof detailTask
@@ -110,17 +117,19 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
       target,
       props: {
         data: {
-          app, ticker: { ...ticker, tickCode: LONG_CODE }, settings, paged: false, after: null, loadedAt: LOADED, impersonating: null,
+          app, ticker: { ...ticker, tickCode: LONG_CODE }, settings, paged: false, after: null, loadedAt: LOADED, impersonating: impersonatingByView[view] ?? null,
           tickerTask: view in detailTask ? detailTask[view as keyof typeof detailTask] : { kind: 'ok', value: { registerTaskLoc: LONG_LOC } },
           roster: rosters[view as keyof typeof rosters],
           subscribers: subscribersByView[view] ?? { kind: 'ok', value: { items: [subscriber], hasNextPage: true, endCursor: 's1' } },
         },
       } as never,
     });
-    // portal#1497 (review): the long-URN view mounts the page in its two
-    // widest control states, the ones a reader can leave on screen — the
-    // row's Remove confirmation open (its Urn chip), and the chooser open
-    // with the nameless long-URN worker selected (its selected-worker chip).
+    // portal#1497 (review) / portal#1502 (review): the long-URN view mounts the
+    // page in its widest control states, the ones a reader can leave on screen —
+    // the Remove panel open (the row trigger clicked; its Urn chip AND its
+    // confirmation sentence carry the 200-character worker URN), and the chooser
+    // open with the nameless long-URN worker selected, taken through Continue to
+    // its confirmation (the sentence carries the same URN as one word).
     if (view === 'detail-long-urn') {
       target.querySelector<HTMLButtonElement>('[data-testid="ticker-remove-s1"]')?.click();
       flushSync();
@@ -131,6 +140,8 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
         select.value = 'w-longnameless';
         select.dispatchEvent(new Event('change', { bubbles: true }));
       }
+      flushSync();
+      ([...target.querySelectorAll<HTMLButtonElement>('[data-testid="ticker-add-form"] button')].find((b) => /Continue/.test(b.textContent ?? '')))?.click();
       flushSync();
     }
     // portal#1497: the two states only a delivered action result reaches. The

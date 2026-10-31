@@ -62,7 +62,7 @@ try {
   const views = [
     'list', 'detail', 'detail-unmapped', 'detail-task-failed', 'detail-stale-row',
     'detail-roster-hidden', 'detail-roster-failed', 'detail-roster-empty',
-    'detail-uncertain', 'detail-refresh-failed', 'detail-long-urn', 'wake', 'wake-long-urn',
+    'detail-uncertain', 'detail-refresh-failed', 'detail-long-urn', 'detail-impersonating', 'wake', 'wake-long-urn',
   ];
   for (const width of [390, 1280]) {
     for (const view of views) {
@@ -118,6 +118,50 @@ try {
           assert.equal(got.commands.length, 4, `${label}: expected 4 CLI commands, got ${got.commands.length}`);
           for (const c of got.commands) assert.ok(c.on, `${label}: a CLI command runs off-screen: ${c.text.slice(0, 60)}`);
           if (view === 'wake-long-urn') assert.ok(got.commands.every((c) => c.text.length > 200), `${label}: the long ref must be in every command`);
+        }
+        // portal#1502 (review, Uma P2 + Gemma P3-2): the Remove confirmation is
+        // a page-level panel beside Add, not a form inside the 120px Actions
+        // column (Cancel was 7px cut at 1280 and 35px at 390 there). Its Cancel
+        // must sit fully inside the viewport at BOTH widths, focus must start
+        // on the panel's own action, and Cancel must return focus to the row's
+        // trigger. detail-long-urn is the widest panel (200-char worker URN).
+        if (view === 'detail-long-urn') {
+          const panelSel = '[data-testid="ticker-remove-confirm-s1"]';
+          // The panel's Cancel, by text: the Urn chip's copy-icon buttons are
+          // also button[type=button] with empty text, and come first in order.
+          const cancel = await page.evaluate((sel) => {
+            const cancel = [...document.querySelectorAll(`${sel} button`)].find((b) => /^Cancel$/.test(b.textContent ?? ''));
+            if (!cancel) return null;
+            const b = cancel.getBoundingClientRect();
+            return { left: b.left, right: b.right, vw: document.documentElement.clientWidth };
+          }, panelSel);
+          assert.ok(cancel, `${label}: the Remove panel must be open with a Cancel`);
+          assert.ok(cancel.left >= 0 && cancel.right <= cancel.vw, `${label}: the panel's Cancel is cut (left ${cancel.left.toFixed(0)}, right ${cancel.right.toFixed(0)}, viewport ${cancel.vw})`);
+          await page.evaluate((sel) => {
+            [...document.querySelectorAll(`${sel} button`)].find((b) => /^Cancel$/.test(b.textContent ?? ''))?.click();
+          }, panelSel);
+          assert.ok(
+            await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'ticker-remove-s1'),
+            `${label}: Cancel must return focus to the row's trigger`,
+          );
+          await page.click('[data-testid="ticker-remove-s1"]');
+          await page.waitForFunction(
+            (sel) => document.activeElement === document.querySelector(`${sel} button[type="submit"]`),
+            panelSel,
+            { timeout: 2000 },
+          ).catch(() => {
+            assert.fail(`${label}: opening the panel must focus its own Remove action`);
+          });
+        }
+        // portal#1502 (review): an impersonation session shows ONE page-level
+        // note and no Remove trigger at all (the server refuses the POST).
+        if (view === 'detail-impersonating') {
+          const imp = await page.evaluate(() => ({
+            note: document.body.textContent?.includes('changes are switched off') ?? false,
+            removeControls: document.querySelectorAll('[data-testid^="ticker-remove-"]').length,
+          }));
+          assert.ok(imp.note, `${label}: the one impersonation line must render`);
+          assert.equal(imp.removeControls, 0, `${label}: no Remove trigger in an impersonation session, got ${imp.removeControls}`);
         }
 
         if (width === 390) {

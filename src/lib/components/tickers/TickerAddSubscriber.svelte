@@ -271,8 +271,9 @@
           </div>
         {:else}
           <!-- The confirmation names the target worker, with its Urn — the reader
-               confirms WHO, not a row shape. -->
-          <p class="text-zinc-900 dark:text-white" data-testid="ticker-add-confirm">
+               confirms WHO, not a row shape. break-words: a nameless worker's
+               label IS its URN, one long unbreakable word (portal#1502 review). -->
+          <p class="break-words text-zinc-900 dark:text-white" data-testid="ticker-add-confirm">
             {t('app.ticker.controls.add.confirm', 'Subscribe {name} to this ticker? It will be woken by this ticker’s ticks.', { name: chosen ? rosterWorkerLabel(chosen) : '' })}
           </p>
           <div class="flex flex-wrap items-center gap-2">

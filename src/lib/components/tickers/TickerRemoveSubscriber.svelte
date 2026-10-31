@@ -1,18 +1,31 @@
 <!--
-  portal#1497 (MCP cut R7a) — remove one subscriber, from its own row. The row
-  keeps this control whatever the roster read said (a worker missing from the
-  chooser may still be subscribed), and the form carries its own id
-  (`unsubscribe-<subscriptionId>`) so a late result attaches only to its row.
+  portal#1497 (MCP cut R7a) — remove one subscriber. The row keeps its Remove
+  trigger whatever the roster read said (a worker missing from the chooser may
+  still be subscribed), and this panel — opened by that trigger, rendered above
+  the table beside the Add control (portal#1502 review: a 278px confirmation
+  does not fit the 120px Actions column; Cancel was clipped at 390 and 1280) —
+  carries the confirmation and every result, one removal at a time.
 
-  - A confirmation that names the worker, with its Urn, sits between the row's
-    button and the POST; Escape cancels it and focus returns to the button.
-  - The POST states the worker ref itself (hrn:node:hadronmemory.com:hadron-portal:review:explicit-mutation-intent):
+  - The confirmation names the worker, with its Urn; the form carries its own
+    id (`unsubscribe-<subscriptionId>`) so a late result attaches only to its
+    subscription. The page disables every other row's trigger while a removal
+    is in flight: a swallowed result is exactly the late-result bug this
+    control exists to prevent.
+  - The POST states the worker ref itself (hrn:node:hadronmemory.com:specs:cor:agt:080:20):
     no row shape, no "submitted value written on click".
   - After a commit the reload goes to the FIRST subscriber page (?after=
     dropped). A refresh that fails does not undo the write: the ticker refresh
     marker + this route's error boundary say it (#1462 pattern, ticker-scoped).
+  - A SUBSCRIPTION_NOT_FOUND refusal (the stale-row case) reloads to the first
+    page too — the copy says the list is back there, and issue #1497's
+    acceptance 2 says it reloads — but through NO marker: the boundary note
+    says "the write stands", and a refused write must never claim that
+    (portal#1502 review: both seats found the missing reload; the no-marker
+    rule is why this is not fence.begin).
   - "Removed" is the result, shown from the action result, never inferred from
-    a reloaded list that a stale page could hide.
+    a reloaded list that a stale page could hide. The line renders as an
+    empty live region from the panel's first paint, so the text that later
+    lands in it is a change (portal#1502 review).
 -->
 <script lang="ts">
   import { onDestroy, tick as tickFn } from 'svelte';
@@ -38,7 +51,8 @@
     subscription,
     worker,
     viewerId = null,
-    impersonating = null,
+    onClose,
+    busy = $bindable(false),
   }: {
     appId: string;
     ticker: { id: string; name: string };
@@ -46,10 +60,12 @@
     subscription: { id: string };
     worker: { id: string; name: string | null; urn: string | null };
     viewerId?: string | null;
-    impersonating?: string | null;
+    /** Cancel/Escape: the page closes the panel and refocuses its trigger. */
+    onClose: () => void;
+    /** True while this panel's POST is in flight — the page mutes other rows. */
+    busy?: boolean;
   } = $props();
 
-  let confirming = $state(false);
   let submitting = $state(false);
   let ok = $state<string | null>(null);
   let announcementFailed = $state(false);
@@ -58,7 +74,6 @@
   let shownFor = $state<string | null>(null);
   let generation = 0;
 
-  let rowButton: HTMLButtonElement | null = $state(null);
   let confirmButton: HTMLButtonElement | null = $state(null);
 
   const workerLabel = $derived(worker.name ?? worker.urn ?? worker.id);
@@ -68,8 +83,8 @@
   $effect.pre(() => {
     if (shownFor !== ticker.id) {
       generation++;
-      confirming = false;
       submitting = false;
+      busy = false;
       ok = null;
       announcementFailed = false;
       refusal = null;
@@ -78,41 +93,36 @@
     }
   });
 
+  // Focus starts on the confirmation's own action, as Add does.
+  $effect(() => {
+    void shownFor;
+    confirmButton?.focus({ preventScroll: true });
+  });
+
   // Leaving the page ends this control's right to touch it — and nothing else: kit's error
   // route for a FAILED refresh unmounts this control, and its marker is what that route's
   // boundary needs (#1462 pattern; the still-mounted paths below clear it instead).
   onDestroy(() => {
     generation++;
+    busy = false;
   });
 
   // The refresh fence, shared by every ticker control (#1497 review): it owns the
   // marker attempt (canonical id AND the route's spelling), cancels it on a
   // navigation that is not this control's own reload — the goto to the ticker's
   // FIRST subscriber page below IS that reload, so its marker survives it — and
-  // rules whether the page's error is THIS refresh's failure.
+  // rules whether the page's error is THIS refresh's failure. Only a COMMITTED
+  // write opens it; the SUBSCRIPTION_NOT_FOUND reload below stays outside it.
   const fence = createTickerRefreshFence({
     appId: () => appId,
     tickerId: () => ticker.id,
     reloadHref: () => tickerFirstPageHref(appId, ticker.id),
   });
 
-  async function openConfirmation() {
-    confirming = true;
-    refusal = null;
-    await tickFn();
-    confirmButton?.focus({ preventScroll: true });
-  }
-
-  async function cancelConfirmation() {
-    confirming = false;
-    await tickFn();
-    rowButton?.focus({ preventScroll: true });
-  }
-
-  // Escape cancels the confirmation; focus returns to the row's own control.
+  // Escape closes the panel; focus returns to the row's trigger (the page's job).
   async function onWindowKeydown(e: KeyboardEvent) {
-    if (e.key !== 'Escape' || submitting || !confirming) return;
-    await cancelConfirmation();
+    if (e.key !== 'Escape' || submitting) return;
+    onClose();
   }
 
   function submit() {
@@ -123,6 +133,7 @@
       }
       const mine = ++generation;
       submitting = true;
+      busy = true;
       ok = null;
       announcementFailed = false;
       refusal = null;
@@ -130,20 +141,20 @@
       return async ({ result }: { result: { type: string; data?: unknown } }) => {
         if (mine !== generation) return;
         submitting = false;
+        busy = false;
         if (result.type === 'success') {
           const success = asTickerSuccess(result.data);
           // A result names WHAT it was about: only this row's own unsubscribe,
-          // for the worker this row names, decorates this row.
+          // for the worker this row names, decorates this panel.
           if (success?.action === 'unsubscribe' && success.target === worker.id) {
             ok = success.target;
             announcementFailed = success.announcementFailed === true;
-            confirming = false; // the row's own control now carries the result
           }
           // The reload starts at the FIRST subscriber page (?after= dropped). A
           // failure to reload does not undo the write: in the real kit it does not
           // even reject — it navigates to this route's error boundary and unmounts
           // this control (#1462 pattern), so the marker is left just before it and
-          // cleared here only while this row is still mounted.
+          // cleared here only while this panel is still mounted.
           const attempt = fence.begin(viewerId, 'unsubscribe', worker.id);
           try {
             await goto(tickerFirstPageHref(appId, ticker.id), { invalidateAll: true });
@@ -162,7 +173,19 @@
           return;
         }
         refusal = result.type === 'failure' ? asTickerRefusal(result.data) : { kind: 'uncertain' };
-        confirming = false;
+        // The stale-row case (portal#1502 review): the server says this
+        // subscription already ended, so the row is stale and the copy says the
+        // list is back at its first page — make that true, without a marker (a
+        // refused write must never claim "the write stands" on the boundary).
+        if (refusal.kind === 'refused' && refusal.code === 'SUBSCRIPTION_NOT_FOUND') {
+          try {
+            await goto(tickerFirstPageHref(appId, ticker.id), { invalidateAll: true });
+          } catch {
+            refreshFailed = true;
+          }
+        }
+        // Any other refusal keeps the confirmation open (as Add keeps its draft):
+        // the reader can retry by hand or cancel.
       };
     };
   }
@@ -170,55 +193,53 @@
 
 <svelte:window onkeydown={onWindowKeydown} />
 
-{#if impersonating}
-  <span class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.write.impersonating', 'Viewing as {name}: changes are switched off in a support session.', { name: impersonating })}</span>
-{:else}
-  <!-- The refusal, the announcement note and the refresh line live OUTSIDE the
-       confirming form: a refusal closes the confirmation, and what it said must
-       survive that collapse. -->
-  <div class="flex flex-col items-start gap-1">
-    {#if !confirming}
+<div id={"ticker-remove-panel-" + subscription.id} class="space-y-2 rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm dark:border-zinc-800 dark:bg-zinc-900/60" data-testid={"ticker-remove-confirm-" + subscription.id} role="group" aria-label={t('app.ticker.controls.remove.panel', 'Remove a subscriber')}>
+  {#if ok === null}
+    <form
+      id={"unsubscribe-" + subscription.id}
+      method="POST"
+      action="?/unsubscribe"
+      use:enhance={submit()}
+      class="space-y-2"
+    >
+      <!-- The POST states the worker ref itself. -->
+      <input type="hidden" name="worker" value={worker.id} />
+      <!-- break-words: a nameless worker's label IS its URN — a 200-character
+           unbreakable word that otherwise spills the panel (portal#1502 review:
+           the same sentence clipped inside the Actions column at the old head). -->
+      <p class="break-words text-zinc-900 dark:text-white">
+        {t('app.ticker.controls.remove.confirm', 'Remove {name} from this ticker? It stops being woken by it.', { name: workerLabel })}
+      </p>
+      {#if worker.urn}<Urn value={worker.urn} size={9} compact />{/if}
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          bind:this={confirmButton}
+          type="submit"
+          disabled={submitting}
+          class="rounded-md border border-red-300 px-3 py-1.5 font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
+        >{submitting ? t('app.ticker.controls.remove.submitting', 'Removing…') : t('app.ticker.controls.remove.confirm-button', 'Remove')}</button>
+        <button
+          type="button"
+          disabled={submitting}
+          onclick={onClose}
+          class="rounded-md border border-zinc-300 px-3 py-1.5 font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        >{t('app.ticker.controls.remove.cancel', 'Cancel')}</button>
+      </div>
+    </form>
+  {:else}
+    <!-- The result itself lives in the live region below — one line, not two. -->
+    <div class="flex flex-wrap items-center gap-2">
       <button
-        bind:this={rowButton}
         type="button"
-        onclick={openConfirmation}
-        disabled={ok !== null}
-        class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        data-testid={"ticker-remove-" + subscription.id}
-      >{ok !== null ? removedText() : t('app.ticker.controls.remove.start', 'Remove…')}</button>
-    {:else}
-      <form
-        id={"unsubscribe-" + subscription.id}
-        method="POST"
-        action="?/unsubscribe"
-        use:enhance={submit()}
-        class="flex flex-col items-start gap-1 rounded-md border border-zinc-300 bg-zinc-50 p-2 text-xs dark:border-zinc-700 dark:bg-zinc-900/60"
-        data-testid={"ticker-remove-confirm-" + subscription.id}
-      >
-        <!-- The POST states the worker ref itself. -->
-        <input type="hidden" name="worker" value={worker.id} />
-        <span class="text-zinc-900 dark:text-white">
-          {t('app.ticker.controls.remove.confirm', 'Remove {name} from this ticker? It stops being woken by it.', { name: workerLabel })}
-        </span>
-        {#if worker.urn}<Urn value={worker.urn} size={9} compact />{/if}
-        <span class="flex flex-wrap items-center gap-1">
-          <button
-            bind:this={confirmButton}
-            type="submit"
-            disabled={submitting}
-            class="rounded-md border border-red-300 px-2 py-1 font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
-          >{submitting ? t('app.ticker.controls.remove.submitting', 'Removing…') : t('app.ticker.controls.remove.confirm-button', 'Remove')}</button>
-          <button
-            type="button"
-            disabled={submitting}
-            onclick={cancelConfirmation}
-            class="rounded-md border border-zinc-300 px-2 py-1 font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-          >{t('app.ticker.controls.remove.cancel', 'Cancel')}</button>
-        </span>
-      </form>
-    {/if}
-    {#if announcementFailed}<span role="status" class="text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}
-    {#if refreshFailed}<span class="block"><TickerRefreshFailedLine testid={"ticker-remove-refresh-failed-" + subscription.id} /></span>{/if}
-    {#if refusal}<WriteRefusalAlert {refusal} />{/if}
-  </div>
-{/if}
+        onclick={onClose}
+        class="rounded-md border border-zinc-300 px-3 py-1.5 font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+      >{t('app.ticker.controls.remove.cancel', 'Cancel')}</button>
+    </div>
+  {/if}
+  <!-- An always-present empty live region: the text that lands in it is a change
+       (portal#1502 review), so the result line is announced, not swapped in. -->
+  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : ''}</p>
+  {#if announcementFailed}<span role="status" class="text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}
+  {#if refreshFailed}<span class="block"><TickerRefreshFailedLine testid={"ticker-remove-refresh-failed-" + subscription.id} /></span>{/if}
+  {#if refusal}<WriteRefusalAlert {refusal} />{/if}
+</div>
