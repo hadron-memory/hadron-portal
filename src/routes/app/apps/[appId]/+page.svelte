@@ -102,6 +102,9 @@
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
+  import TerminalStatus from '$lib/components/TerminalStatus.svelte';
+  import { pageClock, terminalBadge, terminalSummary } from '$lib/workers/terminal';
+  import { workerInternalsVisible } from '$lib/worker-profile';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AppMemories from './AppMemories.svelte';
@@ -178,6 +181,8 @@
   const staff = $derived(data.staff);
   // portal#1168: Task and Paused, one bulk read joined by worker id.
   const teamRoster = $derived(data.teamRoster);
+  // portal#1492: the loader's one clock, so server render and hydration agree on every age.
+  const terminalNow = $derived(pageClock(data.terminalNow));
   // #855: worker id → URN for the team chat's author chip. Null when the roster
   // failed to load, so the chat renders no chip rather than an empty one;
   // workers whose URN is null (pre-v2 App URN) are simply absent.
@@ -343,6 +348,10 @@
     // three-valued read the profile's held-workers grid uses: masked is "Not
     // shown to you", never "idle".
     { accessorFn: (row) => workerStatusLabel(row), id: 'status', header: t('app.staff.column.status', 'Status'), size: 150 },
+    // portal#1492 — the terminal's own state, apart from the session Status above
+    // so a session "Idle" and a terminal "Idle" never read as one thing. The accessor
+    // returns only what the cell shows, so search and sort never reach a hidden value.
+    { accessorFn: (row) => { const b = terminalBadgeOf(row); return b ? terminalSummary(b) : ''; }, id: 'terminal', header: t('app.staff.column.terminal', 'Terminal'), size: 220 },
     { accessorFn: (row) => [rosterEntry(row.id)?.currentTask?.title, rosterEntry(row.id)?.currentTask?.handle].filter(Boolean).join(' '), id: 'task', header: t('app.staff.column.task', 'Task'), size: 220 },
     { accessorFn: (row) => row.family ?? '', id: 'family', header: t('app.staff.column.family', 'Model family'), size: 130 },
     {
@@ -381,6 +390,13 @@
   //   name forever and has nothing left to retire or release.
   function rosterEntry(workerId: string) {
     return teamRoster?.kind === 'ok' ? teamRoster.byWorker[workerId] ?? null : null;
+  }
+  // portal#1492: no badge without a roster entry (failed, hidden or missing read)
+  // and none for a reader the server withholds internals from. `terminal` undefined
+  // is "not answered"; only a returned null is "Not reported".
+  function terminalBadgeOf(worker: Worker) {
+    const entry = rosterEntry(worker.id);
+    return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker)) : null;
   }
   const TASK_STATUS = {
     STARTED: () => t('app.staff.task.started', 'Started'),
@@ -2435,6 +2451,8 @@
               {#if pauseBadge(worker.id)}
                 <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">{pauseBadge(worker.id)}</span>
               {/if}
+            {:else if cell.column.id === 'terminal'}
+              <TerminalStatus badge={terminalBadgeOf(worker)} now={terminalNow} compact />
             {:else if cell.column.id === 'task'}
               {@const task = rosterEntry(worker.id)?.currentTask}
               {#if !rosterEntry(worker.id)}

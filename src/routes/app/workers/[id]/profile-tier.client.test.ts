@@ -41,3 +41,53 @@ it('#1334 unbound participants keep full panels even with masked App and Agent',
   expect(m.target.textContent).not.toContain('Backed by');
   expect(m.target.textContent).not.toContain('Agent no longer installed');
 });
+
+// portal#1492 (PT1) — the worker page's terminal status, internal tier only.
+const NOW = '2026-10-31T12:00:00.000Z';
+const terminalOf = (over: Record<string, unknown> = {}) =>
+  ({ status: 'locked', reason: 'model_at_capacity', checkedAt: '2026-10-31T11:55:00.000Z', lastTurnAt: null, ...over });
+async function mountInternal(terminal: unknown, extra: Record<string, unknown> = {}) {
+  const signatureForm = await superValidate({}, zod4(updateSignatureSchema), { errors: false });
+  const m = mountComponent(Page as never, {
+    data: { worker: { ...profile, hasLiveSession: false, terminal, ...extra }, initialTab: 'profile', signatureForm, terminalNow: NOW },
+  } as never);
+  cleanup = m.unmount;
+  return m.target;
+}
+
+it('#1492 shows the state, the reason in words, the last turn and the check age', async () => {
+  const text = (await mountInternal(terminalOf())).textContent!;
+  expect(text).toContain('Locked');
+  expect(text).toContain('Model at capacity');
+  expect(text).toContain('Last turn: not known');
+  expect(text).toMatch(/checked .*ago/);
+  expect(text).not.toContain('model_at_capacity');
+});
+
+it('#1492 a last turn with a value reads as an age; a returned null is Not reported', async () => {
+  const withTurn = (await mountInternal(terminalOf({ lastTurnAt: '2026-10-31T11:00:00.000Z' }))).textContent!;
+  expect(withTurn).toMatch(/Last turn: .*ago/);
+  expect(withTurn).not.toContain('not known');
+  expect((await mountInternal(null)).textContent).toContain('Not reported');
+});
+
+it('#1492 renders no host label or prompt, and nothing raw for an unknown state', async () => {
+  const text = (await mountInternal(terminalOf({ status: 'quantum', reason: 'solar_flare', host: { id: 'h1', label: 'HOSTLABEL' }, prompt: { text: 'SCREENTEXT' } }))).textContent!;
+  expect(text).toContain('Unknown state');
+  expect(text).toContain('Other reason');
+  for (const secret of ['HOSTLABEL', 'SCREENTEXT', 'solar_flare', 'quantum']) expect(text).not.toContain(secret);
+});
+
+it('#1492 a stale report keeps its server state; a future checkedAt is time unknown', async () => {
+  const stale = (await mountInternal(terminalOf({ status: 'busy', reason: null, checkedAt: '2026-10-01T00:00:00.000Z' }))).textContent!;
+  expect(stale).toContain('Busy');
+  expect(stale).not.toMatch(/Dark|Idle: /);
+  cleanup?.();
+  expect((await mountInternal(terminalOf({ checkedAt: '2027-01-01T00:00:00.000Z' }))).textContent).toContain('checked: time unknown');
+});
+
+it('#1492 the Profile tier shows no terminal, even if a terminal object arrives', () => {
+  const m = mountComponent(Page as never, { data: { worker: { ...profile, terminal: terminalOf() }, initialTab: 'wake', terminalNow: NOW } } as never);
+  cleanup = m.unmount;
+  for (const s of ['Locked', 'Model at capacity', 'Not reported', 'Last turn']) expect(m.target.textContent).not.toContain(s);
+});

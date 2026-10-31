@@ -357,6 +357,8 @@ export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
  * absence as "this App's URN predates the flat grammar", never as an error.
  */
 export interface Worker {
+  /** portal#1492: the latest terminal report; null when none or masked, absent on the Profile tier. */
+  terminal?: import('$lib/workers/terminal').TerminalRead | null;
   /** Profile scalars supplied by server#1149; never reconstructed from App. */
   portalUrl?: string | null;
   appUrn?: string | null;

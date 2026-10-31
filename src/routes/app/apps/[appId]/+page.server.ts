@@ -921,6 +921,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // #974: the App's staff. null = the fetch failed (distinct from []).
     staff,
     teamRoster,
+    // portal#1492: one clock for the terminal ages, so server render and hydration agree.
+    terminalNow: new Date().toISOString(),
     staffError: staff === null,
     // #732: the team chat transcript. null = the fetch failed (distinct from
     // an empty chat), and `teamChatTotal` is the SERVER's count, so a
