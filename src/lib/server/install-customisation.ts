@@ -5,6 +5,7 @@ import type { GraphQLClient } from 'graphql-request';
 import { t } from '$lib/i18n/t';
 import {
   customisationRefusalLead,
+  isQualifiedRef,
   type CustomisationRead,
   type InstallNode,
   type Read,
@@ -72,7 +73,7 @@ export async function readCustomisation(
     } catch {
       out.list = { state: 'failed' };
     }
-    if (loc) {
+    if (loc && !isQualifiedRef(loc)) {
       const read = async (
         query: string,
         memoryRef: string,
@@ -118,7 +119,7 @@ export async function writeCustomisation(
         ),
       },
     });
-  if (!agentRef || !loc || loc.startsWith('hrn:') || !fd.has('content'))
+  if (!agentRef || !loc || isQualifiedRef(loc) || !fd.has('content'))
     return invalid();
   const input: Record<string, unknown> = { install: { appRef, agentRef }, loc };
   if (create) {

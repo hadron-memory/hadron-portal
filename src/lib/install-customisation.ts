@@ -29,6 +29,13 @@ export const customisationKey = (
   agent: string,
   loc: string | null,
 ) => JSON.stringify([app, agent, loc]);
+/**
+ * A customisation addresses its node by a bare loc. A fully-qualified `hrn:`
+ * value is refused on write, and the demand read honours the same boundary so
+ * the comparison never shows a different node than the one a save would touch
+ * (#1368). Deliberately the write's own test, not a stricter loc grammar.
+ */
+export const isQualifiedRef = (loc: string) => loc.trim().startsWith('hrn:');
 export function customisationRefusalLead(code: string | null): string | null {
   switch (code) {
     case 'AGENT_NOT_INSTALLED':
