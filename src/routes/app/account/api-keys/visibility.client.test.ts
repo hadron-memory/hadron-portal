@@ -6,7 +6,7 @@ import { mountComponent, tick } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { navigationCalls } from '$lib/test/stubs/app-navigation';
+import { holdInvalidateAll, invalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import Page from './+page.svelte';
 import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
 let mounted: ReturnType<typeof mountComponent> | undefined;
@@ -61,12 +61,16 @@ it.each([
   const root = await mount();
   const form = root.querySelector<HTMLFormElement>(`[data-key-id="${id}"] form`)!;
   const update = vi.fn().mockResolvedValue(undefined);
+  resetNavigationCalls();
   expect(await submitEnhancedWithResult(form, {
     type,
     status: type === 'success' ? 200 : 500,
     data: { visibility: { type: type === 'success' ? 'success' : 'error', text: 'Server response', id } },
   }, { update })).toEqual({ cancelled: false });
-  expect(update).toHaveBeenCalledExactlyOnceWith({ reset: false, invalidateAll });
+  // #1500: the row refreshes first and re-checks its scope, so kit's update
+  // only applies the result and never refreshes again.
+  expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(invalidateAll ? 1 : 0);
+  expect(update).toHaveBeenCalledExactlyOnceWith({ reset: false, invalidateAll: false });
 });
 
 it.each([true, false])('retains the selected includeHidden=%s slice in the native revoke form', async (includeHidden) => {
@@ -306,5 +310,102 @@ describe('a reply from another view is never applied (#1500 second fix head)', (
     await finish(result(type, 'NEW VIEW RESULT', 'b'));
     expect(updates).toEqual([{ reset: false, invalidateAll: type === 'success' }]);
     expect((type === 'success' ? status : alert)(root).textContent).toBe('NEW VIEW RESULT');
+  });
+});
+
+// #1500 third fix head (George LOCAL delta at b33c5845): Kit's fallback update
+// awaits invalidateAll() and only then applies the result, so a reply that was
+// current on entry can go stale inside that await. And a destroyed page never
+// sees a view change, so its scope must end with it. The model below follows
+// installed Kit (forms.js fallback_callback, client.js applyAction): a success
+// with invalidateAll awaits the (holdable) refresh, then the result becomes the
+// form prop of the page mounted NOW (the root), and a success resets focus.
+describe('a reply never applies after its scope ended (#1500 third fix head)', () => {
+  const status = (root: HTMLElement) => root.querySelector<HTMLElement>('#key-visibility-status')!;
+  const alert = (root: HTMLElement) => root.querySelector<HTMLElement>('#key-visibility-alert')!;
+  const formOf = (root: HTMLElement, id: string) => root.querySelector<HTMLFormElement>(`[data-key-id="${id}"] form`)!;
+  type Result = { type: 'success' | 'failure'; status: number; data: Record<string, unknown> };
+  const result = (type: 'success' | 'failure', text: string, id: string): Result =>
+    ({ type, status: type === 'success' ? 200 : 500, data: { visibility: { type: type === 'success' ? 'success' : 'error', text, id } } });
+  let rootProps: { data: Record<string, unknown>; form: unknown } | null = null;
+  const applied: unknown[] = [];
+  async function page() {
+    setStubPage('http://localhost/app/account/api-keys?includeHidden=true');
+    const props = reactiveProps({ data: { keys: [key('a', '2026-10-28T00:00:00Z'), key('b', '2026-10-28T00:00:00Z')], includeHidden: true, form: await superValidate({}, zod4(createUserApiKeySchema), {errors:false}), revokeForm: await superValidate({}, zod4(revokeUserApiKeySchema), {errors:false}) } as Record<string, unknown>, form: null as unknown });
+    const m = mountComponent(Page as never, props as never);
+    mounted = m;
+    rootProps = props;
+    await tick(2);
+    return { m, props };
+  }
+  async function start(root: HTMLElement, id: string) {
+    let pending: Result | null = null;
+    const update = async (o: { reset?: boolean; invalidateAll?: boolean } = {}) => {
+      const r = pending!;
+      if (r.type === 'success' && o.invalidateAll !== false) await invalidateAll();
+      applied.push(r.data);
+      rootProps!.form = r.data;
+      if (r.type === 'success' && document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      await tick(1);
+    };
+    const d = await submitEnhancedDeferred(formOf(root, id), { update }); flushSync(); await tick(1);
+    return (r: Result) => { pending = r; return d.finish(r); };
+  }
+  const focusOther = () => { const el = document.createElement('input'); document.body.append(el); el.focus(); return el; };
+  afterEach(() => { resetNavigationCalls(); applied.length = 0; rootProps = null; });
+
+  it('a current success whose refresh is overtaken by a view change is not applied', async () => {
+    const { m, props } = await page();
+    const finish = await start(m.target, 'a');
+    const release = holdInvalidateAll();
+    const done = finish(result('success', 'APPLY WINDOW RESULT', 'a'));
+    await tick(2);
+    props.data = { ...props.data, includeHidden: false };
+    props.form = null;
+    await tick(2);
+    const other = focusOther();
+    try {
+      release();
+      await done; await tick(2);
+      expect(applied).toEqual([]);
+      expect(m.target.textContent).not.toContain('APPLY WINDOW RESULT');
+      expect(status(m.target).textContent).toBe('');
+      expect(document.activeElement).toBe(other);
+    } finally { other.remove(); }
+  });
+
+  it.each(['success', 'failure'] as const)('a %s from a destroyed page is not applied to a fresh page on the same path', async (type) => {
+    const old = await page();
+    const finish = await start(old.m.target, 'a');
+    old.m.unmount();
+    const fresh = await page();
+    const other = focusOther();
+    try {
+      await finish(result(type, 'DESTROYED VIEW RESULT', 'a')); await tick(2);
+      expect(applied).toEqual([]);
+      expect(fresh.m.target.textContent).not.toContain('DESTROYED VIEW RESULT');
+      expect(status(fresh.m.target).textContent).toBe('');
+      expect(alert(fresh.m.target).textContent).toBe('');
+      expect(document.activeElement).toBe(other);
+    } finally { other.remove(); }
+  });
+
+  it.each(['success', 'failure'] as const)('control: a %s on the fresh page after a return is applied and shown', async (type) => {
+    const old = await page();
+    old.m.unmount();
+    const fresh = await page();
+    const finish = await start(fresh.m.target, 'b');
+    await finish(result(type, 'FRESH RESULT', 'b')); await tick(2);
+    expect(applied).toHaveLength(1);
+    expect((type === 'success' ? status : alert)(fresh.m.target).textContent).toBe('FRESH RESULT');
+  });
+
+  it('control: a current success with no interleaving is refreshed once, then applied', async () => {
+    const { m } = await page();
+    const finish = await start(m.target, 'a');
+    await finish(result('success', 'CURRENT RESULT', 'a')); await tick(2);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(applied).toHaveLength(1);
+    expect(status(m.target).textContent).toBe('CURRENT RESULT');
   });
 });
