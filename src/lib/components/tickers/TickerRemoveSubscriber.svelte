@@ -35,6 +35,18 @@
     this panel's to answer), and one panel instance never carries one row's
     result into another row's confirmation (keyed reset on ticker AND
     subscription).
+  - A removal is NOT over when its result arrives (portal#1502 BLIND delta,
+    Gizelle P2-1): the reload it triggered is still in flight, so busy (and
+    this panel's own buttons) stay held until that reload settles and the
+    outcome is delivered — no competing row can re-key the panel out from
+    under the outcome it owes the reader. onDestroy still releases busy, so
+    an unmount can never leave it stuck.
+  - A failed reload's caveat states only what is true (portal#1502 BLIND
+    delta, Gizelle P2-2): a COMMITTED removal's write stands ("Saved; the
+    page couldn't reload."), a REFUSED one performed no write and may not
+    claim a save ("The page couldn't reload.") — the outcome's refreshFailed
+    discriminator says which, and every surface that renders it picks its
+    copy by that kind.
 -->
 <script lang="ts">
   import { onDestroy, tick as tickFn } from 'svelte';
@@ -52,7 +64,9 @@
     removedWorkerText,
     tickerFirstPageHref,
     tickerRefreshFailedLine,
+    tickerReloadFailedNoSaveLine,
     type TickerRemoveOutcome,
+    type TickerRemoveRefreshFailed,
   } from '$lib/tickers/controls';
   import { createTickerRefreshFence } from '$lib/tickers/refresh-fence';
 
@@ -81,7 +95,12 @@
      * wherever outlives it (portal#1502 delta seats, Gemma + Gaby).
      */
     onOutcome?: (outcome: TickerRemoveOutcome) => void;
-    /** True while this panel's POST is in flight — the page mutes other rows. */
+    /**
+     * True from this panel's submit until its reload settles and its outcome
+     * is delivered (portal#1502 BLIND delta, Gizelle P2-1) — the page mutes
+     * every other row's trigger for exactly that window, so a competing row
+     * cannot re-key the panel and drop the outcome.
+     */
     busy?: boolean;
   } = $props();
 
@@ -89,7 +108,7 @@
   let ok = $state<string | null>(null);
   let announcementFailed = $state(false);
   let refusal = $state<WriteRefusal | null>(null);
-  let refreshFailed = $state(false);
+  let refreshFailed = $state<TickerRemoveRefreshFailed>(false);
   let shownFor = $state<string | null>(null);
   let generation = 0;
 
@@ -183,8 +202,6 @@
       refreshFailed = false;
       return async ({ result }: { result: { type: string; data?: unknown } }) => {
         if (mine !== generation) return;
-        submitting = false;
-        busy = false;
         if (result.type === 'success') {
           const success = asTickerSuccess(result.data);
           // A result names WHAT it was about: only this row's own unsubscribe,
@@ -202,28 +219,37 @@
           // this control (#1462 pattern), so the marker is left just before it and
           // cleared here only while this panel is still mounted.
           const attempt = fence.begin(viewerId, 'unsubscribe', workerId);
-          let reloadFailed = false;
-          try {
-            await goto(reloadHref, { invalidateAll: true });
-          } catch {
-            refreshFailed = true;
-            reloadFailed = true;
-          }
-          fence.refreshSettled(attempt);
-          if (ownRow) {
-            // Reported BEFORE the unmount check: the reload above drops the row,
-            // the row is what keeps this panel mounted, so the outcome is the
-            // page's to show — with or without this instance (portal#1502 delta).
-            onOutcome({ tickerId: tId, subscriptionId: subId, text: removedWorkerText(wLabel), workerUrn: wUrn, announcementFailed, refreshFailed: reloadFailed });
-          }
-          if (mine !== generation) {
-            // Unmounted during the reload. The marker survives only when the failure
-            // was THIS reload's (this ticker's error page); anything else may not
-            // claim a failed reload later.
-            if (!fence.failedHere(attempt)) fence.clear(attempt);
-            return;
-          }
-          fence.clear(attempt);
+          // The removal is NOT over: busy stays held until this reload settles
+          // and the outcome is delivered, so no other row can take the panel
+          // (Gizelle P2-1 — the settle below releases it AFTER onOutcome). The
+          // settle continuation runs detached: the handler returns first, so
+          // kit's own post-result work never waits on a full navigation.
+          // 'committed' names the one claim this failed reload may make: the
+          // write stands, so "Saved;" is true of it (Gizelle P2-2).
+          const settle = (failed: false | 'committed') => {
+            refreshFailed = failed;
+            fence.refreshSettled(attempt);
+            if (ownRow) {
+              // Reported BEFORE the unmount check: the reload above drops the row,
+              // the row is what keeps this panel mounted, so the outcome is the
+              // page's to show — with or without this instance (portal#1502 delta).
+              onOutcome({ tickerId: tId, subscriptionId: subId, text: removedWorkerText(wLabel), workerUrn: wUrn, announcementFailed, refreshFailed: failed });
+            }
+            if (mine !== generation) {
+              // Unmounted during the reload. The marker survives only when the failure
+              // was THIS reload's (this ticker's error page); anything else may not
+              // claim a failed reload later. busy was already released by onDestroy.
+              if (!fence.failedHere(attempt)) fence.clear(attempt);
+              return;
+            }
+            fence.clear(attempt);
+            submitting = false;
+            busy = false;
+          };
+          void goto(reloadHref, { invalidateAll: true }).then(
+            () => settle(false),
+            () => settle('committed'),
+          );
           return;
         }
         refusal = result.type === 'failure' ? asTickerRefusal(result.data) : { kind: 'uncertain' };
@@ -232,25 +258,37 @@
         // list is back at its first page — make that true, without a marker (a
         // refused write must never claim "the write stands" on the boundary).
         if (refusal.kind === 'refused' && refusal.code === 'SUBSCRIPTION_NOT_FOUND') {
-          // Read before the await: the sentence is the server's own, and the
+          // Read before the reload: the sentence is the server's own, and the
           // state it came from may not survive the reload's state changes.
           const staleMessage = refusal.message;
-          let reloadFailed = false;
-          try {
-            await goto(reloadHref, { invalidateAll: true });
-          } catch {
-            refreshFailed = true;
-            reloadFailed = true;
-          }
-          // The same reload drops the stale row and unmounts this panel with it,
-          // so its sentence — the one that says where the list went — is the
-          // page's to keep showing (portal#1502 delta).
-          // The stale-row refusal's own sentence, unchanged: the server's copy
-          // says what happened; no worker of "ours" is named on it.
-          onOutcome({ tickerId: tId, subscriptionId: subId, text: staleMessage, workerUrn: null, announcementFailed: false, refreshFailed: reloadFailed });
+          // 'refused' names the one claim this failed reload may make: NO write
+          // happened, so its caveat may say only that the page couldn't reload —
+          // never "Saved" (Gizelle P2-2). The same held-busy window as a commit
+          // (P2-1): the settle releases it after the outcome is delivered.
+          const settle = (failed: false | 'refused') => {
+            refreshFailed = failed;
+            // The reload drops the stale row and unmounts this panel with it,
+            // so its sentence — the one that says where the list went — is the
+            // page's to keep showing (portal#1502 delta), unchanged: the
+            // server's copy says what happened; no worker of "ours" is named.
+            onOutcome({ tickerId: tId, subscriptionId: subId, text: staleMessage, workerUrn: null, announcementFailed: false, refreshFailed: failed });
+            // Unmounted during the reload, onDestroy already released busy.
+            if (mine === generation) {
+              submitting = false;
+              busy = false;
+            }
+          };
+          void goto(reloadHref, { invalidateAll: true }).then(
+            () => settle(false),
+            () => settle('refused'),
+          );
+          return;
         }
         // Any other refusal keeps the confirmation open (as Add keeps its draft):
-        // the reader can retry by hand or cancel.
+        // the reader can retry by hand or cancel. No reload follows this result,
+        // so busy releases with it.
+        submitting = false;
+        busy = false;
       };
     };
   }
@@ -292,12 +330,16 @@
       </div>
     </form>
   {:else}
-    <!-- The result itself lives in the live region below — one line, not two. -->
+    <!-- The result itself lives in the live region below — one line, not two.
+         Cancel is disabled while submitting is held: through the reload the
+         result triggered, so closing here cannot end the removal's exclusivity
+         before its outcome is delivered (Gizelle P2-1). -->
     <div class="flex flex-wrap items-center gap-2">
       <button
         type="button"
+        disabled={submitting}
         onclick={onClose}
-        class="rounded-md border border-zinc-300 px-3 py-1.5 font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+        class="rounded-md border border-zinc-300 px-3 py-1.5 font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >{t('app.ticker.controls.remove.cancel', 'Cancel')}</button>
     </div>
   {/if}
@@ -307,7 +349,8 @@
        page-level region takes its own (portal#1502 BLIND delta, Gaby P3: an
        element inserted already-populated is not announced) — each on its OWN
        line (block), so they cannot run into the result text or each other
-       (portal#1502 UX delta, Uma P2). -->
-  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : ''}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-refresh-failed-" + subscription.id}>{tickerRefreshFailedLine()}</span>{/if}</p>
+       (portal#1502 UX delta, Uma P2). The refresh caveat states only what is
+       true: "Saved;" only when a write stands (Gizelle P2-2). -->
+  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : ''}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-refresh-failed-" + subscription.id}>{refreshFailed === 'refused' ? tickerReloadFailedNoSaveLine() : tickerRefreshFailedLine()}</span>{/if}</p>
   {#if refusal}<WriteRefusalAlert {refusal} />{/if}
 </div>

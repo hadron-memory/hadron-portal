@@ -132,6 +132,19 @@ describe('TickerRemoveSubscriber: submits', () => {
     await pending.finish(UNSUB_SUCCESS);
   });
 
+  it('busy stays held until the reload settles and the outcome is delivered — not when the result arrives (portal#1502 BLIND delta, Gizelle P2-1)', async () => {
+    const { root, props } = await mountRemove();
+    let settleReload!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { settleReload = resolve; });
+    await submitEnhancedWithResult(formOf(root), UNSUB_SUCCESS);
+    await tick(2);
+    expect(props.busy).toBe(true); // the result is in; the reload it caused is not
+    settleReload();
+    await tick(2);
+    expect(outcomes).toHaveLength(1); // the outcome was delivered at settlement
+    expect(props.busy).toBe(false);
+  });
+
   it('a success reports "Removed <worker>" — with the ticker it happened on and the worker’s Urn — to the page (it outlives the panel’s unmount), reloads from the FIRST subscriber page, and closes the fence', async () => {
     const { root } = await mountRemove();
     await submitEnhancedWithResult(formOf(root), UNSUB_SUCCESS);
@@ -168,8 +181,21 @@ describe('TickerRemoveSubscriber: submits', () => {
     navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
     await submitEnhancedWithResult(formOf(root), STALE_ROW);
     await tick(2);
-    expect(outcomes).toContainEqual({ tickerId: 'tk-1', subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', workerUrn: null, announcementFailed: false, refreshFailed: true });
+    // portal#1502 BLIND delta (Gizelle P2-2): a REFUSED write may never claim a
+    // save — the outcome carries which kind of refresh failed, and the panel's
+    // caveat says only that the page couldn't reload (never "Saved").
+    expect(outcomes).toContainEqual({ tickerId: 'tk-1', subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', workerUrn: null, announcementFailed: false, refreshFailed: 'refused' });
+    expect(root.querySelector('[data-testid="ticker-remove-refresh-failed-s-17"]')!.textContent).toBe('The page couldn’t reload.');
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
+  });
+
+  it('a COMMITTED removal whose reload fails keeps its own caveat — "Saved; …" is true there (the write stands)', async () => {
+    const { root } = await mountRemove();
+    navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
+    await submitEnhancedWithResult(formOf(root), UNSUB_SUCCESS);
+    await tick(2);
+    expect(outcomes).toContainEqual({ tickerId: 'tk-1', subscriptionId: 's-17', text: 'Removed Liam', workerUrn: 'hrn:worker:acme.com:team:liam', announcementFailed: false, refreshFailed: 'committed' });
+    expect(root.querySelector('[data-testid="ticker-remove-refresh-failed-s-17"]')!.textContent).toBe('Saved; the page couldn’t reload.');
   });
 
   it('any other refusal keeps the confirmation open (retry by hand, or cancel)', async () => {

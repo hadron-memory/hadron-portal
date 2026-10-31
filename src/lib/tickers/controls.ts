@@ -78,10 +78,27 @@ export interface TickerRemoveOutcome {
    */
   workerUrn: string | null;
   announcementFailed: boolean;
-  refreshFailed: boolean;
+  refreshFailed: TickerRemoveRefreshFailed;
 }
 
+/**
+ * Which kind of reload failed, and therefore which claim its caveat may make
+ * (portal#1502 BLIND delta, Gizelle P2-2). `false`: the reload was healthy.
+ * `'committed'`: a COMMITTED removal's reload failed — the write stands, so
+ * "Saved; the page couldn't reload." is true. `'refused'`: a refused
+ * (never-written) removal's reload failed — no save happened, so its caveat
+ * may say only that the page couldn't reload, never "Saved".
+ */
+export type TickerRemoveRefreshFailed = false | 'committed' | 'refused';
+
 export const tickerRefreshFailedLine = () => t('app.ticker.controls.refresh-failed', 'Saved; the page couldn’t reload.');
+
+/**
+ * portal#1502 BLIND delta (Gizelle P2-2): the caveat for a REFUSED removal
+ * whose reload failed. No write happened, so "Saved;" would claim a save the
+ * server refused — the line names only the reload.
+ */
+export const tickerReloadFailedNoSaveLine = () => t('app.ticker.controls.reload-failed-no-save', 'The page couldn’t reload.');
 
 /**
  * hrn:node:hadronmemory.com:specs:cor:agt:080:20 as the portal states it, beside the subscriber controls AND as the SUBSCRIBE_FORBIDDEN

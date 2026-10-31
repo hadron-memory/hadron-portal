@@ -216,6 +216,60 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     expect(root.querySelector('#subscribers-heading')).toBe(document.activeElement);
   });
 
+  it('a removal holds every other row’s Remove trigger locked until its reload settles (portal#1502 BLIND delta, Gizelle P2-1)', async () => {
+    const { root } = await mountReactivePage();
+    await openRemove(root, 's1');
+    // The write's own result has arrived; the reload it triggers is still
+    // pending (a slow server). The removal is NOT over: its outcome is yet to
+    // land, and the panel that carries it must not be re-keyed under it.
+    let settleReload!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { settleReload = resolve; });
+    await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#unsubscribe-s1')!, {
+      type: 'success', status: 200,
+      data: { action: 'unsubscribe', ok: true, target: 'w-2' },
+    });
+    await tick(2);
+    const other = root.querySelector<HTMLButtonElement>('[data-testid="ticker-remove-s2"]')!;
+    expect(other.disabled).toBe(true);
+    other.click(); // even a programmatic click must not take the panel from the settling removal
+    await tick(2);
+    expect(root.querySelector('#ticker-remove-panel-s1')).not.toBeNull(); // Liam's panel still owns the flow
+    expect(root.querySelector('#ticker-remove-panel-s2')).toBeNull();
+    // The reload settles; the page is free again.
+    settleReload();
+    await tick(2);
+    expect(root.querySelector<HTMLButtonElement>('[data-testid="ticker-remove-s2"]')!.disabled).toBe(false);
+    // And the first outcome survived the competing attempt: closing the
+    // settled panel hands it to the page's region, still naming Liam.
+    [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => /^Cancel$/.test(b.textContent ?? ''))!.click();
+    await tick(2);
+    expect(root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent).toContain('Removed Liam');
+  });
+
+  it('a refused removal whose reload also fails claims no save — the caveat names only the reload (portal#1502 BLIND delta, Gizelle P2-2)', async () => {
+    const { root } = await mountReactivePage();
+    await openRemove(root, 's1');
+    navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
+    await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#unsubscribe-s1')!, {
+      type: 'failure', status: 404,
+      data: { refusal: { kind: 'refused', code: 'SUBSCRIPTION_NOT_FOUND', message: 'No longer subscribed. The list is back at its first page.' } },
+    });
+    await tick(2);
+    // The row was never dropped (the reload failed), so the panel is the
+    // surface — and this path performed no write: its caveat may not say
+    // "Saved", only that the page could not reload.
+    const panelLine = root.querySelector('[data-testid="ticker-remove-refresh-failed-s1"]')!;
+    expect(panelLine.textContent).toBe('The page couldn’t reload.');
+    // Closing the panel hands the sentence to the page-level outcome; its
+    // caveat makes the same claim — never "Saved".
+    [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => /^Cancel$/.test(b.textContent ?? ''))!.click();
+    await tick(2);
+    const region = root.querySelector('[data-testid="ticker-remove-outcome"]')!;
+    expect(region.textContent).toContain('No longer subscribed');
+    expect(region.textContent).not.toContain('Saved');
+    expect(region.querySelector('[data-testid="ticker-remove-outcome-refresh-failed"]')!.textContent).toBe('The page couldn’t reload.');
+  });
+
   it('opening another row’s Remove starts from a clean panel (no carried refusal, no carried result)', async () => {
     const { root } = await mountReactivePage();
     await openRemove(root, 's1');

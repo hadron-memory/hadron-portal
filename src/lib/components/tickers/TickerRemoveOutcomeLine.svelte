@@ -22,7 +22,7 @@
 -->
 <script lang="ts">
   import Urn from '$lib/components/Urn.svelte';
-  import { announcementFailedText, tickerRefreshFailedLine } from '$lib/tickers/controls';
+  import { announcementFailedText, tickerRefreshFailedLine, tickerReloadFailedNoSaveLine, type TickerRemoveRefreshFailed } from '$lib/tickers/controls';
 
   let {
     text = '',
@@ -35,8 +35,13 @@
     /** The removed worker's URN; null (the stale-row refusal, or nothing yet) renders no chip. */
     workerUrn?: string | null;
     announcementFailed?: boolean;
-    refreshFailed?: boolean;
+    /**
+     * Which kind of reload failed (portal#1502 BLIND delta, Gizelle P2-2):
+     * the caveat claims a save only when a write stands — a REFUSED removal's
+     * failed reload says only that the page couldn't reload, never "Saved".
+     */
+    refreshFailed?: TickerRemoveRefreshFailed;
   } = $props();
 </script>
 
-<p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid="ticker-remove-outcome">{text}{#if workerUrn} <Urn value={workerUrn} size={9} compact linked />{/if}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-announcement">{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-refresh-failed">{tickerRefreshFailedLine()}</span>{/if}</p>
+<p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid="ticker-remove-outcome">{text}{#if workerUrn} <Urn value={workerUrn} size={9} compact linked />{/if}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-announcement">{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-refresh-failed">{refreshFailed === 'refused' ? tickerReloadFailedNoSaveLine() : tickerRefreshFailedLine()}</span>{/if}</p>

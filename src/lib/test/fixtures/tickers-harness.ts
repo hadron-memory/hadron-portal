@@ -170,7 +170,8 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
     // the gap the page renders it in (between the Add control and the Remove
     // panel) — its widest composite: sentence + the worker's Urn chip + BOTH
     // caveats (a committed removal whose announcement failed, then a reload
-    // that could not be served).
+    // that could not be served). 'committed' keeps the caveat's claim true
+    // here: this composite's write stands (Gizelle P2-2 discriminator).
     if (view === 'detail-outcome') {
       const add = target.querySelector('[data-testid="ticker-add-subscriber"]');
       const host = document.createElement('div');
@@ -182,7 +183,7 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
           text: removedWorkerText(subscriber.worker.name ?? subscriber.worker.id),
           workerUrn: subscriber.worker.urn,
           announcementFailed: true,
-          refreshFailed: true,
+          refreshFailed: 'committed',
         } as never,
       });
     }
