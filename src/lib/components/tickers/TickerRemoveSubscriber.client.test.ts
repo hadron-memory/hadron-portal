@@ -132,11 +132,15 @@ describe('TickerRemoveSubscriber: submits', () => {
     await pending.finish(UNSUB_SUCCESS);
   });
 
-  it('a success reports "Removed" to the page (it outlives the panel’s unmount), reloads from the FIRST subscriber page, and closes the fence', async () => {
+  it('a success reports "Removed <worker>" — with the ticker it happened on and the worker’s Urn — to the page (it outlives the panel’s unmount), reloads from the FIRST subscriber page, and closes the fence', async () => {
     const { root } = await mountRemove();
     await submitEnhancedWithResult(formOf(root), UNSUB_SUCCESS);
     await tick(2);
-    expect(outcomes).toContainEqual({ subscriptionId: 's-17', text: 'Removed', announcementFailed: false, refreshFailed: false });
+    // portal#1502 BLIND/UX deltas: the outcome names whom (Uma P3-1 / Gaby
+    // P3-2 — the row is gone, this sentence is all that’s left) and carries
+    // the ticker id, so the page can fence it by entity on its reused route
+    // (Gaby P2 — a removal of tk-1 may claim nothing on tk-2).
+    expect(outcomes).toContainEqual({ tickerId: 'tk-1', subscriptionId: 's-17', text: 'Removed Liam', workerUrn: 'hrn:worker:acme.com:team:liam', announcementFailed: false, refreshFailed: false });
     const goto = navigationCalls.find((c) => c.fn === 'goto');
     expect(goto?.args[0]).toBe('/app/apps/app-1/tickers/tk-1');
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
@@ -147,7 +151,7 @@ describe('TickerRemoveSubscriber: submits', () => {
     await submitEnhancedWithResult(formOf(root), STALE_ROW);
     await tick(2);
     expect(root.querySelector('[data-refusal="refused"]')!.textContent).toContain('No longer subscribed');
-    expect(outcomes).toContainEqual({ subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', announcementFailed: false, refreshFailed: false });
+    expect(outcomes).toContainEqual({ tickerId: 'tk-1', subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', workerUrn: null, announcementFailed: false, refreshFailed: false });
     const goto = navigationCalls.find((c) => c.fn === 'goto');
     expect(goto?.args[0]).toBe('/app/apps/app-1/tickers/tk-1');
   });
@@ -164,7 +168,7 @@ describe('TickerRemoveSubscriber: submits', () => {
     navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
     await submitEnhancedWithResult(formOf(root), STALE_ROW);
     await tick(2);
-    expect(outcomes).toContainEqual({ subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', announcementFailed: false, refreshFailed: true });
+    expect(outcomes).toContainEqual({ tickerId: 'tk-1', subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', workerUrn: null, announcementFailed: false, refreshFailed: true });
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
   });
 

@@ -153,8 +153,53 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     });
     await tick(2);
     expect(root.querySelector('[data-testid="ticker-remove-s1"]')).toBeNull(); // the row is gone
-    expect(root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent).toContain('Removed');
-    expect(root.querySelector('[data-testid="ticker-remove-outcome-announcement"]')).not.toBeNull();
+    // portal#1502 BLIND/UX deltas: the row is gone, so the outcome is the only
+    // line that names whom (Uma P3-1, Gaby P3-2) — with its Urn (render-urn)
+    // and its caveat INSIDE the always-present region, not a region inserted
+    // already-populated beside it (Gaby P3-1).
+    const region = root.querySelector('[data-testid="ticker-remove-outcome"]')!;
+    expect(region.textContent).toContain('Removed Liam');
+    expect(region.querySelector('[title="hrn:worker:acme.com:team:w-2"]')).not.toBeNull();
+    expect(region.querySelector('[data-testid="ticker-remove-outcome-announcement"]')).not.toBeNull();
+  });
+
+  it('a failed reload’s note lands inside the always-present region too (never inserted already-populated)', async () => {
+    const { root, loader } = await mountReactivePage();
+    await openRemove(root, 's1');
+    navigationHooks.onGoto = () => {
+      loader.data = { ...loader.data, subscribers: without('s1') };
+      return Promise.reject(new Error('refresh failed'));
+    };
+    await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#unsubscribe-s1')!, {
+      type: 'success', status: 200,
+      data: { action: 'unsubscribe', ok: true, target: 'w-2' },
+    });
+    await tick(2);
+    const region = root.querySelector('[data-testid="ticker-remove-outcome"]')!;
+    expect(region.querySelector('[data-testid="ticker-remove-outcome-refresh-failed"]')).not.toBeNull();
+  });
+
+  it('the outcome never crosses a ticker change — this route is reused for the next ticker (portal#1502 BLIND delta, Gaby P2)', async () => {
+    const { root, loader } = await mountReactivePage();
+    await openRemove(root, 's1');
+    navigationHooks.onGoto = () => { loader.data = { ...loader.data, subscribers: without('s1') }; };
+    await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#unsubscribe-s1')!, {
+      type: 'success', status: 200,
+      data: { action: 'unsubscribe', ok: true, target: 'w-2', announcementFailed: true },
+    });
+    await tick(2);
+    expect(root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent).toContain('Removed'); // tk-1’s own outcome shows on tk-1
+    // kit REUSES this page component when only the ticker param changes (the
+    // portal#1244 pattern): data.ticker swaps in place, nothing remounts.
+    loader.data = { ...loader.data, ticker: { ...ticker(true), id: 'tk-2', name: 'ops', slug: 'ops', urn: 'hrn:ticker:acme.com:team:ops' } };
+    await tick(2);
+    const region = root.querySelector('[data-testid="ticker-remove-outcome"]')!;
+    expect(region.textContent?.trim()).toBe(''); // a removal of tk-1 claims nothing on tk-2
+    expect(region.querySelector('[data-testid="ticker-remove-outcome-announcement"]')).toBeNull();
+    // …and returning to tk-1 does not resurrect it: cleared, not merely hidden (Uma P3-2)
+    loader.data = { ...loader.data, ticker: ticker(true) };
+    await tick(2);
+    expect(root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent?.trim()).toBe('');
   });
 
   it('the stale-row refusal’s sentence survives its reload, and focus lands on the Subscribers heading', async () => {

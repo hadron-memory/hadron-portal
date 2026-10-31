@@ -14,8 +14,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { cadenceText, isKnownReason, isWellFormedReasons, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
-  import { announcementFailedText, tickerSubscribeWhoText, type TickerRemoveOutcome } from '$lib/tickers/controls';
-  import TickerRefreshFailedLine from '$lib/components/tickers/TickerRefreshFailedLine.svelte';
+  import { announcementFailedText, tickerRefreshFailedLine, tickerSubscribeWhoText, type TickerRemoveOutcome } from '$lib/tickers/controls';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -137,15 +136,22 @@
   // its own result line and this region stays empty — one announcement, not
   // two. The region itself is present (and empty) from first paint, so the
   // sentence that lands in it is announced as a change.
-  const removeOutcomeText = $derived(
-    removeOutcome !== null && removePanelSub === null ? removeOutcome.text : '',
-  );
-  const removeOutcomeAnnouncement = $derived(
-    removeOutcome !== null && removePanelSub === null && removeOutcome.announcementFailed,
-  );
-  const removeOutcomeRefreshFailed = $derived(
-    removeOutcome !== null && removePanelSub === null && removeOutcome.refreshFailed,
-  );
+  //
+  // portal#1502 (BLIND delta, Gaby P2): the outcome also belongs to ONE
+  // TICKER. Kit reuses this page component for the next ticker under the
+  // route, so `data.ticker` can swap in place under any state this page
+  // holds — without this fence, a removal of ticker A would leave "Removed"
+  // in ticker B's status region, claiming a removal that never happened on
+  // B (the page-state twin of the reused-[id]-route bleed
+  // hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation
+  // fences in superForm ids). The panel below is already keyed per
+  // subscription; this guard is the page-level half of that fence.
+  function showsOutcome(o: TickerRemoveOutcome | null): o is TickerRemoveOutcome {
+    return o !== null && o.tickerId === tk.id && removePanelSub === null;
+  }
+  const removeOutcomeText = $derived(showsOutcome(removeOutcome) ? removeOutcome.text : '');
+  const removeOutcomeAnnouncement = $derived(showsOutcome(removeOutcome) && removeOutcome.announcementFailed);
+  const removeOutcomeRefreshFailed = $derived(showsOutcome(removeOutcome) && removeOutcome.refreshFailed);
 
   /** Cancel/Escape: close the panel and refocus the row's own trigger. */
   function closeRemove() {
@@ -164,6 +170,19 @@
       removePanelSub = null;
       subscribersHeading?.focus({ preventScroll: true });
     }
+  });
+
+  // portal#1502 (BLIND delta, Gaby P2 + Uma P3-2): the fence above hides an
+  // outcome on the wrong ticker; this one stops it RESURFACING if the reader
+  // comes back — cleared, not merely hidden. The guard reads removeOutcome,
+  // but the write makes the guard false (an effect re-run sees null and
+  // stops), so this converges rather than latching — the case
+  // hrn:node:hadronmemory.com:hadron-portal:review:no-read-modify-write-state-in-effect
+  // distinguishes. Tracked on the scalar id, so a same-ticker refresh that
+  // replaces the data object clears nothing.
+  $effect(() => {
+    const current = tk.id;
+    if (removeOutcome !== null && removeOutcome.tickerId !== current) removeOutcome = null;
   });
 </script>
 
@@ -339,14 +358,13 @@
       <!-- The Remove outcome, at page level: it outlives the panel below (the
            reload that carries it drops the row the panel is mounted on). Empty
            — and present — from first paint, so the sentence that lands in it is
-           announced as a change, never swapped in. -->
-      <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid="ticker-remove-outcome">{removeOutcomeText}</p>
-      {#if removeOutcomeAnnouncement}
-        <span role="status" class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-announcement">{announcementFailedText()}</span>
-      {/if}
-      {#if removeOutcomeRefreshFailed}
-        <span class="block"><TickerRefreshFailedLine testid="ticker-remove-outcome-refresh-failed" /></span>
-      {/if}
+           announced as a change, never swapped in. The caveat and refresh
+           lines render INSIDE it for the same reason (portal#1502 BLIND delta,
+           Gaby P3: an element inserted already-populated beside the region is
+           not announced), and so does the worker's Urn chip — once the row is
+           gone, this sentence is the only thing that names whom (Uma P3-1 /
+           Gaby P3-2, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn). -->
+      <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid="ticker-remove-outcome">{removeOutcomeText}{#if showsOutcome(removeOutcome) && removeOutcome.workerUrn} <Urn value={removeOutcome.workerUrn} size={9} compact linked />{/if}{#if removeOutcomeAnnouncement} <span class="text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-announcement">{announcementFailedText()}</span>{/if}{#if removeOutcomeRefreshFailed} <span class="text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-refresh-failed">{tickerRefreshFailedLine()}</span>{/if}</p>
       <!-- The Remove panel, above the table beside Add: one removal at a time,
            whatever the roster read said (the row keeps its trigger). KEYED on
            the subscription: another row's Remove starts from a fresh instance —
@@ -361,7 +379,7 @@
             worker={removePanelSub.worker}
             viewerId={viewerId}
             onClose={closeRemove}
-            onOutcome={(outcome) => { if (outcome.subscriptionId === removeOpenedFor) removeOutcome = outcome; }}
+            onOutcome={(outcome) => { if (outcome.subscriptionId === removeOpenedFor && outcome.tickerId === tk.id) removeOutcome = outcome; }}
             bind:busy={removeBusy}
           />
         {/key}

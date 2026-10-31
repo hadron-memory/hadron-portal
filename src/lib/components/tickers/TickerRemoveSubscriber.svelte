@@ -44,13 +44,14 @@
   import Urn from '$lib/components/Urn.svelte';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import WriteRefusalAlert from '$lib/components/agent-tasks/WriteRefusal.svelte';
-  import TickerRefreshFailedLine from '$lib/components/tickers/TickerRefreshFailedLine.svelte';
   import {
     announcementFailedText,
     asTickerRefusal,
     asTickerSuccess,
     removedText,
+    removedWorkerText,
     tickerFirstPageHref,
+    tickerRefreshFailedLine,
     type TickerRemoveOutcome,
   } from '$lib/tickers/controls';
   import { createTickerRefreshFence } from '$lib/tickers/refresh-fence';
@@ -110,7 +111,10 @@
       announcementFailed = false;
       refusal = null;
       refreshFailed = false;
-      shownFor = ticker.id;
+      // The composite the guard compares against (portal#1502, Uma P3-3: it
+      // was assigned only ticker.id, so the guard read always-true and the
+      // reset held merely because this effect's deps are the same ids).
+      shownFor = `${ticker.id}/${subscription.id}`;
     }
   });
 
@@ -164,7 +168,13 @@
       // continuation may not reach back through them (portal#1502 delta).
       const subId = subscription.id;
       const workerId = worker.id;
-      const reloadHref = tickerFirstPageHref(appId, ticker.id);
+      const tId = ticker.id;
+      // The outcome's own name for the worker (portal#1502, Uma P3-1 / Gaby
+      // P3-2): the row will be gone, so this sentence — not the row — is what
+      // names whom, with the URN the page chips beside it.
+      const wUrn = worker.urn;
+      const wLabel = worker.name ?? wUrn ?? workerId;
+      const reloadHref = tickerFirstPageHref(appId, tId);
       submitting = true;
       busy = true;
       ok = null;
@@ -204,7 +214,7 @@
             // Reported BEFORE the unmount check: the reload above drops the row,
             // the row is what keeps this panel mounted, so the outcome is the
             // page's to show — with or without this instance (portal#1502 delta).
-            onOutcome({ subscriptionId: subId, text: removedText(), announcementFailed, refreshFailed: reloadFailed });
+            onOutcome({ tickerId: tId, subscriptionId: subId, text: removedWorkerText(wLabel), workerUrn: wUrn, announcementFailed, refreshFailed: reloadFailed });
           }
           if (mine !== generation) {
             // Unmounted during the reload. The marker survives only when the failure
@@ -235,7 +245,9 @@
           // The same reload drops the stale row and unmounts this panel with it,
           // so its sentence — the one that says where the list went — is the
           // page's to keep showing (portal#1502 delta).
-          onOutcome({ subscriptionId: subId, text: staleMessage, announcementFailed: false, refreshFailed: reloadFailed });
+          // The stale-row refusal's own sentence, unchanged: the server's copy
+          // says what happened; no worker of "ours" is named on it.
+          onOutcome({ tickerId: tId, subscriptionId: subId, text: staleMessage, workerUrn: null, announcementFailed: false, refreshFailed: reloadFailed });
         }
         // Any other refusal keeps the confirmation open (as Add keeps its draft):
         // the reader can retry by hand or cancel.
@@ -290,9 +302,10 @@
     </div>
   {/if}
   <!-- An always-present empty live region: the text that lands in it is a change
-       (portal#1502 review), so the result line is announced, not swapped in. -->
-  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : ''}</p>
-  {#if announcementFailed}<span role="status" class="text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}
-  {#if refreshFailed}<span class="block"><TickerRefreshFailedLine testid={"ticker-remove-refresh-failed-" + subscription.id} /></span>{/if}
+       (portal#1502 review), so the result line is announced, not swapped in.
+       The caveat and refresh lines render INSIDE it, for the same reason the
+       page-level region takes its own (portal#1502 BLIND delta, Gaby P3: an
+       element inserted already-populated is not announced). -->
+  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : ''}{#if announcementFailed} <span class="text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-refresh-failed-" + subscription.id}>{tickerRefreshFailedLine()}</span>{/if}</p>
   {#if refusal}<WriteRefusalAlert {refusal} />{/if}
 </div>
