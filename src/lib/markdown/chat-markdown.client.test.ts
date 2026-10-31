@@ -39,6 +39,17 @@ describe('renderChatMarkdown (#1493)', () => {
     expect(html).toContain('[[other|label]]');
   });
 
+  it.each([
+    ['unprefixed v1', '[[acme.com::memory::note|label]]'],
+    ['unprefixed v2', '[[acme.com:memory:note|label]]'],
+    ['unprefixed v1 no label', '[[acme.com::memory::note]]'],
+  ])('leaves an %s target as text (only hrn:node: is claimed)', (_n, src) => {
+    const html = render(`see ${src}`);
+    expect(html).not.toContain('<a');
+    expect(html).not.toContain('wikilink');
+    expect(html).toContain(src);
+  });
+
   it('never lets a label inject HTML or a javascript: href', () => {
     const html = render(`[[${URN}|<img src=x onerror=alert(1)>]]`);
     const doc = new DOMParser().parseFromString(html, 'text/html');

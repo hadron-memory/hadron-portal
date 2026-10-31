@@ -242,9 +242,12 @@ export function wikilinkExtension(
   options: { qualifiedOnly?: boolean } = {},
 ) {
   // `qualifiedOnly` (#1493): surfaces with no containing memory claim only a
-  // fully qualified target. A bare `[[loc]]` has nothing to resolve against
-  // there, so the tokenizer declines it and marked leaves it as written.
-  const claims = (ref: WikilinkRef) => !options.qualifiedOnly || ref.memoryUrn !== null;
+  // node-prefixed target (`hrn:node:…`, v1 or v2). A bare `[[loc]]` has nothing
+  // to resolve against there, and an unprefixed `org::memory::loc` is not a
+  // citation the issue promises, so the tokenizer declines both and marked
+  // leaves them as written.
+  const claims = (ref: WikilinkRef) =>
+    !options.qualifiedOnly || (ref.memoryUrn !== null && NODE_URN_PREFIX.test(ref.target));
   return {
     name: 'wikilink',
     level: 'inline' as const,

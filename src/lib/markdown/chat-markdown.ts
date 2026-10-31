@@ -27,8 +27,8 @@ import { extractWikilinks, type WikilinkMap } from './wikilink';
 export function renderChatMarkdown(source: string): string {
   const links: WikilinkMap = {};
   for (const ref of extractWikilinks(source)) {
-    // Bare targets are not claimed by the renderer, so they need no entry.
-    if (!ref.memoryUrn) continue;
+    // Only node-prefixed targets are claimed by the renderer; the rest need no entry.
+    if (!ref.memoryUrn || !/^(?:hrn|urn):node:/i.test(ref.target)) continue;
     try {
       links[ref.target] = {
         href: `/app/u/${composeNodeUrn(ref.memoryUrn, ref.loc)}`,
