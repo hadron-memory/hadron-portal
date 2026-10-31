@@ -2,9 +2,12 @@
  * portal#1497 (MCP cut R7a) / portal#1502 (review) — the Remove panel the page
  * mounts above the subscribers table: the form carries its own id, a submit is
  * singular, a committed remove reloads from the FIRST subscriber page, and a
- * stale-row refusal (SUBSCRIPTION_NOT_FOUND) reloads too — through NO marker,
- * because a refused write must never claim "the write stands" on the error
- * boundary (Gemma P2-1 and Gaby's P2, found independently).
+ * stale-row refusal (SUBSCRIPTION_NOT_FOUND) reloads too — through NO refresh
+ * marker, because a refused write must never claim "the write stands" on the
+ * error boundary (Gemma P2-1 and Gaby's P2, found independently). The refusal
+ * sentence survives a document FALLBACK through its own outcome marker
+ * (portal#1502, Colette QA delta) — present only while the reload is
+ * unsettled, cleared at live settlement.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -12,6 +15,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { TICKER_REFRESH_MARKER_KEY } from '$lib/tickers/ticker-refresh-marker';
+import { TICKER_REMOVE_OUTCOME_MARKER_KEY } from '$lib/tickers/ticker-remove-outcome-marker';
 import TickerRemoveSubscriber from './TickerRemoveSubscriber.svelte';
 
 const ROW = { subscription: { id: 's-17' }, worker: { id: 'w-2', name: 'Liam', urn: 'hrn:worker:acme.com:team:liam' } };
@@ -169,24 +173,53 @@ describe('TickerRemoveSubscriber: submits', () => {
     expect(goto?.args[0]).toBe('/app/apps/app-1/tickers/tk-1');
   });
 
-  it('…and leaves NO refresh marker when the reload resolves: a refused write may never claim "the write stands"', async () => {
+  it('…and leaves NO refresh marker when the reload resolves: a refused write may never claim "the write stands" — and no outcome marker either: the sentence was delivered live (Colette QA delta)', async () => {
     const { root } = await mountRemove();
     await submitEnhancedWithResult(formOf(root), STALE_ROW);
     await tick(2);
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
+    expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).toBeNull();
   });
 
-  it('…and when the reload itself fails: the page’s outcome learns refreshFailed, still no marker', async () => {
+  it('…and when the reload never settles (the document FALLBACK proxy): the outcome marker carries the server’s sentence to the fresh page, and only until settlement (Colette QA delta)', async () => {
+    const { root } = await mountRemove();
+    // In a real kit an aborted data refresh does not reject — the router
+    // falls back to a full document navigation and the settle continuation
+    // dies with the old document. A goto that never settles is that proxy.
+    let settleReload!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { settleReload = resolve; });
+    await submitEnhancedWithResult(formOf(root), STALE_ROW);
+    await tick(2);
+    const raw = sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY);
+    expect(raw).not.toBeNull();
+    const marker = JSON.parse(raw!) as { viewer: string; appId: string; tickerId: string; subscriptionId: string; sentence: string };
+    expect(marker).toMatchObject({ viewer: 'u-1', appId: 'app-1', tickerId: 'tk-1', subscriptionId: 's-17', sentence: 'No longer subscribed. The list is back at its first page.' });
+    // Settlement, when a live navigation DOES reach it, retires the marker:
+    // the outcome was delivered live, so the sentence may not surface twice.
+    settleReload();
+    await tick(2);
+    expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).toBeNull();
+  });
+
+  it('…and when the reload itself fails: the base sentence claims no navigation that did not happen, no marker (Uma P2 / Gizelle delta)', async () => {
     const { root } = await mountRemove();
     navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
     await submitEnhancedWithResult(formOf(root), STALE_ROW);
     await tick(2);
-    // portal#1502 BLIND delta (Gizelle P2-2): a REFUSED write may never claim a
-    // save — the outcome carries which kind of refresh failed, and the panel's
-    // caveat says only that the page couldn't reload (never "Saved").
-    expect(outcomes).toContainEqual({ tickerId: 'tk-1', subscriptionId: 's-17', text: 'No longer subscribed. The list is back at its first page.', workerUrn: null, announcementFailed: false, refreshFailed: 'refused' });
+    // The reload failed, so "the list is back at its first page" would claim a
+    // navigation that never happened, and "Saved" a write the server refused:
+    // the outcome carries only the first truth (no longer subscribed), and the
+    // caveat names the reload. The WHOLE panel says the same — including its
+    // refusal alert, which is suppressed in this state (its sentence is the
+    // false one).
+    expect(outcomes).toContainEqual({ tickerId: 'tk-1', subscriptionId: 's-17', text: 'No longer subscribed.', workerUrn: null, announcementFailed: false, refreshFailed: 'refused' });
+    const panel = root.querySelector('#ticker-remove-panel-s-17')!;
+    expect(panel.textContent).toContain('No longer subscribed.');
+    expect(panel.textContent).not.toContain('first page');
+    expect(panel.textContent).not.toContain('Saved');
     expect(root.querySelector('[data-testid="ticker-remove-refresh-failed-s-17"]')!.textContent).toBe('The page couldn’t reload.');
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
+    expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).toBeNull(); // delivered live, with the corrected copy
   });
 
   it('a COMMITTED removal whose reload fails keeps its own caveat — "Saved; …" is true there (the write stands)', async () => {
@@ -211,6 +244,20 @@ describe('TickerRemoveSubscriber: submits', () => {
     await submitEnhancedWithResult(formOf(root), { type: 'success', status: 200, data: { action: 'unsubscribe', ok: true, target: 'w-9' } });
     await tick(2);
     expect(root.querySelector('[data-testid="ticker-remove-result-s-17"]')!.textContent).not.toContain('Removed');
+  });
+
+  it('…and takes no lock: a foreign result releases busy with the result, not at its reload’s settlement (cd0ded22 self-review)', async () => {
+    const { root, props } = await mountRemove();
+    let settleReload!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { settleReload = resolve; });
+    await submitEnhancedWithResult(formOf(root), { type: 'success', status: 200, data: { action: 'unsubscribe', ok: true, target: 'w-9' } });
+    await tick(2);
+    // Not this panel's write: no exclusivity window is owed for it, so the
+    // page's other rows are not held for a reload this result merely caused.
+    expect(props.busy).toBe(false);
+    settleReload();
+    await tick(2);
+    expect(outcomes).toHaveLength(0); // and nothing is reported for a row that wasn't removed
   });
 
   it('changing the ticker (a reused page) resets the panel', async () => {

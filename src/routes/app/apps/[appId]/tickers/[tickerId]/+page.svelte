@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -16,6 +17,7 @@
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { cadenceText, isKnownReason, isWellFormedReasons, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
   import { tickerSubscribeWhoText, type TickerRemoveOutcome } from '$lib/tickers/controls';
+  import { takeTickerRemoveOutcomeMarker } from '$lib/tickers/ticker-remove-outcome-marker';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -184,6 +186,29 @@
   $effect(() => {
     const current = tk.id;
     if (removeOutcome !== null && removeOutcome.tickerId !== current) removeOutcome = null;
+  });
+
+  // portal#1502 (Colette QA delta): a stale-row refusal's reload can end in a
+  // full document FALLBACK (an aborted data refresh does not reject in a real
+  // kit) — the fresh first page it lands on is this component, mounted anew
+  // with every client state gone, and the server's refusal sentence reaches
+  // it only through the outcome marker the panel left behind. Taken once
+  // here, on THIS viewer's render of the same ticker, into the same
+  // always-present region above (so it is announced as a change, never
+  // inserted already-populated — Gaby P3-1). A live navigation never gets
+  // this far: the panel clears its marker at settlement, so the sentence and
+  // the corrected failed-reload copy never both apply.
+  $effect(() => {
+    const viewer = viewerId;
+    const appIdNow = data.app.id;
+    const current = tk.id;
+    if (!viewer || !appIdNow || !current) return;
+    untrack(() => {
+      const claim = takeTickerRemoveOutcomeMarker({ viewer, appId: appIdNow, tickerId: current });
+      if (claim) {
+        removeOutcome = { tickerId: current, subscriptionId: claim.subscriptionId, text: claim.sentence, workerUrn: null, announcementFailed: false, refreshFailed: false };
+      }
+    });
   });
 </script>
 
@@ -370,7 +395,10 @@
            "stands.Saved;" (portal#1502 UX delta, Uma P2). Its own component
            (not page markup) so the layout harness can mount the populated
            region directly — a populated outcome needs a delivered action
-           result, which a page mounted outside kit cannot produce. -->
+           result, which a page mounted outside kit cannot produce. The
+           fallback case (Colette QA delta) is the exception that proves that
+           last clause: there the outcome arrives through the marker, not an
+           action result, and lands here the same way. -->
       <TickerRemoveOutcomeLine text={removeOutcomeText} workerUrn={showsOutcome(removeOutcome) ? removeOutcome.workerUrn : null} announcementFailed={removeOutcomeAnnouncement} refreshFailed={removeOutcomeRefreshFailed} />
       <!-- The Remove panel, above the table beside Add: one removal at a time,
            whatever the roster read said (the row keeps its trigger). KEYED on

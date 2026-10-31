@@ -201,6 +201,22 @@ try {
             const again = await stacked();
             assert.ok(again.ann.top >= again.chip.bottom - 1, `${label}: the caveat must return to its own line after the mutant`);
           }
+          // portal#1502 BLIND delta (Gizelle P2-2), the REFUSED composite: the
+          // stale-row refusal whose reload also failed. No write happened, so
+          // its caveat may not claim a save — "Saved" must appear nowhere in
+          // it — and its caveat still owes its own line below the sentence.
+          const refused = await page.evaluate(() => {
+            const host = document.querySelector('[data-testid="ticker-remove-outcome-refused-mounted"]');
+            const region = host?.querySelector('[data-testid="ticker-remove-outcome"]');
+            const ref = region?.querySelector('[data-testid="ticker-remove-outcome-refresh-failed"]');
+            const r = (el) => el ? el.getBoundingClientRect() : null;
+            return { region: r(region), ref: r(ref), text: region?.textContent ?? '', refText: ref?.textContent ?? '' };
+          });
+          assert.ok(refused.region && refused.ref, `${label}: the refused outcome must carry its caveat (got ${refused.text.slice(0, 80)})`);
+          assert.ok(!refused.text.includes('Saved'), `${label}: a refused removal's failed reload may not claim a save (got ${refused.refText})`);
+          assert.ok(!refused.text.includes('first page'), `${label}: a failed reload may not claim the first-page navigation either (got ${refused.text})`);
+          assert.ok(refused.refText.includes("couldn’t reload"), `${label}: the refused caveat must name the reload (got ${refused.refText})`);
+          assert.ok(refused.ref.top >= refused.region.top, `${label}: the refused caveat must sit below its sentence`);
         }
 
         if (width === 390) {

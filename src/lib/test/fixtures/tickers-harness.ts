@@ -172,6 +172,9 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
     // caveats (a committed removal whose announcement failed, then a reload
     // that could not be served). 'committed' keeps the caveat's claim true
     // here: this composite's write stands (Gizelle P2-2 discriminator).
+    // Beside it, the REFUSED composite (the stale-row refusal whose reload
+    // failed): no chip, no announcement — and a caveat that may not say
+    // "Saved", pinned in the real browser too, not only in jsdom text.
     if (view === 'detail-outcome') {
       const add = target.querySelector('[data-testid="ticker-add-subscriber"]');
       const host = document.createElement('div');
@@ -184,6 +187,21 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
           workerUrn: subscriber.worker.urn,
           announcementFailed: true,
           refreshFailed: 'committed',
+        } as never,
+      });
+      const refusedHost = document.createElement('div');
+      refusedHost.dataset.testid = 'ticker-remove-outcome-refused-mounted';
+      host.after(refusedHost);
+      mount(TickerRemoveOutcomeLine, {
+        target: refusedHost,
+        props: {
+          // The failed-reload variant: the base claims only the first truth —
+          // never "the list is back at its first page" (Uma P2 / Gizelle
+          // delta) — and the caveat (kind 'refused') names only the reload.
+          text: 'No longer subscribed.',
+          workerUrn: null,
+          announcementFailed: false,
+          refreshFailed: 'refused',
         } as never,
       });
     }

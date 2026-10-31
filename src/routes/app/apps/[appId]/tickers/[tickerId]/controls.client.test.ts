@@ -12,6 +12,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { setStubPage, resetStubPage } from '$lib/test/stubs/app-stores';
+import { setTickerRemoveOutcomeMarker, TICKER_REMOVE_OUTCOME_MARKER_KEY } from '$lib/tickers/ticker-remove-outcome-marker';
 import Page from './+page.svelte';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
@@ -122,12 +123,13 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     value: { ...SUBSCRIBERS.value, items: SUBSCRIBERS.value.items.filter((s) => s.id !== id) },
   });
 
-  async function mountReactivePage() {
+  async function mountReactivePage(withViewer = false) {
     setStubPage('http://localhost/app/apps/app-1/tickers/tk-1', { appId: 'app-1', tickerId: 'tk-1' });
     const loader = reactiveProps({
       data: {
         app, ticker: ticker(true), subscribers: SUBSCRIBERS, tickerTask: { kind: 'ok', value: { registerTaskLoc: null } },
         roster: ROSTER, paged: false, after: null, impersonating: null,
+        ...(withViewer ? { user: { id: 'u-1' } } : {}),
       },
     });
     const m = mountComponent(Page as never, { get data() { return loader.data; } } as never) as Mounted<Record<string, unknown>>;
@@ -177,6 +179,9 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     await tick(2);
     const region = root.querySelector('[data-testid="ticker-remove-outcome"]')!;
     expect(region.querySelector('[data-testid="ticker-remove-outcome-refresh-failed"]')).not.toBeNull();
+    // The genuine saved-write control: this write DID commit, so its caveat
+    // keeps the save claim the refused path may not make.
+    expect(region.querySelector('[data-testid="ticker-remove-outcome-refresh-failed"]')!.textContent).toBe('Saved; the page couldn’t reload.');
   });
 
   it('the outcome never crosses a ticker change — this route is reused for the next ticker (portal#1502 BLIND delta, Gaby P2)', async () => {
@@ -216,6 +221,45 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     expect(root.querySelector('#subscribers-heading')).toBe(document.activeElement);
   });
 
+  // portal#1502 (Colette QA delta): an aborted data refresh does not reject in
+  // a real kit — the router falls back to a FULL document navigation, and the
+  // fresh first page it lands on mounts with every client state gone. The
+  // refused removal's sentence reaches that page only through the outcome
+  // marker the dying panel left in sessionStorage — the server's own copy,
+  // which on the completed fallback is TRUE (the reader IS on the first page),
+  // so it carries no refresh caveat.
+  it('the document fallback (Colette): the marker the dying panel left lands its sentence in the fresh page’s outcome region — once, for its own viewer and ticker', async () => {
+    setStubPage('http://localhost/app/apps/app-1/tickers/tk-1', { appId: 'app-1', tickerId: 'tk-1' });
+    setTickerRemoveOutcomeMarker({
+      viewer: 'u-1', appId: 'app-1', tickerId: 'tk-1', routeTickerId: 'tk-1', subscriptionId: 's1',
+      sentence: 'No longer subscribed. The list is back at its first page.',
+    });
+    const { root } = await mountReactivePage(true);
+    const region = root.querySelector('[data-testid="ticker-remove-outcome"]')!;
+    expect(region.textContent).toContain('No longer subscribed. The list is back at its first page.');
+    expect(region.querySelector('[data-testid="ticker-remove-outcome-refresh-failed"]')).toBeNull(); // the fallback DID reload
+    expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).toBeNull(); // taken once
+  });
+
+  it('a fallback marker of another viewer or another ticker decorates nothing here', async () => {
+    setStubPage('http://localhost/app/apps/app-1/tickers/tk-1', { appId: 'app-1', tickerId: 'tk-1' });
+    setTickerRemoveOutcomeMarker({
+      viewer: 'u-2', appId: 'app-1', tickerId: 'tk-1', routeTickerId: 'tk-1', subscriptionId: 's1',
+      sentence: 'No longer subscribed. The list is back at its first page.',
+    });
+    const { root } = await mountReactivePage(true);
+    expect(root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent?.trim()).toBe('');
+    expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).toBeNull(); // another viewer's is refused and removed
+
+    setTickerRemoveOutcomeMarker({
+      viewer: 'u-1', appId: 'app-1', tickerId: 'tk-2', routeTickerId: 'tk-2', subscriptionId: 's9',
+      sentence: 'Another ticker’s refusal.',
+    });
+    const second = await mountReactivePage(true);
+    expect(second.root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent?.trim()).toBe('');
+    expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).not.toBeNull(); // left for its own page
+  });
+
   it('a removal holds every other row’s Remove trigger locked until its reload settles (portal#1502 BLIND delta, Gizelle P2-1)', async () => {
     const { root } = await mountReactivePage();
     await openRemove(root, 's1');
@@ -246,7 +290,7 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     expect(root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent).toContain('Removed Liam');
   });
 
-  it('a refused removal whose reload also fails claims no save — the caveat names only the reload (portal#1502 BLIND delta, Gizelle P2-2)', async () => {
+  it('a refused removal whose reload also fails claims neither a save nor the navigation it did not make (Uma P2 / Gizelle delta)', async () => {
     const { root } = await mountReactivePage();
     await openRemove(root, 's1');
     navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
@@ -256,16 +300,21 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     });
     await tick(2);
     // The row was never dropped (the reload failed), so the panel is the
-    // surface — and this path performed no write: its caveat may not say
-    // "Saved", only that the page could not reload.
-    const panelLine = root.querySelector('[data-testid="ticker-remove-refresh-failed-s1"]')!;
-    expect(panelLine.textContent).toBe('The page couldn’t reload.');
-    // Closing the panel hands the sentence to the page-level outcome; its
-    // caveat makes the same claim — never "Saved".
+    // surface — and this path performed no write and no navigation: its whole
+    // text may claim neither "Saved" nor "the list is back at its first page";
+    // the caveat names only the reload.
+    const panel = root.querySelector('#ticker-remove-panel-s1')!;
+    expect(panel.textContent).toContain('No longer subscribed.');
+    expect(panel.textContent).not.toContain('first page');
+    expect(panel.textContent).not.toContain('Saved');
+    expect(root.querySelector('[data-testid="ticker-remove-refresh-failed-s1"]')!.textContent).toBe('The page couldn’t reload.');
+    // Closing the panel hands the sentence to the page-level outcome; it makes
+    // the same two claims and no others.
     [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => /^Cancel$/.test(b.textContent ?? ''))!.click();
     await tick(2);
     const region = root.querySelector('[data-testid="ticker-remove-outcome"]')!;
-    expect(region.textContent).toContain('No longer subscribed');
+    expect(region.textContent).toContain('No longer subscribed.');
+    expect(region.textContent).not.toContain('first page');
     expect(region.textContent).not.toContain('Saved');
     expect(region.querySelector('[data-testid="ticker-remove-outcome-refresh-failed"]')!.textContent).toBe('The page couldn’t reload.');
   });

@@ -22,7 +22,7 @@
 -->
 <script lang="ts">
   import Urn from '$lib/components/Urn.svelte';
-  import { announcementFailedText, tickerRefreshFailedLine, tickerReloadFailedNoSaveLine, type TickerRemoveRefreshFailed } from '$lib/tickers/controls';
+  import { announcementFailedText, tickerReloadFailedLine, type TickerRemoveRefreshFailed } from '$lib/tickers/controls';
 
   let {
     text = '',
@@ -44,4 +44,4 @@
   } = $props();
 </script>
 
-<p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid="ticker-remove-outcome">{text}{#if workerUrn} <Urn value={workerUrn} size={9} compact linked />{/if}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-announcement">{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-refresh-failed">{refreshFailed === 'refused' ? tickerReloadFailedNoSaveLine() : tickerRefreshFailedLine()}</span>{/if}</p>
+<p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid="ticker-remove-outcome">{text}{#if workerUrn} <Urn value={workerUrn} size={9} compact linked />{/if}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-announcement">{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-refresh-failed">{tickerReloadFailedLine(refreshFailed)}</span>{/if}</p>

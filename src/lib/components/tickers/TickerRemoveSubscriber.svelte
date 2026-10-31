@@ -18,10 +18,14 @@
     marker + this route's error boundary say it (#1462 pattern, ticker-scoped).
   - A SUBSCRIPTION_NOT_FOUND refusal (the stale-row case) reloads to the first
     page too — the copy says the list is back there, and issue #1497's
-    acceptance 2 says it reloads — but through NO marker: the boundary note
-    says "the write stands", and a refused write must never claim that
+    acceptance 2 says it reloads — but through NO refresh marker: the boundary
+    note says "the write stands", and a refused write must never claim that
     (portal#1502 review: both seats found the missing reload; the no-marker
-    rule is why this is not fence.begin).
+    rule is why this is not fence.begin). It carries its OWN outcome marker
+    instead ($lib/tickers/ticker-remove-outcome-marker): an aborted data
+    refresh falls back to a full document navigation, and the fresh page the
+    fallback lands on shows the server's sentence only through it
+    (portal#1502, Colette QA delta) — cleared when the live reload settles.
   - "Removed" is the result, shown from the action result, never inferred from
     a reloaded list that a stale page could hide. The line renders as an
     empty live region from the panel's first paint, so the text that later
@@ -50,8 +54,10 @@
 -->
 <script lang="ts">
   import { onDestroy, tick as tickFn } from 'svelte';
+  import { get } from 'svelte/store';
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
+  import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
   import Urn from '$lib/components/Urn.svelte';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
@@ -60,15 +66,20 @@
     announcementFailedText,
     asTickerRefusal,
     asTickerSuccess,
+    noLongerSubscribedText,
     removedText,
     removedWorkerText,
     tickerFirstPageHref,
-    tickerRefreshFailedLine,
-    tickerReloadFailedNoSaveLine,
+    tickerReloadFailedLine,
     type TickerRemoveOutcome,
     type TickerRemoveRefreshFailed,
   } from '$lib/tickers/controls';
+  import { tickerOfPage } from '$lib/tickers/refresh-page';
   import { createTickerRefreshFence } from '$lib/tickers/refresh-fence';
+  import {
+    clearTickerRemoveOutcomeMarker,
+    setTickerRemoveOutcomeMarker,
+  } from '$lib/tickers/ticker-remove-outcome-marker';
 
   let {
     appId,
@@ -109,6 +120,11 @@
   let announcementFailed = $state(false);
   let refusal = $state<WriteRefusal | null>(null);
   let refreshFailed = $state<TickerRemoveRefreshFailed>(false);
+  // portal#1502 (Uma P2 / Gizelle delta): a stale-row refusal whose reload
+  // FAILED shows this base sentence in the live region instead of the server's
+  // own (whose second sentence claims the first-page navigation that did not
+  // happen). Null in every other state.
+  let staleBase = $state<string | null>(null);
   let shownFor = $state<string | null>(null);
   let generation = 0;
 
@@ -130,6 +146,7 @@
       announcementFailed = false;
       refusal = null;
       refreshFailed = false;
+      staleBase = null;
       // The composite the guard compares against (portal#1502, Uma P3-3: it
       // was assigned only ticker.id, so the guard read always-true and the
       // reset held merely because this effect's deps are the same ids).
@@ -200,6 +217,7 @@
       announcementFailed = false;
       refusal = null;
       refreshFailed = false;
+      staleBase = null;
       return async ({ result }: { result: { type: string; data?: unknown } }) => {
         if (mine !== generation) return;
         if (result.type === 'success') {
@@ -219,6 +237,16 @@
           // this control (#1462 pattern), so the marker is left just before it and
           // cleared here only while this panel is still mounted.
           const attempt = fence.begin(viewerId, 'unsubscribe', workerId);
+          if (!ownRow) {
+            // A FOREIGN result is not this removal (the ownRow guard's whole
+            // case): it owes no exclusivity window either, so the lock
+            // releases with the result — the other rows are not held for a
+            // reload a crossed result merely caused (cd0ded22 self-review).
+            // The reload still runs as it always did, and its fence
+            // bookkeeping settles below.
+            submitting = false;
+            busy = false;
+          }
           // The removal is NOT over: busy stays held until this reload settles
           // and the outcome is delivered, so no other row can take the panel
           // (Gizelle P2-1 — the settle below releases it AFTER onOutcome). The
@@ -261,17 +289,53 @@
           // Read before the reload: the sentence is the server's own, and the
           // state it came from may not survive the reload's state changes.
           const staleMessage = refusal.message;
+          // portal#1502 (Colette QA delta): an aborted data refresh does not
+          // reject in a real kit — the router falls back to a FULL document
+          // navigation, which tears this panel, the page's outcome region and
+          // the settle continuation below down with it. On the fresh first
+          // page that lands on, this sentence (the server's own, TRUE there)
+          // reaches the reader only through this marker. The LIVE navigation
+          // clears it at settlement below, so the sentence and the corrected
+          // failed-reload copy never both apply. Under the fence's own
+          // spelling rule: the route's ticker NOW, the canonical id when the
+          // page store is not this route's.
+          const routeAt = tickerOfPage(get(page));
+          const markerAttempt = viewerId
+            ? setTickerRemoveOutcomeMarker({
+                viewer: viewerId,
+                appId,
+                tickerId: tId,
+                routeTickerId: routeAt && routeAt.appId === appId ? routeAt.tickerId : tId,
+                subscriptionId: subId,
+                sentence: staleMessage,
+              })
+            : null;
           // 'refused' names the one claim this failed reload may make: NO write
           // happened, so its caveat may say only that the page couldn't reload —
           // never "Saved" (Gizelle P2-2). The same held-busy window as a commit
           // (P2-1): the settle releases it after the outcome is delivered.
           const settle = (failed: false | 'refused') => {
+            // Settlement observed LIVE, either way: the outcome was delivered
+            // above, so the marker's sentence may not surface again later
+            // (only a fallback — which never settles here — keeps it).
+            if (markerAttempt !== null) clearTickerRemoveOutcomeMarker(markerAttempt);
             refreshFailed = failed;
-            // The reload drops the stale row and unmounts this panel with it,
-            // so its sentence — the one that says where the list went — is the
-            // page's to keep showing (portal#1502 delta), unchanged: the
-            // server's copy says what happened; no worker of "ours" is named.
-            onOutcome({ tickerId: tId, subscriptionId: subId, text: staleMessage, workerUrn: null, announcementFailed: false, refreshFailed: failed });
+            if (failed) {
+              // The reload did NOT happen, so the server's sentence — "the list
+              // is back at its first page" — claims a navigation that never
+              // ran. Every surface (this panel's region, the refusal alert
+              // below it, the page's outcome) shows only the first truth; the
+              // caveat carries the reload (Uma P2 / Gizelle delta).
+              staleBase = noLongerSubscribedText();
+              refusal = null;
+              onOutcome({ tickerId: tId, subscriptionId: subId, text: staleBase, workerUrn: null, announcementFailed: false, refreshFailed: failed });
+            } else {
+              // The reload dropped the stale row and unmounted this panel with
+              // it, so its sentence — now true — is the page's to keep showing
+              // (portal#1502 delta), unchanged: the server's copy says what
+              // happened; no worker of "ours" is named.
+              onOutcome({ tickerId: tId, subscriptionId: subId, text: staleMessage, workerUrn: null, announcementFailed: false, refreshFailed: failed });
+            }
             // Unmounted during the reload, onDestroy already released busy.
             if (mine === generation) {
               submitting = false;
@@ -350,7 +414,9 @@
        element inserted already-populated is not announced) — each on its OWN
        line (block), so they cannot run into the result text or each other
        (portal#1502 UX delta, Uma P2). The refresh caveat states only what is
-       true: "Saved;" only when a write stands (Gizelle P2-2). -->
-  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : ''}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-refresh-failed-" + subscription.id}>{refreshFailed === 'refused' ? tickerReloadFailedNoSaveLine() : tickerRefreshFailedLine()}</span>{/if}</p>
+       true: "Saved;" only when a write stands (Gizelle P2-2), and a stale-row
+       refusal whose reload failed shows the corrected base (staleBase), never
+       the server's first-page sentence (Uma P2 / Gizelle delta). -->
+  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : staleBase ?? ''}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-refresh-failed-" + subscription.id}>{tickerReloadFailedLine(refreshFailed)}</span>{/if}</p>
   {#if refusal}<WriteRefusalAlert {refusal} />{/if}
 </div>

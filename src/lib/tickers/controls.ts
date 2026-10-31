@@ -101,6 +101,15 @@ export const tickerRefreshFailedLine = () => t('app.ticker.controls.refresh-fail
 export const tickerReloadFailedNoSaveLine = () => t('app.ticker.controls.reload-failed-no-save', 'The page couldn’t reload.');
 
 /**
+ * The caveat for a removal's failed reload, stating only what is true of its
+ * KIND (Gizelle P2-2). The one picker every rendering surface uses, beside
+ * the type it picks by — a second copy of the ternary anywhere is how the
+ * refused case drifts back to claiming a save.
+ */
+export const tickerReloadFailedLine = (kind: 'committed' | 'refused') =>
+  kind === 'refused' ? tickerReloadFailedNoSaveLine() : tickerRefreshFailedLine();
+
+/**
  * hrn:node:hadronmemory.com:specs:cor:agt:080:20 as the portal states it, beside the subscriber controls AND as the SUBSCRIBE_FORBIDDEN
  * sentence — ONE copy (D4): the refusal copy in $lib/server/ticker-writes imports this, and the page
  * renders it next to Add/Remove, so they can never drift apart.
@@ -116,6 +125,15 @@ export const removedText = () => t('app.ticker.controls.removed', 'Removed');
 
 /** Names the worker: the PAGE-level outcome is the only line left once the row is gone (portal#1502, Uma P3-1 / Gaby P3-2). */
 export const removedWorkerText = (label: string) => t('app.ticker.controls.removed-worker', 'Removed {name}', { name: label });
+
+/**
+ * portal#1502 (Uma P2 / Gizelle BLIND delta): the base sentence for a
+ * stale-row refusal whose reload FAILED. The server's own sentence says "the
+ * list is back at its first page" — copy written for the reload that did not
+ * happen. This line claims only the first truth; the reload caveat (kind
+ * 'refused') carries the rest.
+ */
+export const noLongerSubscribedText = () => t('app.ticker.controls.remove.stale-no-reload', 'No longer subscribed.');
 
 export const announcementFailedText = () =>
   t('app.ticker.controls.announcement-failed', 'The team-chat notice about this change didn’t go out. The change itself stands.');
