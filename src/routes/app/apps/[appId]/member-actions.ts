@@ -28,7 +28,7 @@ interface MemberActionEvent {
 }
 
 export async function addMember({ request, params, locals }: MemberActionEvent) {
-  const form = await superValidate(await request.formData(), addAppMemberFormAdapter);
+  const form = await superValidate(await request.formData(), addAppMemberFormAdapter, { id: 'addAppMember' });
   if (!form.valid) return fail(400, { form });
 
   try {
@@ -48,7 +48,7 @@ export async function addMember({ request, params, locals }: MemberActionEvent) 
 }
 
 export async function ensureMember({ request, params, locals }: MemberActionEvent) {
-  const form = await superValidate(await request.formData(), ensureAppMemberFormAdapter);
+  const form = await superValidate(await request.formData(), ensureAppMemberFormAdapter, { id: 'ensureAppMember' });
   if (!form.valid) return fail(400, { form });
 
   try {

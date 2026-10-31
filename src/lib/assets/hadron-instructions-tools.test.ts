@@ -20,9 +20,8 @@ describe('hadron-instructions.md names only registered MCP tools (#1116)', () =>
     expect(named.filter((n) => !HOSTED_MCP_TOOLS.has(n))).toEqual([]);
   });
 
-  it('recovers a session through hadron_whoami and hadron_get_worker, never a fresh bind', () => {
+  it('recovers a session through hadron_whoami, never a fresh bind', () => {
     expect(instructions).toMatch(/`hadron_whoami`/);
-    expect(instructions).toMatch(/`hadron_get_worker`/);
     // Binding again after a compaction abandons the handoff the open session
     // owes; the instructions must not suggest it.
     expect(instructions).not.toMatch(/(start|bind)[^.\n]*new session[^.\n]*(compaction|context)/i);
@@ -30,62 +29,45 @@ describe('hadron-instructions.md names only registered MCP tools (#1116)', () =>
 });
 
 /**
- * #1123: hadron-server#1966 (deployed at 4333d600) added a real resume claim.
- * The instructions name it, with the built semantics, beside the existing
- * recovery note, which stays word for word.
+ * #1123 described the MCP resume claim. portal#1496 (MCP cut P1, D1) removes
+ * it: a team worker recovers through the CLI, and the recovery note keeps
+ * `hadron_whoami` for the agent's own session.
  */
-describe('hadron-instructions.md describes the resume claim (#1123)', () => {
+describe('hadron-instructions.md recovery note (#1123, #1496)', () => {
   const row = (tool: string) =>
-    instructions.split('\n').find((l) => l.startsWith(`| \`${tool}\``)) ?? '';
+    instructions.split('\n').find((l) => l.startsWith(`| \`${tool}\``));
 
-  it('has a row for hadron_create_resume_claim: single use, 60 seconds, only you', () => {
-    expect(row('hadron_create_resume_claim')).toMatch(/single use/i);
-    expect(row('hadron_create_resume_claim')).toMatch(/60 seconds/);
-    expect(row('hadron_create_resume_claim')).toMatch(/only you/i);
+  it('has no rows for the resume claim tools', () => {
+    expect(row('hadron_create_resume_claim')).toBeUndefined();
+    expect(row('hadron_resume_session')).toBeUndefined();
+    expect(row('hadron_get_worker')).toBeUndefined();
   });
 
-  it('has a row for hadron_resume_session: first, no arguments, NOTHING_TO_RESUME', () => {
-    expect(row('hadron_resume_session')).toMatch(/no arguments/i);
-    expect(row('hadron_resume_session')).toMatch(/`NOTHING_TO_RESUME`/);
+  it("drops hadron_end_session's resumeClaim", () => {
+    expect(row('hadron_end_session')).toBeDefined();
+    expect(row('hadron_end_session')).not.toMatch(/resumeClaim/);
   });
 
-  it("names hadron_end_session's resumeClaim", () => {
-    expect(row('hadron_end_session')).toMatch(/`resumeClaim: true`/);
-  });
-
-  it('keeps the recovery note word for word', () => {
+  it('keeps the recovery note, with hadron_whoami and the CLI for a team worker', () => {
     expect(instructions).toContain(
       "**Recovering after a context reset.** If your conversation loses its context\n" +
         "(a compaction, or a new chat window), don't start a new session: the open one\n" +
         'is still yours, and starting another leaves it behind. Call `hadron_whoami` to\n' +
-        'get your open session id (and, if you work as a named worker, which one), and\n' +
-        "`hadron_get_worker` to re-read that worker's briefing. Then carry on with the\n" +
-        'same session id.',
+        'get your open session id, then carry on with the same session id. A team\n' +
+        'worker recovers with `hadron team session whoami` and\n' +
+        '`hadron team worker get <name>`.',
     );
   });
 });
 
 /**
- * #1125: hadron-server#1978 (deployed in 4c55560a) made hadron_team_chat_post's
- * authorship explicit, the hadron_channel_post contract (#1697). An agent
- * following the instructions that posted without naming its session is now
- * refused, so the row says how to post as your worker or as yourself.
+ * #1125 described hadron_team_chat_post's authorship. portal#1496 (MCP cut P1,
+ * D2) replaces the section with the one CLI sentence.
  */
-describe('hadron-instructions.md describes team-chat authorship (#1125)', () => {
-  const row = instructions.split('\n').find((l) => l.startsWith('| `hadron_team_chat_post`')) ?? '';
+describe('hadron-instructions.md team chat (#1125, #1496)', () => {
+  const section = instructions.slice(instructions.indexOf('### Team Chat'), instructions.indexOf('### Reading & Searching'));
 
-  it('has a hadron_team_chat_post row naming `session` and `asMe`', () => {
-    expect(row).toMatch(/`session`/);
-    expect(row).toMatch(/`asMe: true`/);
-  });
-
-  it('names every refusal of the deployed contract', () => {
-    expect(row).toMatch(/`\[authorship_required\]`/);
-    expect(row).toMatch(/`SESSION_AMBIGUOUS`/);
-    expect(row).toMatch(/`\[bad_user_input\]`/);
-  });
-
-  it('points a refused agent at hadron_whoami for its session id', () => {
-    expect(row).toMatch(/`hadron_whoami`/);
+  it('is one sentence naming the CLI command', () => {
+    expect(section.replace('### Team Chat', '').trim()).toBe('Team workers post with `hadron team chat post <message>`.');
   });
 });

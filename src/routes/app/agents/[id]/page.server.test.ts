@@ -218,7 +218,7 @@ describe('/app/agents/[id] loader', () => {
   });
 
   it('#472: a failed Apps read (either call) is installedAppsError, and the other call\'s rows survive', async () => {
-    const lite = (id: string) => ({ id, name: id, urn: `hrn:app:x:${id}`, organizationId: 'org-a', agentId: 'agent-aaa', agents: [] });
+    const lite = (id: string) => ({ id, name: id, urn: `hrn:app:x:${id}`, organizationId: 'org-a', appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [] });
     const run = async (opts: Parameters<typeof routeMock>[0]) => {
       routeMock({ agent: { data: { agent: agentInA } }, myOrgs: { data: { organizations: [orgA] } }, ...opts });
       const load = await importLoad();
@@ -363,12 +363,46 @@ describe('/app/agents/[id] loader', () => {
     expect(bodyStr).not.toContain('urn:agent:a');
   });
 
-  it('404 when an org agent’s org is not among the caller’s memberships', async () => {
-    // agent(ref:) returned an org agent, but organizations() (the membership
-    // list) doesn't contain its org — treat as not-available.
+  // #1339: a readable agent whose org the caller is not a member of (a cross-org
+  // PUBLIC agent) renders without org chrome. The server's agent(ref:) gate is
+  // the only authority on whether it is readable; the org list is chrome.
+  it('#1339: a cross-org PUBLIC agent loads with org null instead of 404', async () => {
     routeMock({
-      agent: { data: { agent: agentInB } },
+      agent: { data: { agent: { ...agentInB, visibility: 'PUBLIC' } } },
       myOrgs: { data: { organizations: [orgA] } },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-bbb' }))) as {
+      agent: typeof agentInB;
+      org: unknown;
+      orgSystemMemories: unknown[];
+      personalMemories: unknown[];
+    };
+    expect(result.agent.id).toBe('agent-bbb');
+    expect(result.org).toBeNull();
+    expect(result.orgSystemMemories).toEqual([]);
+    // The foreign org's own surface is never requested on the caller's behalf.
+    expect(mockRequest).not.toHaveBeenCalledWith(ORG_SYSTEM_MEMORIES_QUERY, expect.anything());
+  });
+
+  it('#1339: a foreign-org agent is not mistaken for the caller’s own org-less agent', async () => {
+    // org is null here too, but the agent belongs to an organization, so the
+    // "caller owns it" personal-memory offer must not run.
+    routeMock({
+      agent: { data: { agent: { ...agentInB, visibility: 'ORGANIZATION' } } },
+      myOrgs: { data: { organizations: [orgA] } },
+      personalMems: { data: [{ id: 'pm1', name: 'my notes', urn: 'u', class: 'personal', organizationId: null }] },
+    });
+    const load = await importLoad();
+    const result = (await load(ev({ agentId: 'agent-bbb' }))) as { personalMemories: unknown[] };
+    expect(result.personalMemories).toEqual([]);
+    expect(mockRequest).not.toHaveBeenCalledWith(PERSONAL_MEMORIES_LITE_QUERY, expect.anything());
+  });
+
+  it('#1339: an agent the server refuses still 404s, whoever the caller’s orgs are', async () => {
+    routeMock({
+      agent: { data: { agent: null } },
+      myOrgs: { data: { organizations: [orgA, orgB] } },
     });
     const load = await importLoad();
     let thrown: unknown;
@@ -574,58 +608,101 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
     return result;
   }
 
+  // #472 / hadron-server#2343: both App reads carry the agent filter, so the load
+  // no longer drains every App the caller can see. Pinned on the variables the
+  // request actually carried (the mock ignores them otherwise), for BOTH documents.
+  it('asks the server for only this agent\'s Apps, on the member read and the org-less read', async () => {
+    await loadBundled({ apps: [], ownedApps: [] });
+    const filtered = (doc: string) =>
+      mockRequest.mock.calls.filter(([q]) => q === doc).map(([, v]) => v);
+    expect(filtered(AGENT_APPS_QUERY)).toEqual([expect.objectContaining({ agentId: 'agent-aaa' })]);
+    expect(filtered(AGENT_OWNED_APPS_QUERY)).toEqual([expect.objectContaining({ agentId: 'agent-aaa' })]);
+    // The filter is declared in the documents themselves, not just sent.
+    expect(AGENT_APPS_QUERY).toContain('filter: { agentId: $agentId }');
+    expect(AGENT_OWNED_APPS_QUERY).toContain('filter: { ownedByMe: true, agentId: $agentId }');
+  });
+
   it('lists the co-installed siblings, excluding the agent itself', async () => {
     const { bundledAgents: bundled } = await loadBundled({
       apps: [{
         id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a',
-        agentId: 'agent-aaa', agents: [selfLite, backend, frontend],
+        appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [selfLite, backend, frontend],
       }],
     });
     expect(bundled.map((a) => a.id)).toEqual(['agent-backend', 'agent-frontend']);
     expect(bundled[0]).toMatchObject({ name: 'Backend Engineer', personaRole: 'backend-engineer', via: 'Team App' });
   });
 
-  // portal#1148 (hadron-server#2089): an App whose roster is withheld (agents: null) has UNKNOWN siblings.
-  it('counts an App that withholds its agents instead of reading it as having none', async () => {
-    const result = (await loadBundled({
-      apps: [
-        { id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a', agentId: 'agent-aaa', agents: [selfLite, backend] },
-        { id: 'app-2', name: 'Private', urn: 'urn:app:2', organizationId: 'org-a', agentId: 'agent-aaa', agents: null },
-      ],
-    })) as { bundledAgents: Array<{ id: string }>; bundledWithheldApps?: number };
-    expect(result.bundledAgents.map((a) => a.id)).toEqual(['agent-backend']);
-    expect(result.bundledWithheldApps).toBe(1);
+  // portal#1350: App.agents drops an unreadable Agent and App.agentId is masked, so the only
+  // signal is an `appAgents` row whose `agent` is null. Pins the real nullable AppAgent shape.
+  type Flag = { bundledAgents: Array<{ id: string }>; installedApps: Array<{ id: string }>; bundledMayBeIncomplete?: boolean };
+  const hiddenRow = { agent: null };
+  const row = (id: string) => ({ agent: { id } });
+  const app = (id: string, appAgents: unknown, agents: unknown[] = [selfLite]) =>
+    ({ id, name: id, urn: `urn:app:${id}`, organizationId: 'org-a', appAgents, agents });
+
+  it('flags a hidden PRIMARY with a readable secondary: the secondary stays, the notice is on', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [hiddenRow, row('agent-aaa'), row('agent-backend')], [selfLite, backend])] })) as Flag;
+    expect(r.bundledAgents.map((a) => a.id)).toEqual(['agent-backend']);
+    expect(r.bundledMayBeIncomplete).toBe(true);
   });
 
-  // George, LOCAL on portal#1150: #2089 withholds agentId AND agents together, so the legal wire for
-  // the new audience is agentId: null + agents: null — an App the link-based filter would drop.
-  it('counts a fully withheld App (agentId null AND agents null): whether it installs this agent is unknown', async () => {
-    const result = (await loadBundled({
-      apps: [{ id: 'app-3', name: 'Private', urn: 'urn:app:3', organizationId: null, agentId: null, agents: null }],
-    })) as { bundledAgents: unknown[]; bundledWithheldApps?: number };
-    expect(result.bundledWithheldApps).toBe(1);
-    expect(result.bundledAgents).toEqual([]);
+  it('flags a readable primary with a hidden SECONDARY', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [row('agent-aaa'), hiddenRow])] })) as Flag;
+    expect(r.installedApps.map((a) => a.id)).toEqual(['app-1']);
+    expect(r.bundledMayBeIncomplete).toBe(true);
   });
 
-  it('does not count an App whose agentId names a different agent while agents is a real list', async () => {
-    const result = (await loadBundled({
-      apps: [{ id: 'app-4', name: 'Other', urn: 'urn:app:4', organizationId: 'org-a', agentId: 'agent-zzz', agents: [] }],
-    })) as { bundledWithheldApps?: number };
-    expect(result.bundledWithheldApps).toBe(0);
+  it('flags an App where only hidden installs exist (this agent unknown)', async () => {
+    const r = (await loadBundled({ apps: [app('app-3', [hiddenRow], [])] })) as Flag;
+    expect(r.bundledMayBeIncomplete).toBe(true);
+    expect(r.bundledAgents).toEqual([]);
   });
 
-  it('known-empty control: an App with a real [] is not counted as withheld', async () => {
-    const result = (await loadBundled({
-      apps: [{ id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a', agentId: 'agent-aaa', agents: [selfLite] }],
-    })) as { bundledWithheldApps?: number };
-    expect(result.bundledWithheldApps).toBe(0);
+  it('reads the signal from the org-less read too, and a duplicate across both reads still yields one boolean', async () => {
+    const a = app('app-9', [row('agent-aaa'), hiddenRow]);
+    const r = (await loadBundled({ apps: [a], ownedApps: [a] })) as Flag;
+    expect(r.installedApps.map((x) => x.id)).toEqual(['app-9']);
+    expect(r.bundledMayBeIncomplete).toBe(true);
+    const own = (await loadBundled({ ownedApps: [app('app-o', [row('agent-aaa'), hiddenRow])] })) as Flag;
+    expect(own.bundledMayBeIncomplete).toBe(true);
+  });
+
+  it('all-readable control: no notice', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [row('agent-aaa'), row('agent-backend')], [selfLite, backend])] })) as Flag;
+    expect(r.bundledMayBeIncomplete).toBe(false);
+  });
+
+  it('known-empty control: an App with a real empty join is not flagged', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [], [])] })) as Flag;
+    expect(r.bundledMayBeIncomplete).toBe(false);
+  });
+
+  it('malformed appAgents is unknown, never proof of completeness', async () => {
+    for (const bad of [null, undefined]) {
+      const r = (await loadBundled({ apps: [app('app-1', bad)] })) as Flag;
+      expect(r.bundledMayBeIncomplete).toBe(true);
+    }
+  });
+
+  it('payload carries a boolean only: no legacy count key', async () => {
+    const r = (await loadBundled({ apps: [app('app-1', [row('agent-aaa'), hiddenRow, hiddenRow])] })) as Record<string, unknown>;
+    expect(r.bundledMayBeIncomplete).toBe(true);
+    expect('bundledWithheldApps' in r).toBe(false);
+  });
+
+  it('selects the join, not the masked primary id, in both App documents', () => {
+    for (const doc of [AGENT_APPS_QUERY, AGENT_OWNED_APPS_QUERY]) {
+      expect(doc).toContain('appAgents { agent { id } }');
+      expect(doc).not.toMatch(/^\s+agentId\s*$/m);
+    }
   });
 
   it('ignores apps this agent is not installed in', async () => {
     const { bundledAgents: bundled } = await loadBundled({
       apps: [{
         id: 'app-2', name: 'Someone Else', urn: 'urn:app:2', organizationId: 'org-a',
-        agentId: 'agent-zzz', agents: [{ ...backend, id: 'agent-other' }],
+        appAgents: [{ agent: { id: 'agent-zzz' } }], agents: [{ ...backend, id: 'agent-other' }],
       }],
     });
     expect(bundled).toEqual([]);
@@ -657,7 +734,7 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
       },
       apps: [{
         id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: 'org-a',
-        agentId: 'agent-aaa', agents: [selfLite, backend],
+        appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [selfLite, backend],
       }],
     });
     expect(bundled).toHaveLength(1);
@@ -688,7 +765,7 @@ describe('/app/agents/[id] loader — bundles across app OWNERSHIP classes (#714
       apps: { data: [] },
       ownedApps: { data: [{
         id: 'app-personal', name: 'My Team', urn: 'urn:app:mine', organizationId: null,
-        agentId: 'agent-aaa', agents: [selfLite, nova],
+        appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [selfLite, nova],
       }] },
     });
     const load = await importLoad();
@@ -705,7 +782,7 @@ describe('/app/agents/[id] loader — bundles across app OWNERSHIP classes (#714
   it('de-duplicates an app returned by BOTH lists (a platform admin sees overlap)', async () => {
     const app = {
       id: 'app-1', name: 'Team App', urn: 'urn:app:1', organizationId: null,
-      agentId: 'agent-aaa', agents: [selfLite, nova],
+      appAgents: [{ agent: { id: 'agent-aaa' } }], agents: [selfLite, nova],
     };
     routeMock({
       agent: { data: { agent: agentInA } },
@@ -951,7 +1028,7 @@ describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('returns the server’s refusal sentence and does not report success', async () => {
+  it('returns generic copy for an unknown bundle code and does not report success', async () => {
     mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Imports are one level deep.', extensions: { code: 'IMPORT_DEPTH' } }] } });
     const { actions } = await importMod();
     const r = (await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never)) as {
@@ -959,7 +1036,7 @@ describe('/app/agents/[id] — add a bundled agent (#1173)', () => {
     };
     expect(r.status).toBe(500);
     expect(r.data?.bundleAdded).toBeUndefined();
-    expect(r.data?.bundleError).toContain('one level deep');
+    expect(r.data?.bundleError).toContain('Something went wrong on our side.');
   });
 });
 
@@ -988,3 +1065,12 @@ it('#1261 returns the raw requested page even when the reverse read fails', asyn
   expect(result.extendedAfter).toBe('opaque+/=');
   expect(result.extendedBy.failed).toBe(true);
 });
+
+it.each(['SelfImportError', 'MultiLevelImportError', 'MissingGrantError', 'PositionConflictError'])(
+  'preserves the landed publishAgentImport %s refusal', async (code) => {
+    mockRequest.mockRejectedValue({ response: { errors: [{ message: 'Intentional bundle refusal.', extensions: { code } }] } });
+    const { actions } = await importMod();
+    const result = await actions.addBundledAgent(actionEv({ agentId: 'agent-helper', position: '1' }) as never);
+    expect(result).toMatchObject({ status: 500, data: { bundleError: 'Intentional bundle refusal.' } });
+  },
+);

@@ -9,6 +9,8 @@ import WakeUpsPanel from '../../components/tickers/WakeUpsPanel.svelte';
 
 const app = { id: 'app-1', name: 'Product Team with a fairly long App name', urn: 'hrn:app:hadronmemory.com:hadron-dev-team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 4320, dailyWakeBudgetDerived: true } };
+// portal#1141 A: the Delivery section, with its form (the wide case on a phone).
+const delivery = { kind: 'ok', value: { batchWindowSeconds: 120, busyDelaySeconds: 600, stuckWindowSeconds: 900, standbyEnabled: true, standbyEffective: false } };
 const LOADED = '2026-10-16T10:00:00Z';
 const quietHours = {
   timezone: 'America/Argentina/ComodRivadavia',
@@ -33,21 +35,48 @@ const subscriber = {
   worker: { id: 'w-liam', name: 'Liam', urn: 'hrn:worker:hadronmemory.com:hadron-dev-team:liam', retiredAt: null },
 };
 
-export type TickersView = 'list' | 'detail' | 'wake';
+// portal#1384: a long code and a long loc, unbroken, are what push the Task entry wide.
+const LONG_CODE = 'tick.engineering-reviews-and-ready-calls-overnight-and-weekend-coverage';
+const LONG_LOC = 'tasks:team:on-base-tick:engineering-reviews-and-ready-calls-overnight-and-weekend';
+const detailTask = {
+  'detail': { kind: 'ok', value: { registerTaskLoc: LONG_LOC } },
+  'detail-unmapped': { kind: 'ok', value: { registerTaskLoc: null } },
+  'detail-task-failed': { kind: 'failed' },
+  'detail-null-urn': { kind: 'ok', value: { registerTaskLoc: LONG_LOC } },
+  'detail-long-urn': { kind: 'ok', value: { registerTaskLoc: LONG_LOC } },
+} as const;
+
+// portal#1496: the CLI commands carry the ref, so a 200-character unbroken URN
+// is what pushes them wide; a null URN falls back to the id.
+const LONG_URN = `hrn:ticker:hadronmemory.com:hadron-dev-team:${'x'.repeat(200 - 'hrn:ticker:hadronmemory.com:hadron-dev-team:'.length)}`;
+const LONG_WORKER_URN = `hrn:worker:hadronmemory.com:hadron-dev-team:${'y'.repeat(200 - 'hrn:worker:hadronmemory.com:hadron-dev-team:'.length)}`;
+const detailRef = {
+  'detail-null-urn': { urn: null },
+  'detail-long-urn': { urn: LONG_URN },
+} as Record<string, Record<string, unknown>>;
+const wakeWorker = {
+  'wake': { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:hadronmemory.com:hadron-dev-team:liam' },
+  'wake-long-urn': { retiredAt: null, id: 'w-liam', urn: LONG_WORKER_URN },
+} as Record<string, Record<string, unknown>>;
+
+export type TickersView =
+  | 'list' | 'detail' | 'detail-unmapped' | 'detail-task-failed' | 'detail-null-urn' | 'detail-long-urn'
+  | 'wake' | 'wake-long-urn';
 
 export function mountTickers(target: HTMLElement, view: TickersView): () => void {
   let page;
   if (view === 'list') {
     page = mount(TickersList, {
       target,
-      props: { data: { app, tickers: { kind: 'ok', value: [ticker] }, settings, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null } } as never,
+      props: { data: { app, tickers: { kind: 'ok', value: [ticker] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null } } as never,
     });
-  } else if (view === 'detail') {
+  } else if (view in detailTask) {
     page = mount(TickerPage, {
       target,
       props: {
         data: {
-          app, ticker, settings, paged: false, loadedAt: LOADED, impersonating: null,
+          app, ticker: { ...ticker, tickCode: LONG_CODE, ...detailRef[view] }, settings, paged: false, loadedAt: LOADED, impersonating: null,
+          tickerTask: detailTask[view as keyof typeof detailTask],
           subscribers: { kind: 'ok', value: { items: [subscriber], hasNextPage: true, endCursor: 's1' } },
         },
       } as never,
@@ -63,7 +92,7 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
             subscriptions: [{ id: 's1', createdAt: '2026-10-10T00:00:00Z', viaGrant: true, createdBy: subscriber.createdBy, ticker }],
           },
         },
-        appSettings: settings, worker: { retiredAt: null }, appId: 'app-1', loadedAt: LOADED,
+        appSettings: settings, worker: wakeWorker[view], appId: 'app-1', loadedAt: LOADED,
       } as never,
     });
   }

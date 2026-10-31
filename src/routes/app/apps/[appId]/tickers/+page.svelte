@@ -4,20 +4,23 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
+  import TickerForm from '$lib/components/tickers/TickerForm.svelte';
   import TickerSettingsPanel from '$lib/components/tickers/TickerSettingsPanel.svelte';
+  import DeliverySettingsPanel from '$lib/components/tickers/DeliverySettingsPanel.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, isKnownReason, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonHelp, reasonLabel, reasonsSearchText, reasonsText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel, unrecognisedReasonText } from '$lib/tickers/format';
+  import { cadenceText, isKnownReason, isWellFormedReasons, noVisibleChannelsText, noReasonsText, quietHoursSummary, reasonHelp, reasonLabel, reasonsSearchText, reasonsUnavailableText, relativeTime, tickerSearchText, tickerStateLabel, unrecognisedReasonText } from '$lib/tickers/format';
   import type { TickerListRow } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   /**
-   * portal#1099 — the App's tickers (design §3.1), READ-ONLY: S7a (Holger via
-   * Vera, team chat #11540). No Create, Edit, Subscribe or Delete control is
-   * rendered; those are S7b and not in v1.
+   * portal#1099 — the App's tickers (design §3.1). The list itself is a read;
+   * the writes are the Delivery section below the settings (portal#1141 slice
+   * A, hadron-server S9) and New ticker (portal#1151, S7b). Edit and Delete
+   * live on the ticker's own page; Subscribe is not in the portal yet.
    */
   let { data }: { data: PageData } = $props();
 
@@ -178,7 +181,6 @@
           {t('app.tickers.empty.body', 'A mention already makes a worker due at once, unless its mentions are off or it is paused. A ticker adds scheduled wake-ups: every so often, it makes the workers subscribed to it that have unread messages due.')}
         </p>
         <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.router', 'A router delivers the wake-ups. This page only decides who is due and when.')}</p>
-        <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.tickers.empty.create', 'Creating a ticker isn’t available in the portal yet; use the MCP tool hadron_ticker_create.')}</p>
       </div>
     {:else}
       <DataTable
@@ -207,7 +209,7 @@
             <span class="block max-w-full truncate" title={row.quiet}>{row.quiet}</span>
           {:else if cell.column.id === 'reasons'}
             <span class="flex min-w-0 flex-wrap items-center gap-1">
-              {#if reasonsText(row.ticker.reasons) === reasonsUnavailableText()}
+              {#if !isWellFormedReasons(row.ticker.reasons)}
                 <span class="text-zinc-500 dark:text-zinc-400">{reasonsUnavailableText()}</span>
               {:else if row.ticker.reasons.length === 0}
                 <span class="text-zinc-500 dark:text-zinc-400">{noReasonsText()}</span>
@@ -251,6 +253,14 @@
       </DataTable>
     {/if}
 
+    {#if tickers.kind === 'ok'}
+      <section aria-labelledby="ticker-create-heading" class="space-y-2" data-testid="ticker-create">
+        <h2 id="ticker-create-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tickers.create.heading', 'New ticker')}</h2>
+        <TickerForm appId={data.app.id} impersonating={data.impersonating} />
+      </section>
+    {/if}
+
     <TickerSettingsPanel settings={data.settings} />
+    <DeliverySettingsPanel appId={data.app.id} settings={data.delivery} impersonating={data.impersonating} />
   {/if}
 </div>

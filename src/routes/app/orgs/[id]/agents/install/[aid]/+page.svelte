@@ -131,7 +131,7 @@
     <p class="mb-4 text-sm text-zinc-500">
       {t(
         'install.help',
-        'Installing this Agent creates an App in your organization. You can mint App Keys and configure overrides afterward.',
+        'Installing this Agent creates an App in your organization. You can mint App Keys and manage the App afterward.',
       )}
     </p>
     <form method="POST" action="?/install" use:installEnhance class="space-y-4" novalidate>
@@ -214,7 +214,7 @@
 
       <!-- 009-install-agent-flow FR-012: install form intentionally omits AI
            configuration (provider/model/key). Inherits from the Agent at
-           runtime; an App-level override is set later from the App manage page. -->
+           runtime; App settings are managed after installation. -->
 
       <div class="flex items-center gap-2 pt-2">
         <button

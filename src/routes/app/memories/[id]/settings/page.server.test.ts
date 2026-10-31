@@ -30,6 +30,7 @@
  * No component-level test ships in this PR.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -125,7 +126,7 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect((thrown as { location: string }).location).toBe('/app/orgs/org%2Fwith%20space/memories');
   });
 
-  it('GraphQL transport error — returns fail(500) with the extracted error message', async () => {
+  it('uncoded GraphQL error returns fail(500) with generic copy', async () => {
     // Shape: graphql-request style error with response.errors[0].message
     const gqlError = Object.assign(new Error('outer'), {
       response: { errors: [{ message: 'Forbidden: only the owner can delete a personal memory' }] },
@@ -141,7 +142,7 @@ describe("memory-detail `delete` action (spec 013)", () => {
     expect(result!.status).toBe(500);
     expect(result!.data.form?.message).toEqual({
       type: 'error',
-      text: 'Forbidden: only the owner can delete a personal memory',
+      text: 'Something went wrong on our side.',
     });
   });
 
@@ -376,7 +377,7 @@ describe('memory-detail `updateVectorIndex` action (spec 033)', () => {
     }))) as { status: number; data: { form?: { message?: App.Superforms.Message }; needsEncryptedAck?: boolean } } | undefined;
 
     expect(result!.status).toBe(500);
-    expect(result!.data.form?.message).toEqual({ type: 'error', text: 'Forbidden' });
+    expect(result!.data.form?.message).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
     expect(result!.data.needsEncryptedAck).toBeUndefined();
   });
 
@@ -777,7 +778,7 @@ describe('memory-detail `updateSchema` action (#588)', () => {
     const result = await actions.updateSchema(schemaEv({ schemaJson: VALID_SCHEMA }));
 
     expect(result).toMatchObject({ status: 500 });
-    expect(successMessage(result)).toEqual({ type: 'error', text: 'boom' });
+    expect(successMessage(result)).toEqual({ type: 'error', text: 'Something went wrong on our side.' });
   });
 });
 
@@ -1053,7 +1054,7 @@ describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
     expect((superFormFrom(result) as { id?: string })?.id).toBe('updateMarketplaceListing:mem-id-abc');
   });
 
-  it('a denied writer sees the server’s refusal, not the request payload (#468 leak class)', async () => {
+  it('an uncoded denied write suppresses server prose and request payload (#468 leak class)', async () => {
     // graphql-request packs the whole query and variables into a
     // ClientError's message; extractGqlError must surface the server's
     // errors[0].message instead.
@@ -1064,7 +1065,7 @@ describe('memory-detail `updateMarketplaceListing` action (#841)', () => {
     const result = await actions.updateMarketplaceListing(marketplaceEv({ listedOnMarketplace: 'true' }));
 
     const text = (superFormFrom(result)?.message as { text: string }).text;
-    expect(text).toBe('You do not have write access to this memory.');
+    expect(text).toBe('Something went wrong on our side.');
     expect(text).not.toContain('updateMemory');
     expect(text).not.toContain('listedOnMarketplace');
   });
@@ -1121,9 +1122,7 @@ describe('memory-settings load: form ids (#841)', () => {
       parent, locals: { token: 't' }, params: { id: 'mem-1' },
     } as unknown as Parameters<typeof mod.load>[0])) as Exclude<Awaited<ReturnType<typeof mod.load>>, void>;
 
-    const ids = [data.form, data.vectorForm, data.marketplaceForm, data.schemaForm, data.deleteForm, data.retryEmbedsForm]
-      .map((f) => (f as { id?: string }).id);
-    expect(new Set(ids).size).toBe(6);
+    expectDistinctFormIds(data, 6);
     // Memory-bound (`…:${params.id}`, stamped from the route param on both
     // sides): distinct from every sibling AND from the same form on another
     // memory, so a late result can only match its own card (Gene's P2-1).
@@ -1135,5 +1134,55 @@ describe('memory-settings load: form ids (#841)', () => {
     expect(data.schemaForm.id).toBe('updateSchema:mem-1');
     // The persisted flag seeds the form (the checkbox starts from the fact).
     expect(data.marketplaceForm.data.listedOnMarketplace).toBe(true);
+  });
+});
+
+// ── `checkVectorIndexHealth` (#1346) ────────────────────────────────────────
+
+function healthEv(memId = 'mem-real') {
+  return { params: { id: memId }, locals: { token: 'test-token' }, request: { formData: async () => new FormData() } } as unknown as Parameters<
+    Awaited<ReturnType<typeof importActions>>['checkVectorIndexHealth']
+  >[0];
+}
+const ef = (n: number, detail = 'dimension mismatch') => ({ kind: 'EMBED_FAILED', nodeId: `id${n}`, nodeLoc: `l${n}`, nodeUrn: `hrn:node:a.com:m:l${n}`, detail });
+
+describe('memory-detail `checkVectorIndexHealth` action (#1346)', () => {
+  it('issues one validateMemory call for the page memory with limit 1000, and no check filter', async () => {
+    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [], totalFindings: 0, truncated: false, nodesChecked: 3, skippedChecks: [] } });
+    const actions = await importActions();
+    await actions.checkVectorIndexHealth(healthEv());
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    const [doc, vars] = mockRequest.mock.calls[0]! as [string, Record<string, unknown>];
+    expect(doc).toContain('validateMemory');
+    expect(vars).toEqual({ memoryRef: 'mem-real', limit: 1000 });
+  });
+
+  it('returns only the EMBED_FAILED findings', async () => {
+    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [{ ...ef(1), kind: 'SPARSE' }, ef(2)], totalFindings: 2, truncated: false, nodesChecked: 9, skippedChecks: [] } });
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { vectorHealth?: { failed: Array<{ nodeId: string }> } };
+    expect(result.vectorHealth?.failed.map((f) => f.nodeId)).toEqual(['id2']);
+  });
+
+  it('a refusal is a plain error state with no health result', async () => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] } });
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { data?: { vectorHealthError?: string; vectorHealth?: unknown }; status?: number };
+    expect(result.status).toBe(500);
+    expect(result.data?.vectorHealthError).toBeTruthy();
+    expect(result.data?.vectorHealth).toBeUndefined();
+  });
+
+  it('the settings loader never runs validateMemory: the scan is on demand only', async () => {
+    mockRequest.mockResolvedValue({ user: null, organizations: { items: [], total: 0 } });
+    const { load } = await import('./+page.server');
+    const graph = { id: 'mem-1', name: 'Notes', urn: 'hrn:mem:acme.com:notes', class: 'personal', organizationId: null, userId: 'u1', visibility: null, vectorIndexEnabled: true };
+    await load({
+      locals: { token: 'tok', user: { id: 'u1' } },
+      params: { id: 'mem-1' },
+      parent: async () => ({ graph, user: { id: 'u1' } }),
+    } as never);
+    expect(mockRequest.mock.calls.length).toBeGreaterThan(0);
+    expect(JSON.stringify(mockRequest.mock.calls)).not.toContain('validateMemory');
   });
 });

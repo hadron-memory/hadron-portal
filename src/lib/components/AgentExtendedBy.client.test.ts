@@ -161,3 +161,49 @@ it('keeps search when a parent replaces its loader Agent object with the same id
   loader.agent = { id: 'different' }; await tick(5);
   expect(search.value).toBe('');
 });
+
+// #1312: the in-page handler owns only a plain primary activation. Browser
+// middle clicks use auxclick; a synthetic click also pins the handler guard.
+it.each([
+  ['Ctrl', { ctrlKey: true }],
+  ['Cmd', { metaKey: true }],
+  ['Shift', { shiftKey: true }],
+  ['Alt', { altKey: true }],
+  ['middle click', { button: 1 }],
+  ['secondary click', { button: 2 }],
+] as const)('Retry preserves native %s activation without invalidating or taking focus', async (_label, init) => {
+  const target = await show({ ...empty, failed: true }, 'opaque+/=');
+  const retry = target.querySelector<HTMLAnchorElement>('nav a')!;
+  retry.focus();
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init });
+  retry.dispatchEvent(event);
+  await tick(2);
+  expect(event.defaultPrevented).toBe(false);
+  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(0);
+  expect(document.activeElement).toBe(retry);
+  expect(retry.getAttribute('href')).toBe('/app/agents/base?extendedAfter=opaque%2B%2F%3D');
+  expect(retry.hasAttribute('data-sveltekit-reload')).toBe(true);
+});
+it('Retry leaves middle-button auxclick native without invalidation', async () => {
+  const target = await show({ ...empty, failed: true });
+  const event = new MouseEvent('auxclick', { button: 1, bubbles: true, cancelable: true });
+  target.querySelector<HTMLAnchorElement>('nav a')!.dispatchEvent(event);
+  await tick(2);
+  expect(event.defaultPrevented).toBe(false);
+  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(0);
+});
+it('Retry intercepts plain primary clicks and ignores modified activations during a pending retry', async () => {
+  const target = await show({ ...empty, failed: true });
+  let finish!: () => void;
+  navigationHooks.onInvalidateAll = () => new Promise<void>(resolve => { finish = resolve; });
+  const retry = target.querySelector<HTMLAnchorElement>('nav a')!;
+  const plain = new MouseEvent('click', { button: 0, bubbles: true, cancelable: true });
+  retry.dispatchEvent(plain);
+  expect(plain.defaultPrevented).toBe(true);
+  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(1);
+  const modified = new MouseEvent('click', { ctrlKey: true, bubbles: true, cancelable: true });
+  retry.dispatchEvent(modified);
+  expect(modified.defaultPrevented).toBe(false);
+  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(1);
+  finish(); await tick(5);
+});

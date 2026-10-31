@@ -4,16 +4,17 @@ import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { setStubPage } from '$lib/test/stubs/app-stores';
+import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
+import type { TeamChatFilter } from '$lib/team-chat-filter';
 import type { TeamChatMessage } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
 import {
-  addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
+  createAppMemorySchema, addAgentSchema, appSettingsSchema, castWorkerSchema, createAppKeySchema,
   deleteAppSchema, releaseWorkerSchema, removeAppAgentSchema, retireWorkerSchema,
   revokeAppKeySchema, updateAppAgentToolsSchema,
   addAppMemberSchema, ensureAppMemberSchema, removeAppMemberSchema,
@@ -35,7 +36,7 @@ function message(seq: number, authorWorkerId: string): TeamChatMessage {
   return {
     nodeId: `m${seq}`, seq, body: `body ${seq}`, at: '2026-09-30T12:00:00.000Z',
     authorUserId: null, authorWorkerId, authorName: seq === 1 ? 'Ada' : 'Dara',
-    sessionId: null, replyToSeq: null, mentions: [], urn: null,
+    sessionId: null, replyToSeq: null, mentions: [], urn: null, teamTags: null,
   };
 }
 
@@ -58,7 +59,7 @@ async function pageData() {
       { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', retiredAt: null },
     ],
     staffError: false,
-    teamChatMessages: [message(1, 'w1')], teamChatTotal: 1, teamChatError: false,
+    teamChatMessages: [message(1, 'w1')], teamChatTotal: 1, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
     appChats: [{ key: 'chats:team', label: 'Team chat' }], chatsError: false,
     selectedChatKey: 'chats:team', initialTab: 'chats', initialChatFullView: false,
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
@@ -111,6 +112,82 @@ describe('App team chat roster refresh', () => {
     await tick(3);
     expect(requests.filter((url) => url.endsWith('/team-chat/authors'))).toHaveLength(2);
     expect(m.target.textContent).toContain('acme.com:team:dara');
+  });
+});
+
+describe('App team chat team filter (#1137)', () => {
+  const tagged = (seq: number): TeamChatMessage => ({ ...message(seq, 'w1'), teamTags: [{ headId: 'head-ada', label: 'team.ada' }] });
+
+  it('carries the filter on every poll read, and a chip click navigates to ?team= keeping the other params', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats&team=head-ada', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats&team=head-ada');
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url);
+      if (url.includes('/team-chat/authors')) return { ok: true, json: async () => ({ workers: [], loadFailed: false }) } as Response;
+      return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: false }) } as Response;
+    }));
+    vi.useFakeTimers();
+    const data = { ...(await pageData()), teamChatMessages: [tagged(1)], teamFilter: { kind: 'team', headRef: 'head-ada' } as TeamChatFilter };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await vi.advanceTimersByTimeAsync(8000);
+    await tick(3);
+    expect(requests.filter((u) => u.includes('sinceSeq'))).toEqual(['/app/apps/a1/team-chat?sinceSeq=1&team=head-ada']);
+
+    const untagged = Array.from(m.target.querySelectorAll('[data-testid="team-chat-filter"] button')).find((b) => b.textContent?.includes('No team tag recorded')) as HTMLButtonElement;
+    untagged.click();
+    const call = navigationCalls.findLast((c) => c.fn === 'goto')!;
+    const url = call.args[0] as URL;
+    expect([url.searchParams.get('tab'), url.searchParams.get('team')]).toEqual(['chats', 'untagged']);
+    expect(call.args[1]).toMatchObject({ keepFocus: true, noScroll: true });
+  });
+
+  it('never reads team-chat while ?team= is malformed (#1137 review)', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats&team=%20bad%20', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats&team=%20bad%20');
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    const requests: string[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      requests.push(url);
+      if (url.includes('/team-chat/authors')) return { ok: true, json: async () => ({ workers: [], loadFailed: false }) } as Response;
+      return { ok: true, json: async () => ({ items: [], total: 0, loadFailed: false }) } as Response;
+    }));
+    vi.useFakeTimers();
+    const data = { ...(await pageData()), teamChatMessages: [], teamChatTotal: 0, teamChatError: true, teamFilter: { kind: 'none' } as TeamChatFilter, teamFilterInvalid: true };
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await vi.advanceTimersByTimeAsync(20000);
+    await tick(3);
+    expect(requests.filter((u) => u.includes('/team-chat?') || u.endsWith('/team-chat'))).toEqual([]);
+    expect(m.target.querySelector('[data-testid="team-chat-filter-invalid"]')).not.toBeNull();
+  });
+
+  it('drops a poll that lands after the page moved to another filter', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=chats', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=chats');
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    let release!: (r: Response) => void;
+    vi.stubGlobal('fetch', vi.fn((url: string) => {
+      if (url.includes('/team-chat/authors')) return Promise.resolve({ ok: true, json: async () => ({ workers: [], loadFailed: false }) } as Response);
+      return new Promise<Response>((r) => (release = r));
+    }));
+    vi.useFakeTimers();
+    const props = reactiveProps({ data: { ...(await pageData()), teamChatMessages: [tagged(1)], teamFilter: { kind: 'none' } as TeamChatFilter }, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await vi.advanceTimersByTimeAsync(8000);
+    // The loader answers for ?team=head-bo while the unfiltered poll is in flight.
+    props.data = { ...props.data, teamChatMessages: [], teamChatTotal: 0, teamFilter: { kind: 'team', headRef: 'head-bo' } as TeamChatFilter };
+    await tick(3);
+    release({ ok: true, json: async () => ({ items: [message(2, 'w1')], total: 2, loadFailed: false }) } as Response);
+    await vi.advanceTimersByTimeAsync(0);
+    await tick(3);
+    expect(m.target.textContent).not.toContain('body 2');
   });
 });
 
@@ -289,6 +366,35 @@ describe('Worker agents tab (#1009)', () => {
     expect(columnTexts(target, 'Task')[0]).toContain('Started');
     expect(target.querySelector('a[href="/app/apps/a1/tasks/t9"]')).not.toBeNull();
     expect(columnTexts(target, 'Task')[1]).toBe('—');
+  });
+
+  // Greta LOCAL P2 on portal#1375: a current task the loader could not resolve is
+  // "Task unavailable": no link, no stale title, unsearchable, and not the "no task" dash.
+  it('an unresolved current task is neutral “Task unavailable”, unlinked and unsearchable; a resolved one is found by its handle', async () => {
+    const target = await mountStaff(
+      [worker({}), worker({ id: 'w2', name: 'Bo', urn: 'hrn:worker:acme.com:team:bo' }), worker({ id: 'w3', name: 'Cy', urn: 'hrn:worker:acme.com:team:cy' })],
+      { kind: 'ok', byWorker: {
+        w1: entry({ currentTask: { id: 't9', title: 'Ship the grid', status: 'STARTED', handle: 'AT3.405' } }),
+        w2: entry({ currentTask: null, currentTaskUnavailable: true }),
+        w3: entry(),
+      } },
+    );
+    const tasks = columnTexts(target, 'Task');
+    expect(tasks[0]).toContain('AT3.405');
+    expect(tasks[1]).toBe('Task unavailable');
+    expect(tasks[2]).toBe('—');
+    const links = [...target.querySelectorAll('tbody a[href*="/tasks/"]')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual(['/app/apps/a1/tasks/AT3.405']);
+
+    const search = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+    const names = async (q: string) => {
+      search.value = q;
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(3);
+      return [...target.querySelectorAll('tbody a[href^="/app/workers/"]')].map((a) => a.textContent?.trim());
+    };
+    expect(await names('AT3.405')).toEqual(['Ada']);
+    expect(await names('unavailable')).toEqual([]);
   });
 
   it('marks a paused worker from the server’s check status, not from pausedUntil alone', async () => {
@@ -685,6 +791,134 @@ describe('Worker agents tab (#1009)', () => {
   it('a retired worker without linked objects still offers the server-verified repair', async () => {
     const target = await mountStaff([worker({ id: 'w5', name: 'Eve', retiredAt: '2026-09-01T00:00:00.000Z', memoryId: null, agent: null })]);
     expect(menuOf(target, 'Eve').map(([label]) => label)).toEqual(['Delete verified-unused worker']);
+  });
+
+  // portal#1492 (PT1) — a separate, hideable Terminal column: the terminal's own
+  // state, never folded into the session Status cell.
+  describe('Terminal column (#1492)', () => {
+    const PAGE_NOW = '2026-10-31T12:00:00.000Z';
+    const term = (over: Record<string, unknown> = {}) => ({ status: 'locked', reason: 'model_at_capacity', checkedAt: '2026-10-31T11:55:00.000Z', ...over });
+    const ok = (byWorker: Record<string, unknown>) => ({ kind: 'ok', byWorker });
+    async function mountTerminal(staff: unknown[], roster: unknown) {
+      setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+      window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+      const data = await pageData();
+      const m = mountComponent(Page as never, {
+        data: { ...data, user: { id: 'u1' }, initialTab: 'staff', staff, teamRoster: roster, terminalNow: PAGE_NOW },
+        form: null,
+      } as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      return m.target;
+    }
+    const w = (id: string, name: string, over: Record<string, unknown> = {}) =>
+      worker({ id, name, urn: `hrn:worker:acme.com:team:${name.toLowerCase()}`, hasLiveSession: false, ...over });
+    function colTexts(target: HTMLElement, header: string): string[] {
+      const ths = [...target.querySelectorAll('thead th')];
+      const idx = ths.findIndex((th) => th.textContent?.trim().startsWith(header));
+      if (idx < 0) throw new Error(`no ${header} column`);
+      return [...target.querySelectorAll('tbody tr')].map((tr) => tr.children[idx]?.textContent?.trim() ?? '');
+    }
+    async function search(target: HTMLElement, q: string): Promise<string[]> {
+      const input = target.querySelector<HTMLInputElement>('input[aria-label="Search worker agents"]')!;
+      input.value = q;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await tick(3);
+      return [...target.querySelectorAll<HTMLAnchorElement>('tbody a[href^="/app/workers/"]')].map((a) => a.textContent!.trim());
+    }
+
+    it('is its own column, apart from Status, with each state in words and its age', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo'), w('w3', 'Cy'), w('w4', 'Dee')],
+        ok({
+          w1: entry({ terminal: term() }),
+          w2: entry({ terminal: term({ status: 'idle', reason: null }) }),
+          w3: entry({ terminal: term({ status: 'busy', reason: null }) }),
+          w4: entry({ terminal: term({ status: 'dark', reason: 'no_turn_for_due_ticker' }) }),
+        }),
+      );
+      const col = colTexts(target, 'Terminal');
+      expect(col[0]).toContain('Locked: Model at capacity');
+      expect(col[1]).toContain('Idle');
+      expect(col[2]).toContain('Busy');
+      expect(col[3]).toContain('Dark: Missed its tick');
+      for (const c of col) expect(c).toMatch(/checked .*ago/);
+      // The session Status cell is untouched by the terminal.
+      expect(colTexts(target, 'Status')).toEqual(Array(4).fill('No recorded activity'));
+    });
+
+    it('a returned entry with terminal null is Not reported', async () => {
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: null }) }));
+      expect(colTexts(target, 'Terminal')[0]).toContain('Not reported');
+    });
+
+    it('missing entry, failed read and hidden read show no badge, and never Not reported', async () => {
+      const missing = await mountTerminal([w('w1', 'Ada'), w('w2', 'Bo')], ok({ w1: entry({ terminal: null }) }));
+      const col = colTexts(missing, 'Terminal');
+      expect(col[0]).toContain('Not reported');
+      expect(col[1]).not.toContain('Not reported');
+      expect(col[1]).not.toMatch(/Idle|Busy|Locked|Dark|checked/);
+      for (const roster of [{ kind: 'failed' }, { kind: 'hidden' }]) {
+        const t2 = await mountTerminal([w('w1', 'Ada')], roster);
+        expect(colTexts(t2, 'Terminal')[0]).not.toMatch(/Not reported|Idle|Busy|Locked|Dark|checked/);
+      }
+    });
+
+    it('a reader without internals sees no badge even if a terminal object arrives, and search finds no hidden value', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada', { hasLiveSession: null }), w('w2', 'Bo', { hasLiveSession: true })],
+        ok({
+          w1: entry({ terminal: term({ status: 'dark', reason: 'bare_shell' }) }),
+          w2: entry({ terminal: term({ status: 'dark', reason: 'bare_shell' }) }),
+        }),
+      );
+      const col = colTexts(target, 'Terminal');
+      expect(col[0]).not.toMatch(/Dark|plain shell|checked/);
+      expect(col[1]).toContain('Dark');
+      expect(await search(target, 'plain shell')).toEqual(['Bo']);
+      expect(await search(target, 'Dark')).toEqual(['Bo']);
+    });
+
+    it('a stale report keeps its server state', async () => {
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'busy', reason: null, checkedAt: '2026-10-01T00:00:00.000Z' }) }) }));
+      const cell = colTexts(target, 'Terminal')[0];
+      expect(cell).toContain('Busy');
+      expect(cell).toMatch(/checked .*ago/);
+      expect(cell).not.toMatch(/Dark|Idle/);
+    });
+
+    it('a future or unparsable checkedAt is time unknown', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo')],
+        ok({ w1: entry({ terminal: term({ checkedAt: '2026-11-30T00:00:00.000Z' }) }), w2: entry({ terminal: term({ checkedAt: 'garbage' }) }) }),
+      );
+      const col = colTexts(target, 'Terminal');
+      expect(col[0]).toContain('checked: time unknown');
+      expect(col[1]).toContain('checked: time unknown');
+    });
+
+    it('an unknown state or reason shows fixed copy, never the raw code, in the page or the console', async () => {
+      const spies = (['log', 'warn', 'error', 'info'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'quantum', reason: 'solar_flare' }) }) }));
+      const cell = colTexts(target, 'Terminal')[0];
+      expect(cell).toContain('Unknown state: Other reason');
+      expect(target.textContent).not.toContain('solar_flare');
+      expect(target.textContent).not.toContain('quantum');
+      for (const s of spies) {
+        for (const call of s.mock.calls) expect(JSON.stringify(call)).not.toMatch(/solar_flare|quantum/);
+      }
+    });
+
+    it('is hideable from the column toggle', async () => {
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
+      const headers = () => [...target.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
+      expect(headers().some((h) => h?.startsWith('Terminal'))).toBe(true);
+      const box = [...target.querySelectorAll('label')].find((l) => l.textContent?.trim() === 'Terminal')?.querySelector('input');
+      expect(box).toBeTruthy();
+      box!.click();
+      await tick(2);
+      expect(headers().some((h) => h?.startsWith('Terminal'))).toBe(false);
+    });
   });
 });
 
@@ -1257,6 +1491,157 @@ describe('key controls follow App.viewerManages (portal#1153)', () => {
   });
 });
 
+describe('registered Channel chat switching (#1033)', () => {
+  it('isolates messages, late polls, form targets and drafts, using a dropdown', async () => {
+    setStubPage('http://localhost/app/apps/a1?tab=chats&chat=room-a', { appId: 'a1' });
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    let release!: (response: Response) => void;
+    const fetcher = vi.fn((url: string) => new Promise<Response>(resolve => { release = resolve; }));
+    vi.stubGlobal('fetch', fetcher);
+    vi.useFakeTimers();
+    const base = await pageData();
+    const room = async (id: string) => ({ ...base,
+      appChats: [{ key: 'room-a', label: 'A' }, { key: 'room-b', label: 'B' }],
+      selectedChatKey: id, selectedChannelId: id, chatsCapped: id === 'room-a', chatRootsShown: 200,
+      selectedChannelMessages: [{ ...message(1, 'w1'), body: `message ${id}` }], selectedChannelTotal: 1, selectedChannelError: false,
+      postChannelMessageForm: await superValidate({ channelRef: id }, zod4(postTeamChatMessageSchema), { id: `channel:${id}`, errors: false }),
+    });
+    const a = await room('room-a');
+    const b = await room('room-b');
+    const props = reactiveProps<Record<string, unknown>>({ data: a, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    expect(m.target.querySelectorAll('#app-chat-select option')).toHaveLength(2);
+    expect(m.target.textContent).toContain('Showing the first 200 chats');
+    const body = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    body.value = 'draft for A';
+    body.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    const scroll = m.target.querySelector<HTMLElement>('.overscroll-y-contain')!;
+    Object.defineProperty(scroll, 'scrollHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(scroll, 'clientHeight', { configurable: true, value: 100 });
+    scroll.scrollTop = 340;
+    scroll.dispatchEvent(new Event('scroll'));
+    flushSync();
+    flushSync(() => { props.data = b; });
+    await tick(2);
+    expect(m.target.querySelector<HTMLInputElement>('input[name=channelRef]')!.value).toBe('room-b');
+    expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('');
+    expect(m.target.textContent).toContain('message room-b');
+    expect(m.target.textContent).not.toContain('Showing the first 200 chats');
+    expect(m.target.textContent).not.toContain('message room-a');
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining('channelRef=room-b&sinceSeq=1'));
+    flushSync(() => { props.data = a; });
+    await tick(2);
+    release(new Response(JSON.stringify({ items: [{ ...message(2, 'w1'), body: 'late room B' }], total: 1, loadFailed: false })));
+    await tick(3);
+    expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('draft for A');
+    expect(m.target.textContent).not.toContain('late room B');
+    expect(m.target.querySelector<HTMLElement>('.overscroll-y-contain')!.scrollTop).toBe(340);
+    expect(m.target.querySelector<HTMLInputElement>('input[name=channelRef]')!.value).toBe('room-a');
+  });
+});
+
+
+it('keeps the default team draft separate when visiting another registered Channel', async () => {
+  setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+  const team = await pageData();
+  const other = { ...team, selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+    selectedChannelTotal: 0, selectedChannelError: false,
+    postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+  };
+  const props = reactiveProps<Record<string, unknown>>({ data: team, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(2);
+  let textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  textarea.value = 'team draft';
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync(() => { props.data = other; });
+  await tick(2);
+  textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  expect(textarea.value).toBe('');
+  textarea.value = 'other draft';
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync(() => { props.data = team; });
+  await tick(2);
+  expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe('team draft');
+});
+
+
+it('preserves a cached draft when the real page store seeds the remounted form', async () => {
+  setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+  const team = await pageData();
+  const other = { ...team, selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+    selectedChannelTotal: 0, selectedChannelError: false,
+    postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+  };
+  page.update((p) => ({ ...p, data: team }));
+  const props = reactiveProps<Record<string, unknown>>({ data: team, form: null });
+  const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(2);
+  for (const [current, next, body] of [[team, other, 'team draft'], [other, team, 'channel draft']] as const) {
+    const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+    textarea.value = body;
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    page.update((p) => ({ ...p, data: next }));
+    flushSync(() => { props.data = next; });
+    await tick(2);
+    page.update((p) => ({ ...p, data: current }));
+    flushSync(() => { props.data = current; });
+    await tick(2);
+    expect(m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!.value).toBe(body);
+    page.update((p) => ({ ...p, data: next }));
+    flushSync(() => { props.data = next; });
+    await tick(2);
+  }
+});
+
+it.each([true, false])('keeps a pending Channel post mounted through tab changes and settles success=%s', async (success) => {
+  setStubPage('http://localhost/app/apps/a1?tab=chats', { appId: 'a1' });
+  const base = await pageData();
+  const data = { ...base, selectedChatKey: 'other', selectedChannelId: 'other', selectedChannelMessages: [],
+    selectedChannelTotal: 0, selectedChannelError: false,
+    postChannelMessageForm: await superValidate({ channelRef: 'other' }, zod4(postTeamChatMessageSchema), { errors: false, id: 'channel:other' }),
+  };
+  const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  await tick(2);
+  const textarea = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  textarea.value = 'pending post';
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync();
+  const form = textarea.closest('form')!;
+  const result = await superValidate({ body: 'pending post', channelRef: 'other' }, zod4(postTeamChatMessageSchema), { id: 'channel:other', errors: false });
+  result.valid = success;
+  result.message = success ? { type: 'success', text: 'Posted.' } : { type: 'error', text: 'Refused; try again.' };
+  await submitEnhancedWithResult(form, { type: success ? 'success' : 'failure', status: success ? 200 : 400, data: { form: result } }, async () => {
+    await tick(2);
+    m.target.querySelector<HTMLButtonElement>('#tab-worklog')!.click();
+    flushSync();
+    expect(m.target.querySelector('textarea[name=body]')).toBe(textarea);
+    m.target.querySelector<HTMLButtonElement>('#tab-chats')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    await tick(2);
+    expect(m.target.querySelector('textarea[name=body]')).toBe(textarea);
+    expect((await submitEnhanced(form)).cancelled).toBe(true);
+  });
+  await tick(3);
+  expect(textarea.value).toBe(success ? '' : 'pending post');
+  m.target.querySelector<HTMLButtonElement>('#tab-worklog')!.click();
+  flushSync();
+  expect(m.target.querySelector('textarea[name=body]')).toBeNull();
+  m.target.querySelector<HTMLButtonElement>('#tab-chats')!.click();
+  await tick(2);
+  const restored = m.target.querySelector<HTMLTextAreaElement>('textarea[name=body]')!;
+  expect(restored.value).toBe(success ? '' : 'pending post');
+  if (!success) expect((await submitEnhanced(restored.closest('form')!)).cancelled).toBe(false);
+
+});
+
 describe('Cast role follows the selected Agent (#1319)', () => {
   it('has no role input and updates the read-only role when the Agent changes', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
@@ -1314,4 +1699,23 @@ describe('Cast role follows the selected Agent (#1319)', () => {
     expect(form.querySelector('span[title="hrn:agent:acme.com:changed"]')).not.toBeNull();
   });
 
+});
+
+describe('creating a new App memory (#487)', () => {
+  async function memoryPage(role: string, installed = true) {
+    const data = await pageData();
+    return { ...data, createMemoryForm: await superValidate(zod4(createAppMemorySchema),{id:'createAppMemory:a1',errors:false}), canCreateMemory: role === 'OWNER' || role === 'ADMIN', initialTab: 'memory', currentUserId: 'u1', org: { id:'o1',name:'Acme',urn:'hrn:org:acme.com',members:[{role,user:{id:'u1'}}] }, app: {...data.app, organizationId:'o1',agents:installed?[{id:'ag1',name:'Role',urn:'hrn:agent:acme.com:role'}]:[]}, appMemories: [{id:'m1',name:'Project notes',urn:'hrn:mem:acme.com:notes',description:'Shared notes'}] };
+  }
+  it.each(['OWNER','ADMIN'])('offers creation for an org %s with an installed Agent', async role => {
+    setStubPage('http://localhost/app/apps/a1?tab=memory', {appId:'a1'});
+    const m=mountComponent(Page as never,{data:await memoryPage(role),form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    expect(m.target.querySelector('form[action="?/createMemory"]')).not.toBeNull();
+    expect(m.target.textContent).toContain('Project notes');
+    expect(m.target.querySelector('[title="hrn:mem:acme.com:notes"]')).not.toBeNull();
+    expect(m.target.querySelector('select[name=memoryClass],input[name=memoryRef]')).toBeNull();
+  });
+  it.each(['CONTRIBUTOR','READER'])('hides creation from org %s even if App.role says OWNER',async role=>{
+    const data=await memoryPage(role);const m=mountComponent(Page as never,{data,form:null} as never) as Mounted<Record<string,unknown>>;mounted.push(m);await tick();
+    expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
+  });
 });

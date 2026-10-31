@@ -3,28 +3,36 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import TickerForm from '$lib/components/tickers/TickerForm.svelte';
+  import TickerDelete from '$lib/components/tickers/TickerDelete.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
+  import CliCommand from '$lib/components/tickers/CliCommand.svelte';
+  import { cliRef, tickerCommands } from '$lib/cli-command';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
-  import { cadenceText, isKnownReason, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsText, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
+  import { cadenceText, isKnownReason, isWellFormedReasons, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   /**
-   * portal#1099 — one ticker (design §3.2), READ-ONLY (S7a). Its facts, then
-   * its subscribers. Edit, Disable, Delete, Add subscriber and Remove are S7b
-   * and are not rendered.
+   * portal#1099 — one ticker (design §3.2): its facts, then Edit and Delete
+   * (portal#1151, S7b), then its subscribers. Enabling or disabling it and
+   * Add subscriber / Remove are not in the portal yet and are not rendered;
+   * portal#1496 gives the hadron CLI commands for them instead.
    */
   let { data }: { data: PageData } = $props();
 
   const basePath = $derived(`/app/apps/${data.app.id}`);
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
   const tk = $derived(data.ticker);
+  const cliTarget = $derived(cliRef(tk));
+  const cli = $derived(cliTarget ? tickerCommands(cliTarget) : null);
   const quiet = $derived(parseQuietHours(tk.quietHours));
   const subscribers = $derived(data.subscribers);
+  const task = $derived(data.tickerTask);
 
   interface Row {
     sub: TickerSubscriber;
@@ -134,7 +142,7 @@
     <div class="min-w-0 sm:col-span-2">
       <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('app.ticker.reasons', 'Wakes when')}</dt>
       <dd class="text-zinc-900 dark:text-white">
-        {#if reasonsText(tk.reasons) === reasonsUnavailableText()}
+        {#if !isWellFormedReasons(tk.reasons)}
           {reasonsUnavailableText()}
         {:else if tk.reasons.length === 0}
           {noReasonsText()}
@@ -162,6 +170,32 @@
           : t('app.ticker.relevance.all', 'All unread: makes a subscriber due when it has unread messages in these channels.')}
       </dd>
     </div>
+    <!-- portal#1384: the loc and code are shown as the server returned them. A loc is not a URN: no
+         chip, no link, nothing resolved. A null loc is "no entry" or "an entry you can't read", and
+         the copy claims no more. 'not-participant' and a null ticker say nothing about the mapping,
+         so they render no entry at all. -->
+    {#if task.kind === 'failed' || (task.kind === 'ok' && task.value)}
+      <div class="min-w-0 sm:col-span-2" data-testid="ticker-task">
+        <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('app.ticker.task', 'Task')}</dt>
+        <dd class="min-w-0 text-zinc-900 dark:text-white">
+          {#if task.kind === 'failed'}
+            <span role="alert" class="text-red-800 dark:text-red-300">
+              {t('app.ticker.task.failed', 'Couldn’t load this ticker’s task.')}
+              <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.tickers.retry', 'Try again')}</button>
+            </span>
+          {:else if task.value?.registerTaskLoc}
+            <code class="break-all font-mono text-xs select-all">{task.value.registerTaskLoc}</code>
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.each-worker', 'Each worker runs the task at this location in its own role, or the shared one.')}</p>
+          {:else}
+            {t('app.ticker.task.none', 'No task you can see is mapped to this ticker.')}
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.fix', 'To hand its workers a task, map this code in the team Agent’s system memory.')}</p>
+          {/if}
+          {#if tk.tickCode}
+            <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.task.code', 'Code:')} <code class="break-all font-mono select-all">{tk.tickCode}</code></p>
+          {/if}
+        </dd>
+      </div>
+    {/if}
     <div class="min-w-0">
       <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{t('app.ticker.owner', 'Owner')}</dt>
       <dd class="min-w-0 text-zinc-900 dark:text-white">
@@ -179,8 +213,23 @@
       </dd>
     </div>
   </dl>
-  <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}
-    {t('app.ticker.where', 'In the portal this is read-only for now; use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe) to change it.')}</p>
+  <div class="min-w-0 space-y-2 text-xs text-zinc-500 dark:text-zinc-400" data-testid="ticker-cli">
+    <p>{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}</p>
+    {#if cli}
+      <p>{t('app.ticker.cli.where', 'To turn it on or off, or to subscribe workers, use the hadron CLI.')}</p>
+      <CliCommand label={t('app.ticker.cli.off', 'To turn it off:')} command={cli.off} />
+      <CliCommand label={t('app.ticker.cli.on', 'To turn it on:')} command={cli.on} />
+      <p>{t('app.ticker.cli.subscribe-who', 'Only a worker’s holder or whoever manages the App can subscribe or unsubscribe that worker.')}</p>
+      <CliCommand label={t('app.ticker.cli.subscribe', 'To subscribe a worker:')} command={cli.subscribe} />
+      <CliCommand label={t('app.ticker.cli.unsubscribe', 'To unsubscribe a worker:')} command={cli.unsubscribe} />
+    {/if}
+  </div>
+
+  <section aria-labelledby="ticker-edit-heading" class="space-y-3" data-testid="ticker-edit">
+    <h2 id="ticker-edit-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.ticker.edit.heading', 'Edit ticker')}</h2>
+    <TickerForm appId={data.app.id} ticker={tk} impersonating={data.impersonating} />
+    <TickerDelete appId={data.app.id} ticker={tk} impersonating={data.impersonating} />
+  </section>
 
   <section aria-labelledby="subscribers-heading" class="space-y-2">
     <div class="flex flex-wrap items-center justify-between gap-2">

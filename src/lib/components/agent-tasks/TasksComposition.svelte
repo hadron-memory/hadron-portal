@@ -204,7 +204,7 @@
             {:else}
               <span class="flex flex-wrap gap-1.5">
                 {#each row.lane.countsByRoleFamily as c (JSON.stringify([c.role, c.family]))}
-                  <span data-count-role-family="{c.role ?? ''}/{c.family ?? ''}" class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">{roleLabel(c.role)} / {familyLabel(c.family)} · {c.count}</span>
+                  <span data-count-role-family={JSON.stringify([c.role, c.family])} class="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">{roleLabel(c.role)} / {familyLabel(c.family)} · {c.count}</span>
                 {/each}
               </span>
             {/if}

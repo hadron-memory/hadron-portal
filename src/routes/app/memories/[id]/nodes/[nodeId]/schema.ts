@@ -116,6 +116,8 @@ export const nodeTestFlowSchema = z.object({
   _kind: z.literal('testFlow').default('testFlow'),
   appId: z.string().trim().min(1, 'Pick an App to run as.').prefault(''),
   orgId: z.string().trim().min(1, 'Missing organization.').prefault(''),
+  // The Agent to run as, chosen only in an App with several installed (#1444).
+  agentRef: z.string().trim().default(''),
   payload: z.string().trim().default('').superRefine((value, ctx) => {
     if (value === '') return;
     try {

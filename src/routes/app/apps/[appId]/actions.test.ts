@@ -7,6 +7,9 @@ import {
   INSTALL_AGENT_INTO_APP_MUTATION,
   APP_NODES_QUERY,
   APP_QUERY,
+  APP_CHAT_TARGET_QUERY,
+  CHANNEL_CHAT_TARGET_QUERY,
+  CREATE_CHANNEL_MESSAGE_MUTATION,
   APP_KEYS_QUERY,
   APP_VIEWER_MANAGES_QUERY,
   APP_MEMBERS_QUERY,
@@ -49,7 +52,7 @@ function baseApp(over: Record<string, unknown> = {}) {
     appType: 'CHATBOT',
     role: 'ADMIN',
     description: null,
-    systemPrompt: null,
+
     createUserPermission: 'DENY',
     identifyUserMethod: 'USER_ID',
     sessionTimeoutSeconds: 3600,
@@ -74,7 +77,7 @@ async function runAction(
   name:
     | 'update' | 'addAgent' | 'removeAgent' | 'updateAgentTools' | 'createKey'
     | 'revokeKey' | 'deleteApp' | 'castWorker' | 'retireWorker' | 'releaseWorker'
-    | 'postTeamChatMessage',
+    | 'postTeamChatMessage' | 'postChannelMessage',
   fields: Record<string, string | string[]>,
   // #825 — the signed-in user, for actions whose COPY depends on whether the
   // caller is the party the server named. Defaults to absent, which is the
@@ -104,7 +107,7 @@ const validSettings = {
   appType: 'CHATBOT',
   role: 'ADMIN',
   description: 'A demo',
-  systemPrompt: 'Be useful',
+
   createUserPermission: 'IMPLICIT',
   identifyUserMethod: 'SECRET',
   sessionTimeoutSeconds: '3600',
@@ -129,7 +132,7 @@ describe('load', () => {
             appType: 'CHATBOT',
             role: 'ADMIN',
             description: null,
-            systemPrompt: null,
+
             createUserPermission: 'DENY',
             identifyUserMethod: 'USER_ID',
             sessionTimeoutSeconds: 3600,
@@ -361,6 +364,77 @@ describe('load', () => {
     expect(result.teamChatTotal).toBe(0);
   });
 
+  // #1137: `?team=` is read by the loader and applied by the SERVER on the tail
+  // read; an invalid value reads nothing; the server's typed refusal is carried
+  // to the thread and never retried unfiltered.
+  describe('team filter (#1137)', () => {
+    async function loadWith(search: string, chat: (vars: Record<string, unknown>) => Promise<unknown>) {
+      mockRequest.mockImplementation((query, vars) => {
+        if (query === APP_QUERY) return Promise.resolve({ app: baseApp() });
+        if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
+        if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
+        if (query === TEAM_CHAT_MESSAGES_QUERY) return chat(vars as Record<string, unknown>);
+        if (query === TEAM_WORK_ITEMS_QUERY) return Promise.resolve({ teamWorkItems: { items: [], total: 0 } });
+        return Promise.resolve({ resolveAiServiceConfigs: [] });
+      });
+      mockFetchAllItems.mockResolvedValue([]);
+      const { load } = await import('./+page.server');
+      return (await load({
+        params: { id: 'org-1', appId: 'app-1' },
+        locals: { token: 'tok', user: { id: 'user-1' } },
+        parent: async () => ({}),
+        depends: () => {},
+        url: new URL(`http://localhost/app/apps/app-1${search}`),
+      } as unknown as Parameters<typeof load>[0])) as Record<string, any>;
+    }
+    const teamChatCalls = () => mockRequest.mock.calls.filter((c) => c[0] === TEAM_CHAT_MESSAGES_QUERY);
+
+    it('reads the tail UNDER the filter and reports what it was read under', async () => {
+      const r = await loadWith('?team=h1', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()[0][1]).toMatchObject({ teamHeadRef: 'h1' });
+      expect(r.teamFilter).toEqual({ kind: 'team', headRef: 'h1' });
+      expect(r.teamFilterInvalid).toBe(false);
+    });
+
+    it('sends no filter argument when the parameter is absent', async () => {
+      const r = await loadWith('', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()[0][1]).not.toHaveProperty('teamHeadRef');
+      expect(teamChatCalls()[0][1]).not.toHaveProperty('untagged');
+      expect(r.teamFilter).toEqual({ kind: 'none' });
+    });
+
+    it('reads NOTHING for an invalid value, and says so, instead of serving the unfiltered thread', async () => {
+      const r = await loadWith('?team=a%20b', async () => ({ teamChatMessages: { items: [], total: 0 } }));
+      expect(teamChatCalls()).toHaveLength(0);
+      expect(r.teamFilterInvalid).toBe(true);
+      expect(r.teamChatMessages).toEqual([]);
+      expect(r.teamChatError).toBe(true);
+    });
+
+    it('carries the server’s typed head refusal, and does not retry unfiltered', async () => {
+      const r = await loadWith('?team=gone', async () =>
+        Promise.reject(
+          Object.assign(new Error('refused'), {
+            response: { errors: [{ message: 'Team broadcast target is unavailable in this Channel.', extensions: { code: 'TEAM_CHAT_TEAM_HEAD_INVALID' } }] },
+          }),
+        ),
+      );
+      expect(r.teamChatRefusal).toEqual({
+        code: 'TEAM_CHAT_TEAM_HEAD_INVALID',
+        message: 'Team broadcast target is unavailable in this Channel.',
+      });
+      expect(r.teamChatError).toBe(true);
+      expect(r.teamChatMessages).toEqual([]);
+      expect(teamChatCalls()).toHaveLength(1);
+    });
+
+    it('names no refusal for an ordinary failure', async () => {
+      const r = await loadWith('?team=h1', async () => Promise.reject(new Error('boom')));
+      expect(r.teamChatRefusal).toBeNull();
+      expect(r.teamChatError).toBe(true);
+    });
+  });
+
   // The server's total is what tells the tab its view is a suffix of the real
   // thread. Passing back `items.length` instead would make every truncated
   // transcript look complete.
@@ -436,7 +510,7 @@ describe('load', () => {
 describe('update action', () => {
   it('updates app settings from a validated Superform and returns a typed success', async () => {
     mockRequest.mockResolvedValueOnce({});
-    const result = await runAction('update', validSettings);
+    const result = await runAction('update', { ...validSettings, systemPrompt: 'stale must not be forwarded' });
     expect(result).toMatchObject({
       form: {
         valid: true,
@@ -453,7 +527,7 @@ describe('update action', () => {
         appType: 'CHATBOT',
         role: 'ADMIN',
         description: 'A demo',
-        systemPrompt: 'Be useful',
+
         createUserPermission: 'IMPLICIT',
         identifyUserMethod: 'SECRET',
         sessionTimeoutSeconds: 3600,
@@ -467,11 +541,11 @@ describe('update action', () => {
     await runAction('update', {
       ...validSettings,
       description: '',
-      systemPrompt: '',
+
     });
     expect(mockRequest.mock.calls[0][1]).toMatchObject({
       description: null,
-      systemPrompt: null,
+
     });
   });
 
@@ -778,7 +852,7 @@ describe('updateAgentTools action', () => {
     expect(result.data.form.message.text).toBe(AGENT_TOOLS_IMPERSONATION_READ_ONLY());
   });
 
-  it('an unknown GraphQL code stays a 500 with the server’s message', async () => {
+  it('an unknown GraphQL code stays a 500 with generic copy', async () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'db down', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
     });
@@ -787,7 +861,7 @@ describe('updateAgentTools action', () => {
       data: { form: { message: { type: string; text: string } } };
     };
     expect(result.status).toBe(500);
-    expect(result.data.form.message.text).toBe('db down');
+    expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 });
 
@@ -922,6 +996,7 @@ describe('castWorker action', () => {
       agentId: 'agent-1',
       name: 'Iris',
       role: 'backend-engineer',
+      promptOverride: 'stale must not be forwarded',
     });
     expect(result).toMatchObject({
       form: { valid: true, message: { type: 'success', text: 'Worker cast.' } },
@@ -932,7 +1007,7 @@ describe('castWorker action', () => {
         appRef: 'app-1',
         agentRef: 'agent-1',
         name: 'Iris',
-        promptOverride: undefined,
+
       },
     ]);
   });
@@ -1054,7 +1129,7 @@ describe('castWorker action', () => {
     expect(result.data.form.message.text).toContain('contributor access');
   });
 
-  it('falls back to the server message for an UNKNOWN code', async () => {
+  it('uses generic copy for an UNKNOWN code', async () => {
     // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — only known codes get friendly
     // copy; an internal error must not be relabelled as a user mistake.
     mockRequest.mockRejectedValueOnce({
@@ -1064,7 +1139,7 @@ describe('castWorker action', () => {
     const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
       data: { form: { message: { text: string } } };
     };
-    expect(result.data.form.message.text).toBe('boom');
+    expect(result.data.form.message.text).toBe('Something went wrong on our side.');
   });
 
   it('falls back to the server message for a payload-less transport failure', async () => {
@@ -1339,7 +1414,7 @@ describe('releaseWorker action', () => {
     const result = await releaseAgainst({}, { id: 'user-1' });
     expect(result.status).toBe(500);
     const message = messageOf(result);
-    expect(message.text).toBe('hold is stale');
+    expect(message.text).toBe('Something went wrong on our side.');
     expect(message).not.toHaveProperty('staleHold');
   });
 
@@ -1454,13 +1529,13 @@ describe('postTeamChatMessage action (#732)', () => {
   // hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only — an unknown code (or a transport
   // failure with no GraphQL payload) must fall through to the server's own
   // message rather than being relabelled as a user mistake.
-  it('falls through to the server message for an unmapped code', async () => {
+  it('uses generic copy for an unmapped code', async () => {
     mockRequest.mockRejectedValueOnce(gqlError('SOME_NEW_CODE'));
     const result = (await runAction('postTeamChatMessage', {
       _kind: 'postTeamChatMessage',
       body: 'hi',
     })) as { data: { form: { message: { text: string } } } };
-    expect(result.data.form.message.text).toContain('raw server message');
+    expect(result.data.form.message.text).toContain('Something went wrong on our side.');
   });
 });
 
@@ -2096,6 +2171,24 @@ describe('load: key inventory (portal#1068)', () => {
       expect(APP_VIEWER_MANAGES_QUERY).toMatch(/viewerManages/);
       expect(APP_QUERY).not.toMatch(/viewerManages/);
     });
+  });
+});
+
+
+describe('postChannelMessage (#1033)', () => {
+  it('uses the selected Channel with the human token, keeps replies, and never sends a session', async () => {
+    mockRequest.mockImplementation(async q => q === APP_CHAT_TARGET_QUERY
+      ? { app: { id: 'app-1' } } : q === CHANNEL_CHAT_TARGET_QUERY ? { channel: { id: 'pair-channel', memory: { appId: 'app-1' } } }
+      : { createChannelMessage: { seq: 20 } });
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: 'pair-channel', body: 'hello', replyToSeq: '12', sessionRef: 'forged' });
+    expect(result).toMatchObject({ form: { id: 'channel:pair-channel', message: { type: 'success' } } });
+    expect(mockRequest).toHaveBeenLastCalledWith(CREATE_CHANNEL_MESSAGE_MUTATION, { channelRef: 'pair-channel', body: 'hello', replyToSeq: 12 });
+  });
+  it('keeps the failed draft and makes no mutation when the Channel belongs to another App', async () => {
+    mockRequest.mockImplementation(async q => q === APP_CHAT_TARGET_QUERY ? { app: { id: 'app-1' } } : { channel: { id: 'pair-channel', memory: { appId: 'other' } } });
+    const result = await runAction('postChannelMessage', { _kind: 'postTeamChatMessage', channelRef: 'pair-channel', body: 'kept draft' });
+    expect(result).toMatchObject({ status: 500, data: { form: { data: { body: 'kept draft' }, message: { type: 'error' } } } });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
   });
 });
 

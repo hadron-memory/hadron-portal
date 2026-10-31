@@ -53,11 +53,11 @@ describe('translateCreateNodeError', () => {
     expect(text).toMatch(/write access/i);
   });
 
-  it('falls back to GraphQL error message for unknown codes', () => {
+  it('uses generic copy for unknown GraphQL codes', () => {
     const text = translateCreateNodeError(
       gqlError('SomeNewServerErrorClass', 'a specific server message'),
     );
-    expect(text).toBe('a specific server message');
+    expect(text).toBe('Something went wrong on our side.');
   });
 
   it('falls back to Error.message for plain Error instances', () => {

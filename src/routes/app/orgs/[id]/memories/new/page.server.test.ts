@@ -149,7 +149,7 @@ describe('create-memory action (spec 034)', () => {
     expect(mockRequest).not.toHaveBeenCalled();
   });
 
-  it('surfaces only the GraphQL message when createMemory rejects a duplicate URN', async () => {
+  it('an untyped duplicate-URN error does not expose server prose or guess a 409', async () => {
     mockRequest.mockRejectedValueOnce({
       response: {
         errors: [{ message: 'A memory with URN "holger-pers:flow-lab" already exists' }],
@@ -158,13 +158,6 @@ describe('create-memory action (spec 034)', () => {
     });
 
     const result = await runCreate({ slug: 'flow-lab', displayName: 'Flow Lab', memoryClass: 'knowledge' });
-    expect(result).toMatchObject({
-      status: 409,
-      data: {
-        form: {
-          errors: { slug: ['A memory with URN "holger-pers:flow-lab" already exists'] },
-        },
-      },
-    });
+    expect(result).toMatchObject({ status: 500, data: { form: { message: { type: 'error', text: 'Something went wrong on our side.' } } } });
   });
 });

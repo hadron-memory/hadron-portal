@@ -47,7 +47,16 @@
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
   });
-  const runActionError = $derived(scopedActionError<RunAppFlowForm>(form, 'runFlow', $runMessage, $runErrors, ['entryUrn', '_kind']));
+  // The page is reused across param-only navigation, so the form store outlives
+  // the App: an Agent chosen for App A must not ride along into App B (#1444).
+  let seenAppId = untrack(() => data.app.id);
+  $effect(() => {
+    const id = data.app.id;
+    if (id === seenAppId) return;
+    seenAppId = id;
+    runFormData.update((current) => ({ ...current, agentRef: '' }), { taint: false });
+  });
+  const runActionError = $derived(scopedActionError<RunAppFlowForm>(form, 'runFlow', $runMessage, $runErrors, ['entryUrn', 'agentRef', '_kind']));
 
   function pageHref(page: number, status: string | null): string {
     const qs = new URLSearchParams();
@@ -94,6 +103,23 @@
       <p class="mt-1 text-xs text-zinc-400">
         {t('flows.explainer', 'Runnable entry nodes with routing edges in this app’s memories. Run one here, or open the node to run it with a test payload.')}
       </p>
+      <!-- An App with several installed Agents refuses a run that names none
+           (hadron-server#2849); with one or none there is nothing to choose. -->
+      {#if data.runAgents}
+        <div class="mt-3 max-w-xs">
+          <label for="runAgent" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('flows.agent', 'Run as Agent')}</label>
+          <select
+            id="runAgent"
+            bind:value={$runFormData.agentRef}
+            class="w-full min-w-0 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+          >
+            <option value="" disabled>{t('flows.agent-pick', 'Choose an Agent…')}</option>
+            {#each data.runAgents as agent (agent.id)}
+              <option value={agent.id}>{agent.name}</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
       {#if runActionError}
         <div role="alert" class="mt-3 rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{runActionError}</div>
       {/if}
@@ -114,6 +140,7 @@
             <form method="POST" action="?/run" use:runEnhance onsubmit={() => prepareRun(flow.entry.urn)} novalidate>
               <input type="hidden" name="_kind" value={$runFormData._kind} />
               <input type="hidden" name="entryUrn" value={flow.entry.urn} />
+              <input type="hidden" name="agentRef" value={$runFormData.agentRef} />
               <button
                 type="submit"
                 disabled={$runSubmitting}

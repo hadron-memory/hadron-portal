@@ -84,6 +84,10 @@ jobs:
       - name: Check Tickers phone layout
         run: pnpm test:tickers-layout
 
+      # portal#1315 (#1058/#1307): the NodeList search filter in real Chromium.
+      - name: Check NodeList search
+        run: pnpm test:node-list-search
+
       - name: Check App picker phone layout
         run: node scripts/test-select-app-layout.mjs
 

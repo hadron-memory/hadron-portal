@@ -1,3 +1,4 @@
+import { extractGqlError } from '$lib/server/gqlError';
 import { redirect, fail, isRedirect } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -39,7 +40,7 @@ export const actions: Actions = {
       redirect(303, `/app/orgs/${data.createOrganization.id}`);
     } catch (e: unknown) {
       if (isRedirect(e)) throw e;
-      const msg = e instanceof Error ? e.message : 'Failed to create organization';
+      const msg = extractGqlError(e, 'Failed to create organization');
       return message(form, { type: 'error', text: msg }, { status: 500 });
     }
   },

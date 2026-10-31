@@ -12,7 +12,9 @@ import type { RequestHandler } from './$types';
  * The server gates it on App participation, and a foreign or unknown attendee
  * is an empty list: never an oracle, and not an error. Only facts true about
  * the ATTENDEE are returned (see $lib/register-view). The resolver's
- * canRead/canPost/disclosure describe the caller, so they stay here.
+ * canRead/canPost/disclosure describe the attendee since server #1560. Only
+ * worded standing leaves this closed projection, and only for a host memory
+ * visible to the viewer; the raw fields remain server-side.
  */
 export const GET: RequestHandler = async ({ params, url, locals }) => {
   const attendee = url.searchParams.get('attendee')?.trim() ?? '';

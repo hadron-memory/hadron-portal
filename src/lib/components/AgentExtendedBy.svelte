@@ -15,6 +15,9 @@
   let section: HTMLElement;
   let retrying = $state(false);
   async function retry(event: MouseEvent) {
+    // Modified links retain native tab/window/download behavior, even while a
+    // plain retry is pending. Browsers deliver middle clicks through auxclick.
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     if (retrying) return;
     retrying = true;

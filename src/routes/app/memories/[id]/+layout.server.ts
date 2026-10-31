@@ -1,21 +1,20 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import {
-  ORGANIZATION_QUERY,
+  MEMORY_LAYOUT_ORG_QUERY,
   SELF_CAN_WRITE_QUERY,
   MEMORY_BY_ID_QUERY,
   MEMORY_NODES_QUERY,
   MEMORY_EDGES_QUERY,
-  MEMORY_USAGE_SUMMARY_QUERY,
 } from '$lib/server/queries';
-import { buildTreeEntries, buildGraphViewData } from '$lib/graph-utils';
 import type {
   Organization,
+  OrgMember,
+  UserSummary,
   Memory,
   MemoryNode,
   NodeEdge,
   NodeSummary,
-  UsageSummaryEntry,
 } from '$lib/types';
 import type { GraphQLClient } from 'graphql-request';
 import type { LayoutServerLoad } from './$types';
@@ -31,6 +30,12 @@ type SlimNode = {
   isRunnable: boolean | null;
   description: string | null;
   openThreads: number;
+};
+// What MEMORY_LAYOUT_ORG_QUERY selects, and no more: typing it as the full
+// Organization would let a consumer read `memories` or `createdAt` and get
+// undefined at runtime instead of a compile error (#1429).
+export type MemoryLayoutOrg = Pick<Organization, 'id' | 'name' | 'urn'> & {
+  members: Array<Pick<OrgMember, 'id' | 'role'> & { user: Pick<UserSummary, 'id'> }>;
 };
 type SlimEdge = { id: string; loc: string; name: string | null; sourceId: string; targetId: string };
 
@@ -159,14 +164,9 @@ function reconstructNodes(
 // the memory id alone; the org is loaded only for breadcrumb + settings chrome.
 export const load: LayoutServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
-  const [memoryData, graphData, usageData] = await Promise.all([
+  const [memoryData, graphData] = await Promise.all([
     client.request<{ memory: Memory | null }>(MEMORY_BY_ID_QUERY, { ref: params.id }),
     fetchGraph(client, params.id),
-    client
-      .request<{ memoryUsageSummary: UsageSummaryEntry[] }>(MEMORY_USAGE_SUMMARY_QUERY, {
-        memoryRef: params.id,
-      })
-      .catch(() => ({ memoryUsageSummary: [] as UsageSummaryEntry[] })),
   ]);
 
   const memory = memoryData.memory;
@@ -187,7 +187,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   }
 
   // Load the owning org for breadcrumb + settings (members/urn). Keyed on the
-  // memory's own organizationId, not a URL segment. ORGANIZATION_QUERY is
+  // memory's own organizationId, not a URL segment. MEMORY_LAYOUT_ORG_QUERY is
   // authz-gated, so a non-member viewer gets `org: null` — the settings page
   // guards on that and hides member-only affordances (server enforces anyway).
   // Guard the call: a memory with no owning org id (defensive — the schema
@@ -195,7 +195,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   // GraphQL validation error.
   const orgData = memory.organizationId
     ? await client
-        .request<{ organization: Organization | null }>(ORGANIZATION_QUERY, { ref: memory.organizationId })
+        .request<{ organization: MemoryLayoutOrg | null }>(MEMORY_LAYOUT_ORG_QUERY, { ref: memory.organizationId })
         .catch(() => ({ organization: null }))
     : { organization: null };
 
@@ -212,23 +212,6 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   // when the fetch failed.
   const nodesTotal = nodesFailed ? null : graphData.nodesTotal;
 
-  let treeEntries: ReturnType<typeof buildTreeEntries> = [];
-  let graphViewData = null;
-  try {
-    treeEntries = buildTreeEntries(memoryNodes, memory.urn);
-    graphViewData = buildGraphViewData(memoryNodes, memory.urn);
-  } catch (err) {
-    console.error('[memory-layout] Error building tree/graph data:', err);
-    // Continue with empty data rather than crashing
-  }
-
-  // Build usage map: nodeLoc → { type → count }
-  const usageByNode: Record<string, Record<string, number>> = {};
-  for (const entry of usageData.memoryUsageSummary) {
-    if (!usageByNode[entry.nodeLoc]) usageByNode[entry.nodeLoc] = {};
-    usageByNode[entry.nodeLoc][entry.type] = entry.count;
-  }
-
   return {
     org: orgData.organization,
     graph: memory,
@@ -236,8 +219,5 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     graphNodes: memoryNodes,
     nodesTotal,
     nodesFailed,
-    treeEntries,
-    graphViewData,
-    usageByNode,
   };
 };

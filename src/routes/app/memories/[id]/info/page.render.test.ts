@@ -31,3 +31,8 @@ describe('memory Info page, Git sync (#988)', () => {
     expect(body).not.toContain('The last sync failed.');
   });
 });
+
+it('shows a recorded partial report in Info', () => {
+  const body = render(Page as never, { props: { data: data({ lastSyncReport: JSON.stringify({ version: 1, outcome: 'partial', recordedAt: '2026-10-26T01:02:03.000Z', entries: [] }) }) } as never }).body;
+  expect(body).toContain('Last recorded outcome'); expect(body).toContain('succeeded');
+});

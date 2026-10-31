@@ -42,9 +42,9 @@ async function pageData(initialTab: 'agents' | 'keys') {
     appKeys: { kind: 'ok', keys: initialTab === 'keys' ? [KEY] : [] },
     viewerManages: { kind: 'known', manages: true },
     org: null, availableAgents: [], staff: [], staffError: false,
-    teamChatMessages: [], teamChatTotal: 0, teamChatError: false,
+    teamChatMessages: [], teamChatTotal: 0, teamChatError: false, teamFilter: { kind: 'none' }, teamFilterInvalid: false, teamChatRefusal: null,
     appChats: [], chatsError: false, selectedChatKey: null,
-    initialTab, initialChatFullView: false,
+    initialTab, initialChatFullView: false, bootPointerAppKey: 'a1',
     chatConfigs: [], appConfigs: [], worklog: [], worklogTotal: 0, worklogError: false,
     currentUserId: 'u1',
     appSettingsForm, addAgentForm, createKeyForm, removeAgentForm,
@@ -57,7 +57,7 @@ async function mountTab(tab: 'agents' | 'keys') {
   setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
   // The page may poll chats/authors from onMount regardless of tab; any
   // fetch it makes can resolve empty — these tests are about the menus.
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) }) as Response));
+  vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/customisation?') ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
   const m = mountComponent(Page as never, { data: await pageData(tab), form: null } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
@@ -71,11 +71,12 @@ function openMenu(target: HTMLElement, ariaLabel: string) {
 }
 
 describe('App Agents tab row ⋯ menu (#1020)', () => {
-  it('offers the row actions only in the menu — Set boot prompt (#1142) and Unlink — with no inline buttons', async () => {
+  it('offers the row actions only in the menu — Customisation, Set boot prompt (#1142) and Unlink — with no inline buttons', async () => {
     const target = await mountTab('agents');
     expect(target.textContent).not.toContain('Unlink');
     const items = openMenu(target, 'Actions for Beta');
     expect(items.map((i) => [i.tagName, i.textContent?.trim()])).toEqual([
+      ['BUTTON', 'Customisation…'],
       ['BUTTON', 'Set boot prompt…'],
       ['BUTTON', 'Unlink'],
     ]);
@@ -120,5 +121,36 @@ describe('App Keys tab row ⋯ menu (#1020)', () => {
     openMenu(target, 'Actions for key abc123').find((i) => i.textContent?.trim() === 'Revoke')!.click();
     await tick(2);
     expect(requestSubmit).not.toHaveBeenCalled();
+  });
+});
+
+describe('customisation panel focus from the real row menu', () => {
+  it('reveals an already-open panel again and returns focus on Close', async () => {
+    const target = await mountTab('agents');
+    const pick = () =>
+      openMenu(target, 'Actions for Beta')
+        .find((i) => i.textContent?.trim() === 'Customisation…')!
+        .click();
+    pick();
+    await tick(4);
+    await new Promise((r) => setTimeout(r, 0));
+    await tick(4);
+    const panel = target.querySelector<HTMLElement>(
+      'section[aria-label="Customisation"]',
+    )!;
+    expect(document.activeElement).toBe(panel.querySelector('h3'));
+    pick();
+    await tick(4);
+    expect(document.activeElement).toBe(panel.querySelector('h3'));
+    [...panel.querySelectorAll<HTMLButtonElement>('button')]
+      .find((b) => b.textContent === 'Close')!
+      .click();
+    await tick(4);
+    expect(
+      target.querySelector('section[aria-label="Customisation"]'),
+    ).toBeNull();
+    expect(document.activeElement?.getAttribute('aria-label')).toBe(
+      'Actions for Beta',
+    );
   });
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import NodeAdvice from '$lib/components/NodeAdvice.svelte';
   import type { LayoutData } from './$types';
   import { page } from '$app/stores';
   import { t } from '$lib/i18n/t';
@@ -174,6 +175,7 @@
 
   <!-- Content -->
   <div class="min-w-0 flex-1">
+    <NodeAdvice advice={data.nodeAdvice ?? []} />
     <!-- #339: key the outlet on the route id. Svelte 5 / Kit 2 don't tear down
          the previous page in this {@render children()} outlet when the child
          layout DEPTH changes (e.g. /app/orgs/[id]/members — a direct child —
