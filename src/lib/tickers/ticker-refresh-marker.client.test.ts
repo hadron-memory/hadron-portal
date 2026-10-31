@@ -47,6 +47,16 @@ describe('portal#1497 — the ticker refresh marker', () => {
     expect(takeTickerRefreshMarker({ viewer: 'u1', appId: 'app-1', tickerId: 'tk-9' }, AT + 1000)).toBe(false);
   });
 
+  it('a marker left by ANOTHER viewer says nothing here and is removed (portal#1515)', () => {
+    // Riana §10 P3-2 on #1502: the marker is scoped to the viewer whose write
+    // left it. u2's error boundary — same App, same ticker — must not claim
+    // u1's marker, and must not leave it lying around for a later reader
+    // either: a foreign viewer's marker is stale on arrival.
+    setTickerRefreshMarker(SCOPE, AT); // viewer u1
+    expect(takeTickerRefreshMarker({ viewer: 'u2', appId: 'app-1', tickerId: 'tk-1' }, AT + 1000)).toBe(false);
+    expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
+  });
+
   it('a URN-spelled route still claims its marker: EITHER stored spelling matches (#1462 rule)', () => {
     // The write was keyed by the canonical id, but the URL spelled a URN —
     // the boundary reads the URL, so the marker stores both and matches both.
