@@ -53,7 +53,7 @@ describe('hadron-instructions.md sends team workers to the CLI (#1496)', () => {
     expect(instructions).toContain('`hadron team chat post <message>`');
   });
 
-  // cor:agt:020:03: plain start resumes the one live session or redeems the one
+  // hrn:node:hadronmemory.com:specs:cor:agt:020:03: plain start resumes the one live session or redeems the one
   // claim; when it lists several, the person chooses.
   it('recovers with a plain start, and the person picks among several', () => {
     const recovery = sentences.find((s) => s.includes('`hadron team session start` with no `--as`')) ?? '';

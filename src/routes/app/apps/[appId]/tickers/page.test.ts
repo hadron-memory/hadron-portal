@@ -181,7 +181,8 @@ describe('Ticker page', () => {
     expect(html).toContain('hadron ticker unsubscribe hrn:ticker:acme.com:team:engineering --worker &lt;worker-id-or-URN>');
   });
 
-  // cor:agt:080:18 stays above the on/off command; cor:agt:080:20 sits directly
+  // hrn:node:hadronmemory.com:specs:cor:agt:080:18 stays above the on/off command;
+  // hrn:node:hadronmemory.com:specs:cor:agt:080:20 sits directly
   // before the subscribe commands.
   it('says who may change it before the on/off command, and who may subscribe before subscribing', () => {
     const html = detail();
@@ -193,7 +194,9 @@ describe('Ticker page', () => {
     expect(who).toBeLessThan(off);
     expect(off).toBeLessThan(subWho);
     expect(subWho).toBeLessThan(sub);
-    expect(html.slice(subWho, sub)).not.toMatch(/<code/);
+    // Nothing else is offered in between: the only command opened before
+    // `hadron ticker subscribe` is that command's own.
+    expect(html.slice(subWho, sub).match(/<code/g)).toHaveLength(1);
   });
 
   it('falls back to the ticker id when it has no URN', () => {
@@ -291,7 +294,8 @@ describe('Wake-ups panel', () => {
     }
   });
 
-  // cor:agt:080:21: mentions and pause only; subscriptions follow cor:agt:080:20.
+  // hrn:node:hadronmemory.com:specs:cor:agt:080:21: mentions and pause only;
+  // subscriptions follow hrn:node:hadronmemory.com:specs:cor:agt:080:20.
   it('says who may change mentions and pause, not subscriptions', () => {
     const html = panel({ worker: { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:acme.com:team:liam' } });
     expect(html).toContain('Only the worker itself, its holder, or whoever manages the App can change its mentions or pause.');
