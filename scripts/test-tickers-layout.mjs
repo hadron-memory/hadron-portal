@@ -55,7 +55,11 @@ try {
       for (const scheme of ['light', 'dark']) {
         const page = await browser.newPage({ viewport: { width, height: 844 } });
         await mountView(page, origin, css, width, view);
-        if (scheme === 'dark') await page.evaluate(() => document.documentElement.classList.add('dark'));
+        // The root layout paints the page (src/routes/+layout.svelte): zinc-950 dark, zinc-50 light.
+        await page.evaluate((dark) => {
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.style.background = document.body.style.background = dark ? '#09090b' : '#fafafa';
+        }, scheme === 'dark');
         await page.waitForSelector(view.startsWith('wake') ? '[data-testid="wake-status"]' : view.startsWith('detail') ? '[data-testid="ticker-task"]' : 'table');
 
         const measure = () => page.evaluate(() => {
