@@ -5,20 +5,31 @@
   import Urn from '$lib/components/Urn.svelte';
   import TickerForm from '$lib/components/tickers/TickerForm.svelte';
   import TickerDelete from '$lib/components/tickers/TickerDelete.svelte';
+  import TickerEnabledControl from '$lib/components/tickers/TickerEnabledControl.svelte';
+  import TickerAddSubscriber from '$lib/components/tickers/TickerAddSubscriber.svelte';
+  import TickerRemoveSubscriber from '$lib/components/tickers/TickerRemoveSubscriber.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { cadenceText, isKnownReason, isWellFormedReasons, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
+  import { tickerSubscribeWhoText } from '$lib/tickers/controls';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
   /**
    * portal#1099 — one ticker (design §3.2): its facts, then Edit and Delete
-   * (portal#1151, S7b), then its subscribers. Enabling or disabling it and
-   * Add subscriber / Remove are not in the portal yet and are not rendered.
+   * (portal#1151, S7b), then its subscribers.
+   *
+   * portal#1497 (MCP cut R7a) adds the controls the MCP cut took away: turning
+   * the ticker on or off beside its badge, and Add subscriber / Remove on the
+   * operations the disabled tools used. Every participant sees them (D1); the
+   * server's refusal answers anyone else. The on/off control is rendered for
+   * every participant; the subscriber controls sit under the list, with
+   * cor:agt:080:20's sentence beside them (the same sentence the server's
+   * SUBSCRIBE_FORBIDDEN refusal answers with).
    */
   let { data }: { data: PageData } = $props();
 
@@ -47,11 +58,17 @@
       : [],
   );
 
+  // portal#1497: the signed-in viewer (from the layout), to scope the ticker
+  // refresh marker a committed write leaves behind.
+  const viewerId = $derived(data.user?.id ?? null);
+
   let globalFilter = $state('');
   const columns: PortalColumnDef<Row>[] = [
     { id: 'worker', accessorFn: (r) => r.workerText, header: t('app.ticker.col.worker', 'Worker'), enableHiding: false, size: 280 },
     { id: 'by', accessorFn: (r) => r.byText, header: t('app.ticker.col.by', 'Subscribed by'), size: 240 },
     { id: 'since', accessorFn: (r) => r.sinceMs, header: t('app.ticker.col.since', 'Since'), size: 170 },
+    // portal#1497: each row's own Remove, whatever the roster read said.
+    { id: 'actions', accessorFn: () => '', header: t('app.ticker.col.actions', 'Actions'), enableSorting: false, enableHiding: false, enableGlobalFilter: false, size: 120 },
   ];
   const fmtMs = (v: unknown) => (typeof v === 'number' && v > 0 ? fmtRunTime(String(v)) : '');
   const table = createSvelteTable<Row>({
@@ -95,6 +112,9 @@
           ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
           : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'}"
       >{tk.enabled ? t('app.tickers.state.ticking', 'Ticking') : t('app.tickers.state.disabled', 'Disabled')}</span>
+      <!-- portal#1497: the on/off control beside its badge, for every participant
+           (D1); the server's refusal answers anyone else. -->
+      <TickerEnabledControl appId={data.app.id} ticker={tk} after={data.after} viewerId={viewerId} impersonating={data.impersonating} />
     </div>
     {#if tk.urn}<Urn value={tk.urn} size={10} label={t('app.tickers.urn-label', 'ticker')} />{/if}
     {#if !tk.enabled}
@@ -208,8 +228,10 @@
       </dd>
     </div>
   </dl>
-  <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}
-    {t('app.ticker.where', 'To turn it on or off, or to subscribe workers, use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe).')}</p>
+  <!-- portal#1497 (D4): the MCP-tools pointer is gone — the controls above and
+       below are it. `app.ticker.who` (cor:agt:080:18) stays the governing line
+       for On/off; the subscriber controls carry their own (cor:agt:080:20). -->
+  <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}</p>
 
   <section aria-labelledby="ticker-edit-heading" class="space-y-3" data-testid="ticker-edit">
     <h2 id="ticker-edit-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.ticker.edit.heading', 'Edit ticker')}</h2>
@@ -227,6 +249,14 @@
         class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
       >{t('app.tickers.refresh', 'Refresh')}</button>
     </div>
+    {#if subscribers.kind !== 'not-participant'}
+      <!-- portal#1497: cor:agt:080:20, the same sentence the server's
+           SUBSCRIBE_FORBIDDEN refusal answers with (one copy, $lib/tickers/controls).
+           A non-participant is offered nothing here (the roster's "not offered"
+           state): the not-participant box below is all they see. -->
+      <p class="text-xs text-zinc-500 dark:text-zinc-400" data-testid="ticker-subscriber-who">{tickerSubscribeWhoText()}</p>
+      <TickerAddSubscriber appId={data.app.id} ticker={tk} roster={data.roster} viewerId={viewerId} impersonating={data.impersonating} onRosterRetry={refresh} />
+    {/if}
     {#if subscribers.kind === 'not-participant'}
       <TickersNotParticipant impersonating={data.impersonating} />
     {:else if subscribers.kind === 'failed'}
@@ -265,6 +295,10 @@
             </span>
           {:else if cell.column.id === 'since'}
             <time datetime={row.sub.createdAt} class="whitespace-nowrap">{fmtRunTime(row.sub.createdAt)}</time>
+          {:else if cell.column.id === 'actions'}
+            <!-- portal#1497: the row's own Remove, kept whatever the roster read
+                 said — a worker the chooser doesn't list may still be subscribed. -->
+            <TickerRemoveSubscriber appId={data.app.id} ticker={tk} subscription={row.sub} worker={row.sub.worker} viewerId={viewerId} impersonating={data.impersonating} />
           {/if}
         {/snippet}
       </DataTable>

@@ -49,10 +49,21 @@ try {
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
 
+  // portal#1497: the ticker page now carries the on/off control and the
+  // subscriber controls, each with its own bad states — the roster's three,
+  // the stale row, an uncertain result and the failed-refresh line — and the
+  // whole set is checked in light AND in dark (.dark on the root).
+  const views = [
+    'list', 'detail', 'detail-unmapped', 'detail-task-failed', 'detail-stale-row',
+    'detail-roster-hidden', 'detail-roster-failed', 'detail-roster-empty',
+    'detail-uncertain', 'detail-refresh-failed', 'wake',
+  ];
+  for (const dark of [false, true]) {
   for (const width of [390, 1280]) {
-    for (const view of ['list', 'detail', 'detail-unmapped', 'detail-task-failed', 'wake']) {
+    for (const view of views) {
       const page = await browser.newPage({ viewport: { width, height: 844 } });
       await mountView(page, origin, css, width, view);
+      await page.evaluate((dark) => document.documentElement.classList.toggle('dark', dark), dark);
       await page.waitForSelector(view === 'wake' ? '[data-testid="wake-status"]' : view.startsWith('detail') ? '[data-testid="ticker-task"]' : 'table');
 
       const measure = () => page.evaluate(() => {
@@ -73,7 +84,7 @@ try {
         };
       });
       const got = await measure();
-      const label = `${view} at ${width}px`;
+      const label = `${view} at ${width}px${dark ? ' dark' : ''}`;
       assert.equal(got.scrollWidth, width, `${label}: page overflows (${got.scrollWidth} > ${width})`);
       if (view === 'list') {
         for (const col of ['Ticker', 'State', 'Every']) {
@@ -94,9 +105,10 @@ try {
         await mutant.evaluate((el) => el.remove());
         assert.equal((await measure()).scrollWidth, width);
       }
-      console.log(JSON.stringify({ view, width: got.width, scrollWidth: got.scrollWidth, statusFirst: got.statusFirst }));
+      console.log(JSON.stringify({ view, dark, width: got.width, scrollWidth: got.scrollWidth, statusFirst: got.statusFirst }));
       await page.close();
     }
+  }
   }
 } finally {
   await browser?.close();

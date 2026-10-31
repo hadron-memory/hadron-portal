@@ -56,10 +56,13 @@ export function writeRefusalStatus(r: WriteRefusal): number {
   switch (r.code) {
     case 'TASK_NOT_OWNER':
     case 'FORBIDDEN':
+    case 'SUBSCRIBE_FORBIDDEN':
       return 403;
     case 'TASK_NOT_FOUND':
     case 'TICKER_NOT_FOUND':
     case 'APP_NOT_FOUND':
+    case 'WORKER_NOT_FOUND':
+    case 'SUBSCRIPTION_NOT_FOUND':
       return 404;
     case 'TASK_ENDED':
     case 'TASK_INVALID_TRANSITION':
@@ -67,7 +70,10 @@ export function writeRefusalStatus(r: WriteRefusal): number {
     case 'TICKER_NAME_TAKEN':
     case 'TICKER_LIMIT_REACHED':
     case 'TICKER_CADENCE_NEEDS_CONSENT':
+    case 'WORKER_RETIRED':
       return 409;
+    case 'INTERNAL_SERVER_ERROR':
+      return 500;
     default:
       return 400;
   }

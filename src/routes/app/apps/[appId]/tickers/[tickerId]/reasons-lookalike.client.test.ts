@@ -26,7 +26,7 @@ const ticker = (reasons: unknown) => ({
 async function reasonsRow(reasons: unknown): Promise<string> {
   setStubPage('https://example.test/app/apps/app-1/tickers/tk-1', { appId: 'app-1', tickerId: 'tk-1' });
   const m = mountComponent(Page as never, {
-    data: { app, ticker: ticker(reasons), subscribers: { kind: 'failed' }, tickerTask: { kind: 'ok', value: { registerTaskLoc: null } }, paged: false, impersonating: null },
+    data: { app, ticker: ticker(reasons), subscribers: { kind: 'failed' }, tickerTask: { kind: 'ok', value: { registerTaskLoc: null } }, roster: { kind: 'ok', workers: [] }, paged: false, after: null, impersonating: null },
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);

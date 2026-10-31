@@ -1,10 +1,19 @@
 import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { loadTasksApp } from '$lib/server/agent-tasks';
-import { loadAppTickerSettings, loadSubscribers, loadTicker, loadTickerTask } from '$lib/server/tickers';
+import { loadAppTickerSettings, loadSubscribers, loadTicker, loadTickerRoster, loadTickerTask } from '$lib/server/tickers';
 import { formValues, impersonationRefusal, writeFailure } from '$lib/server/agent-task-writes';
-import { DELETE_TICKER_MUTATION, UPDATE_TICKER_MUTATION, classifyTickerWriteError } from '$lib/server/ticker-writes';
-import { buildUpdatePatch } from '$lib/tickers/write';
+import {
+  DELETE_TICKER_MUTATION,
+  SET_TICKER_ENABLED_MUTATION,
+  SUBSCRIBE_WORKER_MUTATION,
+  UNSUBSCRIBE_WORKER_MUTATION,
+  UPDATE_TICKER_MUTATION,
+  classifyTickerControlError,
+  classifyTickerWriteError,
+  tickerNotAvailableRefusal,
+} from '$lib/server/ticker-writes';
+import { buildUpdatePatch, enabledInvalidMessage, parseEnabledIntent, parseWorkerRef, workerInvalidMessage } from '$lib/tickers/write';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -32,10 +41,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   }
 
   const after = url.searchParams.get('after');
-  const [subscribers, settings, tickerTask] = await Promise.all([
+  const [subscribers, settings, tickerTask, roster] = await Promise.all([
     loadSubscribers(client, ticker.id, after),
     loadAppTickerSettings(client, app.id),
     loadTickerTask(client, ticker.id),
+    // portal#1497: ONE roster read per page load feeds the Add-subscriber
+    // chooser (D5). No per-row reads, no drain loop; its refusal/empty states
+    // are the chooser's, never an empty list in disguise.
+    loadTickerRoster(client, app.id),
   ]);
   return {
     app,
@@ -43,7 +56,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     subscribers,
     settings,
     tickerTask,
+    roster,
     paged: after !== null,
+    // portal#1497: the on/off action's URL keeps the page's own slice, so a
+    // native POST reloads the view it came from.
+    after,
     loadedAt: new Date().toISOString(),
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
   };
@@ -55,6 +72,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * server's refusal answers anyone who may not (hrn:node:hadronmemory.com:specs:cor:agt:080:18). A control left
  * over from before the ticker changed answers TICKER_NOT_FOUND or FORBIDDEN and
  * says so. An uncertain outcome is shown as such and never retried.
+ *
+ * portal#1497 adds the activation and subscriber actions (`set-enabled`,
+ * `subscribe`, `unsubscribe`) on the operations the disabled MCP tools used;
+ * their refusals are fixed PORTAL copy (see $lib/server/ticker-writes), and
+ * each one first re-checks the route-to-ticker App association above.
  */
 export const actions: Actions = {
   update: async ({ request, params, locals }) => {
@@ -82,4 +104,105 @@ export const actions: Actions = {
       return writeFailure('delete', classifyTickerWriteError(e, 'delete'), values);
     }
   },
+
+  /*
+   * portal#1497 (MCP cut R7a): on/off, add subscriber, remove subscriber.
+   * Before any mutation, each action re-reads the ticker's OWN App exactly the
+   * way the loader does and compares it with the route App: a person in Apps A
+   * and B must not be able to mutate B's ticker under A's path (the ref alone
+   * does not carry the association). That is the necessary association check,
+   * not a probe — it reads only what the viewer may read, refuses with the one
+   * not-available sentence, and sends zero mutations on a mismatch. Everything
+   * after it is the server's own authorization.
+   */
+  'set-enabled': async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('set-enabled', impersonationRefusal(), values);
+    const enabled = parseEnabledIntent(fd);
+    if (enabled === null) return writeFailure('set-enabled', { kind: 'invalid', field: 'enabled', message: enabledInvalidMessage() }, values);
+    const client = gqlClient(locals.token);
+    const guard = await tickerOfRouteApp(client, params.appId, params.tickerId);
+    if (!guard) return writeFailure('set-enabled', tickerNotAvailableRefusal(), values);
+    try {
+      const r = await client.request<{ updateTicker: { id: string; enabled: boolean } }>(SET_TICKER_ENABLED_MUTATION, {
+        ref: params.tickerId,
+        input: { enabled },
+      });
+      // The echo must equal the DESIRED value: a payload that doesn't is not a
+      // success, and never a failure either — it is uncertain.
+      if (r.updateTicker?.id !== guard.tickerId || r.updateTicker?.enabled !== enabled) {
+        return writeFailure('set-enabled', { kind: 'uncertain' }, values);
+      }
+      return { action: 'set-enabled' as const, ok: true as const, target: { tickerId: guard.tickerId }, enabled };
+    } catch (e) {
+      return writeFailure('set-enabled', classifyTickerControlError(e, 'set-enabled'), values);
+    }
+  },
+
+  subscribe: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('subscribe', impersonationRefusal(), values);
+    const worker = parseWorkerRef(fd);
+    if (worker === null) return writeFailure('subscribe', { kind: 'invalid', field: 'worker', message: workerInvalidMessage() }, values);
+    const client = gqlClient(locals.token);
+    const guard = await tickerOfRouteApp(client, params.appId, params.tickerId);
+    if (!guard) return writeFailure('subscribe', tickerNotAvailableRefusal(), values);
+    try {
+      const r = await client.request<{ subscribeWorker: { announcement: string | null; subscription: { id: string; endedAt: string | null } } }>(
+        SUBSCRIBE_WORKER_MUTATION,
+        { tickerRef: guard.tickerId, workerRef: worker },
+      );
+      // A live subscription, and nothing less: SubscribeResult carries no
+      // created flag, so idempotent and fresh are the same success.
+      const sub = r.subscribeWorker?.subscription;
+      if (!sub?.id || sub.endedAt !== null) return writeFailure('subscribe', { kind: 'uncertain' }, values);
+      const out: { action: 'subscribe'; ok: true; target: string; announcementFailed?: true } = { action: 'subscribe', ok: true, target: worker };
+      if (r.subscribeWorker?.announcement === 'FAILED') out.announcementFailed = true;
+      return out;
+    } catch (e) {
+      return writeFailure('subscribe', classifyTickerControlError(e, 'subscribe'), values);
+    }
+  },
+
+  unsubscribe: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('unsubscribe', impersonationRefusal(), values);
+    const worker = parseWorkerRef(fd);
+    if (worker === null) return writeFailure('unsubscribe', { kind: 'invalid', field: 'worker', message: workerInvalidMessage() }, values);
+    const client = gqlClient(locals.token);
+    const guard = await tickerOfRouteApp(client, params.appId, params.tickerId);
+    if (!guard) return writeFailure('unsubscribe', tickerNotAvailableRefusal(), values);
+    try {
+      const r = await client.request<{ unsubscribeWorker: { announcement: string | null; subscription: { id: string; endedAt: string | null } } }>(
+        UNSUBSCRIBE_WORKER_MUTATION,
+        { tickerRef: guard.tickerId, workerRef: worker },
+      );
+      // The subscription must have ended; anything else is uncertain, never "failed".
+      const sub = r.unsubscribeWorker?.subscription;
+      if (!sub?.id || sub.endedAt === null) return writeFailure('unsubscribe', { kind: 'uncertain' }, values);
+      const out: { action: 'unsubscribe'; ok: true; target: string; announcementFailed?: true } = { action: 'unsubscribe', ok: true, target: worker };
+      if (r.unsubscribeWorker?.announcement === 'FAILED') out.announcementFailed = true;
+      return out;
+    } catch (e) {
+      return writeFailure('unsubscribe', classifyTickerControlError(e, 'unsubscribe'), values);
+    }
+  },
 };
+
+/**
+ * portal#1497 — the route-to-ticker App check, before any mutation. Reads the
+ * App and then the ticker's own App exactly as the loader does; a null ticker,
+ * a ticker whose App the viewer cannot read, or a ticker of a different App
+ * answers null (the caller refuses with the one sentence and writes nothing).
+ * The returned ticker id is the canonical one the mutation is keyed by.
+ */
+async function tickerOfRouteApp(client: ReturnType<typeof gqlClient>, appId: string, tickerRef: string): Promise<{ tickerId: string } | null> {
+  const app = await loadTasksApp(client, appId);
+  if (!app) return null;
+  const ticker = await loadTicker(client, tickerRef);
+  if (!ticker?.app || ticker.app.id !== app.id) return null;
+  return { tickerId: ticker.id };
+}

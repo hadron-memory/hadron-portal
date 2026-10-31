@@ -6,6 +6,8 @@ import { flushSync, mount, unmount } from 'svelte';
 import TickersList from '../../../routes/app/apps/[appId]/tickers/+page.svelte';
 import TickerPage from '../../../routes/app/apps/[appId]/tickers/[tickerId]/+page.svelte';
 import WakeUpsPanel from '../../components/tickers/WakeUpsPanel.svelte';
+import WriteRefusalAlert from '../../components/agent-tasks/WriteRefusal.svelte';
+import TickerRefreshFailedLine from '../../components/tickers/TickerRefreshFailedLine.svelte';
 
 const app = { id: 'app-1', name: 'Product Team with a fairly long App name', urn: 'hrn:app:hadronmemory.com:hadron-dev-team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 4320, dailyWakeBudgetDerived: true } };
@@ -44,7 +46,31 @@ const detailTask = {
   'detail-task-failed': { kind: 'failed' },
 } as const;
 
-export type TickersView = 'list' | 'detail' | 'detail-unmapped' | 'detail-task-failed' | 'wake';
+// portal#1497: the roster read behind the Add-subscriber chooser. The named
+// workers are long on purpose — a nameless one shows its URN, the widest
+// label the select offers — and the subscribed row's worker (Liam) is NOT in
+// it, the stale-row case: the row keeps its Remove whatever the roster said.
+const rosterOk = { kind: 'ok', workers: [
+  { id: 'w-dara', name: 'Dara (coordinator with a fairly long display name)', urn: 'hrn:worker:hadronmemory.com:hadron-dev-team:dara' },
+  { id: 'w-nameless', name: null, urn: 'hrn:worker:hadronmemory.com:hadron-dev-team:very-long-nameless-worker-identifier' },
+] };
+const rosters = {
+  'detail': rosterOk,
+  'detail-unmapped': rosterOk,
+  'detail-task-failed': rosterOk,
+  'detail-stale-row': rosterOk,
+  'detail-roster-hidden': { kind: 'hidden' },
+  'detail-roster-failed': { kind: 'failed' },
+  'detail-roster-empty': { kind: 'ok', workers: [] },
+  'detail-uncertain': rosterOk,
+  'detail-refresh-failed': rosterOk,
+} as const;
+
+export type TickersView =
+  | 'list'
+  | keyof typeof detailTask
+  | keyof typeof rosters
+  | 'wake';
 
 export function mountTickers(target: HTMLElement, view: TickersView): () => void {
   let page;
@@ -53,17 +79,32 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
       target,
       props: { data: { app, tickers: { kind: 'ok', value: [ticker] }, settings, delivery, subscriberCountPage: 50, loadedAt: LOADED, impersonating: null } } as never,
     });
-  } else if (view in detailTask) {
+  } else if (view in detailTask || view in rosters) {
     page = mount(TickerPage, {
       target,
       props: {
         data: {
-          app, ticker: { ...ticker, tickCode: LONG_CODE }, settings, paged: false, loadedAt: LOADED, impersonating: null,
-          tickerTask: detailTask[view as keyof typeof detailTask],
+          app, ticker: { ...ticker, tickCode: LONG_CODE }, settings, paged: false, after: null, loadedAt: LOADED, impersonating: null,
+          tickerTask: view in detailTask ? detailTask[view as keyof typeof detailTask] : { kind: 'ok', value: { registerTaskLoc: LONG_LOC } },
+          roster: rosters[view as keyof typeof rosters],
           subscribers: { kind: 'ok', value: { items: [subscriber], hasNextPage: true, endCursor: 's1' } },
         },
       } as never,
     });
+    // portal#1497: the two states only a delivered action result reaches. The
+    // real alert and the real line are mounted beside the real page, in the
+    // exact place the controls render them (under the subscriber controls).
+    if (view === 'detail-uncertain' || view === 'detail-refresh-failed') {
+      const section = [...target.querySelectorAll('section')].find((s) => s.querySelector('[data-testid="ticker-subscriber-who"]'));
+      const host = document.createElement('div');
+      host.className = 'space-y-2';
+      section?.appendChild(host);
+      if (view === 'detail-uncertain') {
+        mount(WriteRefusalAlert, { target: host, props: { refusal: { kind: 'uncertain' } } as never });
+      } else {
+        mount(TickerRefreshFailedLine, { target: host, props: {} as never });
+      }
+    }
   } else {
     page = mount(WakeUpsPanel, {
       target,

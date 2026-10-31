@@ -43,12 +43,14 @@ async function loadDetail(search = '') {
   } as never)) as Record<string, unknown>;
 }
 
-describe('write surface (S7a read-only, then portal#1151 S7b)', () => {
-  it('the list route exports the delivery and create actions; the detail route update and delete (no activation, no subscribe)', async () => {
+describe('write surface (S7a read-only, then portal#1151 S7b, then portal#1497 controls)', () => {
+  it('the list route exports the delivery and create actions; the detail route update, delete, set-enabled, subscribe and unsubscribe', async () => {
     const list = await import('./+page.server');
     const detail = await import('./[tickerId]/+page.server');
     expect(Object.keys((list as { actions?: object }).actions ?? {}).sort()).toEqual(['create', 'delivery']);
-    expect(Object.keys((detail as { actions?: object }).actions ?? {}).sort()).toEqual(['delete', 'update']);
+    expect(Object.keys((detail as { actions?: object }).actions ?? {}).sort()).toEqual(
+      ['delete', 'set-enabled', 'subscribe', 'unsubscribe', 'update'],
+    );
   });
 
   it('the list issues only its reads: tickers, ticker settings and delivery settings (no manage audit)', async () => {
