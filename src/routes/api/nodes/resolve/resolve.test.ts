@@ -8,7 +8,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 
-beforeEach(() => mockRequest.mockReset());
+// Braces: a returned vi.fn would be run by vitest as the teardown hook.
+beforeEach(() => {
+  mockRequest.mockReset();
+});
 
 async function get(qs: string, token: string | null = 'tok') {
   const { GET } = await import('./+server');
