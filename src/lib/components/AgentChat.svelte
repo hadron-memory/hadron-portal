@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
   import { replaceState } from '$app/navigation';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import type { Chat, ChatMessage } from '$lib/types';
   import AssetUploadButton from '$lib/components/assets/AssetUploadButton.svelte';
@@ -14,7 +14,7 @@
   import { chatScopeStrings } from '$lib/i18n/chat-scope-strings.js';
 
   function renderMarkdown(text: string): string {
-    const raw = marked.parse(text, { async: false }) as string;
+    const raw = renderChatMarkdown(text);
     return DOMPurify.sanitize(raw);
   }
 

@@ -12,7 +12,7 @@
   import type { ApplyResult } from '$lib/tickers/apply';
   import { workerOfPage } from '$lib/tickers/refresh-page';
   import WorkerSignatureSection from './WorkerSignatureSection.svelte';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import { onMount, tick, untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
@@ -69,7 +69,7 @@
     // raw prompt text during SSR or the pre-hydration render
     // (hrn:node:hadronmemory.com:hadron-portal:review:sanitize-html-with-dompurify).
     if (!isBrowser || !text) return '';
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    return DOMPurify.sanitize(renderChatMarkdown(text));
   }
   const renderedBriefing = $derived(data.worker.prompt ? renderMarkdown(data.worker.prompt) : '');
 
