@@ -71,6 +71,40 @@ function walk(root: unknown, visit: (n: Node, parent: Node | null) => void) {
   go(root, null);
 }
 
+/**
+ * True when `member` is written to rather than read: an assignment or update
+ * target, a `for…of` / `for…in` left side, or a target nested at any depth in
+ * an object/array destructuring pattern (including rest and default slots).
+ */
+function isWriteTarget(member: Node, parents: Map<Node, Node | null>): boolean {
+  let cur = member;
+  for (;;) {
+    const p = parents.get(cur) ?? null;
+    if (!p) return false;
+    switch (p.type) {
+      case 'AssignmentExpression':
+      case 'ForOfStatement':
+      case 'ForInStatement':
+        return p.left === cur;
+      case 'UpdateExpression':
+        return true;
+      case 'Property':
+        if (p.value !== cur) return false;
+        break;
+      case 'AssignmentPattern':
+        if (p.left !== cur) return false;
+        break;
+      case 'ObjectPattern':
+      case 'ArrayPattern':
+      case 'RestElement':
+        break;
+      default:
+        return false;
+    }
+    cur = p;
+  }
+}
+
 /** Empty when every use of the renderer in `source` is sanitized. */
 export function unsanitizedUses(source: string): string[] {
   const ast = parse(source, { modern: true }) as unknown;
@@ -128,7 +162,7 @@ export function unsanitizedUses(source: string): string[] {
     for (const { id, parent } of named(purify)) {
       const isMember =
         parent?.type === 'MemberExpression' && parent.object === id && !parent.computed;
-      const assigned = isMember && ['AssignmentExpression', 'UpdateExpression'].includes(parents.get(parent!)?.type ?? '');
+      const assigned = isMember && isWriteTarget(parent!, parents);
       if (!isMember || assigned) problems.push(`${purify} is rebound, shadowed or reassigned (not just ${purify}.x)`);
     }
   }
@@ -236,9 +270,23 @@ describe('chat surfaces sanitize renderChatMarkdown (#1512)', () => {
       ['nested arrow shadows DOMPurify', 'const f = (t) => ((DOMPurify) => DOMPurify.sanitize(renderChatMarkdown(t)))({ sanitize: (x) => x });'],
       ['local declaration shadows DOMPurify', 'function f(t) { const DOMPurify = { sanitize: (x) => x }; return DOMPurify.sanitize(renderChatMarkdown(t)); }'],
       ['sanitize reassigned', 'DOMPurify.sanitize = (x) => x;\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
+      ['sanitize incremented', 'DOMPurify.sanitize++;\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
+      ['object destructuring assignment', '({ sanitize: DOMPurify.sanitize } = { sanitize: (x) => x });\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
+      ['array destructuring assignment', '[DOMPurify.sanitize] = [(x) => x];\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
+      ['nested destructuring assignment', '({ a: [{ b: DOMPurify.sanitize }] } = { a: [{ b: (x) => x }] });\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
+      ['destructuring rest target', '[...DOMPurify.sanitize] = [(x) => x];\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
+      ['destructuring default target', '({ sanitize: DOMPurify.sanitize = (x) => x } = {});\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
+      ['for...of target', 'for (DOMPurify.sanitize of [(x) => x]) {}\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
+      ['for...in target', "for (DOMPurify.sanitize in { k: 1 }) {}\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));"],
+      ['for...of destructuring target', 'for ({ s: DOMPurify.sanitize } of [{ s: (x) => x }]) {}\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));'],
       ['the wrapper is not the sanitizer', 'const f = (t) => notPurify.sanitize(renderChatMarkdown(t));'],
     ])('rejects: %s', (_n, body) => {
       expect(unsanitizedUses(wrap(`${IMPORTS}\n${body}`)).length).toBeGreaterThan(0);
+    });
+
+    it('still accepts plain reads that merely sit near a pattern', () => {
+      const ok = `${IMPORTS}\nconst o = { sanitize: 1 };\n({ sanitize: o.sanitize } = { sanitize: 2 });\nconst [first] = [DOMPurify.version];\nconst f = (t) => DOMPurify.sanitize(renderChatMarkdown(t));`;
+      expect(unsanitizedUses(wrap(ok))).toEqual([]);
     });
 
     it('follows an aliased import', () => {
