@@ -1,0 +1,91 @@
+{
+  "browserVersion": "145.0.7632.6",
+  "portal": "7a495a6934fa763c7b147fe18a356232b6c25673",
+  "server": "53d02f371269534a0877a1238aff7f8e54aace84",
+  "results": [
+    {
+      "case": "readable",
+      "theme": "light",
+      "status": 200,
+      "path": "/app/memories/5dbcfeeb8c2879c892ed4dc4626b7b22/nodes/558617653cc6cb3af2fa5cd5d4b4838f"
+    },
+    {
+      "case": "readable",
+      "theme": "dark",
+      "status": 200,
+      "path": "/app/memories/5dbcfeeb8c2879c892ed4dc4626b7b22/nodes/558617653cc6cb3af2fa5cd5d4b4838f"
+    },
+    {
+      "case": "foreign",
+      "theme": "light",
+      "status": 404,
+      "diagnostic": "No resource found for \"<URN>\", or you do not have access to it. Possible causes: a typo in the identifier, a resource that was deleted or renamed, one that is not visible to you, or a URN spelling this deployment does not resolve.\n\nGo back\nGo to dashboard"
+    },
+    {
+      "case": "foreign",
+      "theme": "dark",
+      "status": 404,
+      "diagnostic": "No resource found for \"<URN>\", or you do not have access to it. Possible causes: a typo in the identifier, a resource that was deleted or renamed, one that is not visible to you, or a URN spelling this deployment does not resolve.\n\nGo back\nGo to dashboard"
+    },
+    {
+      "case": "missing",
+      "theme": "light",
+      "status": 404,
+      "diagnostic": "No resource found for \"<URN>\", or you do not have access to it. Possible causes: a typo in the identifier, a resource that was deleted or renamed, one that is not visible to you, or a URN spelling this deployment does not resolve.\n\nGo back\nGo to dashboard"
+    },
+    {
+      "case": "missing",
+      "theme": "dark",
+      "status": 404,
+      "diagnostic": "No resource found for \"<URN>\", or you do not have access to it. Possible causes: a typo in the identifier, a resource that was deleted or renamed, one that is not visible to you, or a URN spelling this deployment does not resolve.\n\nGo back\nGo to dashboard"
+    },
+    {
+      "case": "malformed",
+      "theme": "light",
+      "status": 404,
+      "diagnostic": "No resource found for \"<URN>\", or you do not have access to it. Possible causes: a typo in the identifier, a resource that was deleted or renamed, one that is not visible to you, or a URN spelling this deployment does not resolve.\n\nGo back\nGo to dashboard"
+    },
+    {
+      "case": "malformed",
+      "theme": "dark",
+      "status": 404,
+      "diagnostic": "No resource found for \"<URN>\", or you do not have access to it. Possible causes: a typo in the identifier, a resource that was deleted or renamed, one that is not visible to you, or a URN spelling this deployment does not resolve.\n\nGo back\nGo to dashboard"
+    },
+    {
+      "case": "chip-isolated-component-harness",
+      "theme": "light",
+      "text": "hrn:\naction:\ne2e-alpha:qa1520-team:qa.browser.check",
+      "href": "/app/u/hrn:action:e2e-alpha:qa1520-team:qa.browser.check"
+    },
+    {
+      "case": "chip-isolated-component-harness",
+      "theme": "dark",
+      "text": "hrn:\naction:\ne2e-alpha:qa1520-team:qa.browser.check",
+      "href": "/app/u/hrn:action:e2e-alpha:qa1520-team:qa.browser.check"
+    },
+    {
+      "case": "beta-own-positive",
+      "path": "/app/memories/99315bbc112b8cbdcab1898d6ae1cc2f/nodes/76b5fd58d0712462cacf1eef1abf62e0"
+    }
+  ],
+  "redirects": [
+    {
+      "path": "/app/u/hrn:action:e2e-alpha:qa1520-team:qa.browser.check",
+      "status": 307,
+      "location": "/app/memories/5dbcfeeb8c2879c892ed4dc4626b7b22/nodes/558617653cc6cb3af2fa5cd5d4b4838f"
+    },
+    {
+      "path": "/app/u/hrn:action:e2e-beta:qa1520-team:qa.browser.check",
+      "status": 404
+    },
+    {
+      "path": "/app/u/hrn:action:e2e-alpha:qa1520-team:no-such-code",
+      "status": 404
+    },
+    {
+      "path": "/app/u/hrn:action:e2e-alpha:qa1520-team:bad!code",
+      "status": 404
+    }
+  ],
+  "errors": []
+}
