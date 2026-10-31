@@ -638,7 +638,8 @@ async function loadChildren(
       { memoryId, locPrefix: `${loc}:`, limit: CHILDREN_PAGE },
     );
     const hits: ChildRow[] = d.findNodes.hits.map(({ node: { commentSummary, ...n } }) => ({ ...n, openThreads: commentSummary?.openThreads ?? 0 }));
-    const total = d.findNodes.total ?? hits.length;
+    // An unknown total proves completeness only on a page the cap did not fill.
+    const total = d.findNodes.total ?? (hits.length < CHILDREN_PAGE ? hits.length : Number.POSITIVE_INFINITY);
     if (total > hits.length) return { children: null, childrenUnavailable: true };
     const direct = hits.filter((n) => !n.loc.slice(loc.length + 1).includes(':'));
     return { children: direct, childrenUnavailable: false };

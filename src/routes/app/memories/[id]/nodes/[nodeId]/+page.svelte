@@ -1614,10 +1614,19 @@
       }));
     newEdgeTargetQuery = '';
     newEdgeName = '';
+    addEdgeError = null;
+    edgeEditorSession += 1;
+    resolvingEdgeTarget = false;
     editingEdges = true;
   }
 
   function cancelEditEdges() {
+    // A lookup still in flight belongs to the editor that sent it: a later
+    // answer must not land in this (or the next) editing session. Opening an
+    // editor bumps the same counter, so a node change is fenced by the next
+    // node's own "Edit edges" (the editor closes on a node change).
+    edgeEditorSession += 1;
+    resolvingEdgeTarget = false;
     editingEdges = false;
     editableEdges = [];
   }
@@ -1627,6 +1636,7 @@
   }
 
   let resolvingEdgeTarget = $state(false);
+  let edgeEditorSession = 0;
   async function addEditableEdge() {
     // portal#1524: resolve the typed loc by ONE per-node read at submit (no
     // node list to match against). "No node found" is said only when the read
@@ -1635,24 +1645,28 @@
     if (!q || resolvingEdgeTarget) return;
     resolvingEdgeTarget = true;
     addEdgeError = null;
+    const session = edgeEditorSession;
+    // The request owns the name typed when it was sent, not the live field.
+    const edgeName = newEdgeName.trim();
     let target: { id: string; loc: string; name: string | null } | null = null;
     try {
       const res = await fetch(`/api/nodes/resolve?memoryId=${encodeURIComponent(data.graph.id)}&ref=${encodeURIComponent(q)}`);
       if (!res.ok) throw new Error('lookup failed');
       const body = (await res.json()) as { found: boolean; node?: { id: string; loc: string; name: string | null } };
+      if (session !== edgeEditorSession) return;
       target = body.found && body.node ? body.node : null;
       if (!target) {
         addEdgeError = `No node found matching "${newEdgeTargetQuery}"`;
         return;
       }
     } catch {
-      addEdgeError = t('node-detail.edge-target-lookup-failed', 'Could not look that node up. Try again.');
+      if (session === edgeEditorSession) addEdgeError = t('node-detail.edge-target-lookup-failed', 'Could not look that node up. Try again.');
       return;
     } finally {
-      resolvingEdgeTarget = false;
+      if (session === edgeEditorSession) resolvingEdgeTarget = false;
     }
     if (!target) return;
-    if (editableEdges.some((e) => e.targetId === target.id && e.name === newEdgeName.trim())) {
+    if (editableEdges.some((e) => e.targetId === target.id && e.name === edgeName)) {
       addEdgeError = 'That edge already exists';
       return;
     }
@@ -1662,11 +1676,12 @@
         targetId: target.id,
         targetName: target.name ?? target.loc,
         targetLoc: target.loc,
-        name: newEdgeName.trim(),
+        name: edgeName,
       },
     ];
-    newEdgeTargetQuery = '';
-    newEdgeName = '';
+    // Leave anything the reader typed while the lookup was out.
+    if (newEdgeTargetQuery.trim() === q) newEdgeTargetQuery = '';
+    if (newEdgeName.trim() === edgeName) newEdgeName = '';
     addEdgeError = null;
   }
 
@@ -2993,7 +3008,7 @@
       {:else if data.childrenUnavailable}
         <!-- portal#1524: not "no children" — the bounded read could not prove
              the list complete, so the section says it is withheld. -->
-        <span data-testid="children-unavailable" class="shrink-0 whitespace-nowrap px-3 py-1.5 text-sm text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable right now')}</span>
+        <span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be listed completely')} class="shrink-0 whitespace-nowrap px-3 py-1.5 text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>
       {/if}
       {#if !isComment}
       <button

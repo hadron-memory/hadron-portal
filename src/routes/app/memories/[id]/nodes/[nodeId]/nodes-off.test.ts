@@ -46,7 +46,7 @@ const child = (loc: string, seq: number | null = null, threads = 0): { node: Chi
 async function runLoad(opts: {
   node?: Record<string, unknown>;
   hits?: Array<{ node: Child }>;
-  total?: number;
+  total?: number | null;
   childrenThrow?: boolean;
 } = {}) {
   mockRequest.mockImplementation(async (doc: string) => {
@@ -54,7 +54,7 @@ async function runLoad(opts: {
     if (doc === NODE_CHILDREN_QUERY) {
       if (opts.childrenThrow) throw new Error('boom');
       const hits = opts.hits ?? [];
-      return { findNodes: { total: opts.total ?? hits.length, hits } };
+      return { findNodes: { total: opts.total === undefined ? hits.length : opts.total, hits } };
     }
     return { memories: { items: [], total: 0 } };
   });
@@ -128,6 +128,18 @@ describe('node-detail load with the node list off (portal#1524)', () => {
     const data = await runLoad({ hits: Array.from({ length: 200 }, (_, i) => child(`a:b:leaf:c${i}:d`)), total: 450 });
     expect(data.children).toBeNull();
     expect(data.childrenUnavailable).toBe(true);
+  });
+
+  it('children: an unknown total on a FULL page is UNAVAILABLE (null is not proof of completeness)', async () => {
+    const data = await runLoad({ hits: Array.from({ length: 200 }, (_, i) => child(`a:b:leaf:c${i}`)), total: null });
+    expect(data.children).toBeNull();
+    expect(data.childrenUnavailable).toBe(true);
+  });
+
+  it('children: an unknown total on a SHORT page is complete (the page was not capped)', async () => {
+    const data = await runLoad({ hits: [child('a:b:leaf:x'), child('a:b:leaf:y')], total: null });
+    expect(data.childrenUnavailable).toBe(false);
+    expect(data.children!.map((c) => c.loc)).toEqual(['a:b:leaf:x', 'a:b:leaf:y']);
   });
 
   it('children: a failed read is UNAVAILABLE, not "no children"', async () => {

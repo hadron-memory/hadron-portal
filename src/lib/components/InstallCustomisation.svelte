@@ -246,7 +246,7 @@
          note, never an empty table or a count of 0, and this holds whether or
          not the flag is on. -->
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
-    <p role="status" data-testid="customisation-list-unavailable" class="mt-2 text-sm text-zinc-500">{t('customisation.list-unavailable','Node list temporarily unavailable.')}</p>
+    <p role="status" data-testid="customisation-list-unavailable" class="mt-2 text-sm text-zinc-500">{t('customisation.list-unavailable','Nothing is listed here. The node list is temporarily limited, so this may not be the full set.')}</p>
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
     <DataTable {table} searchPlaceholder={t('customisation.search','Search customisations…')} searchAriaLabel={t('customisation.search-label','Search customisations')} listKey={`install-customisation:${appRef}:${agent.id}`}>
