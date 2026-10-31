@@ -262,13 +262,23 @@ describe('TickerRemoveSubscriber: submits', () => {
 
   it('a foreign result claims NOTHING of its reload either: no refresh marker is left in this row’s name, and a failed reload decorates this panel with no caveat (28b680ce review)', async () => {
     const { root } = await mountRemove();
-    navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
+    // The reload is held PENDING for the mid-flight assert below: a mutant
+    // that opens the fence for a foreign result leaves its marker exactly
+    // here, where nothing has cleared it yet (efae752b review, Gemma P3 /
+    // Riana P3-3: an end-state-only assert cannot see it — the settle of a
+    // rejected goto clears while mounted, so the mutant survives).
+    let settleReload!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { settleReload = resolve; });
     await submitEnhancedWithResult(formOf(root), { type: 'success', status: 200, data: { action: 'unsubscribe', ok: true, target: 'w-9' } });
     await tick(2);
-    // The write was someone else's: this panel's confirmation may not say
-    // "Saved; the page couldn't reload." for a removal that never ran, and no
-    // refresh marker may name THIS row's worker on the error boundary.
+    // The write was someone else's: no refresh marker may name THIS row's
+    // worker — MID-FLIGHT, before any settlement could hide it.
     expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
+    settleReload();
+    await tick(2);
+    // …and its failure decorates this panel with nothing: the confirmation
+    // may not say "Saved; the page couldn't reload." for a removal that never
+    // ran.
     const panel = root.querySelector('#ticker-remove-panel-s-17')!;
     expect(panel.textContent).not.toContain('Saved');
     expect(root.querySelector('[data-testid="ticker-remove-refresh-failed-s-17"]')).toBeNull();

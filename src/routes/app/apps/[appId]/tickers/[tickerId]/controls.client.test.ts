@@ -128,7 +128,7 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     const loader = reactiveProps({
       data: {
         app, ticker: ticker(true), subscribers: SUBSCRIBERS, tickerTask: { kind: 'ok', value: { registerTaskLoc: null } },
-        roster: ROSTER, paged: false, after, impersonating: null,
+        roster: ROSTER, paged: after !== null, after, impersonating: null,
         ...(withViewer ? { user: { id: 'u-1' } } : {}),
       },
     });
@@ -269,6 +269,19 @@ describe('portal#1502 delta — the outcome outlives the panel; the panel carrie
     const { root } = await mountReactivePage(true, 'cur');
     expect(root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent?.trim()).toBe('');
     expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).not.toBeNull(); // the first page, if reached in time, may still claim it
+  });
+
+  it('…and an EMPTY ?after= is a paginated view too: the loader spells it after:"" (falsy) with paged:true, and the claim must stay off it (efae752b review, Gemma P2)', async () => {
+    setStubPage('http://localhost/app/apps/app-1/tickers/tk-1?after=', { appId: 'app-1', tickerId: 'tk-1' });
+    setTickerRemoveOutcomeMarker({
+      viewer: 'u-1', appId: 'app-1', tickerId: 'tk-1', routeTickerId: 'tk-1', subscriptionId: 's1',
+      sentence: 'No longer subscribed. The list is back at its first page.',
+    });
+    // paged is derived exactly as +page.server.ts derives it: after !== null —
+    // so the empty cursor still says paged, whatever its falsy string says.
+    const { root } = await mountReactivePage(true, '');
+    expect(root.querySelector('[data-testid="ticker-remove-outcome"]')!.textContent?.trim()).toBe('');
+    expect(sessionStorage.getItem(TICKER_REMOVE_OUTCOME_MARKER_KEY)).not.toBeNull();
   });
 
   it('a removal holds every other row’s Remove trigger locked until its reload settles (portal#1502 BLIND delta, Gizelle P2-1)', async () => {

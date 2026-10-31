@@ -199,13 +199,16 @@
   // this far: the panel clears its marker at settlement, so the sentence and
   // the corrected failed-reload copy never both apply. FIRST PAGE ONLY
   // (28b680ce review): the sentence says "the list is back at its first
-  // page", so a ?after view — where it is not — may not claim it; the marker
-  // is left in place for a first-page arrival inside its window.
+  // page", so a paginated view — where it is not — may not claim it; the
+  // marker is left in place for a first-page arrival inside its window. The
+  // gate is the LOADER's own first-page signal, `paged` (efae752b review,
+  // Gemma P2: ?after= spells a falsy after:"" with paged:true — `after`
+  // itself cannot carry this condition).
   $effect(() => {
     const viewer = viewerId;
     const appIdNow = data.app.id;
     const current = tk.id;
-    if (!viewer || !appIdNow || !current || data.after) return;
+    if (!viewer || !appIdNow || !current || data.paged) return;
     untrack(() => {
       const claim = takeTickerRemoveOutcomeMarker({ viewer, appId: appIdNow, tickerId: current });
       if (claim) {
