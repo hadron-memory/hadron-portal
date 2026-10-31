@@ -155,10 +155,14 @@ try {
         }
         // portal#1502 (review): an impersonation session shows ONE page-level
         // note and no Remove trigger at all (the server refuses the POST).
+        // Buttons only: the removal OUTCOME region (ticker-remove-outcome) is
+        // an inert status line, always present for a participant, and shares
+        // the ticker-remove- prefix — counting the prefix alone mistook it for
+        // a control at d0673ce6 (portal#1502 delta, CI).
         if (view === 'detail-impersonating') {
           const imp = await page.evaluate(() => ({
             note: document.body.textContent?.includes('changes are switched off') ?? false,
-            removeControls: document.querySelectorAll('[data-testid^="ticker-remove-"]').length,
+            removeControls: document.querySelectorAll('button[data-testid^="ticker-remove-"]').length,
           }));
           assert.ok(imp.note, `${label}: the one impersonation line must render`);
           assert.equal(imp.removeControls, 0, `${label}: no Remove trigger in an impersonation session, got ${imp.removeControls}`);

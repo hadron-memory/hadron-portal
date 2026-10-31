@@ -51,7 +51,11 @@ export const tickerFirstPageHref = (appId: string, tickerId: string) => `/app/ap
  * showing are reported: a committed own-row removal and the stale-row refusal.
  */
 export interface TickerRemoveOutcome {
-  /** The row's own subscription: a late result of another row attaches to nothing. */
+  /**
+   * The row's own subscription. The page checks every arriving outcome against
+   * the row whose Remove it opened, so a late result of another row attaches
+   * to nothing by the page's own guard (portal#1502 delta, Gemma P3-a).
+   */
   subscriptionId: string;
   /** The sentence to show, already resolved ('Removed', or the stale-row refusal's own). */
   text: string;

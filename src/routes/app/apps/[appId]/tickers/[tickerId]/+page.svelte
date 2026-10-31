@@ -115,6 +115,12 @@
   // (Gemma + Gaby, independently proven). The panel reports through onOutcome
   // once its reload has settled; this state is what survives it.
   let removeOutcome = $state<TickerRemoveOutcome | null>(null);
+  // The row whose Remove was last opened (plain, not $state: nothing renders
+  // from it). The page checks every arriving outcome against it, so the
+  // contract on TickerRemoveOutcome — a late result of another row attaches
+  // to nothing — is enforced HERE, not just by the busy-muting that makes a
+  // mid-flight row switch impossible (portal#1502 delta, Gemma P3-a).
+  let removeOpenedFor: string | null = null;
   // $state, not a plain object: `bind:this` writes into it every row render,
   // and a non-reactive target is the runtime warning Svelte raises per row
   // (portal#1502 delta, Gemma P3-1). Focus restore still reads it imperatively.
@@ -355,7 +361,7 @@
             worker={removePanelSub.worker}
             viewerId={viewerId}
             onClose={closeRemove}
-            onOutcome={(outcome) => { removeOutcome = outcome; }}
+            onOutcome={(outcome) => { if (outcome.subscriptionId === removeOpenedFor) removeOutcome = outcome; }}
             bind:busy={removeBusy}
           />
         {/key}
@@ -413,7 +419,7 @@
               <button
                 type="button"
                 bind:this={removeTriggers[row.sub.id]}
-                onclick={() => { removeOutcome = null; removingId = row.sub.id; removePanelSub = row.sub; }}
+                onclick={() => { removeOutcome = null; removeOpenedFor = row.sub.id; removingId = row.sub.id; removePanelSub = row.sub; }}
                 disabled={removeBusy}
                 aria-expanded={removingId === row.sub.id}
                 aria-controls={removingId === row.sub.id ? 'ticker-remove-panel-' + row.sub.id : undefined}
