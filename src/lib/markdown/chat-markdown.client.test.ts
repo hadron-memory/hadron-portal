@@ -58,7 +58,9 @@ describe('renderChatMarkdown (#1493)', () => {
       .parseFromString(render(`[[${URN}|/evil|https://evil.example]]`), 'text/html')
       .querySelector('a');
     // A label containing | is still a label; the href stays the resolver route.
-    expect(a?.getAttribute('href') ?? `/app/u/${URN}`).toBe(`/app/u/${URN}`);
+    expect(a).not.toBeNull();
+    expect(a!.getAttribute('href')).toBe(`/app/u/${URN}`);
+    expect(a!.textContent).toBe('/evil|https://evil.example');
   });
 
   it('keeps ordinary markdown and leaves code spans verbatim', () => {

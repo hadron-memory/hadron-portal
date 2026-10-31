@@ -15,7 +15,7 @@
  *    existence is revealed, and a broken-link marker is never shown.
  *
  * The result is NOT sanitized — callers pass it to DOMPurify before `{@html}`
- * (Portal Invariant P4, review:sanitize-html-with-dompurify).
+ * (Portal Invariant P4, hrn:node:hadronmemory.com:hadron-portal:review:sanitize-html-with-dompurify).
  */
 
 import { Marked } from 'marked';
