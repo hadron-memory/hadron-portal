@@ -19,6 +19,8 @@ export interface AgentTaskRequirements {
   familyIn: string[] | null;
   familyNotIn: string[] | null;
   excludeWorkerIds: string[] | null;
+  /** portal#1523: the lowest model tier the matcher may assign (low < mid < high); null = no minimum. */
+  minTier?: string | null;
 }
 
 export interface AgentTaskResult {

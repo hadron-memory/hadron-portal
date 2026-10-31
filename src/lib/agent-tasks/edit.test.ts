@@ -127,3 +127,22 @@ describe('taskEditPatch: the guard rails', () => {
     expect(input(fd)).toEqual({ title: 'Changed' });
   });
 });
+
+describe('taskEditPatch: the minimum model tier (portal#1523)', () => {
+  const base = { role: 'qa-engineer', familyIn: [], familyNotIn: [], excludeWorkers: [], minTier: 'mid' };
+  it('an edit that changes only the role resends the stored minTier', () => {
+    expect(input(form({ requirementsBase: JSON.stringify(base), role: 'portal-engineer', minTier: 'mid' }))).toEqual({
+      requirements: { role: 'portal-engineer', minTier: 'mid' },
+    });
+  });
+  it('changing the tier sends the new one; choosing Any drops it', () => {
+    expect(input(form({ requirementsBase: JSON.stringify(base), role: 'qa-engineer', minTier: 'high' }))).toEqual({ requirements: { role: 'qa-engineer', minTier: 'high' } });
+    expect(input(form({ requirementsBase: JSON.stringify(base), role: 'qa-engineer', minTier: '' }))).toEqual({ requirements: { role: 'qa-engineer' } });
+  });
+  it('an untouched form with a stored tier sends nothing', () => {
+    expect(input(form({ requirementsBase: JSON.stringify(base), role: 'qa-engineer', minTier: 'mid' }))).toEqual({});
+  });
+  it('a tier alone is a requirement: removing everything else keeps it', () => {
+    expect(input(form({ requirementsBase: JSON.stringify(base), role: '', minTier: 'mid' }))).toEqual({ requirements: { minTier: 'mid' } });
+  });
+});
