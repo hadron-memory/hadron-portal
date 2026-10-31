@@ -12,7 +12,6 @@
   let { data }: { data: PageData } = $props();
   const g = $derived(data.graph);
   const org = $derived(data.org);
-  const nodeCount = $derived(data.graphNodes?.length ?? 0);
 
   const isAgentSystem = $derived(g.class === 'system');
   const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
@@ -119,12 +118,9 @@
   <!-- Stats -->
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('memory-info.stats', 'Stats')}</h2>
-    <div class={card}>
-      <div class="flex items-center justify-between px-5 py-3">
-        <span class={rowLabel}>{t('memory-info.nodes', 'Nodes')}</span>
-        <span class={rowValue}>{nodeCount.toLocaleString('en-US')}</span>
-      </div>
-    </div>
+    <!-- portal#1524: the node count is hidden, not shown as 0. The memory
+         layout no longer loads the node list, and the server's own total is not
+         a count while the list is off, so no number here would be true. -->
     <p class="mt-2 text-xs text-zinc-400">
       {t('memory-info.deferred-stats', 'Edge count, last use, and the agents/apps that include this memory are coming soon.')}
     </p>

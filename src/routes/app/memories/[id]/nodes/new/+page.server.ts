@@ -52,10 +52,11 @@ export const load: PageServerLoad = async ({ url, parent }) => {
   // it through the same helper the submit path uses.
   const prefillLoc = cleanLocInput(url.searchParams.get('loc') ?? '');
 
-  // Normalize existingLocs through the same helper that runs at submit
-  // time, so collision suffixing in deriveDefaultLoc is computed against
-  // the canonical loc shape that will actually be submitted (legacy
-  // memory-prefixed locs in storage map to the same bare form here).
+  // portal#1524: the memory layout no longer carries the node list, so there
+  // is nothing to suffix a default loc against. An empty list is "not loaded",
+  // not "nothing exists": a duplicate loc is refused by the server at submit
+  // and shown as it always was.
+  // The key is still read so a restored list (portal#1438) suffixes again.
   const existingLocs = (layout.graphNodes ?? [])
     .map((n) => cleanLocInput(n.loc))
     .filter((s) => s !== '');

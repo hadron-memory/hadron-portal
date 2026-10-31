@@ -2961,6 +2961,21 @@ export const APP_CHAT_ROOTS_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1524: the node page's Children section, now that the memory layout no
+// longer carries the whole node list. ONE bounded, slim page of the nodes under
+// a loc: only the fields the children grid renders, no content, and `total` so
+// the caller can tell a complete page from a truncated one (a truncated page
+// cannot prove which direct children exist, so the section is withheld rather
+// than shown short).
+export const NODE_CHILDREN_QUERY = /* GraphQL */ `
+  query NodeChildren($memoryId: ID!, $locPrefix: String!, $limit: Int) {
+    findNodes(filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }, limit: $limit, sort: seq) {
+      total
+      hits { node { id loc name description nodeType tags seq isRunnable memoryId commentSummary { openThreads } } }
+    }
+  }
+`;
+
 export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodesByLocPrefix(
@@ -3194,6 +3209,18 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
 // ({{age}} destroyed). Every portal consumer of these queries is an editor
 // or a metadata read, never a template-rendering display — so they always
 // read the source. (List queries — findNodes/appNodes — never compile.)
+// portal#1524: the slim "does this node exist, and what is it called" read
+// behind /api/nodes/resolve — id, loc and name only, no content.
+export const NODE_REF_QUERY = /* GraphQL */ `
+  query NodeRef($ref: ID!, $memoryRef: ID!) {
+    node(ref: $ref, memoryRef: $memoryRef) {
+      id
+      loc
+      name
+    }
+  }
+`;
+
 export const NODE_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query Node($ref: ID!, $memoryRef: ID!) {

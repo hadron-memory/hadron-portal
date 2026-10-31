@@ -239,6 +239,14 @@
   {#if read.list.state==='loading'}<p role="status">{t('customisation.loading','Loading…')}</p>
   {:else if read.list.state==='failed'}<p role="alert">{t('customisation.load-failed','Couldn’t load customisations.')}</p><button type="button" class={secondaryButton} disabled={busy} onclick={()=>openPage(offset,loc)}>{t('customisation.retry','Retry')}</button>
   {:else if read.list.state==='not-shown'}<p>{t('customisation.not-shown','Not shown')}</p>
+  {:else if read.list.value.nodes.length===0}
+    <!-- portal#1524 (Xan's condition): the server may answer this list with an
+         EMPTY page while its node-list flag is on (hadron-server#2990), and an
+         empty page cannot say "no customisations exist". So an empty page is a
+         note, never an empty table or a count of 0, and this holds whether or
+         not the flag is on. -->
+    {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
+    <p role="status" data-testid="customisation-list-unavailable" class="mt-2 text-sm text-zinc-500">{t('customisation.list-unavailable','Node list temporarily unavailable.')}</p>
   {:else}
     {#if read.list.value.urn}<div class="mt-2"><Urn value={read.list.value.urn} compact /></div>{/if}
     <DataTable {table} searchPlaceholder={t('customisation.search','Search customisations…')} searchAriaLabel={t('customisation.search-label','Search customisations')} listKey={`install-customisation:${appRef}:${agent.id}`}>

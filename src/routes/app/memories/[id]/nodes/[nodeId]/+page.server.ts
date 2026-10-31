@@ -12,7 +12,7 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { NODE_CHILDREN_QUERY, RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
@@ -182,13 +182,22 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // memory only. Resolving by loc alone (via NODE_QUERY) would cross-pollinate
   // with any other memory the caller can access that happens to share the loc,
   // producing breadcrumb links like memories/A/nodes/<B's PK>. See #234.
-  const memoryNodes = parentData.graphNodes ?? [];
+  // portal#1524: the layout no longer loads the node list (`nodesOff`), so
+  // this is empty by design. An empty list here means "not loaded", never
+  // "this memory has no nodes": every use below degrades, none asserts. It is
+  // still read from the layout rather than hard-coded empty, so the lazy tree
+  // that restores a list (portal#1438) lights these paths up again unchanged.
+  const memoryNodes: MemoryNode[] = ((parentData as { graphNodes?: MemoryNode[] }).graphNodes ?? []);
   // Read here rather than at the wikilink call below: the breadcrumb needs
   // `graph.urn` too, to qualify an ancestor's loc into a real node URN.
-  const { graph, nodesFailed } = parentData as {
+  const { graph, nodesFailed: layoutNodesFailed, nodesOff } = parentData as {
     graph?: { urn?: string | null } | null;
     nodesFailed?: boolean;
+    nodesOff?: boolean;
   };
+  // Not loaded for either reason; wikilinks must render unresolved, never
+  // "missing node", in both (portal#1524, the existing nodesFailed path).
+  const nodesFailed = layoutNodesFailed === true || nodesOff === true;
   const ancestorByLoc = new Map<string, { id: string; name: string | null }>();
   for (const n of memoryNodes) {
     if (n.memoryId === params.id) ancestorByLoc.set(n.loc, { id: n.id, name: n.name ?? null });
@@ -602,8 +611,42 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     skillCheck,
     runnableBlockedBy: runnableBlockedBy(node),
     noWriteDoor: noWriteDoor(node),
+    // portal#1524: what the page may and may not say about this node's
+    // neighbours now that the layout carries no node list. `ancestorsKnown`
+    // false means a crumb without a node id is "not looked up", so the page
+    // must not offer to create it; `children` is a bounded read, or null with
+    // the reason when it could not be proven complete.
+    ancestorsKnown: false as const,
+    ...(await loadChildren(gqlClient(locals.token), params.id, node.loc)),
   };
 };
+
+// One bounded page. A direct child of `loc` is a node whose loc is `loc:` plus
+// one segment, and the prefix read returns every descendant, so a page that is
+// not the whole subtree cannot say which direct children exist.
+const CHILDREN_PAGE = 200;
+type ChildRow = Pick<MemoryNode, 'id' | 'loc' | 'name' | 'description' | 'nodeType' | 'tags' | 'seq' | 'isRunnable' | 'openThreads' | 'memoryId'>;
+type ChildHit = Omit<ChildRow, 'openThreads'> & { commentSummary: { openThreads: number } | null };
+async function loadChildren(
+  client: ReturnType<typeof gqlClient>,
+  memoryId: string,
+  loc: string,
+): Promise<{ children: ChildRow[] | null; childrenUnavailable: boolean }> {
+  try {
+    const d = await client.request<{ findNodes: { total: number | null; hits: Array<{ node: ChildHit }> } }>(
+      NODE_CHILDREN_QUERY,
+      { memoryId, locPrefix: `${loc}:`, limit: CHILDREN_PAGE },
+    );
+    const hits: ChildRow[] = d.findNodes.hits.map(({ node: { commentSummary, ...n } }) => ({ ...n, openThreads: commentSummary?.openThreads ?? 0 }));
+    const total = d.findNodes.total ?? hits.length;
+    if (total > hits.length) return { children: null, childrenUnavailable: true };
+    const direct = hits.filter((n) => !n.loc.slice(loc.length + 1).includes(':'));
+    return { children: direct, childrenUnavailable: false };
+  } catch (err) {
+    console.warn('[node-detail] children read failed:', err);
+    return { children: null, childrenUnavailable: true };
+  }
+}
 
 /**
  * #927 — the inline Content and Abstract saves.
