@@ -33,6 +33,7 @@
   <input type="hidden" name="hidden" value={hidden ? 'false' : 'true'} />
   <NodeActionsMenu actions={[{id:'visibility',label}]} onselect={() => formEl.requestSubmit()}
     label={t('api-keys.actions.label', 'Actions for key …{key}', {key:preview})} disabled={pending} fixed compact />
-  {#if pending}<span role="status" class="text-xs text-zinc-500 dark:text-zinc-400">{i18n.saving()}</span>{/if}
+  <!-- Mounted empty before any submit so the pending text lands in a region already observed (#1359). -->
+  <span role="status" class="text-xs text-zinc-500 dark:text-zinc-400">{pending ? i18n.saving() : ''}</span>
   <noscript><button type="submit">{label}</button></noscript>
 </form>

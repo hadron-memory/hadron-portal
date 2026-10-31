@@ -306,22 +306,26 @@
 
   <!-- Key list (TanStack table, same chrome as /app/usage/sessions). -->
   <section class="space-y-4">
-    <form method="GET" class="space-y-1">
-      <label class="inline-flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
-        <input type="checkbox" name="includeHidden" value="true" checked={data.includeHidden}
-          bind:this={hiddenToggle} aria-describedby="key-visibility-help"
-          onchange={(event) => event.currentTarget.form?.requestSubmit()} />
-        {i18n.showHidden()}
-      </label>
-      <noscript><button type="submit">{i18n.apply()}</button></noscript>
-      <p id="key-visibility-help" class="text-xs text-zinc-500 dark:text-zinc-400">{i18n.visibilityHelp()}</p>
-    </form>
-    {#if visibilityFeedback}
-      <p role={visibilityFeedback.type === 'error' ? 'alert' : 'status'}
-        class={visibilityFeedback.type === 'error'
-          ? 'text-sm text-red-700 dark:text-red-300'
-          : 'text-sm text-green-700 dark:text-green-300'}>{visibilityFeedback.text}</p>
-    {/if}
+    <!-- One sibling in the section's space-y-4 stack, so the empty regions add no gap. -->
+    <div class="space-y-1">
+      <form method="GET" class="space-y-1">
+        <label class="inline-flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+          <input type="checkbox" name="includeHidden" value="true" checked={data.includeHidden}
+            bind:this={hiddenToggle} aria-describedby="key-visibility-help"
+            onchange={(event) => event.currentTarget.form?.requestSubmit()} />
+          {i18n.showHidden()}
+        </label>
+        <noscript><button type="submit">{i18n.apply()}</button></noscript>
+        <p id="key-visibility-help" class="text-xs text-zinc-500 dark:text-zinc-400">{i18n.visibilityHelp()}</p>
+      </form>
+      <!-- #1359: both regions are mounted, empty, before any result, so assistive
+           technology is already watching them; each keeps one role, and only the
+           one matching the result holds text. -->
+      <div class="text-sm">
+        <p id="key-visibility-status" role="status" class="text-green-700 dark:text-green-300">{visibilityFeedback?.type === 'success' ? visibilityFeedback.text : ''}</p>
+        <p id="key-visibility-alert" role="alert" class="text-red-700 dark:text-red-300">{visibilityFeedback?.type === 'error' ? visibilityFeedback.text : ''}</p>
+      </div>
+    </div>
     {#if keys.length === 0}
       <p class="text-sm text-zinc-500 dark:text-zinc-400">{data.includeHidden ? i18n.emptyState() : i18n.noVisibleKeys()}</p>
     {:else}
