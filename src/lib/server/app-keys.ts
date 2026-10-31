@@ -1,7 +1,7 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { mapWithConcurrency } from '$lib/server/concurrency';
-import { APP_KEYS_QUERY } from '$lib/server/queries';
+import { APP_KEYS_QUERY, APP_VIEWER_MANAGES_QUERY } from '$lib/server/queries';
 import type { AppKey } from '$lib/types';
 
 /**
@@ -21,6 +21,26 @@ export type KeysRead = { kind: 'ok'; keys: AppKey[] } | { kind: 'hidden' } | { k
 
 /** `unknown` is an App past the cap: not asked, so neither a count nor a refusal. */
 export type KeyCountRead = { kind: 'ok'; count: number } | { kind: 'hidden' } | { kind: 'failed' } | { kind: 'unknown' };
+
+/**
+ * portal#1153 — whether the viewer manages the App (`App.viewerManages`).
+ * `false` is a real answer; a failed read, or an answer without the field,
+ * is `unknown`, never `false`, so a manager's controls don't vanish on a
+ * transient error. Presentation only: the server stays the gate. Never throws;
+ * logs no server text.
+ */
+export type ViewerManagesRead = { kind: 'known'; manages: boolean } | { kind: 'unknown' };
+
+export async function loadViewerManages(client: GraphQLClient, appRef: string): Promise<ViewerManagesRead> {
+  try {
+    const r = await client.request<{ app: { viewerManages?: boolean | null } | null }>(APP_VIEWER_MANAGES_QUERY, { ref: appRef });
+    const manages = r.app?.viewerManages;
+    return typeof manages === 'boolean' ? { kind: 'known', manages } : { kind: 'unknown' };
+  } catch (e) {
+    console.warn(`[app-keys] manager read for ${appRef} failed (${extractGqlErrorCode(e) ?? 'transport'})`);
+    return { kind: 'unknown' };
+  }
+}
 
 export const ACTIVE_KEY_COUNT_CAP = 100;
 export const ACTIVE_KEY_COUNT_CONCURRENCY = 5;
