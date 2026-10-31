@@ -12,6 +12,9 @@
  *  - `%`  must be encoded too, or an authored `%2F` would decode to `/` on the
  *    far side and the encoding would not round-trip.
  *
+ *  - Space and control characters: the URL parser strips tab and newline from a
+ *    link, so an authored `a<TAB>b` would not round-trip.
+ *
  * `.` needs no encoding: with `/` and `\\` encoded a dot can only sit inside a
  * segment that begins `hrn:`/`urn:`, never be a `..` segment of its own.
  *
@@ -19,5 +22,5 @@
  * params), so the resolver still sees the original URN.
  */
 export function encodeUrnPathSegment(urn: string): string {
-  return urn.replace(/[/\\?#%]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+  return urn.replace(/[/\\?#%\x00-\x20\x7f]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
 }

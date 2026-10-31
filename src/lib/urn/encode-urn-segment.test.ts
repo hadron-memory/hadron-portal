@@ -34,6 +34,7 @@ describe('encodeUrnPathSegment (#1512)', () => {
     ['backslash traversal', 'hrn:node:a:b:..\\..\\..\\settings\\tokens'],
     ['query smuggle', 'hrn:node:a:b:x?next=/app/settings'],
     ['fragment smuggle', 'hrn:node:a:b:x#/app/settings'],
+    ['tab/newline the URL parser would strip', 'hrn:node:a:b:x\t.\n./y'],
   ])('%s stays one segment under /app/u/', (_n, urn) => {
     const u = resolve(encodeUrnPathSegment(urn));
     expect(u.search).toBe('');
@@ -44,8 +45,11 @@ describe('encodeUrnPathSegment (#1512)', () => {
   });
 
   it('round-trips: the framework decodes the segment back to the original URN', () => {
-    for (const urn of ['hrn:node:a:b:../../x', 'hrn:node:a:b:50%25?#\\']) {
-      expect(decodeURIComponent(encodeUrnPathSegment(urn))).toBe(urn);
+    for (const urn of ['hrn:node:a:b:../../x', 'hrn:node:a:b:50%25?#\\', 'hrn:node:a:b:x\ty\nz w']) {
+      const seg = encodeUrnPathSegment(urn);
+      // through the URL parser first, as the browser does, then the router decode
+      const path = new URL(`/app/u/${seg}`, BASE).pathname.slice('/app/u/'.length);
+      expect(decodeURIComponent(path)).toBe(urn);
     }
   });
 });

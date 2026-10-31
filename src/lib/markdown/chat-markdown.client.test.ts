@@ -89,4 +89,15 @@ describe('renderChatMarkdown (#1493)', () => {
     expect(u.pathname.slice('/app/u/'.length)).not.toContain('/');
     expect(decodeURIComponent(href.slice('/app/u/'.length))).toBe(target);
   });
+
+  it('an HTML entity in a target cannot decode into a path separator (#1512 §10)', () => {
+    // `&sol;` / `&bsol;` are not touched by the segment encoder; only escaping
+    // `&` in the attribute keeps them literal instead of `/` and `\\`.
+    const target = 'hrn:node:a:b:..&sol;..&sol;..&bsol;settings&sol;tokens';
+    const a = new DOMParser().parseFromString(render(`[[${target}|x]]`), 'text/html').querySelector('a')!;
+    const u = new URL(a.getAttribute('href')!, 'http://portal.test/app/team-chat');
+    expect(u.pathname.startsWith('/app/u/')).toBe(true);
+    expect(u.pathname.slice('/app/u/'.length)).not.toContain('/');
+    expect(decodeURIComponent(u.pathname.slice('/app/u/'.length))).toBe(target);
+  });
 });
