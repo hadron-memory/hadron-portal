@@ -132,8 +132,29 @@ describe('edge target lookup in the edge editor (portal#1524)', () => {
     expect(urls[0]).toContain('/api/nodes/resolve?memoryId=mem-A&ref=tgt');
     pending[0](json({ found: true, node: TGT }));
     await settle();
-    expect(target.textContent).toContain('Zed Resolved');
+    expect(target.textContent!.split('Zed Resolved')).toHaveLength(2); // exactly one row
     expect(target.textContent).not.toContain('No node found');
+    // the same target again is refused as a duplicate, not added twice
+    await typeAndAdd(target, 'tgt');
+    pending[1](json({ found: true, node: TGT }));
+    await settle();
+    expect(target.textContent).toContain('That edge already exists');
+    expect(target.textContent!.split('Zed Resolved')).toHaveLength(2);
+  });
+
+  it('a not-found answer names the target that was looked up, not a later edit of the field', async () => {
+    const { target } = await mountPage('?tab=references');
+    await openEditor(target);
+    await typeAndAdd(target, 'old-missing');
+    const input = target.querySelector<HTMLInputElement>('#newEdgeTarget')!;
+    input.value = 'new-existing';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await settle();
+    pending[0](json({ found: false }));
+    await settle();
+    expect(target.textContent).toContain('No node found matching "old-missing"');
+    expect(target.textContent).not.toContain('matching "new-existing"');
+    expect(input.value).toBe('new-existing');
   });
 
   it('a not-found answer says so; a failed lookup says it failed (not "no node")', async () => {
@@ -178,7 +199,7 @@ describe('edge target lookup in the edge editor (portal#1524)', () => {
     expect(target.textContent).not.toContain('Could not look that node up');
   });
 
-  it('navigating to another node while a lookup is pending drops the late answer (A to B, then B to A)', async () => {
+  it('navigating to another node while a lookup is pending drops the late answer (A to B)', async () => {
     const m = await mountPage('?tab=references');
     const { target } = m;
     await openEditor(target);

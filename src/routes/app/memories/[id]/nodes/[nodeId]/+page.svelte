@@ -1656,7 +1656,7 @@
       if (session !== edgeEditorSession) return;
       target = body.found && body.node ? body.node : null;
       if (!target) {
-        addEdgeError = `No node found matching "${newEdgeTargetQuery}"`;
+        addEdgeError = `No node found matching "${q}"`;
         return;
       }
     } catch {
