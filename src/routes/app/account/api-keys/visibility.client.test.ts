@@ -1,4 +1,4 @@
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
@@ -77,4 +77,80 @@ it.each([true, false])('retains the selected includeHidden=%s slice in the nativ
   expect(action.searchParams.has('/revoke')).toBe(true);
   expect(action.searchParams.get('includeHidden')).toBe(includeHidden ? 'true' : null);
   expect(new FormData(form).get('id')).toBe('active');
+});
+
+// #1359: a live region a screen reader never saw empty may not be announced,
+// and a region whose role flips with its text is a new region each time. So
+// each feedback region is mounted, empty, before any result, and the SAME
+// node carries every later result. Node identity is not proof of a native
+// announcement; that leg belongs to browser + screen-reader QA.
+describe('visibility feedback live regions (#1359)', () => {
+  const regions = (root: HTMLElement) => ({
+    status: root.querySelector<HTMLElement>('#key-visibility-status'),
+    alert: root.querySelector<HTMLElement>('#key-visibility-alert'),
+  });
+  const rowStatus = (root: HTMLElement, id: string) =>
+    root.querySelector<HTMLElement>(`[data-key-id="${id}"] form [role="status"]`);
+  const finish = async (root: HTMLElement, id: string, type: 'success' | 'failure', text: string) => {
+    const form = root.querySelector<HTMLFormElement>(`[data-key-id="${id}"] form`)!;
+    const deferred = await submitEnhancedDeferred(form);
+    flushSync();
+    return { deferred, done: async () => {
+      await deferred.finish({ type, status: type === 'success' ? 200 : 500, data: { visibility: { type: type === 'success' ? 'success' : 'error', text, id } } });
+      await tick(2);
+    } };
+  };
+
+  it('mounts an empty status and an empty alert before any result, each with a fixed role', async () => {
+    const root = await mount();
+    const { status, alert } = regions(root);
+    expect(status?.getAttribute('role')).toBe('status');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(status?.textContent?.trim()).toBe('');
+    expect(alert?.textContent?.trim()).toBe('');
+  });
+
+  it('keeps the same two nodes, and their roles, across success, refusal and repeated results', async () => {
+    const root = await mount();
+    const { status, alert } = regions(root);
+    const steps = [
+      ['revoked', 'success', 'Key hidden.'],
+      ['revoked', 'failure', 'KEY_ACTIVE'],
+      ['hidden', 'success', 'Key unhidden.'],
+      ['hidden', 'failure', 'Could not update'],
+    ] as const;
+    for (const [id, type, text] of steps) {
+      await (await finish(root, id, type, text)).done();
+      const now = regions(root);
+      expect(now.status).toBe(status);
+      expect(now.alert).toBe(alert);
+      expect(status!.getAttribute('role')).toBe('status');
+      expect(alert!.getAttribute('role')).toBe('alert');
+      // Exactly one region speaks: the other is emptied, never left stale.
+      expect((type === 'success' ? status : alert)!.textContent).toContain(text);
+      expect((type === 'success' ? alert : status)!.textContent?.trim()).toBe('');
+    }
+  });
+
+  it('mounts each row’s pending status empty, and fills and empties that same node', async () => {
+    const root = await mount();
+    const before = rowStatus(root, 'revoked');
+    expect(before).not.toBeNull();
+    expect(before!.textContent?.trim()).toBe('');
+    const { done } = await finish(root, 'revoked', 'failure', 'KEY_ACTIVE');
+    expect(rowStatus(root, 'revoked')).toBe(before);
+    expect(before!.textContent).toContain('Saving…');
+    await done();
+    expect(rowStatus(root, 'revoked')).toBe(before);
+    expect(before!.textContent?.trim()).toBe('');
+  });
+
+  it('renders a no-JS action result into the same fixed-role regions', async () => {
+    setStubPage('http://localhost/app/account/api-keys?includeHidden=true');
+    mounted = mountComponent(Page as never, { data: { keys: [key('revoked', '2026-10-28T00:00:00Z')], includeHidden: true, form: await superValidate({}, zod4(createUserApiKeySchema), {errors:false}), revokeForm: await superValidate({}, zod4(revokeUserApiKeySchema), {errors:false}) }, form: { visibility: { type: 'error', text: 'KEY_ACTIVE', id: 'revoked' } } } as never);
+    await tick(2);
+    const { status, alert } = regions(mounted.target);
+    expect(alert?.textContent).toContain('KEY_ACTIVE');
+    expect(status?.textContent?.trim()).toBe('');
+  });
 });
