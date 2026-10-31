@@ -124,6 +124,19 @@ export async function writeCustomisation(
         ),
       },
     });
+  // A well-formed draft whose install or replacement is gone on the
+  // authoritative reread is not malformed input: the target changed (#1370).
+  // Deleted, hidden and foreign read the same, so nothing is disclosed.
+  const unavailable = () =>
+    fail(409, {
+      customisationFailed: {
+        code: 'unavailable',
+        detail: t(
+          'customisation.unavailable',
+          'This customisation is no longer available. It may have changed since you opened it. Your draft is kept; reload to see the current state.',
+        ),
+      },
+    });
   if (!agentRef || !loc || isQualifiedRef(loc) || !fd.has('content'))
     return invalid();
   const input: Record<string, unknown> = { install: { appRef, agentRef }, loc };
@@ -146,12 +159,12 @@ export async function writeCustomisation(
       const { installMemory } = await client.request<{
         installMemory: { id: string } | null;
       }>(INSTALL_MEMORY_QUERY, { appRef, agentRef });
-      if (!installMemory) return invalid();
+      if (!installMemory) return unavailable();
       const { node } = await client.request<{ node: GovernedState | null }>(
         INSTALL_NODE_QUERY,
         { memoryRef: installMemory.id, ref: memoryPinnedRef(loc) },
       );
-      if (!node) return invalid();
+      if (!node) return unavailable();
       await client.request(nodeUpdateDocument(node, input), { input });
     }
     return { saved: true };
