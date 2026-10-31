@@ -79,6 +79,8 @@ export async function startBoundMagicLink(
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+      // As on the 2xx branch below: a body read that outlives the bound is unconfirmed.
+      if (timedOut) return { ok: false, status: 504, error: EMAIL_LOGIN_UNCONFIRMED_MESSAGE };
       // #1470: a refused bot check carries a machine code, not something to show.
       if (data.error === BOT_CHECK_ERROR) {
         return { ok: false, status: res.status, error: botCheckMessage(data.reason) };
