@@ -4,6 +4,19 @@ import type { Cookies } from '@sveltejs/kit';
 import type { ErrorStatus } from 'sveltekit-superforms';
 import { BOT_CHECK_ERROR, TURNSTILE_FIELD, botCheckMessage } from '$lib/turnstile';
 
+/**
+ * portal#1528 — how long the portal waits for hadron-server's `/auth/email`.
+ * Well under the edge's own ~100 s timeout (a 524 the browser can only show as
+ * a failed submit), and well above what the server does for this call (one
+ * token insert and one provider handoff), so a real answer, refusals included,
+ * still arrives first.
+ */
+export const EMAIL_LOGIN_TIMEOUT_MS = 20_000;
+
+/** The send may still happen after we stop waiting, so this never says it failed. */
+export const EMAIL_LOGIN_UNCONFIRMED_MESSAGE =
+  "We couldn't confirm your sign-in link was sent. If it hasn't arrived in a minute, try again or use another sign-in method.";
+
 export function emailLoginErrorStatus(status: number): ErrorStatus {
   if (Number.isInteger(status) && status >= 400 && status <= 599) return status as ErrorStatus;
   return 500;
@@ -42,9 +55,18 @@ export async function startBoundMagicLink(
   });
 
   const serverUrl = env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
+  // portal#1528: bounded with a plain timer (not AbortSignal.timeout) so the
+  // body read below is covered too, and so a test's fake clock can drive it.
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, EMAIL_LOGIN_TIMEOUT_MS);
   try {
     const res = await fetch(`${serverUrl}/auth/email`, {
       method: 'POST',
+      signal: controller.signal,
       headers: { 'content-type': 'application/json' },
       // #1470: the token joins the body only when there is one, so with no
       // widget the request is byte-identical to what it was before.
@@ -57,14 +79,27 @@ export async function startBoundMagicLink(
     });
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
+      // As on the 2xx branch below: a body read that outlives the bound is unconfirmed.
+      if (timedOut) return { ok: false, status: 504, error: EMAIL_LOGIN_UNCONFIRMED_MESSAGE };
       // #1470: a refused bot check carries a machine code, not something to show.
       if (data.error === BOT_CHECK_ERROR) {
         return { ok: false, status: res.status, error: botCheckMessage(data.reason) };
       }
       return { ok: false, status: res.status, error: data.error ?? 'Failed to send email' };
     }
+    // portal#1528: only hadron-server's own acknowledgement is a send. A 2xx
+    // from anything else in the path (a proxy, a cached or HTML page) is not.
+    const data = (await res.json().catch(() => null)) as { ok?: unknown } | null;
+    if (data?.ok !== true) {
+      // The body read itself can outlive the bound; that is still unconfirmed, not refused.
+      if (timedOut) return { ok: false, status: 504, error: EMAIL_LOGIN_UNCONFIRMED_MESSAGE };
+      return { ok: false, status: 502, error: 'Failed to send email' };
+    }
     return { ok: true };
   } catch {
+    if (timedOut) return { ok: false, status: 504, error: EMAIL_LOGIN_UNCONFIRMED_MESSAGE };
     return { ok: false, status: 502, error: 'Could not reach the server.' };
+  } finally {
+    clearTimeout(timer);
   }
 }
