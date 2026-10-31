@@ -62,7 +62,7 @@ try {
   const views = [
     'list', 'detail', 'detail-unmapped', 'detail-task-failed', 'detail-stale-row',
     'detail-roster-hidden', 'detail-roster-failed', 'detail-roster-empty',
-    'detail-uncertain', 'detail-refresh-failed', 'detail-long-urn', 'detail-impersonating', 'wake', 'wake-long-urn',
+    'detail-uncertain', 'detail-refresh-failed', 'detail-long-urn', 'detail-impersonating', 'detail-outcome', 'wake', 'wake-long-urn',
   ];
   for (const width of [390, 1280]) {
     for (const view of views) {
@@ -166,6 +166,41 @@ try {
           }));
           assert.ok(imp.note, `${label}: the one impersonation line must render`);
           assert.equal(imp.removeControls, 0, `${label}: no Remove trigger in an impersonation session, got ${imp.removeControls}`);
+        }
+        // portal#1502 (UX delta, Uma P2): the page-level OUTCOME composite —
+        // sentence + Urn chip + both caveats — must not run into itself; each
+        // caveat is its own line, so a reader can tell the sentence from the
+        // notes (inline after the chip they joined into "stands.Saved;"). The
+        // harness mounts the populated region beside the page: a populated
+        // outcome needs a delivered action result, which a page mounted
+        // outside a booted kit app can never receive, per
+        // hrn:node:hadronmemory.com:hadron-portal:findings:enhance-deserialize-needs-a-booted-app
+        // — the intercepted-POST route this probe once tried can only ever
+        // answer kit's error path.
+        if (view === 'detail-outcome') {
+          const stacked = () => page.evaluate(() => {
+            const host = document.querySelector('[data-testid="ticker-remove-outcome-mounted"]');
+            const region = host?.querySelector('[data-testid="ticker-remove-outcome"]');
+            const chip = region?.querySelector('[title^="hrn:worker:"]');
+            const ann = region?.querySelector('[data-testid="ticker-remove-outcome-announcement"]');
+            const ref = region?.querySelector('[data-testid="ticker-remove-outcome-refresh-failed"]');
+            const r = (el) => el ? el.getBoundingClientRect() : null;
+            return { chip: r(chip), ann: r(ann), ref: r(ref), text: region?.textContent ?? '' };
+          });
+          const geo = await stacked();
+          assert.ok(geo.chip && geo.ann && geo.ref, `${label}: the outcome must carry the chip and both caveats (got ${geo.text.slice(0, 80)})`);
+          assert.ok(geo.ann.top >= geo.chip.bottom - 1, `${label}: the caveat runs into the Urn chip (caveat top ${geo.ann.top.toFixed(1)}, chip bottom ${geo.chip.bottom.toFixed(1)})`);
+          assert.ok(geo.ref.top >= geo.ann.bottom - 1, `${label}: the two caveats join into one line (refresh top ${geo.ref.top.toFixed(1)}, announcement bottom ${geo.ann.bottom.toFixed(1)})`);
+          if (width === 390) {
+            // Prove the pin can see the defect: force the caveats back inline
+            // (the markup this head replaced) and the lines MUST join again.
+            const mutant = await page.addStyleTag({ content: '[data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-announcement"], [data-testid="ticker-remove-outcome-mounted"] [data-testid="ticker-remove-outcome-refresh-failed"] { display: inline !important; }' });
+            const runIn = await stacked();
+            assert.ok(runIn.ann.top < runIn.chip.bottom - 1, `${label}: the inline mutant must run the caveat into the chip, or this pin proves nothing`);
+            await mutant.evaluate((el) => el.remove());
+            const again = await stacked();
+            assert.ok(again.ann.top >= again.chip.bottom - 1, `${label}: the caveat must return to its own line after the mutant`);
+          }
         }
 
         if (width === 390) {

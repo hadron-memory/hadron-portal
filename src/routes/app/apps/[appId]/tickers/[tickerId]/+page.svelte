@@ -8,13 +8,14 @@
   import TickerEnabledControl from '$lib/components/tickers/TickerEnabledControl.svelte';
   import TickerAddSubscriber from '$lib/components/tickers/TickerAddSubscriber.svelte';
   import TickerRemoveSubscriber from '$lib/components/tickers/TickerRemoveSubscriber.svelte';
+  import TickerRemoveOutcomeLine from '$lib/components/tickers/TickerRemoveOutcomeLine.svelte';
   import TickersNotParticipant from '$lib/components/tickers/TickersNotParticipant.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
   import { fmtRunTime, parseApiDate } from '$lib/flow/runs';
   import { cadenceText, isKnownReason, isWellFormedReasons, noReasonsText, parseQuietHours, reasonHelp, reasonLabel, reasonsUnavailableText, subscriptionSearchText, unrecognisedReasonText, windowText } from '$lib/tickers/format';
-  import { announcementFailedText, tickerRefreshFailedLine, tickerSubscribeWhoText, type TickerRemoveOutcome } from '$lib/tickers/controls';
+  import { tickerSubscribeWhoText, type TickerRemoveOutcome } from '$lib/tickers/controls';
   import type { TickerSubscriber } from '$lib/tickers/types';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
@@ -363,8 +364,14 @@
            Gaby P3: an element inserted already-populated beside the region is
            not announced), and so does the worker's Urn chip — once the row is
            gone, this sentence is the only thing that names whom (Uma P3-1 /
-           Gaby P3-2, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn). -->
-      <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid="ticker-remove-outcome">{removeOutcomeText}{#if showsOutcome(removeOutcome) && removeOutcome.workerUrn} <Urn value={removeOutcome.workerUrn} size={9} compact linked />{/if}{#if removeOutcomeAnnouncement} <span class="text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-announcement">{announcementFailedText()}</span>{/if}{#if removeOutcomeRefreshFailed} <span class="text-xs text-amber-800 dark:text-amber-300" data-testid="ticker-remove-outcome-refresh-failed">{tickerRefreshFailedLine()}</span>{/if}</p>
+           Gaby P3-2, per hrn:node:hadronmemory.com:hadron-portal:review:render-urn).
+           Each caveat is its OWN LINE (block), still inside the region: inline
+           after the chip they ran into it and into each other —
+           "stands.Saved;" (portal#1502 UX delta, Uma P2). Its own component
+           (not page markup) so the layout harness can mount the populated
+           region directly — a populated outcome needs a delivered action
+           result, which a page mounted outside kit cannot produce. -->
+      <TickerRemoveOutcomeLine text={removeOutcomeText} workerUrn={showsOutcome(removeOutcome) ? removeOutcome.workerUrn : null} announcementFailed={removeOutcomeAnnouncement} refreshFailed={removeOutcomeRefreshFailed} />
       <!-- The Remove panel, above the table beside Add: one removal at a time,
            whatever the roster read said (the row keeps its trigger). KEYED on
            the subscription: another row's Remove starts from a fresh instance —

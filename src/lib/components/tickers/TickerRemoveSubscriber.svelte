@@ -305,7 +305,9 @@
        (portal#1502 review), so the result line is announced, not swapped in.
        The caveat and refresh lines render INSIDE it, for the same reason the
        page-level region takes its own (portal#1502 BLIND delta, Gaby P3: an
-       element inserted already-populated is not announced). -->
-  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : ''}{#if announcementFailed} <span class="text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-refresh-failed-" + subscription.id}>{tickerRefreshFailedLine()}</span>{/if}</p>
+       element inserted already-populated is not announced) — each on its OWN
+       line (block), so they cannot run into the result text or each other
+       (portal#1502 UX delta, Uma P2). -->
+  <p role="status" class="text-sm text-zinc-900 dark:text-white" data-testid={"ticker-remove-result-" + subscription.id}>{ok !== null ? removedText() : ''}{#if announcementFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-announcement-" + subscription.id}>{announcementFailedText()}</span>{/if}{#if refreshFailed} <span class="block text-xs text-amber-800 dark:text-amber-300" data-testid={"ticker-remove-refresh-failed-" + subscription.id}>{tickerRefreshFailedLine()}</span>{/if}</p>
   {#if refusal}<WriteRefusalAlert {refusal} />{/if}
 </div>

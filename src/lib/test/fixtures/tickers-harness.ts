@@ -8,6 +8,8 @@ import TickerPage from '../../../routes/app/apps/[appId]/tickers/[tickerId]/+pag
 import WakeUpsPanel from '../../components/tickers/WakeUpsPanel.svelte';
 import WriteRefusalAlert from '../../components/agent-tasks/WriteRefusal.svelte';
 import TickerRefreshFailedLine from '../../components/tickers/TickerRefreshFailedLine.svelte';
+import TickerRemoveOutcomeLine from '../../components/tickers/TickerRemoveOutcomeLine.svelte';
+import { removedWorkerText } from '../../tickers/controls';
 
 const app = { id: 'app-1', name: 'Product Team with a fairly long App name', urn: 'hrn:app:hadronmemory.com:hadron-dev-team', organizationId: null };
 const settings = { kind: 'ok', value: { minCadenceSeconds: 120, selfSubscribeCadenceSeconds: 600, liveCap: 20, dailyWakeBudget: 4320, dailyWakeBudgetDerived: true } };
@@ -72,6 +74,12 @@ const rosters = {
   'detail-uncertain': rosterOk,
   'detail-refresh-failed': rosterOk,
   'detail-impersonating': rosterOk,
+  // portal#1502 (UX delta, Uma P2): the page-level OUTCOME in its widest
+  // composite — sentence + Urn chip + BOTH caveats — mounted populated below
+  // (a populated outcome needs a delivered action result, which this harness
+  // cannot produce, per
+  // hrn:node:hadronmemory.com:hadron-portal:findings:enhance-deserialize-needs-a-booted-app).
+  'detail-outcome': rosterOk,
   // The chooser's widest state: the nameless worker whose URN IS the label,
   // at the 200-character extreme.
   'detail-long-urn': { kind: 'ok', workers: [
@@ -157,6 +165,26 @@ export function mountTickers(target: HTMLElement, view: TickersView): () => void
       } else {
         mount(TickerRefreshFailedLine, { target: host, props: {} as never });
       }
+    }
+    // portal#1502 (UX delta, Uma P2): the populated Remove outcome, mounted in
+    // the gap the page renders it in (between the Add control and the Remove
+    // panel) — its widest composite: sentence + the worker's Urn chip + BOTH
+    // caveats (a committed removal whose announcement failed, then a reload
+    // that could not be served).
+    if (view === 'detail-outcome') {
+      const add = target.querySelector('[data-testid="ticker-add-subscriber"]');
+      const host = document.createElement('div');
+      host.dataset.testid = 'ticker-remove-outcome-mounted';
+      add?.after(host);
+      mount(TickerRemoveOutcomeLine, {
+        target: host,
+        props: {
+          text: removedWorkerText(subscriber.worker.name ?? subscriber.worker.id),
+          workerUrn: subscriber.worker.urn,
+          announcementFailed: true,
+          refreshFailed: true,
+        } as never,
+      });
     }
   } else {
     page = mount(WakeUpsPanel, {
