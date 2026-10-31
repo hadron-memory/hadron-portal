@@ -193,6 +193,15 @@ describe('portal#1497 — the actions’ event', () => {
       expect(request).toHaveBeenCalledWith(SUBSCRIBE_WORKER_MUTATION, { tickerRef: 'tk-1', workerRef: 'w-2' });
       expect(r).toMatchObject({ action: 'subscribe', ok: true, target: 'w-2' });
     });
+
+    it('unsubscribe sends the guard’s canonical id, never the route’s spelling', async () => {
+      request.mockResolvedValue({ unsubscribeWorker: { announcement: null, subscription: { id: 's1', endedAt: '2026-10-31T00:00:00Z' } } });
+      const r = await run('unsubscribe', { worker: 'w-2' }, null, URN_ROUTE);
+      expect(loadTicker).toHaveBeenCalledWith(expect.anything(), URN_ROUTE);
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request).toHaveBeenCalledWith(UNSUBSCRIBE_WORKER_MUTATION, { tickerRef: 'tk-1', workerRef: 'w-2' });
+      expect(r).toMatchObject({ action: 'unsubscribe', ok: true, target: 'w-2' });
+    });
   });
 
   describe('subscribe', () => {
