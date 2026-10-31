@@ -19,6 +19,7 @@
   import { onMount, untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { isoToLocalInput, localDateTimeToIso } from '$lib/agent-tasks/start-by';
+  import { minTierOptions, tierLabel } from '$lib/agent-tasks/tier';
   import type { AgentTaskDetail } from '$lib/agent-tasks/types';
 
   let {
@@ -43,6 +44,7 @@
     familyIn: seed.requirements?.familyIn ?? [],
     familyNotIn: seed.requirements?.familyNotIn ?? [],
     excludeWorkers: seed.requirements?.excludeWorkerIds ?? [],
+    minTier: seed.requirements?.minTier ?? null,
   };
 
   let title = $state(seed.title);
@@ -54,6 +56,7 @@
   let familyIn = $state<string[]>([...baseReq.familyIn]);
   let familyNotIn = $state<string[]>([...baseReq.familyNotIn]);
   let exclude = $state<string[]>([...baseReq.excludeWorkers]);
+  let minTier = $state(baseReq.minTier ?? '');
   // The instant is recomputed from the control only once the reader changes it: read back from its local
   // string, an instant in the autumn DST overlap (the second 01:30) would land on the first, an hour
   // earlier, and an unrelated edit would move the deadline (Beckett's P2 on #1466).
@@ -159,8 +162,16 @@
       {#each workerOptions as w (w.id)}<option value={w.id}>{w.name}</option>{/each}
     </select>
   </div>
+  <div class="space-y-1">
+    <label for="edit-min-tier" class={labelClass}>{t('app.tasks.new.min-tier', 'Minimum model tier')}</label>
+    <select id="edit-min-tier" name="minTier" bind:value={minTier} aria-describedby="edit-min-tier-help" class={inputClass}>
+      <option value="">{t('app.tasks.new.min-tier.any', 'Any')}</option>
+      {#each minTierOptions(baseReq.minTier) as tier (tier)}<option value={tier}>{tierLabel(tier)}</option>{/each}
+    </select>
+    <p id="edit-min-tier-help" class={helpClass}>{t('app.tasks.new.min-tier.help', 'The task goes to the cheapest free worker at or above this tier. A worker whose tier is unknown won’t be picked.')}</p>
+  </div>
   <p class={helpClass}>
-    {t('app.tasks.edit.requirements-help', 'Requirements are replaced as shown. Emptying all four removes them.')}
+    {t('app.tasks.edit.requirements-help', 'Requirements are replaced as shown. Emptying all of them removes them.')}
     {#if assigned}
       {t('app.tasks.edit.requirements-assigned', 'Changing them doesn’t move the task: it applies to the next assignment.')}
     {/if}

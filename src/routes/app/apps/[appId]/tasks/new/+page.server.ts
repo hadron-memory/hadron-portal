@@ -104,6 +104,9 @@ export const actions: Actions = {
         else if (familyNotIn.length) requirements.familyNotIn = familyNotIn;
         const exclude = list(fd, 'excludeWorkers');
         if (exclude.length) requirements.excludeWorkers = exclude;
+        // portal#1523: "Any" posts nothing; the server owns what a tier means and refuses a bad one.
+        const minTier = str(fd, 'minTier');
+        if (minTier) requirements.minTier = minTier;
         if (Object.keys(requirements).length) input.requirements = requirements;
       }
     }

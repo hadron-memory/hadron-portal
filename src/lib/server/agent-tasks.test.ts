@@ -5,7 +5,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQLClient } from 'graphql-request';
-import { APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { AGENT_TASK_DETAIL_QUERY, APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
 import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
 
 const request = vi.fn();
@@ -274,5 +274,11 @@ describe('canonicalTaskId (the identity a write uses)', () => {
     request.mockRejectedValueOnce(gqlError('FORBIDDEN'));
     await expect(canonicalTaskId(client, 'app-1', 'AT3')).rejects.toMatchObject({ status: 404 });
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the task detail read (portal#1523)', () => {
+  it('selects the requirements’ minimum model tier', () => {
+    expect(AGENT_TASK_DETAIL_QUERY).toMatch(/requirements\s*\{[^}]*\bminTier\b/);
   });
 });

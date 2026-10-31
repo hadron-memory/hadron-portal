@@ -253,6 +253,14 @@ describe('task page', () => {
     expect(html).toContain('Nobody yet: waiting for a worker with role portal-engineer, model family claude');
   });
 
+  it('a task with a minimum tier says it in the waiting-for line; one without says nothing of tiers (portal#1523)', () => {
+    const req = { role: null, familyIn: null, familyNotIn: null, excludeWorkerIds: null };
+    const withTier = taskPage({ task: detail({ status: 'PENDING', queued: true, assignee: null, requirements: { ...req, minTier: 'high' } }) });
+    expect(withTier).toContain('Nobody yet: waiting for a worker with a high-tier model or higher');
+    const without = taskPage({ task: detail({ status: 'PENDING', queued: true, assignee: null, requirements: { ...req, role: 'qa-engineer' } }) });
+    expect(without).not.toMatch(/tier/i);
+  });
+
   it('the description is text: markup is escaped and only http(s) URLs link', () => {
     const html = taskPage({ task: detail({ description: '<b>hi</b> see https://example.com/x and javascript:alert(1)' }) });
     expect(html).toContain('&lt;b>hi&lt;/b>');
