@@ -77,7 +77,7 @@
   } from '$lib/flow/extraction';
   import { fillViewport } from '$lib/fill-viewport';
   import { scrollHint } from '$lib/scroll-hint';
-  import type { NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
+  import type { MemoryNode, NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import NodeStorageForm from './NodeStorageForm.svelte';
   import {
@@ -663,11 +663,10 @@
   );
   // Same-memory nodes for the output-target datalist (any URN can still be
   // typed — flows may write to another memory in the org).
-  const outputTargetOptions = $derived(
-    (data.graphNodes ?? [])
-      .filter((n) => n.memoryId === data.graph.id && n.id !== node.id)
-      .map((n) => ({ urn: data.graph.urn ? composeNodeUrn(data.graph.urn, n.loc) : n.loc, name: n.name ?? n.loc })),
-  );
+  // portal#1524: no suggestions now that the layout carries no node list. An
+  // EMPTY datalist is the honest state (the field accepts any typed URN); it is
+  // never read as "this memory has no nodes".
+  const outputTargetOptions: Array<{ urn: string; name: string }> = [];
 
   const initialFlowForm = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow') as NodeUpdateFlowSuperform | null ?? data.flowForm);
   const {
@@ -1615,10 +1614,19 @@
       }));
     newEdgeTargetQuery = '';
     newEdgeName = '';
+    addEdgeError = null;
+    edgeEditorSession += 1;
+    resolvingEdgeTarget = false;
     editingEdges = true;
   }
 
   function cancelEditEdges() {
+    // A lookup still in flight belongs to the editor that sent it: a later
+    // answer must not land in this (or the next) editing session. Opening an
+    // editor bumps the same counter, so a node change is fenced by the next
+    // node's own "Edit edges" (the editor closes on a node change).
+    edgeEditorSession += 1;
+    resolvingEdgeTarget = false;
     editingEdges = false;
     editableEdges = [];
   }
@@ -1627,21 +1635,38 @@
     editableEdges = editableEdges.filter((_, i) => i !== idx);
   }
 
-  function addEditableEdge() {
-    // Match the target by loc against graphNodes (loaded on the page already).
-    const candidates = data.graphNodes ?? [];
-    const q = newEdgeTargetQuery.trim().toLowerCase();
-    if (!q) return;
-    const target = candidates.find(
-      (n) => n.loc.toLowerCase() === q || n.name?.toLowerCase() === q,
-    ) ?? candidates.find(
-      (n) => n.loc.toLowerCase().includes(q) || (n.name ?? '').toLowerCase().includes(q),
-    );
-    if (!target) {
-      addEdgeError = `No node found matching "${newEdgeTargetQuery}"`;
+  let resolvingEdgeTarget = $state(false);
+  let edgeEditorSession = 0;
+  async function addEditableEdge() {
+    // portal#1524: resolve the typed loc by ONE per-node read at submit (no
+    // node list to match against). "No node found" is said only when the read
+    // says so; a failed read says it failed.
+    const q = newEdgeTargetQuery.trim();
+    if (!q || resolvingEdgeTarget) return;
+    resolvingEdgeTarget = true;
+    addEdgeError = null;
+    const session = edgeEditorSession;
+    // The request owns the name typed when it was sent, not the live field.
+    const edgeName = newEdgeName.trim();
+    let target: { id: string; loc: string; name: string | null } | null = null;
+    try {
+      const res = await fetch(`/api/nodes/resolve?memoryId=${encodeURIComponent(data.graph.id)}&ref=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error('lookup failed');
+      const body = (await res.json()) as { found: boolean; node?: { id: string; loc: string; name: string | null } };
+      if (session !== edgeEditorSession) return;
+      target = body.found && body.node ? body.node : null;
+      if (!target) {
+        addEdgeError = `No node found matching "${q}"`;
+        return;
+      }
+    } catch {
+      if (session === edgeEditorSession) addEdgeError = t('node-detail.edge-target-lookup-failed', 'Could not look that node up. Try again.');
       return;
+    } finally {
+      if (session === edgeEditorSession) resolvingEdgeTarget = false;
     }
-    if (editableEdges.some((e) => e.targetId === target.id && e.name === newEdgeName.trim())) {
+    if (!target) return;
+    if (editableEdges.some((e) => e.targetId === target.id && e.name === edgeName)) {
       addEdgeError = 'That edge already exists';
       return;
     }
@@ -1651,11 +1676,12 @@
         targetId: target.id,
         targetName: target.name ?? target.loc,
         targetLoc: target.loc,
-        name: newEdgeName.trim(),
+        name: edgeName,
       },
     ];
-    newEdgeTargetQuery = '';
-    newEdgeName = '';
+    // Leave anything the reader typed while the lookup was out.
+    if (newEdgeTargetQuery.trim() === q) newEdgeTargetQuery = '';
+    if (newEdgeName.trim() === edgeName) newEdgeName = '';
     addEdgeError = null;
   }
 
@@ -2158,20 +2184,16 @@
   }
 
   // Children: direct children of this node's loc
+  // portal#1524: one bounded read from the loader (`data.children`), or null
+  // when it could not be proven complete (`data.childrenUnavailable`). Null is
+  // NOT "no children": the section says so instead of vanishing.
   const children = $derived(
-    (data.graphNodes ?? [])
-      .filter((n) => {
-        if (n.loc === node.loc) return false;
-        if (!n.loc.startsWith(node.loc + ':')) return false;
-        const rest = n.loc.slice(node.loc.length + 1);
-        return !rest.includes(':');
-      })
-      .sort((a, b) => {
-        if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
-        if (a.seq !== null) return -1;
-        if (b.seq !== null) return 1;
-        return a.loc.localeCompare(b.loc);
-      })
+    [...(data.children ?? [])].sort((a, b) => {
+      if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
+      if (a.seq !== null) return -1;
+      if (b.seq !== null) return 1;
+      return a.loc.localeCompare(b.loc);
+    }) as unknown as MemoryNode[],
   );
   const hasChildren = $derived(children.length > 0);
   const childrenReorderable = $derived(children.some((c) => c.seq !== null));
@@ -2344,7 +2366,7 @@
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{createParentActionError}</div>
   {/if}
   {#each data.breadcrumb.slice(0, -1) as seg}
-    {#if !seg.nodeId}
+    {#if !seg.nodeId && data.ancestorsKnown}
       <form method="POST" action="?/createParent" use:createParentEnhance novalidate class="inline">
         <input type="hidden" name="_kind" value="createParent" />
         <input type="hidden" name="loc" value={seg.path} />
@@ -2983,6 +3005,10 @@
           class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
           onclick={() => activeTab = 'children'}
         >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}</span></button>
+      {:else if data.childrenUnavailable}
+        <!-- portal#1524: not "no children" — the bounded read could not prove
+             the list complete, so the section says it is withheld. -->
+        <span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be listed completely')} class="shrink-0 whitespace-nowrap px-3 py-1.5 text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>
       {/if}
       {#if !isComment}
       <button

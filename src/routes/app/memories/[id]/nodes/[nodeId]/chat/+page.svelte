@@ -25,18 +25,9 @@
       { label: 'Nodes', href: `${basePath}/nodes` },
     ];
 
-    // Add clickable parent nodes from the loc hierarchy
-    const parts = node.loc?.split(':') ?? [];
-    for (let i = 1; i < parts.length; i++) {
-      const parentLoc = parts.slice(0, i).join(':');
-      const parentNode = ((data.graphNodes ?? []) as MemoryNode[]).find((n: MemoryNode) => n.loc === parentLoc);
-      if (parentNode) {
-        items.push({
-          label: parentNode.name,
-          href: `${basePath}/nodes/${parentNode.id}`,
-        });
-      }
-    }
+    // portal#1524: no ancestor crumbs. They were looked up in the memory
+    // layout's node list, which is no longer loaded; a missing crumb withholds
+    // a link rather than asserting the parent does not exist.
 
     // Add the chat node itself (clickable to detail page)
     items.push({

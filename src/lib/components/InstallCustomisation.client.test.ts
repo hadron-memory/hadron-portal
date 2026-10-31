@@ -75,6 +75,24 @@ describe('install customisation panel', () => {
       expect(root.querySelector('table')).toBeNull();
     },
   );
+  it('portal#1524: an EMPTY page is a note, never an empty table, a count of 0 or "no customisations"', async () => {
+    // hadron-server#2990 answers this list with an empty page while its
+    // node-list flag is on; the portal must not depend on the flag, so an empty
+    // page reads as a note true in both cases (empty, or withheld), never as
+    // "unavailable" (an error to retry) nor as "none exist".
+    const empty = {
+      ...payload(),
+      list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [], total: 0, offset: 0 } },
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(empty))));
+    const root = await panel();
+    expect(root.querySelector('[data-testid="customisation-list-unavailable"]')?.textContent).toContain('may not be the full set');
+    expect(root.querySelector('[data-testid="customisation-list-unavailable"]')?.textContent).not.toMatch(/unavailable/i);
+    expect(root.querySelector('table')).toBeNull();
+    expect(root.textContent).not.toMatch(/0 customisations|No results|No customisations|no nodes/i);
+    // A replacement can still be started.
+    expect(button(root, 'Start customising')).toBeDefined();
+  });
   it('hides writes only for an explicit nonmanager', async () => {
     const root = await panel(false);
     expect(button(root, 'Start customising')).toBeUndefined();
