@@ -171,8 +171,46 @@ describe('Ticker page', () => {
   });
 
   // Uma's P3-1 on #1136: say where changes are made, not only who may make them.
-  it('says changes are made through MCP for now', () => {
-    expect(detail()).toContain('To turn it on or off, or to subscribe workers, use the MCP tools (hadron_ticker_update, hadron_ticker_subscribe).');
+  // portal#1496 (MCP cut P1): that is the hadron CLI now, as commands to copy.
+  it('gives the CLI commands to turn it on or off and to subscribe workers, naming no MCP tool', () => {
+    const html = detail();
+    expect(html).not.toContain('hadron_');
+    expect(html).toContain('hadron ticker update hrn:ticker:acme.com:team:engineering --enabled=false');
+    expect(html).toContain('hadron ticker update hrn:ticker:acme.com:team:engineering --enabled<');
+    expect(html).toContain('hadron ticker subscribe hrn:ticker:acme.com:team:engineering --worker &lt;worker-id-or-URN>');
+    expect(html).toContain('hadron ticker unsubscribe hrn:ticker:acme.com:team:engineering --worker &lt;worker-id-or-URN>');
+  });
+
+  // cor:agt:080:18 stays above the on/off command; cor:agt:080:20 sits directly
+  // before the subscribe commands.
+  it('says who may change it before the on/off command, and who may subscribe before subscribing', () => {
+    const html = detail();
+    const who = html.indexOf('Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.');
+    const off = html.indexOf('--enabled=false');
+    const subWho = html.indexOf('Only a worker’s holder or whoever manages the App can subscribe or unsubscribe that worker.');
+    const sub = html.indexOf('hadron ticker subscribe');
+    expect(who).toBeGreaterThan(-1);
+    expect(who).toBeLessThan(off);
+    expect(off).toBeLessThan(subWho);
+    expect(subWho).toBeLessThan(sub);
+    expect(html.slice(subWho, sub)).not.toMatch(/<code/);
+  });
+
+  it('falls back to the ticker id when it has no URN', () => {
+    const html = detail({ ticker: ticker({ urn: null }) });
+    expect(html).toContain('hadron ticker update tk-1 --enabled=false');
+    expect(html).toContain('hadron ticker subscribe tk-1 --worker');
+  });
+
+  it('quotes a ref the shell would split', () => {
+    const html = detail({ ticker: ticker({ urn: null, id: "tk 1'x" }) });
+    expect(html).toContain("hadron ticker update 'tk 1'\\''x' --enabled=false");
+  });
+
+  it('renders no command with an empty operand when there is neither URN nor id', () => {
+    const html = detail({ ticker: ticker({ urn: null, id: '' }) });
+    expect(html).not.toContain('hadron ticker update');
+    expect(html).not.toContain('hadron ticker subscribe');
   });
 
   it('no subscribers reads “Nobody follows this ticker yet.”', () => {
@@ -244,8 +282,29 @@ describe('Wake-ups panel', () => {
     expect(html).toContain('effectiveCadenceSeconds');
   });
 
-  it('says wake settings are changed through MCP for now', () => {
-    expect(panel()).toContain('In the portal this is read-only for now; use the MCP tool hadron_worker_wake_settings to change it.');
+  // portal#1496 (MCP cut P1): the CLI commands, each with a setting operand.
+  it('gives the CLI commands to change wake settings, naming no MCP tool', () => {
+    const html = panel({ worker: { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:acme.com:team:liam' } });
+    expect(html).not.toContain('hadron_');
+    for (const setting of ['--mentions off', '--mentions immediate', '--clear-pause', '--paused-until &lt;RFC3339>']) {
+      expect(html).toContain(`hadron team wake-settings set --worker hrn:worker:acme.com:team:liam ${setting}`);
+    }
+  });
+
+  // cor:agt:080:21: mentions and pause only; subscriptions follow cor:agt:080:20.
+  it('says who may change mentions and pause, not subscriptions', () => {
+    const html = panel({ worker: { retiredAt: null, id: 'w-liam', urn: 'hrn:worker:acme.com:team:liam' } });
+    expect(html).toContain('Only the worker itself, its holder, or whoever manages the App can change its mentions or pause.');
+    expect(html).not.toContain('mentions, pause or subscriptions');
+  });
+
+  it('falls back to the worker id when it has no URN, and quotes what the shell would split', () => {
+    expect(panel({ worker: { retiredAt: null, id: 'w-liam', urn: null } })).toContain('hadron team wake-settings set --worker w-liam --mentions off');
+    expect(panel({ worker: { retiredAt: null, id: "w liam's", urn: null } })).toContain("hadron team wake-settings set --worker 'w liam'\\''s' --mentions off");
+  });
+
+  it('renders no command with an empty operand when the worker has neither URN nor id', () => {
+    expect(panel()).not.toContain('hadron team wake-settings');
   });
 
   it('a non-participant sees the inline state, not the worker’s settings', () => {

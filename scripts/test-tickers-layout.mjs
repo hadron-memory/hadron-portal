@@ -50,52 +50,73 @@ try {
   browser = await chromium.launch({ headless: true });
 
   for (const width of [390, 1280]) {
-    for (const view of ['list', 'detail', 'detail-unmapped', 'detail-task-failed', 'wake']) {
-      const page = await browser.newPage({ viewport: { width, height: 844 } });
-      await mountView(page, origin, css, width, view);
-      await page.waitForSelector(view === 'wake' ? '[data-testid="wake-status"]' : view.startsWith('detail') ? '[data-testid="ticker-task"]' : 'table');
+    for (const view of ['list', 'detail', 'detail-unmapped', 'detail-task-failed', 'detail-null-urn', 'detail-long-urn', 'wake', 'wake-long-urn']) {
+      // portal#1496: light and dark (`.dark` on the root), for every view.
+      for (const scheme of ['light', 'dark']) {
+        const page = await browser.newPage({ viewport: { width, height: 844 } });
+        await mountView(page, origin, css, width, view);
+        if (scheme === 'dark') await page.evaluate(() => document.documentElement.classList.add('dark'));
+        await page.waitForSelector(view.startsWith('wake') ? '[data-testid="wake-status"]' : view.startsWith('detail') ? '[data-testid="ticker-task"]' : 'table');
 
-      const measure = () => page.evaluate(() => {
-        const vw = document.documentElement.clientWidth;
-        const onScreen = (el) => {
-          const b = el.getBoundingClientRect();
-          return b.width > 0 && b.left >= 0 && b.right <= vw;
-        };
-        const heads = [...document.querySelectorAll('th')].map((th) => ({ text: th.textContent?.trim() ?? '', on: onScreen(th) }));
-        const status = document.querySelector('[data-testid="wake-status"]');
-        const settings = document.querySelector('[data-testid="wake-settings"]');
-        return {
-          width: vw,
-          scrollWidth: document.documentElement.scrollWidth,
-          heads,
-          taskEntries: document.querySelectorAll('[data-testid="ticker-task"]').length,
-          statusFirst: status && settings ? status.getBoundingClientRect().top < settings.getBoundingClientRect().top : null,
-        };
-      });
-      const got = await measure();
-      const label = `${view} at ${width}px`;
-      assert.equal(got.scrollWidth, width, `${label}: page overflows (${got.scrollWidth} > ${width})`);
-      if (view === 'list') {
-        for (const col of ['Ticker', 'State', 'Every']) {
-          const h = got.heads.find((x) => x.text.startsWith(col));
-          assert.ok(h, `${label}: no ${col} column`);
-          assert.ok(h.on, `${label}: the ${col} column is off-screen`);
+        const measure = () => page.evaluate(() => {
+          const vw = document.documentElement.clientWidth;
+          const onScreen = (el) => {
+            const b = el.getBoundingClientRect();
+            return b.width > 0 && b.left >= 0 && b.right <= vw;
+          };
+          const heads = [...document.querySelectorAll('th')].map((th) => ({ text: th.textContent?.trim() ?? '', on: onScreen(th) }));
+          const status = document.querySelector('[data-testid="wake-status"]');
+          const settings = document.querySelector('[data-testid="wake-settings"]');
+          // portal#1496: every CLI command stays inside the column, however long its ref.
+          const commands = [...document.querySelectorAll('[data-testid="cli-command"]')].map((c) => ({ text: c.textContent ?? '', on: onScreen(c) }));
+          return {
+            width: vw,
+            scrollWidth: document.documentElement.scrollWidth,
+            heads,
+            commands,
+            taskEntries: document.querySelectorAll('[data-testid="ticker-task"]').length,
+            statusFirst: status && settings ? status.getBoundingClientRect().top < settings.getBoundingClientRect().top : null,
+          };
+        });
+        const got = await measure();
+        const label = `${view} (${scheme}) at ${width}px`;
+        assert.equal(got.scrollWidth, width, `${label}: page overflows (${got.scrollWidth} > ${width})`);
+        if (view === 'list') {
+          for (const col of ['Ticker', 'State', 'Every']) {
+            const h = got.heads.find((x) => x.text.startsWith(col));
+            assert.ok(h, `${label}: no ${col} column`);
+            assert.ok(h.on, `${label}: the ${col} column is off-screen`);
+          }
         }
-      }
-      if (view.startsWith('detail')) assert.equal(got.taskEntries, 1, `${label}: the Task entry must render exactly once`);
-      if (view === 'wake') assert.equal(got.statusFirst, true, `${label}: the status sentence must come first`);
+        if (view.startsWith('detail')) assert.equal(got.taskEntries, 1, `${label}: the Task entry must render exactly once`);
+        if (view.startsWith('wake')) assert.equal(got.statusFirst, true, `${label}: the status sentence must come first`);
+        if (view !== 'list') {
+          assert.equal(got.commands.length, 4, `${label}: expected 4 CLI commands, got ${got.commands.length}`);
+          for (const c of got.commands) assert.ok(c.on, `${label}: a CLI command runs off-screen: ${c.text.slice(0, 60)}`);
+          if (view === 'detail-null-urn') assert.ok(got.commands.every((c) => / tk-1 /.test(c.text)), `${label}: a null URN must fall back to the id`);
+          if (view.endsWith('long-urn')) assert.ok(got.commands.every((c) => c.text.length > 200), `${label}: the long ref must be in every command`);
+        }
 
-      if (width === 390) {
-        // Prove the browser sees overflow at all: force the facts/settings
-        // grids and the grid wrapper wide, and the page must overflow, or this
-        // check could not tell fixed from broken.
-        const mutant = await page.addStyleTag({ content: '#col dl, #col section > div, #col table { min-width: 700px !important; width: 700px !important; overflow: visible !important; }' });
-        assert.ok((await measure()).scrollWidth > width, `${label}: the wide mutant must overflow`);
-        await mutant.evaluate((el) => el.remove());
-        assert.equal((await measure()).scrollWidth, width);
+        if (width === 390) {
+          // Prove the browser sees overflow at all: force the facts/settings
+          // grids and the grid wrapper wide, and the page must overflow, or this
+          // check could not tell fixed from broken.
+          const mutant = await page.addStyleTag({ content: '#col dl, #col section > div, #col table { min-width: 700px !important; width: 700px !important; overflow: visible !important; }' });
+          assert.ok((await measure()).scrollWidth > width, `${label}: the wide mutant must overflow`);
+          await mutant.evaluate((el) => el.remove());
+          assert.equal((await measure()).scrollWidth, width);
+          if (view.endsWith('long-urn')) {
+            // portal#1496: and a command that may not break its long ref runs off the column.
+            const unbroken = await page.addStyleTag({ content: '[data-testid="cli-command"] { word-break: normal !important; overflow-wrap: normal !important; }' });
+            const wide = await measure();
+            assert.ok(wide.scrollWidth > width || wide.commands.some((c) => !c.on), `${label}: the unbroken-command mutant must overflow`);
+            await unbroken.evaluate((el) => el.remove());
+          }
+        }
+        if (process.env.TICKERS_SHOTS) await page.screenshot({ path: `${process.env.TICKERS_SHOTS}/${view}-${width}-${scheme}.png`, fullPage: true });
+        console.log(JSON.stringify({ view, scheme, width: got.width, scrollWidth: got.scrollWidth, statusFirst: got.statusFirst, commands: got.commands.length }));
+        await page.close();
       }
-      console.log(JSON.stringify({ view, width: got.width, scrollWidth: got.scrollWidth, statusFirst: got.statusFirst }));
-      await page.close();
     }
   }
 } finally {
