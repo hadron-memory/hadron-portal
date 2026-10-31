@@ -71,7 +71,8 @@ export interface TickerRemoveOutcome {
   /**
    * The removed worker's URN, for the chip beside the sentence — once the row
    * is gone, the outcome is the only line that names whom, and a name alone is
-   * not addressable (portal#1502, Uma P3-1 / Gaby P3-2, per review:render-urn).
+   * not addressable (portal#1502, Uma P3-1 / Gaby P3-2, per
+   * hrn:node:hadronmemory.com:hadron-portal:review:render-urn).
    * Null when the outcome carries no worker of its own: the stale-row refusal
    * shows the server's sentence unchanged.
    */
