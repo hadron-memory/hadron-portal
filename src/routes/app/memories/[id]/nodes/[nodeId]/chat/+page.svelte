@@ -5,7 +5,6 @@
   import ChatThread from '$lib/components/ChatThread.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t.js';
-  import type { MemoryNode } from '$lib/types';
   import type { ActionData, PageData } from './$types';
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -25,9 +24,20 @@
       { label: 'Nodes', href: `${basePath}/nodes` },
     ];
 
-    // portal#1524: no ancestor crumbs. They were looked up in the memory
-    // layout's node list, which is no longer loaded; a missing crumb withholds
-    // a link rather than asserting the parent does not exist.
+    // Add clickable parent nodes from the loc hierarchy, looked up by one
+    // bounded read in the loader (portal#1433; the layout loads no node list,
+    // portal#1524). A missing crumb withholds a link; it asserts nothing.
+    const parts = node.loc?.split(':') ?? [];
+    for (let i = 1; i < parts.length; i++) {
+      const parentLoc = parts.slice(0, i).join(':');
+      const parentNode = (data.ancestors ?? []).find((n) => n.loc === parentLoc);
+      if (parentNode?.name) {
+        items.push({
+          label: parentNode.name,
+          href: `${basePath}/nodes/${parentNode.id}`,
+        });
+      }
+    }
 
     // Add the chat node itself (clickable to detail page)
     items.push({

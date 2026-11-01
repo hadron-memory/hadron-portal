@@ -2,7 +2,12 @@
  * portal#1524 (Holger, 2026-10-31): the memory layout no longer loads the node
  * list (`nodesOff: true`, no `graphNodes`). This pins, one case per consumer row
  * of the issue's table that lives in the node-page LOADER, what the page says
- * and does not say when it has no list to read:
+ * and does not say when it has no list to read.
+ *
+ * portal#1433 repaired the breadcrumb, chat root and wikilinks with bounded
+ * reads; their equality with the old path is pinned in oracle-pre-1527.test.ts.
+ * What stays pinned HERE is acceptance 4: when those reads FAIL, the page
+ * degrades exactly as the #1524 path did:
  *
  *   - the breadcrumb falls back to loc segments and never offers to create an
  *     ancestor it did not look up;
@@ -14,7 +19,7 @@
  * The absent list is never read as "this memory has no nodes".
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { NODE_BY_ID_QUERY, NODE_CHILDREN_QUERY } from '$lib/server/queries';
+import { NODE_ANCESTORS_QUERY, NODE_BY_ID_QUERY, NODE_CHILDREN_QUERY, WIKILINK_TARGETS_BATCH_QUERY } from '$lib/server/queries';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -48,9 +53,16 @@ async function runLoad(opts: {
   hits?: Array<{ node: Child }>;
   total?: number | null;
   childrenThrow?: boolean;
+  /** The portal#1433 bounded reads (ancestors, wikilink targets) fail. */
+  boundedReadsThrow?: boolean;
 } = {}) {
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
   mockRequest.mockImplementation(async (doc: string) => {
     if (doc === NODE_BY_ID_QUERY) return { node: opts.node ?? nodeRow() };
+    if (doc === NODE_ANCESTORS_QUERY || doc === WIKILINK_TARGETS_BATCH_QUERY) {
+      if (opts.boundedReadsThrow) throw new Error('boom');
+      return { nodeBatch: { nodes: [], unavailable: [], omitted: [], truncated: false } };
+    }
     if (doc === NODE_CHILDREN_QUERY) {
       if (opts.childrenThrow) throw new Error('boom');
       const hits = opts.hits ?? [];
@@ -81,24 +93,30 @@ async function runLoad(opts: {
 
 describe('node-detail load with the node list off (portal#1524)', () => {
   it('breadcrumb: ancestors fall back to their loc segments, with no node id', async () => {
-    const data = await runLoad();
+    const data = await runLoad({ boundedReadsThrow: true });
     expect(data.breadcrumb.map((s) => [s.label, s.nodeId])).toEqual([['a', null], ['b', null], ['leaf', null]]);
   });
 
   it('breadcrumb: never offers to CREATE an ancestor it did not look up', async () => {
     // "No node id" here means "not looked up". Offering "+ Create parent node"
     // for every ancestor would claim none of them exist.
-    const data = await runLoad();
+    const data = await runLoad({ boundedReadsThrow: true });
     expect(data.ancestorsKnown).toBe(false);
   });
 
+  it('breadcrumb: a read that ANSWERED without an ancestor may offer to create it', async () => {
+    const data = await runLoad();
+    expect(data.breadcrumb.map((s) => [s.label, s.nodeId])).toEqual([['a', null], ['b', null], ['leaf', null]]);
+    expect(data.ancestorsKnown).toBe(true);
+  });
+
   it('chat root: "Open chat" is withheld for a chat message', async () => {
-    const data = await runLoad({ node: nodeRow({ loc: 'chats:team:messages:001-ada', nodeType: 'chat-message' }) });
+    const data = await runLoad({ node: nodeRow({ loc: 'chats:team:messages:001-ada', nodeType: 'chat-message' }), boundedReadsThrow: true });
     expect(data.openChat).toBeNull();
   });
 
   it('wikilinks: a same-memory link is clickable but UNCHECKED, never a missing-node marker', async () => {
-    const data = await runLoad({ node: nodeRow({ content: 'see [[other:thing]]' }) });
+    const data = await runLoad({ node: nodeRow({ content: 'see [[other:thing]]' }), boundedReadsThrow: true });
     const link = data.wikilinks['other:thing'];
     expect(link).not.toBeNull(); // null is the "broken link" marker
     expect(link!.href).toBe(`/app/u/${'hrn:node:acme.com:notes:other:thing'}`);

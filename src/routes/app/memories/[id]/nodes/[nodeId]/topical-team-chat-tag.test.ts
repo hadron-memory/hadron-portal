@@ -20,7 +20,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LEGACY_THREAD_PROBE_QUERY, NODE_BY_ID_QUERY } from '$lib/server/queries';
 import { probeLegacyThread } from '$lib/server/team-chat';
+import { serveMemoryReads } from '$lib/test/serveMemoryReads';
 
+// portal#1433: the node reads that replaced the layout's graphNodes.
+let reads = serveMemoryReads([], { id: 'mem-1', urn: 'hrn:mem:acme.com:notes' });
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
@@ -58,7 +61,8 @@ const threadOf = (loc: string): Probe => ({
 });
 
 function answer(node: Record<string, unknown>, probe: Probe) {
-  mockRequest.mockImplementation(async (doc: string) => {
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    { const served = reads(doc, vars); if (served !== undefined) return served; }
     if (doc === NODE_BY_ID_QUERY) return { node };
     if (doc === LEGACY_THREAD_PROBE_QUERY) {
       if (probe instanceof Error) throw probe;

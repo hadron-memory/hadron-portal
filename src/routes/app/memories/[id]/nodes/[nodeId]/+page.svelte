@@ -24,6 +24,7 @@
   import NodeList from '$lib/components/NodeList.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
+  import { scheduleTypeahead, targetUrnOptions, type TypeaheadNode } from '$lib/memory/node-typeahead';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -663,10 +664,19 @@
   );
   // Same-memory nodes for the output-target datalist (any URN can still be
   // typed — flows may write to another memory in the org).
-  // portal#1524: no suggestions now that the layout carries no node list. An
-  // EMPTY datalist is the honest state (the field accepts any typed URN); it is
-  // never read as "this memory has no nodes".
-  const outputTargetOptions: Array<{ urn: string; name: string }> = [];
+  // Fetched on demand as the user types (portal#1433): the layout carries no
+  // node list (portal#1524). No hits is "no suggestions", never "no nodes".
+  let outputTargetHits = $state<TypeaheadNode[]>([]);
+  $effect(() =>
+    scheduleTypeahead({
+      query: outputWriteTo,
+      memoryId: data.graph.id,
+      selfId: node.id,
+      skip: isFullyQualifiedNodeUrnInput,
+      onHits: (hits) => (outputTargetHits = hits),
+    }),
+  );
+  const outputTargetOptions = $derived(targetUrnOptions(outputTargetHits, data.graph.urn, composeNodeUrn));
 
   const initialFlowForm = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow') as NodeUpdateFlowSuperform | null ?? data.flowForm);
   const {
@@ -1593,6 +1603,18 @@
   let editingEdges = $state(false);
   let editableEdges = $state<EditableEdge[]>([]);
   let newEdgeTargetQuery = $state('');
+  // portal#1433: suggestions for the edge target as the user types, from the
+  // bounded node search. Choosing one fills the loc; the target is still
+  // resolved exactly at submit (`addEditableEdge`).
+  let edgeTargetHits = $state<TypeaheadNode[]>([]);
+  $effect(() =>
+    scheduleTypeahead({
+      query: newEdgeTargetQuery,
+      memoryId: data.graph.id,
+      selfId: node.id,
+      onHits: (hits) => (edgeTargetHits = hits),
+    }),
+  );
   let newEdgeName = $state('');
 
   // #656: an outgoing edge whose target sits in a memory the caller can't read
@@ -3873,8 +3895,14 @@
               <div class="flex-1 min-w-[200px]">
                 <label for="newEdgeTarget" class="mb-1 block text-xs text-zinc-500">Target (loc or name)</label>
                 <input id="newEdgeTarget" type="text" bind:value={newEdgeTargetQuery}
+                  list="newEdgeTarget-options"
                   placeholder="e.g. specs:auth:jwt"
                   class="{inputClass} font-mono text-xs" />
+                <datalist id="newEdgeTarget-options">
+                  {#each edgeTargetHits as hit (hit.id)}
+                    <option value={hit.loc}>{hit.name ?? hit.loc}</option>
+                  {/each}
+                </datalist>
               </div>
               <div class="w-40">
                 <label for="newEdgeName" class="mb-1 block text-xs text-zinc-500">Name (optional)</label>

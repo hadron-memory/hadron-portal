@@ -29,6 +29,7 @@ import { canonicalJson, isFingerprint, jsonFingerprint, parseDataSource, parsePr
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
+import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import { loadCommentSummary, loadDiscussion, sendCommentWrite } from '$lib/server/comments';
 import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
 import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
@@ -182,26 +183,27 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // memory only. Resolving by loc alone (via NODE_QUERY) would cross-pollinate
   // with any other memory the caller can access that happens to share the loc,
   // producing breadcrumb links like memories/A/nodes/<B's PK>. See #234.
-  // portal#1524: the layout no longer loads the node list (`nodesOff`), so
-  // this is empty by design. An empty list here means "not loaded", never
-  // "this memory has no nodes": every use below degrades, none asserts. It is
-  // still read from the layout rather than hard-coded empty, so the lazy tree
-  // that restores a list (portal#1438) lights these paths up again unchanged.
-  const memoryNodes: MemoryNode[] = ((parentData as { graphNodes?: MemoryNode[] }).graphNodes ?? []);
   // Read here rather than at the wikilink call below: the breadcrumb needs
   // `graph.urn` too, to qualify an ancestor's loc into a real node URN.
-  const { graph, nodesFailed: layoutNodesFailed, nodesOff } = parentData as {
+  const { graph } = parentData as {
     graph?: { urn?: string | null } | null;
-    nodesFailed?: boolean;
-    nodesOff?: boolean;
   };
-  // Not loaded for either reason; wikilinks must render unresolved, never
-  // "missing node", in both (portal#1524, the existing nodesFailed path).
-  const nodesFailed = layoutNodesFailed === true || nodesOff === true;
-  const ancestorByLoc = new Map<string, { id: string; name: string | null }>();
-  for (const n of memoryNodes) {
-    if (n.memoryId === params.id) ancestorByLoc.set(n.loc, { id: n.id, name: n.name ?? null });
-  }
+  // portal#1433: the layout loads no node list (`nodesOff`, portal#1524), so
+  // the ancestors come from one bounded `nodeBatch` of their URNs and the
+  // wikilink targets from their own bounded read. Both start here so they run
+  // in parallel; the wikilinks are awaited further down.
+  const ancestorsPromise = loadAncestors(gqlClient(locals.token), { id: params.id, urn: graph?.urn }, node.loc);
+  // #374 / spec hrn:node:hadronmemory.com:specs:cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
+  // and abstract so the renderer can make them clickable (and mark the dangling
+  // ones visibly broken). Nothing is read for a node with no links, which is
+  // the overwhelming majority. A target that could not be checked renders as
+  // an unchecked link, never as "no node" (the old `nodesFailed` degrade).
+  const wikilinksPromise = resolveWikilinks(
+    gqlClient(locals.token),
+    [node.content, node.abstract],
+    { memoryId: params.id, memoryUrn: graph?.urn ?? null },
+  );
+  const { byLoc: ancestorByLoc, known: ancestorsKnown } = await ancestorsPromise;
 
   // A memory whose URN the layout could not supply (a failed graph read) falls
   // back to the bare loc rather than rendering nothing — "couldn't qualify it"
@@ -236,9 +238,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     // "Form: FBAR (FinCEN Form 114)" on its own page became `form-fbar` the
     // moment you clicked into a child.
     //
-    // The name is free: `graphNodes` already carries it and the layout has
-    // already paged it to completion, so this is the same map lookup with a
-    // second field.
+    // The name is free: the ancestor lookup (`loadAncestors`) already returns
+    // it, so this is the same map lookup with a second field.
     let label = parts[i];
     let title: string | undefined;
     if (i < parts.length - 1) {
@@ -272,21 +273,6 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     // a nodeId.
     breadcrumb.push({ label, path: ancestorLoc, nodeId, title });
   }
-
-  // #374 / spec hrn:node:hadronmemory.com:specs:cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
-  // and abstract so the renderer can make them clickable (and mark the dangling
-  // ones visibly broken). Bare locs resolve against `memoryNodes` above at zero
-  // cost; only a cross-memory `[[org::memory::loc]]` costs a round-trip, so
-  // this is free for the overwhelming majority of nodes. Started here and
-  // awaited below so it overlaps the remaining fetches.
-  // `nodesFailed` matters as much as the node list: the layout returns an empty
-  // `graphNodes` for BOTH an empty memory and a failed graph fetch, and without
-  // the flag an outage would repaint every valid link as corpus rot.
-  const wikilinksPromise = resolveWikilinks(
-    gqlClient(locals.token),
-    [node.content, node.abstract],
-    { memoryId: params.id, memoryUrn: graph?.urn ?? null, nodes: memoryNodes, nodesFailed },
-  );
 
   // "Test flow" (#478 phase 3): a runnable node can be executed as a MANUAL
   // headless run via runTask(appRef:) — the button needs the org's Apps to
@@ -475,22 +461,21 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // the context a single bubble is missing, and nothing else on this page
   // links to it.
   const isChatMessage = isChatMessageNode(node);
-  // The chat ROOT's node id, resolved from the shared layout payload the
-  // breadcrumb already walks — so this costs no round trip. Two things are
+  // The chat ROOT's node id, resolved from the ancestor lookup the breadcrumb
+  // already made (the root is one of the message's ancestors), so this costs
+  // no extra round trip. Two things are
   // deliberately checked rather than assumed:
   //   - the ancestor must actually BE a chat. A `<x>:messages:<y>` address does
   //     not make `<x>` a chat node, and an "Open chat" landing on an ordinary
   //     node would be a link that lies about where it goes.
   //   - `memoryId === params.id`, the same scoping the breadcrumb applies (#234)
   //     — a loc is unique per memory, not globally.
-  // When `graphNodes` is empty because the graph read FAILED (`nodesFailed`),
-  // the root cannot be resolved and the action is not offered. That withholds
-  // an affordance rather than asserting the message has no chat, and it is the
-  // same degradation the breadcrumb already accepts on the same input.
+  // When the ancestor lookup FAILED, the root cannot be resolved and the action
+  // is not offered. That withholds an affordance rather than asserting the
+  // message has no chat, and it is the same degradation the breadcrumb already
+  // accepts on the same input.
   const chatRootLoc = isChatMessage ? chatRootLocForMessage(node.loc) : null;
-  const chatRoot = chatRootLoc
-    ? memoryNodes.find((n) => n.memoryId === params.id && n.loc === chatRootLoc)
-    : undefined;
+  const chatRoot = chatRootLoc ? ancestorByLoc.get(chatRootLoc) : undefined;
   // A legacy `message` under the root IS the root's thread evidence (#926).
   const openChat = chatRoot && isChatNode(chatRoot, { legacyThread: node.nodeType === 'message' })
     ? { nodeId: chatRoot.id, loc: chatRoot.loc, name: chatRoot.name ?? chatRoot.loc }
@@ -614,9 +599,10 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     // portal#1524: what the page may and may not say about this node's
     // neighbours now that the layout carries no node list. `ancestorsKnown`
     // false means a crumb without a node id is "not looked up", so the page
-    // must not offer to create it; `children` is a bounded read, or null with
-    // the reason when it could not be proven complete.
-    ancestorsKnown: false as const,
+    // must not offer to create it (portal#1433: true once the bounded ancestor
+    // read answered for every segment); `children` is a bounded read, or null
+    // with the reason when it could not be proven complete.
+    ancestorsKnown,
     ...(await loadChildren(gqlClient(locals.token), params.id, node.loc)),
   };
 };

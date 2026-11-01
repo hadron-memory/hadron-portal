@@ -7,6 +7,7 @@ import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 import { chatAuthorName, chatPostTarget, chatSortKey, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { sendChatMessageSchema } from './schema';
@@ -22,7 +23,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
       parent().catch((err) => {
         console.error('[chat-page] parent() failed:', err);
         // Return minimal safe structure if parent fails
-        return { graphNodes: [], graph: null, org: null };
+        return { graph: null, org: null };
       }),
       gqlClient(locals.token).request<{ node: MemoryNode | null }>(
         NODE_BY_ID_QUERY, { ref: params.nodeId },
@@ -94,9 +95,16 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     }
   }
 
+  // portal#1433: the breadcrumb's parents, from one `nodeBatch` of their URNs
+  // (the memory layout no longer ships the node list this read from).
+  const ancestors = [
+    ...(await loadAncestors(gqlClient(locals.token), { id: params.id, urn: memoryUrn }, node.loc)).byLoc.values(),
+  ].map((a) => ({ id: a.id, loc: a.loc, name: a.name }));
+
   return {
     node,
     fullUrn,
+    ancestors,
     messages,
     hasOlder: page.hasOlder,
     chatOffset: page.offset,
