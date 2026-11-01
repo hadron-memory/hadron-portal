@@ -1,5 +1,6 @@
 <script lang="ts">
   import { locOfSameMemoryTarget } from '$lib/urn/move-destination';
+  import { Expand } from 'lucide-svelte';
   import MoveLocationInput from '$lib/components/MoveLocationInput.svelte';
   import CappedNotice from '$lib/components/CappedNotice.svelte';
   import { formatPortalDate, formatPortalDateTime } from '$lib/format-portal-date';
@@ -1090,7 +1091,8 @@
   // #793: scroll-up pagination for the Chat tab. Same endpoint and the same
   // null-vs-empty contract as the full-screen view — the two must not drift,
   // since they are two windows onto one thread and a reader moves between them
-  // with the "Full-screen chat" button.
+  // with the full-screen entry (the "Full-screen chat" button on agent/other
+  // chats, the icon-only expand control on a team Channel — portal#1525).
   let olderCursor = $state<number>(0);
   $effect(() => {
     const o = data.chatOffset ?? 0;
@@ -1614,6 +1616,11 @@
   // `team-chat` tag) — read it rather than re-deriving, so the tab can't
   // disagree with the load that fetched (or skipped) the thread.
   const isChat = $derived(!!data.isChat);
+  // portal#1525: also the server's own predicate — the App's canonical team
+  // channel (chatPostTarget platform kind), so the entry button below can
+  // never disagree with where a post would land. Every other chat keeps the
+  // text entry.
+  const isTeamChannel = $derived(!!data.isTeamChannel);
   // Also the server's own predicate (chatPostTarget) — the composer shows
   // exactly when the send action would accept a post.
   const canPostChat = $derived(!!data.canPostChat);
@@ -2554,13 +2561,27 @@
     </div>
     <div class="shrink-0 flex items-start gap-2">
       {#if isChat}
-        <!-- The Chat tab below is the inline view; this is the full-screen one. -->
-        <a
-          href="{basePath}/nodes/{node.id}/chat"
-          class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
-        >
-          Full-screen chat
-        </a>
+        <!-- The Chat tab below is the inline view; this is the full-screen one.
+             portal#1525: a team CHANNEL takes an icon-only entry (an icon is
+             sufficient; no label — #1525), so the accessible name IS the
+             label. Every other chat keeps the text button unchanged. -->
+        {#if isTeamChannel}
+          <a
+            href="{basePath}/nodes/{node.id}/chat"
+            aria-label={t('node.chat.open-fullscreen-channel', 'Open full-screen channel')}
+            title={t('node.chat.open-fullscreen-channel', 'Open full-screen channel')}
+            class="rounded-md bg-green-600 p-2 text-white hover:bg-green-500"
+          >
+            <Expand class="h-4 w-4" aria-hidden="true" />
+          </a>
+        {:else}
+          <a
+            href="{basePath}/nodes/{node.id}/chat"
+            class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
+          >
+            {t('node.chat.open-fullscreen', 'Full-screen chat')}
+          </a>
+        {/if}
       {/if}
       <!-- #503: the "⋯" menu is the single entry point for node actions;
            each item opens one of the panels/dialogs below. -->

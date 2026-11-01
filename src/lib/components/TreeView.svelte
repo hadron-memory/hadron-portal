@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { flushSync, onMount, tick } from "svelte";
   import { page } from "$app/stores";
   import type { TreeEntry } from "$lib/types";
   import { t } from "$lib/i18n/t";
@@ -173,12 +173,29 @@
     const target: HTMLElement | Window = scroller ?? window;
     target.addEventListener("scroll", measure, { passive: true });
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    if (scroller) ro?.observe(scroller);
-    else window.addEventListener("resize", measure);
+    if (!scroller) window.addEventListener("resize", measure);
+    // #1488: content above the tree (MemoryBrowser's move-error banner) moves
+    // the tree with no scroll and no scroller resize, so the window's offset
+    // went stale until the next scroll. Watch, at every level from the tree up
+    // to the scroller, each element before the tree's branch for a resize, and
+    // each level for an inserted or removed child (which re-watches).
+    const mo = typeof MutationObserver === "undefined" ? null : new MutationObserver(() => { watchAbove(); measure(); });
+    function watchAbove() {
+      ro?.disconnect();
+      mo?.disconnect();
+      if (scroller) ro?.observe(scroller);
+      const stop = scroller ?? document.body;
+      for (let el = navEl; el && el !== stop && el.parentElement; el = el.parentElement) {
+        for (let s = el.previousElementSibling; s; s = s.previousElementSibling) ro?.observe(s);
+        mo?.observe(el.parentElement, { childList: true });
+      }
+    }
+    watchAbove();
     return () => {
       target.removeEventListener("scroll", measure);
       window.removeEventListener("resize", measure);
       ro?.disconnect();
+      mo?.disconnect();
     };
   });
 
@@ -212,6 +229,37 @@
     }
     return rows;
   });
+
+  /** The tabbable controls of a row, in DOM order: the chevron when it has children, then the label. */
+  function rowTabbables(row: Element): HTMLElement[] {
+    return [...row.querySelectorAll<HTMLElement>("a[href], button")].filter((el) => el.tabIndex >= 0);
+  }
+
+  // #1488: a focused row pinned far outside the window is first or last in the
+  // DOM, so the browser's Tab from it would leave the tree instead of walking
+  // into the next row. From the row's edge control, move focus to the
+  // neighbouring row in index order ourselves (mounting it pinned if need be);
+  // focusing it scrolls it into view, and the window follows. Tab within the
+  // row, from a row inside the window, or past either end of the tree is left
+  // to the browser.
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key !== "Tab" || e.altKey || e.ctrlKey || e.metaKey || focusedIndex === -1 || !navEl) return;
+    const { first, last } = windowRange;
+    if (focusedIndex >= first && focusedIndex < last) return;
+    const row = (e.target as HTMLElement).closest(".tree-row");
+    if (!row) return;
+    const own = rowTabbables(row);
+    if (e.target !== (e.shiftKey ? own[0] : own[own.length - 1])) return;
+    const next = focusedIndex + (e.shiftKey ? -1 : 1);
+    if (next < 0 || next >= flatRows.length) return;
+    e.preventDefault();
+    const nextId = flatRows[next].node.entry.id;
+    focusedId = nextId;
+    flushSync();
+    const nextRow = [...navEl.querySelectorAll<HTMLElement>(".tree-row")].find((r) => r.dataset.nodeId === nextId);
+    const theirs = nextRow ? rowTabbables(nextRow) : [];
+    (e.shiftKey ? theirs[theirs.length - 1] : theirs[0])?.focus();
+  }
 
   // Active node: from URL or graph selection
   let activeNodeId = $derived.by(() => {
@@ -454,6 +502,9 @@
 
 {/snippet}
 
+<!-- The keydown listener only delegates Tab from the rows' own buttons and
+     links (#1488); the nav itself takes no focus and no action. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <nav
   class="tree-view"
   bind:this={navEl}
@@ -465,6 +516,7 @@
   onfocusout={(e) => {
     if (!navEl?.contains(e.relatedTarget as Node | null)) focusedId = null;
   }}
+  onkeydown={handleKeydown}
 >
   {#each visibleRows as row (row.node.entry.id)}
     {@render nodeRow(row.node, row.depth, row.pinned ? row.index : null)}

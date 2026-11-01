@@ -196,6 +196,22 @@ export function chatPostTarget(
   return { kind: 'none' };
 }
 
+/**
+ * portal#1525: is this chat node the App's team CHANNEL — the surface Holger
+ * ruled reads as a Channel (portal#1482)? `platform` names the POST path
+ * (`createTeamChatMessage`), not "is a Channel"; this predicate is the one
+ * name for that equivalence, so routes branching on it never restate the rule
+ * (and a future kind added to `ChatPostTarget` cannot silently re-classify a
+ * Channel in a route that never mentions it). Same inputs as `chatPostTarget`;
+ * ask it, don't re-derive it.
+ */
+export function isTeamChannelChat(
+  node: Pick<MemoryNode, 'tags' | 'nodeType' | 'loc'> & { memory?: { appId?: string | null } | null },
+  opts: { legacyThread?: boolean } = {},
+): boolean {
+  return chatPostTarget(node, opts).kind === 'platform';
+}
+
 export type ChatMessage = {
   id: string;
   name: string;
