@@ -2,7 +2,7 @@
  * portal#1052 — the board's and the task page's loaders.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -260,6 +260,18 @@ describe('task loader: handles', () => {
     const r = await loadDetail('AT3.405');
     expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
     expect(r.task).toMatchObject({ id: 't1', handle: 'AT3.405' });
+  });
+
+  it('loads initial relations by resolved canonical id, never the raw handle', async () => {
+    const page = { items: [], hasMore: false };
+    request.mockImplementation(async (q: string) => {
+      if (q === TASK_DEPENDENCIES_QUERY) return { agentTask: { id: 't1', appId: app.id, blockedBy: page, blocks: page } };
+      return asked(q, detail({ handle: 'AT3.405' }));
+    });
+    const r = await loadDetail('AT3.405');
+    expect(request).toHaveBeenCalledWith(AGENT_TASK_DETAIL_QUERY, { id: 'hrn:agenttask:acme.com:team:AT3.405' });
+    expect(request).toHaveBeenCalledWith(TASK_DEPENDENCIES_QUERY, { id: 't1', offset: 0 });
+    expect(r.dependencies).toEqual({ kind: 'ok', value: { blockedBy: page, blocks: page } });
   });
 
   it('a raw id is forwarded unchanged (bookmarks keep working)', async () => {

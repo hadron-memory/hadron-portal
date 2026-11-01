@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { graphql, buildSchema } from 'graphql';
 import { readFileSync } from 'node:fs';
-import { AGENT_TASKS_APP_QUERY, AGENT_TASK_REF_QUERY, TASK_BLOCKED_BY_PAGE_QUERY, TASK_BLOCKS_PAGE_QUERY } from '$lib/server/queries';
-import { taskDependencyPage } from '$lib/server/task-planning';
+import { AGENT_TASKS_APP_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TASK_BLOCKED_BY_PAGE_QUERY, TASK_BLOCKS_PAGE_QUERY } from '$lib/server/queries';
+import { taskDependencies, taskDependencyPage } from '$lib/server/task-planning';
 import { actions } from './[taskId]/+page.server';
 import { GET } from './[taskId]/relations/+server';
 const request = vi.fn(); const rawRequest = vi.fn(); const gqlClient = vi.fn(() => ({ request, rawRequest }));
@@ -55,4 +55,25 @@ describe('relation page endpoint and existing remove action', () => {
     expect(await taskDependencyPage(c as never, app.id, 'canonical', 'blockedBy', 200)).toEqual({ kind: 'failed' });
   });
   it('selects no totals or blocked counts', () => { expect(TASK_BLOCKED_BY_PAGE_QUERY + TASK_BLOCKS_PAGE_QUERY).not.toMatch(/\btotal\b|\bblocked\b/); });
+  it('the existing initial query really selects canonical id (id-selection mutant fails)', async () => {
+    const page = { items: [choice(204)], hasMore: false };
+    async function run(dropId = false) {
+      const client = { request: async (document: string, variableValues: Record<string, unknown>) => {
+        expect(document).toBe(TASK_DEPENDENCIES_QUERY);
+        const result = await graphql({ schema, source: dropId ? document.replace(/\bid appId\b/, 'appId') : document,
+          variableValues, rootValue: { agentTask: () => ({ id: 'canonical', appId: app.id, blockedBy: page, blocks: { items: [], hasMore: false } }) } });
+        expect(result.errors).toBeUndefined();
+        return result.data;
+      } };
+      return taskDependencies(client as never, app.id, 'canonical');
+    }
+    expect(await run()).toEqual({ kind: 'ok', value: { blockedBy: page, blocks: { items: [], hasMore: false } } });
+    expect(await run(true)).toEqual({ kind: 'failed' });
+  });
+  it.each(['app', 'task'])('keeps an unavailable %s neutral before reading relations', async (missing) => {
+    request.mockImplementation(async (q: string) => q === AGENT_TASKS_APP_QUERY ? { app: missing === 'app' ? null : app } : { agentTask: null });
+    await expect(GET(event())).rejects.toMatchObject({ status: 404 });
+    expect(request.mock.calls.map(([q]) => q)).not.toContain(TASK_BLOCKED_BY_PAGE_QUERY);
+  });
+
 });

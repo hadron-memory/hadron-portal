@@ -62,15 +62,14 @@ describe('relation forward pages', () => {
     expect(fetcher.mock.calls[0][0]).toBe(fetcher.mock.calls[1][0]);
     expect(m.target.textContent).not.toContain('Couldn’t load more Waits for. Try again.');
   });
-  it.each(['task', 'app', 'destroy'])('discards a pending page after %s changes', async (change) => {
+  it.each(['task', 'app'])('discards a pending page after %s changes', async (change) => {
     const hold = deferred(); vi.stubGlobal('fetch', vi.fn().mockReturnValue(hold.promise)); const m = await setup();
     button(m.target, 'Load more Waits for').click(); await tick();
     if (change === 'task') m.props.task = { ...m.props.task, id: 'other' };
     else if (change === 'app') m.props.appId = 'other-app';
-    else m.unmount();
     await tick(3); hold.resolve({ kind: 'ok', value: { items: [choice('stale')], hasMore: false } }); await tick(5);
     expect(m.target.textContent).not.toContain('Task stale');
-    if (change !== 'destroy') expect(m.target.textContent).not.toContain('Task 0');
+    expect(m.target.textContent).not.toContain('Task 0');
   });
   it('rejects foreign rows, keeps the earlier view and does not infer counts', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ kind: 'ok', value: { items: [choice('secret', 'foreign')], hasMore: false } })));
@@ -115,13 +114,13 @@ describe('relation forward pages', () => {
     filter(m.target, 'stale'); await tick(3); expect(m.target.textContent).not.toContain('Task stale');
   });
 
-  it('rejects a repeated page without advancing its cursor or silently discarding rows', async () => {
+  it('rejects a repeated page and offers reload instead of repeating the shifted offset', async () => {
     const fetcher = vi.fn().mockResolvedValue(reply({ kind: 'ok', value: { items: [choice('0')], hasMore: true } }));
     vi.stubGlobal('fetch', fetcher); const m = await setup();
     button(m.target, 'Load more Waits for').click(); await tick(5);
     expect(m.target.textContent).toContain('Loaded rows are unchanged.');
-    button(m.target, 'Load more Waits for').click(); await tick(5);
-    expect(fetcher.mock.calls[0][0]).toBe(fetcher.mock.calls[1][0]);
+    expect(m.target.querySelector('a[data-sveltekit-reload]')).not.toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it.each(['STARTED', 'FINISHED', 'impersonation'])('later pages do not grant Remove under %s', async (state) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ kind: 'ok', value: { items: [choice('later')], hasMore: false } })));
@@ -132,6 +131,17 @@ describe('relation forward pages', () => {
     filter(m.target, 'Task later'); await tick(3);
     expect(m.target.textContent).toContain('Task later');
     expect(m.target.querySelector('form[action="?/removeBlocker"]')).toBeNull();
+  });
+
+  it('does not consume a delayed page after destruction (onDestroy-generation mutant fails)', async () => {
+    const hold = deferred(); const consumed = vi.fn();
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(hold.promise));
+    const m = await setup();
+    button(m.target, 'Load more Waits for').click(); await tick();
+    m.unmount();
+    hold.resolve({ kind: 'ok', get value() { consumed(); return { items: [choice('late')], hasMore: false }; } });
+    await tick(5);
+    expect(consumed).not.toHaveBeenCalled();
   });
 
 });
