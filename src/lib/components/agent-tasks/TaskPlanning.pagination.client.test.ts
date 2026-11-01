@@ -25,13 +25,14 @@ function filter(target: HTMLElement, query: string) {
   const input = target.querySelector<HTMLInputElement>('input[aria-label="Filter loaded relations…"]')!;
   input.value = query; input.dispatchEvent(new Event('input', { bubbles: true }));
 }
-function deferred() { let resolve!: (value: Response) => void; return { promise: new Promise<Response>((r) => resolve = r), resolve: (body: unknown) => resolve(new Response(JSON.stringify(body))) }; }
+const reply = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+function deferred() { let resolve!: (value: Response) => void; return { promise: new Promise<Response>((r) => resolve = r), resolve: (body: unknown) => resolve(reply(body)) }; }
 
 describe('relation forward pages', () => {
   it('reads beyond 200 independently in both directions and removes a later blocker then refreshes', async () => {
     const fetcher = vi.fn().mockImplementation(async (url: string) => {
       const direction = new URL(url, 'http://localhost').searchParams.get('direction');
-      return new Response(JSON.stringify({ kind: 'ok', value: { items: [choice(direction === 'blockedBy' ? 'later' : 'held')], hasMore: false } }));
+      return reply({ kind: 'ok', value: { items: [choice(direction === 'blockedBy' ? 'later' : 'held')], hasMore: false } });
     });
     vi.stubGlobal('fetch', fetcher); const m = await setup();
     button(m.target, 'Load more Waits for').click(); await tick(5);
@@ -52,7 +53,7 @@ describe('relation forward pages', () => {
     expect(m.target.querySelector('form[action="?/removeBlocker"]')).toBeNull();
   });
   it('retains loaded rows on a failed next page and retries the same offset, never claims empty', async () => {
-    const fetcher = vi.fn().mockRejectedValueOnce(new Error('private fault')).mockResolvedValue(new Response(JSON.stringify({ kind: 'ok', value: { items: [choice('later')], hasMore: false } })));
+    const fetcher = vi.fn().mockRejectedValueOnce(new Error('private fault')).mockResolvedValue(reply({ kind: 'ok', value: { items: [choice('later')], hasMore: false } }));
     vi.stubGlobal('fetch', fetcher); const m = await setup();
     button(m.target, 'Load more Waits for').click(); await tick(5);
     expect(m.target.textContent).toContain('Couldn’t load more Waits for. Try again.');
@@ -69,13 +70,68 @@ describe('relation forward pages', () => {
     else m.unmount();
     await tick(3); hold.resolve({ kind: 'ok', value: { items: [choice('stale')], hasMore: false } }); await tick(5);
     expect(m.target.textContent).not.toContain('Task stale');
-    if (change !== 'destroy') { filter(m.target, 'stale'); await tick(3); expect(m.target.textContent).not.toContain('Task stale'); }
+    if (change !== 'destroy') expect(m.target.textContent).not.toContain('Task 0');
   });
   it('rejects foreign rows, keeps the earlier view and does not infer counts', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ kind: 'ok', value: { items: [choice('secret', 'foreign')], hasMore: false } }))));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ kind: 'ok', value: { items: [choice('secret', 'foreign')], hasMore: false } })));
     const m = await setup(); button(m.target, 'Load more Waits for').click(); await tick(5);
     expect(m.target.textContent).toContain('Couldn’t load more Waits for. Try again.');
     filter(m.target, 'secret'); await tick(3); expect(m.target.textContent).not.toContain('Task secret');
     expect(m.target.textContent).not.toContain('total relations');
   });
+  it('uses hasMore even on a short page and advances by served rows only', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(reply({ kind: 'ok', value: { items: [choice('later')], hasMore: true } })).mockResolvedValueOnce(reply({ kind: 'ok', value: { items: [], hasMore: false } }));
+    vi.stubGlobal('fetch', fetcher); const m = await setup();
+    button(m.target, 'Load more Waits for').click(); await tick(5);
+    button(m.target, 'Load more Waits for').click(); await tick(5);
+    expect(fetcher.mock.calls.map(([url]) => String(url))).toEqual([
+      '/app/apps/app/tasks/task/relations?direction=blockedBy&offset=200',
+      '/app/apps/app/tasks/task/relations?direction=blockedBy&offset=201',
+    ]);
+    expect(Array.from(m.target.querySelectorAll('button')).some((b) => b.textContent === 'Load more Waits for')).toBe(false);
+  });
+  it('keeps a new read locked when an old A → B → A reply settles', async () => {
+    const old = deferred(); const next = deferred();
+    const fetcher = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise);
+    vi.stubGlobal('fetch', fetcher); const m = await setup(); const original = m.props.task;
+    button(m.target, 'Load more Waits for').click(); await tick();
+    m.props.task = { ...original, id: 'B' }; m.props.dependencies = first(); await tick(3);
+    m.props.task = original; m.props.dependencies = first(); await tick(3);
+    button(m.target, 'Load more Waits for').click(); await tick();
+    old.resolve({ kind: 'ok', value: { items: [choice('old')], hasMore: false } }); await tick(5);
+    expect(button(m.target, 'Load more Waits for').disabled).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    next.resolve({ kind: 'ok', value: { items: [choice('new')], hasMore: false } }); await tick(5);
+    filter(m.target, 'Task old'); await tick(3); expect(m.target.textContent).not.toContain('Task old');
+    filter(m.target, 'Task new'); await tick(3); expect(m.target.textContent).toContain('Task new');
+  });
+  it('a committed removal refresh discards a relation read from the old snapshot', async () => {
+    const old = deferred(); vi.stubGlobal('fetch', vi.fn().mockReturnValue(old.promise)); const m = await setup();
+    button(m.target, 'Load more Waits for').click(); await tick();
+    navigationHooks.onInvalidateAll = () => { m.props.dependencies = { kind: 'ok', value: { blockedBy: { items: [choice('fresh')], hasMore: false }, blocks: { items: [], hasMore: false } } }; };
+    await submitEnhancedWithResult(m.target.querySelector<HTMLFormElement>('form[action="?/removeBlocker"]')!, { type: 'success', status: 200, data: {} }); await tick(3);
+    old.resolve({ kind: 'ok', value: { items: [choice('stale')], hasMore: false } }); await tick(5);
+    expect(m.target.textContent).toContain('Task fresh');
+    filter(m.target, 'stale'); await tick(3); expect(m.target.textContent).not.toContain('Task stale');
+  });
+
+  it('rejects a repeated page without advancing its cursor or silently discarding rows', async () => {
+    const fetcher = vi.fn().mockResolvedValue(reply({ kind: 'ok', value: { items: [choice('0')], hasMore: true } }));
+    vi.stubGlobal('fetch', fetcher); const m = await setup();
+    button(m.target, 'Load more Waits for').click(); await tick(5);
+    expect(m.target.textContent).toContain('Loaded rows are unchanged.');
+    button(m.target, 'Load more Waits for').click(); await tick(5);
+    expect(fetcher.mock.calls[0][0]).toBe(fetcher.mock.calls[1][0]);
+  });
+  it.each(['STARTED', 'FINISHED', 'impersonation'])('later pages do not grant Remove under %s', async (state) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ kind: 'ok', value: { items: [choice('later')], hasMore: false } })));
+    const m = await setup();
+    if (state === 'impersonation') m.props.canWrite = false;
+    else m.props.task = { ...m.props.task, status: state };
+    await tick(3); button(m.target, 'Load more Waits for').click(); await tick(5);
+    filter(m.target, 'Task later'); await tick(3);
+    expect(m.target.textContent).toContain('Task later');
+    expect(m.target.querySelector('form[action="?/removeBlocker"]')).toBeNull();
+  });
+
 });

@@ -5297,6 +5297,18 @@ export const TASK_DEPENDENCIES_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1393: one bounded direction per request; the other page is untouched.
+export const TASK_BLOCKED_BY_PAGE_QUERY = /* GraphQL */ `
+  query TaskBlockedByPage($id: ID!, $offset: Int!) {
+    agentTask(id: $id) { id appId blockedBy(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
+  }
+`;
+export const TASK_BLOCKS_PAGE_QUERY = /* GraphQL */ `
+  query TaskBlocksPage($id: ID!, $offset: Int!) {
+    agentTask(id: $id) { id appId blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
+  }
+`;
+
 // #1033: arbitrary registered Channels use the same envelope and stable seq cursors.
 export const CHANNEL_MESSAGES_QUERY = /* GraphQL */ `
   # #793: beforeSeq (server #1116) is the BACKWARD mirror of sinceSeq — only
