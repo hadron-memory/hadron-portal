@@ -10,14 +10,14 @@ Refs #1433. These are author checks; they do not replace the review or QA seats.
 
 **Fixture**
 Synthetic nodes in `e2e-alpha:knowledge`:
-- `specs` / `specs:auth` / `specs:auth:oauth` / `specs:auth:jwt`, where `jwt`'s body links `[[specs:auth]]`, `[[specs:auth:oauth|the OAuth spec]]`, `[[welcome]]` and the dangling `[[specs:never-written]]`;
+- `specs` / `specs:auth` / `specs:auth:oauth` / `specs:auth:jwt`, where `jwt`'s body links `[[specs:auth]]`, `[[specs:auth:oauth|the OAuth spec]]`, `[[welcome]]` and the dangling `[[specs:never-written]]`; <!-- bare-loc-ok: synthetic fixture locs, not citations -->
 - a chat root `chats:design` with the message `chats:design:messages:001`.
 
 **Observed, identical in light and dark** ([results.json](results.json)):
 - **Breadcrumb:** "Specifications" and "Authentication" are links to their nodes; on the jwt page nothing offers "Create parent node". On the message, "Design chat" is a link, and "Create parent node" is offered only for `chats` and `messages`, which have no node.
-- **Wikilinks:** three resolve to node links with the node name as label. `[[specs:never-written]]` is the only unresolved marker.
+- **Wikilinks:** three resolve to node links with the node name as label. `[[specs:never-written]]` is the only unresolved marker. <!-- bare-loc-ok -->
 - **Open chat:** the chat message offers "Open chat" in the node actions menu.
-- **Edge target:** typing "auth" suggests `specs:auth` and `specs:auth:oauth` from this memory. The native datalist popup is not captured by a screenshot; the options are in results.json.
+- **Edge target:** typing "auth" suggests `specs:auth` and `specs:auth:oauth` from this memory. The native datalist popup is not captured by a screenshot; the options are in results.json. <!-- bare-loc-ok -->
 
 Ground rules 1-6 (build-portal-ui): pass. No new headings or buttons: the change adds suggestions to two existing inputs and turns the degraded crumbs and links back into links.
 
