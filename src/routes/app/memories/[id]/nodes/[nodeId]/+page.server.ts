@@ -32,7 +32,7 @@ import { resolveWikilinks } from '$lib/server/wikilinks';
 import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import { loadCommentSummary, loadDiscussion, sendCommentWrite } from '$lib/server/comments';
 import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
-import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, isTeamChannelChat, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -445,7 +445,13 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // input the action re-derives it from), not from the parent layout's memory —
   // a partial/streamed layout must not be able to hide a composer the action
   // would happily accept, or offer one it would reject.
-  const canPostChat = chatPostTarget(node, chatEvidence).kind !== 'none';
+  const chatTarget = chatPostTarget(node, chatEvidence);
+  const canPostChat = chatTarget.kind !== 'none';
+  // portal#1525: is this the App's team CHANNEL? The entry button branches on
+  // it (icon-only full-screen entry vs the text button every other chat
+  // keeps), on the same predicate the composer trusts — the entry can never
+  // disagree with where a post would land.
+  const isTeamChannel = isTeamChannelChat(node, chatEvidence);
   // #793: a bounded WINDOW (the newest CHAT_PAGE_SIZE), not the whole thread.
   // The page also carries `hasOlder` so the Chat tab can offer scrollback
   // instead of silently presenting a window as the complete transcript.
@@ -571,10 +577,14 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     chatHasOlder: chatMessages?.hasOlder ?? false,
     chatOffset: chatMessages?.offset ?? 0,
     canPostChat,
+    // portal#1525: the header's full-screen entry branch. See `chatTarget`.
+    isTeamChannel,
     sendChatMessageForm,
     // `?tab=` deep-links a specific tab (the page falls back to its own default
-    // for an unknown value). Used by the full-screen chat's "View node details"
-    // link, which must land on Content — a chat node opens on Chat otherwise.
+    // for an unknown value). Used by the full-screen chat's way back — "View
+    // node details" on agent/other chats (which must land on Content), the
+    // Collapse button on a team Channel (which lands on Chat) — a chat node
+    // opens on Chat otherwise.
     initialTab: url.searchParams.get('tab'),
     breadcrumb,
     wikilinks,
