@@ -1,11 +1,16 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import AgentExtendedBy from './AgentExtendedBy.svelte';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 const mounted: Mounted<any>[] = [];
-afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); resetNavigationCalls(); });
+// #1503: Retry re-reads the section's own endpoint instead of invalidating the
+// route, so the stub surface is fetch, not $app/navigation.
+const fetchMock = vi.fn();
+vi.stubGlobal('fetch', fetchMock);
+const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body }) as Response;
+afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); resetNavigationCalls(); fetchMock.mockReset(); });
 async function show(result: { items: Array<{ id: string; name: string; urn: string }>; hasMore: boolean; endCursor: string | null; failed: boolean }, requestedAfter: string | null = null) {
   setStubPage('http://localhost/app/agents/base');
   const m = mountComponent(AgentExtendedBy, { agentId: 'base', result, requestedAfter } as never); mounted.push(m); await tick(5); return m.target;
@@ -108,17 +113,18 @@ it('resets search and local row position only across Agent/requested-page identi
   expect(size.value).toBe('10');
 });
 
-it.each([null, 'opaque+/='])('Retry actually re-fetches the current failed page and restores section focus (%s)', async (after) => {
+it.each([null, 'opaque+/='])('Retry re-reads the section endpoint for the failed page exactly once and restores section focus (%s)', async (after) => {
   const target = await show({ ...empty, failed: true }, after);
-  let finish!: () => void;
-  navigationHooks.onInvalidateAll = () => new Promise<void>(resolve => { finish = resolve; });
+  let finish!: (body: unknown) => void;
+  fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = body => resolve(ok(body)); }));
   const retry = [...target.querySelectorAll<HTMLAnchorElement>('nav a')].find(a => a.textContent === 'Retry')!;
   retry.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
   await tick(2);
-  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(1);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(fetchMock.mock.calls[0][0]).toBe(after === null ? '/app/agents/base/extended-by' : '/app/agents/base/extended-by?after=opaque%2B%2F%3D');
   retry.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(1);
-  finish(); await tick(5);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  finish({ ...empty, failed: false }); await tick(5);
   expect(document.activeElement).toBe(target.querySelector('#extended-by'));
 });
 it('first-page failure copy only offers the Retry action that is present', async () => {
@@ -129,12 +135,12 @@ it('first-page failure copy only offers the Retry action that is present', async
 
 it('a completed Retry does not move focus after its section unmounts', async () => {
   const target = await show({ ...empty, failed: true });
-  let finish!: () => void;
-  navigationHooks.onInvalidateAll = () => new Promise<void>(resolve => { finish = resolve; });
+  let finish!: (body: unknown) => void;
+  fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = body => resolve(ok(body)); }));
   target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(2);
   mounted[mounted.length - 1].unmount();
   const other = document.createElement('input'); document.body.append(other); other.focus();
-  try { finish(); await tick(5); expect(document.activeElement).toBe(other); }
+  try { finish({ ...empty, failed: false }); await tick(5); expect(document.activeElement).toBe(other); }
   finally { other.remove(); }
 });
 
@@ -152,9 +158,14 @@ it('keeps search when a parent replaces its loader Agent object with the same id
   search.value = 'Ext 1'; search.dispatchEvent(new Event('input', { bubbles: true })); await tick(5);
   loader.agent = { id: 'base' }; loader.result = { ...loader.result }; await tick(5);
   expect(search.value).toBe('Ext 1');
-  navigationHooks.onInvalidateAll = () => { loader.agent = { id: 'base' }; loader.result = { ...loader.result }; };
-  m.target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(5);
+  // #1503: a local Retry swap must not reset the filter either — only a page
+  // identity change may.
+  let succeed!: (body: unknown) => void;
+  fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { succeed = body => resolve(ok(body)); }));
+  m.target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(2);
+  succeed({ items: [{ id: 'c', name: 'Ext 1 child', urn: 'hrn:agent:example.com:c' }], hasMore: false, endCursor: null, failed: false }); await tick(5);
   expect(search.value).toBe('Ext 1');
+  expect(m.target.querySelector('a[href="/app/agents/c"]')?.textContent).toBe('Ext 1 child');
   loader.after = 'next'; await tick(5);
   expect(search.value).toBe('');
   search.value = 'Ext 1'; search.dispatchEvent(new Event('input', { bubbles: true })); await tick(5);
@@ -179,33 +190,35 @@ it.each([
   retry.dispatchEvent(event);
   await tick(2);
   expect(event.defaultPrevented).toBe(false);
-  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(0);
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(navigationCalls).toHaveLength(0);
   expect(document.activeElement).toBe(retry);
   expect(retry.getAttribute('href')).toBe('/app/agents/base?extendedAfter=opaque%2B%2F%3D');
   expect(retry.hasAttribute('data-sveltekit-reload')).toBe(true);
 });
-it('Retry leaves middle-button auxclick native without invalidation', async () => {
+it('Retry leaves middle-button auxclick native without a section read', async () => {
   const target = await show({ ...empty, failed: true });
   const event = new MouseEvent('auxclick', { button: 1, bubbles: true, cancelable: true });
   target.querySelector<HTMLAnchorElement>('nav a')!.dispatchEvent(event);
   await tick(2);
   expect(event.defaultPrevented).toBe(false);
-  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(0);
+  expect(fetchMock).not.toHaveBeenCalled();
+  expect(navigationCalls).toHaveLength(0);
 });
 it('Retry intercepts plain primary clicks and ignores modified activations during a pending retry', async () => {
   const target = await show({ ...empty, failed: true });
-  let finish!: () => void;
-  navigationHooks.onInvalidateAll = () => new Promise<void>(resolve => { finish = resolve; });
+  let finish!: (body: unknown) => void;
+  fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = body => resolve(ok(body)); }));
   const retry = target.querySelector<HTMLAnchorElement>('nav a')!;
   const plain = new MouseEvent('click', { button: 0, bubbles: true, cancelable: true });
   retry.dispatchEvent(plain);
   expect(plain.defaultPrevented).toBe(true);
-  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(1);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
   const modified = new MouseEvent('click', { ctrlKey: true, bubbles: true, cancelable: true });
   retry.dispatchEvent(modified);
   expect(modified.defaultPrevented).toBe(false);
-  expect(navigationCalls.filter(c => c.fn === 'invalidateAll')).toHaveLength(1);
-  finish(); await tick(5);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  finish({ ...empty, failed: true }); await tick(5);
 });
 
 // #1311: Retry gives a pending cue and makes a repeated identical failure
@@ -225,9 +238,9 @@ describe('Retry feedback (#1311)', () => {
     return { root: m.target, loader };
   }
   function hold() {
-    let finish!: () => void; let fail!: (e: unknown) => void;
-    navigationHooks.onInvalidateAll = () => new Promise<void>((res, rej) => { finish = res; fail = rej; });
-    return { finish: () => finish(), fail: (e: unknown) => fail(e) };
+    let finish!: (body: unknown) => void; let fail!: (e: unknown) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((res, rej) => { finish = body => res(ok(body)); fail = e => rej(e); }));
+    return { finish: () => finish({ ...empty, failed: true }), succeed: (body: unknown) => finish(body), fail: (e: unknown) => fail(e) };
   }
 
   it('mounts an empty polite status and the failure alert before any retry', async () => {
@@ -252,8 +265,8 @@ describe('Retry feedback (#1311)', () => {
   });
 
   it.each([
-    ['the reload settles still failed', (h: ReturnType<typeof hold>) => h.finish()],
-    ['the reload itself rejects', (h: ReturnType<typeof hold>) => h.fail(new Error('route reload failed'))],
+    ['the re-read settles still failed', (h: ReturnType<typeof hold>) => h.finish()],
+    ['the re-read itself rejects', (h: ReturnType<typeof hold>) => h.fail(new Error('route reload failed'))],
   ] as const)('re-announces an identical failure when %s, in the same alert node', async (_l, settle) => {
     const { root } = await mountLoader();
     const a = alert(root), s = status(root), table = root.querySelector('table');
@@ -273,14 +286,104 @@ describe('Retry feedback (#1311)', () => {
   });
 
   it('clears pending on success and announces no failure', async () => {
-    const { root, loader } = await mountLoader();
+    const { root } = await mountLoader();
     const a = alert(root), s = status(root);
-    navigationHooks.onInvalidateAll = () => { loader.result = { items: [{ id: 'c', name: 'Child', urn: 'hrn:agent:example.com:c' }] as never, hasMore: false, endCursor: null, failed: false }; };
-    retryLink(root).click(); await tick(5);
+    const h = hold();
+    retryLink(root).click(); await tick(2);
+    h.succeed({ items: [{ id: 'c', name: 'Child', urn: 'hrn:agent:example.com:c' }], hasMore: false, endCursor: null, failed: false }); await tick(5);
     expect(alert(root)).toBe(a);
     expect(a!.textContent?.trim()).toBe('');
     expect(status(root)).toBe(s);
     expect(s!.textContent?.trim()).toBe('');
     expect(root.querySelector('a[href="/app/agents/c"]')?.textContent).toBe('Child');
+  });
+});
+
+// #1503: Retry re-reads only this section. A failed re-read must land inside
+// the section — alert refilled, page in place, URL untouched — and never hand
+// the failure to the router, which renders its error page over the Agent page
+// (that is the whole reason invalidateAll is gone from this component).
+describe('section-owned retry (#1503)', () => {
+  const FAILED = 'Could not load extending Agents. Retry this page.';
+  const retryLink = (root: HTMLElement) => root.querySelector<HTMLAnchorElement>('nav a')!;
+  const alertEl = (root: HTMLElement) => root.querySelector<HTMLElement>('#extended-by-alert')!;
+
+  it('keeps the page in place when the re-read is network-aborted, and re-announces the failure', async () => {
+    const target = await show({ ...empty, failed: true });
+    const a = alertEl(target);
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    retryLink(target).click(); await tick(5);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // No router call of any kind: that is what used to render the 500 page.
+    expect(navigationCalls).toHaveLength(0);
+    expect(alertEl(target)).toBe(a);
+    expect(a.textContent).toBe(FAILED);
+    expect(retryLink(target).textContent).toBe('Retry');
+    expect(document.activeElement).toBe(target.querySelector('#extended-by'));
+  });
+
+  it.each([401, 500, 503])('treats an HTTP %s answer as a failed read, not a payload', async (status) => {
+    const target = await show({ ...empty, failed: true });
+    fetchMock.mockResolvedValueOnce({ ok: false, status, json: async () => ({}) } as Response);
+    retryLink(target).click(); await tick(5);
+    expect(alertEl(target).textContent).toBe(FAILED);
+    expect(navigationCalls).toHaveLength(0);
+  });
+
+  it.each([
+    ['null payload', null],
+    ['items not an array', { items: 'nope', hasMore: false, endCursor: null, failed: true }],
+    ['item without a urn', { items: [{ id: 'c', name: 'Child' }], hasMore: false, endCursor: null, failed: true }],
+    ['item with a non-string id', { items: [{ id: 7, name: 'Child', urn: 'hrn:agent:example.com:c' }], hasMore: false, endCursor: null, failed: true }],
+    ['hasMore not a boolean', { items: [], hasMore: 'yes', endCursor: null, failed: true }],
+    ['endCursor neither string nor null', { items: [], hasMore: false, endCursor: 3, failed: true }],
+    ['failed flag absent', { items: [], hasMore: false, endCursor: null }],
+  ] as const)('refuses a malformed %s before rendering it', async (_label, body) => {
+    const target = await show({ ...empty, failed: true });
+    fetchMock.mockResolvedValueOnce(ok(body));
+    retryLink(target).click(); await tick(5);
+    expect(alertEl(target).textContent).toBe(FAILED);
+    // No partial garbage reached the table: zero row links.
+    expect(target.querySelector('table')?.querySelectorAll('a')).toHaveLength(0);
+    expect(navigationCalls).toHaveLength(0);
+  });
+
+  it('swaps the section view on success: alert clears, Retry withdraws, continuation is offered', async () => {
+    const target = await show({ ...empty, failed: true }, 'previous');
+    fetchMock.mockResolvedValueOnce(ok({ items: [{ id: 'c', name: 'Child', urn: 'hrn:agent:example.com:c' }], hasMore: true, endCursor: 'opaque+/=', failed: false }));
+    retryLink(target).click(); await tick(5);
+    expect(alertEl(target).textContent?.trim()).toBe('');
+    expect(target.querySelector('a[href="/app/agents/c"]')?.textContent).toBe('Child');
+    expect([...target.querySelectorAll('nav a')].map(a => a.textContent)).toEqual(['First page', 'Next 20 extending Agents']);
+    expect(target.querySelector('a[href="/app/agents/base?extendedAfter=opaque%2B%2F%3D#extended-by"]')).not.toBeNull();
+  });
+
+  it('a loader-produced prop replacement supersedes a successful local retry', async () => {
+    setStubPage('http://localhost/app/agents/base');
+    const props = reactiveProps({ result: { ...empty, failed: true } as typeof empty });
+    const m = mountComponent(AgentExtendedBy, { agentId: 'base', requestedAfter: null, get result() { return props.result; } } as never);
+    mounted.push(m); await tick(5);
+    fetchMock.mockResolvedValueOnce(ok({ items: [{ id: 'c', name: 'Child', urn: 'hrn:agent:example.com:c' }], hasMore: false, endCursor: null, failed: false }));
+    m.target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(5);
+    expect(m.target.querySelector('a[href="/app/agents/c"]')).not.toBeNull();
+    // The user navigates (Next) and THAT read fails: the loader's page wins.
+    props.result = { ...empty, failed: true }; await tick(5);
+    expect(m.target.querySelector('a[href="/app/agents/c"]')).toBeNull();
+    expect(alertEl(m.target).textContent).toBe(FAILED);
+    expect(m.target.querySelector<HTMLAnchorElement>('nav a')!.textContent).toBe('Retry');
+  });
+
+  it('a rejected re-read after unmount records no unhandled rejection and steals no focus', async () => {
+    const rejections = await captureUnhandledRejections(async () => {
+      const target = await show({ ...empty, failed: true });
+      let reject!: (e: unknown) => void;
+      fetchMock.mockImplementationOnce(() => new Promise<Response>((_res, rej) => { reject = rej; }));
+      target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(2);
+      mounted[mounted.length - 1].unmount();
+      const other = document.createElement('input'); document.body.append(other); other.focus();
+      try { reject(new TypeError('Failed to fetch')); await tick(5); expect(document.activeElement).toBe(other); }
+      finally { other.remove(); }
+    });
+    expect(rejections).toHaveLength(0);
   });
 });

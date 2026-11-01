@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { invalidateAll } from '$app/navigation';
   import DataTable from './table/DataTable.svelte';
   import Urn from './Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -12,12 +11,42 @@
   const baseHref = $derived(`/app/agents/${encodeURIComponent(agentId)}`);
   const firstHref = $derived(`${baseHref}#extended-by`);
   const retryHref = $derived(requestedAfter === null ? baseHref : `${baseHref}?extendedAfter=${encodeURIComponent(requestedAfter)}`);
+  // #1503: the section-owned re-read behind Retry. Retry must not re-run the
+  // page's loaders (invalidateAll): SvelteKit turns a failed __data.json into
+  // the root error page rendered over the Agent page, and the call resolves
+  // instead of rejecting, so no catch could ever run. This endpoint answers
+  // with the same AgentExtensions the page loader produces.
+  const retrySrc = $derived(requestedAfter === null ? `${baseHref}/extended-by` : `${baseHref}/extended-by?after=${encodeURIComponent(requestedAfter)}`);
   let section: HTMLElement;
   let retrying = $state(false);
   const retryingLabel = t('agent.extended-by.retrying', 'Retrying…');
-  const failedText = $derived(!result.failed || retrying ? '' : requestedAfter === null
+  // #1503: the section renders a working copy. Retry swaps it from the
+  // section's own endpoint; a loader-produced replacement of the `result` prop
+  // (Next/First navigation, a parent refresh) supersedes any local retry.
+  // The initial capture is deliberate; the effect below carries every later
+  // prop replacement. Same pattern as BootPromptPointer.
+  // svelte-ignore state_referenced_locally
+  let view = $state(result);
+  $effect(() => { view = result; });
+  const failedText = $derived(!view.failed || retrying ? '' : requestedAfter === null
     ? t('agent.extended-by.failed-first', 'Could not load extending Agents. Retry this page.')
     : t('agent.extended-by.failed', 'Could not load extending Agents. Retry this page, or return to the first page.'));
+  // Refuse a malformed payload before rendering it: anything that is not a
+  // well-formed AgentExtensions is a failed read, never partial garbage.
+  function parseExtensions(payload: unknown): AgentExtensions | null {
+    if (typeof payload !== 'object' || payload === null) return null;
+    const p = payload as Record<string, unknown>;
+    if (!Array.isArray(p.items)
+      || !p.items.every((it): it is AgentIdentity =>
+        typeof it === 'object' && it !== null
+        && typeof (it as Record<string, unknown>).id === 'string'
+        && typeof (it as Record<string, unknown>).name === 'string'
+        && typeof (it as Record<string, unknown>).urn === 'string')
+      || typeof p.hasMore !== 'boolean'
+      || (p.endCursor !== null && typeof p.endCursor !== 'string')
+      || typeof p.failed !== 'boolean') return null;
+    return { items: p.items, endCursor: p.endCursor as string | null, hasMore: p.hasMore, failed: p.failed };
+  }
   async function retry(event: MouseEvent) {
     // Modified links retain native tab/window/download behavior, even while a
     // plain retry is pending. Browsers deliver middle clicks through auxclick.
@@ -26,9 +55,13 @@
     if (retrying) return;
     retrying = true;
     try {
-      await invalidateAll();
+      const response = await fetch(retrySrc, { headers: { accept: 'application/json' } });
+      if (!response.ok) throw new Error(`extended-by reload failed (${response.status})`);
+      const fresh = parseExtensions(await response.json());
+      if (!fresh) throw new Error('extended-by reload returned a malformed payload');
+      if (section?.isConnected) view = fresh;
     } catch {
-      // Keep the existing failed-read feedback if the route itself cannot reload.
+      // Keep the failed-read alert; the page and its URL are untouched.
     } finally {
       retrying = false;
       if (section?.isConnected) section.focus();
@@ -40,7 +73,7 @@
   ];
   let filter = $state('');
   const table = createSvelteTable<AgentIdentity>({
-    get data() { return result.items; },
+    get data() { return view.items; },
     columns,
     enableColumnResizing: true,
     columnResizeMode: 'onChange',
@@ -71,8 +104,8 @@
     <p id="extended-by-status" role="status" class="sr-only">{retrying ? retryingLabel : ''}</p>
   </div>
   <!-- A failed read is never "no extending Agents": its words are in the alert above. -->
-  {#if !result.failed && result.items.length === 0}
-    <p class="text-sm text-zinc-500">{result.hasMore
+  {#if !view.failed && view.items.length === 0}
+    <p class="text-sm text-zinc-500">{view.hasMore
       ? t('agent.extended-by.incomplete', 'No readable Agents on this page. Continue to check for more results.')
       : requestedAfter === null
         ? t('agent.extended-by.empty-first', 'No Agents you can read extend this Agent.')
@@ -88,14 +121,14 @@
       {/snippet}
   </DataTable>
   <nav class="flex flex-wrap gap-4 text-sm" aria-label={t('agent.extended-by.paging', 'Extending Agents pages')}>
-    {#if result.failed}
+    {#if view.failed}
       <a class="text-indigo-600 hover:underline dark:text-indigo-400" href={retryHref} data-sveltekit-reload onclick={retry} aria-disabled={retrying}>{retrying ? retryingLabel : t('agent.extended-by.retry', 'Retry')}</a>
     {/if}
     {#if requestedAfter !== null}
       <a class="text-indigo-600 hover:underline dark:text-indigo-400" href={firstHref}>{t('agent.extended-by.first', 'First page')}</a>
     {/if}
-    {#if !result.failed && result.hasMore && result.endCursor}
-      <a class="text-indigo-600 hover:underline dark:text-indigo-400" href="{baseHref}?extendedAfter={encodeURIComponent(result.endCursor)}#extended-by">{t('agent.extended-by.next', 'Next 20 extending Agents')}</a>
+    {#if !view.failed && view.hasMore && view.endCursor}
+      <a class="text-indigo-600 hover:underline dark:text-indigo-400" href="{baseHref}?extendedAfter={encodeURIComponent(view.endCursor)}#extended-by">{t('agent.extended-by.next', 'Next 20 extending Agents')}</a>
     {/if}
   </nav>
 </section>
