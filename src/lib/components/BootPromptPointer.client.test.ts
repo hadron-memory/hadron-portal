@@ -13,7 +13,7 @@ import BootPromptPointer from './BootPromptPointer.svelte';
 
 const URN = 'hrn:node:acme.com:team-sys:boot:compiled';
 // portal#1399: what is served today (hrn:node:hadronmemory.com:specs:cor:agt:040:07, :10).
-const SERVED = 'Agents start with the newest approved revision of the compiled prompt this names. A worker’s pointer comes first, then the App’s, then the Agent’s.';
+const SERVED = 'Agents start with the newest approved revision of the compiled prompt named by the highest set pointer: the worker’s, else the App’s, else the Agent’s.';
 const OLD_NOT_SERVED = /not used to start agents yet/i;
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
@@ -44,11 +44,15 @@ describe('BootPromptPointer', () => {
     }
   });
 
-  it('a deleted target says to clear or repoint, and never that anything is served', async () => {
+  // A deleted target is refused at boot (TARGET_DELETED), never fallen through,
+  // so the only serving copy on the card is the general rule, which names no
+  // particular target ("this names" would point at the deleted one).
+  it('a deleted target says to clear or repoint, and the served line is only the general rule', async () => {
     const { root } = await mountPointer({ read: { ok: true, ref: URN, deleted: true } });
     expect(root.querySelector('[data-pointer-state="deleted"]')?.textContent).toBe('The target was deleted; clear or repoint it.');
-    expect(root.textContent).not.toMatch(/nothing is served|is served/);
-    expect(root.textContent).toContain(SERVED);
+    const servingCopy = [...root.querySelectorAll('p')].map((p) => p.textContent ?? '').filter((s) => /\bstart|serv/i.test(s));
+    expect(servingCopy).toEqual([SERVED]);
+    expect(SERVED).not.toMatch(/\bthis\b/);
   });
 
   it('a null pair is "Not shown", never "no pointer", and has no chip', async () => {

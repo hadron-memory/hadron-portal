@@ -76,7 +76,7 @@ describe('Worker Boot briefing: boot-prompt pointer (portal#1142 S8)', () => {
   ])('an explicit non-manager gets no form when %s: holding grants nothing', async (_label, holder) => {
     const root = await mountWorker({ data: await dataFor(worker('w-a', holder), false), form: null });
     expect(pointerForm(root)).toBeNull();
-    expect(root.textContent).toContain('Agents start with the newest approved revision of the compiled prompt this names. A worker’s pointer comes first, then the App’s, then the Agent’s.');
+    expect(root.textContent).toContain('Agents start with the newest approved revision of the compiled prompt named by the highest set pointer: the worker’s, else the App’s, else the Agent’s.');
   });
 
   it('the form carries the Boot briefing tab, so a no-JS result lands where it shows', async () => {

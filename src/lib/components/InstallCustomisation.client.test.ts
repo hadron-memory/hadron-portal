@@ -66,7 +66,7 @@ describe('install customisation panel', () => {
   it('says when customisations reach agents, never that they are not used yet', async () => {
     const root = await panel();
     expect(root.textContent).toContain(
-      'Customisations reach started agents once the App’s or a worker’s prompt is compiled and that revision is approved.',
+      'Customisations reach a started agent when its boot pointer names a prompt compiled for this App or one of its workers, once that revision is approved.',
     );
     expect(root.textContent).not.toMatch(/not used to start agents yet/i);
   });

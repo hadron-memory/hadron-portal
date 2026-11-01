@@ -96,8 +96,8 @@ export function pointerResultFor(result: PointerResult | null | undefined, key: 
  */
 export const POINTER_SERVED = () =>
   t(
-    'boot-pointer.served',
-    'Agents start with the newest approved revision of the compiled prompt this names. A worker’s pointer comes first, then the App’s, then the Agent’s.',
+    'boot-pointer.served-rule',
+    'Agents start with the newest approved revision of the compiled prompt named by the highest set pointer: the worker’s, else the App’s, else the Agent’s.',
   );
 
 export function pointerRefusalLead(code: string | null, owner: PointerOwner): string | null {

@@ -301,7 +301,7 @@ describe('Agents tab: boot-prompt pointers (portal#1142 S8)', () => {
     expect(panel.textContent).toContain('Boot prompt for Critic in this App');
     expect(panel.querySelector<HTMLInputElement>('input[name="agentRef"]')!.value).toBe('ag2');
     expect(panel.querySelector('form')!.getAttribute('action')).toBe('?tab=agents&/setAppAgentBootPrompt');
-    expect(panel.textContent).toContain('Agents start with the newest approved revision of the compiled prompt this names. A worker’s pointer comes first, then the App’s, then the Agent’s.');
+    expect(panel.textContent).toContain('Agents start with the newest approved revision of the compiled prompt named by the highest set pointer: the worker’s, else the App’s, else the Agent’s.');
   });
 
   it('a result for one row never shows on another, and a refused draft stays on its own row', async () => {

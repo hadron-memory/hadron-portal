@@ -234,7 +234,7 @@
   {#if onClose}<button type="button" class={secondaryButton} disabled={busy} onclick={close}>{t('customisation.close','Close')}</button>{/if}
   </div>
   {#if agent.urn}<div class="mt-1"><Urn value={agent.urn} compact /></div>{/if}
-  <p class="mt-3 text-sm text-zinc-500">{t('customisation.served','Customisations reach started agents once the App’s or a worker’s prompt is compiled and that revision is approved.')}</p>
+  <p class="mt-3 text-sm text-zinc-500">{t('customisation.served-by-pointer','Customisations reach a started agent when its boot pointer names a prompt compiled for this App or one of its workers, once that revision is approved.')}</p>
   <p class="text-sm text-zinc-500">{t('customisation.compile-only','Replacements apply when compiling for this App. Ordinary node reads are unchanged.')}</p>
   {#if read.list.state==='loading'}<p role="status">{t('customisation.loading','Loading…')}</p>
   {:else if read.list.state==='failed'}<p role="alert">{t('customisation.load-failed','Couldn’t load customisations.')}</p><button type="button" class={secondaryButton} disabled={busy} onclick={()=>openPage(offset,loc)}>{t('customisation.retry','Retry')}</button>
