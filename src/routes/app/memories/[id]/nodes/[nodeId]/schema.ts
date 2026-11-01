@@ -6,6 +6,7 @@ import {
   type ExtractionRow,
   type ExtractionShape,
 } from '$lib/flow/extraction';
+import { formatUrn, hasSchemePrefix, parseUrn, splitNodeUrn } from '$lib/urn/parse-urn';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 
 type ParsedEdges = Array<{ targetId: string; name?: string | null }>;
@@ -31,9 +32,19 @@ const seqField = z.preprocess((value) => {
 }, z.number().int().nullable()).default(null);
 
 export function isFullyQualifiedNodeUrnInput(value: string): boolean {
-  const bare = value.trim().replace(/^(?:hrn|urn):node:/, '');
-  const parts = bare.split('::');
-  return parts.length >= 3 && parts.every((part) => part.trim() !== '');
+  const input = value.trim();
+  try {
+    const prefixed = hasSchemePrefix(input);
+    // An unprefixed loc is ambiguous; only the legacy :: hierarchy can
+    // qualify without a type prefix (portal#1529 compatibility ruling).
+    if (!prefixed && !input.includes('::')) return false;
+    splitNodeUrn(input);
+    // Grammar validation alone needs a type. Add it only to the validation
+    // copy of a legacy input; never replace the submitted ownership identity.
+    return parseUrn(prefixed ? input : formatUrn('node', input)).type === 'node';
+  } catch {
+    return false;
+  }
 }
 
 function normalizedFlowRows(value: string): { ok: true; rows: ExtractionRow[] } | { ok: false; message: string } {
@@ -207,7 +218,7 @@ export const nodeUpdateFlowSchema = z.object({
     if (value !== '' && !isFullyQualifiedNodeUrnInput(value)) {
       ctx.addIssue({
         code: 'custom',
-        message: 'Output target must be a fully-qualified node URN (org::memory::loc).',
+        message: 'Output target must be a fully-qualified node URN.',
       });
     }
   }),

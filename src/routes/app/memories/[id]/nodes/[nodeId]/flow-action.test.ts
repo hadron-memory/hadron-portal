@@ -51,6 +51,19 @@ const nodeFixture = (data: unknown) => ({
 });
 
 describe('updateFlow', () => {
+  it.each([
+    'hrn:node:acme.com:flows:reports:daily',
+    'urn:node:acme.com::writer::worker::system::reports:daily',
+    'acme.com::flows::reports:daily',
+  ])('preserves the original fully-qualified output ref: %s', async (outputWriteTo) => {
+    mockRequest.mockResolvedValueOnce(nodeFixture({ other: true }));
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runUpdateFlow({ extractionRows: '[]', outputWriteTo, outputMode: 'replace' });
+    expect(superFormFrom(result)?.message).toEqual({ type: 'success', text: 'Flow settings saved.' });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+    expect(mockRequest.mock.calls[1][1].input.data).toEqual({ other: true, output: { writeTo: outputWriteTo, mode: 'replace' } });
+  });
+
   it('merges the spec into existing data without clobbering other keys', async () => {
     mockRequest.mockResolvedValueOnce(nodeFixture({ promptRef: 'prompts:x', stageOrder: [1] }));
     mockRequest.mockResolvedValueOnce({});
@@ -60,7 +73,7 @@ describe('updateFlow', () => {
         { field: 'intent', shape: 'string', description: '' },
         { field: 'confidence', shape: 'number', description: '0 to 1' },
       ]),
-      outputWriteTo: 'acme.com::flows::reports:daily',
+      outputWriteTo: 'hrn:node:acme.com::flows::reports:daily',
       outputMode: 'append',
     });
 
@@ -75,7 +88,7 @@ describe('updateFlow', () => {
         { field: 'intent' },
         { field: 'confidence', shape: 'number', description: '0 to 1' },
       ],
-      output: { writeTo: 'acme.com::flows::reports:daily', mode: 'append' },
+      output: { writeTo: 'hrn:node:acme.com::flows::reports:daily', mode: 'append' },
     });
   });
 
