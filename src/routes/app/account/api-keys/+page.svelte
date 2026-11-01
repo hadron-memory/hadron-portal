@@ -54,15 +54,35 @@
   // Toggling Show hidden keys is an in-page navigation to another view. It drops
   // the shown result, and a reply to a submit started before it is not shown.
   let view = 0;
+  const includeHiddenView = $derived(data.includeHidden);
   $effect(() => {
-    data.includeHidden;
+    includeHiddenView;
     untrack(() => { view++; visibilityNotice = null; });
   });
   // A destroyed page never sees a view change, so its scope ends with it: a
   // late reply must not reach the page mounted after it (#1500).
-  onDestroy(() => { view++; });
-  function startVisibility() {
+  const focusScopes = new Set<() => void>();
+  onDestroy(() => { view++; for (const end of focusScopes) end(); });
+  function startVisibility(formElement: HTMLFormElement) {
     const startedIn = view;
+    const origin = document.activeElement;
+    const ownedFocus = !!origin && formElement.contains(origin);
+    let lastFocus = origin instanceof HTMLElement ? origin : null;
+    let interacted = false;
+    const rememberFocus = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement && event.target !== document.body) lastFocus = event.target;
+    };
+    const interactedWithPage = () => { interacted = true; };
+    document.addEventListener('focusin', rememberFocus);
+    document.addEventListener('pointerdown', interactedWithPage);
+    document.addEventListener('keydown', interactedWithPage);
+    const end = () => {
+      document.removeEventListener('focusin', rememberFocus);
+      document.removeEventListener('pointerdown', interactedWithPage);
+      document.removeEventListener('keydown', interactedWithPage);
+      focusScopes.delete(end);
+    };
+    focusScopes.add(end);
     visibilityNotice = 'cleared';
     const current = () => startedIn === view;
     return {
@@ -70,8 +90,17 @@
       deliver: (notice: VisibilityNotice) => {
         if (!current()) return;
         visibilityNotice = notice;
-        // The row can disappear on success; keep keyboard focus on the persistent toggle.
-        if (notice.type === 'success') hiddenToggle?.focus();
+      },
+      settled: (success: boolean) => {
+        end();
+        if (!success || !current() || !ownedFocus) return;
+        // Kit resets focus in its final applyAction, after invalidateAll and
+        // the row/menu teardown. Recover only after that update has settled.
+        // A deliberate move while waiting owns focus ahead of our fallback.
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && active !== document.body && !formElement.contains(active)) return;
+        if (lastFocus !== origin && lastFocus?.isConnected) lastFocus.focus();
+        else if (!interacted) hiddenToggle?.focus();
       },
     };
   }
