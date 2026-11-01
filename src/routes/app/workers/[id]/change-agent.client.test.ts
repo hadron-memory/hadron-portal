@@ -103,4 +103,37 @@ describe('Change agent: the form', () => {
     await tick(2);
     expect(control(t2)!.textContent).not.toMatch(/at the same time/);
   });
+
+  it('an outcome-unknown result still shows, with its reload guidance, when the refreshed options are empty', async () => {
+    const unknown = { changeAgent: { key: 'w-a', refusal: { code: null, message: 'We couldn’t tell whether this worked. Reload the page before you try again.', outcomeUnknown: true } } };
+    const t = mount({ canChangeAgent: true, changeAgentOptions: [] }, unknown);
+    await tick(2);
+    expect(control(t)!.textContent).toMatch(/Reload the page before you try again/);
+  });
+
+  it('a known refusal still shows when the roster emptied underneath it', async () => {
+    const t = mount({ canChangeAgent: true, changeAgentOptions: [] }, { changeAgent: { key: 'w-a', refusal: { code: 'WORKER_AGENT_NOT_INSTALLED', message: 'That agent isn’t installed in this App.', outcomeUnknown: false } } });
+    await tick(2);
+    expect(control(t)!.textContent).toMatch(/isn.t installed in this App/);
+  });
+});
+
+describe('Change agent: an unavailable roster is not an empty one', () => {
+  it('says the agents could not be loaded and to reload, never "install one first"', async () => {
+    const t = mount({ canChangeAgent: true, changeAgentOptions: null });
+    await tick(2);
+    const text = control(t)!.textContent!;
+    expect(text).toMatch(/couldn.t load/i);
+    expect(text).toMatch(/reload/i);
+    expect(text).not.toMatch(/install one first/i);
+  });
+
+  it('success says the change takes effect at the next bind, not that the worker runs it now', async () => {
+    const t = mount({ canChangeAgent: true, changeAgentOptions: options }, { changeAgent: { key: 'w-a', ok: true, agentName: 'Reviewer', role: 'reviewer' } });
+    await tick(2);
+    const text = control(t)!.querySelector('[data-testid="change-agent-done"]')!.textContent!;
+    expect(text).toMatch(/Reviewer/);
+    expect(text).toMatch(/next bind/i);
+    expect(text).not.toMatch(/now runs/i);
+  });
 });

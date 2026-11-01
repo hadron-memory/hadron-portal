@@ -135,6 +135,18 @@ describe('loader: who is offered the control', () => {
     expect(mockRequest.mock.calls.some((c) => String(c[0]).includes('appAgents'))).toBe(false);
   });
 
+  it('a roster read that fails is an unavailable state (null), never an empty roster', async () => {
+    mockRequest.mockImplementation(async (q: string) => {
+      if (q.includes('query Worker(')) return { worker: WORKER };
+      if (q.includes('query SelfCanManage')) return { effectiveAccess: { canManage: true } };
+      if (q.includes('appAgents')) throw new Error('roster unavailable');
+      return { sessions: [], teamWorkItems: { items: [], total: 0 }, worker: null };
+    });
+    const d = await load();
+    expect(d.canChangeAgent).toBe(true);
+    expect(d.changeAgentOptions).toBeNull();
+  });
+
   it('an impersonating admin gets no control even where the manage check says yes', async () => {
     wire(true);
     const d = await load({ sessionId: 's', actorUserId: 'admin', orgId: 'o', expiresAt: Date.now() + 1000 });
