@@ -217,7 +217,11 @@ describe('the NODE pick (acceptance 5, #1576 step 2)', () => {
 
   // BLIND P3 (#1582 at d9d2c8c5): the streamed memory list rejecting left the
   // {#await} with no catch arm, so "Choose a node…" silently did nothing.
-  it('a rejected memory stream still opens the picker, degraded to an empty memory stage', async () => {
+  // AMENDED for #1585: the degraded mount STAYS (the picker opens on a
+  // rejected stream), but the memory stage now says the memories failed
+  // instead of posing as an empty readable set — the old pin asserted the
+  // empty stage's "Pick which memory to search in first." verbatim.
+  it('a rejected memory stream still opens the picker, with the stage saying the memories failed', async () => {
     // The no-op catch marks the rejection OBSERVED for the runner; the
     // component still sees a rejected promise, which is the defect's input.
     const rejected = Promise.reject(new Error('memories read failed'));
@@ -230,7 +234,8 @@ describe('the NODE pick (acceptance 5, #1576 step 2)', () => {
       (d) => d.getAttribute('aria-label') === 'Choose a node',
     );
     expect(dialog).toBeTruthy();
-    expect(dialog!.textContent).toContain('Pick which memory to search in first.');
+    expect(dialog!.textContent).toContain("Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.");
+    expect(dialog!.textContent).not.toContain('Pick which memory to search in first.');
   });
 
   // BLIND P3 (#1582 at d9d2c8c5): Clear removed the focused button and left

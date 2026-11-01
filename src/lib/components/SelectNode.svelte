@@ -21,10 +21,15 @@
    */
   let {
     memories,
+    memoriesFailed = false,
     open = $bindable(false),
     onselect,
   }: {
     memories: Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>;
+    /** The caller's memories stream REJECTED (#1585): the memory stage says so
+     * instead of posing as an empty readable set. The mount stays degraded —
+     * the picker still opens and closes normally. */
+    memoriesFailed?: boolean;
     open?: boolean;
     onselect: (node: NodeChoice) => void;
   } = $props();
@@ -34,6 +39,7 @@
   let items = $state<NodeChoice[]>([]);
   let offset = $state(0);
   let hasMore = $state(false);
+  let capped = $state(false);
   let pending = $state(false);
   let failed = $state(false);
   let searched = $state(false);
@@ -68,7 +74,7 @@
   // it was closed and reopened.
   function resetStage2() {
     generation++;
-    items = []; offset = 0; hasMore = false;
+    items = []; offset = 0; hasMore = false; capped = false;
     pending = false; failed = false; searched = false; committedQuery = '';
   }
 
@@ -103,6 +109,9 @@
       // reached. `hasMore` is likewise its call alone.
       offset = result.value.nextOffset;
       hasMore = result.value.hasMore;
+      // The endpoint owns the ceiling (#1585): a capped page means the list
+      // was truncated by the bound, not that everything was shown.
+      capped = result.value.capped === true;
       searched = true;
     } catch {
       if (current === generation) failed = true;
@@ -252,10 +261,17 @@
 
         {#if hasMore}
           <button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.nodes.picker.more', 'Load more nodes')}</button>
+        {:else if capped}
+          <!-- Not "all shown": the offset ceiling truncated the list (#1585).
+               hasMore is already false, so there is no Load more to press into
+               the 400 — this note is the honest replacement for it. -->
+          <p role="status">{t('app.nodes.picker.capped', 'Showing the first results only. Search to narrow the list.')}</p>
         {/if}
         {#if !pending && !failed && searched && items.length === 0}
           <p role="status">{t('app.nodes.picker.empty', 'No nodes found.')}</p>
         {/if}
+      {:else if memoriesFailed}
+        <p role="alert">{t('app.nodes.picker.memories-failed', 'Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.')}</p>
       {:else}
         <p class="text-sm text-zinc-600 dark:text-zinc-300">{t('app.nodes.picker.pick-memory', 'Pick which memory to search in first.')}</p>
         <button type="button" class="rounded border px-3 py-1" onclick={() => { memoryPickerOpen = true; }}>{t('app.nodes.picker.choose-memory', 'Choose a memory…')}</button>

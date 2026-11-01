@@ -23,9 +23,11 @@ const page = (raw: number, offset = 0) => ({
   }),
 });
 
-// A full raw page at this offset ends exactly ON the ceiling: the next page
-// would START past it (offset + PAGE > MAX_OFFSET), so this is the capped case.
-const CAPPED_OFFSET = MAX_NODE_CHOICES_OFFSET - NODE_CHOICES_PAGE;
+// A raw-full page STARTING inside the last window before the ceiling: its
+// next offset lands past MAX_OFFSET (99 990 + 20 = 100 010), which the
+// endpoint must refuse — so this is the capped case. (A full page starting
+// exactly PAGE below the ceiling ends ON it: boundary, not capped.)
+const CAPPED_OFFSET = MAX_NODE_CHOICES_OFFSET - NODE_CHOICES_PAGE / 2;
 
 describe('nodeChoices: the endpoint owns the offset ceiling (#1585)', () => {
   it('a raw-full page whose next offset passes the ceiling reports hasMore:false and capped:true', async () => {
@@ -36,7 +38,7 @@ describe('nodeChoices: the endpoint owns the offset ceiling (#1585)', () => {
         items: expect.any(Array),
         hasMore: false, // Load more must not render for a page the endpoint would 400
         capped: true,   // ...and the picker shows the capped note instead
-        nextOffset: MAX_NODE_CHOICES_OFFSET + NODE_CHOICES_PAGE,
+        nextOffset: MAX_NODE_CHOICES_OFFSET + NODE_CHOICES_PAGE / 2,
       },
     });
   });
@@ -45,7 +47,7 @@ describe('nodeChoices: the endpoint owns the offset ceiling (#1585)', () => {
     // offset + PAGE === MAX_OFFSET exactly: the next request's offset equals
     // the ceiling, which the endpoint accepts (inclusive bound), so paging
     // continues normally.
-    const offset = MAX_NODE_CHOICES_OFFSET - NODE_CHOICES_PAGE * 2;
+    const offset = MAX_NODE_CHOICES_OFFSET - NODE_CHOICES_PAGE;
     const result = await nodeChoices(page(NODE_CHOICES_PAGE, offset) as never, 'm1', offset);
     expect(result.kind).toBe('ok');
     if (result.kind !== 'ok') return;

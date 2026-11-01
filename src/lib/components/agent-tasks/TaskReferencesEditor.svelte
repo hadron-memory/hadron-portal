@@ -272,9 +272,10 @@
   {#await Promise.resolve(nodeMemories) then memories}
     <SelectNode {memories} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
   {:catch}
-    <!-- A rejected stream still mounts the picker, degraded to an empty memory
-         stage (#1582 BLIND P3): without this arm the rejection was unhandled
-         and "Choose a node…" silently did nothing. -->
-    <SelectNode memories={[]} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    <!-- A rejected stream still mounts the picker, degraded (#1582 BLIND P3):
+         without this arm the rejection was unhandled and "Choose a node…"
+         silently did nothing. #1585: the empty memory stage was indistinguishable
+         from "you can read nothing" — memoriesFailed makes the stage say why. -->
+    <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
   {/await}
 </fieldset>

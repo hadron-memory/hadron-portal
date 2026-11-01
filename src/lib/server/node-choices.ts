@@ -18,6 +18,16 @@ import type { NodeChoice, NodeChoicesPage, NodeRead } from '$lib/node-choices';
  */
 export const NODE_CHOICES_PAGE = 20;
 
+/**
+ * The offset ceiling, ONE source of truth (portal#1585, PM decision Patrick
+ * 2026-11-01): the endpoint refuses any offset above it, and the read itself
+ * answers `hasMore: false, capped: true` when the NEXT page would start past
+ * it — so the picker never offers a Load more the endpoint must 400. There is
+ * deliberately no client-side constant to keep in step. Inclusive: the
+ * boundary value itself is a legal (if pointless) read.
+ */
+export const MAX_NODE_CHOICES_OFFSET = 100_000;
+
 export const NODE_CHOICES_QUERY = /* GraphQL */ `
   query NodeChoices($memoryId: ID!, $query: String, $limit: Int, $offset: Int) {
     findNodes(filter: { memoryIds: [$memoryId] }, query: $query, mode: keyword, limit: $limit, offset: $offset) {
@@ -44,7 +54,17 @@ export async function nodeChoices(client: GraphQLClient, memoryId: string, offse
     // (#1582 BLIND P2-3: they used to, turning a whole page into a failure).
     const raw = findNodes?.hits ?? [];
     const items = raw.map((hit) => hit.node).filter((node): node is NodeChoice => !!node && typeof node.id === 'string' && typeof node.urn === 'string' && node.urn !== '');
-    return { kind: 'ok', value: { items, hasMore: raw.length === NODE_CHOICES_PAGE, nextOffset: offset + raw.length } };
+    // The ceiling is the READ's to enforce, not just the endpoint's (#1585):
+    // a raw-full page whose next offset passes MAX_NODE_CHOICES_OFFSET must
+    // not advertise that offset — the picker would render Load more for a
+    // request the endpoint 400s, and Try again would resend it forever.
+    // `capped` tells the picker to show the truncation note instead. A SHORT
+    // page is end-of-data (hasMore:false, no cap): the data ended before the
+    // ceiling did.
+    const nextOffset = offset + raw.length;
+    const full = raw.length === NODE_CHOICES_PAGE;
+    const capped = full && nextOffset > MAX_NODE_CHOICES_OFFSET;
+    return { kind: 'ok', value: { items, hasMore: full && !capped, nextOffset, ...(capped ? { capped: true } : {}) } };
   } catch {
     return { kind: 'failed' };
   }

@@ -18,6 +18,9 @@ export type NodeRead<T> = { kind: 'ok'; value: T } | { kind: 'failed' };
  * One page of choices. `nextOffset`/`hasMore` are the SERVER's raw-count word
  * on where the next page starts and whether one exists (#1582 BLIND P2-3):
  * the client pages by `nextOffset` verbatim and never re-derives it from the
- * (possibly filtered) rows it received.
+ * (possibly filtered) rows it received. `capped` (#1585) is present (true)
+ * only when the offset ceiling truncated the list: the next page would start
+ * past the endpoint's bound, so `hasMore` is false AND the picker shows its
+ * truncation note — the one case where "no more" does not mean "all shown".
  */
-export type NodeChoicesPage = { items: NodeChoice[]; hasMore: boolean; nextOffset: number };
+export type NodeChoicesPage = { items: NodeChoice[]; hasMore: boolean; nextOffset: number; capped?: boolean };
