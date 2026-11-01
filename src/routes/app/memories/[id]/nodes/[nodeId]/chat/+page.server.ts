@@ -5,7 +5,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
-import { chatAuthorName, chatPostTarget, chatSortKey, chatMessageNodeType, isChatNode, isTeamChannelChat, legacyThreadEvidence, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatSortKey, chatMessageNodeTypes, isChatNode, isTeamChannelChat, legacyThreadEvidence, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import type { MemoryNode } from '$lib/types';
@@ -74,7 +74,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 
   // Non-fatal on error — an empty thread beats crashing the chat page.
   // #793: a bounded WINDOW (newest CHAT_PAGE_SIZE), not the whole thread.
-  const page = await loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node), messageNodeType: chatMessageNodeType(node) }).catch((err) => {
+  const page = await loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node), messageNodeTypes: chatMessageNodeTypes(node) }).catch((err) => {
     console.error('[chat-page] messages query failed:', err);
     return { messages: [], total: 0, hasOlder: false, offset: 0 };
   });

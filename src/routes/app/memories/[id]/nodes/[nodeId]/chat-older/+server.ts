@@ -13,7 +13,7 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
-import { chatSortKey, chatMessageNodeType, isChatNode, legacyThreadEvidence, loadChatMessages } from '$lib/server/team-chat';
+import { chatSortKey, chatMessageNodeTypes, isChatNode, legacyThreadEvidence, loadChatMessages } from '$lib/server/team-chat';
 import type { MemoryNode } from '$lib/types';
 import type { RequestHandler } from './$types';
 
@@ -39,7 +39,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
       return json({ messages: [], loadFailed: true, reason: 'not-a-chat' }, { status: 404 });
     }
 
-    const page = await loadChatMessages(client, params.id, node.loc, { before, sort: chatSortKey(node), messageNodeType: chatMessageNodeType(node) });
+    const page = await loadChatMessages(client, params.id, node.loc, { before, sort: chatSortKey(node), messageNodeTypes: chatMessageNodeTypes(node) });
     return json({
       messages: page.messages,
       hasOlder: page.hasOlder,
