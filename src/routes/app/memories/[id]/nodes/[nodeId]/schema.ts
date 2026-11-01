@@ -6,7 +6,7 @@ import {
   type ExtractionRow,
   type ExtractionShape,
 } from '$lib/flow/extraction';
-import { parseUrn, splitNodeUrn } from '$lib/urn/parse-urn';
+import { formatUrn, hasSchemePrefix, parseUrn, splitNodeUrn } from '$lib/urn/parse-urn';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 
 type ParsedEdges = Array<{ targetId: string; name?: string | null }>;
@@ -34,12 +34,14 @@ const seqField = z.preprocess((value) => {
 export function isFullyQualifiedNodeUrnInput(value: string): boolean {
   const input = value.trim();
   try {
-    // Parsing validates the shared grammar and kind; splitting additionally
-    // requires a complete memory and loc. Neither result rewrites the value
-    // submitted: legacy ownership chains must reach the server unchanged.
-    if (parseUrn(input).type !== 'node') return false;
+    const prefixed = hasSchemePrefix(input);
+    // An unprefixed loc is ambiguous; only the legacy :: hierarchy can
+    // qualify without a type prefix (portal#1529 compatibility ruling).
+    if (!prefixed && !input.includes('::')) return false;
     splitNodeUrn(input);
-    return true;
+    // Grammar validation alone needs a type. Add it only to the validation
+    // copy of a legacy input; never replace the submitted ownership identity.
+    return parseUrn(prefixed ? input : formatUrn('node', input)).type === 'node';
   } catch {
     return false;
   }
