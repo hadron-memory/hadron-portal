@@ -589,7 +589,7 @@ describe('SelectNode: #1584 fallback guards and carried P3s', () => {
     // Gemma's P3 (c) at a1ae339f8: the hint that the search matches by name
     // or loc was lost when the accessible name was tightened to the visible
     // label. It comes back as visible hint text tied with aria-describedby —
-    // and per review:visible-label-is-the-accessible-name it must NOT enter
+    // and per hrn:node:hadronmemory.com:hadron-portal:review:visible-label-is-the-accessible-name it must NOT enter
     // the label (that would change the accessible name again) and the input
     // must keep no aria-label of its own.
     const { target } = mount();

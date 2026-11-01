@@ -76,7 +76,7 @@ const armed: object[] = [];
 export function dialogEscapeFallback(el: HTMLElement, options: DialogEscapeOptions) {
   // Held by reference, swapped on update — a spread would snapshot every
   // reactive getter once and the fallback would go stale
-  // (review:preserve-getters-when-wrapping-options).
+  // (hrn:node:hadronmemory.com:hadron-portal:review:preserve-getters-when-wrapping-options).
   let current = options;
   const token = {};
   function onKeydown(event: KeyboardEvent) {
