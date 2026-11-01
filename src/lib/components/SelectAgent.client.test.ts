@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import EscapeHostHarness from '$lib/test/EscapeHostHarness.svelte';
 import SelectAgent from './SelectAgent.svelte';
 
 const agents = [
@@ -152,5 +153,59 @@ describe('SelectAgent: dialog semantics (#1279)', () => {
     flushSync();
     expect(picked).toStrictEqual(agents[0]);
     expect(overlay()).toBeNull();
+  });
+});
+
+describe('SelectAgent: Escape closes one layer only (#1584)', () => {
+  const hostDialog = () => document.querySelector<HTMLElement>('[data-host-dialog]');
+
+  function openInHost() {
+    const m = mountComponent(EscapeHostHarness, {
+      child: SelectAgent,
+      childProps: { agents, onselect: () => {}, open: true },
+    });
+    mounted.push(m);
+    return m;
+  }
+
+  it('one Escape inside the picker closes the picker, not the host dialog around it', async () => {
+    const above = vi.fn();
+    window.addEventListener('keydown', above); // registered before the picker opened
+    try {
+      openInHost();
+      await tick(2);
+      expect(overlay()).not.toBeNull();
+      const input = overlay()!.querySelector('input');
+      input!.focus(); // a real press starts at the search box
+      input!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      flushSync();
+      expect(overlay()).toBeNull(); // exactly one layer closed: the picker's
+      expect(hostDialog()).not.toBeNull(); // the host keeps its layer
+      expect(above).not.toHaveBeenCalled(); // the earlier-registered listener never fired
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
+  });
+
+  it('Escape with focus outside the picker still closes it — the fallback, shielding the host', async () => {
+    const above = vi.fn();
+    window.addEventListener('keydown', above);
+    try {
+      openInHost();
+      await tick(2);
+      (document.activeElement as HTMLElement | null)?.blur?.(); // focus never entered the picker
+      expect(document.activeElement).toBe(document.body);
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      flushSync();
+      expect(overlay()).toBeNull();
+      expect(hostDialog()).not.toBeNull();
+      expect(above).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
   });
 });

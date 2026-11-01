@@ -3,11 +3,12 @@
  * shows and says when more exist, and a stale or failed search never leaves the
  * previous query's "more match" cue behind.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import type { SearchUserPage } from '$lib/users/search-user';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import EscapeHostHarness from '$lib/test/EscapeHostHarness.svelte';
 import SelectUser from './SelectUser.svelte';
 
 const u = (id: string) => ({ id, handle: id, urn: null, githubUsername: null, avatarUrl: null, emailMasked: null });
@@ -136,5 +137,60 @@ describe('SelectUser shared organizations (#1169)', () => {
     const text = document.body.textContent ?? '';
     expect(text).not.toContain('Not shown to you');
     expect(text).not.toContain('in common');
+  });
+});
+
+describe('SelectUser: Escape closes one layer only (#1584)', () => {
+  const hostDialog = () => document.querySelector<HTMLElement>('[data-host-dialog]');
+  const overlay = () => document.querySelector<HTMLElement>('.fixed.inset-0');
+
+  function openInHost() {
+    const m = mountComponent(EscapeHostHarness, {
+      child: SelectUser,
+      childProps: { search: async () => ({ users: [], truncated: false }), onselect: () => {}, open: true },
+    });
+    mounted.push(m);
+    return m;
+  }
+
+  it('one Escape inside the picker closes the picker, not the host dialog around it', async () => {
+    const above = vi.fn();
+    window.addEventListener('keydown', above); // registered before the picker opened
+    try {
+      openInHost();
+      await tick(2);
+      expect(overlay()).not.toBeNull();
+      const input = overlay()!.querySelector('input');
+      input!.focus(); // a real press starts at the search box
+      input!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      flushSync();
+      expect(overlay()).toBeNull(); // exactly one layer closed: the picker's
+      expect(hostDialog()).not.toBeNull(); // the host keeps its layer
+      expect(above).not.toHaveBeenCalled(); // the earlier-registered listener never fired
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
+  });
+
+  it('Escape with focus outside the picker still closes it — the fallback, shielding the host', async () => {
+    const above = vi.fn();
+    window.addEventListener('keydown', above);
+    try {
+      openInHost();
+      await tick(2);
+      (document.activeElement as HTMLElement | null)?.blur?.(); // focus never entered the picker
+      expect(document.activeElement).toBe(document.body);
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      flushSync();
+      expect(overlay()).toBeNull();
+      expect(hostDialog()).not.toBeNull();
+      expect(above).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
   });
 });
