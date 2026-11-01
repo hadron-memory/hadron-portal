@@ -119,12 +119,20 @@ const detail = (over: Record<string, unknown> = {}) => ({
 
 async function loadDetail(taskId = 't1') {
   const { load } = await import('./[taskId]/+page.server');
-  return (await load({
+  const r = (await load({
     params: { appId: 'app-1', taskId },
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     // portal#1090: the loader reads ?created=1 from the URL.
     url: new URL('http://localhost/app/apps/app-1/tasks/t1'),
   } as never)) as Record<string, unknown>;
+  // Amended for portal#1585: the memories stream now REJECTS through to the
+  // picker's stage instead of the loader swallowing it to [], and per-test
+  // mocks here do not answer MEMORIES_QUERY (these tests exercise the other
+  // reads). Mark the streamed rejection handled so it cannot fail the run
+  // as an unhandled error; the memories-failure behaviour itself is pinned
+  // in node-memories-failure.server.test.ts.
+  void Promise.resolve(r.nodeMemories as unknown).catch(() => {});
+  return r;
 }
 
 describe('views (slice 2)', () => {

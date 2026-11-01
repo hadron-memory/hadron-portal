@@ -32,12 +32,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   const c = canWrite ? await loadWriteCandidates(client, app.id) : { workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] };
   // portal#1576 step 2: the NODE picker's memory stage — every memory the
   // viewer can read (MEMORIES_QUERY is server-scoped to the caller, the #512
-  // Move-dialog precedent). STREAMED, not awaited: it never blocks the form;
-  // a failed read degrades to an empty picker.
+  // Move-dialog precedent). STREAMED, not awaited: it never blocks the form.
+  // portal#1585 (QA P2): a failed read must REJECT through to the editor's
+  // {:catch} (SelectNode's memoriesFailed stage says why) — resolving it to
+  // [] here made "the read failed" indistinguishable from "you can read
+  // nothing". Log it server-side, then let the rejection stream on.
   type PickMemory = { id: string; name: string; urn: string; visibility: string | null };
   const nodeMemories = fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').catch((e) => {
     console.warn('[tasks-new] node-picker memory list failed:', e);
-    return [] as PickMemory[];
+    throw e;
   });
   return {
     app,

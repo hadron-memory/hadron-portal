@@ -96,10 +96,13 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // viewer's readable memories (server-scoped MEMORIES_QUERY, the #512
     // Move-dialog precedent), STREAMED so it never blocks the page. An
     // impersonation session writes nothing, so it reads no list either.
+    // portal#1585 (QA P2): a failed read must REJECT through to the editor's
+    // {:catch} (SelectNode's memoriesFailed stage says why) — resolving it to
+    // [] here made "the read failed" read as "you can read nothing".
     nodeMemories: canWrite
       ? fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').catch((e) => {
           console.warn('[task-detail] node-picker memory list failed:', e);
-          return [] as PickMemory[];
+          throw e;
         })
       : Promise.resolve([] as PickMemory[]),
     // tasks/new redirects here with ?created=1 (design §6).
