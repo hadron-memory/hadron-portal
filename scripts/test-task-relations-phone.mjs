@@ -55,6 +55,9 @@ try {
   for (const width of [390, 1280]) for (const dark of [false, true]) for (const legacy of [false, true]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.evaluate(async ({ dark, legacy }) => { document.documentElement.classList.toggle('dark', dark); await window.scenario('PENDING', true, legacy); }, { dark, legacy });
+    for (const id of ['first', 'second']) {
+      assert.equal(await page.getByRole('button', { name: `Remove blocker A readable task title ${id}`, exact: true }).count(), 1, 'Remove must name its associated blocker');
+    }
     const boxes = await page.locator('form[action="?/removeBlocker"] button').evaluateAll(buttons => buttons.map(button => { const r = button.getBoundingClientRect(); return { left: r.left, right: r.right, width: r.width }; }));
     assert.equal(boxes.length, 2);
     for (const box of boxes) assert.ok(box.left >= 0 && box.right <= width && box.width > 0, `Remove outside ${width}px at scroll 0, legacy=${legacy}: ${JSON.stringify(box)}`);

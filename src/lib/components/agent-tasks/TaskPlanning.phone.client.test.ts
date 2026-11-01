@@ -5,11 +5,11 @@ import TaskPlanning from './TaskPlanning.svelte';
 const mounted: { unmount: () => void }[] = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); localStorage.clear(); });
 const choice = (id: string) => ({ id, appId: 'app', title: `Task ${id}`, handle: 'AT1.2', status: 'PENDING' });
-async function setup(status = 'PENDING', canWrite = true) {
+async function setup(status = 'PENDING', canWrite = true, blocker = choice('blocker')) {
   const m = mountComponent(TaskPlanning as never, {
     task: { id: 'subject', appId: 'app', handle: 'AT1', status, priority: 3 }, appId: 'app', canWrite,
     dependencies: { kind: 'ok', value: {
-      blockedBy: { items: [choice('blocker')], hasMore: false },
+      blockedBy: { items: [blocker], hasMore: false },
       blocks: { items: [choice('dependent')], hasMore: false },
     } },
   } as never);
@@ -24,6 +24,13 @@ describe('phone relation action placement', () => {
     expect(row.querySelector('a')?.textContent).toBe('Task blocker');
     expect(m.target.querySelectorAll('form[action="?/removeBlocker"]')).toHaveLength(1);
     expect(m.target.querySelector('table')).not.toBeNull();
+  });
+  it.each([['Task blocker', 'Task blocker'], ['', 'AT1.2'], ['   ', 'AT1.2']])('names the blocker when its title is %j', async (title, name) => {
+    const m = await setup('PENDING', true, { ...choice('blocker'), title });
+    const button = m.target.querySelector('form[action="?/removeBlocker"] button');
+    expect(button?.textContent).toBe('Remove');
+    expect(button?.getAttribute('aria-label')).toBe(`Remove blocker ${name}`);
+    expect(m.target.querySelector<HTMLInputElement>('input[name="blockerTaskRef"]')?.value).toBe('blocker');
   });
   it('keeps the action visible and leading when a legacy saved view hides it or puts it last', async () => {
     localStorage.setItem('hadron:views:v1:task-dependencies', JSON.stringify([{
