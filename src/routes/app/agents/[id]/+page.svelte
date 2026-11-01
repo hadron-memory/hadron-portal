@@ -868,19 +868,6 @@
     </div>
   {/if}
   {#if activeTab === 'profile'}
-    {#if data.inheritance}
-      <section class="mb-6 min-w-0 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800" aria-label={t('agent.base.label', 'base Agent')}>
-        <h2 class="mb-2 font-semibold">{t('agent.base.heading', 'Base Agent')}</h2>
-        {#if data.inheritance.base.id}
-          <a class="break-words text-indigo-600 hover:underline dark:text-indigo-400" href="/app/agents/{encodeURIComponent(data.inheritance.base.id)}">{data.inheritance.base.agent?.name ?? data.inheritance.base.id}</a>
-          {#if data.inheritance.base.agent?.urn}<Urn value={data.inheritance.base.agent.urn} label={t('agent.base.label', 'base Agent')} linked />{/if}
-          {#if !data.inheritance.base.agent && !data.inheritance.base.error}<p class="text-sm text-zinc-500">{t('agent.base.unavailable', 'Base Agent details are unavailable.')}</p>{/if}
-        {:else if !data.inheritance.base.error}
-          <p class="text-sm text-zinc-500">{t('agent.base.none', 'No base Agent.')}</p>
-        {/if}
-        {#if data.inheritance.base.error}<p role="alert" class="break-words text-sm text-red-600">{data.inheritance.base.error}</p>{/if}
-      </section>
-    {/if}
     <div class="space-y-8">
 
       <!-- Agent info (read-only). #352 follow-up: Profile is an info-only tab;
@@ -904,6 +891,21 @@
             <div class="flex items-center justify-between px-5 py-3">
               <span class="text-sm text-zinc-500">{t('agent.persona.role', 'Persona role')}</span>
               <span class="text-sm font-medium text-zinc-900 dark:text-white">{agent.personaRole}</span>
+            </div>
+          {/if}
+          {#if data.inheritance}
+            <div class="min-w-0 space-y-1 px-5 py-3">
+              <span class="text-sm text-zinc-500">{t('agent.base.heading', 'Base Agent')}</span>
+              {#if data.inheritance.base.id}
+                <div class="min-w-0">
+                  <a class="break-words text-sm text-indigo-600 hover:underline dark:text-indigo-400" href="/app/agents/{encodeURIComponent(data.inheritance.base.id)}">{data.inheritance.base.agent?.name ?? data.inheritance.base.id}</a>
+                  {#if data.inheritance.base.agent?.urn}<Urn value={data.inheritance.base.agent.urn} label={t('agent.base.label', 'base Agent')} linked />{/if}
+                </div>
+                {#if !data.inheritance.base.agent && !data.inheritance.base.error}<p class="text-sm text-zinc-500">{t('agent.base.unavailable', 'Base Agent details are unavailable.')}</p>{/if}
+              {:else if !data.inheritance.base.error}
+                <p class="text-sm text-zinc-500">{t('agent.base.none', 'No base Agent.')}</p>
+              {/if}
+              {#if data.inheritance.base.error}<p role="alert" class="break-words text-sm text-red-600">{data.inheritance.base.error}</p>{/if}
             </div>
           {/if}
           {#if data.systemMemoryIdentity?.urn}
