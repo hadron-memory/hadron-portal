@@ -31,6 +31,16 @@ export const ASSET_FIELDS = /* GraphQL */ `
     scanSignature
     description
     publicUrl
+    # #1131 / server#1667: the three SERVER-OWNED signals behind the per-asset
+    # public-link switch. None is derivable from another, and none from
+    # publicUrl (null there is NEVER proof the switch is off):
+    #   publicLinkEnabled   the stored opt-in, not proof of publication
+    #   canManagePublicLink whether THIS caller may switch it now (the portal
+    #                       never recomputes the class-manager matrix)
+    #   publicLinkAvailable the deployment gate, ASSET_PUBLIC_HOTLINK_ENABLED
+    publicLinkEnabled
+    canManagePublicLink
+    publicLinkAvailable
   }
 `;
 
@@ -138,6 +148,18 @@ export const SOFT_DELETE_ASSET_MUTATION = /* GraphQL */ `
     softDeleteAsset(assetId: $assetId) {
       id
       deletedAt
+    }
+  }
+`;
+
+// #1131: switch one asset's public link. Answers the same projection the listing
+// uses, so the caller gets the authoritative flag, capability and URL back and
+// can refresh the thumbnail source from it rather than guessing.
+export const SET_ASSET_PUBLIC_LINK_MUTATION = /* GraphQL */ `
+  ${ASSET_FIELDS}
+  mutation SetAssetPublicLink($assetRef: ID!, $enabled: Boolean!) {
+    setAssetPublicLink(assetRef: $assetRef, enabled: $enabled) {
+      ...AssetFields
     }
   }
 `;

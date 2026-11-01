@@ -1,7 +1,6 @@
 <script lang="ts">
   // #266: memory-detail is a tab layout. The layout renders the breadcrumb +
   // header + tab bar; each tab is a sub-route rendered via {@render children()}.
-  import { setContext } from 'svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import Urn from '$lib/components/Urn.svelte';
@@ -9,12 +8,10 @@
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { t } from '$lib/i18n/t';
-  import { isNodeDetailPath } from '$lib/memory/is-node-detail';
   import ApproveAllDialog from '$lib/components/memory/ApproveAllDialog.svelte';
   import MintDialog from '$lib/components/memory/MintDialog.svelte';
   import { canSeeShares } from '$lib/memory/can-manage-shares';
   import { scrollHint } from '$lib/scroll-hint';
-  import { MEMORY_APPROVALS_VERSION } from '$lib/memory/approvals-version';
   import type { OrgSummary } from '$lib/types';
   import type { LayoutData } from './$types';
 
@@ -79,10 +76,6 @@
   // Bumped after a confirmed Approve all, so an active server filter in the
   // node list ("Not approved") re-runs instead of listing approved nodes.
   let approvalsVersion = $state(0);
-  // portal#1433: the Nodes/Graph browser is hosted by the `(browser)` group's
-  // layout, a child of this one, and must reload when an approval or mint here
-  // changes the memory. A getter, so the child reads the live value.
-  setContext(MEMORY_APPROVALS_VERSION, () => approvalsVersion);
 
   function onMenuSelect(id: string) {
     cloneOpen = false;
@@ -161,7 +154,7 @@
   const path = $derived($page.url.pathname);
   // Node detail / create pages bring their own chrome — hide the tab layout there
   // (the regex matches /nodes/<id> and /nodes/new).
-  const isNodeDetail = $derived(isNodeDetailPath(path));
+  const isNodeDetail = $derived(/\/nodes\/[^/]+/.test(path));
   const tabs = $derived([
     { id: 'info', label: t('memory-detail.tab.info', 'Info'), href: `${basePath}/info` },
     { id: 'nodes', label: t('memory-detail.tab.nodes', 'Nodes'), href: `${basePath}/nodes` },
@@ -326,5 +319,18 @@
     <p role="status" class="mb-4 text-sm text-zinc-500">{t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.')}</p>
   {/if}
 
+  <!-- portal#1524 (Holger, 2026-10-31): the Nodes tree and the Graph view are
+       OFF for now. They were fed by a drain of the memory's whole node list
+       (44 MB of HTML, 7.3 s TTFB at 33k nodes, portal#1380), and the layout no
+       longer loads that list at all. MemoryBrowser and TopicGraph are kept,
+       disabled, for the lazy tree that follows (portal#1438): to restore, bring
+       the drain back behind a bounded read and render
+       <MemoryBrowser nodes=... forcedView={activeTab} /> here again. Nodes are
+       still reached by URL, links, wikilinks and node pages. -->
+  {#if !isNodeDetail && (activeTab === 'nodes' || activeTab === 'graph')}
+    <p role="status" data-testid="memory-views-off" class="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+      {t('memory-detail.views-off', 'Tree and graph views are temporarily off. Open a node by its URL or from a link to it.')}
+    </p>
+  {/if}
   {@render children()}
 </div>

@@ -4,12 +4,15 @@ import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { runStartError, runStartStatus } from '$lib/server/run-start-error';
+import { runAgentChoice } from '$lib/run-agent';
+import type { InstalledAgent } from '$lib/app-installed-agents';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
 import { fetchAllItems } from '$lib/server/paginate';
 import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APP_INSTALLS_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { NODE_CHILDREN_QUERY, RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
@@ -27,7 +30,6 @@ import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { resolveWikilinks } from '$lib/server/wikilinks';
 import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
-import { loadChildren } from '$lib/server/node-children';
 import { loadCommentSummary, loadDiscussion, sendCommentWrite } from '$lib/server/comments';
 import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
 import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
@@ -186,9 +188,22 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const { graph } = parentData as {
     graph?: { urn?: string | null } | null;
   };
-  // portal#1433: the ancestors come from one `nodeBatch` of their URNs, not
-  // from the memory's whole node list (the layout no longer ships it).
-  const ancestorByLoc = await loadAncestors(gqlClient(locals.token), { id: params.id, urn: graph?.urn }, node.loc);
+  // portal#1433: the layout loads no node list (`nodesOff`, portal#1524), so
+  // the ancestors come from one bounded `nodeBatch` of their URNs and the
+  // wikilink targets from their own bounded read. Both start here so they run
+  // in parallel; the wikilinks are awaited further down.
+  const ancestorsPromise = loadAncestors(gqlClient(locals.token), { id: params.id, urn: graph?.urn }, node.loc);
+  // #374 / spec hrn:node:hadronmemory.com:specs:cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
+  // and abstract so the renderer can make them clickable (and mark the dangling
+  // ones visibly broken). Nothing is read for a node with no links, which is
+  // the overwhelming majority. A target that could not be checked renders as
+  // an unchecked link, never as "no node" (the old `nodesFailed` degrade).
+  const wikilinksPromise = resolveWikilinks(
+    gqlClient(locals.token),
+    [node.content, node.abstract],
+    { memoryId: params.id, memoryUrn: graph?.urn ?? null },
+  );
+  const { byLoc: ancestorByLoc, known: ancestorsKnown } = await ancestorsPromise;
 
   // A memory whose URN the layout could not supply (a failed graph read) falls
   // back to the bare loc rather than rendering nothing — "couldn't qualify it"
@@ -259,31 +274,21 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     breadcrumb.push({ label, path: ancestorLoc, nodeId, title });
   }
 
-  // #374 / spec hrn:node:hadronmemory.com:specs:cor:urn:020:01 — resolve the `[[loc]]` wikilinks in the body
-  // and abstract so the renderer can make them clickable (and mark the dangling
-  // ones visibly broken). Every target is looked up through the server, same
-  // memory included (portal#1433), so this costs nothing for a node with no
-  // links, which is the overwhelming majority. Started here and awaited below
-  // so it overlaps the remaining fetches.
-  const wikilinksPromise = resolveWikilinks(
-    gqlClient(locals.token),
-    [node.content, node.abstract],
-    { memoryId: params.id, memoryUrn: graph?.urn ?? null },
-  );
-
   // "Test flow" (#478 phase 3): a runnable node can be executed as a MANUAL
   // headless run via runTask(appRef:) — the button needs the org's Apps to
   // run as. Best-effort: only offered to org members (org present) on
   // runnable nodes; a fetch failure just hides the button (auxiliary UI,
   // not the page's core load — hrn:node:hadronmemory.com:hadron-portal:review:no-silent-loader-catch).
   const org = (parentData as { org?: { id: string } | null }).org;
-  let testFlowApps: Array<{ id: string; name: string }> = [];
+  // `agents` is the picker's options (#1444): null unless the App has several
+  // installed Agents, where the server would refuse a run that names none.
+  let testFlowApps: Array<{ id: string; name: string; agents: InstalledAgent[] | null }> = [];
   if (node.isRunnable && org?.id) {
     try {
-      const apps = await fetchAllItems<{ id: string; name: string }>(
-        gqlClient(locals.token), ORG_APP_INSTALLS_QUERY, 'apps', { orgId: org.id },
+      const apps = await fetchAllItems<{ id: string; name: string; appAgents: Array<{ agent: InstalledAgent | null }> | null }>(
+        gqlClient(locals.token), ORG_APPS_RUNNABLE_QUERY, 'apps', { orgId: org.id },
       );
-      testFlowApps = apps.map((a) => ({ id: a.id, name: a.name }));
+      testFlowApps = apps.map((a) => ({ id: a.id, name: a.name, agents: runAgentChoice(a.appAgents) }));
     } catch (e) {
       console.warn('[node-detail] test-flow app list failed:', e);
     }
@@ -508,7 +513,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   const [moveForm, testFlowForm, deleteForm, createParentForm, updateMetaForm, duplicateForm, convertToTaskForm, flowForm, edgesForm, sendChatMessageForm, approveForm, verifyForm] = await Promise.all([
     superValidate<NodeMoveForm>({ target: '' }, nodeMoveFormAdapter, { errors: false }),
     superValidate<NodeTestFlowForm>(
-      { appId: '', orgId: org?.id ?? '', payload: '' },
+      { appId: '', orgId: org?.id ?? '', agentRef: '', payload: '' },
       nodeTestFlowFormAdapter,
       { errors: false },
     ),
@@ -533,16 +538,6 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // #1031: the Properties tab's storage form (once the `/edit` page). The
   // skill check is the server's lint verdict on the STORED export, per declared
   // host; it never throws, and costs nothing for a node with no export.
-  // portal#1433: direct children come from the server (findNodes childrenOf),
-  // not a filter over the memory's node list. A failed read is flagged so the
-  // tab says so instead of showing a childless node.
-  const childrenPromise = loadChildren(gqlClient(locals.token), { id: params.id, urn: graph?.urn }, node.loc).then(
-    (rows) => ({ children: rows, childrenFailed: false }),
-    (err) => {
-      console.error('[node-page] children read failed:', err);
-      return { children: [] as MemoryNode[], childrenFailed: true };
-    },
-  );
   const [storageForm, skillCheck] = await Promise.all([
     nodeStorageSeed(node),
     loadSkillCheck(gqlClient(locals.token), node),
@@ -556,12 +551,9 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     gqlClient(locals.token), node.memoryId, [...(node.outgoingEdges ?? []), ...(node.incomingEdges ?? [])],
   );
   const chatMessages = await chatMessagesPromise;
-  const { children, childrenFailed } = await childrenPromise;
 
   return {
     node,
-    children,
-    childrenFailed,
     isChat,
     isChatMessage,
     openChat,
@@ -604,8 +596,44 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     skillCheck,
     runnableBlockedBy: runnableBlockedBy(node),
     noWriteDoor: noWriteDoor(node),
+    // portal#1524: what the page may and may not say about this node's
+    // neighbours now that the layout carries no node list. `ancestorsKnown`
+    // false means a crumb without a node id is "not looked up", so the page
+    // must not offer to create it (portal#1433: true once the bounded ancestor
+    // read answered for every segment); `children` is a bounded read, or null
+    // with the reason when it could not be proven complete.
+    ancestorsKnown,
+    ...(await loadChildren(gqlClient(locals.token), params.id, node.loc)),
   };
 };
+
+// One bounded page. A direct child of `loc` is a node whose loc is `loc:` plus
+// one segment, and the prefix read returns every descendant, so a page that is
+// not the whole subtree cannot say which direct children exist.
+const CHILDREN_PAGE = 200;
+type ChildRow = Pick<MemoryNode, 'id' | 'loc' | 'name' | 'description' | 'nodeType' | 'tags' | 'seq' | 'isRunnable' | 'openThreads' | 'memoryId'>;
+type ChildHit = Omit<ChildRow, 'openThreads'> & { commentSummary: { openThreads: number } | null };
+async function loadChildren(
+  client: ReturnType<typeof gqlClient>,
+  memoryId: string,
+  loc: string,
+): Promise<{ children: ChildRow[] | null; childrenUnavailable: boolean }> {
+  try {
+    const d = await client.request<{ findNodes: { total: number | null; hits: Array<{ node: ChildHit }> } }>(
+      NODE_CHILDREN_QUERY,
+      { memoryId, locPrefix: `${loc}:`, limit: CHILDREN_PAGE },
+    );
+    const hits: ChildRow[] = d.findNodes.hits.map(({ node: { commentSummary, ...n } }) => ({ ...n, openThreads: commentSummary?.openThreads ?? 0 }));
+    // An unknown total proves completeness only on a page the cap did not fill.
+    const total = d.findNodes.total ?? (hits.length < CHILDREN_PAGE ? hits.length : Number.POSITIVE_INFINITY);
+    if (total > hits.length) return { children: null, childrenUnavailable: true };
+    const direct = hits.filter((n) => !n.loc.slice(loc.length + 1).includes(':'));
+    return { children: direct, childrenUnavailable: false };
+  } catch (err) {
+    console.warn('[node-detail] children read failed:', err);
+    return { children: null, childrenUnavailable: true };
+  }
+}
 
 /**
  * #927 — the inline Content and Abstract saves.
@@ -1159,10 +1187,11 @@ export const actions: Actions = {
         args,
         appRef: appId,
         runAsSelf: false,
+        ...(form.data.agentRef ? { agentRef: form.data.agentRef } : {}),
       });
       runId = res.runTask;
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to start the run', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: runStartError(e, 'Failed to start the run', NODE_WRITE_REFUSALS) }, { status: runStartStatus(e) });
     }
     // #648: run detail is the canonical org-optional /app/apps/[appId]/runs/[runId].
     redirect(303, `/app/apps/${appId}/runs/${runId}`);

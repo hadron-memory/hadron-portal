@@ -220,7 +220,7 @@ describe('reader memory editors (#646)', () => {
 
 it('disables missing-parent creation for a reader and preserves it for a writer (#646 LOCAL P2)', async () => {
   const { target, props } = await mountPage();
-  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: false, breadcrumb: [
+  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: false, ancestorsKnown: true, breadcrumb: [
     { label: 'Missing', path: 'missing', nodeId: null },
     { label: 'Foo', path: 'missing:foo', nodeId: NODE.id },
   ] }; });
@@ -233,6 +233,32 @@ it('disables missing-parent creation for a reader and preserves it for a writer 
   expect(create.disabled).toBe(false);
 });
 
+
+it('portal#1524: with the node list off, a crumb without a node id is NOT offered for creation (it was never looked up)', async () => {
+  const { target, props } = await mountPage();
+  flushSync(() => { props.data = { ...(props.data as any), canWriteMemory: true, ancestorsKnown: false, breadcrumb: [
+    { label: 'Maybe', path: 'maybe', nodeId: null },
+    { label: 'Foo', path: 'maybe:foo', nodeId: NODE.id },
+  ] }; });
+  await tick();
+  expect(target.querySelector('form[action="?/createParent"]')).toBeNull();
+  expect(target.textContent).not.toContain('Create parent node');
+});
+
+it('portal#1524: children read unavailable says so; it never reads as "no children" or a 0 count', async () => {
+  const { target, props } = await mountPage();
+  flushSync(() => { props.data = { ...(props.data as any), children: null, childrenUnavailable: true }; });
+  await tick();
+  expect(target.querySelector('[data-testid="children-unavailable"]')?.textContent).toContain('Children unavailable');
+  expect(target.textContent).not.toMatch(/No children|Children\s*0/);
+});
+
+it('portal#1524: a complete childless read shows no Children tab and no unavailable note', async () => {
+  const { target, props } = await mountPage();
+  flushSync(() => { props.data = { ...(props.data as any), children: [], childrenUnavailable: false }; });
+  await tick();
+  expect(target.querySelector('[data-testid="children-unavailable"]')).toBeNull();
+});
 
 it('keeps reader Settings read-only and restores writer metadata and delete controls', async () => {
   const { target, props } = await mountPage();

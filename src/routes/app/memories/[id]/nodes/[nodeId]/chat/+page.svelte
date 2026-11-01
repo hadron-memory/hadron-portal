@@ -24,7 +24,9 @@
       { label: 'Nodes', href: `${basePath}/nodes` },
     ];
 
-    // Add clickable parent nodes from the loc hierarchy
+    // Add clickable parent nodes from the loc hierarchy, looked up by one
+    // bounded read in the loader (portal#1433; the layout loads no node list,
+    // portal#1524). A missing crumb withholds a link; it asserts nothing.
     const parts = node.loc?.split(':') ?? [];
     for (let i = 1; i < parts.length; i++) {
       const parentLoc = parts.slice(0, i).join(':');

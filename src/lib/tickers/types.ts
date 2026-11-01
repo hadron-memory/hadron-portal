@@ -45,6 +45,23 @@ export interface Ticker {
   updatedAt: string | null;
 }
 
+/**
+ * portal#1384 — what the ticker page reads beyond the shared fields. `tickCode` is the server's
+ * permanent code (template copies share one); never derive it from the slug.
+ */
+export interface TickerDetail extends Ticker {
+  tickCode: string;
+  app: { id: string } | null;
+}
+
+/**
+ * The loc the team maps the ticker's code to, unresolved. Null means "no entry" OR "an entry
+ * this reader may not read", by design (hadron-server#2733): the page claims no more than that.
+ */
+export interface TickerTask {
+  registerTaskLoc: string | null;
+}
+
 export interface TickerListRow extends Ticker {
   subscribers: { hasNextPage: boolean; items: { id: string }[] };
 }
@@ -102,6 +119,18 @@ export interface WorkerWakeSettings {
  * anything else, never rendered as an empty list.
  */
 export type TickerRead<T> = { kind: 'ok'; value: T } | { kind: 'not-participant' } | { kind: 'failed' };
+
+/**
+ * portal#1497 — the App's workers for the Add-subscriber chooser: ONE
+ * `teamRoster` read, retired workers left out by the server. `hidden` is the
+ * server's typed refusal (this reader may not list the App's workers),
+ * `failed` is anything else — neither is ever an empty list, and a null name
+ * is kept (the chooser shows the id or URN).
+ */
+export type TickerRosterRead =
+  | { kind: 'ok'; workers: Array<{ id: string; name: string | null; urn: string | null }> }
+  | { kind: 'hidden' }
+  | { kind: 'failed' };
 
 /**
  * portal#1141 slice A — the App's delivery settings (hadron-server S9,

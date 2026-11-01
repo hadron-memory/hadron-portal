@@ -1,12 +1,17 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
   import NodeActionsMenu from './NodeActionsMenu.svelte';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
   import { t } from '$lib/i18n/t';
-  let { id, preview, hidden, includeHidden, onresult }: {
+  type Notice = { type: 'success' | 'error'; text: string };
+  // onstart runs only for an ACCEPTED submit (never a cancelled duplicate) and
+  // returns where that submit's result goes, and whether the page is still on
+  // the view the submit started in.
+  let { id, preview, hidden, includeHidden, onstart }: {
     id: string; preview: string; hidden: boolean; includeHidden: boolean;
-    onresult: (notice: { type: 'success' | 'error'; text: string }) => void;
+    onstart: () => { deliver: (notice: Notice) => void; current: () => boolean };
   } = $props();
   let formEl: HTMLFormElement;
   let pending = $state(false);
@@ -14,15 +19,29 @@
   const submit: SubmitFunction = ({ cancel }) => {
     if (pending) { cancel(); return; }
     pending = true;
+    const { deliver, current } = onstart();
     return async ({ result, update }) => {
       try {
-        if ((result.type === 'success' || result.type === 'failure') && result.data?.visibility) {
-          onresult(result.data.visibility as {type: 'success' | 'error'; text: string});
-        } else if (result.type === 'error') {
-          onresult({type:'error', text:i18n.visibilityFailed()});
+        if (result.type === 'success' || result.type === 'failure') {
+          // deliver() drops a notice whose page scope ended (another view, or
+          // the page was destroyed).
+          if (result.data?.visibility) deliver(result.data.visibility as Notice);
+          // The write landed, so a success refreshes whatever page is current.
+          // Refresh here rather than in kit's update, which would refresh and
+          // then apply with no check between: the scope can end during it.
+          if (result.type === 'success') await invalidateAll();
+          // Never apply a reply whose scope ended: kit would set the CURRENT
+          // page's form (its action match ignores the query) and reset focus,
+          // so the old result would surface there (#1500).
+          if (!current()) return;
+          await update({ reset: false, invalidateAll: false });
           return;
         }
-        await update({ reset: false, invalidateAll: result.type === 'success' });
+        if (result.type === 'error') {
+          deliver({type:'error', text:i18n.visibilityFailed()});
+          return;
+        }
+        await update({ reset: false, invalidateAll: false });
       } finally { pending = false; }
     };
   };
@@ -33,6 +52,7 @@
   <input type="hidden" name="hidden" value={hidden ? 'false' : 'true'} />
   <NodeActionsMenu actions={[{id:'visibility',label}]} onselect={() => formEl.requestSubmit()}
     label={t('api-keys.actions.label', 'Actions for key …{key}', {key:preview})} disabled={pending} fixed compact />
-  {#if pending}<span role="status" class="text-xs text-zinc-500 dark:text-zinc-400">{i18n.saving()}</span>{/if}
+  <!-- Mounted empty before any submit so the pending text lands in a region already observed (#1359). -->
+  <span role="status" class="text-xs text-zinc-500 dark:text-zinc-400">{pending ? i18n.saving() : ''}</span>
   <noscript><button type="submit">{label}</button></noscript>
 </form>

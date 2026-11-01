@@ -5,13 +5,17 @@
  * module answers the one question the renderer can't: does the target exist,
  * and where does it live?
  *
- * Every target, same memory or not, is looked up through the server: batched
- * into aliased `node(ref: <full node URN>)` requests (50 per request, in
- * parallel), and skipped entirely when a node has no wikilinks, which is the
- * overwhelmingly common case. Before portal#1433 a bare `[[loc]]` resolved
- * against the node list the memory layout had paged to completion; the layout
- * no longer ships that list, so a bare loc is looked up as this memory's node
- * URN instead.
+ * Every target is looked up through the server, and nothing is read for a
+ * node with no wikilinks, which is the overwhelmingly common case. Before
+ * portal#1433 a bare `[[loc]]` resolved against the node list the memory layout
+ * had paged to completion; the layout no longer ships that list (portal#1524),
+ * so this memory's targets are read with ONE `nodeBatch` of their node URNs
+ * (cap 200), and cross-memory targets with aliased `node(ref:)` requests.
+ *
+ * "No node at X" (`null`) is claimed only when a read ANSWERED and the target
+ * was not in it. A target that was not read (over a cap, or the read failed)
+ * gets the unchecked `/app/u/<urn>` link, which re-resolves with access
+ * control on click: "couldn't check" is never rendered as "missing".
  *
  * `node(ref: <full node URN>)` is hadron-server's own strict, memory-pinned
  * dispatch (#335's AMBIGUOUS_NODE_LOC guard), so nothing here re-implements loc
@@ -24,16 +28,21 @@ import {
   flatV2Candidate,
   type WikilinkMap,
   type WikilinkRef,
+  type WikilinkResolution,
 } from '$lib/markdown/wikilink';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { WIKILINK_TARGETS_BATCH_QUERY } from '$lib/server/queries';
+
+/** hadron-server's BATCH_READ_MAX_NODES: `nodeBatch` errors above it. */
+const LOCAL_BATCH_LIMIT = 200;
 
 /**
  * Cap on cross-memory targets resolved per page load — a backstop against a
  * pathological body turning one page view into hundreds of node reads. Far
  * above any real node (the whole 14-memory corpus held 34 cross-memory links
- * in total), so it only ever catches abuse. Truncation is logged, never silent:
- * the dropped targets render as unresolved, and "unresolved" must not quietly
- * mean "we stopped looking".
+ * in total), so it only ever catches abuse. Truncation is logged, never silent,
+ * and the dropped targets render unchecked: "unresolved" must not quietly mean
+ * "we stopped looking".
  */
 const CROSS_MEMORY_LIMIT = 200;
 
@@ -70,6 +79,15 @@ function batchQuery(count: number): string {
   return `query WikilinkTargets(${vars}) {\n${fields}\n}`;
 }
 
+/** The "couldn't check" link: the resolver route, or null when uncomposable. */
+function unchecked(memoryUrn: string, loc: string): WikilinkResolution | null {
+  try {
+    return { href: `/app/u/${composeNodeUrn(memoryUrn, loc)}`, label: loc };
+  } catch {
+    return null;
+  }
+}
+
 export function nodeHref(memoryId: string, nodeId: string): string {
   return `/app/memories/${memoryId}/nodes/${nodeId}`;
 }
@@ -99,18 +117,16 @@ export async function resolveWikilinks(
     ref.memoryUrn === null || (ownKey !== null && memoryKey(ref.memoryUrn) === ownKey);
 
   const links: WikilinkMap = {};
-  // One lookup per ref: the memory the ref names (this one for a bare loc),
-  // pinned by `node(ref: <full node URN>)`, which is hadron-server's own
-  // strict, memory-scoped dispatch (#335's AMBIGUOUS_NODE_LOC guard) — a loc
-  // collision in another memory can never bleed in. A bare ref that misses
-  // gets one second chance as a v2 flat URN (see `flatV2Candidate`), which
-  // keeps the bare reading's first refusal intact.
-  type Lookup = { ref: WikilinkRef; memoryUrn: string; loc: string; flat: { memoryUrn: string; loc: string } | null };
-  const primary: Lookup[] = [];
+  // Cross-memory targets go to aliased `node(ref: <full node URN>)` requests,
+  // hadron-server's own strict, memory-pinned dispatch (#335's
+  // AMBIGUOUS_NODE_LOC guard). Same-memory targets go to one `nodeBatch`.
+  type Lookup = { ref: WikilinkRef; memoryUrn: string; loc: string };
+  const remote: Lookup[] = [];
+  const local: WikilinkRef[] = [];
 
   for (const ref of refs) {
     if (!isLocal(ref)) {
-      primary.push({ ref, memoryUrn: ref.memoryUrn as string, loc: ref.loc, flat: null });
+      remote.push({ ref, memoryUrn: ref.memoryUrn as string, loc: ref.loc });
       continue;
     }
     // Without this memory's URN a same-memory target cannot be addressed.
@@ -118,28 +134,84 @@ export async function resolveWikilinks(
       links[ref.target] = null;
       continue;
     }
-    const flat = ref.memoryUrn === null ? flatV2Candidate(ref.loc) : null;
-    primary.push({ ref, memoryUrn: ctx.memoryUrn, loc: ref.loc, flat });
+    local.push(ref);
   }
 
-  const first = await lookupTargets(client, primary, links);
-  // Misses that have a v2 reading: one more batch, usually empty.
-  const second: Lookup[] = [];
-  for (const [i, entry] of primary.entries()) {
-    if (first.results[i] === 'miss' && entry.flat) {
-      second.push({ ref: entry.ref, memoryUrn: entry.flat.memoryUrn, loc: entry.flat.loc, flat: null });
-    }
+  // A bare ref that misses locally gets one second chance as a v2 flat URN (see
+  // `flatV2Candidate`); the bare reading keeps first refusal.
+  const misses = ctx.memoryUrn ? await lookupLocal(client, local, ctx.memoryId, ctx.memoryUrn, links) : [];
+  for (const ref of misses) {
+    const flat = ref.memoryUrn === null ? flatV2Candidate(ref.loc) : null;
+    if (flat) remote.push({ ref, ...flat });
+    else links[ref.target] = null;
   }
-  const secondResults = second.length > 0 ? (await lookupTargets(client, second, links)).results : [];
-  // A miss that is still unsettled is unresolved: the one place "broken" is claimed.
-  const secondByTarget = new Map(second.map((e, i) => [e.ref.target, secondResults[i]]));
-  for (const [i, entry] of primary.entries()) {
-    if (first.results[i] !== 'miss') continue;
-    const retry = secondByTarget.get(entry.ref.target);
-    if (retry === 'settled') continue;
-    links[entry.ref.target] = null;
+  if (remote.length === 0) return links;
+
+  const { results } = await lookupTargets(client, remote, links);
+  // A miss is unresolved: the one place "broken" is claimed for a remote ref.
+  for (const [i, entry] of remote.entries()) {
+    if (results[i] === 'miss') links[entry.ref.target] = null;
   }
   return links;
+}
+
+/**
+ * This memory's targets, in one `nodeBatch` (portal#1433). Writes `links` for
+ * every target it settled (a hit; or, when not read, the unchecked link) and
+ * returns the refs the batch answered WITHOUT, which the caller may retry under
+ * another reading. A hit counts only when its loc and memory match (#234).
+ */
+async function lookupLocal(
+  client: Client,
+  refs: WikilinkRef[],
+  memoryId: string,
+  memoryUrn: string,
+  links: WikilinkMap,
+): Promise<WikilinkRef[]> {
+  if (refs.length === 0) return [];
+  const batch = refs.slice(0, LOCAL_BATCH_LIMIT);
+  if (refs.length > batch.length) {
+    console.warn(
+      `[wikilinks] ${refs.length} same-memory targets exceeds the ${LOCAL_BATCH_LIMIT} per-page cap; ` +
+        `${refs.length - batch.length} will render unchecked`,
+    );
+    for (const ref of refs.slice(LOCAL_BATCH_LIMIT)) links[ref.target] = unchecked(memoryUrn, ref.loc);
+  }
+
+  const asked: Array<{ ref: WikilinkRef; urn: string }> = [];
+  for (const ref of batch) {
+    try {
+      asked.push({ ref, urn: composeNodeUrn(memoryUrn, ref.loc) });
+    } catch {
+      // An address that cannot be composed resolves to no node.
+      links[ref.target] = null;
+    }
+  }
+  if (asked.length === 0) return [];
+
+  let rows: Array<{ id: string; loc: string; name: string | null; memoryId: string }>;
+  try {
+    const data = await client.request<{ nodeBatch: { nodes: typeof rows } }>(
+      WIKILINK_TARGETS_BATCH_QUERY,
+      { refs: [...new Set(asked.map((a) => a.urn))] },
+    );
+    rows = data.nodeBatch.nodes;
+  } catch (err) {
+    // Couldn't check is not broken: the same degrade as the old `nodesFailed`.
+    console.warn('[wikilinks] same-memory lookup failed:', err);
+    for (const { ref } of asked) links[ref.target] = unchecked(memoryUrn, ref.loc);
+    return [];
+  }
+  const byLoc = new Map<string, (typeof rows)[number]>();
+  for (const n of rows) if (n.memoryId === memoryId && !byLoc.has(n.loc)) byLoc.set(n.loc, n);
+
+  const misses: WikilinkRef[] = [];
+  for (const { ref } of asked) {
+    const hit = byLoc.get(ref.loc);
+    if (hit) links[ref.target] = { href: nodeHref(memoryId, hit.id), label: hit.name || ref.loc };
+    else misses.push(ref);
+  }
+  return misses;
 }
 
 /** One aliased `node(ref:)` request carries at most this many targets. */
@@ -163,11 +235,11 @@ async function lookupTargets(
   if (entries.length > batch.length) {
     console.warn(
       `[wikilinks] ${entries.length} link targets exceeds the ${CROSS_MEMORY_LIMIT} per-page cap; ` +
-        `${entries.length - batch.length} will render as unresolved`,
+        `${entries.length - batch.length} will render unchecked`,
     );
-    for (const [i, { ref }] of entries.entries()) {
+    for (const [i, entry] of entries.entries()) {
       if (i >= CROSS_MEMORY_LIMIT) {
-        links[ref.target] = null;
+        links[entry.ref.target] = unchecked(entry.memoryUrn, entry.loc);
         results[i] = 'settled';
       }
     }

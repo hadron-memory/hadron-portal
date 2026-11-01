@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
   import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import CopyCode from '$lib/components/agent-tasks/CopyCode.svelte';
@@ -66,6 +67,7 @@
     if (r?.role) parts.push(t('app.tasks.req.role', 'role {role}', { role: r.role }));
     if (r?.familyIn?.length) parts.push(t('app.tasks.req.family-in', 'model family {families}', { families: r.familyIn.join(', ') }));
     if (r?.familyNotIn?.length) parts.push(t('app.tasks.req.family-not-in', 'not {families}', { families: r.familyNotIn.join(', ') }));
+    if (r?.minTier) parts.push(t('app.tasks.req.min-tier', 'a {tier}-tier model or higher', { tier: r.minTier }));
     return parts.join(', ');
   });
 
@@ -115,6 +117,8 @@
           canWrite={data.canWrite}
           impersonating={data.impersonating}
           candidates={data.candidates}
+          roles={data.roles}
+          families={data.families}
           {openChildren}
           created={data.created}
         />
@@ -247,6 +251,8 @@
       </div>
     {/if}
   </section>
+
+  <TaskProperties properties={task.properties} />
 
   <section id="subtasks" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="subtasks-heading">
     <h2 id="subtasks-heading" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.subtasks', 'Subtasks')}</h2>

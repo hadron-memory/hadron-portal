@@ -127,13 +127,14 @@ export async function loadManagesHint(client: GraphQLClient, appRef: string): Pr
 }
 
 /** The roster's workers: the picker's options and the id-to-name lookup. A failed read costs only names. */
-export async function loadStopWorkers(client: GraphQLClient, appRef: string): Promise<WorkerOption[]> {
+export async function loadStopWorkers(client: GraphQLClient, appRef: string): Promise<{ workers: WorkerOption[]; failed: boolean }> {
   try {
     const r = await client.request<{ teamRoster: { workers: { worker: WorkerOption }[] } }>(STOP_WORKERS_QUERY, { appRef });
-    return r.teamRoster.workers.map((w) => w.worker);
+    return { workers: r.teamRoster.workers.map((w) => w.worker), failed: false };
   } catch (e) {
     console.warn(`[stop-signals] roster read for ${appRef} failed:`, e);
-    return [];
+    // An empty roster and a failed read must not look alike: the form says which.
+    return { workers: [], failed: true };
   }
 }
 

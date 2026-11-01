@@ -123,12 +123,45 @@ export async function submitEnhancedWithResult(
 }
 
 /**
+ * portal#1528 — like `submitEnhancedWithResult`, but hands the result handler
+ * EXACTLY what kit's `enhance` would, including the shapes that are not an
+ * ActionResult: `{ type: 'error', error }` for a rejected fetch or a body that
+ * is not action JSON (an edge HTML page), and a bare `{ message }` for kit's own
+ * CSRF 403. Superforms decides what each one means; this only delivers it.
+ */
+export async function submitEnhancedWithRawResult(form: HTMLFormElement, result: unknown): Promise<{ cancelled: boolean }> {
+  const submit = enhanced.get(form);
+  if (!submit) throw new Error('submitEnhancedWithRawResult: this form was never enhanced');
+  let cancelled = false;
+  const action = new URL(form.action || 'http://localhost/');
+  const formData = new FormData(form);
+  const handler = await submit({
+    action,
+    formData,
+    formElement: form,
+    controller: new AbortController(),
+    submitter: form.querySelector('[type="submit"]'),
+    cancel: () => {
+      cancelled = true;
+    },
+  });
+  if (cancelled) return { cancelled };
+  if (typeof handler !== 'function') throw new Error('submitEnhancedWithRawResult: superforms returned no result handler');
+  await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+  return { cancelled };
+}
+
+/**
  * portal#1237 — like `submitEnhancedWithResult`, but the server's answer arrives
  * LATER: the submit callback runs now (capturing whatever the page held at
  * submit time) and `finish(result)` delivers the result after the test has
  * moved the page on. That is the interleaving a delayed response creates.
  */
-export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
+export async function submitEnhancedDeferred(
+  form: HTMLFormElement,
+  // portal#1462: a test that needs to see whether a LATE result reached kit's `update` passes its own.
+  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> } = {},
+): Promise<{
   finish: (result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> }) => Promise<void>;
 }> {
   const submit = enhanced.get(form);
@@ -142,7 +175,7 @@ export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
   if (typeof handler !== 'function') throw new Error('submitEnhancedDeferred: no result handler');
   return {
     finish: async (result) => {
-      await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+      await (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: opts.update ?? (async () => {}) });
     },
   };
 }
@@ -156,6 +189,20 @@ export async function submitEnhancedDeferred(form: HTMLFormElement): Promise<{
  */
 export function applyAction(result?: { type?: string; status?: number; data?: unknown }): Promise<void> {
   if (result && (result.type === 'success' || result.type === 'failure')) {
+    // Kit's applyAction resets focus to the document body once the result is
+    // applied (portal#1367: a native run saw it land BEFORE a form's own
+    // onUpdated). A stub that left focus alone hid that from every mounted test.
+    if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+      document.activeElement.blur();
+      // Kit then focuses the body (tabindex -1 for the moment), which FIRES
+      // focusin on it: a listener that records the last focused element must
+      // not mistake that reset for the reader's own move (a native run saw it).
+      const had = document.body.getAttribute('tabindex');
+      document.body.setAttribute('tabindex', '-1');
+      document.body.focus();
+      if (had === null) document.body.removeAttribute('tabindex');
+      else document.body.setAttribute('tabindex', had);
+    }
     page.update((p) => ({ ...p, form: result.data ?? null, status: result.status ?? 200 }));
   }
   return Promise.resolve();

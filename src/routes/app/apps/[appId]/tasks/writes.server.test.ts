@@ -59,7 +59,7 @@ async function taskActions() {
 
 describe('task page actions', () => {
   it('the page has exactly these write actions', async () => {
-    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
+    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'edit', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
   });
 
   // portal#1143
@@ -176,6 +176,17 @@ describe('create action (tasks/new)', () => {
         requirements: { role: 'portal-engineer', familyIn: ['claude'] }, source: 'https://x.test/1', tags: ['a', 'b'],
       },
     });
+  });
+
+  it('a minimum model tier is sent in the requirements; Any sends none (portal#1523)', async () => {
+    answer({ createAgentTask: { id: 't9' } });
+    await expect(create({ title: 'T', start: 'now', owner: 'me', assignee: 'nobody', minTier: 'mid' })).rejects.toMatchObject({ status: 303 });
+    expect(request).toHaveBeenLastCalledWith(CREATE_AGENT_TASK_MUTATION, expect.objectContaining({ input: expect.objectContaining({ requirements: { minTier: 'mid' } }) }));
+    request.mockClear();
+    answer({ createAgentTask: { id: 't9' } });
+    await expect(create({ title: 'T', start: 'now', owner: 'me', assignee: 'nobody', minTier: '' })).rejects.toMatchObject({ status: 303 });
+    const input = (request.mock.calls.find((c) => c[0] === CREATE_AGENT_TASK_MUTATION)![1] as { input: Record<string, unknown> }).input;
+    expect(input).not.toHaveProperty('requirements');
   });
 
   it('a backlog task sends BACKLOG and no assignee or requirements, even if the hidden fields hold some', async () => {

@@ -1,4 +1,4 @@
-import { NODE_ANCESTORS_QUERY, NODE_CHILDREN_QUERY } from '$lib/server/queries';
+import { NODE_ANCESTORS_QUERY, NODE_CHILDREN_QUERY, WIKILINK_TARGETS_BATCH_QUERY } from '$lib/server/queries';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 
 /** A node row as the old layout's slim `graphNodes` carried it. */
@@ -16,8 +16,9 @@ export type SeedNode = {
 
 /**
  * A stand-in for the server reads that replaced `graphNodes` (portal#1433):
- * the breadcrumb/chat-root `nodeBatch`, the children/sibling `findNodes
- * childrenOf`, and the aliased wikilink lookups. Returns undefined for any
+ * the breadcrumb/chat-root and same-memory wikilink `nodeBatch`es, the
+ * aliased cross-memory wikilink lookups, and the node page's bounded
+ * `locPrefix` children read (portal#1524). Returns undefined for any
  * document it does not own, so a test chains its own handler after it.
  */
 export function serveMemoryReads(
@@ -32,7 +33,7 @@ export function serveMemoryReads(
     id: n.id,
     memoryId: n.memoryId ?? memory.id,
     loc: n.loc,
-    name: n.name ?? n.loc,
+    name: n.name === undefined ? n.loc : n.name,
     nodeType: n.nodeType ?? 'info',
     tags: n.tags ?? [],
     seq: n.seq ?? null,
@@ -49,23 +50,20 @@ export function serveMemoryReads(
     }
   }
   return (doc: string, vars: Record<string, unknown> = {}): unknown => {
-    if (doc === NODE_ANCESTORS_QUERY) {
+    if (doc === NODE_ANCESTORS_QUERY || doc === WIKILINK_TARGETS_BATCH_QUERY) {
       const refs = (vars.refs ?? []) as string[];
       const nodes = refs.flatMap((r) => (byUrn.has(r) ? [full(byUrn.get(r)!)] : []));
       return { nodeBatch: { nodes, unavailable: [], omitted: 0, truncated: false } };
     }
     if (doc === NODE_CHILDREN_QUERY) {
-      if ((vars.offset ?? 0) !== 0) return { findNodes: { hits: [] } };
-      const parent = (vars.childrenOf ?? '') as string;
-      const ids = (vars.memoryIds ?? [memory.id]) as string[];
+      // Every descendant under `locPrefix` in this memory, as the server's
+      // prefix read returns it; the loader keeps the direct children.
+      const prefix = (vars.locPrefix ?? '') as string;
       const hits = rows
-        .filter((n) => ids.includes(n.memoryId ?? memory.id))
-        .filter((n) => {
-          if (parent === '') return !n.loc.includes(':');
-          return n.loc.startsWith(`${parent}:`) && !n.loc.slice(parent.length + 1).includes(':');
-        })
+        .filter((n) => (n.memoryId ?? memory.id) === ((vars.memoryId as string | undefined) ?? memory.id))
+        .filter((n) => n.loc.startsWith(prefix))
         .map((n) => ({ node: { ...full(n), commentSummary: null } }));
-      return { findNodes: { hits } };
+      return { findNodes: { total: hits.length, hits } };
     }
     // The aliased wikilink lookup: `w{i}` is the node at URN `r{i}`, or null.
     if (doc.startsWith('query WikilinkTargets')) {

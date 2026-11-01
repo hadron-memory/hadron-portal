@@ -24,7 +24,7 @@
   import NodeList from '$lib/components/NodeList.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
-  import { searchMemoryNodes, pickEdgeTarget, type TypeaheadNode } from '$lib/memory/node-typeahead';
+  import { searchMemoryNodes, type TypeaheadNode } from '$lib/memory/node-typeahead';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -78,7 +78,7 @@
   } from '$lib/flow/extraction';
   import { fillViewport } from '$lib/fill-viewport';
   import { scrollHint } from '$lib/scroll-hint';
-  import type { NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
+  import type { MemoryNode, NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import NodeStorageForm from './NodeStorageForm.svelte';
   import {
@@ -664,8 +664,8 @@
   );
   // Same-memory nodes for the output-target datalist (any URN can still be
   // typed — flows may write to another memory in the org).
-  // Fetched on demand as the user types (portal#1433): the page no longer
-  // carries the memory's node list.
+  // Fetched on demand as the user types (portal#1433): the layout carries no
+  // node list (portal#1524). No hits is "no suggestions", never "no nodes".
   let outputTargetHits = $state<TypeaheadNode[]>([]);
   $effect(() => {
     const q = outputWriteTo.trim();
@@ -891,8 +891,10 @@
     'testFlow',
     $testFlowMessage,
     $testFlowErrors,
-    ['_kind', 'appId', 'orgId', 'payload'],
+    ['_kind', 'appId', 'orgId', 'agentRef', 'payload'],
   ));
+  // The Agent picker shows only for an App with several installed Agents (#1444).
+  const testFlowAgents = $derived(testFlowApps.find((a) => a.id === $testFlowFormData.appId)?.agents ?? null);
   const flowActionError = $derived(scopedActionError<NodeUpdateFlowForm>(
     form,
     'updateFlow',
@@ -1613,6 +1615,27 @@
   let editingEdges = $state(false);
   let editableEdges = $state<EditableEdge[]>([]);
   let newEdgeTargetQuery = $state('');
+  // portal#1433: suggestions for the edge target as the user types, from the
+  // bounded node search. Choosing one fills the loc; the target is still
+  // resolved exactly at submit (`addEditableEdge`).
+  let edgeTargetHits = $state<TypeaheadNode[]>([]);
+  $effect(() => {
+    const q = newEdgeTargetQuery.trim();
+    const memoryId = data.graph.id;
+    if (q.length < 2) {
+      edgeTargetHits = [];
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(async () => {
+      const hits = await searchMemoryNodes(memoryId, q);
+      if (!stale) edgeTargetHits = hits.filter((n) => n.id !== node.id);
+    }, 200);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  });
   let newEdgeName = $state('');
 
   // #656: an outgoing edge whose target sits in a memory the caller can't read
@@ -1634,10 +1657,19 @@
       }));
     newEdgeTargetQuery = '';
     newEdgeName = '';
+    addEdgeError = null;
+    edgeEditorSession += 1;
+    resolvingEdgeTarget = false;
     editingEdges = true;
   }
 
   function cancelEditEdges() {
+    // A lookup still in flight belongs to the editor that sent it: a later
+    // answer must not land in this (or the next) editing session. Opening an
+    // editor bumps the same counter, so a node change is fenced by the next
+    // node's own "Edit edges" (the editor closes on a node change).
+    edgeEditorSession += 1;
+    resolvingEdgeTarget = false;
     editingEdges = false;
     editableEdges = [];
   }
@@ -1646,15 +1678,38 @@
     editableEdges = editableEdges.filter((_, i) => i !== idx);
   }
 
+  let resolvingEdgeTarget = $state(false);
+  let edgeEditorSession = 0;
   async function addEditableEdge() {
+    // portal#1524: resolve the typed loc by ONE per-node read at submit (no
+    // node list to match against). "No node found" is said only when the read
+    // says so; a failed read says it failed.
     const q = newEdgeTargetQuery.trim();
-    if (!q) return;
-    const target = pickEdgeTarget(await searchMemoryNodes(data.graph.id, q), q);
-    if (!target) {
-      addEdgeError = `No node found matching "${newEdgeTargetQuery}"`;
+    if (!q || resolvingEdgeTarget) return;
+    resolvingEdgeTarget = true;
+    addEdgeError = null;
+    const session = edgeEditorSession;
+    // The request owns the name typed when it was sent, not the live field.
+    const edgeName = newEdgeName.trim();
+    let target: { id: string; loc: string; name: string | null } | null = null;
+    try {
+      const res = await fetch(`/api/nodes/resolve?memoryId=${encodeURIComponent(data.graph.id)}&ref=${encodeURIComponent(q)}`);
+      if (!res.ok) throw new Error('lookup failed');
+      const body = (await res.json()) as { found: boolean; node?: { id: string; loc: string; name: string | null } };
+      if (session !== edgeEditorSession) return;
+      target = body.found && body.node ? body.node : null;
+      if (!target) {
+        addEdgeError = `No node found matching "${q}"`;
+        return;
+      }
+    } catch {
+      if (session === edgeEditorSession) addEdgeError = t('node-detail.edge-target-lookup-failed', 'Could not look that node up. Try again.');
       return;
+    } finally {
+      if (session === edgeEditorSession) resolvingEdgeTarget = false;
     }
-    if (editableEdges.some((e) => e.targetId === target.id && e.name === newEdgeName.trim())) {
+    if (!target) return;
+    if (editableEdges.some((e) => e.targetId === target.id && e.name === edgeName)) {
       addEdgeError = 'That edge already exists';
       return;
     }
@@ -1664,11 +1719,12 @@
         targetId: target.id,
         targetName: target.name ?? target.loc,
         targetLoc: target.loc,
-        name: newEdgeName.trim(),
+        name: edgeName,
       },
     ];
-    newEdgeTargetQuery = '';
-    newEdgeName = '';
+    // Leave anything the reader typed while the lookup was out.
+    if (newEdgeTargetQuery.trim() === q) newEdgeTargetQuery = '';
+    if (newEdgeName.trim() === edgeName) newEdgeName = '';
     addEdgeError = null;
   }
 
@@ -2171,7 +2227,17 @@
   }
 
   // Children: direct children of this node's loc
-  const children = $derived(data.children);
+  // portal#1524: one bounded read from the loader (`data.children`), or null
+  // when it could not be proven complete (`data.childrenUnavailable`). Null is
+  // NOT "no children": the section says so instead of vanishing.
+  const children = $derived(
+    [...(data.children ?? [])].sort((a, b) => {
+      if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
+      if (a.seq !== null) return -1;
+      if (b.seq !== null) return 1;
+      return a.loc.localeCompare(b.loc);
+    }) as unknown as MemoryNode[],
+  );
   const hasChildren = $derived(children.length > 0);
   const childrenReorderable = $derived(children.some((c) => c.seq !== null));
   let childDragError = $state<string | null>(null);
@@ -2288,6 +2354,7 @@
       skillExportOpen = false;
       testFlowOpen = false;
       $testFlowFormData.appId = '';
+      $testFlowFormData.agentRef = '';
       $testFlowFormData.orgId = data.org?.id ?? '';
       $testFlowFormData.payload = '';
       moveOpen = false;
@@ -2342,7 +2409,7 @@
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{createParentActionError}</div>
   {/if}
   {#each data.breadcrumb.slice(0, -1) as seg}
-    {#if !seg.nodeId}
+    {#if !seg.nodeId && data.ancestorsKnown}
       <form method="POST" action="?/createParent" use:createParentEnhance novalidate class="inline">
         <input type="hidden" name="_kind" value="createParent" />
         <input type="hidden" name="loc" value={seg.path} />
@@ -2529,6 +2596,7 @@
                     id="testFlowApp"
                     name="appId"
                     bind:value={$testFlowFormData.appId}
+                    onchange={() => ($testFlowFormData.agentRef = '')}
                     class={inputClass}
                     aria-invalid={$testFlowErrors.appId?.[0] ? 'true' : undefined}
                   >
@@ -2539,6 +2607,22 @@
                   </select>
                   <p class="mt-1 text-xs text-zinc-400">The run uses this App's budgets and permissions.</p>
                 </div>
+                {#if testFlowAgents}
+                  <div>
+                    <label for="testFlowAgent" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">{t('node-actions.test-flow.agent', 'Run as Agent')}</label>
+                    <select
+                      id="testFlowAgent"
+                      name="agentRef"
+                      bind:value={$testFlowFormData.agentRef}
+                      class={inputClass}
+                    >
+                      <option value="" disabled>{t('node-actions.test-flow.agent-pick', 'Choose an Agent…')}</option>
+                      {#each testFlowAgents as agent (agent.id)}
+                        <option value={agent.id}>{agent.name}</option>
+                      {/each}
+                    </select>
+                  </div>
+                {/if}
                 <div>
                   <label for="testFlowPayload" class="mb-1 block text-xs font-medium text-zinc-700 dark:text-zinc-300">Test payload (optional JSON)</label>
                   <textarea
@@ -2866,7 +2950,9 @@
        `node.asset` is null for every ordinary node AND when the pointer dangles
        (the asset was deleted), so this one check covers both. -->
   {#if node.asset}
-    <NodeAssetCard asset={node.asset} />
+    {#key node.asset.id}
+      <NodeAssetCard asset={node.asset} />
+    {/key}
   {/if}
 
   <!-- Tabs: Content | Abstract | Children (when present) | Edges | Settings -->
@@ -2962,6 +3048,10 @@
           class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
           onclick={() => activeTab = 'children'}
         >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}</span></button>
+      {:else if data.childrenUnavailable}
+        <!-- portal#1524: not "no children" — the bounded read could not prove
+             the list complete, so the section says it is withheld. -->
+        <span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be listed completely')} class="shrink-0 whitespace-nowrap px-3 py-1.5 text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>
       {/if}
       {#if !isComment}
       <button
@@ -3826,8 +3916,14 @@
               <div class="flex-1 min-w-[200px]">
                 <label for="newEdgeTarget" class="mb-1 block text-xs text-zinc-500">Target (loc or name)</label>
                 <input id="newEdgeTarget" type="text" bind:value={newEdgeTargetQuery}
+                  list="newEdgeTarget-options"
                   placeholder="e.g. specs:auth:jwt"
                   class="{inputClass} font-mono text-xs" />
+                <datalist id="newEdgeTarget-options">
+                  {#each edgeTargetHits as hit (hit.id)}
+                    <option value={hit.loc}>{hit.name ?? hit.loc}</option>
+                  {/each}
+                </datalist>
               </div>
               <div class="w-40">
                 <label for="newEdgeName" class="mb-1 block text-xs text-zinc-500">Name (optional)</label>

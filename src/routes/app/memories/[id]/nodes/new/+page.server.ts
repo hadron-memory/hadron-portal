@@ -5,7 +5,6 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { CREATE_NODE_MUTATION } from '$lib/server/queries';
 import { includeRefusalOf, includeRefusalText } from '$lib/server/include-refusal';
-import { loadChildren } from '$lib/server/node-children';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 import {
   createNodeStrings,
@@ -21,7 +20,7 @@ type CreateNodeForm = Infer<typeof createNodeSchema, 'zod4'>;
 
 const createNodeFormAdapter = zod4(createNodeSchema);
 
-export const load: PageServerLoad = async ({ url, parent, params, locals }) => {
+export const load: PageServerLoad = async ({ url, parent }) => {
   // Single parent() call: reuse the layout data for the consumer-mode
   // gate AND for existingLocs. requireNonConsumer would call parent()
   // internally, duplicating the layout's GraphQL fan-out (org/memory/
@@ -29,7 +28,8 @@ export const load: PageServerLoad = async ({ url, parent, params, locals }) => {
   const layout = await parent() as unknown as {
     isConsumerMode?: boolean;
     activeOrgId?: string | null;
-    graph?: { organizationId?: string | null; urn?: string | null };
+    graph?: { organizationId?: string | null };
+    graphNodes?: MemoryNode[];
   };
   // #627: mirror requireNonConsumer's exemption — a consumer may author nodes in
   // a memory they own directly (org-less, organizationId == null). Only bounce
@@ -52,19 +52,12 @@ export const load: PageServerLoad = async ({ url, parent, params, locals }) => {
   // it through the same helper the submit path uses.
   const prefillLoc = cleanLocInput(url.searchParams.get('loc') ?? '');
 
-  // Normalize existingLocs through the same helper that runs at submit
-  // time, so collision suffixing in deriveDefaultLoc is computed against
-  // the canonical loc shape that will actually be submitted (legacy
-  // memory-prefixed locs in storage map to the same bare form here).
-  // portal#1433: the siblings under the chosen parent (the roots when there is
-  // none), read from the server; the layout no longer carries every node. A loc
-  // is unique per memory, so a collision can only be a sibling's.
-  const existingLocs = (
-    await loadChildren(gqlClient(locals.token), { id: params.id, urn: layout.graph?.urn }, parentLoc).catch((err) => {
-      console.error('[nodes/new] sibling read failed:', err);
-      return [];
-    })
-  )
+  // portal#1524: the memory layout no longer carries the node list, so there
+  // is nothing to suffix a default loc against. An empty list is "not loaded",
+  // not "nothing exists": a duplicate loc is refused by the server at submit
+  // and shown as it always was.
+  // The key is still read so a restored list (portal#1438) suffixes again.
+  const existingLocs = (layout.graphNodes ?? [])
     .map((n) => cleanLocInput(n.loc))
     .filter((s) => s !== '');
 

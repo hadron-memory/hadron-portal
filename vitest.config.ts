@@ -76,6 +76,7 @@ export default defineConfig({
             '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
             '$app/environment': resolve(__dirname, 'src/lib/test/stubs/app-environment.ts'),
             '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+            '$app/state': resolve(__dirname, 'src/lib/test/stubs/app-state.ts'),
             '$app/forms': resolve(__dirname, 'src/lib/test/stubs/app-forms.ts'),
             '$env/dynamic/public': resolve(__dirname, 'src/lib/test/stubs/env-dynamic-public.ts'),
           },

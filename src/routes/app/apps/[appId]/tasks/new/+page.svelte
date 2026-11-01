@@ -11,6 +11,7 @@
   import { t } from '$lib/i18n/t';
   import type { WriteRefusal } from '$lib/agent-tasks/actions';
   import { localDateTimeToIso } from '$lib/agent-tasks/start-by';
+  import { MIN_TIERS, tierLabel } from '$lib/agent-tasks/tier';
   import { taskHref } from '$lib/agent-tasks/handle';
   import type { ActionData, PageData } from './$types';
 
@@ -290,6 +291,14 @@
                 <select id="new-exclude" name="excludeWorkers" multiple class={inputClass}>
                   {#each data.candidates.workers as w (w.id)}<option value={w.id} selected={vs('excludeWorkers').includes(w.id)}>{w.name}</option>{/each}
                 </select>
+              </div>
+              <div class="space-y-1">
+                <label for="new-min-tier" class={labelClass}>{t('app.tasks.new.min-tier', 'Minimum model tier')}</label>
+                <select id="new-min-tier" name="minTier" aria-describedby="new-min-tier-help" class={inputClass}>
+                  <option value="">{t('app.tasks.new.min-tier.any', 'Any')}</option>
+                  {#each MIN_TIERS as tier (tier)}<option value={tier} selected={v('minTier') === tier}>{tierLabel(tier)}</option>{/each}
+                </select>
+                <p id="new-min-tier-help" class={helpClass}>{t('app.tasks.new.min-tier.help', 'The task goes to the cheapest free worker at or above this tier. A worker whose tier is unknown won’t be picked.')}</p>
               </div>
             </div>
           </details>

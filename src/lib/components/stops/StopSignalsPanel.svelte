@@ -18,17 +18,17 @@
   import type { SubmitFunction } from '@sveltejs/kit';
   import { goto, invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
-  import type { WriteRefusal } from '$lib/agent-tasks/actions';
+  import { WRITE_UNCERTAIN_TEXT, writeLead, type WriteRefusal } from '$lib/agent-tasks/actions';
   import Urn from '$lib/components/Urn.svelte';
-  import { fmtRunTime } from '$lib/flow/runs';
   import WriteRefusalAlert from '$lib/components/agent-tasks/WriteRefusal.svelte';
-  import { STOP_LEVELS, levelEffect, levelLabel, scopeCoverage, scopeLabel } from '$lib/stop-signals/present';
+  import { STOP_LEVELS, fmtStopTime, levelEffect, levelLabel, scopeCoverage, scopeLabel } from '$lib/stop-signals/present';
   import type { ManagesHint, StopLevel, StopScope, WorkerOption } from '$lib/stop-signals/types';
 
   let {
     appId,
     manages,
     workers,
+    rosterFailed = false,
     impersonating = null,
     lifting = null,
     onliftclose = () => {},
@@ -36,6 +36,8 @@
     appId: string;
     manages: ManagesHint;
     workers: WorkerOption[];
+    /** The roster read failed: `workers` is empty because it is unknown, not because the team has no one. */
+    rosterFailed?: boolean;
     impersonating?: string | null;
     /** A live signal the reader chose to lift; set by the table's Lift button. */
     lifting?: { id: string; label: string } | null;
@@ -48,9 +50,14 @@
   let until = $state('');
   let confirming = $state(false);
   let pending = $state(false);
+  // Which request is in flight. Only a lift's own request holds the lift dialog open.
+  let pendingKind = $state<'set' | 'lift' | null>(null);
   let refusal = $state<WriteRefusal | null>(null);
   let status = $state<string | null>(null);
   let statusLine = $state<HTMLElement | null>(null);
+  // One status line for every lift, outside the set form: the table is where the action happened.
+  let liftNote = $state<{ text: string; failed?: boolean } | null>(null);
+  let liftLine = $state<HTMLElement | null>(null);
   let cancelButton = $state<HTMLButtonElement | null>(null);
   let formEl = $state<HTMLFormElement | null>(null);
   let dialog = $state<HTMLDialogElement | null>(null);
@@ -76,8 +83,10 @@
       until = '';
       confirming = false;
       pending = false;
+      pendingKind = null;
       refusal = null;
       status = null;
+      liftNote = null;
       seededFor = appId;
     }
   });
@@ -100,6 +109,9 @@
     d.setSeconds(0, 0);
     return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   });
+  const invalidField = $derived(refusal?.kind === 'invalid' ? refusal.field : null);
+  const invalidFor = (f: string) => (invalidField === f ? 'true' : undefined);
+  const describedBy = (f: string) => (invalidField === f ? 'stop-refusal' : undefined);
   const workerName = $derived(workers.find((w) => w.id === worker)?.name ?? worker);
 
   async function openConfirm() {
@@ -130,6 +142,7 @@
     if (lifting) {
       refusal = null;
       status = null;
+      liftNote = null;
       tick().then(() => {
         liftDialog?.showModal();
         liftCancel?.focus();
@@ -138,9 +151,16 @@
   });
 
   function closeLift() {
-    if (pending) return;
+    if (pendingKind === 'lift') return;
     liftDialog?.close();
     onliftclose();
+  }
+
+  /** A lift refusal as one status sentence, in the same words the alert uses. */
+  function refusalText(r: WriteRefusal): string {
+    if (r.kind === 'refused') return `${writeLead()}: “${r.message}” (${r.code})`;
+    if (r.kind === 'invalid') return r.message;
+    return WRITE_UNCERTAIN_TEXT();
   }
 
   function submitter(kind: 'set' | 'lift'): SubmitFunction {
@@ -155,31 +175,40 @@
       }
       const mine = ++generation;
       pending = true;
+      pendingKind = kind;
       status = null;
+      liftNote = null;
       return async ({ result }) => {
         if (!alive || mine !== generation) return;
         pending = false;
+        pendingKind = null;
         if (result.type === 'success') {
           const changed = kind === 'lift' ? result.data?.changed !== false : true;
-          confirming = false;
-          dialog?.close();
-          liftDialog?.close();
-          if (kind === 'lift') onliftclose();
+          if (kind === 'set') {
+            confirming = false;
+            dialog?.close();
+          } else {
+            liftDialog?.close();
+            onliftclose();
+          }
           await invalidateAll();
           if (!alive || mine !== generation) return;
-          refusal = null;
           if (kind === 'set') {
+            refusal = null;
             worker = '';
             until = '';
-          }
-          status =
-            kind === 'set'
-              ? t('app.stops.saved', 'Stop set. The list below shows the server’s state.')
-              : changed
+            status = t('app.stops.saved', 'Stop set. The list below shows the server’s state.');
+            await tick();
+            statusLine?.focus();
+          } else {
+            liftNote = {
+              text: changed
                 ? t('app.stops.lifted', 'Stop lifted. Other stops covering the same workers still apply.')
-                : t('app.stops.already-ended', 'That stop had already ended; nothing changed.');
-          await tick();
-          statusLine?.focus();
+                : t('app.stops.already-ended', 'That stop had already ended; nothing changed.'),
+            };
+            await tick();
+            liftLine?.focus();
+          }
           return;
         }
         // A redirect (an expired session sent to sign-in) is an answer, not an
@@ -188,15 +217,24 @@
           await goto(result.location);
           return;
         }
-        refusal =
+        const failed: WriteRefusal =
           result.type === 'failure' && result.data && typeof result.data === 'object' && 'refusal' in result.data
             ? (result.data.refusal as WriteRefusal)
             : { kind: 'uncertain' };
-        confirming = false;
-        dialog?.close();
-        liftDialog?.close();
-        if (kind === 'lift') onliftclose();
-        if (refusal.kind === 'uncertain') await invalidateAll();
+        if (kind === 'set') {
+          refusal = failed;
+          confirming = false;
+          dialog?.close();
+        } else {
+          liftNote = { text: refusalText(failed), failed: true };
+          liftDialog?.close();
+          onliftclose();
+        }
+        if (failed.kind === 'uncertain') await invalidateAll();
+        if (kind === 'lift') {
+          await tick();
+          if (alive && mine === generation) liftLine?.focus();
+        }
       };
     };
   }
@@ -227,19 +265,19 @@
     >
       <input type="hidden" name="level" value={level} />
       <input type="hidden" name="scope" value={scope} />
-      <fieldset class="space-y-1">
+      <fieldset class="space-y-1" role="radiogroup" data-field="level" aria-invalid={invalidFor('level')} aria-describedby={describedBy('level')}>
         <legend class="font-medium text-zinc-900 dark:text-white">{t('app.stops.level', 'Level')}</legend>
         {#each STOP_LEVELS as l (l)}
-          <label class="flex items-start gap-2">
+          <label class="flex min-h-11 items-start gap-2 py-1">
             <input type="radio" name="level-choice" value={l} checked={level === l} onchange={() => (level = l)} class="mt-1" />
             <span><span class="font-medium">{levelLabel(l)}</span> <span class="block text-xs text-zinc-600 dark:text-zinc-400">{levelEffect(l)}</span></span>
           </label>
         {/each}
       </fieldset>
-      <fieldset class="space-y-1">
+      <fieldset class="space-y-1" role="radiogroup" data-field="scope" aria-invalid={invalidFor('scope')} aria-describedby={describedBy('scope')}>
         <legend class="font-medium text-zinc-900 dark:text-white">{t('app.stops.scope', 'Covers')}</legend>
         {#each ['WORKER', 'TEAM'] as s (s)}
-          <label class="flex items-center gap-2">
+          <label class="flex min-h-11 items-center gap-2">
             <input type="radio" name="scope-choice" value={s} checked={scope === s} onchange={() => (scope = s as StopScope)} />
             <span>{scopeLabel(s as StopScope)}</span>
           </label>
@@ -254,12 +292,16 @@
           id="stop-worker"
           name="worker"
           bind:value={worker}
-          aria-invalid={refusal?.kind === 'invalid' && refusal.field === 'worker' ? 'true' : undefined}
+          aria-invalid={invalidFor('worker')}
+          aria-describedby={[describedBy('worker'), rosterFailed ? 'stop-worker-hint' : undefined].filter(Boolean).join(' ') || undefined}
           class="mt-1 block w-full max-w-sm rounded-md border border-zinc-300 bg-white px-2 py-1 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
         >
           <option value="">{t('app.stops.choose', 'Choose…')}</option>
           {#each workers as w (w.id)}<option value={w.id}>{w.name}</option>{/each}
         </select>
+        {#if rosterFailed}
+          <p id="stop-worker-hint" class="mt-1 text-xs text-amber-800 dark:text-amber-300">{t('app.stops.roster-failed', 'Couldn’t load the team roster. Reload the page to try again.')}</p>
+        {/if}
       </div>
       <div>
         <label for="stop-until" class="font-medium text-zinc-900 dark:text-white">{t('app.stops.until-label', 'Until (optional)')}</label>
@@ -268,13 +310,14 @@
           type="datetime-local"
           min={minUntil}
           bind:value={until}
-          aria-describedby="stop-until-help"
+          aria-invalid={invalidFor('until')}
+          aria-describedby={['stop-until-help', describedBy('until')].filter(Boolean).join(' ')}
           class="mt-1 block rounded-md border border-zinc-300 bg-white px-2 py-1 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
         />
         <input type="hidden" name="until" value={untilIso} />
         <p id="stop-until-help" class="mt-1 text-xs text-zinc-600 dark:text-zinc-400">{t('app.stops.until-help', 'Leave empty to stop until someone lifts it.')}</p>
       </div>
-      {#if refusal}<WriteRefusalAlert {refusal} />{/if}
+      {#if refusal}<WriteRefusalAlert {refusal} id="stop-refusal" />{/if}
       {#if status}
         <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
       {/if}
@@ -299,7 +342,7 @@
             {#if workerUrn}<p><Urn value={workerUrn} /></p>{/if}
             <p>{scopeCoverage(scope)}</p>
             <p>{levelEffect(level)}</p>
-            <p>{untilIso ? t('app.stops.confirm.until', 'It ends on its own at {time}.', { time: fmtRunTime(untilIso) + ' (' + Intl.DateTimeFormat().resolvedOptions().timeZone + ')' }) : t('app.stops.confirm.open', 'It lasts until someone lifts it.')}</p>
+            <p>{untilIso ? t('app.stops.confirm.until', 'It ends on its own at {time}.', { time: fmtStopTime(untilIso) }) : t('app.stops.confirm.open', 'It lasts until someone lifts it.')}</p>
             <p>{t('app.stops.confirm.messages', 'Messages are not held by any level.')}</p>
           </div>
           <div class="mt-4 flex flex-wrap justify-end gap-3">
@@ -313,6 +356,19 @@
         </dialog>
       {/if}
     </form>
+  {/if}
+
+  {#if liftNote}
+    <p
+      bind:this={liftLine}
+      tabindex="-1"
+      role={liftNote.failed ? 'alert' : 'status'}
+      aria-live={liftNote.failed ? 'assertive' : 'polite'}
+      data-testid="stop-lift-status"
+      class="rounded-lg border px-3 py-2 text-sm {liftNote.failed
+        ? 'border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200'
+        : 'border-zinc-300 bg-zinc-50 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white'}"
+    >{liftNote.text}</p>
   {/if}
 
   {#if lifting && controls}
@@ -333,7 +389,7 @@
       </p>
       <form method="POST" action="?/lift" use:enhance={submitter('lift')} class="mt-4 flex flex-wrap justify-end gap-3">
         <input type="hidden" name="id" value={lifting.id} />
-        <button bind:this={liftCancel} data-testid="stop-confirm-cancel" type="button" onclick={closeLift} disabled={pending} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">
+        <button bind:this={liftCancel} data-testid="stop-confirm-cancel" type="button" onclick={closeLift} disabled={pendingKind === 'lift'} class="rounded-md border border-zinc-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600">
           {t('app.stops.lift.cancel', 'Cancel')}
         </button>
         <button type="submit" disabled={pending} class="rounded-md bg-indigo-600 px-3 py-2 text-sm text-white disabled:opacity-50">

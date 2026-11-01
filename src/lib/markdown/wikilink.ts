@@ -236,7 +236,18 @@ type WikilinkToken = {
  * `` `[[DOPPLER_TOKEN]]` `` and a bash `if [[ … ]]` inside a fence stay verbatim
  * without any special-casing here.
  */
-export function wikilinkExtension(links: WikilinkMap, strings: WikilinkStrings) {
+export function wikilinkExtension(
+  links: WikilinkMap,
+  strings: WikilinkStrings,
+  options: { qualifiedOnly?: boolean } = {},
+) {
+  // `qualifiedOnly` (#1493): surfaces with no containing memory claim only a
+  // node-prefixed target (`hrn:node:…`, v1 or v2). A bare `[[loc]]` has nothing
+  // to resolve against there, and an unprefixed `org::memory::loc` is not a
+  // citation the issue promises, so the tokenizer declines both and marked
+  // leaves them as written.
+  const claims = (ref: WikilinkRef) =>
+    !options.qualifiedOnly || (ref.memoryUrn !== null && NODE_URN_PREFIX.test(ref.target));
   return {
     name: 'wikilink',
     level: 'inline' as const,
@@ -252,7 +263,7 @@ export function wikilinkExtension(links: WikilinkMap, strings: WikilinkStrings) 
       const match = WIKILINK.exec(src);
       if (match && match.index === 0) {
         const ref = parseWikilinkTarget(match[1]);
-        if (!ref) return undefined;
+        if (!ref || !claims(ref)) return undefined;
         const label = match[2]?.trim();
         return { type: 'wikilink', raw: match[0], target: ref.target, label: label || null };
       }
@@ -261,7 +272,7 @@ export function wikilinkExtension(links: WikilinkMap, strings: WikilinkStrings) 
       const urnLink = URN_LINK.exec(src);
       if (!urnLink || urnLink.index !== 0) return undefined;
       const ref = parseWikilinkTarget(urnLink[2]);
-      if (!ref) return undefined;
+      if (!ref || !claims(ref)) return undefined;
       const label = urnLink[1].trim();
       return { type: 'wikilink', raw: urnLink[0], target: ref.target, label: label || null };
     },

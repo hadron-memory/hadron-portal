@@ -1,3 +1,4 @@
+import { profileWorker, workerInternalsVisible } from '$lib/worker-profile';
 import { error, fail } from '@sveltejs/kit';
 import { ClientError } from 'graphql-request';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -8,11 +9,18 @@ import { t } from '$lib/i18n/t';
 import { SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
-import { loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
+import { APPLY_AGENT_TICKER_TEMPLATES_MUTATION, loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
+import { applyRefusal } from '$lib/tickers/apply';
 import type { Actions, PageServerLoad } from './$types';
-import { updateSignatureSchema } from './schema';
+import { updateSignatureFormId, updateSignatureSchema } from './schema';
 
 const updateSignatureAdapter = zod4(updateSignatureSchema);
+
+/** What `applyAgentTickerTemplates` selects (see APPLY_AGENT_TICKER_TEMPLATES_MUTATION). */
+interface ApplyAgentTickerTemplatesResponse {
+  created: Array<{ effectiveCadenceSeconds: number; template: { id: string; name: string }; ticker: { id: string; name: string; urn: string | null } }>;
+  alreadyPresent: Array<{ id: string; name: string }>;
+}
 
 /**
  * #758 — the worker page's tab ids. These are ADDRESSES, not labels: they are
@@ -87,6 +95,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     throw error(404, 'No worker found here, or you do not have access to it.');
   }
 
+  const internals = workerInternalsVisible(worker);
+  if (!internals) worker = profileWorker(worker);
+
   // #737 — the two sections that answer "what have they actually done".
   //
   // Each fetch fails INDEPENDENTLY and reports null rather than []. The issue is
@@ -100,7 +111,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // whose identity half loaded fine.
   const client = gqlClient(locals.token);
   const [sessions, worklog] = await Promise.all([
-    client
+    internals ? client
       // limit+1: `sessions` has no `total`, so "is there more" is answered by
       // observing a short page, not by counting.
       .request<{ sessions: WorkerSession[] }>(WORKER_SESSIONS_QUERY, {
@@ -111,12 +122,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       .catch((e) => {
         console.warn(`[worker-page] worker-sessions fetch failed for ${params.id}:`, e);
         return null;
-      }),
+      }) : Promise.resolve(null),
     // teamWorkItems REQUIRES an appRef, and `worker.app` runs its own read gate
     // and masks to null on deny (#552). So a masked App is not an outage and
     // not an empty worklog — it is a section we cannot even ask for, and it
     // reports as unavailable rather than as "no records".
-    worker.app?.id
+    internals && worker.app?.id
       ? client
           .request<{ teamWorkItems: { items: TeamWorkItem[]; total: number } }>(
             TEAM_WORK_ITEMS_QUERY,
@@ -137,23 +148,24 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // neither can blank the rest of the page. The App's settings only supply the
   // wake-rate floor line; without a readable App there is nothing to ask.
   const [wake, wakeAppSettings, bootPointer, canManageWorkerApp] = await Promise.all([
-    loadWakeSettings(client, worker.id),
+    internals ? loadWakeSettings(client, worker.id) : Promise.resolve({ kind: 'not-participant' as const }),
     worker.app?.id ? loadAppTickerSettings(client, worker.app.id) : Promise.resolve(null),
     // portal#1142 S8: the worker's boot-prompt pointer, and whether to offer
     // its form. The setter belongs to the worker's APP manager (R23): holding
     // the worker grants nothing, so nothing here reads who holds it.
-    readPointer(
+    internals ? readPointer(
       () => client.request<{ worker: { bootPromptRef: string | null; bootPromptTargetDeleted: boolean | null } | null }>(WORKER_BOOT_POINTER_QUERY, { ref: worker.id }),
       (r) => r.worker,
       `worker ${worker.id}`,
-    ),
-    selfCanManage(client, locals.user?.id, worker.app?.urn),
+    ) : Promise.resolve({ ok: false as const }),
+    internals ? selfCanManage(client, locals.user?.id, worker.app?.urn) : Promise.resolve(false),
   ]);
 
   // portal#1142 P4: seeded with the stored templates and, as bases, the same
   // values, so a save sends only what the reader changed. A masked (null) field
   // seeds as '': the page shows it as "not shown" (it reads worker.signature,
   // not this form) and posts nothing for it.
+  // portal#1448: the id is per worker — see updateSignatureFormId.
   const signatureForm = await superValidate(
     {
       signature: worker.signature ?? '',
@@ -162,14 +174,16 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       trailerBase: worker.trailer ?? '',
     },
     updateSignatureAdapter,
-    { errors: false },
+    { errors: false, id: updateSignatureFormId(params.id) },
   );
 
   return {
     worker,
+    // portal#1492: one clock for the terminal ages, so server render and hydration agree.
+    terminalNow: new Date().toISOString(),
 
     signatureForm,
-    initialTab,
+    initialTab: internals ? initialTab : 'profile',
     initialView,
     workerSessions: sessions ? sessions.slice(0, SESSION_PAGE_SIZE) : null,
     sessionsTruncated,
@@ -182,6 +196,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     canManageWorkerApp,
     // The key a pointer result carries (the action's own params.id).
     bootPointerKey: params.id,
+    // portal#1462: the same for an apply result. The route may spell the worker as its URN while
+    // `worker.id` is its id, so the panel is keyed by the spelling the action keys with.
+    applyKey: params.id,
   };
 };
 
@@ -191,6 +208,38 @@ export const actions: Actions = {
   setBootPrompt: async ({ request, params, locals }) =>
     pointerAction(await request.formData(), 'app', params.id, (nodeRef) =>
       gqlClient(locals.token).request(SET_WORKER_BOOT_PROMPT_MUTATION, { workerRef: params.id, nodeRef })),
+
+  /**
+   * portal#1462 (hadron-server#2860) — apply the Agent's ticker templates to
+   * THIS worker. The worker is the route's, never a posted field, and the
+   * caller is whoever is signed in: the server decides who may. A refusal comes
+   * back keyed to this worker and local to the Wake-ups tab; a call that fails
+   * without a recognised refusal is outcome-unknown, and is never retried.
+   */
+  applyTickerTemplates: async ({ params, locals }) => {
+    try {
+      const r = await gqlClient(locals.token).request<{ applyAgentTickerTemplates: ApplyAgentTickerTemplatesResponse }>(APPLY_AGENT_TICKER_TEMPLATES_MUTATION, { workerRef: params.id });
+      return {
+        applyTickers: {
+          key: params.id,
+          ok: true as const,
+          created: r.applyAgentTickerTemplates.created.map((c) => ({
+            tickerId: c.ticker.id,
+            tickerName: c.ticker.name,
+            tickerUrn: c.ticker.urn ?? null,
+            templateId: c.template.id,
+            templateName: c.template.name,
+            effectiveCadenceSeconds: c.effectiveCadenceSeconds,
+          })),
+          alreadyPresent: r.applyAgentTickerTemplates.alreadyPresent.map((a) => ({ id: a.id, name: a.name })),
+        },
+      };
+    } catch (e: unknown) {
+      const { status, ...refusal } = applyRefusal(extractGqlErrorCode(e));
+      if (refusal.outcomeUnknown) console.warn(`[worker-page] apply tickers for ${params.id} failed:`, e);
+      return fail(status, { applyTickers: { key: params.id, refusal } });
+    }
+  },
 
   /**
    * portal#1142 P4 (hadron-server#1602 / #2120) — save the signature and/or
@@ -207,7 +256,13 @@ export const actions: Actions = {
    */
   updateSignature: async ({ request, params, locals }) => {
     const posted = await request.formData();
-    const form = await superValidate(posted, updateSignatureAdapter);
+    // portal#1448/#1450 — the reply carries the id the POST carried when it
+    // had one (superValidate echoes a posted __superform_id over this options
+    // id, so an enhanced submission's reply returns to the mount that sent
+    // it — see signature-instance-id.ts) and otherwise the loader's per-worker
+    // stamp (a no-JS POST, whose reply the server render matches the same
+    // way; see updateSignatureFormId).
+    const form = await superValidate(posted, updateSignatureAdapter, { id: updateSignatureFormId(params.id) });
     if (!form.valid) return fail(400, { form });
 
     // Gene's blind P2 on #1157: clear intent comes from what was POSTED, never

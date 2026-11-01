@@ -12,6 +12,7 @@ import {
 } from '$lib/server/agent-task-writes';
 import { t } from '$lib/i18n/t';
 import { parseHandle, taskHref } from '$lib/agent-tasks/handle';
+import { startByIso } from '$lib/agent-tasks/start-by';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -39,22 +40,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 const str = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim();
 const list = (fd: FormData, k: string) => fd.getAll(k).map((v) => String(v).trim()).filter(Boolean);
-
-/**
- * Start by as an instant. The browser sends `startByUtc`, computed with the
- * CHOSEN date's own offset (Diego's P2-3 on #1135: today's offset is an hour
- * off across a DST change). Without JS there is none, and the local value is
- * read as UTC, which the form's label says.
- */
-function startByIso(local: string, utc: string): string | null {
-  if (utc) {
-    const d = new Date(utc);
-    if (/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(utc) && !Number.isNaN(d.getTime())) return d.toISOString();
-  }
-  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(local);
-  if (!m) return null;
-  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])).toISOString();
-}
 
 /**
  * Diego's P2-2 on #1135: "Someone else…" with nothing usable typed is not a
@@ -119,6 +104,9 @@ export const actions: Actions = {
         else if (familyNotIn.length) requirements.familyNotIn = familyNotIn;
         const exclude = list(fd, 'excludeWorkers');
         if (exclude.length) requirements.excludeWorkers = exclude;
+        // portal#1523: "Any" posts nothing; the server owns what a tier means and refuses a bad one.
+        const minTier = str(fd, 'minTier');
+        if (minTier) requirements.minTier = minTier;
         if (Object.keys(requirements).length) input.requirements = requirements;
       }
     }

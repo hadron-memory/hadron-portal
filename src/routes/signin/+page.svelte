@@ -1,4 +1,6 @@
 <script lang="ts">
+  import TurnstileWidget from '$lib/components/TurnstileWidget.svelte';
+  import { emailSubmitFailure } from '$lib/forms/email-submit-failure.svelte';
   import { page } from '$app/state';
   import AppleLoginButton from '$lib/components/AppleLoginButton.svelte';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
@@ -39,6 +41,9 @@
     `/auth/start/apple?redirect=${encodeURIComponent(postAuthRedirect)}`
   );
 
+  let turnstile: TurnstileWidget | undefined = $state();
+  const submitFailure = emailSubmitFailure({ providers: ['Google', 'Apple', 'GitHub'], resetCheck: () => turnstile?.reset() });
+
   const initialEmailForm = untrack(() => form?.form ?? data.form);
   const {
     form: emailForm,
@@ -53,9 +58,14 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    // #1470 + portal#1528: reset Turnstile after any submit, and SAY when the
+    // submit failed before an ActionResult came back (edge page, network, CSRF).
+    onSubmit: submitFailure.onSubmit,
+    onUpdated: submitFailure.onUpdated,
+    onError: submitFailure.onError,
   });
   const emailError = $derived($emailErrors.email?.[0] ?? null);
-  const actionError = $derived($emailMessage?.type === 'error' ? $emailMessage.text : null);
+  const actionError = $derived(submitFailure.text ?? ($emailMessage?.type === 'error' ? $emailMessage.text : null));
   const successMessage = $derived($emailMessage?.type === 'success' ? $emailMessage.text : null);
 </script>
 
@@ -127,6 +137,7 @@
         {#if actionError && !emailError}
           <p role="alert" class="mt-2 text-sm text-red-500">{actionError}</p>
         {/if}
+        <TurnstileWidget bind:this={turnstile} />
         <button
           type="submit"
           disabled={$emailSubmitting}

@@ -6,12 +6,12 @@
   import { formatPortalDate } from '$lib/format-portal-date';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
+  import SyncReportDetail from '$lib/components/SyncReportDetail.svelte';
   import SyncErrorDetail from '$lib/components/SyncErrorDetail.svelte';
 
   let { data }: { data: PageData } = $props();
   const g = $derived(data.graph);
   const org = $derived(data.org);
-  const nodeCount = $derived(data.nodeCount);
 
   const isAgentSystem = $derived(g.class === 'system');
   const isOwnerOnly = $derived(g.class === 'personal' || g.class === 'private');
@@ -107,6 +107,7 @@
           <span class={rowLabel}>{t('memory-info.sync-status', 'Sync status')}</span>
           <span class={rowValue}>{g.syncStatus ?? '—'}{#if g.lastSyncedAt} &middot; {formatPortalDate(g.lastSyncedAt)}{/if}</span>
         </div>
+      <SyncReportDetail lastSyncReport={g.lastSyncReport} syncStatus={g.syncStatus} lastSyncedAt={g.lastSyncedAt} listKey="memories:info:sync-outcomes" />
         {#if g.syncStatus === 'ERROR'}
           <SyncErrorDetail syncError={g.syncError} />
         {/if}
@@ -117,12 +118,9 @@
   <!-- Stats -->
   <section>
     <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('memory-info.stats', 'Stats')}</h2>
-    <div class={card}>
-      <div class="flex items-center justify-between px-5 py-3">
-        <span class={rowLabel}>{t('memory-info.nodes', 'Nodes')}</span>
-        <span class={rowValue}>{nodeCount === null ? '—' : nodeCount.toLocaleString('en-US')}</span>
-      </div>
-    </div>
+    <!-- portal#1524: the node count is hidden, not shown as 0. The memory
+         layout no longer loads the node list, and the server's own total is not
+         a count while the list is off, so no number here would be true. -->
     <p class="mt-2 text-xs text-zinc-400">
       {t('memory-info.deferred-stats', 'Edge count, last use, and the agents/apps that include this memory are coming soon.')}
     </p>

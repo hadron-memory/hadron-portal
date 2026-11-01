@@ -1,21 +1,23 @@
 import { error } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import {
-  MEMORY_LAYOUT_ORG_QUERY,
-  SELF_CAN_WRITE_QUERY,
-  MEMORY_BY_ID_QUERY,
-} from '$lib/server/queries';
-import type { Organization, Memory } from '$lib/types';
+import { MEMORY_LAYOUT_ORG_QUERY, SELF_CAN_WRITE_QUERY, MEMORY_BY_ID_QUERY } from '$lib/server/queries';
+import type { Organization, OrgMember, UserSummary, Memory } from '$lib/types';
 import type { LayoutServerLoad } from './$types';
 
-// portal#1433: this layout loads NO graph. The whole node graph is drained by the
-// `(browser)` route group's layout, so only the Nodes and Graph tabs pay for it.
-//
+// What MEMORY_LAYOUT_ORG_QUERY selects, and no more: typing it as the full
+// Organization would let a consumer read `memories` or `createdAt` and get
+// undefined at runtime instead of a compile error (#1429).
+export type MemoryLayoutOrg = Pick<Organization, 'id' | 'name' | 'urn'> & {
+  members: Array<Pick<OrgMember, 'id' | 'role'> & { user: Pick<UserSummary, 'id'> }>;
+};
+
 // #260: memory pages are org-less (`/app/memories/[id]`) so a memory owned by
 // an org the user is NOT a member of stays reachable. Data access is keyed on
 // the memory id alone; the org is loaded only for breadcrumb + settings chrome.
 export const load: LayoutServerLoad = async ({ params, locals }) => {
   const client = gqlClient(locals.token);
+  // portal#1524: no node-list drain (no memoryNodes/memoryEdges) on memory
+  // entry; the memory itself is the only read the shell needs.
   const memoryData = await client.request<{ memory: Memory | null }>(MEMORY_BY_ID_QUERY, { ref: params.id });
 
   const memory = memoryData.memory;
@@ -44,7 +46,7 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
   // GraphQL validation error.
   const orgData = memory.organizationId
     ? await client
-        .request<{ organization: Organization | null }>(MEMORY_LAYOUT_ORG_QUERY, { ref: memory.organizationId })
+        .request<{ organization: MemoryLayoutOrg | null }>(MEMORY_LAYOUT_ORG_QUERY, { ref: memory.organizationId })
         .catch(() => ({ organization: null }))
     : { organization: null };
 
@@ -52,5 +54,15 @@ export const load: LayoutServerLoad = async ({ params, locals }) => {
     org: orgData.organization,
     graph: memory,
     canWriteMemory,
+    // portal#1524 (Holger, 2026-10-31): the node list is deliberately NOT
+    // loaded, which is a different state from "the load failed"
+    // (`nodesFailed`, which shows an error banner) and from "this memory has no
+    // nodes". Every consumer treats `nodesOff` as the degraded path it already
+    // has for `nodesFailed`, without the banner, and none may read the absent
+    // list as an empty memory. `nodesTotal` is null for the same reason: it is
+    // not a count of anything.
+    nodesOff: true as const,
+    nodesFailed: false,
+    nodesTotal: null,
   };
 };

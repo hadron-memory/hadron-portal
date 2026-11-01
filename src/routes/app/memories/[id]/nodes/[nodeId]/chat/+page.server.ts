@@ -98,7 +98,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   // portal#1433: the breadcrumb's parents, from one `nodeBatch` of their URNs
   // (the memory layout no longer ships the node list this read from).
   const ancestors = [
-    ...(await loadAncestors(gqlClient(locals.token), { id: params.id, urn: memoryUrn }, node.loc)).values(),
+    ...(await loadAncestors(gqlClient(locals.token), { id: params.id, urn: memoryUrn }, node.loc)).byLoc.values(),
   ].map((a) => ({ id: a.id, loc: a.loc, name: a.name }));
 
   return {

@@ -12,7 +12,7 @@ function data(over: Record<string, unknown>) {
       ...over,
     },
     org: null,
-    nodeCount: 0,
+    nodesOff: true,
   };
 }
 
@@ -30,4 +30,15 @@ describe('memory Info page, Git sync (#988)', () => {
     const { body } = render(Page as never, { props: { data: data({ syncStatus: 'OK' }) } as never });
     expect(body).not.toContain('The last sync failed.');
   });
+});
+
+it('shows a recorded partial report in Info', () => {
+  const body = render(Page as never, { props: { data: data({ lastSyncReport: JSON.stringify({ version: 1, outcome: 'partial', recordedAt: '2026-10-26T01:02:03.000Z', entries: [] }) }) } as never }).body;
+  expect(body).toContain('Last recorded outcome'); expect(body).toContain('succeeded');
+});
+
+it('portal#1524: the node count is hidden, never shown as 0, while the node list is off', () => {
+  const { body } = render(Page as never, { props: { data: data({}) } as never });
+  expect(body).not.toMatch(/>\s*0\s*</);
+  expect(body).not.toContain('Nodes</span>');
 });

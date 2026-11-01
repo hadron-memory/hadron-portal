@@ -5,6 +5,7 @@ import type { GraphQLClient } from 'graphql-request';
 import { t } from '$lib/i18n/t';
 import {
   customisationRefusalLead,
+  isQualifiedRef,
   type CustomisationRead,
   type InstallNode,
   type Read,
@@ -20,6 +21,11 @@ import {
   CREATE_CUSTOMISATION_MUTATION,
 } from './queries';
 type Client = Pick<GraphQLClient, 'request'>;
+// node(ref:) resolves a PK or a urn:node: ref by itself and ignores memoryRef
+// (#1504 §10), so a customisation read would show a different node than the
+// save, which addresses the literal loc. `loc:` makes the server read any
+// string as a loc inside memoryRef.
+const memoryPinnedRef = (loc: string) => `loc:${loc}`;
 export async function readCustomisation(
   client: Client,
   target: { appRef: string; agentRef: string },
@@ -72,7 +78,7 @@ export async function readCustomisation(
     } catch {
       out.list = { state: 'failed' };
     }
-    if (loc) {
+    if (loc && !isQualifiedRef(loc)) {
       const read = async (
         query: string,
         memoryRef: string,
@@ -80,7 +86,7 @@ export async function readCustomisation(
         try {
           const { node } = await client.request<{ node: InstallNode | null }>(
             query,
-            { memoryRef, ref: loc },
+            { memoryRef, ref: memoryPinnedRef(loc) },
           );
           return node ? { state: 'ok', value: node } : { state: 'not-shown' };
         } catch {
@@ -118,7 +124,20 @@ export async function writeCustomisation(
         ),
       },
     });
-  if (!agentRef || !loc || loc.startsWith('hrn:') || !fd.has('content'))
+  // A well-formed draft whose install or replacement is gone on the
+  // authoritative reread is not malformed input: the target changed (#1370).
+  // Deleted, hidden and foreign read the same, so nothing is disclosed.
+  const unavailable = () =>
+    fail(409, {
+      customisationFailed: {
+        code: 'unavailable',
+        detail: t(
+          'customisation.unavailable',
+          'This customisation is no longer available. It may have changed since you opened it. Your draft is kept; reload to see the current state.',
+        ),
+      },
+    });
+  if (!agentRef || !loc || isQualifiedRef(loc) || !fd.has('content'))
     return invalid();
   const input: Record<string, unknown> = { install: { appRef, agentRef }, loc };
   if (create) {
@@ -140,12 +159,12 @@ export async function writeCustomisation(
       const { installMemory } = await client.request<{
         installMemory: { id: string } | null;
       }>(INSTALL_MEMORY_QUERY, { appRef, agentRef });
-      if (!installMemory) return invalid();
+      if (!installMemory) return unavailable();
       const { node } = await client.request<{ node: GovernedState | null }>(
         INSTALL_NODE_QUERY,
-        { memoryRef: installMemory.id, ref: loc },
+        { memoryRef: installMemory.id, ref: memoryPinnedRef(loc) },
       );
-      if (!node) return invalid();
+      if (!node) return unavailable();
       await client.request(nodeUpdateDocument(node, input), { input });
     }
     return { saved: true };

@@ -154,6 +154,28 @@ describe('Urn.svelte — linked chip (#826)', () => {
   });
 });
 
+// #1360 — an action URN (hrn:action:<root>:<agent-slug>:<code>, server#2610)
+// is labelled `action`, not the `unknown` fallback, and its resolver link and
+// copy-URL button are live now that /app/u/ opens the register entry.
+describe('Urn.svelte — action URN chip (#1360)', () => {
+  const ACTION = 'hrn:action:hadronmemory.com:hadron-dev-team:gate-an-issue';
+
+  it('labels the chip `action` and shows the bare root:agent:code', () => {
+    const { body } = render(Urn, { props: { value: ACTION } });
+    expect(body).toContain('action:');
+    expect(body).not.toContain('unknown');
+    expect(body).toContain('hadronmemory.com:hadron-dev-team:gate-an-issue');
+  });
+
+  it('keeps the label and links to the resolver when given the bare form plus a type', () => {
+    const { body } = render(Urn, {
+      props: { value: 'hadronmemory.com:hadron-dev-team:gate-an-issue', type: 'action', linked: true },
+    });
+    expect(body).toContain('action:');
+    expect(body).toContain(`href="/app/u/${ACTION}"`);
+  });
+});
+
 describe('Urn — a labelled chip names its copy buttons (@codex on #917)', () => {
   it('says WHAT it copies when given a label, and keeps the plain names without one', () => {
     const labelled = render(Urn, { props: { value: 'hrn:node:acme.com:ops:x', label: 'message' } }).body;

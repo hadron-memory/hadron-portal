@@ -193,6 +193,44 @@ function taskPage(over: Record<string, unknown> = {}) {
 }
 
 describe('task page', () => {
+  describe('Properties (portal#1340)', () => {
+    const pre = (html: string) => (html.match(/data-testid="task-properties-value"[^>]*>([^<]*)</) ?? [])[1];
+    const unescape = (h: string) => h.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+
+    it('a root and its child each show their OWN object', () => {
+      const root = taskPage({ task: detail({ properties: { who: 'root' } }) });
+      const child = taskPage({ task: detail({ id: 't2', parentTaskId: 't1', properties: { who: 'child' } }) });
+      expect(JSON.parse(unescape(pre(root)))).toEqual({ who: 'root' });
+      expect(JSON.parse(unescape(pre(child)))).toEqual({ who: 'child' });
+    });
+
+    it('a child with null shows the empty state even though its root has properties', () => {
+      const rootRow = detail({ id: 't1', properties: { who: 'root-secret' } });
+      const html = taskPage({
+        task: detail({ id: 't2', parentTaskId: 't1', properties: null }),
+        ancestors: [{ id: 't1', handle: 'AT1', title: 'Root', parentTaskId: null, properties: { who: 'root-secret' } }],
+        tree: { kind: 'ok', value: { rows: [rootRow, detail({ id: 't2', parentTaskId: 't1', properties: null })], capped: false } },
+      });
+      expect(html).not.toContain('task-properties-value');
+      expect(html).not.toContain('root-secret');
+      expect(html).toContain('data-testid="task-properties-empty"');
+    });
+
+    it('a payload without the field is the empty state, and nothing is invented from status or tags', () => {
+      const html = taskPage({ task: detail({ tags: ['ready', 'tier-p'] }) });
+      expect(html).toContain('data-testid="task-properties-empty"');
+      expect(html).not.toContain('task-properties-value');
+    });
+
+    it('is read-only: no inherited label, no properties form or edit control', () => {
+      const html = taskPage({ task: detail({ properties: { a: 1 } }) });
+      const section = html.slice(html.indexOf('id="task-properties"'), html.indexOf('id="subtasks"'));
+      expect(section).not.toMatch(/inherit/i);
+      expect(section).not.toMatch(/<(form|input|button|textarea)\b/);
+      expect([...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((m) => m[1])).toEqual(['?/priority']);
+    });
+  });
+
   it('shows the id and the CLI line that reads it, and says where the right to change it comes from', () => {
     const html = taskPage();
     expect(html).toContain('hadron team task get t1');
@@ -213,6 +251,14 @@ describe('task page', () => {
       task: detail({ status: 'PENDING', queued: true, assignee: null, requirements: { role: 'portal-engineer', familyIn: ['claude'], familyNotIn: null, excludeWorkerIds: null } }),
     });
     expect(html).toContain('Nobody yet: waiting for a worker with role portal-engineer, model family claude');
+  });
+
+  it('a task with a minimum tier says it in the waiting-for line; one without says nothing of tiers (portal#1523)', () => {
+    const req = { role: null, familyIn: null, familyNotIn: null, excludeWorkerIds: null };
+    const withTier = taskPage({ task: detail({ status: 'PENDING', queued: true, assignee: null, requirements: { ...req, minTier: 'high' } }) });
+    expect(withTier).toContain('Nobody yet: waiting for a worker with a high-tier model or higher');
+    const without = taskPage({ task: detail({ status: 'PENDING', queued: true, assignee: null, requirements: { ...req, role: 'qa-engineer' } }) });
+    expect(without).not.toMatch(/tier/i);
   });
 
   it('the description is text: markup is escaped and only http(s) URLs link', () => {
@@ -279,10 +325,10 @@ describe('task page', () => {
 // authority is the server's, so every non-impersonating participant sees it.
 describe('task page action bar (#1090)', () => {
   it.each([
-    [{ status: 'BACKLOG', assignee: null }, ['Make ready', 'Assign…', 'Cancel…']],
-    [{ status: 'PENDING', queued: true, assignee: null }, ['Assign…', 'Park…', 'Cancel…']],
-    [{ status: 'PENDING', queued: false }, ['Reassign…', 'Cancel…']],
-    [{ status: 'STARTED' }, ['Reassign…', 'Cancel…']],
+    [{ status: 'BACKLOG', assignee: null }, ['Make ready', 'Assign…', 'Edit details', 'Cancel…']],
+    [{ status: 'PENDING', queued: true, assignee: null }, ['Assign…', 'Park…', 'Edit details', 'Cancel…']],
+    [{ status: 'PENDING', queued: false }, ['Reassign…', 'Edit details', 'Cancel…']],
+    [{ status: 'STARTED' }, ['Reassign…', 'Edit details', 'Cancel…']],
   ])('%j offers %j', (over, buttons) => {
     const html = taskPage({ task: detail(over) });
     expect(barButtons(html)).toEqual(buttons);

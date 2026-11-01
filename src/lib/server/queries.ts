@@ -58,6 +58,7 @@ export const MEMORY_FIELDS = /* GraphQL */ `
     syncError
     pendingEdgeCount
     lastSyncedAt
+    lastSyncReport
     organization { id name }
     createdAt
     updatedAt
@@ -1041,6 +1042,15 @@ export const WORKER_QUERY = /* GraphQL */ `
   query Worker($ref: ID!) {
     worker(ref: $ref) {
       ...WorkerFields
+      # Profile identity and server-masked working-state signal (#1334/#1149).
+      portalUrl
+      appUrn
+      appName
+      ownerName
+      hasLiveSession
+      # portal#1492: the terminal report, masked to null on the same gate as
+      # hasLiveSession. State, reason and age only — never the host label or prompt.
+      terminal { status reason checkedAt lastTurnAt }
       # portal#1142 P4 — the signature and trailer TEMPLATES, masked to null for
       # a reader who may not see worker internals. Null is "not shown", never
       # "empty": the empty string is a real, deliverable-as-nothing value.
@@ -1497,6 +1507,23 @@ export const DELETE_MEMORY_MUTATION = /* GraphQL */ `
 // must not render the first as an explanation.
 //
 // Gate: memory owner or org-ADMIN, the same one `updateMemory` uses.
+// portal#1346: the "Vector index health" panel. validateMemory has NO check
+// filter: it runs every check over the whole memory and `limit` caps the
+// combined findings, so the portal keeps EMBED_FAILED client-side. Read-only,
+// and a whole-memory scan, so it only runs when the reader asks.
+export const VALIDATE_MEMORY_QUERY = /* GraphQL */ `
+  query ValidateMemory($memoryRef: ID!, $limit: Int) {
+    validateMemory(memoryRef: $memoryRef, limit: $limit) {
+      nodesChecked
+      totalFindings
+      totalInformational
+      truncated
+      findings { kind nodeId nodeLoc nodeUrn detail }
+      skippedChecks { check reason }
+    }
+  }
+`;
+
 export const RETRY_FAILED_EMBEDDINGS_MUTATION = /* GraphQL */ `
   mutation RetryFailedEmbeddings($memoryRef: ID!) { retryFailedEmbeddings(memoryRef: $memoryRef) }
 `;
@@ -1744,15 +1771,17 @@ export const CREATE_PERSONAL_AGENT_MUTATION = /* GraphQL */ `
 // and admits PUBLIC agents — so the detail page can resolve BOTH org and
 // user-owned agents through one owner-accessible path (replacing the old
 // organizations()-scan that only found org agents).
+// #1335: clonedFromAgentRef is selected HERE and not in AGENT_FIELDS, which the
+// list and mutation documents spread, so only the detail page asks for it.
 export const AGENT_QUERY = /* GraphQL */ `
   ${AGENT_FIELDS}
   query Agent($ref: ID!) {
-    agent(ref: $ref) { ...AgentFields }
+    agent(ref: $ref) { ...AgentFields clonedFromAgentRef }
   }
 `;
 
 // #1262 — S1 cloneAgent: the new Agent's identity only. The origin
-// (clonedFromAgentRef) is out of this cut.
+// (clonedFromAgentRef) is read by the detail query above (#1335), never here.
 export const CLONE_AGENT_MUTATION = /* GraphQL */ `
   mutation CloneAgent($source: ID!, $target: ID!, $name: String, $slug: String) {
     cloneAgent(source: $source, target: $target, name: $name, slug: $slug) {
@@ -1912,6 +1941,18 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
 // An argument and its $variable share a name — `appKeys(appRef: $appRef)`.
 // `pnpm gql:validate` checks that, and cross-checks the keys every caller
 // passes, so a mismatch is a build error rather than a convention to remember.
+/**
+ * portal#1153 (hadron-server#2109): `App.viewerManages`, in its OWN request. A
+ * server that predates the field answers with a hard GraphQL error, and on the
+ * shared App fragment that would take down every App surface; here the loader
+ * classifies it as unknown and the key controls render as before.
+ */
+export const APP_VIEWER_MANAGES_QUERY = /* GraphQL */ `
+  query AppViewerManages($ref: ID!) {
+    app(ref: $ref) { id viewerManages }
+  }
+`;
+
 export const APP_KEYS_QUERY = /* GraphQL */ `
   query AppKeys($appRef: ID!) {
     appKeys(appRef: $appRef) {
@@ -2778,6 +2819,52 @@ export const TEAM_CHAT_MESSAGES_QUERY = /* GraphQL */ `
   }
 `;
 
+// Team-chat history search (#1013, server#2299). The page carries REFERENCES only
+// (no text): a hit is read back through `CHANNEL_HIT_MESSAGE_QUERY` below.
+export const TEAM_CHAT_SEARCH_QUERY = /* GraphQL */ `
+  query TeamChatSearch($appRef: ID!, $query: String!, $cursor: String, $limit: Int) {
+    teamChatSearch(appRef: $appRef, query: $query, cursor: $cursor, limit: $limit) {
+      items {
+        nodeId
+        urn
+        seq
+        channelId
+        channelIncarnation
+      }
+      complete
+      cursor
+      channelId
+      channelIncarnation
+    }
+  }
+`;
+
+// One hit's message, read through the existing channel read path. `sinceSeq` is
+// EXCLUSIVE, so `seq - 1` with limit 1 lands on the hit. The read is pinned to the
+// incarnation the search saw (a changed one is CHANNEL_INCARNATION_CHANGED, never a
+// retarget) and `advanceReadState: false` keeps opening a hit from acknowledging a
+// range the reader has not seen.
+export const CHANNEL_HIT_MESSAGE_QUERY = /* GraphQL */ `
+  query ChannelHitMessage($channelRef: ID!, $sinceSeq: Int!, $expectedIncarnation: Int!) {
+    channelMessages(
+      channelRef: $channelRef
+      sinceSeq: $sinceSeq
+      limit: 1
+      expectedIncarnation: $expectedIncarnation
+      advanceReadState: false
+    ) {
+      items {
+        nodeId
+        seq
+        body
+        at
+        authorName
+        urn
+      }
+    }
+  }
+`;
+
 // The team worklog (#947) — the AUTHORITATIVE artifact-to-session join
 // (hrn:node:hadronmemory.com:specs:cor:agt:020:05), which is what lets a merged PR trace back to the worker and
 // transcript that produced it.
@@ -2875,6 +2962,21 @@ export const APP_CHAT_ROOTS_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1524: the node page's Children section, now that the memory layout no
+// longer carries the whole node list. ONE bounded, slim page of the nodes under
+// a loc: only the fields the children grid renders, no content, and `total` so
+// the caller can tell a complete page from a truncated one (a truncated page
+// cannot prove which direct children exist, so the section is withheld rather
+// than shown short).
+export const NODE_CHILDREN_QUERY = /* GraphQL */ `
+  query NodeChildren($memoryId: ID!, $locPrefix: String!, $limit: Int) {
+    findNodes(filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }, limit: $limit, sort: seq) {
+      total
+      hits { node { id loc name description nodeType tags seq isRunnable memoryId commentSummary { openThreads } } }
+    }
+  }
+`;
+
 export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodesByLocPrefix(
@@ -2944,6 +3046,9 @@ export const NODE_COLUMNS_QUERY = /* GraphQL */ `
         revision
         approvalStatus { state }
         signatureStatus { state }
+        embeddingPendingAt
+        embeddingFailedAt
+        embeddingError
         # Last authored-edit attribution; the user projection landed in #2189.
         updatedByUser { handle urn }
         updatedByAgent { id name urn }
@@ -2971,6 +3076,9 @@ export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
         updatedAt
         revision
         approvalStatus { state }
+        embeddingPendingAt
+        embeddingFailedAt
+        embeddingError
         updatedByUser { handle urn }
         updatedByAgent { id name urn }
         updatedByWorker { id name urn }
@@ -2978,17 +3086,6 @@ export const NODE_COLUMNS_NO_SIGNING_QUERY = /* GraphQL */ `
       unavailable
       omitted
       truncated
-    }
-  }
-`;
-
-// portal#1433: the Info tab shows a node COUNT, which used to be the length of
-// the layout's whole node list. `total` is the memory's full count regardless
-// of `limit`, so one row is enough.
-export const MEMORY_NODE_COUNT_QUERY = /* GraphQL */ `
-  query MemoryNodeCount($memoryRef: ID!) {
-    memoryNodes(memoryRef: $memoryRef, limit: 1, offset: 0) {
-      total
     }
   }
 `;
@@ -3004,6 +3101,21 @@ export const NODE_ANCESTORS_QUERY = /* GraphQL */ `
   query NodeAncestors($refs: [ID!]) {
     nodeBatch(refs: $refs) {
       nodes { id loc name nodeType tags memoryId }
+      unavailable
+      omitted
+      truncated
+    }
+  }
+`;
+
+// portal#1433: a node page's same-memory `[[loc]]` wikilink targets, which
+// used to resolve against the layout's whole node list. One `nodeBatch` of
+// their node URNs (cap 200); a target absent from `nodes` is not in this
+// memory, or not readable by the viewer.
+export const WIKILINK_TARGETS_BATCH_QUERY = /* GraphQL */ `
+  query WikilinkTargetsBatch($refs: [ID!]) {
+    nodeBatch(refs: $refs) {
+      nodes { id loc name memoryId }
       unavailable
       omitted
       truncated
@@ -3131,6 +3243,18 @@ export const NODE_FIND_QUERY = /* GraphQL */ `
 // ({{age}} destroyed). Every portal consumer of these queries is an editor
 // or a metadata read, never a template-rendering display — so they always
 // read the source. (List queries — findNodes/appNodes — never compile.)
+// portal#1524: the slim "does this node exist, and what is it called" read
+// behind /api/nodes/resolve — id, loc and name only, no content.
+export const NODE_REF_QUERY = /* GraphQL */ `
+  query NodeRef($ref: ID!, $memoryRef: ID!) {
+    node(ref: $ref, memoryRef: $memoryRef) {
+      id
+      loc
+      name
+    }
+  }
+`;
+
 export const NODE_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query Node($ref: ID!, $memoryRef: ID!) {
@@ -3917,6 +4041,19 @@ export const ORG_APP_INSTALLS_QUERY = /* GraphQL */ `
   }
 `;
 
+// The node page's "Test this flow" App list (#478), with each App's installed
+// Agents so the run can name one (hadron-server#2849, portal#1444). Its own
+// query, not a field on ORG_APP_INSTALLS_QUERY: that one feeds pages that do
+// not render the roster.
+export const ORG_APPS_RUNNABLE_QUERY = /* GraphQL */ `
+  query OrgAppsRunnable($orgId: ID, $limit: Int, $offset: Int) {
+    apps(orgId: $orgId, limit: $limit, offset: $offset) {
+      items { id name appAgents { agent { id name urn } } }
+      total
+    }
+  }
+`;
+
 // ---------------------------------------------------------------------------
 // Headless runs (spec 040 / #478) — the audit surface + kill switch
 // ---------------------------------------------------------------------------
@@ -4009,12 +4146,14 @@ export const CANCEL_APP_RUN_MUTATION = /* GraphQL */ `
 
 // "Test this flow" (#478): runTask with appRef mints a MANUAL AppRun and
 // returns its id (#529) — the walker executes it in the background.
+// agentRef (hadron-server#2849, portal#1444) names the Agent when the App has
+// several installed; omitted, the server uses the single one or refuses.
 // `urn:` -> `nodeRef:` per hadron-server#542. That rename shipped a while ago
 // and broke this mutation at runtime until #681; nothing caught it because the
 // portal had no build-time validation.
 export const RUN_TASK_APP_MUTATION = /* GraphQL */ `
-  mutation RunTaskApp($nodeRef: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean) {
-    runTask(nodeRef: $nodeRef, args: $args, appRef: $appRef, runAsSelf: $runAsSelf)
+  mutation RunTaskApp($nodeRef: String!, $args: JSON, $appRef: ID!, $runAsSelf: Boolean, $agentRef: ID) {
+    runTask(nodeRef: $nodeRef, args: $args, appRef: $appRef, runAsSelf: $runAsSelf, agentRef: $agentRef)
   }
 `;
 
@@ -4622,6 +4761,13 @@ export const SET_APP_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
   }
 `;
 
+/** portal#1357 (hadron-server#2645): a strict patch of a task's descriptive fields. */
+export const UPDATE_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation UpdateAgentTask($taskId: ID!, $input: UpdateAgentTaskInput!) {
+    updateAgentTask(taskId: $taskId, input: $input) { id }
+  }
+`;
+
 export const SET_WORKER_BOOT_PROMPT_MUTATION = /* GraphQL */ `
   mutation SetWorkerBootPrompt($workerRef: ID!, $nodeRef: String) {
     setWorkerBootPrompt(workerRef: $workerRef, nodeRef: $nodeRef) { id bootPromptRef bootPromptTargetDeleted }
@@ -4813,7 +4959,7 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       ...AgentTaskRowFields
       appId
       description
-      requirements { role familyIn familyNotIn excludeWorkerIds }
+      requirements { role familyIn familyNotIn excludeWorkerIds minTier }
       createdBy { ...AgentTaskPartyFields }
       createdByRunId
       assignedAt
@@ -4824,6 +4970,7 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       closeSessionWhenDone
       result { outcome summary evidence }
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
+      properties
     }
   }
 `;
@@ -4940,6 +5087,8 @@ export const APP_TEAM_ROSTER_QUERY = /* GraphQL */ `
         checkStatus { status pendingReason }
         pausedUntil
         currentTask { id title status }
+        # portal#1492: state, reason and age only — never the host label or prompt.
+        terminal { status reason checkedAt }
       }
     }
   }
@@ -5178,32 +5327,5 @@ export const CHANNEL_CHAT_TARGET_QUERY = /* GraphQL */ `
 export const CREATE_CHANNEL_MESSAGE_MUTATION = /* GraphQL */ `
   mutation CreateChannelMessage($channelRef: ID!, $body: String!, $replyToSeq: Int) {
     createChannelMessage(channelRef: $channelRef, body: $body, replyToSeq: $replyToSeq) { nodeId seq body at authorName }
-  }
-`;
-
-// portal#1433 (hadron-server#2832): the DIRECT children of one loc, or the
-// memory's roots when `$childrenOf` is ''. Slim on purpose: the node page's
-// Children tab and the new-node form's sibling check read only these fields.
-// The server orders a childrenOf read by `seq` (non-null first, ascending) then
-// `loc` (Order A), which is what the old in-memory sort produced. NOT in the
-// committed schema snapshot until #2832 is deployed (refresh-the-schema-snapshot).
-export const NODE_CHILDREN_QUERY = /* GraphQL */ `
-  query NodeChildren($memoryIds: [ID!], $childrenOf: String, $limit: Int, $offset: Int) {
-    findNodes(limit: $limit, offset: $offset, filter: { memoryIds: $memoryIds, childrenOf: $childrenOf }) {
-      hits {
-        node {
-          id
-          memoryId
-          loc
-          name
-          nodeType
-          tags
-          seq
-          isRunnable
-          description
-          commentSummary { openThreads }
-        }
-      }
-    }
   }
 `;

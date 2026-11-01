@@ -1,4 +1,5 @@
 import { t } from '$lib/i18n/t';
+import { fmtRunTime } from '$lib/flow/runs';
 import type { LiveStops, ManagesHint, StopLevel, StopScope, StopSignal, WorkerOption } from './types';
 
 /**
@@ -103,4 +104,9 @@ export function bannerCount(live: LiveStops): string {
 /** Lift buttons need a decisive yes: unknown (a failed hint read) and no both read-only. */
 export function canLiftStops(impersonating: string | null | undefined, manages: ManagesHint): boolean {
   return !impersonating && manages === 'yes';
+}
+
+/** A stop's time with the zone it is shown in, so two readers in two zones can tell what they are looking at. */
+export function fmtStopTime(iso: string | null | undefined): string {
+  return `${fmtRunTime(iso)} (${Intl.DateTimeFormat().resolvedOptions().timeZone})`;
 }

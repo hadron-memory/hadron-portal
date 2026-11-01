@@ -28,6 +28,7 @@ function ev(body: unknown, token: string | null = 'tok') {
 const node = (id: string) => ({
   id, role: 'spec', updatedAt: '2026-10-20T10:00:00Z', revision: 7,
   approvalStatus: { state: 'APPROVED' }, signatureStatus: { state: 'CURRENT' },
+  embeddingPendingAt: null, embeddingFailedAt: '2026-10-20T11:00:00Z', embeddingError: 'dimension mismatch',
   updatedByAgent: { id: 'a1', name: 'Portal Engineer', urn: 'hrn:agent:x:y' },
   updatedByWorker: { id: 'w1', name: 'Gil', urn: 'hrn:worker:x:y:gil' },
 });
@@ -53,6 +54,7 @@ describe('/api/nodes/columns (#1174)', () => {
       rows: [{
         id: 'a', role: 'spec', updatedAt: '2026-10-20T10:00:00Z', revision: 7, approval: 'APPROVED', signature: 'CURRENT',
         user: null,
+        embedding: { pendingAt: null, failedAt: '2026-10-20T11:00:00Z', error: 'dimension mismatch' },
         agent: { id: 'a1', name: 'Portal Engineer', urn: 'hrn:agent:x:y' },
         worker: { id: 'w1', name: 'Gil', urn: 'hrn:worker:x:y:gil' },
       }],

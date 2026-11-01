@@ -1512,9 +1512,10 @@ describe('node-detail load drains no graph (portal#1433)', () => {
         { id: 'c1', memoryId: 'mem-A', loc: 'specs:x:a', name: 'A' },
         { id: 'g1', memoryId: 'mem-A', loc: 'specs:x:a:deep', name: 'Deep' },
       ],
-    }))) as unknown as { children: Array<{ id: string }>; childrenFailed: boolean };
-    expect(result.childrenFailed).toBe(false);
-    expect(result.children.map((c) => c.id)).toEqual(['c1', 'c2']);
+    }))) as unknown as { children: Array<{ id: string }>; childrenUnavailable: boolean };
+    // Children are main's bounded locPrefix read (portal#1524): direct only.
+    expect(result.childrenUnavailable).toBe(false);
+    expect(result.children.map((c) => c.id).sort()).toEqual(['c1', 'c2']);
     const docs = mockRequest.mock.calls.map(([d]) => d);
     expect(docs).not.toContain(MEMORY_NODES_QUERY);
     expect(docs).not.toContain(MEMORY_EDGES_QUERY);

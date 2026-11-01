@@ -246,7 +246,7 @@ describe('memory integrations update action', () => {
 
 describe('memory integrations command actions', () => {
   it('syncs the memory', async () => {
-    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'memory-1', syncStatus: 'OK' } });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { id: 'memory-1', syncStatus: 'OK', lastSyncReport: null, lastSyncedAt: '2026-10-26T01:02:03.000Z' } });
 
     const { actions } = await importMod();
     const result = await actions.sync(commandEvent());
@@ -352,4 +352,26 @@ describe('memory integrations command actions', () => {
     expect((superFormFrom(result)?.message as { text: string }).text).toContain('Push to Git failed.');
     expect((superFormFrom(result)?.message as { text: string }).text).not.toContain('push rejected');
   });
+});
+
+// #1266: outcome metadata qualifies otherwise-successful actions.
+describe('stored sync action outcome', () => {
+  it.each(['partial', 'unknown', 'malformed', 'omitted'])('qualifies %s without raw data', async outcome => {
+    const at = '2026-10-26T01:02:03.000Z';
+    const raw = outcome === 'malformed' ? 'ghs_SECRET' : JSON.stringify({ version: 1, outcome, recordedAt: at, entries: [] });
+    mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'OK', lastSyncedAt: at, ...(outcome === 'omitted' ? {} : { lastSyncReport: raw }) } });
+    const { actions } = await importMod();
+    const result = await actions.sync(commandEvent());
+    const msg = superFormFrom(result)?.message as { type: string; text: string };
+    expect(msg.type).toBe('success'); expect(msg.text).not.toBe('Memory synced.'); expect(msg.text).not.toContain('ghs_SECRET');
+  });
+});
+
+it.each(['failed', 'bad-completion', 'never-synced'])('does not turn %s into clean action feedback', async kind => {
+  const lastSyncReport = kind === 'failed' ? JSON.stringify({ version: 1, outcome: 'failed', recordedAt: '2026-10-26T01:02:03.000Z', code: 'SYNC_FAILED', entries: [] }) : null;
+  mockRequest.mockResolvedValueOnce({ syncMemory: { syncStatus: 'OK', lastSyncReport, lastSyncedAt: kind === 'bad-completion' ? 'bad' : null, syncError: 'https://user:ghs_SECRET@github.com/a' } });
+  const { actions } = await importMod();
+  const msg = superFormFrom(await actions.sync(commandEvent()))?.message as { type: string; text: string };
+  expect(msg.type).toBe(kind === 'failed' ? 'error' : 'success');
+  expect(msg.text).not.toBe('Memory synced.'); expect(msg.text).not.toContain('ghs_SECRET');
 });

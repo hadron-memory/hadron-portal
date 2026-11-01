@@ -73,4 +73,25 @@ describe('Tickers — searching the unrecognised-reason note (portal#1314)', () 
     await search(target, 'something_new');
     expect(names(target)).toEqual(expect.arrayContaining(['future']));
   });
+
+  // portal#1341: a reason that reads like the "unavailable" sentence is still a reason.
+  it('renders a reason equal to the unavailable text as a reason, and finds it by that text', async () => {
+    setStubPage('https://example.test/app/apps/app-1/tickers', { appId: 'app-1' });
+    const m = mountComponent(Page as never, {
+      data: {
+        app,
+        tickers: { kind: 'ok', value: [ticker('lookalike', ['Reasons unavailable']), ticker('broken', ['EVERY_TICK', 3]), ticker('known', ['EVERY_TICK'])] },
+        settings, delivery, subscriberCountPage: 50, loadedAt: '2026-10-16T10:00:00Z', impersonating: null,
+      },
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const row = (n: string) => [...m.target.querySelectorAll('tbody tr')].find((r) => r.textContent?.includes(n))!;
+    // The look-alike is a well-formed unknown reason: it shows the unrecognised note; the malformed row does not.
+    expect(row('lookalike').textContent).toContain('(unrecognised)');
+    expect(row('broken').textContent).not.toContain('(unrecognised)');
+
+    await search(m.target, 'unrecognised');
+    expect(names(m.target)).toEqual(['lookalike']);
+  });
 });

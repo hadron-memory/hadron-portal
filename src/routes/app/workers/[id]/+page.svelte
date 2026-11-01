@@ -1,15 +1,23 @@
 <script lang="ts">
+  import WorkerProfile from '$lib/components/WorkerProfile.svelte';
+  import { workerInternalsVisible } from '$lib/worker-profile';
+  import TerminalStatus from '$lib/components/TerminalStatus.svelte';
+  import { pageClock, terminalBadge } from '$lib/workers/terminal';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import WorkerSessionsTable from '$lib/components/WorkerSessionsTable.svelte';
   import WakeUpsPanel from '$lib/components/tickers/WakeUpsPanel.svelte';
+  import type { ApplyResult } from '$lib/tickers/apply';
+  import { workerOfPage } from '$lib/tickers/refresh-page';
   import WorkerSignatureSection from './WorkerSignatureSection.svelte';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import { onMount, tick, untrack } from 'svelte';
   import { afterNavigate } from '$app/navigation';
+  import { page } from '$app/stores';
+  import { get } from 'svelte/store';
   import { t } from '$lib/i18n/t';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
@@ -61,7 +69,7 @@
     // raw prompt text during SSR or the pre-hydration render
     // (hrn:node:hadronmemory.com:hadron-portal:review:sanitize-html-with-dompurify).
     if (!isBrowser || !text) return '';
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    return DOMPurify.sanitize(renderChatMarkdown(text));
   }
   const renderedBriefing = $derived(data.worker.prompt ? renderMarkdown(data.worker.prompt) : '');
 
@@ -130,6 +138,10 @@
   }
 
   const worker = $derived(data.worker);
+  // portal#1492: this branch renders only for a reader who may see internals, so
+  // the terminal is shown; the page clock is the loader's, shared by SSR and hydration.
+  const terminal = $derived(terminalBadge(worker.terminal, workerInternalsVisible(worker)));
+  const terminalNow = $derived(pageClock(data.terminalNow));
   const retired = $derived(!!worker.retiredAt);
 
   // #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this
@@ -158,6 +170,9 @@
 
 <svelte:head><title>{worker.name} · Worker · Hadron</title></svelte:head>
 
+{#if !workerInternalsVisible(worker)}
+  <WorkerProfile {worker} />
+{:else}
 <div class="mx-auto max-w-3xl space-y-6 py-6">
   <div>
     <Breadcrumb
@@ -247,6 +262,14 @@
     {/if}
 
     <dl class="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-zinc-200 bg-zinc-200 sm:grid-cols-2 dark:border-zinc-800 dark:bg-zinc-800">
+      {#if terminal}
+        <div class="bg-white p-4 dark:bg-zinc-950">
+          <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            {t('worker.field.terminal', 'Terminal')}
+          </dt>
+          <dd class="mt-1"><TerminalStatus badge={terminal} now={terminalNow} /></dd>
+        </div>
+      {/if}
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
           {t('worker.field.role', 'Role')}
@@ -275,6 +298,7 @@
         </dd>
       </div>
 
+      {#if worker.agent}
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
           {t('worker.field.agent', 'Backed by')}
@@ -299,6 +323,8 @@
           {/if}
         </dd>
       </div>
+
+      {/if}
 
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -501,10 +527,17 @@
         <pre class="whitespace-pre-wrap break-words rounded-lg border border-zinc-200 bg-white p-4 font-mono text-xs text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300">{data.worker.prompt ?? t('worker.briefing.not-shown', 'No briefing is shown.')}</pre>
       {/if}
 
-      <!-- portal#1142 P4. Keyed on the worker: SvelteKit reuses this page across
-           /app/workers/[id] navigations, and a superForm seeded once would carry
-           worker A's draft onto worker B. A remount per worker keeps each form scoped. -->
-      {#key worker.id}
+      <!-- portal#1142 P4 / portal#1448 / portal#1450. Keyed on the loader's
+           stamped form id: SvelteKit reuses this page across /app/workers/[id]
+           navigations, and a superForm seeded once would carry worker A's draft
+           onto worker B. The stamp is per worker (and per ref spelling of one
+           worker, so a name→URN move remounts onto the fresh stamp), and every
+           remount mints a fresh per-mount instance id on top of it (George's
+           LOCAL P2 on #1450: with the stamp alone, a reply from an earlier
+           mount of the SAME worker — a save still in flight across an A→B→A
+           move, where the router may even reuse the cached loader stamp —
+           matched the returned-to editor and clobbered its fresh draft). -->
+      {#key data.signatureForm.id}
         <WorkerSignatureSection
           signature={worker.signature}
           trailer={worker.trailer}
@@ -642,7 +675,14 @@
         worker={data.worker}
         appId={data.worker.app?.id ?? null}
         loadedAt={data.wakeLoadedAt}
+        canManage={data.canManageWorkerApp}
+        applyKey={data.applyKey}
+        viewerId={data.user?.id ?? null}
+        errorPageWorker={() => { const p = get(page); return p.error != null ? workerOfPage(p) : null; }}
+        applyResult={(form as { applyTickers?: ApplyResult } | null)?.applyTickers ?? null}
       />
     </div>
   {/if}
 </div>
+
+{/if}

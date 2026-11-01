@@ -4,7 +4,7 @@
   import { t } from '$lib/i18n/t';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
-  import { marked } from 'marked';
+  import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import Urn from '$lib/components/Urn.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
@@ -145,7 +145,7 @@
     // ever populated with sanitized HTML — never raw attacker-controlled
     // markdown during SSR or the pre-hydration client render.
     if (!isBrowser || !text) return '';
-    return DOMPurify.sanitize(marked.parse(text, { async: false }) as string);
+    return DOMPurify.sanitize(renderChatMarkdown(text));
   }
 
   onMount(async () => {

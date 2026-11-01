@@ -2,6 +2,7 @@ import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { APP_TEAM_ROSTER_QUERY } from '$lib/server/queries';
 import { hydrateTaskRefs } from '$lib/server/agent-tasks';
+import type { TerminalRead } from '$lib/workers/terminal';
 
 /**
  * portal#1168 (hadron-server#2178) — what the AI Team grid shows beyond the
@@ -22,6 +23,8 @@ export type RosterEntry = {
   worker: { id: string };
   checkStatus: { status: string; pendingReason: string | null } | null;
   pausedUntil: string | null;
+  // portal#1492: null is a returned "no report"; a worker with no entry at all has no terminal to show.
+  terminal?: TerminalRead | null;
   // `handle` is not on the server's roster summary; it is hydrated (portal#1349).
   currentTask: { id: string; title: string; status: string; handle?: string | null } | null;
   // portal#1349: the worker HAS a current task, but its hydration did not resolve

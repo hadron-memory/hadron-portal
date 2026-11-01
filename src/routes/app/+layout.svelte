@@ -11,7 +11,7 @@
   // Nodes/Graph share the persistent memory browser. Keep that sibling outlet
   // while preserving #339 teardown for every other route/depth transition.
   const outletKey = $derived(
-    $page.route.id === '/app/memories/[id]/(browser)/nodes' || $page.route.id === '/app/memories/[id]/(browser)/graph'
+    $page.route.id === '/app/memories/[id]/nodes' || $page.route.id === '/app/memories/[id]/graph'
       ? '/app/memories/[id]/browse' : $page.route.id,
   );
 

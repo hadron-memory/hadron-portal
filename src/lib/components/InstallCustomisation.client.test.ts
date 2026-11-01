@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick } from '$lib/test/mountComponent';
 import Panel from './InstallCustomisation.svelte';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 const mounted: ReturnType<typeof mountComponent>[] = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
@@ -74,6 +75,24 @@ describe('install customisation panel', () => {
       expect(root.querySelector('table')).toBeNull();
     },
   );
+  it('portal#1524: an EMPTY page is a note, never an empty table, a count of 0 or "no customisations"', async () => {
+    // hadron-server#2990 answers this list with an empty page while its
+    // node-list flag is on; the portal must not depend on the flag, so an empty
+    // page reads as a note true in both cases (empty, or withheld), never as
+    // "unavailable" (an error to retry) nor as "none exist".
+    const empty = {
+      ...payload(),
+      list: { state: 'ok', value: { memoryId: 'mem', urn: 'hrn:mem:acme.com:install', nodes: [], total: 0, offset: 0 } },
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(empty))));
+    const root = await panel();
+    expect(root.querySelector('[data-testid="customisation-list-unavailable"]')?.textContent).toContain('may not be the full set');
+    expect(root.querySelector('[data-testid="customisation-list-unavailable"]')?.textContent).not.toMatch(/unavailable/i);
+    expect(root.querySelector('table')).toBeNull();
+    expect(root.textContent).not.toMatch(/0 customisations|No results|No customisations|no nodes/i);
+    // A replacement can still be started.
+    expect(button(root, 'Start customising')).toBeDefined();
+  });
   it('hides writes only for an explicit nonmanager', async () => {
     const root = await panel(false);
     expect(button(root, 'Start customising')).toBeUndefined();
@@ -408,5 +427,137 @@ describe('UX draft and panel navigation boundaries', () => {
     button(m.target, 'Close').click();
     await settle();
     expect(close).toHaveBeenCalledOnce();
+  });
+});
+
+// #1368: production disables navigation while a save is in flight and the page
+// remounts the panel per target, so a late save reply is only reachable here by
+// changing the target under a live panel. The reply must then change nothing.
+describe('late save reply fence (#1368)', () => {
+  async function savingThenRetarget() {
+    let reply!: (r: Response) => void;
+    const posts: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, options?: RequestInit) => {
+        if (options?.method === 'POST') {
+          posts.push(String(url));
+          return new Promise<Response>((r) => (reply = r));
+        }
+        return Promise.resolve(new Response(JSON.stringify(payload())));
+      }),
+    );
+    const props = reactiveProps({ appRef: 'app-a', agent, canManage: true as boolean | null });
+    const m = mountComponent(Panel, props);
+    mounted.push(m);
+    await settle();
+    button(m.target, 'Open').click();
+    await settle();
+    await edit(m.target, 'saved for A');
+    submit(m.target);
+    await tick(4);
+    expect(posts).toEqual(['/app/apps/app-a?/saveCustomisation']);
+    // Navigation really is disabled while the save is pending.
+    expect(button(m.target, 'Reload and discard draft').disabled).toBe(true);
+    const reads = vi.mocked(fetch).mock.calls.length;
+    props.agent = { id: 'ag-b', name: 'Other Agent', urn: 'hrn:agent:acme.com:other' };
+    await tick(4);
+    return { m, reply, reads };
+  }
+  it('drops a successful reply that lands after the target changed', async () => {
+    const { m, reply, reads } = await savingThenRetarget();
+    reply(new Response(JSON.stringify({ type: 'success', status: 200 })));
+    await settle();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads);
+    expect(m.target.textContent).not.toContain('Saved.');
+    expect(m.target.querySelector('[role="status"]')).toBeNull();
+    expect(m.target.querySelector('textarea')?.value).toBe('saved for A');
+  });
+  it('drops a refusal that lands after the target changed', async () => {
+    const { m, reply, reads } = await savingThenRetarget();
+    reply(
+      new Response(
+        JSON.stringify({
+          type: 'failure',
+          status: 409,
+          data: { customisationFailed: { code: 'NODE_WRITE_CONFLICT', detail: 'Changed for A' } },
+        }),
+      ),
+    );
+    await settle();
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads);
+    expect(m.target.textContent).not.toContain('Changed for A');
+    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+  });
+  it('control: the same reply on an unchanged target is shown and reloads', async () => {
+    let reply!: (r: Response) => void;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, options?: RequestInit) =>
+        options?.method === 'POST'
+          ? new Promise<Response>((r) => (reply = r))
+          : Promise.resolve(new Response(JSON.stringify(payload()))),
+      ),
+    );
+    const root = await panel();
+    button(root, 'Open').click();
+    await settle();
+    await edit(root, 'saved for A');
+    submit(root);
+    await tick(4);
+    const reads = vi.mocked(fetch).mock.calls.length;
+    reply(new Response(JSON.stringify({ type: 'success', status: 200 })));
+    await settle();
+    expect(root.textContent).toContain('Saved.');
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(reads + 1);
+  });
+});
+
+describe('stale save target (#1370)', () => {
+  it('keeps the draft and the opened base on an unavailable target, and reloads only on request', async () => {
+    const posts: FormData[] = [];
+    let reads = 0;
+    const detail =
+      'This customisation is no longer available. Your draft is kept.';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url, options) => {
+        if (options?.method === 'POST') {
+          posts.push(options.body as FormData);
+          return new Response(
+            JSON.stringify({
+              type: 'failure',
+              status: 409,
+              data: { customisationFailed: { code: 'unavailable', detail } },
+            }),
+          );
+        }
+        reads++;
+        return new Response(JSON.stringify(payload()));
+      }),
+    );
+    const root = await panel();
+    button(root, 'Open').click();
+    await settle();
+    await edit(root, 'my draft');
+    const readsBeforeSave = reads;
+    submit(root);
+    await settle();
+    expect(root.querySelector('[role="alert"]')?.textContent).toBe(detail);
+    expect(root.querySelector('textarea')?.value).toBe('my draft');
+    expect(reads).toBe(readsBeforeSave);
+    submit(root);
+    await settle();
+    expect(posts).toHaveLength(2);
+    for (const fd of posts) {
+      expect(fd.get('expectedRevision')).toBe('7');
+      expect(fd.get('baseContent')).toBe('original draft');
+      expect(fd.get('content')).toBe('my draft');
+    }
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    button(root, 'Reload and discard draft').click();
+    await settle();
+    expect(reads).toBe(readsBeforeSave + 1);
+    expect(root.querySelector('textarea')?.value).toBe('original draft');
   });
 });

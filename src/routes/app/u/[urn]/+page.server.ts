@@ -5,6 +5,7 @@ import { RESOLVE_URN_QUERY } from '$lib/server/queries';
 import { loadTicker } from '$lib/server/tickers';
 import { withQuery } from '$lib/safeRedirect';
 import { normalizeUrn } from '$lib/urn/parse-urn';
+import { encodeUrnPathSegment } from '$lib/urn/encode-urn-segment';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -31,7 +32,7 @@ import type { PageServerLoad } from './$types';
  * re-apply the original to a redirect target that carries none.
  */
 type UrnResolution = {
-  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker';
+  kind: 'memory' | 'node' | 'agent' | 'org' | 'app' | 'user' | 'worker' | 'action';
   id: string;
   memoryId: string | null;
   organizationId: string | null;
@@ -50,6 +51,10 @@ const KNOWN_KINDS = new Set<UrnResolution['kind']>([
   // opposite of what a signature is for, and it made the platform look like it
   // was pointing at something that did not exist.
   'worker',
+  // #1360 / hadron-server#2610: `hrn:action:<root>:<agent-slug>:<code>` resolves
+  // to the register entry's node. Without a page for it a copied action link
+  // landed on this route's "No canonical portal page" 404.
+  'action',
 ]);
 
 export const load: PageServerLoad = async ({ params, locals, url }) => {
@@ -98,7 +103,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         // what costs you the deep link's state.
         redirect(
           303,
-          `/signin?redirect=${encodeURIComponent(withQuery(`/app/u/${params.urn}`, url.search))}`,
+          `/signin?redirect=${encodeURIComponent(withQuery(`/app/u/${encodeUrnPathSegment(params.urn)}`, url.search))}`,
         );
       }
       if (
@@ -310,7 +315,11 @@ function canonicalPath(r: UrnResolution): string | null {
     case 'memory':
       return `/app/memories/${r.id}`;
     case 'node':
-      // memoryId is always set for nodes by the server resolver.
+    case 'action':
+      // memoryId is always set for nodes by the server resolver. An action's
+      // `id` is its `register:<code>` node and `memoryId` the Agent's system
+      // memory (hadron-server#2610), so it opens that node's page — the same
+      // page as a node, with no finer page of its own (#1360).
       return r.memoryId ? `/app/memories/${r.memoryId}/nodes/${r.id}` : null;
     case 'org':
       return `/app/orgs/${r.id}`;

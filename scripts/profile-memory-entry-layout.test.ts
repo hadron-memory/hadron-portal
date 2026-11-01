@@ -80,23 +80,18 @@ const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.len
 // portal#1429 (S2a) removed treeEntries, graphViewData and usageByNode from the
 // layout return, so they are no longer keys of it. The Slice 1 profile node
 // holds their sizes; the builders are still timed below on the same input.
-const KEYS = ['org', 'graph', 'canWriteMemory', 'graphNodes', 'nodesTotal', 'nodesFailed'] as const;
+// portal#1524 then took graphNodes out too (the Nodes tree and Graph are off), so
+// the layout no longer drains the node list: pages are 0 and the payload does not
+// grow with the memory. `nodesOff` replaces the list.
+const KEYS = ['org', 'graph', 'canWriteMemory', 'nodesOff', 'nodesTotal', 'nodesFailed'] as const;
 
 export async function profile(nodeCount: number, runs = 3) {
   const world = synthMemory(nodeCount);
   const stats = new Map<string, QueryStat>();
   const opts = { countBytes: false };
   serve(world, stats, opts);
-  // portal#1433: the Nodes-tab entry is the memory layout PLUS the `(browser)`
-  // group layout that drains the graph, so profile both as one entry.
-  const { load: loadRoot } = await import('../src/routes/app/memories/[id]/+layout.server');
-  const { load: loadBrowser } = await import('../src/routes/app/memories/[id]/(browser)/+layout.server');
+  const { load } = await import('../src/routes/app/memories/[id]/+layout.server');
   const event = { params: { id: world.memory.id }, locals: { token: 't', user: { id: 'u' } } } as never;
-  const load = async (e: never) => {
-    const root = (await loadRoot(e)) as Record<string, unknown>;
-    const browser = (await loadBrowser({ ...(e as object), parent: async () => root } as never)) as Record<string, unknown>;
-    return { ...root, ...browser };
-  };
 
   await load(event); // warm-up: JIT and module init are not the cost being measured
   stats.clear();
@@ -117,7 +112,10 @@ export async function profile(nodeCount: number, runs = 3) {
   await load(event);
 
   // The builders again, on the same input, to split their share out of the load.
-  const nodes = result.graphNodes as Parameters<typeof buildTreeEntries>[0];
+  // No graphNodes since portal#1524: the builders are timed on the synthetic
+  // world's own rows, as the measurement of what a restored tree would cost.
+  const { reconstructNodes } = await import('../src/lib/server/memory-graph-drain');
+  const nodes = reconstructNodes(world.nodes as never, world.edges as never, world.memory as never) as Parameters<typeof buildTreeEntries>[0];
   const treeMs: number[] = [];
   const graphMs: number[] = [];
   for (let i = 0; i < runs; i++) {
@@ -185,15 +183,16 @@ export async function profile(nodeCount: number, runs = 3) {
 const mib = (n: number) => (n / 1048576).toFixed(2);
 const kb = (n: number) => (n / 1024).toFixed(1);
 
-const PRODUCTION_REPORTED_MB_AT_32920: Record<string, number> = { graphNodes: 18.8 };
+// graphNodes left the layout in portal#1524; the calibration table below is
+// kept for the before/after record and is empty by design.
+const PRODUCTION_REPORTED_MB_AT_32920: Record<string, number> = {};
 
 export function renderProfile(p: Awaited<ReturnType<typeof profile>>): string {
   const lines: string[] = [];
   lines.push(`### ${p.nodeCount} nodes, ${p.edgeCount} edges, ${p.usageEntries} usage entries (median of ${p.runs} samples per timing)`);
   lines.push('');
   lines.push(`- layout \`load\` elapsed wall time (portal side, stub server answers instantly; byte accounting off): **${p.loadMsMedian.toFixed(0)} ms**`);
-  lines.push(`  - of which \`buildTreeEntries\` ${p.treeMsMedian.toFixed(0)} ms + \`buildGraphViewData\` ${p.graphMsMedian.toFixed(0)} ms (timed separately on the same input; wall time)`);
-  lines.push(`  - remainder (paging loop, reconstructNodes): ${(p.loadMsMedian - p.treeMsMedian - p.graphMsMedian).toFixed(0)} ms (estimate: load minus separately timed builders, not an isolated measurement)`);
+  lines.push(`  - \`buildTreeEntries\` ${p.treeMsMedian.toFixed(0)} ms and \`buildGraphViewData\` ${p.graphMsMedian.toFixed(0)} ms, timed separately on the same input (wall time). Since #1429 the layout \`load\` no longer runs them, so they are NOT part of the load figure above; they show what a client-side derivation costs.`);
   lines.push(`- graph pages per load: ${p.pages.nodes} node pages + ${p.pages.edges} edge pages, ${SERVER_PAGE} rows each, issued as two sequential chains`);
   lines.push(`- server response bytes per load (JSON, measured in one extra untimed load): ` +
     Object.entries(p.responseBytes).map(([k, v]) => `${k} ${mib(v)} MiB`).join(', '));
@@ -225,19 +224,22 @@ beforeEach(() => {
 
 describe('portal#1380 memory-entry profile harness', () => {
   // Positive control: the harness must be able to see the thing it measures.
-  it('sees the page count, the keys, and a size that grows with the memory', async () => {
+  it('sees the page count and the payload size, and both are flat in the memory size (no drain)', async () => {
     const small = await profile(300, 1);
     const big = await profile(4500, 1);
-    expect(small.pages.nodes).toBe(1);
-    expect(big.pages.nodes).toBe(Math.ceil(4500 / SERVER_PAGE));
-    expect(big.pages.edges).toBe(Math.ceil(Math.round(4500 * DEFAULT_SHAPE.edgesPerNode) / SERVER_PAGE));
+    expect(small.pages).toEqual({ nodes: 0, edges: 0 });
+    expect(big.pages).toEqual({ nodes: 0, edges: 0 });
     expect(small.keyRows.map((r) => r.key).sort()).toEqual([...KEYS].sort());
-    const bytesOf = (p: typeof small, key: string) => p.keyRows.find((r) => r.key === key)!.unevalBytes;
-    expect(bytesOf(big, 'graphNodes')).toBeGreaterThan(bytesOf(small, 'graphNodes') * 10);
-    // The independent oracle: JSON and devalue agree within a factor of two.
-    const g = big.keyRows.find((r) => r.key === 'graphNodes')!;
-    expect(g.unevalBytes / g.jsonBytes).toBeGreaterThan(0.5);
-    expect(g.unevalBytes / g.jsonBytes).toBeLessThan(2);
+    // Same payload at 15x the nodes: it does not grow with the memory.
+    expect(big.wholeBytes).toBe(small.wholeBytes);
+    // The control can still see a drain: the helper kept for the lazy tree
+    // issues paged reads, so a layout that called it would show pages here.
+    const { fetchGraph } = await import('../src/lib/server/memory-graph-drain');
+    const world = synthMemory(4500);
+    serve(world, new Map(), { countBytes: false });
+    await fetchGraph({ request: mockRequest } as never, world.memory.id);
+    const nodeReads = mockRequest.mock.calls.filter(([q]) => q === MEMORY_NODES_QUERY).length;
+    expect(nodeReads).toBe(Math.ceil(4500 / SERVER_PAGE));
   }, 120_000);
 
   it.skipIf(!process.env.HADRON_PROFILE_MEMORY_ENTRY)('prints the profile', async () => {

@@ -56,14 +56,24 @@ export function writeRefusalStatus(r: WriteRefusal): number {
   switch (r.code) {
     case 'TASK_NOT_OWNER':
     case 'FORBIDDEN':
+    case 'SUBSCRIBE_FORBIDDEN':
       return 403;
     case 'TASK_NOT_FOUND':
+    case 'TICKER_NOT_FOUND':
     case 'APP_NOT_FOUND':
+    case 'WORKER_NOT_FOUND':
+    case 'SUBSCRIPTION_NOT_FOUND':
       return 404;
     case 'TASK_ENDED':
     case 'TASK_INVALID_TRANSITION':
     case 'APP_UNINSTALLED':
+    case 'TICKER_NAME_TAKEN':
+    case 'TICKER_LIMIT_REACHED':
+    case 'TICKER_CADENCE_NEEDS_CONSENT':
+    case 'WORKER_RETIRED':
       return 409;
+    case 'INTERNAL_SERVER_ERROR':
+      return 500;
     default:
       return 400;
   }
@@ -94,6 +104,8 @@ export async function taskWrite<D>(
   doc: string,
   vars: Record<string, unknown>,
   path: string,
+  // portal#1384: another write family's refusals (the ticker writes) classify with their own table.
+  classify: (e: unknown) => WriteRefusal = classifyWriteError,
 ): Promise<TaskWriteOutcome<D>> {
   try {
     const r = await client.rawRequest<D>(doc, vars);
@@ -105,7 +117,7 @@ export async function taskWrite<D>(
       const data = response?.data && typeof response.data === 'object' ? (response.data as Partial<D>) : null;
       return { kind: 'committed-error', data, ...w };
     }
-    return { kind: 'refused', refusal: classifyWriteError(e) };
+    return { kind: 'refused', refusal: classify(e) };
   }
 }
 

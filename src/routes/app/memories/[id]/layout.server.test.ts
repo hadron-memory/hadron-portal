@@ -1,6 +1,5 @@
 /**
- * #447 — (since portal#1433 the graph tests live in ./(browser)/layout.server.test.ts;
- * the memory layout here loads none) the memory-detail layout loaded its node/graph data via the slim,
+ * #447 — the memory-detail layout loads its node/graph data via the slim,
  * paginated memoryNodes/memoryEdges primitives (hadron-server#466/#513) and
  * reconstructs the MemoryNode[] the tree/graph/table consume: slim fields +
  * synthesized `memory` ref + outgoing edges rebuilt from the edge list (with
@@ -48,14 +47,61 @@ function ev(id = 'mem-1') {
   >[0];
 }
 
-function routeMock(_opts: Record<string, never> = {}) {
+type SlimNode = {
+  id: string;
+  loc: string;
+  name: string;
+  nodeType: string;
+  tags: string[];
+  seq: number | null;
+  isRunnable: boolean | null;
+  description: string | null;
+  openThreads: number;
+};
+type SlimEdge = { id: string; loc: string; name: string | null; sourceId: string; targetId: string };
+
+function routeMock(opts: { nodesThrow?: boolean } = {}) {
   mockRequest.mockImplementation(async (query: string) => {
     if (query === MEMORY_BY_ID_QUERY) {
       return { memory: { id: 'mem-1', urn: 'org::mem', name: 'Mem', organizationId: null } };
     }
+    if (query === MEMORY_NODES_QUERY || query === MEMORY_EDGES_QUERY) {
+      if (opts.nodesThrow) throw new Error('boom');
+      return { memoryNodes: { nodes: [], total: 0 }, memoryEdges: { edges: [], total: 0 } };
+    }
+    if (query === MEMORY_USAGE_SUMMARY_QUERY) return { memoryUsageSummary: [] };
     return {};
   });
 }
+
+describe('memory-detail layout — no node-list drain (portal#1524)', () => {
+  it('never asks for memoryNodes or memoryEdges, whatever the server would answer', async () => {
+    routeMock();
+    await (await importLoad())(ev());
+    const asked = mockRequest.mock.calls.map(([q]) => q);
+    expect(asked).not.toContain(MEMORY_NODES_QUERY);
+    expect(asked).not.toContain(MEMORY_EDGES_QUERY);
+  });
+
+  it('says the list is OFF, distinctly from failed, and carries no graph or tree keys', async () => {
+    routeMock();
+    const data = (await (await importLoad())(ev())) as Record<string, unknown>;
+    expect(data.nodesOff).toBe(true);
+    expect(data.nodesFailed).toBe(false); // an error banner would be a false statement
+    expect(data.nodesTotal).toBeNull(); // not 0: no count is being claimed
+    for (const key of ['graphNodes', 'treeEntries', 'graphViewData', 'usageByNode']) {
+      expect(Object.keys(data)).not.toContain(key);
+    }
+  });
+
+  it('is unaffected by a node-list outage, because it never reads the list', async () => {
+    routeMock({ nodesThrow: true });
+    const data = (await (await importLoad())(ev())) as Record<string, unknown>;
+    expect(data.nodesFailed).toBe(false);
+    expect(data.nodesOff).toBe(true);
+  });
+});
+
 
 describe('reader-shared memory controls (#646)', () => {
   it.each([false, true])('carries the server write decision %s for the current user and memory URN', async (canWrite) => {
@@ -88,15 +134,6 @@ describe('memory layout payload slimming (portal#1429)', () => {
     const data = (await (await importLoad())(ev())) as Record<string, unknown>;
     for (const key of ['treeEntries', 'graphViewData', 'usageByNode']) expect(data).not.toHaveProperty(key);
     expect(mockRequest.mock.calls.map((c) => c[0])).not.toContain(MEMORY_USAGE_SUMMARY_QUERY);
-  });
-
-  it('portal#1433: loads no node graph at all (graphNodes absent, no memoryNodes/memoryEdges request)', async () => {
-    routeMock();
-    const data = (await (await importLoad())(ev())) as Record<string, unknown>;
-    for (const key of ['graphNodes', 'nodesTotal', 'nodesFailed']) expect(data).not.toHaveProperty(key);
-    const queries = mockRequest.mock.calls.map((c) => c[0]);
-    expect(queries).not.toContain(MEMORY_NODES_QUERY);
-    expect(queries).not.toContain(MEMORY_EDGES_QUERY);
   });
 
   it('loads the owning org through the slim selection, not ORGANIZATION_QUERY', async () => {

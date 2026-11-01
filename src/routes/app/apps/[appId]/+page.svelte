@@ -18,12 +18,17 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
+  import TeamChatSearch from '$lib/components/TeamChatSearch.svelte';
+  import { teamChatSearchStrings } from '$lib/i18n/team-chat-search-strings';
   import type { TranscriptView } from '$lib/team-chat-refresh';
   import ChannelChatThread from '$lib/components/ChannelChatThread.svelte';
   import { createRosterRefreshers, fetchRosterFrom, type RosterEntry } from '$lib/team-chat-roster';
   import { NO_TEAM_FILTER, filterKeyOf, teamChatReadUrl, withTeamFilter, type TeamChatFilter } from '$lib/team-chat-filter';
 
   let channelPostBusy = $state(false);
+  // #1013: the team-chat history search panel; the live thread below stays mounted.
+  let teamSearchOpen = $state(false);
+  let teamSearchToggle: HTMLButtonElement | undefined = $state();
   // Keep the submitting thread mounted until its result clears/keeps its own
   // draft. A navigation mid-post would make that outcome ambiguous.
   beforeNavigate((navigation) => { if (channelPostBusy) navigation.cancel(); });
@@ -97,6 +102,9 @@
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
+  import TerminalStatus from '$lib/components/TerminalStatus.svelte';
+  import { pageClock, terminalBadge, terminalSummary } from '$lib/workers/terminal';
+  import { workerInternalsVisible } from '$lib/worker-profile';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AppMemories from './AppMemories.svelte';
@@ -115,6 +123,7 @@
   import { enhance } from '$app/forms';
   import { submittedForm } from '$lib/forms/submitted-form';
   import { fill, t } from '$lib/i18n/t.js';
+  import { APP_KEY_MANAGERS_ONLY, APP_KEY_IMPERSONATION_READ_ONLY } from '$lib/app-key-copy';
   import hadronInstructions from '$lib/assets/hadron-instructions.md?raw';
   import skillGetStarted from '$lib/assets/skill-get-started.md?raw';
   import skillSearch from '$lib/assets/skill-search.md?raw';
@@ -173,6 +182,8 @@
   const staff = $derived(data.staff);
   // portal#1168: Task and Paused, one bulk read joined by worker id.
   const teamRoster = $derived(data.teamRoster);
+  // portal#1492: the loader's one clock, so server render and hydration agree on every age.
+  const terminalNow = $derived(pageClock(data.terminalNow));
   // #855: worker id → URN for the team chat's author chip. Null when the roster
   // failed to load, so the chat renders no chip rather than an empty one;
   // workers whose URN is null (pre-v2 App URN) are simply absent.
@@ -265,6 +276,35 @@
   const appKeys = $derived(data.appKeys?.kind === 'ok' ? data.appKeys.keys : []);
   // portal#1068: hidden (not a manager) and failed are states of their own, never "no keys".
   const keysState = $derived(data.appKeys?.kind ?? 'ok');
+  // portal#1153 — App.viewerManages hides the key-create/revoke/setup controls
+  // and nothing else. `withheld`: a real `false`, or the key list already
+  // refused (the server said non-manager there, the stronger fact). `unknown`
+  // (failed read, or no field) keeps the controls and says so, because
+  // hiding a manager's controls on a transient error is the worse mistake.
+  // Presentation only: a crafted action still meets the server's refusal.
+  const keyControls = $derived.by((): 'shown' | 'withheld' | 'unknown' => {
+    const read = data.viewerManages;
+    if (keysState === 'hidden' || (read?.kind === 'known' && !read.manages)) return 'withheld';
+    return read?.kind === 'known' ? 'shown' : 'unknown';
+  });
+  const impersonating = $derived(!!data.impersonation);
+  const keysWithheldReason = $derived.by(() => {
+    const seeAlso = keysState === 'hidden';
+    if (impersonating) {
+      return seeAlso ? `${APP_KEY_IMPERSONATION_READ_ONLY()} ${t('app.keys.hidden', 'Only the App’s managers can see its keys.')}` : APP_KEY_IMPERSONATION_READ_ONLY();
+    }
+    return seeAlso
+      ? t('app.keys.denied.see-and-change', 'Only people who manage this App can see, create or revoke its keys: its owners and, for an organization’s App, that organization’s owners and admins.')
+      : APP_KEY_MANAGERS_ONLY();
+  });
+  const setupWithheldReason = $derived.by(() => {
+    if (impersonating) return APP_KEY_IMPERSONATION_READ_ONLY();
+    const orgName = data.app.organizationId ? data.org?.name : null;
+    return orgName
+      ? t('app.client.setup.ask-org', 'Setup files contain a new App key, so only people who manage this App can download them. Ask one of its owners, or an admin of {org}.', { org: orgName })
+      : t('app.client.setup.ask', 'Setup files contain a new App key, so only people who manage this App can download them. Ask one of its owners.');
+  });
+  const keyControlsUnknownNote = () => t('app.keys.manager-unknown', 'Couldn’t check whether you can manage this App’s keys. If you can’t, the change will be refused.');
   const appKeyColumns: PortalColumnDef<AppKey>[] = [
     { accessorKey: 'label', header: t('app.keys.column.label', 'Label'), enableHiding: false, size: 200 },
     { accessorKey: 'keyPreview', header: t('app.keys.column.preview', 'Preview'), size: 120 },
@@ -338,6 +378,10 @@
     // three-valued read the profile's held-workers grid uses: masked is "Not
     // shown to you", never "idle".
     { accessorFn: (row) => workerStatusLabel(row), id: 'status', header: t('app.staff.column.status', 'Status'), size: 150 },
+    // portal#1492 — the terminal's own state, apart from the session Status above
+    // so a session "Idle" and a terminal "Idle" never read as one thing. The accessor
+    // returns only what the cell shows, so search and sort never reach a hidden value.
+    { accessorFn: (row) => { const b = terminalBadgeOf(row); return b ? terminalSummary(b) : ''; }, id: 'terminal', header: t('app.staff.column.terminal', 'Terminal'), size: 220 },
     { accessorFn: (row) => [rosterEntry(row.id)?.currentTask?.title, rosterEntry(row.id)?.currentTask?.handle].filter(Boolean).join(' '), id: 'task', header: t('app.staff.column.task', 'Task'), size: 220 },
     { accessorFn: (row) => row.family ?? '', id: 'family', header: t('app.staff.column.family', 'Model family'), size: 130 },
     {
@@ -376,6 +420,13 @@
   //   name forever and has nothing left to retire or release.
   function rosterEntry(workerId: string) {
     return teamRoster?.kind === 'ok' ? teamRoster.byWorker[workerId] ?? null : null;
+  }
+  // portal#1492: no badge without a roster entry (failed, hidden or missing read)
+  // and none for a reader the server withholds internals from. `terminal` undefined
+  // is "not answered"; only a returned null is "Not reported".
+  function terminalBadgeOf(worker: Worker) {
+    const entry = rosterEntry(worker.id);
+    return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker)) : null;
   }
   const TASK_STATUS = {
     STARTED: () => t('app.staff.task.started', 'Started'),
@@ -1924,6 +1975,15 @@
              decoration, kept out of that name. -->
         <button
           type="button"
+          bind:this={teamSearchToggle}
+          onclick={() => { teamSearchOpen = !teamSearchOpen; if (!teamSearchOpen) teamSearchToggle?.focus(); }}
+          class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          data-testid="team-chat-search-toggle"
+        >
+          {teamSearchOpen ? teamChatSearchStrings.back() : teamChatSearchStrings.toggle()}
+        </button>
+        <button
+          type="button"
           onclick={() => setChatMaximized(!chatFullView)}
           class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
         >
@@ -1960,6 +2020,12 @@
            but minting new links that depend on a back-compat shim is how a
            shim stops being removable (Copilot on #759). -->
       <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+        {#if teamSearchOpen}
+          <div id="team-chat-search-panel" class="min-h-0 flex-1 overflow-y-auto">
+            {#key app.id}<TeamChatSearch appId={app.id} />{/key}
+          </div>
+        {/if}
+        <div class={teamSearchOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
         {#key `${app.id}:${data.postTeamChatMessageForm.id}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
           {@const teamStateKey = `${app.id}:team`}
           {@const teamViewKey = `${teamStateKey}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
@@ -1982,6 +2048,7 @@
           onSelectTeam={selectTeamFilter}
         />
         {/key}
+        </div>
       </div>
     </div>
     {:else if data.selectedChannelId && data.postChannelMessageForm}
@@ -2414,6 +2481,8 @@
               {#if pauseBadge(worker.id)}
                 <span class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-950 dark:text-amber-300">{pauseBadge(worker.id)}</span>
               {/if}
+            {:else if cell.column.id === 'terminal'}
+              <TerminalStatus badge={terminalBadgeOf(worker)} now={terminalNow} compact />
             {:else if cell.column.id === 'task'}
               {@const task = rosterEntry(worker.id)?.currentTask}
               {#if !rosterEntry(worker.id)}
@@ -2710,7 +2779,7 @@
     <div id="panel-memory" role="tabpanel" aria-labelledby="tab-memory" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     {#if data.createMemoryForm}
       {#key app.id}
-        <AppMemories memories={data.appMemories ?? null} canCreate={data.canCreateMemory === true} initial={data.createMemoryForm} result={form} />
+        <AppMemories memories={data.appMemories ?? null} canCreate={data.canCreateMemory === true} showDescription={!!app.organizationId} initial={data.createMemoryForm} result={form} />
       {/key}
     {/if}
     <!-- #1043 interim: primary-agent links cannot establish the viewer's
@@ -2736,6 +2805,12 @@
           never in client-side code.
         </p>
 
+        {#if keyControls === 'withheld'}
+          <p role="status" data-testid="key-controls-withheld" class="mb-5 text-sm text-zinc-500">{keysWithheldReason}</p>
+        {:else}
+        {#if keyControls === 'unknown'}
+          <p role="status" data-testid="key-controls-unknown" class="mb-3 text-sm text-zinc-500">{keyControlsUnknownNote()}</p>
+        {/if}
         <form method="POST" action="?/createKey" use:createKeyEnhance class="mb-5 flex items-start gap-2" novalidate>
           <input type="hidden" name="_kind" value={$createKeyForm._kind} />
           <div class="flex-1">
@@ -2751,12 +2826,13 @@
             {$createKeySubmitting ? 'Generating...' : '+ Generate Key'}
           </button>
         </form>
+        {/if}
 
         {#if data.keyScopes?.kind === 'failed'}
           <p role="status" class="text-xs text-amber-700 dark:text-amber-300">{t('app.keys.scopes.failed', 'Couldn’t load what these keys may do, so the Scopes column isn’t shown.')}</p>
         {/if}
         {#if keysState === 'hidden'}
-          <p role="status" class="text-sm text-zinc-500">{t('app.keys.hidden', 'Only the App’s managers can see its keys.')}</p>
+          <!-- portal#1153: the reason line above already covers this fact for the Keys tab. -->
         {:else if keysState === 'failed'}
           <p role="status" class="text-sm text-amber-700 dark:text-amber-300">{t('app.keys.load-failed', 'Couldn’t load this App’s keys.')}</p>
         {:else if appKeys.length === 0}
@@ -2791,7 +2867,8 @@
               {:else if cell.column.id === 'actions'}
                 <!-- #1020: Revoke lives in the row's ⋯ menu; the browser
                      confirm and the hidden form below the table carry what
-                     the per-row form did. -->
+                     the per-row form did. portal#1153: absent when withheld. -->
+                {#if keyControls !== 'withheld'}
                 <NodeActionsMenu
                   actions={[{ id: 'revoke', label: t('app.keys.revoke', 'Revoke'), danger: true }]}
                   onselect={() => revokeAppKey(key)}
@@ -2799,6 +2876,7 @@
                   fixed
                   compact
                 />
+                {/if}
               {:else}
                 {@const f = appKeyFmt[cell.column.id]}
                 <div class="truncate">{f ? f(cell.getValue()) : (cell.getValue() ?? '—')}</div>
@@ -2808,10 +2886,12 @@
         {/if}
 
         <!-- #1020: Revoke's submit target — one hidden form for every row. -->
+        {#if keyControls !== 'withheld'}
         <form bind:this={revokeKeyFormEl} method="POST" action="?/revokeKey" use:revokeKeyEnhance class="hidden">
           <input type="hidden" name="_kind" value="revokeKey" />
           <input type="hidden" name="keyId" value={$revokeKeyForm.keyId} />
         </form>
+        {/if}
       </section>
     </div>
     </div>
@@ -3083,6 +3163,9 @@
           Client Keys
           {#if keysState === 'ok'}<span class="ml-1 text-sm font-normal text-zinc-500">({activeKeys.length})</span>{/if}
         </h2>
+        {#if keyControls === 'unknown'}
+          <p role="status" data-testid="key-controls-unknown" class="mb-3 text-sm text-zinc-500">{keyControlsUnknownNote()}</p>
+        {/if}
         {#if keysState === 'hidden'}
           <p role="status" class="text-sm text-zinc-500">{t('app.keys.hidden', 'Only the App’s managers can see its keys.')}</p>
         {:else if keysState === 'failed'}
@@ -3106,6 +3189,7 @@
                 </div>
                 <!-- Keep both handlers: onclick updates before client validation for button activation;
                      onsubmit covers keyboard/requestSubmit paths and the confirmation. -->
+                {#if keyControls !== 'withheld'}
                 <form method="POST" action="?/revokeKey" use:revokeKeyEnhance onsubmit={(e) => {
                   if (!confirm(`Revoke key "${key.label ?? 'Unnamed key'}"? It will stop working immediately.`)) {
                     e.preventDefault();
@@ -3118,6 +3202,7 @@
                   <input type="hidden" name="keyId" value={key.id} />
                   <button type="submit" disabled={$revokeKeySubmitting} onclick={() => setRevokeKey(key.id)} class="text-xs text-red-400 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50">Revoke</button>
                 </form>
+                {/if}
               </div>
             {/each}
           </div>
@@ -3128,7 +3213,7 @@
 
       <!-- New Client Key -->
       <section>
-        {#if activeKeys.length > 0}
+        {#if activeKeys.length > 0 && keyControls !== 'withheld'}
           <button onclick={() => newKeySectionOpen = !newKeySectionOpen} class="mb-3 flex items-center gap-2 font-semibold text-zinc-900 dark:text-white">
             <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {newKeySectionOpen ? 'rotate-90' : ''}">
               <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
@@ -3138,8 +3223,11 @@
         {:else}
           <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">New Client Key</h2>
         {/if}
-        {#if !activeKeys.length || newKeySectionOpen}
+        {#if !activeKeys.length || newKeySectionOpen || keyControls === 'withheld'}
           <div class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+            {#if keyControls === 'withheld'}
+              <p role="status" data-testid="setup-withheld" class="text-sm text-zinc-500">{setupWithheldReason}</p>
+            {:else}
             <div>
               <label for="keyLabel" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>
               <input id="keyLabel" type="text" bind:value={newKeyLabel} placeholder="e.g. Project A, Alice's laptop"
@@ -3152,6 +3240,7 @@
                 <p class="mt-1 font-mono text-xs text-zinc-500 dark:text-zinc-400 truncate">{keyPreviewText}</p>
               {/if}
             </div>
+            {/if}
 
             <div>
               <span class="mb-2 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Include plugins</span>
@@ -3183,6 +3272,7 @@
               {/if}
             </div>
 
+            {#if keyControls !== 'withheld'}
             <button onclick={downloadSetupZip} disabled={downloading || !canDownload}
               class="w-full rounded-lg bg-amber-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed">
               {downloading ? 'Generating...' : 'Download setup files (.zip)'}
@@ -3193,6 +3283,7 @@
               </div>
             {/if}
             <p class="text-[10px] text-zinc-400">Creates a new client key and downloads a zip with the selected plugin configs. Extract in your project root.</p>
+            {/if}
           </div>
         {/if}
       </section>

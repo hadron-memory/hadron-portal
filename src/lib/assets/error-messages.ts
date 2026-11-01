@@ -104,3 +104,41 @@ export function assetErrorMessage(code: string | undefined, serverMessage: strin
   const mapped = lookupOwn(MESSAGES, code);
   return mapped ? mapped() : serverMessage;
 }
+
+/**
+ * #1131: copy for a refused or failed public-link switch.
+ *
+ * Unlike `assetErrorMessage` this NEVER falls back to the server's prose. The
+ * switch is a management control: a refusal for a reader who may not manage it
+ * must not echo the server's wording (which names what they are not allowed to
+ * do, and for what), and an unexpected failure is a failure, not a verdict to
+ * explain. So the table is closed and the default is a fixed sentence.
+ *
+ * NOT_FOUND and PERMISSION_DENIED share one sentence on purpose: the server
+ * answers NOT_FOUND to a reader who cannot see the asset (an existence oracle
+ * closed in #888), and a sentence that told them apart would reopen it.
+ */
+const PUBLIC_LINK_MESSAGES: Record<string, () => string> = {
+  NOT_FOUND: () => publicLinkDenied(),
+  PERMISSION_DENIED: () => publicLinkDenied(),
+  FORBIDDEN: () => publicLinkDenied(),
+  UNAUTHENTICATED: () => t('assets.public-link.error.signed-out', 'Your session has ended. Sign in again, then retry.'),
+  SESSION_EXPIRED: () => t('assets.public-link.error.signed-out', 'Your session has ended. Sign in again, then retry.'),
+};
+
+function publicLinkDenied(): string {
+  return t(
+    'assets.public-link.error.denied',
+    'The public link for this file was not changed. It may have been deleted, or you may not be allowed to manage sharing for its memory.',
+  );
+}
+
+export function publicLinkErrorMessage(code: string | undefined): string {
+  const mapped = lookupOwn(PUBLIC_LINK_MESSAGES, code);
+  return mapped
+    ? mapped()
+    : t(
+        'assets.public-link.error.failed',
+        'Couldn’t change the public link, and it may not have changed. Reload to see its current state, then try again.',
+      );
+}

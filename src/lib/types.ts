@@ -74,6 +74,7 @@ export interface Memory {
   syncError: string | null;
   pendingEdgeCount: number;
   lastSyncedAt: string | null;
+  lastSyncReport?: string | null;
   createdAt: string;
   updatedAt: string;
   subscriptions?: MemorySubscription[];
@@ -90,6 +91,8 @@ export interface MemorySubscription {
 
 export interface Agent {
   id: string;
+  /** #1335: the source's CURRENT URN; only the detail query selects it (absent elsewhere), null for a non-clone or an unreadable source. */
+  clonedFromAgentRef?: string | null;
   organizationId: string;
   urn: string;
   name: string;
@@ -356,6 +359,13 @@ export type AppMembershipRole = 'OWNER' | 'ADMIN' | 'CONTRIBUTOR' | 'READER';
  * absence as "this App's URN predates the flat grammar", never as an error.
  */
 export interface Worker {
+  /** portal#1492: the latest terminal report; null when none or masked, absent on the Profile tier. */
+  terminal?: import('$lib/workers/terminal').TerminalRead | null;
+  /** Profile scalars supplied by server#1149; never reconstructed from App. */
+  portalUrl?: string | null;
+  appUrn?: string | null;
+  appName?: string | null;
+  ownerName?: string | null;
   id: string;
   appId: string;
   agentId: string;

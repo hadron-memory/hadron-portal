@@ -8,13 +8,15 @@
  *
  * portal#1433: every target is looked up through the server now; the memory
  * layout no longer ships the node list a bare loc used to resolve against. The
- * `serve` client below stands in for the server: it answers each aliased
- * `node(ref: <urn>)` from a table keyed by full node URN, so what the tests pin
- * is which URN a link asks for and what it does with the answer.
+ * `serve` client below stands in for the server: it answers the same-memory
+ * `nodeBatch(refs:)` and each aliased cross-memory `node(ref: <urn>)` from a
+ * table keyed by full node URN, so what the tests pin is which URN a link asks
+ * for and what it does with the answer.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
 import { resolveWikilinks } from './wikilinks';
+import { WIKILINK_TARGETS_BATCH_QUERY } from './queries';
 
 const MEM = 'mem-A';
 const MEM_URN = 'hrn:memory:hadronmemory.com::hadron-portal';
@@ -25,11 +27,20 @@ const table: Record<string, { id: string; name: string | null; memoryId: string 
   [NODE_URN('glossary:ns1')]: { id: 'n2', name: 'Nameserver 1', memoryId: MEM },
 };
 
-/** A stub server: answers each `w{i}` alias from `table` by the URN in `r{i}`. */
+/**
+ * A stub server: answers a `nodeBatch` with the rows at its `refs` (the loc is
+ * the URN's tail after `hrn:node:<org>:<memory>:`), and each `w{i}` alias from
+ * `table` by the URN in `r{i}`.
+ */
 function serve(rows: typeof table = table) {
   return {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- a stub for the overloaded client.request
     request: vi.fn(async (...args: any[]) => {
+      if (args[0] === WIKILINK_TARGETS_BATCH_QUERY) {
+        const refs = (args[1]?.refs ?? []) as string[];
+        const nodes = refs.flatMap((r) => (rows[r] ? [{ ...rows[r], loc: r.split(':').slice(4).join(':') }] : []));
+        return { nodeBatch: { nodes, unavailable: [], omitted: 0, truncated: false } };
+      }
       const vars = (args[1] ?? {}) as Record<string, string>;
       return Object.fromEntries(Object.keys(vars).map((k, i) => [`w${i}`, rows[vars[k]] ?? null]));
     }),
@@ -44,7 +55,7 @@ describe('resolveWikilinks — same-memory (bare loc)', () => {
   it('looks a bare loc up as THIS memory\'s node URN and labels it with the node name', async () => {
     const client = serve();
     const links = await resolveWikilinks(client, ['see [[findings:x]]'], ctx());
-    expect(client.request.mock.calls[0][1]).toEqual({ r0: NODE_URN('findings:x') });
+    expect(client.request.mock.calls[0]).toEqual([WIKILINK_TARGETS_BATCH_QUERY, { refs: [NODE_URN('findings:x')] }]);
     expect(links).toEqual({
       'findings:x': { href: `/app/memories/${MEM}/nodes/n1`, label: 'Finding X' },
     });
@@ -109,13 +120,13 @@ describe('resolveWikilinks — same-memory (bare loc)', () => {
     expect(links['findings:x']).toEqual({ href: `/app/u/${NODE_URN('findings:x')}`, label: 'findings:x' });
   });
 
-  it('resolves more same-memory links than one request carries, across chunks (> 50)', async () => {
+  it('resolves many same-memory links in ONE nodeBatch (up to its 200 cap)', async () => {
     const rows: typeof table = {};
     const locs = Array.from({ length: 120 }, (_, i) => `bulk:n${i}`);
     for (const [i, loc] of locs.entries()) rows[NODE_URN(loc)] = { id: `id${i}`, name: `N${i}`, memoryId: MEM };
     const client = serve(rows);
     const links = await resolveWikilinks(client, [locs.map((l) => `[[${l}]]`).join(' ')], ctx());
-    expect(client.request).toHaveBeenCalledTimes(3);
+    expect(client.request).toHaveBeenCalledTimes(1);
     expect(Object.values(links).every((l) => l !== null)).toBe(true);
     expect(links['bulk:n119']?.href).toBe(`/app/memories/${MEM}/nodes/id119`);
   });
@@ -161,9 +172,9 @@ describe('resolveWikilinks — grammar v2 (cor:urn:010:01)', () => {
     const client = serve({ [flatUrn]: { id: 'r1', name: 'R', memoryId: 'mem-R' } });
     const links = await resolveWikilinks(client, ['[[hadronmemory.com:dev:findings:a]]'], ctx());
     // First this memory's reading (a miss), then the flat reading.
-    expect(client.request.mock.calls.map((c) => Object.values(c[1]))).toEqual([
-      [NODE_URN('hadronmemory.com:dev:findings:a')],
-      [flatUrn],
+    expect(client.request.mock.calls.map((c) => c[1])).toEqual([
+      { refs: [NODE_URN('hadronmemory.com:dev:findings:a')] },
+      { r0: flatUrn },
     ]);
     expect(links['hadronmemory.com:dev:findings:a']?.href).toBe('/app/memories/mem-R/nodes/r1');
   });
@@ -271,14 +282,15 @@ describe('resolveWikilinks — cross-memory', () => {
     });
   });
 
-  it('caps the per-page batch and marks the overflow unresolved rather than silently dropping it', async () => {
+  it('caps the per-page batch and renders the overflow UNCHECKED, never as a missing node', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const body = Array.from({ length: 205 }, (_, i) => `[[o::m::loc${i}]]`).join(' ');
     const request = vi.fn().mockResolvedValue({});
     const links = await resolveWikilinks({ request }, [body], ctx());
 
     expect(Object.keys(request.mock.calls[0][1])).toHaveLength(50);
-    expect(links['o::m::loc204']).toBeNull();
+    // Not read is not "no node": the resolver route re-checks on click.
+    expect(links['o::m::loc204']).toEqual({ href: '/app/u/hrn:node:o:m:loc204', label: 'loc204' });
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('exceeds the 200 per-page cap'));
     warn.mockRestore();
   });

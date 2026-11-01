@@ -29,72 +29,38 @@ vi.mock('$lib/server/api', () => ({
 const requireFromKit = createRequire(join(realpathSync(resolve(process.cwd(), 'node_modules/@sveltejs/kit')), 'package.json'));
 const devalue = requireFromKit('devalue') as { uneval: (v: unknown) => string };
 
-const SERVER_PAGE = 2000;
-const MIB = 1048576;
-// Slimmed payload measures ~24.0 MiB at this fixture; the pre-S2a one 47.55.
-const BOUND_MIB = 26;
-// portal#1433 target 1 is HTML <= 1 MB; the root layout payload is a fraction of it.
-const ROOT_BOUND_BYTES = 1 * MIB;
+const KIB = 1024;
+// portal#1524: with the node list off the payload is the memory, the org and a
+// few scalars; a 33k-node memory costs it nothing. Was ~24 MiB (graphNodes).
+const BOUND_KIB = 64;
 
 beforeEach(() => {
   mockRequest.mockReset();
 });
 
-describe('memory layout payload at 32,920 nodes (portal#1429)', () => {
-  it('omits treeEntries, graphViewData and usageByNode and stays under the byte bound', async () => {
+describe('memory layout payload at 32,920 nodes (portal#1429, portal#1524)', () => {
+  it('issues no node-list read, carries no graph/tree keys, and stays tiny however big the memory is', async () => {
     const world = synthMemory(32920);
-    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
-      const limit = Math.min(Number(vars?.limit ?? 1000), SERVER_PAGE);
-      const offset = Number(vars?.offset ?? 0);
+    const seen: string[] = [];
+    mockRequest.mockImplementation(async (query: string) => {
+      seen.push(query);
       if (query === MEMORY_BY_ID_QUERY) return { memory: world.memory };
       if (query === SELF_CAN_WRITE_QUERY) return { effectiveAccess: { canWrite: true } };
       if (query === MEMORY_LAYOUT_ORG_QUERY) return { organization: { id: 'org-1', name: 'Org', urn: 'hrn:org:example.test', members: [] } };
-      if (query === MEMORY_NODES_QUERY) {
-        return { memoryNodes: { nodes: world.nodes.slice(offset, offset + limit), total: world.nodes.length } };
-      }
-      if (query === MEMORY_EDGES_QUERY) {
-        return { memoryEdges: { edges: world.edges.slice(offset, offset + limit), total: world.edges.length } };
-      }
       throw new Error(`unexpected query: ${String(query).slice(0, 60)}`);
     });
     const { load } = await import('../src/routes/app/memories/[id]/+layout.server');
     const data = (await load({ params: { id: world.memory.id }, locals: { token: 't', user: { id: 'u' } } } as never)) as Record<string, unknown>;
 
-    // portal#1433: the ROOT layout carries no graph, so every route outside the
-    // Nodes/Graph group (node detail, info, settings, assets …) is tiny here.
-    expect(Object.keys(data).sort()).toEqual(['canWriteMemory', 'graph', 'org']);
-    expect(data).not.toHaveProperty('graphNodes');
-    const queries = mockRequest.mock.calls.map((c) => c[0]);
-    expect(queries).not.toContain(MEMORY_NODES_QUERY);
-    expect(queries).not.toContain(MEMORY_EDGES_QUERY);
+    // Drain: neither memoryNodes nor memoryEdges is ever asked for.
+    expect(seen).not.toContain(MEMORY_NODES_QUERY);
+    expect(seen).not.toContain(MEMORY_EDGES_QUERY);
+    // Payload: no graph, tree or usage key; the distinct "off" state instead.
+    expect(Object.keys(data).sort()).toEqual(['canWriteMemory', 'graph', 'nodesFailed', 'nodesOff', 'nodesTotal', 'org']);
+    expect(data.nodesOff).toBe(true);
+    expect(data.nodesFailed).toBe(false); // off is not an error: no banner
+    expect(data.nodesTotal).toBeNull();
     const bytes = devalue.uneval(data).length;
-    expect(bytes).toBeLessThan(ROOT_BOUND_BYTES);
-  }, 120_000);
-
-  it('the (browser) group layout, which only Nodes and Graph load, still drains the whole graph', async () => {
-    const world = synthMemory(32920);
-    mockRequest.mockImplementation(async (query: string, vars: Record<string, unknown>) => {
-      const limit = Math.min(Number(vars?.limit ?? 1000), SERVER_PAGE);
-      const offset = Number(vars?.offset ?? 0);
-      if (query === MEMORY_NODES_QUERY) {
-        return { memoryNodes: { nodes: world.nodes.slice(offset, offset + limit), total: world.nodes.length } };
-      }
-      if (query === MEMORY_EDGES_QUERY) {
-        return { memoryEdges: { edges: world.edges.slice(offset, offset + limit), total: world.edges.length } };
-      }
-      throw new Error(`unexpected query: ${String(query).slice(0, 60)}`);
-    });
-    const { load } = await import('../src/routes/app/memories/[id]/(browser)/+layout.server');
-    const data = (await load({
-      params: { id: world.memory.id },
-      locals: { token: 't' },
-      parent: async () => ({ graph: world.memory }),
-    } as never)) as Record<string, unknown>;
-
-    expect(Object.keys(data).sort()).toEqual(['graphNodes', 'nodesFailed', 'nodesTotal']);
-    expect((data.graphNodes as unknown[]).length).toBe(32920);
-    // R2 (portal#1433): Nodes/Graph are exempt from the payload targets until #1381;
-    // this is the pre-existing ~24 MiB graph, unchanged.
-    expect(devalue.uneval(data).length).toBeLessThan(BOUND_MIB * MIB);
+    expect(bytes).toBeLessThan(BOUND_KIB * KIB);
   }, 120_000);
 });

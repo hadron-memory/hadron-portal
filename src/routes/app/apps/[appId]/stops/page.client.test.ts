@@ -113,6 +113,6 @@ describe('the Stops page', () => {
     const { root } = await mountPage(pageData({ page: { kind: 'ok', value: { signals: [signal()], pageInfo: { hasNextPage: true, endCursor: 'a/b+c=' } } } }));
     const link = root.querySelector<HTMLAnchorElement>('a[href="?after=a%2Fb%2Bc%3D"]');
     expect(link).not.toBeNull();
-    expect(link!.textContent).toContain('Show later stops');
+    expect(link!.textContent).toContain('Show older stops');
   });
 });
