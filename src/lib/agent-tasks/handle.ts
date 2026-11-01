@@ -85,6 +85,32 @@ export function resolveSegment(segment: string, appUrn: string): SegmentRef {
 }
 
 /**
+ * portal#1575 — the target of a TASK reference to a task picked in this App:
+ * `hrn:agenttask:<root>:<app-slug>:<handle>`, the App key taken from the App's
+ * server-supplied URN (the form of the server's `qualifiedTaskHandle`). The
+ * server takes nothing shorter (hadron-server `references.ts`). Null when the
+ * App URN or the handle isn't one, so a reference is never built from a guess.
+ */
+export function taskReferenceTarget(appUrn: string, handle: string): string | null {
+  const app = appKey(appUrn);
+  const parsed = parseHandle(handle);
+  if (!app || !parsed || parsed.appUrn !== null) return null;
+  return composeAgentTaskUrnV2(app.root, app.slug, parsed.handle);
+}
+
+/**
+ * portal#1575 — the handle a TASK reference names when it is a task of THIS
+ * App, else null (another App's, or not a qualified handle at all). The App
+ * key compares without case, as `resolveSegment` does.
+ */
+export function sameAppTaskHandle(target: string, appUrn: string): string | null {
+  const parsed = parseHandle(target);
+  const app = appKey(appUrn);
+  if (!parsed || parsed.appUrn === null || !app) return null;
+  return parsed.appUrn.toLowerCase() === `${app.root}:${app.slug}`.toLowerCase() ? parsed.handle : null;
+}
+
+/**
  * Where a task row points: under its App (`basePath` is `/app/apps/<id>`), by its immutable handle when the
  * server gave one, else by id (an id link still resolves). Every dynamic
  * segment is encoded.

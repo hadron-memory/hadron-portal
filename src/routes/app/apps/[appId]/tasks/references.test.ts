@@ -15,6 +15,7 @@ vi.mock('$app/navigation', () => ({ invalidateAll: vi.fn(), goto: vi.fn(), befor
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
 vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
 import TaskPage from './[taskId]/+page.svelte';
+import NewTaskPage from './new/+page.svelte';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const holger = { id: 'u1', kind: 'USER' as const, name: 'Holger', urn: null };
@@ -121,5 +122,28 @@ describe('task references on the task page (portal#1575)', () => {
       { kind: 'NODE', target: 'hrn:agenttask:acme.com:team:AT4', label: null },
     ]);
     expect(section(html)).not.toContain('/app/u/hrn:agenttask');
+  });
+});
+
+describe('the new-task form keeps its references through a refusal (acceptance 7)', () => {
+  it('a refused create renders the posted list back, in order, with the server’s message', () => {
+    const list = [
+      { kind: 'NODE', target: 'hrn:node:acme.com:team:x', label: 'spec' },
+      { kind: 'URL', target: 'https://example.com/\u202Ex', label: null },
+    ];
+    const message = 'references[1].target: a URL target must be an absolute http(s) URL';
+    const html = render(NewTaskPage as never, {
+      props: {
+        data: { app, canWrite: true, impersonating: null, candidates: { workers: [], people: [], peopleWithheld: false, peopleFailed: false }, roles: [], families: [] },
+        form: { action: 'create', refusal: { kind: 'refused', code: 'BAD_USER_INPUT', message }, values: { title: 'T', references: JSON.stringify(list) } },
+      },
+    } as never).body;
+    const listHtml = /<ol[^>]*data-testid="new-reference-list"[\s\S]*?<\/ol>/.exec(html)![0];
+    const shown = text(listHtml);
+    expect(shown.indexOf('hrn:node:acme.com:team:x')).toBeLessThan(shown.indexOf('https://example.com/[U+202E]x'));
+    expect(shown).toContain('spec');
+    expect(html).toContain(message);
+    const posted = /name="references" value="([^"]*)"/.exec(html)![1]!.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    expect(JSON.parse(posted)).toEqual(list);
   });
 });

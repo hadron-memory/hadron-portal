@@ -1,5 +1,6 @@
 import { t } from '$lib/i18n/t';
 import { startByIso } from './start-by';
+import { readReferences, referenceInput, sameReferences } from './references';
 
 /**
  * portal#1357 — what the Edit details form sends (hadron-server#2645,
@@ -12,6 +13,11 @@ import { startByIso } from './start-by';
  * crafted post that names no base cannot overwrite a field it never showed.
  * Source, owner, assignee, status, parent, priority and blockers are never
  * read here: they are not editable through this call.
+ *
+ * portal#1575 — references (hrn:node:hadronmemory.com:specs:cor:agt:050:09): a list REPLACES the whole list,
+ * so after any change (an add, a remove, a reorder, a relabel) the whole
+ * ordered list goes, `[]` when the last one was removed; untouched, the field
+ * is left out. Like every other field, nothing goes without its posted base.
  */
 export type TaskEditPatch =
   | { input: Record<string, unknown> }
@@ -80,6 +86,15 @@ export function taskEditPatch(fd: FormData): TaskEditPatch {
     const was = fd.get('closeSessionWhenDoneBase');
     const now = fd.get('closeSessionWhenDone') === 'on';
     if ((was === 'true' || was === 'false') && now !== (was === 'true')) input.closeSessionWhenDone = now;
+  }
+
+  if (fd.has('referencesBase')) {
+    const was = readReferences(fd.get('referencesBase'));
+    const now = readReferences(fd.get('references'));
+    if (!was || !now) {
+      return { invalid: { field: 'references', message: t('app.tasks.edit.references-unreadable', 'The references couldn’t be read. Reload the page and try again.') } };
+    }
+    if (!sameReferences(now, was)) input.references = now.map(referenceInput);
   }
 
   const base = readBaseRequirements(fd.get('requirementsBase'));

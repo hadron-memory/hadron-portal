@@ -1,3 +1,4 @@
+import type { TaskReference } from './references';
 /**
  * portal#1052 — the agent-task read shapes the Tasks views select, mirroring
  * the server SDL (schema/schema.graphql, hadron-server 4c55560a). Only the
@@ -61,6 +62,11 @@ export interface AgentTaskRow {
 /** The detail page's task: every field §5.1 shows. */
 export interface AgentTaskDetail extends AgentTaskRow {
   appId: string;
+  /**
+   * portal#1575 (hadron-server#3112, hrn:node:hadronmemory.com:specs:cor:agt:050:01): the task's typed references, in order, empty when
+   * none. Untrusted stored strings: draw them only through `$lib/agent-tasks/references`.
+   */
+  references?: TaskReference[];
   description: string | null;
   requirements: AgentTaskRequirements | null;
   createdBy: AgentTaskParty | null;

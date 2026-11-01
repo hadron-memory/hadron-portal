@@ -21,6 +21,7 @@
   import { isoToLocalInput, localDateTimeToIso } from '$lib/agent-tasks/start-by';
   import { minTierOptions, tierLabel } from '$lib/agent-tasks/tier';
   import type { AgentTaskDetail } from '$lib/agent-tasks/types';
+  import TaskReferencesEditor from './TaskReferencesEditor.svelte';
 
   let {
     task,
@@ -28,6 +29,7 @@
     roles,
     families,
     invalid = null,
+    appUrn = null,
   }: {
     task: AgentTaskDetail;
     workers: Array<{ id: string; name: string }>;
@@ -35,10 +37,14 @@
     families: string[];
     /** A field the action refused locally (an emptied title, an unreadable start by). */
     invalid?: { field: string; message: string } | null;
+    /** portal#1575: the App's server-supplied URN, which a picked TASK reference is built from. */
+    appUrn?: string | null;
   } = $props();
 
   // Seeded once, on purpose: the panel is a draft, not a view of `task`.
   const seed = untrack(() => task);
+  // portal#1575: the references the panel opened with, posted as the base the action compares against.
+  const baseRefs = (seed.references ?? []).map((r) => ({ kind: r.kind, target: r.target, label: r.label ?? null }));
   const baseReq = {
     role: seed.requirements?.role ?? null,
     familyIn: seed.requirements?.familyIn ?? [],
@@ -105,6 +111,7 @@
 <input type="hidden" name="startByBase" value={seed.startBy ?? ''} />
 <input type="hidden" name="closeSessionWhenDoneBase" value={String(seed.closeSessionWhenDone)} />
 <input type="hidden" name="requirementsBase" value={JSON.stringify(baseReq)} />
+<input type="hidden" name="referencesBase" value={JSON.stringify(baseRefs)} />
 <input type="hidden" name="startByUtc" value={startByUtc} />
 
 <div class="space-y-1">
@@ -125,6 +132,8 @@
   <input id="edit-tags" name="tags" type="text" bind:value={tags} placeholder="a, b" aria-describedby="edit-tags-help" class={inputClass} />
   <p id="edit-tags-help" class={helpClass}>{t('app.tasks.edit.tags-help', 'Tags are replaced as shown: what you type here is the whole list.')}</p>
 </div>
+
+<TaskReferencesEditor app={{ id: seed.appId, urn: appUrn }} initial={baseRefs} idPrefix="edit" replaces invalid={fieldError('references')} />
 
 <div class="space-y-1">
   <label for="edit-start-by" class={labelClass}>{t('app.tasks.new.start-by', 'Start by')} <span class="font-normal text-zinc-500">({zoneLabel})</span></label>
