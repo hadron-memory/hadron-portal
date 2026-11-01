@@ -99,6 +99,82 @@ async function editAndSave(target: HTMLElement, field: 'content' | 'abstract') {
   return area;
 }
 
+/**
+ * A browser blurs a focused control the moment it becomes `disabled`; jsdom does
+ * not. The page disables Save for the length of a save, so a failed save lands
+ * with focus on <body> in a real browser (QA, #1563). This holds the request
+ * open, models that blur, then answers with the given failure.
+ */
+// jsdom's blur() is a no-op on a disabled control, so move focus to a focusable
+// <body>, which is where a browser leaves it.
+function blurLikeABrowser() {
+  document.body.tabIndex = -1;
+  document.body.focus();
+  document.body.removeAttribute('tabindex');
+}
+
+async function failWithBlurredSave(target: HTMLElement, field: 'content' | 'abstract', failure: unknown) {
+  let answer!: (r: { text: () => Promise<string> }) => void;
+  vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise((r) => (answer = r))));
+  buttonNamed(target, 'Source')!.click();
+  flushSync();
+  const area = target.querySelector<HTMLTextAreaElement>(field === 'content' ? 'textarea' : 'textarea[maxlength="2000"]')!;
+  area.value = `${field} edited`;
+  area.dispatchEvent(new Event('input', { bubbles: true }));
+  flushSync();
+  const save = buttonNamed(target, 'Save')!;
+  save.focus();
+  save.click();
+  flushSync();
+  expect(save.disabled).toBe(true);
+  blurLikeABrowser(); // what the browser does to a disabled control
+  expect(document.activeElement).toBe(document.body);
+  answer({ text: async () => JSON.stringify(failure) });
+  for (let i = 0; i < 10; i++) await tick();
+  flushSync();
+  return { area, save };
+}
+
+const CONFLICT = (field: string) => ({
+  type: 'failure',
+  status: 409,
+  data: JSON.stringify([{ [`${field}Failed`]: 1 }, { code: 2, detail: 3 }, 'changed', null]),
+});
+
+describe('focus after a refused Source save (#1563 QA)', () => {
+  for (const field of ['content', 'abstract'] as const) {
+    it(`${field}: a refused save returns focus to a live editor control, not <body>`, async () => {
+      const { target } = await mountPage(field);
+      const { area, save } = await failWithBlurredSave(target, field, CONFLICT(field));
+      expect(area.isConnected).toBe(true);
+      expect(save.disabled).toBe(false);
+      expect(document.activeElement).not.toBe(document.body);
+      expect([save, area]).toContain(document.activeElement);
+    });
+
+    it(`${field}: a thrown request also returns focus`, async () => {
+      const { target } = await mountPage(field);
+      let boom!: (e: Error) => void;
+      vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise((_, rej) => (boom = rej))));
+      buttonNamed(target, 'Source')!.click();
+      flushSync();
+      const area = target.querySelector<HTMLTextAreaElement>(field === 'content' ? 'textarea' : 'textarea[maxlength="2000"]')!;
+      area.value = 'x';
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      const save = buttonNamed(target, 'Save')!;
+      save.focus();
+      save.click();
+      flushSync();
+      blurLikeABrowser();
+      boom(new Error('network'));
+      for (let i = 0; i < 10; i++) await tick();
+      flushSync();
+      expect(document.activeElement).not.toBe(document.body);
+    });
+  }
+});
+
 describe('focus after a Source save (#1446)', () => {
   for (const field of ['content', 'abstract'] as const) {
     it(`${field}: a successful save puts focus on the Source toggle, not <body>`, async () => {
