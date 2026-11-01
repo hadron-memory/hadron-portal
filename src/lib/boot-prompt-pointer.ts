@@ -84,8 +84,21 @@ export function pointerResultFor(result: PointerResult | null | undefined, key: 
   return result && result.key === key ? result : null;
 }
 
-/** The fixed line every control carries (Victor's FIT delta 2): what is built, no capability claimed. */
-export const POINTER_NOT_SERVED = () => t('boot-pointer.not-served', 'Pointers are recorded but not used to start agents yet.');
+/**
+ * The fixed line every pointer card carries, the same on Worker, install and
+ * Agent targets (portal#1399). It states what hadron-server serves today,
+ * unconditionally since hadron-server#2725 retired BOOT_PROMPT_SERVE_ENABLED:
+ * the highest set pointer decides, worker then install then Agent
+ * (hrn:node:hadronmemory.com:specs:cor:agt:040:07), and the node served is the
+ * compiled node's newest approved revision
+ * (hrn:node:hadronmemory.com:specs:cor:agt:040:10). It names no signing: that
+ * check is not built (hadron-server#1614).
+ */
+export const POINTER_SERVED = () =>
+  t(
+    'boot-pointer.served',
+    'Agents start with the newest approved revision of the compiled prompt this names. A worker’s pointer comes first, then the App’s, then the Agent’s.',
+  );
 
 export function pointerRefusalLead(code: string | null, owner: PointerOwner): string | null {
   switch (code) {
