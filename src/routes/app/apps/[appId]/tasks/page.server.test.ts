@@ -3,6 +3,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { markStreamHandled } from '$lib/mark-stream-handled';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -131,7 +132,7 @@ async function loadDetail(taskId = 't1') {
   // reads). Mark the streamed rejection handled so it cannot fail the run
   // as an unhandled error; the memories-failure behaviour itself is pinned
   // in node-memories-failure.server.test.ts.
-  void Promise.resolve(r.nodeMemories as unknown).catch(() => {});
+  markStreamHandled(r.nodeMemories as Promise<unknown>);
   return r;
 }
 

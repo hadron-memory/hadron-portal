@@ -17,6 +17,7 @@
   import { fmtRunTime } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
   import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
+  import { markStreamHandled } from '$lib/mark-stream-handled';
   import type { PageData } from './$types';
 
   /**
@@ -24,6 +25,16 @@
    * history. Read-only: nothing here writes.
    */
   let { data }: { data: PageData } = $props();
+
+  // portal#1588 QA F2: the streamed memories promise reaches a consumer only
+  // when the Edit-details panel opens (TaskActionBar -> TaskEditFields ->
+  // TaskReferencesEditor), so a rejected read sat unhandled until then — an
+  // uncaught page error on the failure path. Mark it handled here, at the
+  // page that owns the stream; the editor's {#await}/{:catch} still renders
+  // the failure copy from its own handler.
+  $effect(() => {
+    markStreamHandled(data.nodeMemories);
+  });
 
   const task = $derived(data.task);
   // portal#1349: AT0 is the server's fixed "No project" row — read-only here, whatever the viewer may do elsewhere.
