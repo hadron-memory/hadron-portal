@@ -10,6 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import SelectNode from './SelectNode.svelte';
 import type { NodeChoice } from '$lib/node-choices';
 
@@ -49,8 +50,15 @@ async function chooseMemory(root: HTMLElement, name: string) {
   await tick(5);
 }
 
+// The search input is named by its wrapping label ("Search nodes"), not an
+// aria-label of its own (label-in-name is then exact, with no trailing ellipsis).
+function searchInput(root: HTMLElement) {
+  const label = [...root.querySelectorAll('label')].find((l) => l.textContent?.includes('Search nodes'))!;
+  return label.querySelector('input') as HTMLInputElement;
+}
+
 async function search(root: HTMLElement, query: string) {
-  const input = root.querySelector('input[aria-label="Search nodes by name or loc…"]') as HTMLInputElement;
+  const input = searchInput(root);
   input.value = query;
   input.dispatchEvent(new Event('input', { bubbles: true }));
   await tick();
@@ -62,8 +70,11 @@ const node = (i: number, over: Partial<NodeChoice> = {}): NodeChoice => ({ id: `
 const url = (memoryId: string, query: string, offset: number) => `/app/memories/${memoryId}/nodes/choices?query=${query}&offset=${offset}`;
 // A fresh response per call (never one shared object across requests), with
 // just the surface the component reads: `ok` + `json()`. The jsdom lane can't
-// read a real Response body stream, hence the plain object.
-const okPage = (items: NodeChoice[], hasMore: boolean) => async () => ({ ok: true, json: async () => ({ kind: 'ok', value: { items, hasMore } }) });
+// read a real Response body stream, hence the plain object. `nextOffset` is
+// the SERVER-computed next read offset (raw-count based): the client pages by
+// it and never by the filtered items it received.
+const okPage = (items: NodeChoice[], hasMore: boolean, nextOffset?: number) => async () =>
+  ({ ok: true, json: async () => ({ kind: 'ok', value: { items, hasMore, ...(nextOffset === undefined ? {} : { nextOffset }) } }) });
 
 /**
  * Fixtures route by URL and fail unexpected requests deliberately
@@ -86,6 +97,15 @@ function serve(routes: Record<string, Array<(() => Promise<{ ok: boolean; json: 
 const mockLayout = () =>
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(100);
 
+// A real Escape originates at the focused control and bubbles; dispatching
+// straight on `window` skips every dialog-level handler (and after the
+// review fix there IS no window-level handler — the dialog consumes the key).
+function pressEscape() {
+  (document.activeElement ?? document.body).dispatchEvent(
+    new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+  );
+}
+
 describe('SelectNode: dialog semantics (#1279/#1305)', () => {
   it('the opened panel is a labelled, modal, focusable dialog', async () => {
     const { target } = mount();
@@ -103,7 +123,9 @@ describe('SelectNode: dialog semantics (#1279/#1305)', () => {
     // full arc — opener focused → open → focus in → Escape → opener restored
     // — is the only probe that catches it. Opening SelectNode shows the
     // memory stage first, so Escape dismisses the NESTED picker once before
-    // the picker itself closes.
+    // the picker itself closes. Escape is dispatched from the focused
+    // control (a real keypress), not from window: the dialog handles it at
+    // its own layer and it must not travel past the dialog.
     const box = mockLayout();
     const opener = document.createElement('button');
     document.body.append(opener);
@@ -112,10 +134,10 @@ describe('SelectNode: dialog semantics (#1279/#1305)', () => {
       const { target } = mount();
       await tick(2);
       expect(target.querySelectorAll('[role="dialog"]').length).toBe(2);
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      pressEscape();
       flushSync();
       expect(target.querySelectorAll('[role="dialog"]').length).toBe(1);
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      pressEscape();
       flushSync();
       expect(target.querySelector('.fixed.inset-0')).toBeNull();
       expect(document.activeElement).toBe(opener);
@@ -203,22 +225,206 @@ describe('SelectNode: pick flow (#1576)', () => {
     expect(target.textContent).toContain('Page 1 of 3');
   });
 
-  it('closing the picker dismisses it; a fresh open starts at the memory stage', async () => {
+  it('closing the picker dismisses it; reopening the SAME instance starts over at the memory stage', async () => {
+    // The reset is the close $effect's job. A remount proves nothing (a fresh
+    // mount is trivially reset — the review's P2: the old test passed with
+    // the effect deleted), so the SAME instance is closed and reopened via
+    // reactive props, like a route reusing the component.
     serve({ [url('m2', 'one', 0)]: [okPage([node(1)], false)] });
+    const props = reactiveProps({ memories, open: true, onselect });
+    const m = mountComponent(SelectNode, props);
+    mounted.push(m as Mounted<Record<string, unknown>>);
+    await tick();
+    await chooseMemory(m.target, 'Beta KB');
+    await search(m.target, 'one');
+    expect(m.target.textContent).toContain('Node 1');
+    props.open = false;
+    await tick(2);
+    expect(m.target.textContent).not.toContain('Choose a node');
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    props.open = true;
+    await tick(5);
+    expect(m.target.textContent).toContain('Pick which memory to search in first.');
+    // The close reset dropped the chosen memory: nothing to read until one is
+    // chosen again, so no second fetch happened.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('an empty query is a legal first page: the browse list, not an error', async () => {
+    serve({ [url('m2', '', 0)]: [okPage([node(1)], false)] });
     const { target } = mount();
     await tick();
     await chooseMemory(target, 'Beta KB');
-    await search(target, 'one');
-    button(target, 'Close')!.click();
+    await search(target, '');
+    expect(fetchMock).toHaveBeenLastCalledWith(url('m2', '', 0));
+    expect(target.textContent).toContain('Node 1');
+  });
+});
+
+describe('SelectNode: review fixes (BLIND Gemma, LOCAL Gizelle, QA Charles at d9d2c8c5)', () => {
+  it('changing the memory mid-read cannot strand the picker (pending must not stick)', async () => {
+    // LOCAL P2 / BLIND P2-1: a read for memory A is in flight when the user
+    // changes to memory B. The generation bump discards A's LATE response,
+    // but the old `finally` skipped `pending = false` (generation moved), so
+    // pending stuck true and Find/Load more were dead until close-reopen.
+    let releaseA: (v: { ok: boolean; json: () => Promise<unknown> }) => void = () => {};
+    const readA = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => { releaseA = resolve; });
+    serve({
+      [url('m1', 'x', 0)]: [() => readA],
+      [url('m2', 'y', 0)]: [okPage([node(9)], false)],
+    });
+    const { target } = mount();
     await tick();
-    expect(target.textContent).not.toContain('Choose a node');
-    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
-    // A fresh mount starts at the memory stage and fetches nothing until a
-    // memory is chosen — the close effect resets in-between state.
-    mounted.pop()!.unmount();
-    const second = mount();
+    await chooseMemory(target, 'Alpha KB');
+    await search(target, 'x');
+    // While A's read is held, change the memory.
+    button(target, 'Change…')!.click();
+    await tick(2);
+    await chooseMemory(target, 'Beta KB');
+    // A's response lands AFTER the change: discarded, and the picker must
+    // still be usable — the search in B runs.
+    releaseA({ ok: true, json: async () => ({ kind: 'ok', value: { items: [node(1)], hasMore: false } }) });
     await tick(5);
-    expect(second.target.textContent).toContain('Pick which memory to search in first.');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await search(target, 'y');
+    expect(fetchMock).toHaveBeenLastCalledWith(url('m2', 'y', 0));
+    expect(target.textContent).toContain('Node 9');
+  });
+
+  it('Load more pages the SEARCHED query, not the live input text', async () => {
+    // LOCAL P2 / BLIND P2-2: editing the input without pressing Find must not
+    // re-target the next page; the query that produced the list owns paging.
+    serve({
+      [url('m2', 'foo', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true)],
+      [url('m2', 'foo', 20)]: [okPage([node(20)], false)],
+    });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    await search(target, 'foo');
+    const input = searchInput(target);
+    input.value = 'bar';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    button(target, 'Load more nodes')!.click();
+    await tick(5);
+    expect(fetchMock).toHaveBeenLastCalledWith(url('m2', 'foo', 20));
+  });
+
+  it('paging follows the server\'s nextOffset when the server filtered unusable rows', async () => {
+    // BLIND P2-3: the server drops malformed rows but pages by the RAW count;
+    // the client must advance by the server\'s nextOffset (20), never by the
+    // 19 filtered items it received (19 would re-read a shifted window).
+    serve({
+      [url('m2', 'q', 0)]: [okPage(Array.from({ length: 19 }, (_, i) => node(i)), true, 20)],
+      [url('m2', 'q', 20)]: [okPage([node(20)], false, 21)],
+    });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    await search(target, 'q');
+    expect(target.textContent).toContain('Node 18');
+    button(target, 'Load more nodes')!.click();
+    await tick(5);
+    expect(fetchMock).toHaveBeenLastCalledWith(url('m2', 'q', 20));
+    expect(target.textContent).toContain('Node 20');
+  });
+
+  it('a page that is all duplicates keeps Load more: the server said there is more', async () => {
+    // BLIND P2-3 (second half): a shifted list can return a full page of rows
+    // the client already has. The raw-count nextOffset still advances, so
+    // paging must continue — `fresh.length` must not veto the server\'s hasMore.
+    const page = Array.from({ length: 20 }, (_, i) => node(i));
+    serve({
+      [url('m2', 'q', 0)]: [okPage(page, true, 20)],
+      [url('m2', 'q', 20)]: [okPage(page, true, 40)], // every row already loaded
+      [url('m2', 'q', 40)]: [okPage([node(40)], false, 41)],
+    });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    await search(target, 'q');
+    button(target, 'Load more nodes')!.click();
+    await tick(5);
+    expect(button(target, 'Load more nodes')).toBeTruthy();
+    button(target, 'Load more nodes')!.click();
+    await tick(5);
+    expect(fetchMock).toHaveBeenLastCalledWith(url('m2', 'q', 40));
+    expect(target.textContent).toContain('Node 40');
+  });
+
+  it('retry after a failed Load more keeps the pages already loaded', async () => {
+    // BLIND P3: "Try again" re-reads the FAILED page; it must not throw away
+    // the rows already on screen by restarting the whole search.
+    serve({
+      [url('m2', 'q', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true, 20)],
+      [url('m2', 'q', 20)]: [new Error('transport'), okPage([node(20)], false, 21)],
+    });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    await search(target, 'q');
+    expect(target.textContent).toContain('Node 0');
+    button(target, 'Load more nodes')!.click();
+    await tick(5);
+    expect(target.querySelector('[role="alert"]')?.textContent).toContain('Couldn’t load nodes');
+    expect(target.textContent).toContain('Node 0');
+    button(target, 'Try again')!.click();
+    await tick(5);
+    expect(target.querySelector('[role="alert"]')).toBeNull();
+    // Both the first page and the retried page are present.
+    expect(target.textContent).toContain('Node 0');
+    expect(target.textContent).toContain('Node 20');
+  });
+
+  it('Enter in the node search never leaves the dialog (no implicit form submit)', async () => {
+    // BLIND P2-6, hardened: the editor\'s fieldset cancels Enter today, but a
+    // picker mounted anywhere else must be safe on its own.
+    serve({ [url('m2', 'x', 0)]: [okPage([node(1)], false)] });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    searchInput(target).dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('Escape stays inside the dialog: a window-level listener above it does not fire', async () => {
+    // QA Charles P2 / BLIND P2-7: TaskActionBar also listens for Escape on
+    // window (registered first, so it cannot be stopped from below); the
+    // dialog must consume Escape itself so one keypress closes ONE layer.
+    const above = vi.fn();
+    window.addEventListener('keydown', above);
+    try {
+      const { target } = mount();
+      await tick(2);
+      pressEscape();
+      flushSync();
+      expect(above).not.toHaveBeenCalled();
+      expect(target.querySelector('.fixed.inset-0')).toBeNull();
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
+  });
+
+  it('while the memory picker is open, the node dialog\'s focus trap stands down', async () => {
+    // QA Charles P2 (the RangeError): two document-level focusin guards used
+    // to fight — each yanked focus out of the other\'s dialog. While the
+    // nested memory dialog is on top, the node dialog\'s trap must not pull.
+    const box = mockLayout();
+    try {
+      const { target } = mount();
+      await tick(2);
+      // The memory stage opens with the picker; focus inside its search box
+      // is legal and must survive a focusin event.
+      const memoryDialog = [...target.querySelectorAll('[role="dialog"]')].find(
+        (d) => d.getAttribute('aria-label') === 'Choose a memory',
+      )!;
+      const input = memoryDialog.querySelector('input')!;
+      input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      flushSync();
+      expect(document.activeElement === input || document.activeElement === document.body).toBe(true);
+    } finally {
+      box.mockRestore();
+    }
   });
 });

@@ -36,12 +36,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function openEdit(references: unknown[] = []) {
+async function openEdit(references: unknown[] = [], nodeMemories: unknown = [{ id: 'm1', name: 'Team KB', urn: 'hrn:mem:acme.com:team', visibility: null }]) {
   const p = reactiveProps<Record<string, unknown>>({
     task: task(references), canWrite: true, impersonating: null, candidates: { workers: [], people: [] },
     roles: [], families: [], openChildren: { count: 0, capped: false }, appUrn: 'hrn:app:acme.com:team',
     // portal#1576: the NODE picker's memory stage (the page streams this).
-    nodeMemories: [{ id: 'm1', name: 'Team KB', urn: 'hrn:mem:acme.com:team', visibility: null }],
+    nodeMemories,
   });
   const m = mountComponent(TaskActionBar as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -203,6 +203,34 @@ describe('the NODE pick (acceptance 5, #1576 step 2)', () => {
     expect(buttonText(form, 'Add reference')!.disabled).toBe(true);
     expect(form.checkValidity()).toBe(true);
     expect(posted(form)).toEqual([]);
+  });
+
+  // BLIND P3 (#1582 at d9d2c8c5): the streamed memory list rejecting left the
+  // {#await} with no catch arm, so "Choose a node…" silently did nothing.
+  it('a rejected memory stream still opens the picker, degraded to an empty memory stage', async () => {
+    // The no-op catch marks the rejection OBSERVED for the runner; the
+    // component still sees a rejected promise, which is the defect's input.
+    const rejected = Promise.reject(new Error('memories read failed'));
+    rejected.catch(() => {});
+    const form = await openEdit([], rejected);
+    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'NODE');
+    buttonText(form, 'Choose a node…')!.click();
+    await tick(4);
+    const dialog = [...document.body.querySelectorAll('[role="dialog"]')].find(
+      (d) => d.getAttribute('aria-label') === 'Choose a node',
+    );
+    expect(dialog).toBeTruthy();
+    expect(dialog!.textContent).toContain('Pick which memory to search in first.');
+  });
+
+  // BLIND P3 (#1582 at d9d2c8c5): Clear removed the focused button and left
+  // focus on <body>; keyboard users lost their place in the form.
+  it('Clear returns focus to the Choose node… trigger', async () => {
+    const form = await openEdit([]);
+    await pickNode(form, choice);
+    byLabel(form, 'Clear the selected node')!.click();
+    await tick(2);
+    expect(document.activeElement).toBe(buttonText(form, 'Choose a node…'));
   });
 
   it('a typed but un-added target blocks submit, so it is never silently dropped', async () => {
