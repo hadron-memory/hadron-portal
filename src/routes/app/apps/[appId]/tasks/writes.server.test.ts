@@ -12,6 +12,7 @@ import {
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
   CREATE_AGENT_TASK_MUTATION,
+  HAND_BACK_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
   PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
@@ -59,7 +60,51 @@ async function taskActions() {
 
 describe('task page actions', () => {
   it('the page has exactly these write actions', async () => {
-    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'edit', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
+    expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'edit', 'handBack', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
+  });
+
+  // portal#1571 (hadron-server#2651, hrn:node:hadronmemory.com:specs:cor:agt:050:29)
+  it('handBack calls handBackAgentTask with the route’s task id and the chosen code and text', async () => {
+    request.mockResolvedValue({});
+    expect(await (await taskActions()).handBack(event({ code: 'MISSING_INPUT', text: ' no key ' }))).toEqual({ action: 'handBack', ok: true });
+    expect(request).toHaveBeenLastCalledWith(HAND_BACK_AGENT_TASK_MUTATION, { taskRef: 't1', reason: { code: 'MISSING_INPUT', text: 'no key' } });
+    expect(HAND_BACK_AGENT_TASK_MUTATION).toContain('handBackAgentTask(taskRef: $taskRef, reason: $reason)');
+  });
+
+  it('handBack leaves the text out when it is blank', async () => {
+    request.mockResolvedValue({});
+    await (await taskActions()).handBack(event({ code: 'DUPLICATE', text: '   ' }));
+    expect(request).toHaveBeenLastCalledWith(HAND_BACK_AGENT_TASK_MUTATION, { taskRef: 't1', reason: { code: 'DUPLICATE' } });
+  });
+
+  it.each([[''], ['SHRUG']])('handBack with the code %j asks the server nothing', async (code) => {
+    const r = (await (await taskActions()).handBack(event({ code, text: 'x' }))) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(400);
+    expect(r.data).toMatchObject({ action: 'handBack', refusal: { kind: 'invalid', field: 'code' } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it('handBack with text over 2,000 characters asks the server nothing', async () => {
+    const r = (await (await taskActions()).handBack(event({ code: 'REFUSED', text: 'x'.repeat(2001) }))) as { data: Record<string, unknown> };
+    expect(r.data).toMatchObject({ action: 'handBack', refusal: { kind: 'invalid', field: 'text' } });
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['TASK_NOT_ASSIGNEE', 403],
+    ['TASK_INVALID_TRANSITION', 409],
+    ['TASK_ENDED', 409],
+  ])('handBack surfaces %s as a %i refusal with the server’s sentence', async (code, status) => {
+    request.mockRejectedValueOnce(gqlError(code, `server says ${code}`));
+    const r = (await (await taskActions()).handBack(event({ code: 'REFUSED', text: '' }))) as { status: number; data: Record<string, unknown> };
+    expect(r.status).toBe(status);
+    expect(r.data).toMatchObject({ action: 'handBack', refusal: { kind: 'refused', code, message: `server says ${code}` } });
+  });
+
+  it('handBack in an impersonation session writes nothing', async () => {
+    const r = (await (await taskActions()).handBack(event({ code: 'REFUSED' }, { by: 'admin' }))) as { data: Record<string, unknown> };
+    expect(r.data).toMatchObject({ action: 'handBack' });
+    expect(request).not.toHaveBeenCalled();
   });
 
   // portal#1143

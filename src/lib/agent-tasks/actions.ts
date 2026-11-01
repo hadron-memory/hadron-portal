@@ -17,16 +17,26 @@ import type { AgentTaskRow } from './types';
  * audience. Edit details (portal#1357) is offered on every non-ended task; the
  * server answers anyone outside its audience. Exhaustive: an unknown status offers nothing.
  */
-export type TaskAction = 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel';
+export type TaskAction = 'handBack' | 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel';
 
-export function taskActions(task: Pick<AgentTaskRow, 'status' | 'queued' | 'assignee'>): TaskAction[] {
+/**
+ * portal#1571 (hrn:node:hadronmemory.com:specs:cor:agt:050:29): Hand back is the one action offered by WHO the viewer is. Only the assignee may hand a started
+ * task back and the server refuses everyone else (TASK_NOT_ASSIGNEE), so it is offered only when the assignee is a person
+ * and is the signed-in viewer. A WORKER assignee never offers it to a person, even the worker's owner.
+ */
+export function taskActions(
+  task: Pick<AgentTaskRow, 'status' | 'queued' | 'assignee'>,
+  viewerId?: string | null,
+): TaskAction[] {
   switch (task.status as string) {
     case 'BACKLOG':
       return ['ready', 'assign', 'edit', 'cancel'];
     case 'PENDING':
       return task.assignee ? ['reassign', 'edit', 'cancel'] : ['assign', 'park', 'edit', 'cancel'];
     case 'STARTED':
-      return ['reassign', 'edit', 'cancel'];
+      return viewerId && task.assignee?.kind === 'USER' && task.assignee.id === viewerId
+        ? ['handBack', 'reassign', 'edit', 'cancel']
+        : ['reassign', 'edit', 'cancel'];
     default:
       // FINISHED, CANCELLED (an ended task never moves again), or a status the portal doesn't know.
       return [];
@@ -35,6 +45,8 @@ export function taskActions(task: Pick<AgentTaskRow, 'status' | 'queued' | 'assi
 
 export function taskActionLabel(a: TaskAction): string {
   switch (a) {
+    case 'handBack':
+      return t('app.tasks.write.hand-back', 'Hand back…');
     case 'ready':
       return t('app.tasks.write.ready', 'Make ready');
     case 'assign':

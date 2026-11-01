@@ -4985,6 +4985,7 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       closeSessionWhenDone
       result { outcome summary evidence }
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
+      handBack { code text handedBackAt }
       properties
       # portal#1575 (hadron-server#3112): needs a server serving 1475888f or later. One without the field
       # rejects this whole read, so the portal deploys only after production serves it (#1575's Order).
@@ -5180,6 +5181,13 @@ export const MAKE_AGENT_TASK_READY_MUTATION = /* GraphQL */ `
 export const PARK_AGENT_TASK_MUTATION = /* GraphQL */ `
   mutation ParkAgentTask($taskId: ID!) {
     parkAgentTask(taskId: $taskId) { id }
+  }
+`;
+
+/** portal#1571 (hadron-server#2651): the assignee of a started task hands it back; the reason is required. */
+export const HAND_BACK_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation HandBackAgentTask($taskRef: ID!, $reason: AgentTaskHandBackInput!) {
+    handBackAgentTask(taskRef: $taskRef, reason: $reason) { id }
   }
 `;
 
