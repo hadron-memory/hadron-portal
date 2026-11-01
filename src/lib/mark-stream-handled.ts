@@ -14,8 +14,8 @@
  * nothing: a `.catch` never hides a rejection from LATER handlers, so the
  * consumer's own `{#await}/{:catch}` still renders the failure copy.
  *
- * See review:streamed-promise-passed-to-lazy-consumer-needs-page-level-catch
- * (hrn:node:hadronmemory.com:hadron-portal:review:streamed-promise-passed-to-lazy-consumer-needs-page-level-catch).
+ * See
+ * hrn:node:hadronmemory.com:hadron-portal:review:streamed-promise-passed-to-lazy-consumer-needs-page-level-catch.
  */
 export function markStreamHandled<T>(stream: Promise<T> | T): void {
   void Promise.resolve(stream).catch(() => {});
