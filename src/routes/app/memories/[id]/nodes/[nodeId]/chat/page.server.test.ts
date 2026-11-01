@@ -67,26 +67,31 @@ function teamChat(over: Record<string, unknown> = {}) {
   };
 }
 
-describe('chat page load — fullUrn', () => {
-  async function loadWith(memoryUrn: string | null, node: Record<string, unknown>) {
-    const reads = serveMemoryReads([], { id: 'mem-1', urn: memoryUrn ?? 'hrn:mem:acme.com:x' });
-    mockRequest.mockImplementation(async (query: string, vars?: Record<string, unknown>) => {
-      const served = reads(query, vars);
-      if (served !== undefined) return served;
-      if (query === NODE_BY_ID_QUERY) return { node };
-      if (query === LEGACY_THREAD_PROBE_QUERY) return LEGACY_THREAD;
-      // loadChatMessages' NODES_BY_LOC_PREFIX_QUERY — an empty thread is fine,
-      // the URN is what's under test.
-      return { findNodes: { hits: [] } };
-    });
-    const { load } = await import('./+page.server');
-    return (await load({
-      params: { id: 'mem-1', nodeId: 'chat-1' },
-      locals: { token: 'tok', user: { handle: 'holger' } },
-      parent: async () => ({ graph: memoryUrn ? { id: 'mem-1', urn: memoryUrn } : null }),
-    } as any)) as any;
-  }
+// Shared by the describe blocks below: load the chat page with `node` served
+// for NODE_BY_ID_QUERY and a (controllable) memory URN for the reads layer.
+async function loadWith(memoryUrn: string | null, node: Record<string, unknown>) {
+  const reads = serveMemoryReads([], { id: 'mem-1', urn: memoryUrn ?? 'hrn:mem:acme.com:x' });
+  mockRequest.mockImplementation(async (query: string, vars?: Record<string, unknown>) => {
+    const served = reads(query, vars);
+    if (served !== undefined) return served;
+    if (query === NODE_BY_ID_QUERY) return { node };
+    if (query === LEGACY_THREAD_PROBE_QUERY) return LEGACY_THREAD;
+    // loadChatMessages' NODES_BY_LOC_PREFIX_QUERY — an empty thread is fine,
+    // the URN is what's under test.
+  return { findNodes: { hits: [] } };
+  });
+  const { load } = await import('./+page.server');
+  return (await load({
+    params: { id: 'mem-1', nodeId: 'chat-1' },
+    locals: { token: 'tok', user: { handle: 'holger' } },
+    parent: async () => ({ graph: memoryUrn ? { id: 'mem-1', urn: memoryUrn } : null }),
+  } as any)) as any;
+}
 
+// #489 part 4 fixture, shared by the describes below (@codex on PR #791).
+const APP = { id: 'app-1', urn: 'hrn:app:acme.com:workstation', name: 'Workstation' };
+
+describe('chat page load — fullUrn', () => {
   // The team chat's badge read `hrn:mem:…:chats:team` — a NODE URN wearing the
   // MEMORY type word, because the old code concatenated `graph.urn` with the
   // loc. hrn:node:hadronmemory.com:specs:cor:urn:010:01 makes `mem` vs `node` unrecoverable from the string, so
@@ -126,9 +131,7 @@ describe('chat page load — fullUrn', () => {
   // is the surface a reader STAYS on and it is one click away, so the reference
   // has to survive the hop. Rendering it on one and not the other would make
   // the affordance vanish exactly when the reader settles in — reintroducing
-  // the navigation gap the reference exists to close.
-  const APP = { id: 'app-1', urn: 'hrn:app:acme.com:workstation', name: 'Workstation' };
-
+  // the navigation gap the reference exists to close. (APP is module-scope.)
   it('exposes the App for a team chat, so the reference survives the hop', async () => {
     const data = await loadWith(
       'hrn:mem:acme.com:notes',
@@ -153,6 +156,7 @@ describe('chat page load — fullUrn', () => {
     expect(data.chatApp).toBeNull();
     expect(data.chatApp).not.toBeUndefined();
   });
+});
 
 describe('chat page load — team-Channel classification (portal#1525)', () => {
   // A team Channel is positive canonical evidence only — `chatPostTarget`'s
@@ -187,7 +191,6 @@ describe('chat page load — team-Channel classification (portal#1525)', () => {
     const data = await loadWith('hrn:mem:acme.com:notes', legacyChat());
     expect(data.isTeamChannel).toBe(false);
   });
-});
 });
 
 describe('chat sendMessage action', () => {

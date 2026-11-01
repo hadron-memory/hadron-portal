@@ -64,7 +64,7 @@ async function settle() {
   flushSync();
 }
 
-async function mountChatNodePage(loc: string) {
+async function mountChatNodePage(loc: string, mutate?: (d: Record<string, unknown>) => Record<string, unknown>) {
   const node = chatNode(loc);
   mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
     { const served = reads(doc, vars); if (served !== undefined) return served; }
@@ -78,7 +78,8 @@ async function mountChatNodePage(loc: string) {
     url: new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`),
     parent: vi.fn().mockResolvedValue(PARENT),
   } as never)) as Record<string, unknown>;
-  const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...loaded }, form: null });
+  const pageData = mutate ? mutate({ ...PARENT, ...loaded }) : { ...PARENT, ...loaded };
+  const props = reactiveProps<Record<string, unknown>>({ data: pageData, form: null });
   const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await settle();
@@ -99,6 +100,20 @@ describe('node page full-screen entry (portal#1525)', () => {
 
   it('a chat that is not the App team chat keeps the text entry verbatim', async () => {
     const target = await mountChatNodePage('chats:design-review');
+
+    expect(target.textContent).toContain('Full-screen chat');
+    expect(target.querySelector('a[aria-label="Open full-screen channel"]')).toBeNull();
+  });
+
+  // portal#1525: the page branches on `!!data.isTeamChannel`, so a payload
+  // WITHOUT the key (stale serialization, a loader edit that drops it) must
+  // keep the text entry even for the canonical team loc — the fallback is the
+  // agent-chat branch, never the Channel one.
+  it('a payload missing isTeamChannel entirely keeps the text entry', async () => {
+    const target = await mountChatNodePage('chats:team', (d) => {
+      const { isTeamChannel: _omit, ...rest } = d;
+      return rest;
+    });
 
     expect(target.textContent).toContain('Full-screen chat');
     expect(target.querySelector('a[aria-label="Open full-screen channel"]')).toBeNull();

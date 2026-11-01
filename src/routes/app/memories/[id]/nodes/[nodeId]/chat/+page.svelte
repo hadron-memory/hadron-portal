@@ -84,7 +84,9 @@
   // deeper offset would make the next scroll ask for history BEFORE it and skip
   // everything between there and the refreshed tail. The node-detail surface
   // already did this; the two must not drift, since a reader moves between them
-  // with the "Full-screen chat" button.
+  // with the full-screen entry and back (the "Full-screen chat" / "View node
+  // details" links on agent/other chats, the icon-only controls on a team
+  // Channel — portal#1525).
   let olderCursor = $state<number>(0);
   $effect(() => {
     const o = data.chatOffset ?? 0;

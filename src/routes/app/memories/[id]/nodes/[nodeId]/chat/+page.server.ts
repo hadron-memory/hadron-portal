@@ -5,7 +5,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
-import { chatAuthorName, chatPostTarget, chatSortKey, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatSortKey, isChatNode, isTeamChannelChat, legacyThreadEvidence, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import type { MemoryNode } from '$lib/types';
@@ -63,12 +63,12 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   }
 
   // portal#1525: is this the App's team CHANNEL? Asked once, answered by the
-  // one canonical classifier — `chatPostTarget`'s platform kind is exactly the
-  // positive evidence the gate names (nodeType `chat` + the canonical team loc
-  // + an App membership), so the header branches on the same predicate the
-  // composer already trusts. Agent/other chats on this same route are NOT
-  // Channels and keep today's wording (Holger's portal#1482 ruling).
+  // one canonical predicate (`isTeamChannelChat` in team-chat.ts), so the
+  // header branches on the same classifier the composer trusts. Agent/other
+  // chats on this same route are NOT Channels and keep today's wording
+  // (Holger's portal#1482 ruling).
   const chatTarget = chatPostTarget(node, evidence);
+  const isTeamChannel = isTeamChannelChat(node, evidence);
 
   // Non-fatal on error — an empty thread beats crashing the chat page.
   // #793: a bounded WINDOW (newest CHAT_PAGE_SIZE), not the whole thread.
@@ -135,9 +135,8 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     // shown exactly when a post would be accepted.
     canPost: chatTarget.kind !== 'none',
     // portal#1525: the header's Channel branch (caption, icon-only collapse,
-    // per-message seq). See `chatTarget` above for why this is the platform
-    // kind and nothing else.
-    isTeamChannel: chatTarget.kind === 'platform',
+    // per-message seq). `isTeamChannelChat` above is the one predicate.
+    isTeamChannel,
     form: await superValidate({}, sendChatMessageFormAdapter, { errors: false }),
   };
 };

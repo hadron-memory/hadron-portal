@@ -1062,7 +1062,8 @@
   // #793: scroll-up pagination for the Chat tab. Same endpoint and the same
   // null-vs-empty contract as the full-screen view — the two must not drift,
   // since they are two windows onto one thread and a reader moves between them
-  // with the "Full-screen chat" button.
+  // with the full-screen entry (the "Full-screen chat" button on agent/other
+  // chats, the icon-only expand control on a team Channel — portal#1525).
   let olderCursor = $state<number>(0);
   $effect(() => {
     const o = data.chatOffset ?? 0;

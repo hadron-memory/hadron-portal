@@ -128,4 +128,21 @@ describe('full-screen chat header — team channel vs agent chat (portal#1525)',
     expect(target.textContent).not.toContain('#0');
     expect(target.textContent).not.toContain('#7');
   });
+
+  // portal#1525: the page guards with `data?.isTeamChannel === true`, so a
+  // payload WITHOUT the key (a stale serialization reaching a hydrated
+  // client, a loader edit that drops it) must fall back to the agent-chat
+  // branch, never to the Channel one. Pins the fallback the guard's comment
+  // claims — silent classic rendering, not a crash and not Channel furniture.
+  it('a payload missing isTeamChannel entirely falls back to the agent-chat branch', () => {
+    const payload: Record<string, unknown> = data({
+      node: { id: 'chat-pk', name: 'Team chat', loc: 'chats:team', memoryId: 'mem-1' },
+    });
+    const { isTeamChannel: _omit, ...rest } = payload;
+    const target = mountPage(rest);
+
+    expect(target.querySelector('a[aria-label="Collapse to inline view"]')).toBeNull();
+    expect(target.textContent).not.toContain('Team Channel');
+    expect(target.querySelector<HTMLAnchorElement>('a[href="/app/memories/mem-1/nodes/chat-pk?tab=content"]')).not.toBeNull();
+  });
 });
