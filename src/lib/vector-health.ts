@@ -12,7 +12,10 @@ export const VECTOR_HEALTH_LIMIT = 1000;
 
 export interface ValidateMemoryResult {
   findings: Array<{ kind: string; nodeId: string; nodeLoc: string; nodeUrn: string | null; detail: string }>;
+  /** Problems only — informational declarations are counted separately (server#2996, portal#1533). */
   totalFindings: number;
+  /** Informational declarations (INDEX_TRUNCATED); never in `totalFindings`. */
+  totalInformational: number;
   truncated: boolean;
   nodesChecked: number;
   skippedChecks: Array<{ check: string; reason: string }>;
@@ -39,10 +42,15 @@ export function embedFailedView(res: ValidateMemoryResult): VectorHealthView {
   const failed = res.findings
     .filter((f) => f.kind === 'EMBED_FAILED')
     .map((f) => ({ nodeId: f.nodeId, nodeLoc: f.nodeLoc, nodeUrn: f.nodeUrn ?? null, detail: f.detail }));
-  const capped = res.truncated || res.totalFindings > res.findings.length;
+  // The page holds problems and informational declarations; the true total is
+  // both counts (the server's `truncated` uses the same sum). Counting only
+  // `totalFindings` read as "showing N of 0" once it became problems-only
+  // (server#2996, portal#1533).
+  const total = res.totalFindings + res.totalInformational;
+  const capped = res.truncated || total > res.findings.length;
   return {
     failed,
-    truncation: capped ? { shown: res.findings.length, total: res.totalFindings } : null,
+    truncation: capped ? { shown: res.findings.length, total } : null,
     skipped: res.skippedChecks.find((c) => c.check === 'EMBED_FAILED')?.reason ?? null,
   };
 }
