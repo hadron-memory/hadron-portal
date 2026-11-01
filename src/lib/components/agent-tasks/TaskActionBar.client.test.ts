@@ -351,4 +351,79 @@ describe('TaskActionBar', () => {
       expect(root.querySelector('[data-testid="task-warnings"]')).toBeNull();
     });
   });
+
+  // portal#1571 (cor:agt:050:29): the assignee hands a started task back.
+  describe('Hand back…', () => {
+    const mine = { assignee: holger, status: 'STARTED' };
+
+    it('is offered to the started task’s assignee who is the viewer, and to nobody else', async () => {
+      expect(button(await mountBar(mine, { viewerId: 'u1' }), 'Hand back…')).toBeTruthy();
+      expect(button(await mountBar(mine, { viewerId: 'u2' }), 'Hand back…')).toBeUndefined();
+      expect(button(await mountBar(mine), 'Hand back…')).toBeUndefined();
+      expect(button(await mountBar({ status: 'STARTED' }, { viewerId: 'w1' }), 'Hand back…')).toBeUndefined();
+      expect(button(await mountBar({ ...mine, status: 'PENDING' }, { viewerId: 'u1' }), 'Hand back…')).toBeUndefined();
+    });
+
+    it('opens a dialog that says what happens, with the five reasons, none chosen, and a “Hand back” button', async () => {
+      const root = await mountBar(mine, { viewerId: 'u1' });
+      button(root, 'Hand back…').click();
+      await tick(2);
+      const panel = root.querySelector('#task-panel-handBack')!;
+      expect(panel.getAttribute('aria-labelledby')).toBeTruthy();
+      expect(panel.textContent).toContain('The task goes back to the queue with no assignee, and your reason is shown on it.');
+      expect(panel.textContent).not.toMatch(/won.t be given it again|excluded/i);
+      const select = panel.querySelector<HTMLSelectElement>('select[name="code"]')!;
+      expect(select.required).toBe(true);
+      expect(select.value).toBe('');
+      expect([...select.options].filter((o) => o.value).map((o) => [o.value, o.textContent?.trim()])).toEqual([
+        ['MISSING_INPUT', 'Missing input'], ['CANNOT_DO', 'Can’t do it'], ['REFUSED', 'Refused'], ['OUT_OF_SCOPE', 'Out of scope'], ['DUPLICATE', 'Duplicate'],
+      ]);
+      const text = panel.querySelector<HTMLTextAreaElement>('textarea[name="text"]')!;
+      expect(text.maxLength).toBe(2000);
+      expect(panel.querySelector('form')?.getAttribute('action') ?? panel.getAttribute('action')).toBe('?/handBack');
+      expect([...panel.querySelectorAll('button[type="submit"]')].map((b) => b.textContent?.trim())).toEqual(['Hand back']);
+    });
+
+    it('a refusal stays in the panel verbatim, with its code, and nothing reloads', async () => {
+      const root = await mountBar(mine, { viewerId: 'u1' });
+      button(root, 'Hand back…').click();
+      await tick(2);
+      const message = 'Only the task’s assignee hands it back.';
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-handBack')!, {
+        type: 'failure', status: 403, data: { action: 'handBack', refusal: { kind: 'refused', code: 'TASK_NOT_ASSIGNEE', message } },
+      });
+      await tick(2);
+      const alert = root.querySelector('#task-panel-handBack [role="alert"]');
+      expect(alert?.textContent).toContain('Not changed');
+      expect(alert?.textContent).toContain(`“${message}”`);
+      expect(alert?.textContent).toContain('TASK_NOT_ASSIGNEE');
+      expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+    });
+
+    it('a success reloads, closes the panel and says the task is back in the queue', async () => {
+      const root = await mountBar(mine, { viewerId: 'u1' });
+      button(root, 'Hand back…').click();
+      await tick(2);
+      await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('#task-panel-handBack')!, {
+        type: 'success', status: 200, data: { action: 'handBack', ok: true },
+      });
+      await tick(3);
+      expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+      expect(root.querySelector('#task-panel-handBack')).toBeNull();
+      expect(root.querySelector('[role="status"]')?.textContent).toContain('Handed back: it’s back in the queue.');
+    });
+
+    it('after the reload (PENDING, no assignee) the bar no longer offers hand-back', async () => {
+      const props = reactiveProps<Record<string, unknown>>({
+        task: task(mine), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false }, viewerId: 'u1',
+      });
+      const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      expect(button(m.target, 'Hand back…')).toBeTruthy();
+      props.task = task({ status: 'PENDING', assignee: null, queued: true });
+      await tick(3);
+      expect(button(m.target, 'Hand back…')).toBeUndefined();
+    });
+  });
 });
