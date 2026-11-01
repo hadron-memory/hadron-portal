@@ -23,6 +23,7 @@ import { flushSync } from 'svelte';
 import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import NewPage from './new/+page.svelte';
 import DetailPage from './[taskId]/+page.svelte';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
@@ -121,6 +122,30 @@ describe('task detail: the memories read never becomes an uncaught page error (#
     });
     expect(rejections).toEqual([]);
   });
+
+  // Navigating between tasks swaps data.nodeMemories for a FRESH promise on
+  // the same mounted page. The page-level effect must re-run and attach to
+  // the new stream: red if the effect stops reading data.nodeMemories
+  // reactively (attach once, outside the read) — the replacement then
+  // rejects into nothing.
+  for (const [label, first] of [
+    ['resolved', () => okRead([])],
+    ['rejected', rejectMemories],
+  ] as const) {
+    it(`promise replacement: swapping a ${label} read for a REJECTED one fires no unhandled rejection`, async () => {
+      const rejections = await captureUnhandledRejections(async () => {
+        const props = reactiveProps<Record<string, unknown>>({ data: detailData(first()) });
+        const m = mountComponent(DetailPage as never, props as never) as Mounted<Record<string, unknown>>;
+        mounted.push(m);
+        flushSync();
+        await tick(5);
+        props.data = detailData(rejectMemories());
+        flushSync();
+        await tick(5);
+      });
+      expect(rejections).toEqual([]);
+    });
+  }
 });
 
 describe('tasks/new: a failed read is a value; the page-level guard is the belt (#1588 QA F2)', () => {
@@ -175,4 +200,25 @@ describe('tasks/new: a failed read is a value; the page-level guard is the belt 
     });
     expect(rejections).toEqual([]);
   });
+
+  // Same replacement pin as the detail page: canWrite false mounts no editor,
+  // so only the page-level $effect can attach to the swapped-in stream.
+  for (const [label, first] of [
+    ['resolved', () => okRead([])],
+    ['rejected', rejectMemories],
+  ] as const) {
+    it(`promise replacement: swapping a ${label} read for a REJECTED one fires no unhandled rejection`, async () => {
+      const rejections = await captureUnhandledRejections(async () => {
+        const props = reactiveProps<Record<string, unknown>>({ data: newData(first(), false), form: null });
+        const m = mountComponent(NewPage as never, props as never) as Mounted<Record<string, unknown>>;
+        mounted.push(m);
+        flushSync();
+        await tick(5);
+        props.data = newData(rejectMemories(), false);
+        flushSync();
+        await tick(5);
+      });
+      expect(rejections).toEqual([]);
+    });
+  }
 });
