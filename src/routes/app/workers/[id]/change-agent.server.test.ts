@@ -1,5 +1,5 @@
 /**
- * portal#1538 (hadron-server#2458 S4; cor:dmo:050:11) — the worker page's
+ * portal#1538 (hadron-server#2458 S4; hrn:node:hadronmemory.com:specs:cor:dmo:050:11) — the worker page's
  * `changeWorkerAgent` action and the loader's gate for offering it.
  * The server decides who may; the portal only shapes the call and each refusal.
  */
@@ -50,7 +50,7 @@ describe('changeWorkerAgent: the call', () => {
 describe('changeWorkerAgent: each refusal in plain words, local to the result', () => {
   const cases: Array<[string, RegExp]> = [
     ['WORKER_AGENT_NOT_INSTALLED', /isn.t installed/i],
-    ['AGENT_ORG_GRANT_INACTIVE', /grant.*(inactive|revoked|no longer)/i],
+    ['AGENT_ORG_GRANT_INACTIVE', /inactive grant/i],
     ['AGENT_ORG_GRANT_REQUIRED', /grant/i],
     ['BOOT_PROMPT_GRANT_REQUIRED', /boot prompt/i],
     ['BOOT_PROMPT_INCLUDE_UNAVAILABLE', /boot prompt/i],

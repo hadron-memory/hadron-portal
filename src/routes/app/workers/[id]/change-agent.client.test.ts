@@ -32,7 +32,7 @@ function mount(over: Record<string, unknown> = {}, form: unknown = null) {
     data: {
       worker, initialTab: 'profile', initialView: null,
       workerSessions: [], sessionsTruncated: false, worklog: [], worklogTotal: 0,
-      canChangeAgent: false, changeAgentOptions: [],
+      canChangeAgent: false, changeAgentOptions: [], changeAgentKey: 'w-a',
       ...over,
     },
     form,
