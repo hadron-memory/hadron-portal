@@ -144,7 +144,12 @@
       memory = null;
       resetStage2();
       query = '';
-      memoryPickerOpen = visible;
+      // #1588 LOCAL delta P2: with the memories read failed there is nothing
+      // to pick and the failure copy IS the stage — auto-opening SelectMemory
+      // here mounted a second dialog over the message, showing its own
+      // 'No memories found.' until one Escape dismissed it. A picker that
+      // knows the list failed may not open a dialog it also knows is unusable.
+      memoryPickerOpen = visible && !memoriesFailed;
     });
     return () => { generation++; };
   });
