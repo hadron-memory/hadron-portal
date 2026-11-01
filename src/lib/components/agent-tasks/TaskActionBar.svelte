@@ -30,7 +30,7 @@
   import TaskEditFields from './TaskEditFields.svelte';
   import WriteRefusalAlert from './WriteRefusal.svelte';
   import TaskWarnings from './TaskWarnings.svelte';
-  import { HAND_BACK_CODES, HAND_BACK_TEXT_MAX } from '$lib/agent-tasks/hand-back';
+  import { HAND_BACK_CODES } from '$lib/agent-tasks/hand-back';
   import { warningsBelow, type TaskWarning } from '$lib/agent-tasks/warnings';
 
   let {
@@ -83,9 +83,18 @@
     untrack(() => {
       if (id !== editTaskId) {
         editTaskId = id;
-        if (open === 'edit') open = null;
+        if (open === 'edit' || open === 'handBack') open = null;
       }
     });
+  });
+  // portal#1571: a hand-back draft also belongs to the eligibility it was opened under. If the task stops being
+  // one this viewer can hand back (PENDING, reassigned away, ended), the panel closes so the draft can't post.
+  $effect(() => {
+    if (!actions.includes('handBack')) {
+      untrack(() => {
+        if (open === 'handBack') open = null;
+      });
+    }
   });
   const editInvalid = $derived(refusal && refusal.action === 'edit' && refusal.refusal.kind === 'invalid' ? refusal.refusal : null);
 
@@ -348,7 +357,6 @@
             id="hand-back-text"
             name="text"
             rows="3"
-            maxlength={HAND_BACK_TEXT_MAX}
             value={values.text ?? ''}
             aria-invalid={invalid?.field === 'text' ? 'true' : undefined}
             class="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"

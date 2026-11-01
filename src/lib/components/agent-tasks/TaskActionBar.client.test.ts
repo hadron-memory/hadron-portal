@@ -379,7 +379,7 @@ describe('TaskActionBar', () => {
         ['MISSING_INPUT', 'Missing input'], ['CANNOT_DO', 'Can’t do it'], ['REFUSED', 'Refused'], ['OUT_OF_SCOPE', 'Out of scope'], ['DUPLICATE', 'Duplicate'],
       ]);
       const text = panel.querySelector<HTMLTextAreaElement>('textarea[name="text"]')!;
-      expect(text.maxLength).toBe(2000);
+      expect(text.hasAttribute('maxlength')).toBe(false);
       expect(panel.querySelector('form')?.getAttribute('action') ?? panel.getAttribute('action')).toBe('?/handBack');
       expect([...panel.querySelectorAll('button[type="submit"]')].map((b) => b.textContent?.trim())).toEqual(['Hand back']);
     });
@@ -424,6 +424,66 @@ describe('TaskActionBar', () => {
       props.task = task({ status: 'PENDING', assignee: null, queued: true });
       await tick(3);
       expect(button(m.target, 'Hand back…')).toBeUndefined();
+    });
+
+    // Gizelle's P3 / Charles's P3 on #1577: a native maxlength counts raw text and makes the server's
+    // trimmed-length message unreachable, so the textarea carries none; parseHandBack owns the cap.
+    it('leaves the length cap to the parser: the textarea has no native maxlength', async () => {
+      const root = await mountBar(mine, { viewerId: 'u1' });
+      button(root, 'Hand back…').click();
+      await tick(2);
+      expect(root.querySelector('#hand-back-text')?.hasAttribute('maxlength')).toBe(false);
+    });
+
+    // Gizelle's P2 on #1577: an open hand-back draft belongs to the task and eligibility it was opened under.
+    describe('an open draft', () => {
+      async function openDraft() {
+        const props = reactiveProps<Record<string, unknown>>({
+          task: task(mine), canWrite: true, impersonating: null, candidates, openChildren: { count: 0, capped: false }, viewerId: 'u1',
+        });
+        const m = mountComponent(TaskActionBar as never, props as never) as Mounted<Record<string, unknown>>;
+        mounted.push(m);
+        await tick(2);
+        button(m.target, 'Hand back…').click();
+        await tick(2);
+        const text = m.target.querySelector<HTMLTextAreaElement>('#hand-back-text')!;
+        text.value = 'reason for A';
+        text.dispatchEvent(new Event('input', { bubbles: true }));
+        return { props, root: m.target };
+      }
+
+      it('closes when the bar moves to another started task of the same assignee', async () => {
+        const { props, root } = await openDraft();
+        props.task = task({ ...mine, id: 't2', title: 'Task B' });
+        await tick(3);
+        flushSync();
+        expect(root.querySelector('#task-panel-handBack')).toBeNull();
+        expect(root.textContent).not.toContain('reason for A');
+      });
+
+      it('closes when the same task becomes PENDING', async () => {
+        const { props, root } = await openDraft();
+        props.task = task({ status: 'PENDING', assignee: null, queued: true });
+        await tick(3);
+        flushSync();
+        expect(root.querySelector('#task-panel-handBack')).toBeNull();
+      });
+
+      it('closes when the same task is reassigned away from the viewer', async () => {
+        const { props, root } = await openDraft();
+        props.task = task({ status: 'STARTED', assignee: { ...holger, id: 'u2' } });
+        await tick(3);
+        flushSync();
+        expect(root.querySelector('#task-panel-handBack')).toBeNull();
+      });
+
+      it('stays open, draft intact, when the same eligible task re-renders', async () => {
+        const { props, root } = await openDraft();
+        props.task = task({ ...mine, updatedAt: '2026-10-21T10:00:00Z' });
+        await tick(3);
+        flushSync();
+        expect(root.querySelector('#task-panel-handBack')).not.toBeNull();
+      });
     });
   });
 });
