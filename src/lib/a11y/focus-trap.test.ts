@@ -310,3 +310,42 @@ describe('focusTrap — clicking text inside the dialog (#938)', () => {
     expect(dialog.getAttribute('tabindex')).toBe('0');
   });
 });
+
+describe('focusTrap — suspend/resume for a dialog stacked on top (#1582)', () => {
+  it('a suspended trap does not pull focus back while the dialog above is open', () => {
+    // The QA P2 RangeError: two live document-level focusin guards re-trigger
+    // each other. The lower trap must stand down completely while the upper
+    // dialog is open — this is the suspend() half; SelectNode's client test
+    // pins the composed two-dialog behavior.
+    const trap = focusTrap(dialog);
+    trap.suspend();
+    const behind = byId('behind');
+    behind.focus();
+    behind.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(document.activeElement).toBe(behind);
+  });
+
+  it('resume() recaptures a focus that escaped to an outside element', () => {
+    const trap = focusTrap(dialog);
+    trap.suspend();
+    byId('behind').focus();
+    trap.resume();
+    expect(document.activeElement).toBe(byId('first'));
+  });
+
+  it('resume() leaves a <body> focus to the host dialog — that hole is the host\'s to close (#1582 BLIND delta P2)', () => {
+    // The body exemption is DELIBERATE and load-bearing: pulling focus here
+    // would race the host dialog's own restoration, and a focus that lands
+    // on <body> via element REMOVAL fires no focusin the guard could have
+    // seen anyway. SelectNode pairs this trap with an effect that recaptures
+    // a body focus itself plus a window-capture Escape fallback. Changing
+    // the exemption breaks that division of labor — if body focus must be
+    // pulled, change the host component too.
+    const trap = focusTrap(dialog);
+    trap.suspend();
+    byId('first').blur();
+    expect(document.activeElement).toBe(document.body);
+    trap.resume();
+    expect(document.activeElement).toBe(document.body);
+  });
+});

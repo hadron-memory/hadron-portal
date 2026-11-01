@@ -125,6 +125,7 @@
           created={data.created}
           viewerId={data.viewerId}
           appUrn={data.app.urn}
+          nodeMemories={data.nodeMemories}
         />
       {/if}
     </div>

@@ -87,6 +87,19 @@
     }
   }
 
+  // Escape pressed INSIDE the dialog is consumed here, at the dialog layer
+  // (#1582 BLIND P2-7): a window-level listener cannot be stopped from below
+  // by a dialog — listeners above (an edit panel, a host page) register first
+  // and would close together with this picker on one keypress. The window
+  // handler above stays as the fallback for a focus that never entered the
+  // dialog (before the trap lands, or nothing tabbable to focus).
+  function onDialogKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      open = false;
+    }
+  }
+
   // Reset search + pagination whenever the modal closes. `open` is the only
   // tracked dependency; the reset itself runs untracked because
   // table.resetPageIndex() reads *and* writes the table's reactive state via
@@ -116,6 +129,7 @@
       use:focusTrap
       class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={onDialogKeydown}
       style="max-height: 70vh;"
     >
       <!-- Header with search. The input must NOT focus itself via an action:

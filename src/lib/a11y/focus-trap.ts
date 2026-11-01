@@ -102,8 +102,16 @@ export function focusTrap(container: HTMLElement) {
     container.focus();
   }
 
+  // A trap nested under another dialog must stand down while the upper one is
+  // open (#1582 QA P2): two live document-level focusin guards each pull focus
+  // into their own dialog, and since the upper dialog is a DOM sibling of the
+  // lower one, they re-trigger each other until the stack overflows. The
+  // suspended trap keeps its listeners (and its captured opener) and simply
+  // stops guarding; `resume()` re-arms and pulls focus back if it escaped.
+  let suspended = false;
+
   function onKeydown(e: KeyboardEvent) {
-    if (e.key !== 'Tab') return;
+    if (suspended || e.key !== 'Tab') return;
     // Recompute every time: a dialog's tabbable set changes as it loads content,
     // reveals errors, or swaps a button for a confirm pair.
     const items = tabbable(container);
@@ -141,6 +149,7 @@ export function focusTrap(container: HTMLElement) {
   // Also catch focus that lands outside via a click or programmatic focus() —
   // keydown alone can't see those.
   function onFocusIn(e: FocusEvent) {
+    if (suspended) return;
     const target = e.target;
     if (target instanceof HTMLElement && !container.contains(target)) {
       (tabbable(container)[0] ?? container).focus();
@@ -149,6 +158,18 @@ export function focusTrap(container: HTMLElement) {
   document.addEventListener('focusin', onFocusIn);
 
   return {
+    /** Stand down while a dialog stacked ON TOP of this one is open. */
+    suspend() {
+      suspended = true;
+    },
+    /** Re-arm after the dialog above closed; recapture focus if it escaped. */
+    resume() {
+      suspended = false;
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || (!container.contains(active) && active !== document.body)) {
+        (tabbable(container)[0] ?? container).focus();
+      }
+    },
     destroy() {
       container.removeEventListener('keydown', onKeydown, true);
       document.removeEventListener('focusin', onFocusIn);
