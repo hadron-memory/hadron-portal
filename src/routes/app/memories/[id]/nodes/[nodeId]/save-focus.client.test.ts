@@ -175,6 +175,57 @@ describe('focus after a refused Source save (#1563 QA)', () => {
   }
 });
 
+describe('a save does not steal focus the user moved meanwhile (#1563 BLIND)', () => {
+  for (const field of ['content', 'abstract'] as const) {
+    it(`${field}: success leaves focus where the user put it during the save`, async () => {
+      const { target } = await mountPage(field);
+      let answer!: (r: { text: () => Promise<string> }) => void;
+      vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise((r) => (answer = r))));
+      buttonNamed(target, 'Source')!.click();
+      flushSync();
+      const area = target.querySelector<HTMLTextAreaElement>(field === 'content' ? 'textarea' : 'textarea[maxlength="2000"]')!;
+      area.value = `${field} edited`;
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      const save = buttonNamed(target, 'Save')!;
+      save.focus();
+      save.click();
+      flushSync();
+      // While the save is in flight the user moves to another live control.
+      const elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+      elsewhere.focus();
+      answer({ text: async () => JSON.stringify(SUCCESS) });
+      for (let i = 0; i < 10; i++) await tick();
+      flushSync();
+      expect(document.activeElement).toBe(elsewhere);
+    });
+
+    it(`${field}: a refused save also leaves a moved focus alone`, async () => {
+      const { target } = await mountPage(field);
+      let answer!: (r: { text: () => Promise<string> }) => void;
+      vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise((r) => (answer = r))));
+      buttonNamed(target, 'Source')!.click();
+      flushSync();
+      const area = target.querySelector<HTMLTextAreaElement>(field === 'content' ? 'textarea' : 'textarea[maxlength="2000"]')!;
+      area.value = `${field} edited`;
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      const save = buttonNamed(target, 'Save')!;
+      save.focus();
+      save.click();
+      flushSync();
+      const elsewhere = document.createElement('button');
+      document.body.appendChild(elsewhere);
+      elsewhere.focus();
+      answer({ text: async () => JSON.stringify(CONFLICT(field)) });
+      for (let i = 0; i < 10; i++) await tick();
+      flushSync();
+      expect(document.activeElement).toBe(elsewhere);
+    });
+  }
+});
+
 describe('focus after a Source save (#1446)', () => {
   for (const field of ['content', 'abstract'] as const) {
     it(`${field}: a successful save puts focus on the Source toggle, not <body>`, async () => {
