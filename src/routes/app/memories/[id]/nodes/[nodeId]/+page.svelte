@@ -267,8 +267,7 @@
         if (!stillOurs()) return;
         contentDraft.reseed({ id: node.id, value: node.content, revision: contentRevision() });
         showSource = false;
-        await tick();
-        if (stillOurs()) contentSourceToggle?.focus();
+        if (stillOurs()) void restoreSaveFocus(() => contentSourceToggle);
       } else if (result.code === 'changed') {
         // Load the newer version under the kept draft: Rendered now shows it,
         // and the draft learns whether it was THIS field that moved.
@@ -337,10 +336,11 @@
   let abstractSourceToggle = $state<HTMLButtonElement | null>(null);
   let contentSaveButton = $state<HTMLButtonElement | null>(null);
   let abstractSaveButton = $state<HTMLButtonElement | null>(null);
-  // Save is disabled while a save is in flight, and a browser blurs a focused
-  // control the moment it is disabled, so a refused or failed save would leave
-  // focus on <body> (QA on #1563). Once Save is enabled again, take focus back
-  // unless the user has already moved it somewhere real.
+  // Where focus goes once a save settles, on success (the Source toggle) and on
+  // refusal (Save). Save is disabled while a save is in flight, and a browser
+  // blurs a focused control the moment it is disabled, so focus is on <body>
+  // when the save settles unless the user has moved it (QA on #1563). Take it
+  // only from <body>; never from a control the user chose.
   async function restoreSaveFocus(button: () => HTMLButtonElement | null) {
     await tick();
     const active = document.activeElement;
@@ -390,8 +390,7 @@
         if (!stillOurs()) return;
         abstractDraft.reseed({ id: node.id, value: node.abstract, revision: node.revision });
         showAbstractSource = false;
-        await tick();
-        if (stillOurs()) abstractSourceToggle?.focus();
+        if (stillOurs()) void restoreSaveFocus(() => abstractSourceToggle);
       } else if (result.code === 'changed') {
         await invalidateAll();
         if (!stillOurs()) return;
