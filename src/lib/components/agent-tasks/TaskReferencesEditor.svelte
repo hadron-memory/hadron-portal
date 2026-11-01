@@ -15,9 +15,12 @@
   - TASK: picked with SelectTask, never typed, ended tasks included. The
     target is built from the App's server-supplied URN and the handle.
 
-  Seeded once: the list is a draft, so a refusal keeps it. A target typed but
-  not added blocks the submit with a message, rather than being dropped
-  silently. Enter in an add field adds; it never submits the outer form.
+  Seeded once: the list is a draft, so a refusal keeps it. A target typed or a
+  task picked but not added blocks the submit with a message, rather than
+  being dropped silently (the pick's message sits on the Label field, the one
+  validatable control in that branch, where Enter adds). Switching kind to or
+  from TASK clears the draft it hides, so no unseen draft is ever lost or
+  posted. Enter in an add field adds; it never submits the outer form.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
@@ -76,15 +79,28 @@
       : null,
   );
   const canAdd = $derived(!full && draftTarget !== '' && !nodeError);
-  // A typed target that isn't in the list yet must not be lost on submit: the browser refuses the form with this.
+  // A typed target or a picked task that isn't in the list yet must not be lost on submit: the browser refuses the form with this.
   const pending = $derived(
     kind !== 'TASK' && target.trim() !== ''
       ? (nodeError ?? t('app.tasks.ref.pending', 'Add this reference, or clear the field.'))
       : '',
   );
+  const pendingTask = $derived(kind === 'TASK' && picked ? t('app.tasks.ref.pending-task', 'Add this reference, or clear the selection.') : '');
   $effect(() => {
     targetEl?.setCustomValidity(pending);
   });
+  $effect(() => {
+    labelEl?.setCustomValidity(pendingTask);
+  });
+
+  function setKind(next: ReferenceKind) {
+    // The TASK branch and the text branch each hide the other's draft: clear it rather than keep an unseen one.
+    if ((next === 'TASK') !== (kind === 'TASK')) {
+      target = '';
+      picked = null;
+    }
+    kind = next;
+  }
 
   function add() {
     if (!canAdd) return;
@@ -176,7 +192,7 @@
     <div class="space-y-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
       <div class="space-y-1">
         <label for="{p}-ref-kind" class={labelClass}>{t('app.tasks.ref.kind', 'Kind')}</label>
-        <select id="{p}-ref-kind" bind:value={kind} class="{inputClass} max-w-xs">
+        <select id="{p}-ref-kind" value={kind} onchange={(e) => setKind(e.currentTarget.value as ReferenceKind)} class="{inputClass} max-w-xs">
           {#each kinds as k (k)}<option value={k}>{referenceKindLabel(k)}</option>{/each}
         </select>
       </div>
@@ -189,6 +205,8 @@
             {#if picked}
               <span class="min-w-0 text-sm text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{picked.title}</span>
               <TaskHandle handle={picked.handle} />
+              <button type="button" class={smallButton} onclick={() => (picked = null)}
+                aria-label={t('app.tasks.ref.clear-task', 'Clear the selected task')}>{t('app.tasks.ref.clear-task-short', 'Clear')}</button>
             {/if}
           </div>
           <p class={helpClass}>{t('app.tasks.ref.task-help', 'Any task in this App, finished and cancelled ones included.')}</p>
