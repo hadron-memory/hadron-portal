@@ -6,6 +6,7 @@ import {
   type ExtractionRow,
   type ExtractionShape,
 } from '$lib/flow/extraction';
+import { parseUrn, splitNodeUrn } from '$lib/urn/parse-urn';
 import { cleanLocInput } from '$lib/urn/clean-loc-input';
 
 type ParsedEdges = Array<{ targetId: string; name?: string | null }>;
@@ -31,9 +32,17 @@ const seqField = z.preprocess((value) => {
 }, z.number().int().nullable()).default(null);
 
 export function isFullyQualifiedNodeUrnInput(value: string): boolean {
-  const bare = value.trim().replace(/^(?:hrn|urn):node:/, '');
-  const parts = bare.split('::');
-  return parts.length >= 3 && parts.every((part) => part.trim() !== '');
+  const input = value.trim();
+  try {
+    // Parsing validates the shared grammar and kind; splitting additionally
+    // requires a complete memory and loc. Neither result rewrites the value
+    // submitted: legacy ownership chains must reach the server unchanged.
+    if (parseUrn(input).type !== 'node') return false;
+    splitNodeUrn(input);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function normalizedFlowRows(value: string): { ok: true; rows: ExtractionRow[] } | { ok: false; message: string } {
@@ -207,7 +216,7 @@ export const nodeUpdateFlowSchema = z.object({
     if (value !== '' && !isFullyQualifiedNodeUrnInput(value)) {
       ctx.addIssue({
         code: 'custom',
-        message: 'Output target must be a fully-qualified node URN (org::memory::loc).',
+        message: 'Output target must be a fully-qualified node URN.',
       });
     }
   }),
