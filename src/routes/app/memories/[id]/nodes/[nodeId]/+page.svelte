@@ -3669,7 +3669,7 @@
                   type="text"
                   bind:value={outputWriteTo}
                   list="flow-writeto-options"
-                  placeholder={t('node.flow.output.write-to.placeholder', 'org::memory::reports:daily')}
+                  placeholder={t('node.flow.output.write-to.placeholder', moveHintGrammar(outputWriteTo))}
                   class="w-full rounded border px-2 py-1 font-mono text-xs dark:bg-zinc-900 dark:text-white {outputWriteToValid ? 'border-zinc-300 dark:border-zinc-700' : 'border-red-400 dark:border-red-700'}"
                 />
                 <datalist id="flow-writeto-options">
@@ -3679,7 +3679,7 @@
                 </datalist>
                 {#if !outputWriteToValid}
                   <p class="mt-1 text-xs text-red-500">
-                    {t('node.flow.output.write-to.invalid', 'Must be a fully-qualified node URN (org::memory::loc), or empty.')}
+                    {t('node.flow.output.write-to.invalid', 'Must be a fully-qualified node URN, or empty.')}
                   </p>
                 {/if}
               </div>
