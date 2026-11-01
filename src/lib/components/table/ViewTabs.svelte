@@ -5,7 +5,7 @@
   // fixed-position popover so it isn't clipped by the strip's overflow; Save /
   // Reset surface as prominent buttons when the view is modified.
   import { onMount, untrack } from 'svelte';
-  import { consumeEscapeAtDialog, escapeIsOurs } from '$lib/a11y/dialog-escape';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import type { PortalTable } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
   import { createViewController } from '$lib/table/viewController.svelte';
@@ -57,6 +57,9 @@
   let caretEl = $state<HTMLButtonElement>();
   let menuEl = $state<HTMLDivElement>();
   const MENU_W = 176; // w-44
+  // A plain stable object (never spread) so the close closure stays live
+  // (hrn:node:hadronmemory.com:hadron-portal:review:preserve-getters-when-wrapping-options).
+  const menuEscape = { close: () => { menuOpen = false; } };
 
   function toggleMenu() {
     if (menuOpen) {
@@ -74,22 +77,12 @@
       const t = e.target as Node;
       if (menuEl && !menuEl.contains(t) && caretEl && !caretEl.contains(t)) menuOpen = false;
     };
-    const onKey = (e: KeyboardEvent) => {
-      // escapeIsOurs: a consumed or composing Escape is not ours (the shared
-      // guards, once). This document listener is only the fallback for a
-      // focus outside the menu; a focus inside is consumed at the menu
-      // element below, which outranks this listener AND any picker dialog
-      // around the table (#1584).
-      if (escapeIsOurs(e)) menuOpen = false;
-    };
     const close = () => (menuOpen = false);
     const timer = setTimeout(() => document.addEventListener('click', onClick), 0);
-    document.addEventListener('keydown', onKey);
     window.addEventListener('scroll', close, true);
     return () => {
       clearTimeout(timer);
       document.removeEventListener('click', onClick);
-      document.removeEventListener('keydown', onKey);
       window.removeEventListener('scroll', close, true);
     };
   });
@@ -183,16 +176,22 @@
 
 <!-- Active-view ▾ menu — fixed so the strip's overflow can't clip it -->
 {#if menuOpen && ctrl.activeView}
-  <!-- The menu consumes Escape at its OWN element (#1584): inside a picker
-       dialog, the dialog's bubble handler outranks a document listener, so
-       without this one press would dismiss the whole picker — and every
-       loaded page with it — instead of the menu. The element exists only
-       while open, so the key is always ours to take. -->
+  <!-- The menu owns Escape wherever focus sits (#1584, #1587 review): it
+       consumes at its OWN element for a focus inside (the dialog's bubble
+       handler would outrank a document listener), and — because nothing
+       moves focus into the menu on open, so the opener's focus stays on the
+       CARET — it also arms the shared CAPTURE fallback. The armed stack
+       makes the layer opened last the topmost, so the menu resolves the key
+       at window-capture for a focus on the caret, on another picker
+       control, or on <body>, before any dialog element handler can bubble.
+       The element exists only while open, so the fallback rides the same
+       lifetime. -->
   <div
     bind:this={menuEl}
     role="menu"
     tabindex="-1"
-    onkeydown={(event) => consumeEscapeAtDialog(event, { close: () => { menuOpen = false; } })}
+    use:dialogEscapeFallback={menuEscape}
+    onkeydown={(event) => consumeEscapeAtDialog(event, menuEscape)}
     class="fixed z-30 w-44 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
     style="top: {menuPos.top}px; left: {menuPos.left}px;"
   >

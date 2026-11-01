@@ -32,6 +32,14 @@
 
   let memory = $state<{ id: string; name: string; urn: string } | null>(null);
   let memoryPickerOpen = $state(false);
+
+  // Per-instance (#1587 BLIND P3): two node pickers can be open at once —
+  // exactly the stacking this component builds for — and a literal hint id
+  // would make both search inputs describe themselves by the FIRST
+  // instance's hint (a duplicate id, aria-describedby resolving across
+  // instances). The dialog renders only after open, client-side, so a
+  // generated suffix can never hit an SSR/hydration mismatch.
+  const hintId = `node-picker-search-hint-${Math.random().toString(36).slice(2, 8)}`;
   let items = $state<NodeChoice[]>([]);
   let offset = $state(0);
   let hasMore = $state(false);
@@ -219,9 +227,9 @@
                    accessible name again. maxlength mirrors the endpoint's
                    query ceiling (500) so Enter cannot submit a query the
                    server must 400. -->
-              <input bind:value={query} maxlength="500" aria-describedby="node-picker-search-hint" onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); find(); } }} class="block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600" />
+              <input bind:value={query} maxlength="500" aria-describedby={hintId} onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); find(); } }} class="block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600" />
             </label>
-            <p id="node-picker-search-hint" class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.nodes.picker.search-hint', 'Matches by name or loc.')}</p>
+            <p id={hintId} class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.nodes.picker.search-hint', 'Matches by name or loc.')}</p>
           </div>
           <button type="button" disabled={pending || !memory} onclick={() => find()} class="self-end rounded border px-3 py-1 disabled:opacity-50">{t('app.nodes.picker.find', 'Find')}</button>
         </div>

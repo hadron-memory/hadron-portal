@@ -13,10 +13,22 @@
  * host from a keypress the dialog owns.
  *
  * The same contract serves any INNER floating layer inside a dialog (a
- * saved-view caret menu, a Columns dropdown): `consumeEscapeAtDialog` on the
- * layer's own element claims the key BEFORE the dialog above it — the menu's
- * element is deeper in the tree, so its bubble handler runs first. Without
- * that, one Escape dismisses the whole dialog instead of the menu (#1584).
+ * saved-view caret menu, a Columns dropdown), with BOTH halves required
+ * (#1587 review, LOCAL + BLIND P2): `consumeEscapeAtDialog` on the layer's
+ * own element claims the key for a focus INSIDE it — the menu's element is
+ * deeper in the tree, so its bubble handler runs first — and the layer must
+ * ALSO arm `dialogEscapeFallback` while open. Element consumption alone
+ * covers only that in-layer focus: an opener's focus stays on the control
+ * that launched the layer (a caret button, a summary) or moves elsewhere in
+ * the dialog, and then the DIALOG's element consumer would take the key and
+ * close the whole picker. The armed stack resolves it: the layer opened
+ * last is the topmost, so its capture fallback claims the key wherever the
+ * target sits — launcher, another control in the dialog, or <body> — before
+ * any dialog element handler can bubble. Arm the fallback on markup that
+ * exists only while the layer is open (the `{#if open}` block rides the
+ * action's mount/destroy), never on an always-mounted element: an armed
+ * token from a CLOSED layer would orphan body-focus keys (every fallback
+ * above it declines, and so does it).
  *
  * The two guards (#1582 delta P3 (b), folded here once — not per picker): an
  * Escape whose event is already `defaultPrevented` was consumed by someone
