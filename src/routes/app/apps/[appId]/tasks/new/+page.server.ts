@@ -37,11 +37,16 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   // {:catch} (SelectNode's memoriesFailed stage says why) — resolving it to
   // [] here made "the read failed" indistinguishable from "you can read
   // nothing". Log it server-side, then let the rejection stream on.
+  // An impersonation session writes nothing, so it reads no list either
+  // (the task-detail loader's rule): its page renders no editor, so the
+  // fan-out could never be consumed.
   type PickMemory = { id: string; name: string; urn: string; visibility: string | null };
-  const nodeMemories = fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').catch((e) => {
-    console.warn('[tasks-new] node-picker memory list failed:', e);
-    throw e;
-  });
+  const nodeMemories = canWrite
+    ? fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').catch((e) => {
+        console.warn('[tasks-new] node-picker memory list failed:', e);
+        throw e;
+      })
+    : Promise.resolve([] as PickMemory[]);
   return {
     app,
     canWrite,

@@ -68,3 +68,29 @@ describe('a failed node-picker memories read is a failure, not an empty list (#1
     await expect(result.nodeMemories).rejects.toThrow('memories read failed');
   });
 });
+
+// portal#1588 QA F2 follow-up: an impersonation session writes nothing, so
+// it reads no memory list either — both loaders gate the SAME read the same
+// way (the detail loader's rule, adopted by tasks/new). The list page it
+// renders has no editor, so the fan-out could never be consumed.
+describe('an impersonation session reads no memory list (#1588 QA F2)', () => {
+  const impersonating = { token: 't', user: { id: 'u1', name: 'U' }, impersonation: { id: 'i1' } };
+
+  it('tasks/new: nodeMemories resolves empty and MEMORIES_QUERY is never sent', async () => {
+    const { load } = await import('./new/+page.server');
+    const result = (await load({ params: { appId: 'app-1' }, locals: impersonating, url: new URL('https://x/') } as never)) as {
+      nodeMemories: Promise<unknown[]>;
+    };
+    await expect(result.nodeMemories).resolves.toEqual([]);
+    expect(request.mock.calls.some(([q]) => q === MEMORIES_QUERY)).toBe(false);
+  });
+
+  it('tasks/[taskId]: the same gate — no MEMORIES_QUERY on an impersonated load', async () => {
+    const { load } = await import('./[taskId]/+page.server');
+    const result = (await load({ params: { appId: 'app-1', taskId: 'AT1' }, locals: impersonating, url: new URL('https://x/') } as never)) as {
+      nodeMemories: Promise<unknown[]>;
+    };
+    await expect(result.nodeMemories).resolves.toEqual([]);
+    expect(request.mock.calls.some(([q]) => q === MEMORIES_QUERY)).toBe(false);
+  });
+});
