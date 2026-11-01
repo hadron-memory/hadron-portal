@@ -1516,6 +1516,7 @@ export const VALIDATE_MEMORY_QUERY = /* GraphQL */ `
     validateMemory(memoryRef: $memoryRef, limit: $limit) {
       nodesChecked
       totalFindings
+      totalInformational
       truncated
       findings { kind nodeId nodeLoc nodeUrn detail }
       skippedChecks { check reason }

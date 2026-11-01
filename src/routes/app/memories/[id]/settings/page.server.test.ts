@@ -1148,17 +1148,20 @@ const ef = (n: number, detail = 'dimension mismatch') => ({ kind: 'EMBED_FAILED'
 
 describe('memory-detail `checkVectorIndexHealth` action (#1346)', () => {
   it('issues one validateMemory call for the page memory with limit 1000, and no check filter', async () => {
-    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [], totalFindings: 0, truncated: false, nodesChecked: 3, skippedChecks: [] } });
+    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [], totalFindings: 0, totalInformational: 0, truncated: false, nodesChecked: 3, skippedChecks: [] } });
     const actions = await importActions();
     await actions.checkVectorIndexHealth(healthEv());
     expect(mockRequest).toHaveBeenCalledTimes(1);
     const [doc, vars] = mockRequest.mock.calls[0]! as [string, Record<string, unknown>];
     expect(doc).toContain('validateMemory');
+    // #1533: the total sums this field; a query that drops it renders "of NaN"
+    // with every test green (READ finding on c61e9c3e), so pin the selection.
+    expect(doc).toContain('totalInformational');
     expect(vars).toEqual({ memoryRef: 'mem-real', limit: 1000 });
   });
 
   it('returns only the EMBED_FAILED findings', async () => {
-    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [{ ...ef(1), kind: 'SPARSE' }, ef(2)], totalFindings: 2, truncated: false, nodesChecked: 9, skippedChecks: [] } });
+    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [{ ...ef(1), kind: 'SPARSE' }, ef(2)], totalFindings: 2, totalInformational: 200, truncated: false, nodesChecked: 9, skippedChecks: [] } });
     const actions = await importActions();
     const result = (await actions.checkVectorIndexHealth(healthEv())) as { vectorHealth?: { failed: Array<{ nodeId: string }> } };
     expect(result.vectorHealth?.failed.map((f) => f.nodeId)).toEqual(['id2']);
