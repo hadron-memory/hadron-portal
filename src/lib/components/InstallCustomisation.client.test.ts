@@ -61,6 +61,15 @@ beforeEach(() => {
   );
 });
 describe('install customisation panel', () => {
+  // portal#1399: customisations reach started agents through an approved
+  // compiled prompt (hrn:node:hadronmemory.com:specs:cor:agt:040:16, :10).
+  it('says when customisations reach agents, never that they are not used yet', async () => {
+    const root = await panel();
+    expect(root.textContent).toContain(
+      'Customisations reach started agents once the App’s or a worker’s prompt is compiled and that revision is approved.',
+    );
+    expect(root.textContent).not.toMatch(/not used to start agents yet/i);
+  });
   it.each(['not-shown', 'failed'])(
     'distinguishes %s from an empty table',
     async (state) => {
