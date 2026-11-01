@@ -227,6 +227,34 @@ describe('SelectNode: pick flow (#1576)', () => {
     expect(target.textContent).toContain('Page 1 of 3');
   });
 
+  it('a capped page renders the note, not Load more, and never requests past the ceiling (#1585)', async () => {
+    // The endpoint owns the ceiling (#1585, PM decision): when the next page
+    // would start past MAX_OFFSET the read answers hasMore:false + capped:true
+    // instead of advertising an offset it must then 400 — the dead end where
+    // Load more failed and Try again resent the same refused offset forever
+    // (#1582 carried P3 1). okPage is unchanged (existing pins untouched);
+    // this fixture is the read's new shape.
+    serve({
+      [url('m2', 'node', 0)]: [async () => ({
+        ok: true,
+        json: async () => ({ kind: 'ok', value: { items: Array.from({ length: 20 }, (_, i) => node(i)), hasMore: false, capped: true, nextOffset: 100_010 } }),
+      })],
+    });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    await search(target, 'node');
+    expect(target.textContent).toContain('Node 1'); // the page itself landed
+    expect(button(target, 'Load more nodes')).toBeFalsy(); // nothing to press into the 400
+    expect(target.textContent).toContain('Showing the first results only. Search to narrow the list.');
+    // No request above the ceiling was ever sent: every URL the picker built
+    // stays at or below offset 100_000.
+    for (const call of fetchMock.mock.calls) {
+      const offset = Number(/[?&]offset=(\d+)/.exec(String(call[0]))?.[1] ?? 0);
+      expect(offset).toBeLessThanOrEqual(100_000);
+    }
+  });
+
   it('closing the picker dismisses it; reopening the SAME instance starts over at the memory stage', async () => {
     // The reset is the close $effect's job. A remount proves nothing (a fresh
     // mount is trivially reset — the review's P2: the old test passed with
