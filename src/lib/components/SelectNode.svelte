@@ -7,15 +7,17 @@
   import DataTable from '$lib/components/table/DataTable.svelte';
   import SelectMemory from './SelectMemory.svelte';
   import Urn from './Urn.svelte';
-  import type { NodeChoice } from '$lib/node-choices';
+  import type { NodeChoice, NodeChoicesPage } from '$lib/node-choices';
 
   /**
    * portal#1576 — a node picker in the Select* family. Stage 1 reuses
    * SelectMemory over the caller's readable set; stage 2 searches the chosen
    * memory's nodes server-side (name and loc, the viewer's own token) and
    * pages by short pages — a lexical findNodes has no usable total
-   * (hadron-server#3113). onselect receives the node's SERVER-supplied URN,
-   * never one built on the client.
+   * (hadron-server#3113), so the server says where the next page starts
+   * (`nextOffset`, raw-count based) and whether one exists (`hasMore`).
+   * onselect receives the node's SERVER-supplied URN, never one built on the
+   * client.
    */
   let {
     memories,
@@ -36,6 +38,10 @@
   let failed = $state(false);
   let searched = $state(false);
   let query = $state('');
+  // The query that PRODUCED the list (#1582 LOCAL/BLIND P2): Load more and
+  // retry page it, never the live input text, which the user may have edited
+  // without pressing Find.
+  let committedQuery = $state('');
   let generation = 0;
 
   // One identity column with the Select button in the same cell
@@ -54,18 +60,35 @@
     initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
   });
 
+  // One reset for every "the list is void now" moment — a new search, a new
+  // memory, a reopen — so no path can forget a field. `pending` is reset
+  // here deliberately (#1582 LOCAL P2): the generation bump below discards
+  // any in-flight read, and its `finally` will SKIP `pending = false` for
+  // exactly that reason — without this reset the picker stranded dead until
+  // it was closed and reopened.
+  function resetStage2() {
+    generation++;
+    items = []; offset = 0; hasMore = false;
+    pending = false; failed = false; searched = false; committedQuery = '';
+  }
+
   async function read() {
     if (!memory || pending) return;
     const current = generation;
     const targetMemory = memory.id;
+    const pageQuery = committedQuery;
+    const pageOffset = offset;
     pending = true; failed = false;
     try {
-      const response = await fetch(`/app/memories/${encodeURIComponent(targetMemory)}/nodes/choices?query=${encodeURIComponent(query.trim())}&offset=${offset}`);
+      const response = await fetch(`/app/memories/${encodeURIComponent(targetMemory)}/nodes/choices?query=${encodeURIComponent(pageQuery)}&offset=${pageOffset}`);
       if (!response.ok) throw new Error('unavailable');
-      const result: { kind: 'ok'; value: { items: NodeChoice[]; hasMore: boolean } } | { kind: 'failed' } = await response.json();
+      const result: { kind: 'ok'; value: NodeChoicesPage } | { kind: 'failed' } = await response.json();
       if (current !== generation) return;
-      // The server URN is the contract; anything without one is unusable.
-      if (result.kind !== 'ok' || !Array.isArray(result.value.items) || result.value.items.some((node) => typeof node.urn !== 'string' || !node.urn)) throw new Error('unavailable');
+      // The server URN is the contract; anything without one is unusable. The
+      // endpoint drops such rows itself — this is the belt to its braces, and
+      // the two predicates agree (#1582 BLIND P2-3: they used to disagree,
+      // turning a whole page into a permanent failure over one bad row).
+      if (result.kind !== 'ok' || !Array.isArray(result.value.items) || !Number.isSafeInteger(result.value.nextOffset) || result.value.items.some((node) => typeof node.urn !== 'string' || !node.urn)) throw new Error('unavailable');
       // Keyword pages over one memory are ordered score DESC then loc, but the
       // list can change under us: append without duplicates, like SelectTask.
       const seen = new Set(items.map((node) => node.id));
@@ -74,8 +97,12 @@
         seen.add(node.id); return true;
       });
       items = [...items, ...fresh];
-      offset += result.value.items.length;
-      hasMore = result.value.hasMore && fresh.length > 0;
+      // Page by the SERVER's raw-count window, never by the filtered rows we
+      // received: a page that lost rows (or was all duplicates) still consumed
+      // a full raw window, and only the server knows how far that window
+      // reached. `hasMore` is likewise its call alone.
+      offset = result.value.nextOffset;
+      hasMore = result.value.hasMore;
       searched = true;
     } catch {
       if (current === generation) failed = true;
@@ -86,8 +113,9 @@
 
   function find() {
     if (!memory || pending) return;
-    generation++;
-    items = []; offset = 0; hasMore = false; failed = false; searched = false;
+    resetStage2();
+    // The one field a fresh search owns: the query that will produce the list.
+    committedQuery = query.trim();
     void read();
   }
 
@@ -95,26 +123,49 @@
     const visible = open;
     untrack(() => {
       generation++;
-      memory = null; items = []; offset = 0; hasMore = false;
-      pending = false; failed = false; searched = false; query = '';
+      memory = null;
+      resetStage2();
+      query = '';
       memoryPickerOpen = visible;
     });
     return () => { generation++; };
   });
 
-  // Family convention (SelectMemory/SelectAgent): window-level Escape. The
-  // nested SelectMemory listens on window too, so while it is open an Escape
-  // belongs to IT — without the guard one keypress would close both dialogs.
-  function handleKeydown(e: KeyboardEvent) {
-    if (open && !memoryPickerOpen && e.key === 'Escape') open = false;
+  // The dialog's focus trap, held by the component so it can stand down while
+  // the NESTED memory picker is on top (#1582 QA P2): SelectMemory's dialog is
+  // a DOM sibling with its own document-level focusin guard, and two live
+  // guards re-trigger each other until the stack overflows. `pre` suspends
+  // BEFORE the upper dialog mounts; resume happens after it unmounts (and its
+  // own trap has restored focus back into this dialog).
+  let trap: ReturnType<typeof focusTrap> | null = null;
+  function trapDialog(el: HTMLElement) {
+    trap = focusTrap(el);
+    return {
+      destroy() { trap?.destroy(); trap = null; },
+    };
   }
+  $effect.pre(() => {
+    if (memoryPickerOpen) trap?.suspend();
+  });
+  $effect(() => {
+    if (!memoryPickerOpen) trap?.resume();
+  });
 </script>
-
-<svelte:window onkeydown={handleKeydown} />
 
 {#if open}
   <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-3 pt-[8vh]">
-    <div role="dialog" aria-modal="true" aria-label={t('app.nodes.picker.choose', 'Choose a node')} tabindex="-1" use:focusTrap class="max-h-[84vh] w-full max-w-3xl space-y-3 overflow-auto rounded-xl border border-zinc-300 bg-white p-4 text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
+    <div role="dialog" aria-modal="true" aria-label={t('app.nodes.picker.choose', 'Choose a node')} tabindex="-1" use:trapDialog
+      onkeydown={(event) => {
+        // Escape is consumed HERE, at the dialog layer (#1582 BLIND P2-7):
+        // layers above (the edit panel's own window listener registers first,
+        // so they cannot be stopped from below) must not close with us. While
+        // the nested memory picker is open the key is not ours to take.
+        if (event.key === 'Escape' && !memoryPickerOpen) {
+          event.stopPropagation();
+          open = false;
+        }
+      }}
+      class="max-h-[84vh] w-full max-w-3xl space-y-3 overflow-auto rounded-xl border border-zinc-300 bg-white p-4 text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
       <div class="flex justify-between gap-3">
         <h2 class="font-semibold">{t('app.nodes.picker.choose', 'Choose a node')}</h2>
         <button type="button" onclick={() => open = false}>{t('app.nodes.picker.close', 'Close')}</button>
@@ -127,14 +178,17 @@
         </p>
         <div class="flex flex-wrap gap-2">
           <label class="min-w-0 grow text-sm">{t('app.nodes.picker.search-label', 'Search nodes')}
-            <input aria-label={t('app.nodes.picker.search', 'Search nodes by name or loc…')} bind:value={query} onkeydown={(event) => { if (event.key === 'Enter') find(); }} class="block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600" />
+            <input aria-label={t('app.nodes.picker.search', 'Search nodes by name or loc…')} bind:value={query} onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); find(); } }} class="block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600" />
           </label>
           <button type="button" disabled={pending || !memory} onclick={() => find()} class="self-end rounded border px-3 py-1 disabled:opacity-50">{t('app.nodes.picker.find', 'Find')}</button>
         </div>
 
         {#if failed}
           <p role="alert">{t('app.nodes.picker.failed', 'Couldn’t load nodes. Try again.')}</p>
-          <button type="button" disabled={pending} onclick={() => find()}>{t('app.nodes.picker.retry', 'Try again')}</button>
+          <!-- Retry re-reads the FAILED page (`read` pages the committed query
+               at the offset that never advanced); it must not restart the
+               search and throw away the rows already loaded (#1582 BLIND P3). -->
+          <button type="button" disabled={pending} onclick={() => read()}>{t('app.nodes.picker.retry', 'Try again')}</button>
         {/if}
         {#if pending}<p role="status">{t('app.nodes.picker.loading', 'Loading nodes…')}</p>{/if}
 
@@ -165,4 +219,8 @@
   </div>
 {/if}
 
-<SelectMemory {memories} bind:open={memoryPickerOpen} onselect={(chosen) => { memory = chosen; generation++; items = []; offset = 0; hasMore = false; failed = false; searched = false; }} />
+<!-- A memory chosen here voids the whole stage-2 list (#1582 LOCAL P2): the
+     reset is `resetStage2`, so `pending` cannot strand when a read for the
+     PREVIOUS memory is still in flight — its `finally` skips the cleanup for
+     the moved generation, exactly as for a new search. -->
+<SelectMemory {memories} bind:open={memoryPickerOpen} onselect={(chosen) => { memory = chosen; resetStage2(); }} />

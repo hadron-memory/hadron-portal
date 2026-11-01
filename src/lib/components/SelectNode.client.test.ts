@@ -179,7 +179,7 @@ describe('SelectNode: pick flow (#1576)', () => {
   it('choose a memory, search, pick: the node\'s server URN arrives verbatim, never client-built', async () => {
     // The server urn deliberately differs from any memory-urn + loc concatenation.
     const serverUrn = 'hrn:node:example.com:beta:special-alias';
-    serve({ [url('m2', 'findings', 0)]: [okPage([node(1, { name: 'Findings index', loc: 'findings:index', urn: serverUrn })], false)] });
+    serve({ [url('m2', 'findings', 0)]: [okPage([node(1, { name: 'Findings index', loc: 'findings:index', urn: serverUrn })], false, 1)] });
     const { target } = mount();
     await tick();
     await chooseMemory(target, 'Beta KB');
@@ -194,7 +194,7 @@ describe('SelectNode: pick flow (#1576)', () => {
 
   it('a failed read is a retry state, not "no nodes", and the retry re-reads', async () => {
     // One queue, two entries: the first read rejects, the retry succeeds.
-    serve({ [url('m2', 'x', 0)]: [new Error('transport'), okPage([node(1)], false)] });
+    serve({ [url('m2', 'x', 0)]: [new Error('transport'), okPage([node(1)], false, 1)] });
     const { target } = mount();
     await tick();
     await chooseMemory(target, 'Beta KB');
@@ -209,8 +209,8 @@ describe('SelectNode: pick flow (#1576)', () => {
 
   it('pages with Load more and stops on a short page', async () => {
     serve({
-      [url('m2', 'node', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true)],
-      [url('m2', 'node', 20)]: [okPage([node(20), node(21), node(22)], false)],
+      [url('m2', 'node', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true, 20)],
+      [url('m2', 'node', 20)]: [okPage([node(20), node(21), node(22)], false, 23)],
     });
     const { target } = mount();
     await tick();
@@ -230,7 +230,7 @@ describe('SelectNode: pick flow (#1576)', () => {
     // mount is trivially reset — the review's P2: the old test passed with
     // the effect deleted), so the SAME instance is closed and reopened via
     // reactive props, like a route reusing the component.
-    serve({ [url('m2', 'one', 0)]: [okPage([node(1)], false)] });
+    serve({ [url('m2', 'one', 0)]: [okPage([node(1)], false, 1)] });
     const props = reactiveProps({ memories, open: true, onselect });
     const m = mountComponent(SelectNode, props);
     mounted.push(m as Mounted<Record<string, unknown>>);
@@ -251,7 +251,7 @@ describe('SelectNode: pick flow (#1576)', () => {
   });
 
   it('an empty query is a legal first page: the browse list, not an error', async () => {
-    serve({ [url('m2', '', 0)]: [okPage([node(1)], false)] });
+    serve({ [url('m2', '', 0)]: [okPage([node(1)], false, 1)] });
     const { target } = mount();
     await tick();
     await chooseMemory(target, 'Beta KB');
@@ -271,7 +271,7 @@ describe('SelectNode: review fixes (BLIND Gemma, LOCAL Gizelle, QA Charles at d9
     const readA = new Promise<{ ok: boolean; json: () => Promise<unknown> }>((resolve) => { releaseA = resolve; });
     serve({
       [url('m1', 'x', 0)]: [() => readA],
-      [url('m2', 'y', 0)]: [okPage([node(9)], false)],
+      [url('m2', 'y', 0)]: [okPage([node(9)], false, 9)],
     });
     const { target } = mount();
     await tick();
@@ -294,8 +294,8 @@ describe('SelectNode: review fixes (BLIND Gemma, LOCAL Gizelle, QA Charles at d9
     // LOCAL P2 / BLIND P2-2: editing the input without pressing Find must not
     // re-target the next page; the query that produced the list owns paging.
     serve({
-      [url('m2', 'foo', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true)],
-      [url('m2', 'foo', 20)]: [okPage([node(20)], false)],
+      [url('m2', 'foo', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true, 20)],
+      [url('m2', 'foo', 20)]: [okPage([node(20)], false, 21)],
     });
     const { target } = mount();
     await tick();
@@ -316,17 +316,25 @@ describe('SelectNode: review fixes (BLIND Gemma, LOCAL Gizelle, QA Charles at d9
     // 19 filtered items it received (19 would re-read a shifted window).
     serve({
       [url('m2', 'q', 0)]: [okPage(Array.from({ length: 19 }, (_, i) => node(i)), true, 20)],
-      [url('m2', 'q', 20)]: [okPage([node(20)], false, 21)],
+      [url('m2', 'q', 20)]: [okPage([node(20), node(21)], false, 22)],
     });
     const { target } = mount();
     await tick();
     await chooseMemory(target, 'Beta KB');
     await search(target, 'q');
+    // 19 rows are in the table; its footer pages at 10, so the last of them
+    // (Node 18) sits on the table's second page — navigate there to see it.
+    button(target, 'Next')!.click();
+    await tick();
     expect(target.textContent).toContain('Node 18');
     button(target, 'Load more nodes')!.click();
     await tick(5);
     expect(fetchMock).toHaveBeenLastCalledWith(url('m2', 'q', 20));
+    // The paged window landed while the table kept our place on its second
+    // page: the new row is right there and the footer now counts 3 pages
+    // (21 loaded rows — the count the auto-reset-freeze finding protects).
     expect(target.textContent).toContain('Node 20');
+    expect(target.textContent).toContain('Page 2 of 3');
   });
 
   it('a page that is all duplicates keeps Load more: the server said there is more', async () => {
@@ -349,6 +357,12 @@ describe('SelectNode: review fixes (BLIND Gemma, LOCAL Gizelle, QA Charles at d9
     button(target, 'Load more nodes')!.click();
     await tick(5);
     expect(fetchMock).toHaveBeenLastCalledWith(url('m2', 'q', 40));
+    // 21 rows are in the table (the duplicate page added none): Node 40 is
+    // its last row, on the table's third page.
+    button(target, 'Next')!.click();
+    await tick();
+    button(target, 'Next')!.click();
+    await tick();
     expect(target.textContent).toContain('Node 40');
   });
 
@@ -371,15 +385,22 @@ describe('SelectNode: review fixes (BLIND Gemma, LOCAL Gizelle, QA Charles at d9
     button(target, 'Try again')!.click();
     await tick(5);
     expect(target.querySelector('[role="alert"]')).toBeNull();
-    // Both the first page and the retried page are present.
-    expect(target.textContent).toContain('Node 0');
+    // Both the first page and the retried page are present: the footer's
+    // page count reads all 21 loaded rows (2 pages before the retry).
+    expect(target.textContent).toContain('Page 1 of 3');
+    // …and the retried page's row is real: Node 20 is the table's 21st row,
+    // on its third page.
+    button(target, 'Next')!.click();
+    await tick();
+    button(target, 'Next')!.click();
+    await tick();
     expect(target.textContent).toContain('Node 20');
   });
 
   it('Enter in the node search never leaves the dialog (no implicit form submit)', async () => {
     // BLIND P2-6, hardened: the editor\'s fieldset cancels Enter today, but a
     // picker mounted anywhere else must be safe on its own.
-    serve({ [url('m2', 'x', 0)]: [okPage([node(1)], false)] });
+    serve({ [url('m2', 'x', 0)]: [okPage([node(1)], false, 1)] });
     const { target } = mount();
     await tick();
     await chooseMemory(target, 'Beta KB');
@@ -388,15 +409,25 @@ describe('SelectNode: review fixes (BLIND Gemma, LOCAL Gizelle, QA Charles at d9
     expect(event.defaultPrevented).toBe(true);
   });
 
-  it('Escape stays inside the dialog: a window-level listener above it does not fire', async () => {
+  it('Escape stays inside the picker stack: a window-level listener above it never fires', async () => {
     // QA Charles P2 / BLIND P2-7: TaskActionBar also listens for Escape on
-    // window (registered first, so it cannot be stopped from below); the
-    // dialog must consume Escape itself so one keypress closes ONE layer.
+    // window (registered first, so it cannot be stopped from below); each
+    // dialog layer consumes the key itself, so one keypress closes ONE layer
+    // and nothing above the stack ever sees it. Two presses walk the two
+    // layers — the auto-opened memory stage first, then the node dialog.
+    // (Amended from the red pin, which expected every overlay gone after ONE
+    // press: the memory stage is open at mount, so one press must leave the
+    // node dialog standing — closing both on one keypress is the defect.)
     const above = vi.fn();
     window.addEventListener('keydown', above);
     try {
       const { target } = mount();
       await tick(2);
+      expect(target.querySelectorAll('[role="dialog"]').length).toBe(2);
+      pressEscape();
+      flushSync();
+      expect(target.querySelectorAll('[role="dialog"]').length).toBe(1);
+      expect(above).not.toHaveBeenCalled();
       pressEscape();
       flushSync();
       expect(above).not.toHaveBeenCalled();

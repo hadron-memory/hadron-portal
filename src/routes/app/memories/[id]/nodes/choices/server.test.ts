@@ -63,7 +63,7 @@ describe('/app/memories/[id]/nodes/choices (#1576)', () => {
     expect(fieldsOf(HITS_FIELD_SET)).toEqual(['node']);
     expect(NODE_FIELDS).toEqual(['id', 'name', 'loc', 'urn']);
     const body = await res.json();
-    expect(body).toEqual({ kind: 'ok', value: { items: [{ id: 'n0', name: 'Node 0', loc: 'loc:0', urn: 'hrn:node:example.com:kb:loc:0' }], hasMore: false } });
+    expect(body).toEqual({ kind: 'ok', value: { items: [{ id: 'n0', name: 'Node 0', loc: 'loc:0', urn: 'hrn:node:example.com:kb:loc:0' }], hasMore: false, nextOffset: 1 } });
   });
 
   it('passes the server answer through for a memory the viewer cannot read: empty, not failed', async () => {
@@ -72,7 +72,7 @@ describe('/app/memories/[id]/nodes/choices (#1576)', () => {
     // an empty page. The endpoint must not turn that into a failure state.
     mockRequest.mockResolvedValueOnce({ findNodes: { hits: [] } });
     const body = await (await GET(ev('unreadable', 'viewer-token', '?query=x&offset=0'))).json();
-    expect(body).toEqual({ kind: 'ok', value: { items: [], hasMore: false } });
+    expect(body).toEqual({ kind: 'ok', value: { items: [], hasMore: false, nextOffset: 0 } });
   });
 
   it('a failed read is distinguishable from an empty result', async () => {

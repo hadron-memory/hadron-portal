@@ -78,6 +78,10 @@
   let picking = $state(false);
   let pickedNode = $state<NodeChoice | null>(null);
   let nodePicking = $state(false);
+  // Clear removes the button that had focus; without a home to return to,
+  // focus falls to <body> and a keyboard user loses their place in the form
+  // (#1582 BLIND P3). The trigger stays mounted, so it is that home.
+  let chooseNodeTrigger = $state<HTMLButtonElement | null>(null);
   let targetEl = $state<HTMLInputElement | null>(null);
   let labelEl = $state<HTMLInputElement | null>(null);
 
@@ -228,12 +232,12 @@
         <div class="space-y-1">
           <span class={labelClass}>{t('app.tasks.ref.target.node', 'Node')}</span>
           <div class="flex flex-wrap items-center gap-2">
-            <button type="button" onclick={() => (nodePicking = true)} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-node', 'Choose a node…')}</button>
+            <button type="button" onclick={() => (nodePicking = true)} bind:this={chooseNodeTrigger} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-node', 'Choose a node…')}</button>
             {#if pickedNode}
               <span class="min-w-0 text-sm text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{pickedNode.name}</span>
               <span class="min-w-0 font-mono text-xs text-zinc-500 [overflow-wrap:anywhere] dark:text-zinc-400">{pickedNode.loc}</span>
               <Urn value={pickedNode.urn} size={10} />
-              <button type="button" class={smallButton} onclick={() => (pickedNode = null)}
+              <button type="button" class={smallButton} onclick={() => { pickedNode = null; chooseNodeTrigger?.focus(); }}
                 aria-label={t('app.tasks.ref.clear-node', 'Clear the selected node')}>{t('app.tasks.ref.clear-node-short', 'Clear')}</button>
             {/if}
           </div>
@@ -267,5 +271,10 @@
   {/if}
   {#await Promise.resolve(nodeMemories) then memories}
     <SelectNode {memories} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+  {:catch}
+    <!-- A rejected stream still mounts the picker, degraded to an empty memory
+         stage (#1582 BLIND P3): without this arm the rejection was unhandled
+         and "Choose a node…" silently did nothing. -->
+    <SelectNode memories={[]} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
   {/await}
 </fieldset>

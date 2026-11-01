@@ -28,7 +28,9 @@ const node = (i: number, over: Partial<NodeChoice> = {}): NodeChoice => ({
 });
 
 const url = (query: string, offset: number) => `/app/memories/m1/nodes/choices?query=${query}&offset=${offset}`;
-const okPage = (items: NodeChoice[], hasMore: boolean) => async () => ({ ok: true, json: async () => ({ kind: 'ok', value: { items, hasMore } }) });
+// nextOffset mirrors the endpoint's raw-count paging (#1582 BLIND P2-3): the
+// offset the NEXT page starts at, never re-derived from the rows sent.
+const okPage = (items: NodeChoice[], hasMore: boolean, nextOffset: number) => async () => ({ ok: true, json: async () => ({ kind: 'ok', value: { items, hasMore, nextOffset } }) });
 
 type FetchFactory = () => Promise<{ ok: boolean; json: () => Promise<unknown> }>;
 
@@ -56,7 +58,7 @@ export async function mountSelectNode(target: HTMLElement, view: SelectNodeView)
   const restore =
     view === 'memory-stage' ? serve({}) :
     view === 'failed' ? serve({ [url('x', 0)]: [new Error('transport')] }) :
-    view === 'more' ? serve({ [url('node', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true)] }) :
+    view === 'more' ? serve({ [url('node', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true, 20)] }) :
     // results: a full page then a short one — 23 rows, Load more gone.
     // results-long-urn is the same pages with the widest row ON PAGE ONE
     // (DataTable shows the first 10), so the shot actually sees it.
@@ -64,12 +66,12 @@ export async function mountSelectNode(target: HTMLElement, view: SelectNodeView)
       ? serve({
         [url('node', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => i === 0
           ? node(0, { urn: LONG_URN, loc: 'findings:very-long-unbroken-loc-' + 'f'.repeat(80), name: 'The widest row: a 200-character URN' })
-          : node(i)), true)],
-        [url('node', 20)]: [okPage([node(20), node(21)], false)],
+          : node(i)), true, 20)],
+        [url('node', 20)]: [okPage([node(20), node(21)], false, 22)],
       })
       : serve({
-        [url('node', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true)],
-        [url('node', 20)]: [okPage([node(20), node(21)], false)],
+        [url('node', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true, 20)],
+        [url('node', 20)]: [okPage([node(20), node(21)], false, 22)],
       });
 
   const picked: NodeChoice[] = [];

@@ -13,3 +13,11 @@ export type NodeChoice = {
 
 /** The endpoint's read result: a failed read is distinguishable from an empty one. */
 export type NodeRead<T> = { kind: 'ok'; value: T } | { kind: 'failed' };
+
+/**
+ * One page of choices. `nextOffset`/`hasMore` are the SERVER's raw-count word
+ * on where the next page starts and whether one exists (#1582 BLIND P2-3):
+ * the client pages by `nextOffset` verbatim and never re-derives it from the
+ * (possibly filtered) rows it received.
+ */
+export type NodeChoicesPage = { items: NodeChoice[]; hasMore: boolean; nextOffset: number };

@@ -1,5 +1,5 @@
 import type { GraphQLClient } from 'graphql-request';
-import type { NodeChoice, NodeRead } from '$lib/node-choices';
+import type { NodeChoice, NodeChoicesPage, NodeRead } from '$lib/node-choices';
 
 /**
  * portal#1576 — the node picker's server read. One lexical `findNodes` page
@@ -9,14 +9,12 @@ import type { NodeChoice, NodeRead } from '$lib/node-choices';
  * passed through, never turned into a portal error.
  *
  * A lexical findNodes returns `total: null` (hadron-server#3113), so the
- * selection never asks for a total and paging stops on a short page
- * (items < limit ⇒ exhausted), like the task picker's pages. That inference
- * is a property of the RESOLVER, read and confirmed
- * (resolvers.query.node.ts): keyword mode pages with LIMIT/OFFSET in the
- * lexical SQL itself, and the only step between that take and this caller is
- * the hydration re-fetch re-asserting scope + structured filters — rows drop
- * only in a concurrent-mutation race, which #1576's explicit short-page
- * ruling accepts.
+ * selection never asks for a total. Paging is the SERVER's word alone
+ * (#1582 BLIND P2-3): `nextOffset` says where the next page starts and
+ * `hasMore` whether one exists, both derived from the RAW row count — this
+ * function's shape-guard can drop rows, and a dropped row must be invisible
+ * to the window (a filtered page of 19 still consumed a 20-row window).
+ * The client pages by `nextOffset` verbatim and never re-derives it.
  */
 export const NODE_CHOICES_PAGE = 20;
 
@@ -30,7 +28,7 @@ export const NODE_CHOICES_QUERY = /* GraphQL */ `
   }
 `;
 
-export async function nodeChoices(client: GraphQLClient, memoryId: string, offset: number, query?: string): Promise<NodeRead<{ items: NodeChoice[]; hasMore: boolean }>> {
+export async function nodeChoices(client: GraphQLClient, memoryId: string, offset: number, query?: string): Promise<NodeRead<NodeChoicesPage>> {
   try {
     const { findNodes } = await client.request<{ findNodes: { hits: Array<{ node: NodeChoice }> } }>(NODE_CHOICES_QUERY, {
       memoryId,
@@ -38,12 +36,15 @@ export async function nodeChoices(client: GraphQLClient, memoryId: string, offse
       limit: NODE_CHOICES_PAGE,
       offset,
     });
-    // hasMore reads the RAW page length, never the filtered items: this
-    // function's own shape-guard drops rows, and a drop must not be able to
-    // masquerade as end-of-data (hrn:node:hadronmemory.com:hadron-portal:review:short-page-is-not-end-of-data).
+    // Both paging fields read the RAW page length, never the filtered items
+    // (hrn:node:hadronmemory.com:hadron-portal:review:short-page-is-not-end-of-data):
+    // a drop must not masquerade as end-of-data or shift the window. The urn
+    // predicate is the SAME one the client applies — a row without a usable
+    // urn is dropped HERE, so the two can never disagree over one page
+    // (#1582 BLIND P2-3: they used to, turning a whole page into a failure).
     const raw = findNodes?.hits ?? [];
-    const items = raw.map((hit) => hit.node).filter((node): node is NodeChoice => !!node && typeof node.id === 'string' && typeof node.urn === 'string');
-    return { kind: 'ok', value: { items, hasMore: raw.length === NODE_CHOICES_PAGE } };
+    const items = raw.map((hit) => hit.node).filter((node): node is NodeChoice => !!node && typeof node.id === 'string' && typeof node.urn === 'string' && node.urn !== '');
+    return { kind: 'ok', value: { items, hasMore: raw.length === NODE_CHOICES_PAGE, nextOffset: offset + raw.length } };
   } catch {
     return { kind: 'failed' };
   }

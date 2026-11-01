@@ -52,8 +52,8 @@ async function openEdit(references: unknown[] = [], nodeMemories: unknown = [{ i
 }
 
 /** The node picker's endpoint page, URL-routed like the component's own test. */
-const nodePage = (items: Array<{ id: string; name: string; loc: string; urn: string }>, hasMore = false) =>
-  ({ ok: true, json: async () => ({ kind: 'ok', value: { items, hasMore } }) });
+const nodePage = (items: Array<{ id: string; name: string; loc: string; urn: string }>, hasMore = false, nextOffset = items.length) =>
+  ({ ok: true, json: async () => ({ kind: 'ok', value: { items, hasMore, nextOffset } }) });
 const nodesUrl = (query: string, offset: number) => `/app/memories/m1/nodes/choices?query=${query}&offset=${offset}`;
 
 /** Open the NODE picker, choose its one memory, search, and Select the first row. */
