@@ -54,6 +54,7 @@ describe('updateFlow', () => {
   it.each([
     'hrn:node:acme.com:flows:reports:daily',
     'urn:node:acme.com::writer::worker::system::reports:daily',
+    'acme.com::flows::reports:daily',
   ])('preserves the original fully-qualified output ref: %s', async (outputWriteTo) => {
     mockRequest.mockResolvedValueOnce(nodeFixture({ other: true }));
     mockRequest.mockResolvedValueOnce({});

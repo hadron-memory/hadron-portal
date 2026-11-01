@@ -6,14 +6,16 @@ export const acceptedTargets = [
   'urn:node:acme.com:flows:reports:daily',
   'hrn:node:acme.com::flows::reports:daily',
   'urn:node:acme.com::writer::worker::system::reports:daily',
+  'acme.com::flows::reports:daily',
 ];
 const invalidTargets = [
-  'reports:daily', 'acme.com::flows::reports:daily',
+  'reports:daily', 'reports:daily:summary',
   'hrn:mem:acme.com:flows', 'hrn:agent:acme.com:writer',
   'hrn:node::flows:report', 'hrn:node:acme.com::report',
   'hrn:node:acme.com:flows:', 'hrn:node:acme.com:flows',
   'hrn:node:acme.com::flows::', 'hrn:node:acme.com:flows:bad loc',
   'hrn:node:acme.com:flows:report::daily',
+  'acme.com::flows', 'acme.com::::reports:daily', 'acme.com::flows::',
 ];
 
 describe('Flow output node reference (#1529)', () => {

@@ -83,6 +83,7 @@ describe('Flow output target typed in the real page (#1529)', () => {
   it.each([
     'hrn:node:acme.com:flows:reports:daily',
     'urn:node:acme.com::writer::worker::system::reports:daily',
+    'acme.com::flows::reports:daily',
   ])('accepts and posts the original node ref once: %s', async (value) => {
     const target = await openFlow();
     await enter(target, value);
