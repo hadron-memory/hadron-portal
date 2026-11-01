@@ -8,13 +8,19 @@ import TeamChatSearch from './TeamChatSearch.svelte';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 const fetchMock = vi.fn();
+// jsdom has no scrollIntoView (#1483): record calls for every test in the file.
+const scrolled: Element[] = [];
+const originalScrollIntoView = Element.prototype.scrollIntoView;
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal('fetch', fetchMock);
+  scrolled.length = 0;
+  Element.prototype.scrollIntoView = function (this: Element) { scrolled.push(this); };
 });
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
   vi.unstubAllGlobals();
+  Element.prototype.scrollIntoView = originalScrollIntoView;
 });
 
 const hit = (seq: number, over: Record<string, unknown> = {}) => ({
@@ -209,5 +215,96 @@ describe('TeamChatSearch', () => {
     (q(m, 'more') as HTMLButtonElement).click();
     await wait(0);
     expect(m.target.textContent).toContain('newest-loaded');
+  });
+
+  // #1483 — Load more must say what changed: scroll the first new row into view and
+  // announce the count from a status node that was mounted before its text.
+  describe('Load more feedback (#1483)', () => {
+    const status = (m: Mounted<Record<string, unknown>>) => q(m, 'status') as HTMLElement | null;
+
+    it('announces the returned count in the same status node and scrolls the first new row into view, focus staying on the button', async () => {
+      fetchMock.mockResolvedValueOnce(reply(ok([hit(9), hit(8)], { complete: false, cursor: 'c2' })));
+      const m = mountPanel();
+      await search(m, 'body');
+      const before = status(m);
+      expect(before).not.toBeNull();
+      expect(before!.textContent?.trim()).toBe('');
+      expect(before!.getAttribute('aria-live')).toBe('polite');
+
+      fetchMock.mockResolvedValueOnce(reply(ok([hit(7), hit(6), hit(5)])));
+      const button = q(m, 'more') as HTMLButtonElement;
+      button.focus();
+      button.click();
+      await wait(0);
+      await tick();
+      expect(status(m)).toBe(before); // same DOM node, not a fresh one
+      expect(before!.textContent).toContain('3 more matches loaded');
+      expect(scrolled).toHaveLength(1);
+      expect(scrolled[0].closest('tr')?.getAttribute('data-nodeid')).toBe('n7');
+      expect(m.target.contains(document.activeElement) ? document.activeElement : null).not.toBe(scrolled[0]);
+    });
+
+    it('says one match, singular, when the page returned one', async () => {
+      fetchMock.mockResolvedValueOnce(reply(ok([hit(9)], { complete: false, cursor: 'c2' })));
+      const m = mountPanel();
+      await search(m, 'body');
+      fetchMock.mockResolvedValueOnce(reply(ok([hit(7)])));
+      (q(m, 'more') as HTMLButtonElement).click();
+      await wait(0);
+      await tick();
+      expect(status(m)!.textContent).toContain('1 more match loaded');
+    });
+
+    it('a refusal announces no count and scrolls nothing; a dead cursor keeps its own text', async () => {
+      fetchMock.mockResolvedValueOnce(reply(ok([hit(9)], { complete: false, cursor: 'c2' })));
+      const m = mountPanel();
+      await search(m, 'body');
+      fetchMock.mockResolvedValueOnce(reply({ ok: false, code: 'TEAM_CHAT_SEARCH_CURSOR_INVALID' }));
+      (q(m, 'more') as HTMLButtonElement).click();
+      await wait(0);
+      await tick();
+      expect(status(m)!.textContent?.trim()).toBe('');
+      expect(scrolled).toHaveLength(0);
+      expect(q(m, 'later-failed')?.textContent).toContain('can no longer be continued');
+    });
+
+    it('an empty later page announces no "0 more" and a new search clears the previous count', async () => {
+      fetchMock.mockResolvedValueOnce(reply(ok([hit(9)], { complete: false, cursor: 'c2' })));
+      const m = mountPanel();
+      await search(m, 'body');
+      fetchMock.mockResolvedValueOnce(reply(ok([hit(7)], { complete: false, cursor: 'c3' })));
+      (q(m, 'more') as HTMLButtonElement).click();
+      await wait(0);
+      await tick();
+      expect(status(m)!.textContent).toContain('1 more match loaded');
+      fetchMock.mockResolvedValueOnce(reply(ok([], { complete: false, cursor: 'c4' })));
+      (q(m, 'more') as HTMLButtonElement).click();
+      await wait(0);
+      await tick();
+      expect(status(m)!.textContent).not.toContain('0 more');
+      expect(scrolled).toHaveLength(1);
+      fetchMock.mockResolvedValueOnce(reply(ok([hit(1)])));
+      await search(m, 'other');
+      expect(status(m)!.textContent?.trim()).toBe('');
+    });
+
+    it('scrolls nothing and throws nothing when the panel is torn down before the rows render', async () => {
+      fetchMock.mockResolvedValueOnce(reply(ok([hit(9)], { complete: false, cursor: 'c2' })));
+      const m = mountPanel();
+      await search(m, 'body');
+      const pending = deferred<ReturnType<typeof reply>>();
+      fetchMock.mockReturnValueOnce(pending.promise);
+      const rejections = await captureUnhandledRejections(async () => {
+        (q(m, 'more') as HTMLButtonElement).click();
+        await tick();
+        m.unmount();
+        mounted.pop();
+        pending.resolve(reply(ok([hit(7)])));
+        await wait(0);
+        await tick();
+      });
+      expect(scrolled).toHaveLength(0);
+      expect(rejections).toEqual([]);
+    });
   });
 });
