@@ -28,6 +28,11 @@ describe('task planning authorized reads', () => {
   });
   it('retains partial relation state without inventing open counts', async () => {
     const blockedBy = { items: [task], hasMore: true }; const blocks = { items: [], hasMore: false };
-    expect(await taskDependencies(client({ agentTask: { appId: 'app', blockedBy, blocks } }).api, app.id, 't2')).toEqual({ kind: 'ok', value: { blockedBy, blocks } });
+    expect(await taskDependencies(client({ agentTask: { id: 't2', appId: 'app', blockedBy, blocks } }).api, app.id, 't2')).toEqual({ kind: 'ok', value: { blockedBy, blocks } });
   });
+  it('rejects a same-App response for another task even on the initial page', async () => {
+    const page = { items: [], hasMore: false };
+    expect(await taskDependencies(client({ agentTask: { id: 'wrong', appId: 'app', blockedBy: page, blocks: page } }).api, app.id, 't2')).toEqual({ kind: 'failed' });
+  });
+
 });
