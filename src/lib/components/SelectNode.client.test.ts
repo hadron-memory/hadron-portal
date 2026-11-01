@@ -98,8 +98,10 @@ const mockLayout = () =>
   vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(100);
 
 // A real Escape originates at the focused control and bubbles; dispatching
-// straight on `window` skips every dialog-level handler (and after the
-// review fix there IS no window-level handler — the dialog consumes the key).
+// straight on `window` skips every dialog-level handler. The dialog consumes
+// the key when focus is inside it; a focus stranded OUTSIDE (on <body>) is
+// recaptured by the restoration effect, with the window-capture fallback
+// behind it (see the body-focus pin below).
 function pressEscape() {
   (document.activeElement ?? document.body).dispatchEvent(
     new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
@@ -430,6 +432,49 @@ describe('SelectNode: review fixes (BLIND Gemma, LOCAL Gizelle, QA Charles at d9
       expect(above).not.toHaveBeenCalled();
       pressEscape();
       flushSync();
+      expect(above).not.toHaveBeenCalled();
+      expect(target.querySelector('.fixed.inset-0')).toBeNull();
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
+  });
+
+  it('Escape with focus dropped to <body> still closes the picker, never the host panel', async () => {
+    // BLIND delta P2 at c4a6cba34 (Gemma): the dialog-level Escape handler
+    // only sees keydowns whose target is INSIDE the dialog. Clicking Try
+    // again unmounts the focused button the moment the retry succeeds, and
+    // element REMOVAL moves focus to <body> without firing focusin — the
+    // trap's guard never recaptures. The next Escape then skipped the picker
+    // entirely and reached the host's earlier-registered window listener
+    // (TaskActionBar's edit panel). Two contracts, both pinned here:
+    //   (1) the picker never strands focus on <body> after unmounting the
+    //       control the user just clicked — it pulls focus back inside;
+    //   (2) even if an Escape arrives whose target never entered the dialog,
+    //       the picker consumes it: ONE layer closes, the host never fires.
+    serve({ [url('m2', 'kb', 0)]: [new Error('transport'), okPage([node(1)], false, 1)] });
+    const above = vi.fn();
+    window.addEventListener('keydown', above);
+    try {
+      const { target } = mount();
+      await tick(2);
+      await chooseMemory(target, 'Beta KB');
+      await search(target, 'kb');
+      expect(target.querySelector('[role="alert"]')?.textContent).toContain('Couldn’t load nodes');
+      const retry = button(target, 'Try again')!;
+      retry.focus();
+      expect(document.activeElement).toBe(retry);
+      retry.click();
+      await tick(5);
+      expect(target.querySelector('[role="alert"]')).toBeNull();
+      // (1) focus did not die with the button: it came back into the dialog.
+      expect(document.activeElement).not.toBe(document.body);
+      expect(target.contains(document.activeElement)).toBe(true);
+      // (2) an Escape that never entered the dialog is still the picker's to
+      // take — dispatched on <body>, exactly where a stranded focus sends it.
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      await tick(2);
       expect(above).not.toHaveBeenCalled();
       expect(target.querySelector('.fixed.inset-0')).toBeNull();
     } finally {

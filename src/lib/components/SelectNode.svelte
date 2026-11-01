@@ -138,10 +138,12 @@
   // BEFORE the upper dialog mounts; resume happens after it unmounts (and its
   // own trap has restored focus back into this dialog).
   let trap: ReturnType<typeof focusTrap> | null = null;
+  let dialogEl: HTMLElement | null = null;
   function trapDialog(el: HTMLElement) {
+    dialogEl = el;
     trap = focusTrap(el);
     return {
-      destroy() { trap?.destroy(); trap = null; },
+      destroy() { trap?.destroy(); trap = null; dialogEl = null; },
     };
   }
   $effect.pre(() => {
@@ -149,6 +151,40 @@
   });
   $effect(() => {
     if (!memoryPickerOpen) trap?.resume();
+  });
+
+  // A state swap that unmounts the focused control — Try again succeeding,
+  // Load more vanishing on the last page — drops focus to <body>, and
+  // element REMOVAL fires no focusin, so the trap's guard cannot see it
+  // (#1582 BLIND delta P2: the next Escape then skipped this dialog and
+  // reached the host's earlier-registered window listener). Pull focus back
+  // in after every such swap: the search box when the stage has one, the
+  // dialog itself otherwise (tabindex -1 keeps it a legal target, and a
+  // keydown targeted here reaches the dialog-level handler below).
+  $effect(() => {
+    void failed; void pending; void hasMore; void items.length;
+    if (!open || memoryPickerOpen) return;
+    if (document.activeElement !== document.body) return;
+    (dialogEl?.querySelector('input') ?? dialogEl)?.focus();
+  });
+
+  // Defense in depth for a focus that never entered this dialog at all: a
+  // window CAPTURE listener runs before every bubble listener on window —
+  // including the host's edit-panel listener, which registered earlier and
+  // cannot be stopped from below in the bubble phase. An Escape whose target
+  // is outside this dialog, while this dialog is the top of the stack (the
+  // nested memory picker owns its own key), closes exactly one layer: ours.
+  function onWindowEscape(event: KeyboardEvent) {
+    if (event.key !== 'Escape' || !open || memoryPickerOpen) return;
+    if (dialogEl && event.target instanceof Node && dialogEl.contains(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    open = false;
+  }
+  $effect(() => {
+    if (!open) return;
+    window.addEventListener('keydown', onWindowEscape, true);
+    return () => window.removeEventListener('keydown', onWindowEscape, true);
   });
 </script>
 
@@ -159,7 +195,9 @@
         // Escape is consumed HERE, at the dialog layer (#1582 BLIND P2-7):
         // layers above (the edit panel's own window listener registers first,
         // so they cannot be stopped from below) must not close with us. While
-        // the nested memory picker is open the key is not ours to take.
+        // the nested memory picker is open the key is not ours to take. A
+        // keydown that never enters the dialog (focus stranded on <body>) is
+        // the window-capture fallback's job, in the script above.
         if (event.key === 'Escape' && !memoryPickerOpen) {
           event.stopPropagation();
           open = false;
@@ -178,7 +216,14 @@
         </p>
         <div class="flex flex-wrap gap-2">
           <label class="min-w-0 grow text-sm">{t('app.nodes.picker.search-label', 'Search nodes')}
-            <input aria-label={t('app.nodes.picker.search', 'Search nodes by name or loc…')} bind:value={query} onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); find(); } }} class="block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600" />
+            <!-- No aria-label of its own (#1582 BLIND delta P3, and
+                 hrn:node:hadronmemory.com:hadron-portal:review:visible-label-is-the-accessible-name):
+                 the visible wrapping label IS the accessible name — an
+                 aria-label would override it and voice-control users saying
+                 "Search nodes" would miss. maxlength mirrors the endpoint's
+                 query ceiling (500) so Enter cannot submit a query the
+                 server must 400. -->
+            <input bind:value={query} maxlength="500" onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); find(); } }} class="block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600" />
           </label>
           <button type="button" disabled={pending || !memory} onclick={() => find()} class="self-end rounded border px-3 py-1 disabled:opacity-50">{t('app.nodes.picker.find', 'Find')}</button>
         </div>
@@ -188,7 +233,7 @@
           <!-- Retry re-reads the FAILED page (`read` pages the committed query
                at the offset that never advanced); it must not restart the
                search and throw away the rows already loaded (#1582 BLIND P3). -->
-          <button type="button" disabled={pending} onclick={() => read()}>{t('app.nodes.picker.retry', 'Try again')}</button>
+          <button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.nodes.picker.retry', 'Try again')}</button>
         {/if}
         {#if pending}<p role="status">{t('app.nodes.picker.loading', 'Loading nodes…')}</p>{/if}
 

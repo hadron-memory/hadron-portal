@@ -123,10 +123,15 @@ describe('/app/memories/[id]/nodes/choices (#1576)', () => {
     expect(body.value.hasMore).toBe(false); // 3 raw rows < the 20-row page
   });
 
-  it('with no viewer token there is no credential to fall back to: the token passes through as-is', async () => {
-    // BLIND P2-5 pin: the endpoint has no service token of its own. An
-    // unauthenticated caller reaches the server anonymously, and the server\'s
-    // own answer (here: whatever it returns) is what comes back.
+  it('with no viewer token the request goes out anonymously — by design, like tasks/choices', async () => {
+    // #1582 BLIND delta P3 (retitle): this pin is NOT an auth bound. The
+    // endpoint has no gate of its own and no service credential — a null
+    // token passes through, and the server answers what its public /graphql
+    // would. Page loads under /app/** are redirected to /signin by
+    // src/routes/app/+layout.server.ts, but +server.ts routes bypass page
+    // layouts entirely, so the pass-through is the intended contract (the
+    // sibling tasks/choices endpoint behaves the same; memory-level access
+    // is enforced server-side by the findNodes intersection).
     mockRequest.mockResolvedValueOnce({ findNodes: { hits: [] } });
     const body = await (await GET(ev('m1', null, '?query=x&offset=0'))).json();
     expect(gqlClient).toHaveBeenLastCalledWith(null);

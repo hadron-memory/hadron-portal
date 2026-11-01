@@ -83,8 +83,9 @@ export async function mountSelectNode(target: HTMLElement, view: SelectNodeView)
     const row = [...target.querySelectorAll('tr')].find((tr) => tr.textContent?.includes(memories[0].name))!;
     ([...row.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Select'))!.click();
     await settle();
-    // Stage 2: search.
-    const input = target.querySelector('input[aria-label="Search nodes by name or loc…"]') as HTMLInputElement;
+    // Stage 2: search. The box is named by its visible wrapping label
+    // ("Search nodes"), not an aria-label of its own — find it via the label.
+    const input = ([...target.querySelectorAll('label')].find((l) => l.textContent?.includes('Search nodes'))!).querySelector('input') as HTMLInputElement;
     input.value = view === 'failed' ? 'x' : 'node';
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await settle();

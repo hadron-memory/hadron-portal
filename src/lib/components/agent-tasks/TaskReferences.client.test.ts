@@ -51,14 +51,20 @@ async function openEdit(references: unknown[] = [], nodeMemories: unknown = [{ i
   return m.target.querySelector<HTMLFormElement>('#task-panel-edit')!;
 }
 
-/** The node picker's endpoint page, URL-routed like the component's own test. */
-const nodePage = (items: Array<{ id: string; name: string; loc: string; urn: string }>, hasMore = false, nextOffset = items.length) =>
+/**
+ * The node picker's endpoint page, URL-routed like the component's own test.
+ * `nextOffset` is explicit at every call site (#1582 BLIND delta P3): it is
+ * the server's RAW-count word on where the next page starts — offset +
+ * raw window length — and a silent `items.length` default is only that for
+ * an unfiltered first page from offset 0.
+ */
+const nodePage = (items: Array<{ id: string; name: string; loc: string; urn: string }>, hasMore: boolean, nextOffset: number) =>
   ({ ok: true, json: async () => ({ kind: 'ok', value: { items, hasMore, nextOffset } }) });
 const nodesUrl = (query: string, offset: number) => `/app/memories/m1/nodes/choices?query=${query}&offset=${offset}`;
 
 /** Open the NODE picker, choose its one memory, search, and Select the first row. */
 async function pickNode(form: HTMLFormElement, choice: { id: string; name: string; loc: string; urn: string }, query = 'finding') {
-  const fetch = vi.fn().mockResolvedValue(nodePage([choice]));
+  const fetch = vi.fn().mockResolvedValue(nodePage([choice], false, 1));
   vi.stubGlobal('fetch', fetch);
   await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'NODE');
   buttonText(form, 'Choose a node…')!.click();
@@ -66,7 +72,11 @@ async function pickNode(form: HTMLFormElement, choice: { id: string; name: strin
   // The memory stage: SelectNode reuses SelectMemory over the caller's set.
   buttonText(document.body, 'Select')!.click();
   await tick(4);
-  const search = document.body.querySelector<HTMLInputElement>('input[aria-label="Search nodes by name or loc…"]')!;
+  // The search box is named by its visible wrapping label ("Search nodes"),
+  // not an aria-label of its own (#1582 BLIND delta P3,
+  // hrn:node:hadronmemory.com:hadron-portal:review:visible-label-is-the-accessible-name)
+  // — find it through the label.
+  const search = ([...document.body.querySelectorAll('label')].find((l) => l.textContent?.includes('Search nodes'))!).querySelector<HTMLInputElement>('input')!;
   search.value = query;
   search.dispatchEvent(new Event('input', { bubbles: true }));
   await tick(2);

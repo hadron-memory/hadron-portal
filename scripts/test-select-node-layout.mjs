@@ -70,8 +70,10 @@ try {
           footer: document.querySelector('[role="dialog"]')?.textContent ?? '',
           alert: document.querySelector('[role="alert"]')?.textContent ?? null,
           loadMore: [...document.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Load more nodes'),
-          // The picker's own search input is the thing a keyboard user lands on.
-          search: !!document.querySelector('input[aria-label="Search nodes by name or loc…"]'),
+          // The picker's own search input is the thing a keyboard user lands
+          // on. It is named by its visible wrapping label ("Search nodes"),
+          // not an aria-label of its own — reach it through the label.
+          search: [...document.querySelectorAll('label')].some((l) => l.textContent?.includes('Search nodes') && l.querySelector('input')),
         }));
         assert.equal(got.dialogs >= 1, true, `${label}: no dialog`);
         assert.equal(got.scrollWidth, width, `${label}: page overflows (${got.scrollWidth} > ${width}) — a long URN or loc runs the modal wide`);
