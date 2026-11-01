@@ -83,3 +83,42 @@ describe('create offer for an App with no organization', () => {
     expect(canCreateAppMemory({ members: [{ role: 'ADMIN', user: { id: 'me' } }] }, 'me', { userOwned: false, canManageApp: false })).toBe(true);
   });
 });
+
+// #1043: the projection is caller-specific (participant vs org reader). The
+// client preserves the exact admitted leaf set rather than folding Agents.
+describe('complete App memory scope', () => {
+  const leaf = (n: number) => ({ memoryId: `m${n}`, memoryUrn: `hrn:mem:example.com:m${n}`, name: `M${n}`, class: 'knowledge', viewerCanWrite: false, sources: [{ kind: 'AGENT_LINK', agentId: 'role-agent' }] });
+  it('drains server-clamped pages beyond twenty, preserving every leaf and no nested reads', async () => {
+    const { readAppMemoryScope } = await import('./app-memories');
+    const rows = Array.from({ length: 23 }, (_, n) => leaf(n));
+    const request = vi.fn().mockResolvedValueOnce({ appMemoryScope: { items: rows.slice(0, 20), total: 23 } }).mockResolvedValueOnce({ appMemoryScope: { items: rows.slice(20), total: 23 } });
+    expect(await readAppMemoryScope({ request } as never, 'a')).toEqual(rows);
+    expect(request.mock.calls.map(c => c[1])).toEqual([{ appRef: 'a', limit: 200, offset: 0 }, { appRef: 'a', limit: 200, offset: 20 }]);
+    expect(request.mock.calls.every(c => String(c[0]).includes('viewerCanWrite') && String(c[0]).includes('agentId'))).toBe(true);
+  });
+  it('distinguishes a refused scope from a successful empty scope', async () => {
+    const { readAppMemoryScope } = await import('./app-memories');
+    expect(await readAppMemoryScope({ request: vi.fn().mockRejectedValue(new Error('FORBIDDEN')) } as never, 'a')).toBeNull();
+    expect(await readAppMemoryScope({ request: vi.fn().mockResolvedValue({ appMemoryScope: { items: [], total: 0 } }) } as never, 'a')).toEqual([]);
+  });
+  it('keeps non-participant reader scope without manufacturing a team space', async () => {
+    const { readAppMemoryScope } = await import('./app-memories');
+    const request = vi.fn().mockResolvedValue({ appMemoryScope: { items: [leaf(1)], total: 1 } });
+    expect(await readAppMemoryScope({ request } as never, 'a')).toEqual([leaf(1)]);
+  });
+});
+
+it('selects every leaf field used by summaries and upload selection (GraphQL AST)', async () => {
+ const { parse, Kind } = await import('graphql');
+ const { APP_MEMORY_SCOPE_QUERY } = await import('./app-memories');
+ const operation=parse(APP_MEMORY_SCOPE_QUERY).definitions.find(d=>d.kind===Kind.OPERATION_DEFINITION)!;
+ if(operation.kind!==Kind.OPERATION_DEFINITION)throw new Error('missing query');
+ const scope=operation.selectionSet.selections.find(s=>s.kind===Kind.FIELD&&s.name.value==='appMemoryScope');
+ if(scope?.kind!==Kind.FIELD)throw new Error('missing scope');
+ const items=scope.selectionSet!.selections.find(s=>s.kind===Kind.FIELD&&s.name.value==='items');
+ if(items?.kind!==Kind.FIELD)throw new Error('missing items');
+ expect(items.selectionSet!.selections.filter(s=>s.kind===Kind.FIELD).map(s=>s.name.value)).toEqual(expect.arrayContaining(['memoryId','memoryUrn','name','class','viewerCanWrite','sources']));
+ const sources=items.selectionSet!.selections.find(s=>s.kind===Kind.FIELD&&s.name.value==='sources');
+ if(sources?.kind!==Kind.FIELD)throw new Error('missing sources');
+ expect(sources.selectionSet!.selections.filter(s=>s.kind===Kind.FIELD).map(s=>s.name.value)).toEqual(['kind','agentId']);
+});

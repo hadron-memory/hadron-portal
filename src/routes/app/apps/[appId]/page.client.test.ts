@@ -1719,3 +1719,31 @@ describe('creating a new App memory (#487)', () => {
     expect(m.target.querySelector('form[action="?/createMemory"]')).toBeNull();
   });
 });
+
+describe('App memory scope inventory (#1043)', () => {
+  const scopeRow = (id: string, kind = 'AGENT_LINK', viewerCanWrite = true) => ({ memoryId: id, memoryUrn: `hrn:mem:acme.com:${id}`, name: `Scope ${id}`, class: 'knowledge', viewerCanWrite, sources: [{ kind, agentId: kind === 'TEAM_SPACE' ? null : 'withheld-agent' }] });
+  async function showSettings(scope: unknown) {
+    setStubPage('https://example.test/app/apps/a1?tab=settings', { appId: 'a1' });
+    const data = { ...await pageData(), initialTab: 'settings', appMemoryScope: scope };
+    // A participant App with two Agents. The deprecated first Agent has a
+    // misleading write role; the new inventory must follow the leaf projection.
+    Object.assign(data.app, { agent: { id: 'first', name: 'First', memoryItems: [{ role: 'read-write', memory: { id: 'old', urn: 'hrn:mem:acme.com:old', name: 'OLD FIRST ONLY' } }] }, agents: [{ id: 'first', name: 'First' }, { id: 'role-agent', name: 'Engineer' }] });
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m); await tick(3);
+    const button = [...m.target.querySelectorAll('button')].find(b => b.textContent?.includes('Accessible Memories'));
+    expect(button).toBeTruthy(); button!.click(); await tick(3);return m;
+  }
+  it('lists all admitted participant memories, including team space, with no first-Agent fallback', async () => {
+    const m = await showSettings([scopeRow('team', 'TEAM_SPACE'), scopeRow('role'), scopeRow('base', 'INHERITED_BASE'), scopeRow('read-only', 'AGENT_LINK', false)]);
+    expect(m.target.textContent).toContain('Scope team');expect(m.target.textContent).toContain('Scope role');expect(m.target.textContent).toContain('Scope base');
+    expect(m.target.textContent).not.toContain('OLD FIRST ONLY');
+    expect(m.target.textContent).not.toContain('withheld-agent');
+    expect(m.target.textContent).toContain('Agent link');
+  });
+  it('renders failed scope as an error, never as an empty inventory', async () => {
+    const m=await showSettings(null);expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Could not load');expect(m.target.textContent).not.toContain('No accessible memories');
+  });
+  it('renders successful empty scope distinctly', async () => {
+    const m=await showSettings([]);expect(m.target.textContent).toContain('No accessible memories');expect(m.target.textContent).not.toContain('OLD FIRST ONLY');
+  });
+});

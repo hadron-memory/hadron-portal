@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { graphNodeHref, scopeTreeEntriesToSearch, withoutHiddenTreeEntries } from './graph-utils';
+import { buildGraphViewData, graphNodeHref, scopeTreeEntriesToSearch, withoutHiddenTreeEntries } from './graph-utils';
 import { isHiddenNodeType } from './node-types';
 import type { TreeEntry } from './types';
 
@@ -93,4 +93,9 @@ describe('graphNodeHref (#1017)', () => {
     expect(graphNodeHref('', topic)).toBe('/app/u/hrn:node:acme.com:docs:guides:setup');
     expect(graphNodeHref(undefined, topic)).toBe('/app/u/hrn:node:acme.com:docs:guides:setup');
   });
+});
+
+it('keeps a canonical node URN when its nested Memory record is withheld (#1043)', () => {
+ const node = { id:'n',memoryId:'m',loc:'note',urn:'hrn:node:example.com:withheld:note',name:'Visible node',tags:[],outgoingEdges:[],incomingEdges:[],memory:null,nodeType:'info' };
+ expect(buildGraphViewData([node as never]).topics[0].urn).toBe(node.urn);
 });

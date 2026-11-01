@@ -16,6 +16,8 @@
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { appAgentPointerKey, appRowPointer, pointerResultFor, pointerText, pointerView, type PointerResult } from '$lib/boot-prompt-pointer';
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
+  import AccessibleMemories from './AccessibleMemories.svelte';
+  import { appMemoryTargets } from '$lib/app-memory-scope';
   import AgentChat from '$lib/components/AgentChat.svelte';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
   import TeamChatSearch from '$lib/components/TeamChatSearch.svelte';
@@ -1294,23 +1296,9 @@
     );
   }
 
-  interface EffectiveMemory { id: string; urn: string; name: string; access: 'read' | 'read-write'; agentName: string }
-  const effectiveMemories = $derived.by(() => {
-    const map = new Map<string, EffectiveMemory>();
-    if (app.agent) {
-      for (const item of app.agent.memoryItems ?? []) {
-        const effective = item.role === 'read-write' ? 'read-write' as const : 'read' as const;
-        map.set(item.memory.id, {
-          id: item.memory.id, urn: item.memory.urn, name: item.memory.name,
-          access: effective, agentName: app.agent.name,
-        });
-      }
-    }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  });
-  const SYSTEM_MEMORY_URNS = ['hadronmemory.com:core'];
-  const userMemories = $derived(effectiveMemories.filter((m) => !SYSTEM_MEMORY_URNS.includes(m.urn)));
-  const writableMemoryIds = $derived(effectiveMemories.filter((m) => m.access === 'read-write').map((m) => m.id));
+  // The server projection, not an Agent link role, owns this caller's scope.
+  const memoryScope = $derived(data.appMemoryScope ?? null);
+  const writableMemoryIds = $derived(appMemoryTargets(memoryScope ?? []));
 
   const newRawKey = $derived(form && 'rawKey' in form ? form.rawKey : undefined);
 
@@ -2789,7 +2777,10 @@
     {#if data.appNodesCapped}
       <div class="mb-3"><CappedNotice shown={data.appNodes?.length ?? 0} what={t('capped.nodes', 'nodes')} /></div>
     {/if}
-    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={effectiveMemories.map((m) => m.id)} />
+    {#if memoryScope === null}
+      <p role="alert" class="mb-3 text-sm text-red-600 dark:text-red-400">{t('app.memory-scope.failed', 'Could not load accessible memories. Reload to try again.')}</p>
+    {/if}
+    <MemoryBrowser nodes={data.appNodes ?? []} multiMemory={true} scopeMemoryIds={(memoryScope ?? []).map((m) => m.memoryId)} scopeMemories={memoryScope ?? []} />
     </div>
   {/if}
 
@@ -3109,33 +3100,16 @@
         {/if}
       </section>
 
-      <!-- Accessible Memories (collapsed) -->
-      {#if userMemories.length > 0}
-        <section class="max-w-2xl">
-          <button onclick={() => memoriesOpen = !memoriesOpen} class="flex items-center gap-2 font-semibold text-zinc-900 dark:text-white">
-            <svg width="12" height="12" viewBox="0 0 12 12" class="transition-transform {memoriesOpen ? 'rotate-90' : ''}">
-              <path d="M4 2 L8 6 L4 10" stroke="currentColor" fill="none" stroke-width="1.5" />
-            </svg>
-            Accessible Memories
-            <span class="text-sm font-normal text-zinc-500">({userMemories.length})</span>
-          </button>
-          {#if memoriesOpen}
-          <div class="mt-3 divide-y divide-zinc-200 rounded-xl border border-zinc-200 overflow-hidden dark:divide-zinc-800 dark:border-zinc-800">
-            {#each userMemories as mem (mem.id)}
-              <div class="flex items-center gap-4 bg-white px-5 py-3 dark:bg-zinc-900">
-                <span class="text-base">🧠</span>
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium text-zinc-900 dark:text-zinc-200">{mem.name}</p>
-                  <Urn value={mem.urn} type="memory" size={10} />
-                </div>
-                <span class="shrink-0 rounded-full px-2 py-0.5 text-xs {mem.access === 'read-write' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300'}">{mem.access}</span>
-                <span class="text-xs text-zinc-400">via {mem.agentName}</span>
-              </div>
-            {/each}
-          </div>
-          {/if}
-        </section>
-      {/if}
+      <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
+      <section class="max-w-4xl">
+        <button onclick={() => memoriesOpen = !memoriesOpen} aria-expanded={memoriesOpen} class="flex items-center gap-2 font-semibold text-zinc-900 dark:text-white">
+          {t('app.memory-scope.heading', 'Accessible Memories')}
+          {#if memoryScope !== null}<span class="text-sm font-normal text-zinc-500">({memoryScope.length})</span>{/if}
+        </button>
+        {#if memoriesOpen}
+          <AccessibleMemories rows={memoryScope} />
+        {/if}
+      </section>
 
       <!-- Danger zone -->
       <section class="max-w-lg border-t border-zinc-200 pt-6 dark:border-zinc-800">
