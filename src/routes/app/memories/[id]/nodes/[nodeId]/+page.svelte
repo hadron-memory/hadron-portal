@@ -267,7 +267,7 @@
         if (!stillOurs()) return;
         contentDraft.reseed({ id: node.id, value: node.content, revision: contentRevision() });
         showSource = false;
-        if (stillOurs()) void restoreSaveFocus(() => contentSourceToggle);
+        if (stillOurs()) void restoreSaveFocus(() => contentSourceToggle, stillOurs);
       } else if (result.code === 'changed') {
         // Load the newer version under the kept draft: Rendered now shows it,
         // and the draft learns whether it was THIS field that moved.
@@ -284,7 +284,7 @@
     } finally {
       if (seq === contentSaveSeq) {
         saving = false;
-        if (showSource && stillOurs()) void restoreSaveFocus(() => contentSaveButton);
+        if (showSource && stillOurs()) void restoreSaveFocus(() => contentSaveButton, stillOurs);
       }
     }
   }
@@ -341,8 +341,11 @@
   // blurs a focused control the moment it is disabled, so focus is on <body>
   // when the save settles unless the user has moved it (QA on #1563). Take it
   // only from <body>; never from a control the user chose.
-  async function restoreSaveFocus(button: () => HTMLButtonElement | null) {
+  async function restoreSaveFocus(button: () => HTMLButtonElement | null, stillOurs: () => boolean) {
     await tick();
+    // The render this awaits can be a navigation to another node; the save that
+    // started here must not move focus in that node's editor.
+    if (!stillOurs()) return;
     const active = document.activeElement;
     if (active && active !== document.body) return;
     button()?.focus();
@@ -390,7 +393,7 @@
         if (!stillOurs()) return;
         abstractDraft.reseed({ id: node.id, value: node.abstract, revision: node.revision });
         showAbstractSource = false;
-        if (stillOurs()) void restoreSaveFocus(() => abstractSourceToggle);
+        if (stillOurs()) void restoreSaveFocus(() => abstractSourceToggle, stillOurs);
       } else if (result.code === 'changed') {
         await invalidateAll();
         if (!stillOurs()) return;
@@ -405,7 +408,7 @@
     } finally {
       if (seq === abstractSaveSeq) {
         savingAbstract = false;
-        if (showAbstractSource && stillOurs()) void restoreSaveFocus(() => abstractSaveButton);
+        if (showAbstractSource && stillOurs()) void restoreSaveFocus(() => abstractSaveButton, stillOurs);
       }
     }
   }
