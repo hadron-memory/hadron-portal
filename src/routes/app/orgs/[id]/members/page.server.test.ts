@@ -335,8 +335,8 @@ describe('org members invite action', () => {
       memberRole: 'ADMIN',
       name: 'Ada',
       email: 'ada@example.test',
-      maxActivations: 1,
-      expiresInDays: 30,
+      maxActivations: 2,
+      expiresInDays: 10,
     });
   });
 
