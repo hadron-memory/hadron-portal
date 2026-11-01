@@ -605,4 +605,30 @@ describe('SelectNode: #1584 fallback guards and carried P3s', () => {
     expect(label.contains(hint!)).toBe(false); // the label stays the whole accessible name
     expect(input.hasAttribute('aria-label')).toBe(false);
   });
+
+  it('a per-instance hint id: two pickers never share one description target (#1587 BLIND P3)', async () => {
+    // Gizelle's P3: the hint id used to be the literal `node-picker-search-hint`,
+    // so with two node pickers open (exactly the stacking this PR builds for)
+    // both search inputs described themselves by the FIRST instance's hint —
+    // a duplicate id in the document, and aria-describedby resolving across
+    // instances. Two instances cannot be mounted SIMULTANEOUSLY in jsdom
+    // (their focus traps pull focus at each other, #1582 QA P2), so pin the
+    // per-instance generation sequentially: a shared literal — or any
+    // module-level constant — yields the SAME id both times.
+    const a = mount();
+    await tick(2);
+    await chooseMemory(a.target, 'Beta KB');
+    const ida = searchInput(a.target).getAttribute('aria-describedby');
+    expect(ida).toBeTruthy();
+    expect(a.target.contains(document.getElementById(ida!))).toBe(true); // resolves inside its own picker
+    a.unmount();
+    mounted.splice(mounted.indexOf(a), 1);
+    const b = mount();
+    await tick(2);
+    await chooseMemory(b.target, 'Beta KB');
+    const idb = searchInput(b.target).getAttribute('aria-describedby');
+    expect(idb).toBeTruthy();
+    expect(idb).not.toBe(ida); // per-instance: never the shared literal
+    expect(b.target.contains(document.getElementById(idb!))).toBe(true);
+  });
 });

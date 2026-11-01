@@ -1,14 +1,23 @@
 /**
- * #1584 fold — the innermost open layer owns Escape, even inside a picker.
+ * #1584 fold — the innermost open layer owns Escape, even inside a picker,
+ * WHEREVER FOCUS SITS (#1587 review: LOCAL P2 + BLIND P2, Gemma P3-1).
  *
  * The table header's floating layers (the ViewTabs saved-view caret menu, the
  * ColumnToggle Columns dropdown) close on Escape through DOCUMENT-bubble
  * listeners. Under a #1584 dialog — whose element consumes Escape with
  * stopPropagation — the dialog's bubble handler outranks `document`, so one
  * press would dismiss the whole picker (and with it every loaded page of
- * results) while the menu the user meant to close never sees the key. The
- * inner layers must consume the key at their OWN element, the same shared
- * helper the dialogs use.
+ * results) while the menu the user meant to close never sees the key.
+ *
+ * Element consumption at the layer's own element is not enough on its own: it
+ * covers only a focus INSIDE the layer. Nothing moves focus into the caret
+ * menu on open — the opener (mouse or keyboard) leaves focus on the CARET
+ * BUTTON — and a dropdown can stay open while focus sits on another control
+ * or on <body>. In every one of those positions the open inner layer, not the
+ * dialog around it, must take the key: the layer arms the shared CAPTURE
+ * fallback (`dialogEscapeFallback`), whose armed stack makes the layer opened
+ * last the topmost, so it resolves the key at window-capture before any
+ * dialog element handler can bubble — the same mechanism stacked dialogs use.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
@@ -62,6 +71,51 @@ describe('a picker dialog hosting a DataTable: inner layers own Escape (#1584 fo
     expect(dialog()).not.toBeNull(); // the picker keeps its layer
   });
 
+  it("the caret menu at the OPENER's focus state: focus stays on the caret, and Escape still closes only the menu (#1587 LOCAL P2)", async () => {
+    // Gemma's probe: nothing moves focus into the menu on open — no focus()
+    // anywhere in ViewTabs — so after the click that opens it focus is on the
+    // CARET BUTTON, outside the menu element. A pin that focuses a menu item
+    // first pins a focus state a mouse or keyboard opener never produces.
+    await mountDialog();
+    caret()!.focus();
+    caret()!.click(); // the opener's real focus state: focus left on the caret
+    flushSync();
+    expect(menu()).not.toBeNull(); // the menu is open
+    expect(document.activeElement).toBe(caret()!); // oracle: focus never entered the menu
+    escapeAt(document.activeElement!);
+    expect(menu()).toBeNull(); // the open inner layer took the key
+    expect(dialog()).not.toBeNull(); // the picker keeps its layer
+    // One layer per press: with the menu gone, the NEXT Escape is the
+    // picker's — the dialog-level consumption above is still live.
+    escapeAt(caret()!);
+    expect(dialog()).toBeNull();
+  });
+
+  it('caret menu open, focus on ANOTHER control in the picker: Escape closes the menu, not the picker (#1587 BLIND P2)', async () => {
+    // Gizelle's case: the menu stays open while focus moves elsewhere inside
+    // the picker (here the Columns summary). Target containment must not
+    // decide who owns the key — the open layer owns it.
+    await mountDialog();
+    caret()!.click();
+    flushSync();
+    expect(menu()).not.toBeNull();
+    const summary = columnsDetails()!.querySelector('summary')!;
+    summary.focus();
+    escapeAt(summary);
+    expect(menu()).toBeNull(); // the menu took the key
+    expect(dialog()).not.toBeNull(); // the picker keeps its layer
+  });
+
+  it('caret menu open, focus stranded on <body>: Escape closes the menu, not the picker (#1587 LOCAL P3-1)', async () => {
+    await mountDialog();
+    caret()!.click();
+    flushSync();
+    expect(menu()).not.toBeNull();
+    escapeAt(document.body);
+    expect(menu()).toBeNull(); // the innermost OPEN layer takes a body-focus key
+    expect(dialog()).not.toBeNull(); // ...not the picker under it
+  });
+
   it('the Columns dropdown: Escape closes the DROPDOWN, the picker stays', async () => {
     await mountDialog();
     const details = columnsDetails()!;
@@ -80,6 +134,33 @@ describe('a picker dialog hosting a DataTable: inner layers own Escape (#1584 fo
     escapeAt(box);
     expect(details.open).toBe(false); // the innermost layer took the key
     expect(dialog()).not.toBeNull(); // the picker keeps its layer
+  });
+
+  it('dropdown open, focus on ANOTHER control in the picker: Escape closes the dropdown, not the picker (#1587 BLIND P2)', async () => {
+    // The dropdown stays open while focus sits on another picker control
+    // (the saved-view caret). Target containment must not decide ownership.
+    await mountDialog();
+    const details = columnsDetails()!;
+    details.querySelector('summary')!.click();
+    details.dispatchEvent(new Event('toggle')); // jsdom's missing half (see above)
+    flushSync();
+    expect(details.open).toBe(true);
+    caret()!.focus();
+    escapeAt(caret()!);
+    expect(details.open).toBe(false); // the dropdown took the key
+    expect(dialog()).not.toBeNull(); // the picker keeps its layer
+  });
+
+  it('dropdown open, focus stranded on <body>: Escape closes the dropdown, not the picker (#1587 LOCAL P3-1)', async () => {
+    await mountDialog();
+    const details = columnsDetails()!;
+    details.querySelector('summary')!.click();
+    details.dispatchEvent(new Event('toggle')); // jsdom's missing half (see above)
+    flushSync();
+    expect(details.open).toBe(true);
+    escapeAt(document.body);
+    expect(details.open).toBe(false); // the innermost OPEN layer takes it
+    expect(dialog()).not.toBeNull(); // ...not the picker under it
   });
 
   it("with no inner layer open, the dialog's own consumption still closes the picker", async () => {
