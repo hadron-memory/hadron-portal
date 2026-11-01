@@ -4,6 +4,7 @@ import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { setStubPage } from '$lib/test/stubs/app-stores';
+import { RETRY_TIMEOUT_MS } from '$lib/agent-extensions';
 const mounted: Mounted<any>[] = [];
 // #1503: Retry re-reads the section's own endpoint instead of invalidating the
 // route, so the stub surface is fetch, not $app/navigation.
@@ -403,9 +404,69 @@ describe('section-owned retry (#1503)', () => {
     props.requestedAfter = null;
     props.result = { items: [{ id: 'first', name: 'First row', urn: 'hrn:agent:example.com:first' }], hasMore: false, endCursor: null, failed: false };
     await tick(2);
-    finish({ items: [{ id: 'stale', name: 'Stale row', urn: 'hrn:agent:example.com:stale' }], hasMore: false, endCursor: null, failed: false }); await tick(5);
-    expect(m.target.querySelector('a[href="/app/agents/first"]')?.textContent).toBe('First row');
-    expect(m.target.querySelector('a[href="/app/agents/stale"]')).toBeNull();
+    // Whatever the reader focused on the new page keeps focus: the discarded
+    // re-read must not steal it back when it finally settles (#1560 review).
+    const other = document.createElement('input'); document.body.append(other); other.focus();
+    try {
+      finish({ items: [{ id: 'stale', name: 'Stale row', urn: 'hrn:agent:example.com:stale' }], hasMore: false, endCursor: null, failed: false }); await tick(5);
+      expect(m.target.querySelector('a[href="/app/agents/first"]')?.textContent).toBe('First row');
+      expect(m.target.querySelector('a[href="/app/agents/stale"]')).toBeNull();
+      expect(document.activeElement).toBe(other);
+    } finally { other.remove(); }
+  });
+
+  it('aborts a pending re-read when the section moves to another page and re-arms Retry there', async () => {
+    setStubPage('http://localhost/app/agents/base');
+    const props = reactiveProps({ requestedAfter: 'cursor-x' as string | null, result: { items: [] as Array<{ id: string; name: string; urn: string }>, hasMore: false, endCursor: null, failed: true } });
+    const m = mountComponent(AgentExtendedBy, props as never); mounted.push(m); await tick(5);
+    let signal: AbortSignal | undefined;
+    fetchMock.mockImplementationOnce((_input: unknown, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise<Response>((_res, rej) => { signal?.addEventListener('abort', () => rej(new DOMException('Aborted', 'AbortError'))); });
+    });
+    const retryLink = () => m.target.querySelector<HTMLAnchorElement>('nav a')!;
+    retryLink().click(); await tick(2);
+    expect(retryLink().textContent).toBe('Retrying…');
+    // In-page navigation to another cursor's failed page while it hangs.
+    props.requestedAfter = 'cursor-y';
+    props.result = { items: [], hasMore: false, endCursor: null, failed: true };
+    await tick(5);
+    // The stale read was aborted (not waited out): the destination page's
+    // Retry control is live immediately and its alert stands.
+    expect(retryLink().textContent).toBe('Retry');
+    expect(retryLink().getAttribute('aria-disabled')).toBe('false');
+    expect(alertEl(m.target).textContent).toBe('Could not load extending Agents. Retry this page, or return to the first page.');
+  });
+
+  it('bounds a stalled re-read by the client deadline: the alert re-arms, Retry is offered again', async () => {
+    const target = await show({ ...empty, failed: true });
+    fetchMock.mockImplementationOnce((_input: unknown, init?: RequestInit) => {
+      const signal = init?.signal ?? undefined;
+      return new Promise<Response>((_res, rej) => { signal?.addEventListener('abort', () => rej(new DOMException('Aborted', 'AbortError'))); });
+    });
+    const retryLink = () => target.querySelector<HTMLAnchorElement>('nav a')!;
+    // Fake timers BEFORE the click: the deadline the component arms must live
+    // on the fake clock this test advances (tick is microtask-based, unaffected).
+    vi.useFakeTimers();
+    try {
+      retryLink().click(); await tick(2);
+      expect(retryLink().textContent).toBe('Retrying…');
+      await vi.advanceTimersByTimeAsync(RETRY_TIMEOUT_MS);
+    } finally {
+      vi.useRealTimers();
+    }
+    await tick(5);
+    expect(retryLink().textContent).toBe('Retry');
+    expect(retryLink().getAttribute('aria-disabled')).toBe('false');
+    expect(alertEl(target).textContent).toBe(FAILED);
+  });
+
+  it('treats a non-2xx answer as a failure even when its body is a well-formed page', async () => {
+    const target = await show({ ...empty, failed: true });
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({ items: [{ id: 'ghost', name: 'Ghost', urn: 'hrn:agent:example.com:ghost' }], hasMore: false, endCursor: null, failed: false }) } as Response);
+    target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(5);
+    expect(target.querySelector('a[href="/app/agents/ghost"]')).toBeNull();
+    expect(alertEl(target).textContent).toBe(FAILED);
   });
 
   it('applies a late re-read that returns to the very page it was issued for', async () => {

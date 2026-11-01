@@ -5,7 +5,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AgentExtensions, AgentIdentity } from '$lib/server/agent-profile';
-  import { parseExtensions } from '$lib/agent-extensions';
+  import { parseExtensions, RETRY_TIMEOUT_MS } from '$lib/agent-extensions';
   import { t } from '$lib/i18n/t';
 
   let { agentId, result, requestedAfter = null }: { agentId: string; result: AgentExtensions; requestedAfter?: string | null } = $props();
@@ -50,7 +50,12 @@
     retrying = true;
     const forSrc = retrySrc;
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
-    abortRetry = () => controller?.abort();
+    // Bound the browser's whole leg, fetch and body read alike (#1560 review):
+    // the endpoint bounds its own upstream read, but a stalled connection here
+    // would otherwise hold "Retrying…" forever with the alert blanked.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    if (controller) deadline = setTimeout(() => controller.abort(), RETRY_TIMEOUT_MS);
+    abortRetry = () => { if (deadline !== undefined) clearTimeout(deadline); controller?.abort(); };
     try {
       const response = await fetch(retrySrc, { headers: { accept: 'application/json' }, signal: controller?.signal });
       if (!response.ok) throw new Error(`extended-by reload failed (${response.status})`);
@@ -60,9 +65,13 @@
     } catch {
       // Keep the failed-read alert; the page and its URL are untouched.
     } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
       abortRetry = undefined;
       retrying = false;
-      if (section?.isConnected) section.focus();
+      // Focus follows the page the retry was issued for, exactly like the data:
+      // a re-read discarded by an in-page navigation must not steal focus from
+      // the page the reader is on now either (#1560 review).
+      if (section?.isConnected && retrySrc === forSrc) section.focus();
     }
   }
   const columns: PortalColumnDef<AgentIdentity>[] = [
@@ -85,7 +94,14 @@
   const pageIdentity = $derived(JSON.stringify([agentId, requestedAfter]));
   $effect(() => {
     pageIdentity;
-    untrack(() => { filter = ''; table.setPageIndex(0); });
+    untrack(() => {
+      // A re-read issued for another page cannot serve this one — abort it
+      // instead of letting it hold "Retrying…" over the page the reader moved
+      // to (#1560 review). No-op when nothing is pending.
+      abortRetry?.();
+      filter = '';
+      table.setPageIndex(0);
+    });
   });
 </script>
 

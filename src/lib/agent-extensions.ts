@@ -1,5 +1,12 @@
 import type { AgentExtensions, AgentIdentity } from '$lib/server/agent-profile';
 
+/** Client deadline for one Retry re-read (#1560 review). The endpoint bounds
+ *  its own upstream read (the optional-list bound, 8 s); this bounds the
+ *  browser's leg — fetch and body read — so a stalled connection re-arms the
+ *  alert and the Retry control instead of wedging the section in "Retrying…".
+ *  Lives here, client-safe, beside the parser the retry shares with it. */
+export const RETRY_TIMEOUT_MS = 12_000;
+
 // #1503: the client-side guard for a section-owned re-read payload. A Retry
 // answer is rendered into the page, so it is REFUSED unless every field is
 // well-formed — anything malformed is a failed read, never partial garbage.

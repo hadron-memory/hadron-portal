@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from './+server';
-import { AGENT_EXTENSIONS_QUERY } from '$lib/server/agent-profile';
+import { AGENT_EXTENSIONS_QUERY, FAILED_EXTENSIONS, type AgentIdentity } from '$lib/server/agent-profile';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
-const request = vi.fn(); const gqlClient = vi.fn(() => ({ request }));
-vi.mock('$lib/server/api', () => ({ gqlClient: (...args: unknown[]) => { void args; return gqlClient(); } }));
+const request = vi.fn(); const gqlClient = vi.fn((_token: unknown) => ({ request }));
+vi.mock('$lib/server/api', () => ({ gqlClient: (...args: unknown[]) => gqlClient(args[0]) }));
 
 const page = (items: Array<{ id: string; name: string; urn: string }>, hasMore = false, endCursor: string | null = null) =>
   ({ agent: { extendedBy: { items, hasMore, endCursor } } });
@@ -54,5 +54,17 @@ describe('extended-by section endpoint (#1503)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('forwards the caller session token to the GraphQL client', async () => {
+    request.mockResolvedValue(page([]));
+    await GET(event());
+    expect(gqlClient).toHaveBeenCalledWith('viewer');
+  });
+
+  it('shares one frozen failed value, so no consumer can mutate a failure into another shape', () => {
+    expect(() => Object.assign(FAILED_EXTENSIONS, { failed: false })).toThrow();
+    expect(() => (FAILED_EXTENSIONS.items as AgentIdentity[]).push({ id: 'x', name: 'x', urn: 'hrn:agent:x' })).toThrow();
+    expect(FAILED_EXTENSIONS.failed).toBe(true);
   });
 });

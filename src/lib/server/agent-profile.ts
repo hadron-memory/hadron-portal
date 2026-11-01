@@ -9,8 +9,13 @@ export interface AgentExtensions {
   hasMore: boolean;
   failed: boolean;
 }
-/** One shared failed-read value: a failed read is never "no extending Agents". */
-export const FAILED_EXTENSIONS: AgentExtensions = { items: [], endCursor: null, hasMore: false, failed: true };
+/** One shared failed-read value: a failed read is never "no extending Agents".
+ *  Frozen (#1560 review): the loader and the endpoint hand this same object to
+ *  every caller, so no consumer can mutate one failure into another shape. */
+const failedItems: AgentIdentity[] = [];
+Object.freeze(failedItems);
+export const FAILED_EXTENSIONS: AgentExtensions = { items: failedItems, endCursor: null, hasMore: false, failed: true };
+Object.freeze(FAILED_EXTENSIONS);
 export const AGENT_EXTENSIONS_QUERY = /* GraphQL */ `
   query AgentExtensions($ref: ID!, $after: String) {
     agent(ref: $ref) {
