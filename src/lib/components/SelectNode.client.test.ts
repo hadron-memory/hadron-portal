@@ -504,3 +504,131 @@ describe('SelectNode: review fixes (BLIND Gemma, LOCAL Gizelle, QA Charles at d9
     }
   });
 });
+
+// portal#1584 — the guards the shared window fallback must carry (Gemma's P3
+// (b) on #1582, folded once in the helper), plus the two carried SelectNode
+// P3s (a) and (c). All four pins are red on 2fbaacc7.
+describe('SelectNode: #1584 fallback guards and carried P3s', () => {
+  it('an Escape someone else already consumed (defaultPrevented) closes nothing', async () => {
+    // The fallback runs at window CAPTURE, so "someone else" is an
+    // earlier-registered capture listener — e.g. another dialog layer that
+    // already took the key. A fallback without the defaultPrevented guard
+    // closes the picker anyway, on a keypress that was never its to take.
+    const consumer = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') e.preventDefault();
+    };
+    window.addEventListener('keydown', consumer, true); // BEFORE the picker mounts
+    try {
+      const { target } = mount();
+      await tick(2);
+      await chooseMemory(target, 'Beta KB');
+      expect(target.querySelector('.fixed.inset-0')).not.toBeNull();
+      document.body.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      await tick(2);
+      // The key was consumed before it reached us: the picker must still stand.
+      expect(target.querySelector('.fixed.inset-0')).not.toBeNull();
+    } finally {
+      window.removeEventListener('keydown', consumer, true);
+    }
+  });
+
+  it('an Escape during IME composition (isComposing) closes nothing', async () => {
+    // Escape while composing cancels the COMPOSITION, not the dialog — at the
+    // dialog layer too, since composition happens in the search box inside it.
+    const { target } = mount();
+    await tick(2);
+    await chooseMemory(target, 'Beta KB');
+    expect(target.querySelector('.fixed.inset-0')).not.toBeNull();
+    searchInput(target).dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }),
+    );
+    await tick(2);
+    expect(target.querySelector('.fixed.inset-0')).not.toBeNull();
+  });
+
+  it('the last page keeps the viewport still: restoration focus passes preventScroll (carried (a))', async () => {
+    // Gemma's P3 (a) at a1ae339f8: Load more vanishing on the last page
+    // unmounts the focused button, and the restoration effect focuses the
+    // search box WITHOUT preventScroll — a real browser scrolls the list back
+    // to the box. jsdom lays out nothing, so the scroll itself is the browser
+    // QA leg; what this lane can pin is the mechanism: every focus() the
+    // restoration performs passes { preventScroll: true }.
+    serve({
+      [url('m2', '', 0)]: [okPage([node(0), node(1)], true, 2)],
+      [url('m2', '', 2)]: [okPage([node(2)], false, 3)],
+    });
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      const { target } = mount();
+      await tick(2);
+      await chooseMemory(target, 'Beta KB');
+      await search(target, '');
+      const more = button(target, 'Load more nodes')!;
+      expect(more).toBeTruthy();
+      more.focus(); // the user's last act: the button that is about to vanish
+      const before = focusSpy.mock.calls.length;
+      more.click();
+      await tick(5);
+      // The last page landed and Load more is gone — the focused control was
+      // removed, so the restoration effect must have run.
+      expect(button(target, 'Load more nodes')).toBeUndefined();
+      expect(document.activeElement).not.toBe(document.body);
+      const calls = focusSpy.mock.calls.slice(before);
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) {
+        expect(call[0]?.preventScroll).toBe(true);
+      }
+    } finally {
+      focusSpy.mockRestore();
+    }
+  });
+
+  it('the search field carries the name-or-loc hint as visible text, described-by, never overriding the label (carried (c))', async () => {
+    // Gemma's P3 (c) at a1ae339f8: the hint that the search matches by name
+    // or loc was lost when the accessible name was tightened to the visible
+    // label. It comes back as visible hint text tied with aria-describedby —
+    // and per hrn:node:hadronmemory.com:hadron-portal:review:visible-label-is-the-accessible-name it must NOT enter
+    // the label (that would change the accessible name again) and the input
+    // must keep no aria-label of its own.
+    const { target } = mount();
+    await tick(2);
+    await chooseMemory(target, 'Beta KB');
+    const input = searchInput(target);
+    const describedBy = input.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    const hint = document.getElementById(describedBy!);
+    expect(hint).toBeTruthy();
+    expect(hint!.textContent?.toLowerCase()).toContain('name or loc');
+    const label = [...target.querySelectorAll('label')].find((l) => l.textContent?.includes('Search nodes'))!;
+    expect(label.contains(hint!)).toBe(false); // the label stays the whole accessible name
+    expect(input.hasAttribute('aria-label')).toBe(false);
+  });
+
+  it('a per-instance hint id: two pickers never share one description target (#1587 BLIND P3)', async () => {
+    // Gizelle's P3: the hint id used to be the literal `node-picker-search-hint`,
+    // so with two node pickers open (exactly the stacking this PR builds for)
+    // both search inputs described themselves by the FIRST instance's hint —
+    // a duplicate id in the document, and aria-describedby resolving across
+    // instances. Two instances cannot be mounted SIMULTANEOUSLY in jsdom
+    // (their focus traps pull focus at each other, #1582 QA P2), so pin the
+    // per-instance generation sequentially: a shared literal — or any
+    // module-level constant — yields the SAME id both times.
+    const a = mount();
+    await tick(2);
+    await chooseMemory(a.target, 'Beta KB');
+    const ida = searchInput(a.target).getAttribute('aria-describedby');
+    expect(ida).toBeTruthy();
+    expect(a.target.contains(document.getElementById(ida!))).toBe(true); // resolves inside its own picker
+    a.unmount();
+    mounted.splice(mounted.indexOf(a), 1);
+    const b = mount();
+    await tick(2);
+    await chooseMemory(b.target, 'Beta KB');
+    const idb = searchInput(b.target).getAttribute('aria-describedby');
+    expect(idb).toBeTruthy();
+    expect(idb).not.toBe(ida); // per-instance: never the shared literal
+    expect(b.target.contains(document.getElementById(idb!))).toBe(true);
+  });
+});

@@ -2,6 +2,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { untrack } from 'svelte';
   import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
@@ -81,24 +82,9 @@
     open = false;
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') {
-      open = false;
-    }
-  }
-
-  // Escape pressed INSIDE the dialog is consumed here, at the dialog layer
-  // (#1582 BLIND P2-7): a window-level listener cannot be stopped from below
-  // by a dialog — listeners above (an edit panel, a host page) register first
-  // and would close together with this picker on one keypress. The window
-  // handler above stays as the fallback for a focus that never entered the
-  // dialog (before the trap lands, or nothing tabbable to focus).
-  function onDialogKeydown(e: KeyboardEvent) {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      open = false;
-    }
-  }
+  // Escape: consumed at this dialog's own layer — the shared helper owns the
+  // layering contract and the guards (src/lib/a11y/dialog-escape.ts).
+  const escapeFallback = { close: () => { open = false; } };
 
   // Reset search + pagination whenever the modal closes. `open` is the only
   // tracked dependency; the reset itself runs untracked because
@@ -114,8 +100,6 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -127,9 +111,10 @@
       aria-label={t('select-memory.title', 'Choose a memory')}
       tabindex="-1"
       use:focusTrap
+      use:dialogEscapeFallback={escapeFallback}
       class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
-      onkeydown={onDialogKeydown}
+      onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
       style="max-height: 70vh;"
     >
       <!-- Header with search. The input must NOT focus itself via an action:

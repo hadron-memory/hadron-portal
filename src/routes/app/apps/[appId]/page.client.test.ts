@@ -913,6 +913,16 @@ describe('Worker agents tab (#1009)', () => {
       const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
       const headers = () => [...target.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
       expect(headers().some((h) => h?.startsWith('Terminal'))).toBe(true);
+      // The Columns dropdown's content renders only while open (#1587: the
+      // open layer arms the shared Escape fallback on that same `{#if open}`
+      // block), so open it before querying its labels. jsdom toggles the
+      // `open` attribute but never fires the `toggle` event, so deliver the
+      // browser's half of the pair.
+      const details = target.querySelector('details')!;
+      details.querySelector('summary')!.click();
+      details.dispatchEvent(new Event('toggle'));
+      flushSync();
+      expect(details.open).toBe(true);
       const box = [...target.querySelectorAll('label')].find((l) => l.textContent?.trim() === 'Terminal')?.querySelector('input');
       expect(box).toBeTruthy();
       box!.click();

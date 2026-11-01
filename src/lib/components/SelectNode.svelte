@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -31,6 +32,14 @@
 
   let memory = $state<{ id: string; name: string; urn: string } | null>(null);
   let memoryPickerOpen = $state(false);
+
+  // Per-instance (#1587 BLIND P3): two node pickers can be open at once —
+  // exactly the stacking this component builds for — and a literal hint id
+  // would make both search inputs describe themselves by the FIRST
+  // instance's hint (a duplicate id, aria-describedby resolving across
+  // instances). The dialog renders only after open, client-side, so a
+  // generated suffix can never hit an SSR/hydration mismatch.
+  const hintId = `node-picker-search-hint-${Math.random().toString(36).slice(2, 8)}`;
   let items = $state<NodeChoice[]>([]);
   let offset = $state(0);
   let hasMore = $state(false);
@@ -161,47 +170,38 @@
   // in after every such swap: the search box when the stage has one, the
   // dialog itself otherwise (tabindex -1 keeps it a legal target, and a
   // keydown targeted here reaches the dialog-level handler below).
+  // preventScroll (#1584 carried (a)): on the last page Load more vanishes
+  // under the user's focus, and a bare focus() would scroll the list back to
+  // the search box — the viewport stays where the user left it.
   $effect(() => {
     void failed; void pending; void hasMore; void items.length;
     if (!open || memoryPickerOpen) return;
     if (document.activeElement !== document.body) return;
-    (dialogEl?.querySelector('input') ?? dialogEl)?.focus();
+    (dialogEl?.querySelector('input') ?? dialogEl)?.focus({ preventScroll: true });
   });
 
-  // Defense in depth for a focus that never entered this dialog at all: a
-  // window CAPTURE listener runs before every bubble listener on window —
-  // including the host's edit-panel listener, which registered earlier and
-  // cannot be stopped from below in the bubble phase. An Escape whose target
-  // is outside this dialog, while this dialog is the top of the stack (the
-  // nested memory picker owns its own key), closes exactly one layer: ours.
-  function onWindowEscape(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || !open || memoryPickerOpen) return;
-    if (dialogEl && event.target instanceof Node && dialogEl.contains(event.target)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    open = false;
-  }
-  $effect(() => {
-    if (!open) return;
-    window.addEventListener('keydown', onWindowEscape, true);
-    return () => window.removeEventListener('keydown', onWindowEscape, true);
-  });
+  // The window fallback for a focus that never entered this dialog at all
+  // (the shared capture-phase helper, #1584): while the NESTED memory picker
+  // is open, the key is not ours to take — passed as a condition, not baked
+  // in, so the helper knows nothing about this component's nesting.
+  const escapeFallback = {
+    close: () => { open = false; },
+    suppressed: () => memoryPickerOpen,
+  };
 </script>
 
 {#if open}
   <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-3 pt-[8vh]">
-    <div role="dialog" aria-modal="true" aria-label={t('app.nodes.picker.choose', 'Choose a node')} tabindex="-1" use:trapDialog
+    <div role="dialog" aria-modal="true" aria-label={t('app.nodes.picker.choose', 'Choose a node')} tabindex="-1" use:trapDialog use:dialogEscapeFallback={escapeFallback}
       onkeydown={(event) => {
         // Escape is consumed HERE, at the dialog layer (#1582 BLIND P2-7):
         // layers above (the edit panel's own window listener registers first,
-        // so they cannot be stopped from below) must not close with us. While
-        // the nested memory picker is open the key is not ours to take. A
-        // keydown that never enters the dialog (focus stranded on <body>) is
-        // the window-capture fallback's job, in the script above.
-        if (event.key === 'Escape' && !memoryPickerOpen) {
-          event.stopPropagation();
-          open = false;
-        }
+        // so they cannot be stopped from below) must not close with us. The
+        // shared consumption also carries the #1584 guards — an Escape that
+        // someone consumed, or one cancelling an IME composition in the
+        // search box, is not ours. A keydown that never enters the dialog
+        // (focus stranded on <body>) is the fallback action's job.
+        consumeEscapeAtDialog(event, escapeFallback);
       }}
       class="max-h-[84vh] w-full max-w-3xl space-y-3 overflow-auto rounded-xl border border-zinc-300 bg-white p-4 text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
       <div class="flex justify-between gap-3">
@@ -215,16 +215,22 @@
           <button type="button" class="ml-2 rounded border px-2 py-0.5 text-xs" onclick={() => { memoryPickerOpen = true; }}>{t('app.nodes.picker.change-memory', 'Change…')}</button>
         </p>
         <div class="flex flex-wrap gap-2">
-          <label class="min-w-0 grow text-sm">{t('app.nodes.picker.search-label', 'Search nodes')}
-            <!-- No aria-label of its own (#1582 BLIND delta P3, and
-                 hrn:node:hadronmemory.com:hadron-portal:review:visible-label-is-the-accessible-name):
-                 the visible wrapping label IS the accessible name — an
-                 aria-label would override it and voice-control users saying
-                 "Search nodes" would miss. maxlength mirrors the endpoint's
-                 query ceiling (500) so Enter cannot submit a query the
-                 server must 400. -->
-            <input bind:value={query} maxlength="500" onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); find(); } }} class="block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600" />
-          </label>
+          <div class="min-w-0 grow">
+            <label class="block text-sm">{t('app.nodes.picker.search-label', 'Search nodes')}
+              <!-- No aria-label of its own (#1582 BLIND delta P3, and
+                   hrn:node:hadronmemory.com:hadron-portal:review:visible-label-is-the-accessible-name):
+                   the visible wrapping label IS the accessible name — an
+                   aria-label would override it and voice-control users saying
+                   "Search nodes" would miss. The name-or-loc hint lives
+                   OUTSIDE the label and rides in via aria-describedby
+                   (#1584 carried (c)): inside the label it would widen the
+                   accessible name again. maxlength mirrors the endpoint's
+                   query ceiling (500) so Enter cannot submit a query the
+                   server must 400. -->
+              <input bind:value={query} maxlength="500" aria-describedby={hintId} onkeydown={(event) => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); find(); } }} class="block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600" />
+            </label>
+            <p id={hintId} class="mt-1 text-xs text-zinc-500 dark:text-zinc-400">{t('app.nodes.picker.search-hint', 'Matches by name or loc.')}</p>
+          </div>
           <button type="button" disabled={pending || !memory} onclick={() => find()} class="self-end rounded border px-3 py-1 disabled:opacity-50">{t('app.nodes.picker.find', 'Find')}</button>
         </div>
 

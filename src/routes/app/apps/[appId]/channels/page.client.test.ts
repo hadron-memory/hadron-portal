@@ -4,6 +4,7 @@
  * and every chrome string goes through t().
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { submitEnhanced } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
@@ -297,7 +298,15 @@ describe('Channels page', () => {
     const regTable = [...target.querySelectorAll('table')].find((tb) => tb.querySelector('form[action="?/removeAttendance"], button') && tb.textContent?.includes('Set by'))!;
     let grid: HTMLElement = regTable;
     while (!grid.querySelector('details')) grid = grid.parentElement!;
-    // The Columns menu lists only hideable columns (its <details> is in the DOM while closed).
+    // The Columns menu lists only hideable columns. Its dropdown content
+    // renders only while open (#1587: the open layer arms the shared Escape
+    // fallback on that same `{#if open}` block), so open it before querying
+    // the labels — jsdom never fires the `toggle` event itself.
+    const details = grid.querySelector('details')!;
+    details.querySelector('summary')!.click();
+    details.dispatchEvent(new Event('toggle'));
+    flushSync();
+    expect(details.open).toBe(true);
     const toggles = [...grid.querySelectorAll('details label')].map((l) => l.textContent?.trim());
     expect(toggles).toContain('Set by'); // the menu is really there
     expect(toggles).not.toContain('Takes part as');
