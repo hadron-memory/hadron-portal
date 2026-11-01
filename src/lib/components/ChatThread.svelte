@@ -262,8 +262,11 @@
             </span>
           </div>
 
-          <!-- Message column -->
-          <div class="flex-1">
+          <!-- Message column. `min-w-0` (portal#1525 fix head): the hover
+               message-URN anchor below is `flex-shrink-0`, so without this the
+               column's min-content width is the full URN and long ones push
+               the bubbles past a 390px viewport — same failure the header had. -->
+          <div class="min-w-0 flex-1">
             <!-- Author and URN on same row, top-aligned -->
             <div class="flex justify-between items-start gap-2 mb-1">
               <div class="text-sm font-semibold text-zinc-900 dark:text-white">
@@ -275,7 +278,10 @@
                      renders nothing — a legacy thread has no seq, and a
                      client-invented number would lie about a watermark. -->
                 {#if showSeq && msg.seq != null}
-                  <span class="ml-1 font-mono text-xs font-normal text-zinc-400 dark:text-zinc-500">#{msg.seq}</span>
+                  <!-- data-seq: the assertion hook — "no seq renders" is
+                       `[data-seq]` count 0, not a textContent scan for '#'
+                       (which hrefs and ids also contain). -->
+                  <span data-seq={msg.seq} class="ml-1 font-mono text-xs font-normal text-zinc-400 dark:text-zinc-500">#{msg.seq}</span>
                 {/if}
               </div>
               {#if msgUrn}

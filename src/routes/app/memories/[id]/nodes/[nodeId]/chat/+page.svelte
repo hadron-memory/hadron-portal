@@ -63,7 +63,7 @@
 
     // Add the chat view (not clickable). portal#1525: a team channel is a
     // Channel; agent/other chats keep "Chat".
-    items.push({ label: isTeamChannel ? 'Channel' : 'Chat' });
+    items.push({ label: isTeamChannel ? t('node.chat.channel-crumb', 'Channel') : 'Chat' });
 
     return items;
   });
@@ -124,9 +124,16 @@
   <!-- Header -->
   <div class="border-b border-zinc-200 dark:border-zinc-800 px-6 py-4">
     <Breadcrumb items={breadcrumbItems} />
-    <div class="mt-4 flex items-start justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
+    <!-- portal#1525 fix head (UX P2): the row wraps and the title block may
+         shrink below its content. Without both, the unbreakable URN chip set
+         the block's min-content width and pushed Reload/Collapse past the
+         390px viewport edge — the way back this PR adds was off-screen on a
+         phone. `min-w-0` on the block is what lets the chip's own internal
+         truncation engage; `shrink-0` on the button group keeps it usable
+         when they share the row. -->
+    <div class="mt-4 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+      <div class="min-w-0 flex-1">
+        <h1 class="break-words text-2xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
         <Urn value={data.fullUrn} type="node" />
         {#if isTeamChannel}
           <!--
@@ -155,7 +162,7 @@
           </div>
         {/if}
       </div>
-      <div class="flex gap-2">
+      <div class="flex shrink-0 gap-2">
         <button
           onclick={reloadChat}
           disabled={reloading}

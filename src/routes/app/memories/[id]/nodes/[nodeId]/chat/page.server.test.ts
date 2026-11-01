@@ -69,16 +69,21 @@ function teamChat(over: Record<string, unknown> = {}) {
 
 // Shared by the describe blocks below: load the chat page with `node` served
 // for NODE_BY_ID_QUERY and a (controllable) memory URN for the reads layer.
-async function loadWith(memoryUrn: string | null, node: Record<string, unknown>) {
+// `thread` (optional) is served for loadChatMessages' NODES_BY_LOC_PREFIX_QUERY.
+async function loadWith(
+  memoryUrn: string | null,
+  node: Record<string, unknown>,
+  thread: Array<Record<string, unknown>> = [],
+) {
   const reads = serveMemoryReads([], { id: 'mem-1', urn: memoryUrn ?? 'hrn:mem:acme.com:x' });
   mockRequest.mockImplementation(async (query: string, vars?: Record<string, unknown>) => {
     const served = reads(query, vars);
     if (served !== undefined) return served;
     if (query === NODE_BY_ID_QUERY) return { node };
     if (query === LEGACY_THREAD_PROBE_QUERY) return LEGACY_THREAD;
-    // loadChatMessages' NODES_BY_LOC_PREFIX_QUERY — an empty thread is fine,
-    // the URN is what's under test.
-  return { findNodes: { hits: [] } };
+    // loadChatMessages' NODES_BY_LOC_PREFIX_QUERY — the optional thread; an
+    // empty one is fine when the URN is what's under test.
+    return { findNodes: { total: thread.length, hits: thread.map((n) => ({ node: n })) } };
   });
   const { load } = await import('./+page.server');
   return (await load({
@@ -190,6 +195,48 @@ describe('chat page load — team-Channel classification (portal#1525)', () => {
   it('a legacy team-chat-tagged thread is not a team channel', async () => {
     const data = await loadWith('hrn:mem:acme.com:notes', legacyChat());
     expect(data.isTeamChannel).toBe(false);
+  });
+});
+
+// portal#1525 fix head (BLIND P2, test-gap half): the page renders the
+// server's per-message seq, and every seq test fed the component directly —
+// nothing pinned that the LOADER forwards `seq` off the GraphQL row onto
+// `messages[]` (the selection is NODE_FIELDS' `seq`; both loadChatMessages
+// and this loader pass the rows through unmapped). If a future refactor maps
+// the rows and drops the field, these are the assertions that go red while
+// the component still passes its own fixtures.
+describe('chat page load — messages[].seq (portal#1525)', () => {
+  // A platform thread: two chat-messages with server-allocated seqs. `0` is
+  // the falsy trap — a `||`-style default or a filter would eat it.
+  const PLATFORM_THREAD = [
+    { id: 'm-0', loc: 'chats:team:messages:000-ada', nodeType: 'chat-message', seq: 0, memoryId: 'mem-1' },
+    { id: 'm-7', loc: 'chats:team:messages:007-iris', nodeType: 'chat-message', seq: 7, memoryId: 'mem-1' },
+  ];
+
+  it('forwards the server seq per message, 0 included and intact', async () => {
+    const data = await loadWith(
+      'hrn:mem:acme.com:notes',
+      teamChat({ memory: { id: 'mem-1', appId: APP.id, app: APP } }),
+      PLATFORM_THREAD,
+    );
+
+    expect(data.messages.map((m: { seq?: number }) => m.seq)).toEqual([0, 7]);
+  });
+
+  it('forwards a legacy thread with no seq key — null, never invented and never undefined', async () => {
+    // A legacy `message` row carries no seq atom at all. loadChatMessages'
+    // display mapping normalises that to an explicit `null` (`seq: msg.seq
+    // ?? null`), which survives devalue serialisation where `undefined` would
+    // vanish — and the renderer's `msg.seq != null` treats it as "show
+    // nothing". A client-invented number would lie about a watermark.
+    const data = await loadWith(
+      'hrn:mem:acme.com:notes',
+      legacyChat(),
+      [{ id: 'm-1', loc: 'team:chat:messages:001-ada', nodeType: 'message', memoryId: 'mem-1' }],
+    );
+
+    expect(data.messages).toHaveLength(1);
+    expect(data.messages[0].seq).toBeNull();
   });
 });
 

@@ -2550,7 +2550,7 @@
             href="{basePath}/nodes/{node.id}/chat"
             class="rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-green-500"
           >
-            Full-screen chat
+            {t('node.chat.open-fullscreen', 'Full-screen chat')}
           </a>
         {/if}
       {/if}

@@ -62,11 +62,13 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   }
 
-  // portal#1525: is this the App's team CHANNEL? Asked once, answered by the
-  // one canonical predicate (`isTeamChannelChat` in team-chat.ts), so the
-  // header branches on the same classifier the composer trusts. Agent/other
-  // chats on this same route are NOT Channels and keep today's wording
-  // (Holger's portal#1482 ruling).
+  // portal#1525: is this the App's team CHANNEL? Answered by the one canonical
+  // predicate (`isTeamChannelChat` in team-chat.ts), so the header branches on
+  // the same classifier the composer's target logic trusts. (`chatPostTarget`
+  // itself runs once here for `canPost`; `isTeamChannelChat` re-reads the same
+  // evidence for its own answer — two calls over one evidence object, not one
+  // shared evaluation.) Agent/other chats on this same route are NOT Channels
+  // and keep today's wording (Holger's portal#1482 ruling).
   const chatTarget = chatPostTarget(node, evidence);
   const isTeamChannel = isTeamChannelChat(node, evidence);
 
