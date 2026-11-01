@@ -7,6 +7,7 @@
   runes effect context, so the table is built here (TableFooterHarness shape).
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -30,7 +31,7 @@
   // (SelectNode shows it once a search lands), so the table's layers arm
   // after the dialog's fallback. `tableLater` reproduces that order.
   let { tableLater = false }: { tableLater?: boolean } = $props();
-  let showTable = $state(!tableLater);
+  let showTable = $state(untrack(() => !tableLater)); // read once: the order is fixed at mount
   const escapeFallback = { close: () => { open = false; } };
 </script>
 

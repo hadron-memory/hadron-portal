@@ -20,12 +20,35 @@
     placeholder = 'Search memories by name or URN...',
     onselect,
     open = $bindable(false),
+    clearOf = null,
   }: {
     memories: Memory[];
     placeholder?: string;
     onselect: (memory: Memory) => void;
     open?: boolean;
+    /**
+     * #1590: when stacked over a host dialog, the host element this picker
+     * must not cover (SelectNode's header row, with its title and Close).
+     * The picker starts below that element's bottom edge (its 70vh height
+     * still fits under a host header on any viewport taller than ~270px).
+     * Measured while open, and again on resize.
+     */
+    clearOf?: HTMLElement | null;
   } = $props();
+
+  const STACK_GAP = 8; // px between the host's edge and this dialog
+  let clearTop = $state<number | null>(null);
+  $effect(() => {
+    if (!open || !clearOf) {
+      clearTop = null;
+      return;
+    }
+    const host = clearOf;
+    const measure = () => { clearTop = host.getBoundingClientRect().bottom + STACK_GAP; };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  });
 
   let query = $state('');
 
@@ -103,7 +126,9 @@
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onclick={() => { open = false; }}>
+  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]"
+    style={clearTop === null ? undefined : `padding-top: max(10vh, ${clearTop}px);`}
+    onclick={() => { open = false; }}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       role="dialog"

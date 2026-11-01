@@ -37,14 +37,17 @@
 
   let memory = $state<{ id: string; name: string; urn: string } | null>(null);
   let memoryPickerOpen = $state(false);
+  // #1590: the stacked memory picker keeps clear of this row (title and Close).
+  let headerEl = $state<HTMLElement | null>(null);
 
   // Per-instance (#1587 BLIND P3): two node pickers can be open at once —
   // exactly the stacking this component builds for — and a literal hint id
   // would make both search inputs describe themselves by the FIRST
   // instance's hint (a duplicate id, aria-describedby resolving across
-  // instances). The dialog renders only after open, client-side, so a
-  // generated suffix can never hit an SSR/hydration mismatch.
-  const hintId = `node-picker-search-hint-${Math.random().toString(36).slice(2, 8)}`;
+  // instances). `$props.id()` (#1591 item 1) is unique per instance AND the
+  // same on the server and in hydration, which `Math.random()` was not.
+  const uid = $props.id();
+  const hintId = `node-picker-search-hint-${uid}`;
   let items = $state<NodeChoice[]>([]);
   let offset = $state(0);
   let hasMore = $state(false);
@@ -218,7 +221,7 @@
         consumeEscapeAtDialog(event, escapeFallback);
       }}
       class="max-h-[84vh] w-full max-w-3xl space-y-3 overflow-auto rounded-xl border border-zinc-300 bg-white p-4 text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
-      <div class="flex justify-between gap-3">
+      <div class="flex justify-between gap-3" bind:this={headerEl}>
         <h2 class="font-semibold">{t('app.nodes.picker.choose', 'Choose a node')}</h2>
         <button type="button" onclick={() => open = false}>{t('app.nodes.picker.close', 'Close')}</button>
       </div>
@@ -295,4 +298,4 @@
      reset is `resetStage2`, so `pending` cannot strand when a read for the
      PREVIOUS memory is still in flight — its `finally` skips the cleanup for
      the moved generation, exactly as for a new search. -->
-<SelectMemory {memories} bind:open={memoryPickerOpen} onselect={(chosen) => { memory = chosen; resetStage2(); }} />
+<SelectMemory {memories} clearOf={headerEl} bind:open={memoryPickerOpen} onselect={(chosen) => { memory = chosen; resetStage2(); }} />

@@ -62,13 +62,16 @@ try {
           const c = close.getBoundingClientRect();
           const h = title.getBoundingClientRect();
           const m = memory.getBoundingClientRect();
-          // What a pointer at the Close button's centre actually hits: the
-          // control itself, not the stacked dialog lying over it.
+          // What lies on top at the Close button's centre must not be the
+          // stacked memory PANEL. (Its transparent full-screen backdrop is
+          // above everything by design: a click there closes the memory
+          // picker, the modal contract. The defect is the panel itself
+          // painting over the host's header.)
           const hit = document.elementFromPoint(c.left + c.width / 2, c.top + c.height / 2);
           return {
             headerBottom: Math.max(c.bottom, h.bottom),
             memoryTop: m.top, memoryBottom: m.bottom, memoryLeft: m.left, memoryRight: m.right,
-            closeHit: close === hit || close.contains(hit),
+            closeVisible: !memory.contains(hit),
             viewport: { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight },
             // The memory picker's own rows must still be usable, not squeezed out.
             memoryRows: memory.querySelectorAll('tbody tr').length,
@@ -77,7 +80,7 @@ try {
         const got = await measure();
         assert.ok(!got.missing, `${label}: both dialogs must be open, got ${JSON.stringify(got.missing)}`);
         assert.ok(got.memoryTop >= got.headerBottom, `${label}: the memory dialog (top ${got.memoryTop}) covers the node dialog's header (bottom ${got.headerBottom})`);
-        assert.equal(got.closeHit, true, `${label}: the node dialog's Close is covered`);
+        assert.equal(got.closeVisible, true, `${label}: the memory panel paints over the node dialog's Close`);
         assert.ok(got.memoryBottom <= got.viewport.h, `${label}: the memory dialog runs off the bottom (${got.memoryBottom} > ${got.viewport.h})`);
         assert.ok(got.memoryLeft >= 0 && got.memoryRight <= got.viewport.w, `${label}: the memory dialog runs off the side`);
         assert.ok(got.memoryRows >= 1, `${label}: the memory list must still show rows`);
@@ -86,6 +89,24 @@ try {
         await page.close();
       }
     }
+  }
+  // A resize while stacked: small to large moves the host header DOWN (its
+  // top padding is 8vh), so a measurement taken once at open goes stale and
+  // the memory panel would sit over the header again.
+  {
+    const page = await browser.newPage({ viewport: { width: 375, height: 667 } });
+    await mountView(page, origin, css, 'stacked');
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.waitForTimeout(50);
+    const got = await page.evaluate(() => {
+      const node = document.querySelector('[role="dialog"][aria-label="Choose a node"]');
+      const memory = document.querySelector('[role="dialog"][aria-label="Choose a memory"]');
+      const close = [...node.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Close');
+      return { headerBottom: Math.max(close.getBoundingClientRect().bottom, node.querySelector('h2').getBoundingClientRect().bottom), memoryTop: memory.getBoundingClientRect().top };
+    });
+    assert.ok(got.memoryTop >= got.headerBottom, `resize 375x667 -> 1440x900: the memory dialog (top ${got.memoryTop}) covers the header (bottom ${got.headerBottom})`);
+    console.log(JSON.stringify({ resize: '375x667->1440x900', ...got }));
+    await page.close();
   }
   console.log('stacked memory picker: clear of the node dialog header at every viewport, light and dark');
 } finally {

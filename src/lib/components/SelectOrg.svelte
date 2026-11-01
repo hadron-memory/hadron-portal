@@ -5,6 +5,7 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { untrack } from 'svelte';
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
+  import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
   import type { OrgSummary } from '$lib/types';
@@ -107,8 +108,12 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]" onclick={() => { open = false; }}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- #1589: announced as a modal dialog layer, named like the rest of the Select family. -->
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('select-org.title', 'Choose an organization')}
+      tabindex="-1"
       class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
