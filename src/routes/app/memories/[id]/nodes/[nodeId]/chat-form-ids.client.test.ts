@@ -529,4 +529,147 @@ describe('#1522 chat send form identity', () => {
     expect(reSeeded!.value).toBe('');
     expect(second.target.querySelector('[role="alert"]')).toBeNull();
   });
+
+  // Gaia's LOCAL P2: the {#key} remount guard is load-bearing on a
+  // SAME-INSTANCE data swap — the real shape of a same-route A→B hop, where
+  // the page component persists and only its data changes. The HandoffHost
+  // legs above mount two instances, which the key never has to survive; these
+  // legs keep ONE page alive and swap its data. Without the key ChatThread
+  // persists holding A's form identity: A's half-written draft stays in the
+  // composer against node B, and B's own refused send banners nowhere (its
+  // result comes back under B's id, which the stale live form does not hold).
+  // Both surfaces get the pin — each has its own key, and each was green with
+  // its key removed before this leg existed.
+  const nodeB = () => {
+    // A postable chat at a DIFFERENT node: the `team-chat` tag routes it
+    // through the legacy post target (the canonical `chats:team` loc IS the
+    // identity, a second node cannot share it).
+    return { ...teamChatNode(), id: 'chat-pk-2', loc: 'chats:team-2', name: 'team 2', tags: ['team-chat'] };
+  };
+
+  async function loadChatPageData(nodeId: string) {
+    return (await loadChat({
+      params: { id: MEM, nodeId },
+      locals: { token: 'tok' },
+      url: new URL(`http://localhost/app/memories/${MEM}/nodes/${nodeId}/chat`),
+      parent: vi.fn().mockResolvedValue(PARENT),
+    } as never)) as Record<string, unknown>;
+  }
+
+  it('a same-route hop on ONE node page: the composer restarts from B, and B\'s own failure still banners', async () => {
+    const a = teamChatNode();
+    const b = nodeB();
+    serveNode(a, b);
+    const aData = await loadNodePage(a, new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`));
+    const bData = await loadNodePage(b, new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk-2`));
+    const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...aData }, form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick();
+    flushSync();
+    await tick();
+
+    // A draft half-written on A…
+    const area = m.target.querySelector<HTMLTextAreaElement>('textarea[name="content"]');
+    expect(area).not.toBeNull();
+    area!.value = 'written for A';
+    area!.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    flushSync();
+
+    // …then the same-route hop: ONE component, new data. The key must
+    // remount ChatThread — the composer restarts from B's fresh form, not
+    // from A's live one. Without the key this holds 'written for A'.
+    props.data = { ...PARENT, ...bData };
+    await tick();
+    flushSync();
+    await tick();
+    const afterHop = m.target.querySelector<HTMLTextAreaElement>('textarea[name="content"]');
+    expect(afterHop).not.toBeNull();
+    expect(afterHop!.value).toBe('');
+
+    // And B's OWN refused send must banner on B's page: the remounted form
+    // holds B's id, so B's result reaches it. Without the key the stale
+    // A-id form never matches it and the failure is silent.
+    const composer = m.target.querySelector<HTMLFormElement>('form[action="?/sendChatMessage"]');
+    expect(composer).not.toBeNull();
+    const deliver = await beginEnhanced(composer!);
+    const result = {
+      type: 'failure' as const,
+      status: 500,
+      data: {
+        form: {
+          id: (bData.sendChatMessageForm as { id: string }).id,
+          valid: false,
+          posted: true,
+          errors: {},
+          data: { _kind: 'sendChatMessage', content: 'refused on B' },
+          message: { type: 'error', text: 'Failed to send message' },
+        },
+      },
+    };
+    await deliver(result);
+    props.form = result.data;
+    await tick();
+    flushSync();
+    await tick();
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Failed to send message');
+  });
+
+  // The chat page's own key, same probe — and Gil's BLIND P3 in the same
+  // leg: the standalone page had no own-failure reporting pin at all. After
+  // the hop the remounted form holds B's sendMessage id; B's own refusal
+  // banners on the page a reader is actually looking at.
+  it('a same-route hop on ONE standalone chat page: the composer restarts from B, and B\'s own failure still banners', async () => {
+    const a = teamChatNode();
+    const b = nodeB();
+    serveNode(a, b);
+    const aData = await loadChatPageData('chat-pk');
+    const bData = await loadChatPageData('chat-pk-2');
+    const props = reactiveProps<Record<string, unknown>>({ data: { ...PARENT, ...aData }, form: null });
+    const m = mountComponent(ChatPage as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick();
+    flushSync();
+    await tick();
+
+    const area = m.target.querySelector<HTMLTextAreaElement>('textarea[name="content"]');
+    expect(area).not.toBeNull();
+    area!.value = 'written for A';
+    area!.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    flushSync();
+
+    props.data = { ...PARENT, ...bData };
+    await tick();
+    flushSync();
+    await tick();
+    const afterHop = m.target.querySelector<HTMLTextAreaElement>('textarea[name="content"]');
+    expect(afterHop).not.toBeNull();
+    expect(afterHop!.value).toBe('');
+
+    const composer = m.target.querySelector<HTMLFormElement>('form[action="?/sendMessage"]');
+    expect(composer).not.toBeNull();
+    const deliver = await beginEnhanced(composer!);
+    const result = {
+      type: 'failure' as const,
+      status: 500,
+      data: {
+        form: {
+          id: (bData.form as { id: string }).id,
+          valid: false,
+          posted: true,
+          errors: {},
+          data: { _kind: 'sendChatMessage', content: 'refused on B' },
+          message: { type: 'error', text: 'Failed to send message' },
+        },
+      },
+    };
+    await deliver(result);
+    props.form = result.data;
+    await tick();
+    flushSync();
+    await tick();
+    expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Failed to send message');
+  });
 });
