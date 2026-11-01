@@ -164,3 +164,52 @@ describe.each(cases)('$name email form: controls that already worked stay unchan
     expect(alerts(root).filter((a) => a === c.failureText)).toEqual([]);
   });
 });
+
+// portal#1532 item 2 (Gabriel P3 1): only a rejected fetch is a connection
+// problem. An edge page or kit's CSRF refusal answered, so the copy must not
+// send the reader off to check their connection.
+const NOT_CONNECTION = "Your sign-in link couldn't be sent. Try again in a moment, or continue with Google, Apple or GitHub.";
+describe('sign-in email form: the failure copy names a connection problem only for a rejected fetch (portal#1532)', () => {
+  it.each([
+    ['a rejected fetch', NON_RESULTS[1][1], ALL_PROVIDERS],
+    ['an HTML 403 from the edge', NON_RESULTS[0][1], NOT_CONNECTION],
+    ['the CSRF {message} 403', NON_RESULTS[2][1], NOT_CONNECTION],
+  ])('%s', async (_label, raw, expected) => {
+    const root = cases[0].mount();
+    const form = await readyForm(root);
+    await submitEnhancedWithRawResult(form, raw);
+    await tick(4);
+    expect(alerts(root)).toEqual([expected]);
+  });
+});
+
+// portal#1532 item 4 (Gabriel P3 4): the signed-in reader's Accept form had
+// superforms' default onError, which rethrows, so the same non-results left the
+// button idle and nothing on screen.
+describe('invite accept form: a submit with no ActionResult (portal#1532)', () => {
+  const ACCEPT_FAILURE = "Your invitation couldn't be accepted. Try again in a moment.";
+  const ACCEPT_OFFLINE = "Your invitation couldn't be accepted. Check your connection and try again.";
+  const mountSignedIn = () =>
+    mountPage(Invite, {
+      invitation: { organization: { name: 'Acme' }, sender: null, memberRole: 'MEMBER', activationCount: 0 },
+      isSignedIn: true,
+      slug: 'inv-1',
+      acceptForm: defaults(zod4(acceptInvitationSchema)),
+      form: inviteForm(),
+    });
+
+  it.each([
+    ['an HTML 403 from the edge', NON_RESULTS[0][1], ACCEPT_FAILURE],
+    ['a rejected fetch', NON_RESULTS[1][1], ACCEPT_OFFLINE],
+    ['the CSRF {message} 403', NON_RESULTS[2][1], ACCEPT_FAILURE],
+  ])('%s shows one alert and the button is idle again', async (_label, raw, expected) => {
+    const root = mountSignedIn();
+    await tick(2);
+    const form = root.querySelector<HTMLFormElement>('form[action="?/accept"]')!;
+    await submitEnhancedWithRawResult(form, raw).catch(() => undefined);
+    await tick(4);
+    expect(alerts(root)).toEqual([expected]);
+    expect(submitButton(form).disabled).toBe(false);
+    expect(submitButton(form).textContent?.trim()).toBe('Accept invitation');
+  });
+});
