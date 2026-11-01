@@ -15,7 +15,8 @@
  * consumer's own `{#await}/{:catch}` still renders the failure copy.
  *
  * See
- * hrn:node:hadronmemory.com:hadron-portal:review:streamed-promise-passed-to-lazy-consumer-needs-page-level-catch.
+ * hrn:node:hadronmemory.com:hadron-portal:review:streamed-failure-is-a-value-not-a-rejection
+ * (this helper is the BELT; the fix is carrying failures as values).
  */
 export function markStreamHandled<T>(stream: Promise<T> | T): void {
   void Promise.resolve(stream).catch(() => {});

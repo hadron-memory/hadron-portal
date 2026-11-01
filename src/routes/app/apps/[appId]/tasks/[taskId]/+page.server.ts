@@ -31,6 +31,7 @@ import { resolveSegment } from '$lib/agent-tasks/handle';
 import { taskEditPatch } from '$lib/agent-tasks/edit';
 import { parseHandBack } from '$lib/agent-tasks/hand-back';
 import type { AgentTaskDetail } from '$lib/agent-tasks/types';
+import type { MemoriesRead } from '$lib/node-choices';
 import type { Actions, PageServerLoad } from './$types';
 
 // portal#1576 step 2: the NODE reference picker's memory rows (see the load).
@@ -96,15 +97,22 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // viewer's readable memories (server-scoped MEMORIES_QUERY, the #512
     // Move-dialog precedent), STREAMED so it never blocks the page. An
     // impersonation session writes nothing, so it reads no list either.
-    // portal#1585 (QA P2): a failed read must REJECT through to the editor's
-    // {:catch} (SelectNode's memoriesFailed stage says why) — resolving it to
-    // [] here made "the read failed" read as "you can read nothing".
+    // portal#1585 (QA P2): a failed read must reach the picker as a FAILURE,
+    // never as [] — an empty list made "the read failed" read as "you can
+    // read nothing".
+    // portal#1588 (QA F2): the failure streams as a VALUE ({kind:'failed'}),
+    // never a rejection — a rejecting stream fires an uncaught pageerror
+    // during kit's parse-time deserialization, before any component can
+    // attach. Warned server-side, the page still loads, the editor branches.
     nodeMemories: canWrite
-      ? fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').catch((e) => {
-          console.warn('[task-detail] node-picker memory list failed:', e);
-          throw e;
-        })
-      : Promise.resolve([] as PickMemory[]),
+      ? fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').then(
+          (memories): MemoriesRead => ({ kind: 'ok', value: memories }),
+          (e): MemoriesRead => {
+            console.warn('[task-detail] node-picker memory list failed:', e);
+            return { kind: 'failed' };
+          },
+        )
+      : Promise.resolve({ kind: 'ok', value: [] } as MemoriesRead),
     // tasks/new redirects here with ?created=1 (design §6).
     created: url.searchParams.get('created') === '1',
   };
