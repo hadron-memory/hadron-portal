@@ -283,7 +283,10 @@
     } catch {
       if (stillOurs()) contentSaveError = textSaveErrorText('failed', null, true);
     } finally {
-      if (seq === contentSaveSeq) saving = false;
+      if (seq === contentSaveSeq) {
+        saving = false;
+        if (showSource && stillOurs()) void restoreSaveFocus(() => contentSaveButton);
+      }
     }
   }
 
@@ -332,6 +335,18 @@
   // is the control that reopens the editor, so focus moves there.
   let contentSourceToggle = $state<HTMLButtonElement | null>(null);
   let abstractSourceToggle = $state<HTMLButtonElement | null>(null);
+  let contentSaveButton = $state<HTMLButtonElement | null>(null);
+  let abstractSaveButton = $state<HTMLButtonElement | null>(null);
+  // Save is disabled while a save is in flight, and a browser blurs a focused
+  // control the moment it is disabled, so a refused or failed save would leave
+  // focus on <body> (QA on #1563). Once Save is enabled again, take focus back
+  // unless the user has already moved it somewhere real.
+  async function restoreSaveFocus(button: () => HTMLButtonElement | null) {
+    await tick();
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    button()?.focus();
+  }
   // #936: what the abstract does for THIS memory's search, if anything.
   const abstractHint = $derived(abstractSearchHint(data.graph));
   let copiedAbstract = $state(false);
@@ -389,7 +404,10 @@
     } catch {
       if (stillOurs()) abstractSaveError = textSaveErrorText('failed', null, true);
     } finally {
-      if (seq === abstractSaveSeq) savingAbstract = false;
+      if (seq === abstractSaveSeq) {
+        savingAbstract = false;
+        if (showAbstractSource && stillOurs()) void restoreSaveFocus(() => abstractSaveButton);
+      }
     }
   }
 
@@ -3159,6 +3177,7 @@
               >{t('node.text.conflict.load-newer', 'Discard my edit and load the newer version')}</button>
             {/if}
             <button
+              bind:this={contentSaveButton}
               onclick={saveContent}
               disabled={readOnly || saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -3245,6 +3264,7 @@
                 >{t('node.text.conflict.load-newer', 'Discard my edit and load the newer version')}</button>
               {/if}
               <button
+                bind:this={abstractSaveButton}
                 onclick={saveAbstract}
                 disabled={readOnly || savingAbstract || !abstractDraft.dirty}
                 class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
