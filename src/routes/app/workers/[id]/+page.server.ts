@@ -174,8 +174,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
         .request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string; description: string | null; personaRole: string | null } }> } | null }>(APP_CASTABLE_AGENTS_QUERY, { ref: worker.app.id })
         .then((d) => castableAgentOptions((d.app?.appAgents ?? []).map((x) => x.agent)).filter((a) => a.id !== worker.agentId))
         .catch((e) => {
+          // Unavailable is not empty: null tells the control to say it could not load
+          // the roster, rather than guiding the manager to install an Agent.
           console.warn(`[worker-page] installed agents fetch failed for ${params.id}:`, e);
-          return [];
+          return null;
         })
     : [];
 

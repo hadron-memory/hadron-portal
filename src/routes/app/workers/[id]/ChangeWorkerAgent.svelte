@@ -10,7 +10,7 @@
 
   interface Option { id: string; name: string; urn: string; description?: string | null }
 
-  let { options, result, action = '?/changeWorkerAgent' }: { options: Option[]; result: ChangeAgentResult | null; action?: string } = $props();
+  let { options, result, action = '?/changeWorkerAgent' }: { options: Option[] | null; result: ChangeAgentResult | null; action?: string } = $props();
 
   let pickerOpen = $state(false);
   let pick = $state<Option | null>(null);
@@ -35,7 +35,20 @@
     <p>{t('worker.change-agent.stays', 'Its name, slug, URN, signature, trailer, reporting line and past records stay as they are. Past sessions keep the agent and role they ran under.')}</p>
   </div>
 
-  {#if options.length === 0}
+  <!-- The outcome outlives the roster: a refresh that empties or fails the option list must not hide it. -->
+  {#if result?.refusal}
+    <div role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300" data-testid="change-agent-refusal">
+      {result.refusal.message}
+    </div>
+  {:else if result?.ok}
+    <p role="status" class="text-sm text-green-700 dark:text-green-300" data-testid="change-agent-done">
+      {t('worker.change-agent.done', 'Agent changed to {agent}. It takes effect at this worker’s next bind.', { agent: result.agentName })}
+    </p>
+  {/if}
+
+  {#if options === null}
+    <p class="text-sm text-zinc-500" data-testid="change-agent-unavailable">{t('worker.change-agent.unavailable', 'We couldn’t load the agents installed in this App. Reload the page to try again.')}</p>
+  {:else if options.length === 0}
     <p class="text-sm text-zinc-500" data-testid="change-agent-none">{t('worker.change-agent.none', 'No other agent with a role is installed in this App. Install one first.')}</p>
   {:else}
     <form method="POST" {action} use:enhance={submit} class="space-y-3">
@@ -45,15 +58,6 @@
           <span class="font-medium text-zinc-900 dark:text-white">{pick.name}</span>
           <div class="mt-1"><Urn value={pick.urn} type="agent" size={8} /></div>
         </div>
-      {/if}
-      {#if result?.refusal}
-        <div role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300" data-testid="change-agent-refusal">
-          {result.refusal.message}
-        </div>
-      {:else if result?.ok}
-        <p role="status" class="text-sm text-green-700 dark:text-green-300" data-testid="change-agent-done">
-          {t('worker.change-agent.done', 'Changed. This worker now runs {agent}.', { agent: result.agentName })}
-        </p>
       {/if}
       <div class="flex flex-wrap items-center gap-2">
         <button type="button" onclick={() => (pickerOpen = true)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
