@@ -22,14 +22,16 @@ export const emailSignInStrings = {
       ? t('email-sign-in.submit-failure.with-providers', "Your sign-in link couldn't be sent. Try again in a moment, or continue with {providers}.", { providers })
       : t('email-sign-in.submit-failure', "Your sign-in link couldn't be sent. Try again in a moment.");
   },
-  /** Joins two or more provider names: "Google or GitHub", "Google, Apple or GitHub". */
-  providerList: (head: string, last: string): string => t('email-sign-in.provider-list', '{head} or {last}', { head, last }),
-
-  /** The signed-in invite Accept form's submit got no ActionResult (portal#1532 item 4). */
-  acceptFailure: (offline: boolean): string =>
-    offline
-      ? t('invite.accept.failure.offline', "Your invitation couldn't be accepted. Check your connection and try again.")
-      : t('invite.accept.failure', "Your invitation couldn't be accepted. Try again in a moment."),
+  /**
+   * Formats two or more provider names, the whole list: "Google or GitHub",
+   * "Google, Apple or GitHub". Both the separator and the final "or" are copy
+   * (portal#1536 item 6), so a locale can change either.
+   */
+  providerList: (names: readonly string[]): string =>
+    t('email-sign-in.provider-list', '{head} or {last}', {
+      head: names.slice(0, -1).join(t('email-sign-in.provider-list.separator', ', ')),
+      last: names[names.length - 1],
+    }),
 
   /** portal#1528: the bound fired; the send may still happen, so this never says it failed. */
   unconfirmed: (): string =>

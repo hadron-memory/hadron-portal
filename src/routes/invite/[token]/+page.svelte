@@ -1,7 +1,7 @@
 <script lang="ts">
   import TurnstileWidget from '$lib/components/TurnstileWidget.svelte';
-  import { emailSubmitFailure, submitFailure as submitFailureFor } from '$lib/forms/email-submit-failure.svelte';
-  import { emailSignInStrings } from '$lib/i18n/email-sign-in-strings';
+  import { emailSubmitFailure, submitFailure as submitFailureState } from '$lib/forms/email-submit-failure.svelte';
+  import { inviteStrings } from '$lib/i18n/invite-strings';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -32,7 +32,7 @@
 
   // portal#1532 item 4: superforms' default onError rethrows, which left a
   // failed Accept with nothing on screen; say so, as the email forms do.
-  const acceptFailure = submitFailureFor({ text: emailSignInStrings.acceptFailure });
+  const acceptFailure = submitFailureState({ text: inviteStrings.acceptFailure });
 
   const initialAcceptForm = untrack(() => submittedForm<AcceptInvitationForm>(form, 'acceptInvitation') as AcceptInvitationSuperform | null ?? data.acceptForm);
   const {
@@ -50,7 +50,7 @@
   });
 
   let turnstile: TurnstileWidget | undefined = $state();
-  const submitFailure = emailSubmitFailure({ providers: ['Google', 'GitHub'], resetCheck: () => turnstile?.reset() });
+  const emailFailure = emailSubmitFailure({ providers: ['Google', 'GitHub'], resetCheck: () => turnstile?.reset() });
 
   const initialEmailForm = untrack(() => submittedForm<InviteEmailForm>(form, 'sendEmail') as InviteEmailSuperform | null ?? data.form);
   const {
@@ -68,14 +68,14 @@
     clearOnSubmit: 'none',
     // #1470 + portal#1528: reset Turnstile after any submit, and SAY when the
     // submit failed before an ActionResult came back (edge page, network, CSRF).
-    onSubmit: submitFailure.onSubmit,
-    onUpdated: submitFailure.onUpdated,
-    onError: submitFailure.onError,
+    onSubmit: emailFailure.onSubmit,
+    onUpdated: emailFailure.onUpdated,
+    onError: emailFailure.onError,
   });
   const emailError = $derived($emailErrors.email?.[0] ?? null);
   const acceptActionError = $derived(acceptFailure.text ?? scopedActionError<AcceptInvitationForm>(form, 'acceptInvitation', $acceptMessage));
   const emailActionError = $derived(
-    submitFailure.text ?? scopedActionError<InviteEmailForm>(form, 'sendEmail', $emailMessage, $emailErrors, ['email']),
+    emailFailure.text ?? scopedActionError<InviteEmailForm>(form, 'sendEmail', $emailMessage, $emailErrors, ['email']),
   );
   const emailSentMessage = $derived(scopedActionSuccess<InviteEmailForm>(form, 'sendEmail', $emailMessage));
 </script>

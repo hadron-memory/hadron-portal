@@ -120,23 +120,27 @@ const alerts = (root: HTMLElement) => [...root.querySelectorAll('[role="alert"]'
 const submitButton = (form: HTMLFormElement) => form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
 
 /** What kit's enhance hands superforms when no ActionResult came back. */
-const NON_RESULTS: Array<[string, unknown]> = [
+// `offline` is the semantic expectation (portal#1536 item 3): only a rejected
+// fetch is a connection problem. Cases are looked up by name, never by position.
+const NON_RESULTS: Array<{ label: string; raw: unknown; offline: boolean }> = [
   // An edge HTML page (Cloudflare 403 challenge/block, 5xx, 524): deserialize throws.
-  ['an HTML 403 from the edge', { type: 'error', error: new SyntaxError("Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON") }],
+  { label: 'an HTML 403 from the edge', offline: false, raw: { type: 'error', error: new SyntaxError("Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON") } },
   // Offline, reset, DNS: the fetch itself rejects.
-  ['a rejected fetch', { type: 'error', error: new TypeError('Failed to fetch') }],
+  { label: 'a rejected fetch', offline: true, raw: { type: 'error', error: new TypeError('Failed to fetch') } },
   // Kit's own CSRF refusal answers an enhanced submit with JSON that has no `type`.
-  ['the CSRF {message} 403', { message: 'Cross-site POST form submissions are forbidden' }],
+  { label: 'the CSRF {message} 403', offline: false, raw: { message: 'Cross-site POST form submissions are forbidden' } },
 ];
+const nonResult = (label: string) => NON_RESULTS.find((n) => n.label === label)!;
+const REJECTED_FETCH = nonResult('a rejected fetch').raw;
 
 describe.each(cases)('$name email form: a submit with no ActionResult (portal#1528)', (c) => {
-  it.each(NON_RESULTS)('%s shows one alert saying the link was not sent, and the button is idle again', async (_label, raw) => {
+  it.each(NON_RESULTS)('$label shows one alert saying the link was not sent, and the button is idle again', async ({ raw, offline }) => {
     const root = c.mount();
     const form = await readyForm(root);
     const { cancelled } = await submitEnhancedWithRawResult(form, raw);
     expect(cancelled).toBe(false);
     await tick(4);
-    expect(alerts(root)).toEqual([raw === NON_RESULTS[1][1] ? c.failureText : c.answeredText]);
+    expect(alerts(root)).toEqual([offline ? c.failureText : c.answeredText]);
     expect(submitButton(form).disabled).toBe(false);
     expect(submitButton(form).textContent?.trim()).toBe(c.idleLabel);
   });
@@ -144,7 +148,7 @@ describe.each(cases)('$name email form: a submit with no ActionResult (portal#15
   it('a later submit clears the failure before its own answer is shown', async () => {
     const root = c.mount();
     const form = await readyForm(root);
-    await submitEnhancedWithRawResult(form, NON_RESULTS[1][1]);
+    await submitEnhancedWithRawResult(form, REJECTED_FETCH);
     await tick(4);
     expect(alerts(root)).toEqual([c.failureText]);
     const ok = { ...(c.name === 'invite' ? inviteForm() : authForm()), message: { type: 'error' as const, text: 'Too many sign-in attempts.' } };
@@ -180,11 +184,8 @@ describe.each(cases)('$name email form: controls that already worked stay unchan
 // send the reader off to check their connection.
 const NOT_CONNECTION = ALL_PROVIDERS_ANSWERED;
 describe('sign-in email form: the failure copy names a connection problem only for a rejected fetch (portal#1532)', () => {
-  it.each([
-    ['a rejected fetch', NON_RESULTS[1][1], ALL_PROVIDERS],
-    ['an HTML 403 from the edge', NON_RESULTS[0][1], NOT_CONNECTION],
-    ['the CSRF {message} 403', NON_RESULTS[2][1], NOT_CONNECTION],
-  ])('%s', async (_label, raw, expected) => {
+  it.each(NON_RESULTS)('$label', async ({ raw, offline }) => {
+    const expected = offline ? ALL_PROVIDERS : NOT_CONNECTION;
     const root = cases[0].mount();
     const form = await readyForm(root);
     await submitEnhancedWithRawResult(form, raw);
@@ -208,15 +209,14 @@ describe('invite accept form: a submit with no ActionResult (portal#1532)', () =
       form: inviteForm(),
     });
 
-  it.each([
-    ['an HTML 403 from the edge', NON_RESULTS[0][1], ACCEPT_FAILURE],
-    ['a rejected fetch', NON_RESULTS[1][1], ACCEPT_OFFLINE],
-    ['the CSRF {message} 403', NON_RESULTS[2][1], ACCEPT_FAILURE],
-  ])('%s shows one alert and the button is idle again', async (_label, raw, expected) => {
+  it.each(NON_RESULTS)('$label shows one alert and the button is idle again', async ({ raw, offline }) => {
+    const expected = offline ? ACCEPT_OFFLINE : ACCEPT_FAILURE;
     const root = mountSignedIn();
     await tick(2);
     const form = root.querySelector<HTMLFormElement>('form[action="?/accept"]')!;
-    await submitEnhancedWithRawResult(form, raw).catch(() => undefined);
+    // portal#1536 item 4: no `.catch`. A regression to superforms' rethrowing
+    // default onError would reject here and fail this test instead of hiding.
+    await expect(submitEnhancedWithRawResult(form, raw)).resolves.toEqual({ cancelled: false });
     await tick(4);
     expect(alerts(root)).toEqual([expected]);
     expect(submitButton(form).disabled).toBe(false);

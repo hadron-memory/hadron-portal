@@ -23,14 +23,17 @@ export type SignInProvider = 'Google' | 'Apple' | 'GitHub';
  * is a connection problem. An edge page or kit's CSRF refusal DID answer.
  */
 export function isOfflineFailure(event: unknown): boolean {
+  // portal#1536 item 1: kit's `deserialize` of a null JSON body also throws a
+  // TypeError and nothing tells it apart (fetch's message differs per engine);
+  // the trade-off is pinned in email-submit-failure.test.ts.
   const result = (event as { result?: { error?: unknown } } | null)?.result;
   return result?.error instanceof TypeError;
 }
 
 /** The alert copy; it names only the other sign-in methods this page offers. */
-export function emailSubmitFailureText(providers: readonly SignInProvider[], offline = true): string {
+export function emailSubmitFailureText(providers: readonly SignInProvider[], offline: boolean): string {
   const list =
-    providers.length === 0 ? null : providers.length === 1 ? providers[0] : emailSignInStrings.providerList(providers.slice(0, -1).join(', '), providers[providers.length - 1]);
+    providers.length === 0 ? null : providers.length === 1 ? providers[0] : emailSignInStrings.providerList(providers);
   return emailSignInStrings.submitFailure(offline, list);
 }
 
