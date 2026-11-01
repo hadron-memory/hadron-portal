@@ -1,6 +1,7 @@
 <script lang="ts">
   import TurnstileWidget from '$lib/components/TurnstileWidget.svelte';
-  import { emailSubmitFailure } from '$lib/forms/email-submit-failure.svelte';
+  import { emailSubmitFailure, submitFailure as submitFailureFor } from '$lib/forms/email-submit-failure.svelte';
+  import { emailSignInStrings } from '$lib/i18n/email-sign-in-strings';
   import GoogleLoginButton from '$lib/components/GoogleLoginButton.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -29,6 +30,10 @@
   const expired = $derived(inv?.expiresAt ? new Date(inv.expiresAt) < new Date() : false);
   const maxedOut = $derived(inv?.maxActivations ? inv.activationCount >= inv.maxActivations : false);
 
+  // portal#1532 item 4: superforms' default onError rethrows, which left a
+  // failed Accept with nothing on screen; say so, as the email forms do.
+  const acceptFailure = submitFailureFor({ text: emailSignInStrings.acceptFailure });
+
   const initialAcceptForm = untrack(() => submittedForm<AcceptInvitationForm>(form, 'acceptInvitation') as AcceptInvitationSuperform | null ?? data.acceptForm);
   const {
     message: acceptMessage,
@@ -40,6 +45,8 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
+    onSubmit: acceptFailure.onSubmit,
+    onError: acceptFailure.onError,
   });
 
   let turnstile: TurnstileWidget | undefined = $state();
@@ -66,7 +73,7 @@
     onError: submitFailure.onError,
   });
   const emailError = $derived($emailErrors.email?.[0] ?? null);
-  const acceptActionError = $derived(scopedActionError<AcceptInvitationForm>(form, 'acceptInvitation', $acceptMessage));
+  const acceptActionError = $derived(acceptFailure.text ?? scopedActionError<AcceptInvitationForm>(form, 'acceptInvitation', $acceptMessage));
   const emailActionError = $derived(
     submitFailure.text ?? scopedActionError<InviteEmailForm>(form, 'sendEmail', $emailMessage, $emailErrors, ['email']),
   );

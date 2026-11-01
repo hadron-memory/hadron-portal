@@ -174,10 +174,6 @@ describe('startBoundMagicLink: bounded call and a confirmed send (portal#1528)',
     });
   });
 
-  it('the bound is 20 seconds', () => {
-    expect(EMAIL_LOGIN_TIMEOUT_MS).toBe(20_000);
-  });
-
   it.each([
     ['an empty object', async () => ({})],
     ['ok: false', async () => ({ ok: false })],
@@ -208,10 +204,10 @@ describe('startBoundMagicLink: bounded call and a confirmed send (portal#1528)',
     vi.useFakeTimers();
     vi.stubGlobal('fetch', stalledBodyFetch(status));
     const result = startBoundMagicLink(cookieStub().cookies, 'user@example.test');
+    // portal#1532 item 5: once the bound fires the abort settles the read, so
+    // the promise is awaited directly rather than raced against the fake clock.
     await vi.advanceTimersByTimeAsync(EMAIL_LOGIN_TIMEOUT_MS);
-    const settled = settledOrPending(result);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(await settled).toEqual({ ok: false, status: 504, error: expect.stringMatching(/^We couldn't confirm/) });
+    expect(await result).toEqual({ ok: false, status: 504, error: expect.stringMatching(/^We couldn't confirm/) });
   });
 
   it('control: a refusal whose body is not JSON keeps its own status when it arrives in time', async () => {

@@ -49,12 +49,19 @@ const ALL_PROVIDERS =
   "Your sign-in link couldn't be sent. Check your connection and try again, or continue with Google, Apple or GitHub.";
 const INVITE_PROVIDERS =
   "Your sign-in link couldn't be sent. Check your connection and try again, or continue with Google or GitHub.";
+// portal#1532 item 2: an edge page or the CSRF 403 answered, so no connection hint.
+const ALL_PROVIDERS_ANSWERED =
+  "Your sign-in link couldn't be sent. Try again in a moment, or continue with Google, Apple or GitHub.";
+const INVITE_PROVIDERS_ANSWERED =
+  "Your sign-in link couldn't be sent. Try again in a moment, or continue with Google or GitHub.";
 
 type Case = {
   name: string;
   mount: () => HTMLElement;
   idleLabel: string;
   failureText: string;
+  /** The copy when something answered (an edge page, the CSRF 403), not a rejected fetch. */
+  answeredText: string;
   schema: typeof authEmailSchema | typeof inviteEmailSchema;
 };
 
@@ -71,6 +78,7 @@ const cases: Case[] = [
     mount: () => mountPage(SignIn, { form: authForm(), authFailed: false }),
     idleLabel: 'Continue with Email',
     failureText: ALL_PROVIDERS,
+    answeredText: ALL_PROVIDERS_ANSWERED,
     schema: authEmailSchema,
   },
   {
@@ -78,6 +86,7 @@ const cases: Case[] = [
     mount: () => mountPage(SignUp, { form: authForm() }),
     idleLabel: 'Continue with Email',
     failureText: ALL_PROVIDERS,
+    answeredText: ALL_PROVIDERS_ANSWERED,
     schema: authEmailSchema,
   },
   {
@@ -92,6 +101,7 @@ const cases: Case[] = [
       }),
     idleLabel: 'Continue with email',
     failureText: INVITE_PROVIDERS,
+    answeredText: INVITE_PROVIDERS_ANSWERED,
     schema: inviteEmailSchema,
   },
 ];
@@ -126,7 +136,7 @@ describe.each(cases)('$name email form: a submit with no ActionResult (portal#15
     const { cancelled } = await submitEnhancedWithRawResult(form, raw);
     expect(cancelled).toBe(false);
     await tick(4);
-    expect(alerts(root)).toEqual([c.failureText]);
+    expect(alerts(root)).toEqual([raw === NON_RESULTS[1][1] ? c.failureText : c.answeredText]);
     expect(submitButton(form).disabled).toBe(false);
     expect(submitButton(form).textContent?.trim()).toBe(c.idleLabel);
   });
@@ -162,5 +172,54 @@ describe.each(cases)('$name email form: controls that already worked stay unchan
     await tick(4);
     expect(root.textContent).toContain('Enter a valid email address.');
     expect(alerts(root).filter((a) => a === c.failureText)).toEqual([]);
+  });
+});
+
+// portal#1532 item 2 (Gabriel P3 1): only a rejected fetch is a connection
+// problem. An edge page or kit's CSRF refusal answered, so the copy must not
+// send the reader off to check their connection.
+const NOT_CONNECTION = ALL_PROVIDERS_ANSWERED;
+describe('sign-in email form: the failure copy names a connection problem only for a rejected fetch (portal#1532)', () => {
+  it.each([
+    ['a rejected fetch', NON_RESULTS[1][1], ALL_PROVIDERS],
+    ['an HTML 403 from the edge', NON_RESULTS[0][1], NOT_CONNECTION],
+    ['the CSRF {message} 403', NON_RESULTS[2][1], NOT_CONNECTION],
+  ])('%s', async (_label, raw, expected) => {
+    const root = cases[0].mount();
+    const form = await readyForm(root);
+    await submitEnhancedWithRawResult(form, raw);
+    await tick(4);
+    expect(alerts(root)).toEqual([expected]);
+  });
+});
+
+// portal#1532 item 4 (Gabriel P3 4): the signed-in reader's Accept form had
+// superforms' default onError, which rethrows, so the same non-results left the
+// button idle and nothing on screen.
+describe('invite accept form: a submit with no ActionResult (portal#1532)', () => {
+  const ACCEPT_FAILURE = "Your invitation couldn't be accepted. Try again in a moment.";
+  const ACCEPT_OFFLINE = "Your invitation couldn't be accepted. Check your connection and try again.";
+  const mountSignedIn = () =>
+    mountPage(Invite, {
+      invitation: { organization: { name: 'Acme' }, sender: null, memberRole: 'MEMBER', activationCount: 0 },
+      isSignedIn: true,
+      slug: 'inv-1',
+      acceptForm: defaults(zod4(acceptInvitationSchema)),
+      form: inviteForm(),
+    });
+
+  it.each([
+    ['an HTML 403 from the edge', NON_RESULTS[0][1], ACCEPT_FAILURE],
+    ['a rejected fetch', NON_RESULTS[1][1], ACCEPT_OFFLINE],
+    ['the CSRF {message} 403', NON_RESULTS[2][1], ACCEPT_FAILURE],
+  ])('%s shows one alert and the button is idle again', async (_label, raw, expected) => {
+    const root = mountSignedIn();
+    await tick(2);
+    const form = root.querySelector<HTMLFormElement>('form[action="?/accept"]')!;
+    await submitEnhancedWithRawResult(form, raw).catch(() => undefined);
+    await tick(4);
+    expect(alerts(root)).toEqual([expected]);
+    expect(submitButton(form).disabled).toBe(false);
+    expect(submitButton(form).textContent?.trim()).toBe('Accept invitation');
   });
 });

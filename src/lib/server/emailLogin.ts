@@ -2,6 +2,7 @@ import { env } from '$env/dynamic/private';
 import { randomBytes } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
 import type { ErrorStatus } from 'sveltekit-superforms';
+import { emailSignInStrings } from '$lib/i18n/email-sign-in-strings';
 import { BOT_CHECK_ERROR, TURNSTILE_FIELD, botCheckMessage } from '$lib/turnstile';
 
 /**
@@ -13,9 +14,6 @@ import { BOT_CHECK_ERROR, TURNSTILE_FIELD, botCheckMessage } from '$lib/turnstil
  */
 export const EMAIL_LOGIN_TIMEOUT_MS = 20_000;
 
-/** The send may still happen after we stop waiting, so this never says it failed. */
-export const EMAIL_LOGIN_UNCONFIRMED_MESSAGE =
-  "We couldn't confirm your sign-in link was sent. If it hasn't arrived in a minute, try again or use another sign-in method.";
 
 export function emailLoginErrorStatus(status: number): ErrorStatus {
   if (Number.isInteger(status) && status >= 400 && status <= 599) return status as ErrorStatus;
@@ -80,25 +78,25 @@ export async function startBoundMagicLink(
     if (!res.ok) {
       const data = (await res.json().catch(() => ({}))) as { error?: string; reason?: string };
       // As on the 2xx branch below: a body read that outlives the bound is unconfirmed.
-      if (timedOut) return { ok: false, status: 504, error: EMAIL_LOGIN_UNCONFIRMED_MESSAGE };
+      if (timedOut) return { ok: false, status: 504, error: emailSignInStrings.unconfirmed() };
       // #1470: a refused bot check carries a machine code, not something to show.
       if (data.error === BOT_CHECK_ERROR) {
         return { ok: false, status: res.status, error: botCheckMessage(data.reason) };
       }
-      return { ok: false, status: res.status, error: data.error ?? 'Failed to send email' };
+      return { ok: false, status: res.status, error: data.error ?? emailSignInStrings.failedToSend() };
     }
     // portal#1528: only hadron-server's own acknowledgement is a send. A 2xx
     // from anything else in the path (a proxy, a cached or HTML page) is not.
     const data = (await res.json().catch(() => null)) as { ok?: unknown } | null;
     if (data?.ok !== true) {
       // The body read itself can outlive the bound; that is still unconfirmed, not refused.
-      if (timedOut) return { ok: false, status: 504, error: EMAIL_LOGIN_UNCONFIRMED_MESSAGE };
-      return { ok: false, status: 502, error: 'Failed to send email' };
+      if (timedOut) return { ok: false, status: 504, error: emailSignInStrings.unconfirmed() };
+      return { ok: false, status: 502, error: emailSignInStrings.failedToSend() };
     }
     return { ok: true };
   } catch {
-    if (timedOut) return { ok: false, status: 504, error: EMAIL_LOGIN_UNCONFIRMED_MESSAGE };
-    return { ok: false, status: 502, error: 'Could not reach the server.' };
+    if (timedOut) return { ok: false, status: 504, error: emailSignInStrings.unconfirmed() };
+    return { ok: false, status: 502, error: emailSignInStrings.unreachable() };
   } finally {
     clearTimeout(timer);
   }
