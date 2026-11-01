@@ -59,6 +59,21 @@ describe('TaskReferencesEditor: a failed memories stream says so (#1585)', () =>
     expect(target.textContent).not.toContain('Pick which memory to search in first.'); // not an empty list
   });
 
+  it('the failed stage mounts exactly ONE dialog — SelectMemory must not open on top of the failure copy', async () => {
+    // #1588 LOCAL delta P2 (Gemma): the open effect auto-opened the nested
+    // memory picker even when memoriesFailed, so SelectMemory mounted over
+    // the failure copy showing its own 'No memories found.' — one Escape was
+    // needed before the real message was visible. The picker may not open a
+    // second dialog it knows cannot be used.
+    const { target } = mount(rejectMemories());
+    await tick(5);
+    await pickNodeKind(target);
+    chooseNode(target).click();
+    await tick(5);
+    expect(target.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+    expect(target.textContent).not.toContain('No memories found.');
+  });
+
   it('the degraded picker still closes normally', async () => {
     const { target } = mount(rejectMemories());
     await tick(5);
