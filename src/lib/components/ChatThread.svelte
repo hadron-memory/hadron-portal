@@ -9,7 +9,7 @@
   import Urn from '$lib/components/Urn.svelte';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { scopedActionError } from '$lib/forms/scoped-message';
-  import { submittedForm } from '$lib/forms/submitted-form';
+  import { failedSubmission } from '$lib/forms/submitted-form';
   import { sendChatMessageSchema } from '$lib/forms/chat-message-schema';
 
   type SendChatMessageForm = Infer<typeof sendChatMessageSchema, 'zod4'>;
@@ -117,8 +117,14 @@
   let hoveredMessageId = $state<string | null>(null);
   let isBrowser = $state(false);
 
+  // #1522 (r1's page-form-prop pin): seed from the parent's submitted action
+  // data only when that data is THIS surface+node's FAILED submission. Both
+  // chat send surfaces share the `_kind`, so `_kind` alone cannot tell whose
+  // result it is (the id gate); and a SUCCESSFUL submission holds the text
+  // just sent, which would re-fill the composer on every remount (#957 —
+  // `resetForm` then resets TO it). Falls back to the loader's fresh form.
   const initialSendForm = untrack(
-    () => (submittedForm<SendChatMessageForm>(form, 'sendChatMessage') as SendChatMessageSuperform | null) ?? sendForm,
+    () => failedSubmission<SendChatMessageForm>(form, 'sendChatMessage', sendForm.id) ?? sendForm,
   );
   const {
     form: sendFormData,

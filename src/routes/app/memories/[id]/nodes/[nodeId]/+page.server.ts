@@ -48,7 +48,7 @@ const REMOVALS_LIMIT = 100;
 import type { Actions, PageServerLoad } from './$types';
 import { loadSkillCheck } from '$lib/server/skill-check';
 import { nodeStorageSeed, noWriteDoor, runnableBlockedBy, updateStorage } from './storage-action';
-import { sendChatMessageSchema } from '$lib/forms/chat-message-schema';
+import { sendChatMessageFormId, sendChatMessageSchema } from '$lib/forms/chat-message-schema';
 import {
   nodeApproveSchema,
   nodeConvertToTaskSchema,
@@ -530,7 +530,16 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     superValidate<NodeUpdateEdgesForm>({
       edges: JSON.stringify(outgoingEdges),
     }, nodeUpdateEdgesFormAdapter, { errors: false }),
-    superValidate<SendChatMessageForm>({}, sendChatMessageFormAdapter, { errors: false }),
+    // #1522: node-scoped id (`bootStart:<agentId>` pattern) — the same schema
+    // also backs the standalone /chat page's composer, and both surfaces
+    // defaulting to the shape hash made the two ChatThreads share one Superforms
+    // id (duplicate-id warning, shared action data). Scoped to the node so a
+    // late result from ANOTHER node's composer can never be consumed by this
+    // one either; ChatThread is keyed by it and seeds only on an id match (see
+    // hrn:node:hadronmemory.com:hadron-portal:findings:superforms-teardown-clears-result-guards). The id helper is
+    // shared with the action — the two MUST agree, or results stop reaching
+    // the form with no error.
+    superValidate<SendChatMessageForm>({}, sendChatMessageFormAdapter, { errors: false, id: sendChatMessageFormId(params.nodeId) }),
     superValidate<NodeApproveForm>({ revision: node.revision }, nodeApproveFormAdapter, { errors: false, id: APPROVE_FORM_ID }),
     superValidate<NodeVerifyForm>({}, nodeVerifyFormAdapter, { errors: false, id: VERIFY_FORM_ID }),
   ]);
@@ -923,7 +932,12 @@ export const actions: Actions = {
   // (same schema, same `_kind`) and goes through the same team-chat module, so
   // a message sent from either surface lands identically.
   sendChatMessage: async ({ request, params, locals }) => {
-    const form = await superValidate<SendChatMessageForm>(await request.formData(), sendChatMessageFormAdapter);
+    // Same node-scoped id as the load above (#1522): the result — enhanced,
+    // no-JS, or a late answer — comes back under the id this node's live form
+    // holds, and no other form's.
+    const form = await superValidate<SendChatMessageForm>(await request.formData(), sendChatMessageFormAdapter, {
+      id: sendChatMessageFormId(params.nodeId),
+    });
     if (!form.valid) return fail(400, { form });
 
     const client = gqlClient(locals.token);

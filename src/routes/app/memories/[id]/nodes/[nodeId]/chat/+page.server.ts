@@ -10,7 +10,7 @@ import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { sendChatMessageSchema } from './schema';
+import { sendMessageFormId, sendChatMessageSchema } from './schema';
 
 const sendChatMessageFormAdapter = zod4(sendChatMessageSchema);
 
@@ -126,13 +126,25 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     // Same predicate the action re-derives from the node, so the composer is
     // shown exactly when a post would be accepted.
     canPost: chatPostTarget(node, evidence).kind !== 'none',
-    form: await superValidate({}, sendChatMessageFormAdapter, { errors: false }),
+    // #1522: this surface's OWN node-scoped id (`sendMessageFormId` — the
+    // `bootStart:<agentId>` pattern). The node page's Chat tab seeds the same
+    // schema with `sendChatMessageFormId`; both defaulting to the shape hash
+    // made the node page's Chat tab and this full-screen page share one
+    // Superforms id, so the "Full-screen chat"/"View node details" handoff
+    // warned about duplicate ids and both forms received the same action data.
+    // The id helper is shared with the action — the two MUST agree.
+    form: await superValidate({}, sendChatMessageFormAdapter, { errors: false, id: sendMessageFormId(params.nodeId) }),
   };
 };
 
 export const actions: Actions = {
   sendMessage: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), sendChatMessageFormAdapter);
+    // Same node-scoped id as the load above (#1522): the result — enhanced,
+    // no-JS, or a late answer — comes back under this surface's id, never the
+    // node page's.
+    const form = await superValidate(await request.formData(), sendChatMessageFormAdapter, {
+      id: sendMessageFormId(params.nodeId),
+    });
     if (!form.valid) return fail(400, { form });
 
     try {
