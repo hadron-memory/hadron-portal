@@ -3109,18 +3109,26 @@
     <!-- ═══ CHAT TAB ═══ -->
     {#if activeTab === 'chat'}
       <div class="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
-        <ChatThread
-          messages={chatMessages}
-          {basePath}
-          {form}
-          {memoryUrn}
-          sendForm={data.sendChatMessageForm}
-          action="?/sendChatMessage"
-          canPost={canPostChat}
-          hasOlder={data.chatHasOlder ?? false}
-          onLoadOlder={loadOlderChat}
-          heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
-        />
+        <!-- #1522: keyed by the send form's node-scoped id. A same-route hop to
+             another node keeps this component mounted, which would leave a
+             live superForm holding node A's id against node B's results (and
+             B's drafts in A's composer). The key remounts the thread when the
+             identity changes — the boot-prompt editor's pattern — so the form
+             instance, its id and the node always agree. -->
+        {#key data.sendChatMessageForm.id}
+          <ChatThread
+            messages={chatMessages}
+            {basePath}
+            {form}
+            {memoryUrn}
+            sendForm={data.sendChatMessageForm}
+            action="?/sendChatMessage"
+            canPost={canPostChat}
+            hasOlder={data.chatHasOlder ?? false}
+            onLoadOlder={loadOlderChat}
+            heightClass="h-[calc(100vh-24rem)] min-h-[24rem]"
+          />
+        {/key}
       </div>
     {/if}
 

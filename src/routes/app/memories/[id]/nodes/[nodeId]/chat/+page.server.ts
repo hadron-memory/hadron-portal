@@ -10,7 +10,7 @@ import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import type { MemoryNode } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { sendChatMessageSchema } from './schema';
+import { sendMessageFormId, sendChatMessageSchema } from './schema';
 
 const sendChatMessageFormAdapter = zod4(sendChatMessageSchema);
 
@@ -139,13 +139,24 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     // portal#1525: the header's Channel branch (caption, icon-only collapse,
     // per-message seq). `isTeamChannelChat` above is the one predicate.
     isTeamChannel,
-    form: await superValidate({}, sendChatMessageFormAdapter, { errors: false }),
+    // #1522: this surface's OWN node-scoped id (`sendMessageFormId` — the
+    // `bootStart:<agentId>` pattern), shared with the action below. The node
+    // page's Chat tab seeds the same schema with `sendChatMessageFormId`; both
+    // defaulting to the shape hash made the two surfaces share one Superforms
+    // id, so the "Full-screen chat"/"View node details" handoff warned about
+    // duplicate ids and both forms received the same action data.
+    form: await superValidate({}, sendChatMessageFormAdapter, { errors: false, id: sendMessageFormId(params.nodeId) }),
   };
 };
 
 export const actions: Actions = {
   sendMessage: async ({ request, params, locals }) => {
-    const form = await superValidate(await request.formData(), sendChatMessageFormAdapter);
+    // Same node-scoped id as the load above (#1522): the result — enhanced,
+    // no-JS, or a late answer — comes back under this surface's id, never the
+    // node page's.
+    const form = await superValidate(await request.formData(), sendChatMessageFormAdapter, {
+      id: sendMessageFormId(params.nodeId),
+    });
     if (!form.valid) return fail(400, { form });
 
     try {
