@@ -1065,8 +1065,11 @@ export const WORKER_QUERY = /* GraphQL */ `
       reportsToWorkerId
       reportsToRetired
       reportsTo { id name urn retiredAt }
-      # The resolved boot briefing (#737): the agent's template with
-      # {{name}}/{{role}} bound, plus any per-worker override. The most literal
+      # The worker's boot prompt (#737): the approved revision of the compiled
+      # boot prompt a bind of this worker is served, with the platform
+      # variables ({{worker.name}}, {{worker.role}}, …) filled
+      # (hrn:node:hadronmemory.com:specs:cor:agt:040:07,
+      # hrn:node:hadronmemory.com:specs:cor:dmo:150:08). The most literal
       # answer to "who is this" — it is the worker's operating instructions in
       # its own voice.
       #
