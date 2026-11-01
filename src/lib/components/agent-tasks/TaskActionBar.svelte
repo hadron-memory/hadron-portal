@@ -30,6 +30,7 @@
   import TaskEditFields from './TaskEditFields.svelte';
   import WriteRefusalAlert from './WriteRefusal.svelte';
   import TaskWarnings from './TaskWarnings.svelte';
+  import { HAND_BACK_CODES, HAND_BACK_TEXT_MAX } from '$lib/agent-tasks/hand-back';
   import { warningsBelow, type TaskWarning } from '$lib/agent-tasks/warnings';
 
   let {
@@ -41,6 +42,7 @@
     families = [],
     openChildren,
     created = false,
+    viewerId = null,
   }: {
     task: AgentTaskDetail;
     canWrite: boolean;
@@ -51,9 +53,11 @@
     families?: string[];
     openChildren: { count: number; capped: boolean; unknown?: boolean };
     created?: boolean;
+    /** portal#1571: the signed-in user's id; Hand back is offered only to the started task's own assignee. */
+    viewerId?: string | null;
   } = $props();
 
-  const actions = $derived(taskActions(task));
+  const actions = $derived(taskActions(task, viewerId));
   let open = $state<TaskAction | null>(null);
   let submitting = $state(false);
   let refusalState = $state<{ taskId: string; action: TaskAction; refusal: WriteRefusal; inPanel: boolean } | null>(null);
@@ -133,6 +137,8 @@
     switch (a) {
       case 'edit':
         return d.unchanged === true ? t('app.tasks.write.done.edit-unchanged', 'No changes to save.') : t('app.tasks.write.done.edit', 'Details saved.');
+      case 'handBack':
+        return t('app.tasks.write.done.hand-back', 'Handed back: it’s back in the queue.');
       case 'ready':
         return t('app.tasks.write.done.ready', 'Made ready: it’s now queued.');
       case 'park':
@@ -194,6 +200,9 @@
         if (a === 'edit' && r.kind === 'invalid') {
           await tick();
           document.getElementById(r.field === 'startBy' ? 'edit-start-by' : `edit-${r.field}`)?.focus();
+        } else if (a === 'handBack' && r.kind === 'invalid') {
+          await tick();
+          document.getElementById(r.field === 'text' ? 'hand-back-text' : 'hand-back-code')?.focus();
         } else if (r.kind === 'invalid' || (r.kind === 'refused' && r.code === 'TASK_ASSIGNEE_INVALID')) {
           await tick();
           document.getElementById('task-assignee')?.focus();
@@ -301,6 +310,54 @@
         <div class="flex flex-wrap items-center gap-3">
           <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
             {submitting ? t('app.tasks.write.assigning', 'Assigning…') : reassigning ? t('app.tasks.write.reassign.submit', 'Reassign') : t('app.tasks.write.assign.submit', 'Assign')}
+          </button>
+          <button type="button" onclick={closePanel} class="text-sm text-zinc-600 hover:underline dark:text-zinc-300">{t('app.tasks.write.close', 'Cancel')}</button>
+        </div>
+      </form>
+    {:else if open === 'handBack'}
+      {@const invalid = refusal && refusal.action === 'handBack' && refusal.refusal.kind === 'invalid' ? refusal.refusal : null}
+      <form
+        id="task-panel-handBack"
+        aria-labelledby="task-panel-handBack-title"
+        method="POST"
+        action="?/handBack"
+        use:enhance={submitter('handBack')}
+        class="w-full space-y-3 rounded-lg border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
+      >
+        <h3 id="task-panel-handBack-title" bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
+          {t('app.tasks.write.hand-back.title', 'Hand back “{title}”?', { title: task.title })}
+        </h3>
+        <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('app.tasks.write.hand-back.body', 'The task goes back to the queue with no assignee, and your reason is shown on it.')}</p>
+        <div>
+          <label for="hand-back-code" class="block text-sm font-medium text-zinc-800 dark:text-zinc-200">{t('app.tasks.write.hand-back.reason', 'Reason')}</label>
+          <select
+            id="hand-back-code"
+            name="code"
+            required
+            value={values.code ?? ''}
+            aria-invalid={invalid?.field === 'code' ? 'true' : undefined}
+            class="mt-1 block w-full max-w-xs rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
+          >
+            <option value="" disabled>{t('app.tasks.write.hand-back.choose', 'Choose a reason')}</option>
+            {#each HAND_BACK_CODES as c (c.code)}<option value={c.code}>{c.label}</option>{/each}
+          </select>
+        </div>
+        <div>
+          <label for="hand-back-text" class="block text-sm font-medium text-zinc-800 dark:text-zinc-200">{t('app.tasks.write.hand-back.text', 'More detail (optional)')}</label>
+          <textarea
+            id="hand-back-text"
+            name="text"
+            rows="3"
+            maxlength={HAND_BACK_TEXT_MAX}
+            value={values.text ?? ''}
+            aria-invalid={invalid?.field === 'text' ? 'true' : undefined}
+            class="mt-1 block w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"
+          ></textarea>
+        </div>
+        {#if invalid}<p role="alert" class="text-sm text-red-700 dark:text-red-300">{invalid.message}</p>{:else}{@render refusalFor('handBack', true)}{/if}
+        <div class="flex flex-wrap items-center gap-3">
+          <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+            {submitting ? t('app.tasks.write.handing-back', 'Handing back…') : t('app.tasks.write.hand-back.submit', 'Hand back')}
           </button>
           <button type="button" onclick={closePanel} class="text-sm text-zinc-600 hover:underline dark:text-zinc-300">{t('app.tasks.write.close', 'Cancel')}</button>
         </div>

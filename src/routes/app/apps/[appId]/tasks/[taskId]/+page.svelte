@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskHandBack from '$lib/components/agent-tasks/TaskHandBack.svelte';
   import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
   import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -121,6 +122,7 @@
           families={data.families}
           {openChildren}
           created={data.created}
+          viewerId={data.viewerId}
         />
       {/if}
     </div>
@@ -251,6 +253,8 @@
       </div>
     {/if}
   </section>
+
+  <TaskHandBack handBack={task.handBack} />
 
   <TaskProperties properties={task.properties} />
 

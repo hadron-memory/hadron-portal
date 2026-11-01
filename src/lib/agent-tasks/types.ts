@@ -36,6 +36,12 @@ export interface AgentTaskSessionEndRequest {
   resolvedAt: string | null;
 }
 
+export interface AgentTaskHandBack {
+  code: string;
+  text: string | null;
+  handedBackAt: string;
+}
+
 /** A board or tree row. */
 export interface AgentTaskRow {
   /** Missing data stays unknown; the blocked flag is never reconstructed from relations. */
@@ -73,6 +79,8 @@ export interface AgentTaskDetail extends AgentTaskRow {
   closeSessionWhenDone: boolean;
   result: AgentTaskResult | null;
   sessionEndRequest: AgentTaskSessionEndRequest | null;
+  /** portal#1571: the latest hand-back (hadron-server#2651); null when the task was never handed back. */
+  handBack?: AgentTaskHandBack | null;
   /**
    * portal#1340 (hadron-server#2420): the task's OWN optional JSON object, opaque to the platform.
    * Never inherited from a parent; null when unset. The detail query selects it, so it needs a server that has the field
