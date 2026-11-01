@@ -95,16 +95,32 @@
     ...relationView.value.blocks.items.map((item) => ({ ...item, direction: 'blocks' as const })),
   ] : []);
   const columns: PortalColumnDef<Relation>[] = [
-    { id: 'direction', accessorFn: (row) => row.direction === 'blockedBy' ? t('app.tasks.waits-for', 'Waits for') : t('app.tasks.holds-up', 'Holds up'), header: t('app.tasks.relation', 'Relation'), size: 120 },
+    { id: 'remove', header: t('app.tasks.actions', 'Actions'), enableSorting: false, enableGlobalFilter: false, enableHiding: false, enableResizing: false, size: 110 },
     { accessorKey: 'title', header: t('app.tasks.col.task', 'Task'), size: 240 },
+    { id: 'direction', accessorFn: (row) => row.direction === 'blockedBy' ? t('app.tasks.waits-for', 'Waits for') : t('app.tasks.holds-up', 'Holds up'), header: t('app.tasks.relation', 'Relation'), size: 120 },
     { accessorKey: 'handle', header: t('app.tasks.col.handle', 'Handle'), size: 150 },
     { id: 'status', accessorFn: (row) => taskChoiceStatus(row.status), header: t('app.tasks.col.status', 'Status'), size: 120 },
-    { id: 'remove', header: '', enableSorting: false, enableGlobalFilter: false, size: 90 },
   ];
+  // Keep the existing action visible at scroll zero, including when a saved
+  // arrangement predates this layout. Other column preferences still restore.
+  let columnOrder = $state<string[]>(['remove']);
+  let columnVisibility = $state<Record<string, boolean>>({ remove: true });
   const table = createSvelteTable<Relation>({
     get data() { return rows; }, columns,
-    state: { get globalFilter() { return relationFilter; } },
+    state: {
+      get globalFilter() { return relationFilter; },
+      get columnOrder() { return columnOrder; },
+      get columnVisibility() { return columnVisibility; },
+    },
     onGlobalFilterChange: (u) => { relationFilter = typeof u === 'function' ? u(relationFilter) : u; },
+    onColumnOrderChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnOrder) : updater;
+      columnOrder = ['remove', ...next.filter((id) => id !== 'remove')];
+    },
+    onColumnVisibilityChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnVisibility) : updater;
+      columnVisibility = { ...next, remove: true };
+    },
     initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
   });
   const submit: Parameters<typeof enhance>[1] = ({ cancel }) => {
@@ -149,7 +165,7 @@
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'title'}<a href="/app/apps/{appId}/tasks/{encodeURIComponent(row.id)}" class="text-indigo-700 underline dark:text-indigo-300">{row.title}</a>
         {:else if cell.column.id === 'remove'}
-          {#if canBlockers && row.direction === 'blockedBy'}<form method="POST" action="?/removeBlocker" use:enhance={submit}><input type="hidden" name="blockerTaskRef" value={row.id} /><button disabled={pending} class="rounded border px-2 py-1 text-sm disabled:opacity-50">{t('app.tasks.blocker.remove', 'Remove')}</button></form>{/if}
+          {#if canBlockers && row.direction === 'blockedBy'}<form method="POST" action="?/removeBlocker" use:enhance={submit}><input type="hidden" name="blockerTaskRef" value={row.id} /><button disabled={pending} aria-label={t('app.tasks.blocker.remove-label', 'Remove blocker {name}', { name: row.title?.trim() || row.handle || row.id })} class="rounded border px-2 py-1 text-sm disabled:opacity-50">{t('app.tasks.blocker.remove', 'Remove')}</button></form>{/if}
         {:else if cell.column.id === 'handle'}<TaskHandle handle={row.handle} />
         {:else}{String(cell.getValue() ?? '')}{/if}
       {/snippet}
