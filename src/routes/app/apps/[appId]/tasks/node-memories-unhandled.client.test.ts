@@ -1,19 +1,22 @@
 /**
- * portal#1588 QA F2 (Celine, delta at 4b3290f8) — a failed memories read
- * must not become an UNCAUGHT PAGE ERROR while no consumer has attached.
+ * portal#1588 QA F2 (Celine, deltas at 4b3290f8 and 3d2c9c546) — a failed
+ * memories read must not become an UNCAUGHT PAGE ERROR.
  *
- * The real window is the DETAIL page: the streamed `nodeMemories` promise
- * reaches its first consumer (the {#await} in TaskReferencesEditor) only
- * when the Edit-details panel opens (TaskActionBar -> TaskEditFields), so a
- * rejected read sat unhandled on a plain load — Celine measured one
- * `pageerror` per failure-path run in real Chromium (4/4; healthy path 0).
- * That window is structural, so this suite pins it red/green at the page
- * level. tasks/new mounts the editor with the form, so its hydration-gap
- * exposure needs a different shape: with canWrite false (an impersonation
- * session) the page renders the read-only notice and NO editor at all, so
- * only the page-level catch ever attaches — the jsdom-reproducible pin for
- * the same guard, plus the swallow direction (the catch must not hide the
- * rejection from the editor's own {:catch} copy when there is one).
+ * The definitive mechanism (3d2c9c546): a REJECTING streamed promise fires
+ * the pageerror during kit's parse-time stream deserialization — ~160ms
+ * after navigation, BEFORE any component lifecycle can attach a handler
+ * (neither the editor's {#await} nor the page-level markStreamHandled catch
+ * prevented it, 4/4 in real Chromium). So the loaders now carry a failed
+ * read as a VALUE (MemoriesRead {kind:'failed'}); nothing rejects on the
+ * wire at any timing, and these page-level pins hold that contract:
+ *
+ * - the failure VALUE renders the picker's failure copy through the whole
+ *   real page (the #1585 intent, unchanged);
+ * - a healthy read never shows it;
+ * - and the BELT: were a rejecting stream to reach the page anyway, the
+ *   page-level markStreamHandled guard keeps it from erroring — pinned in
+ *   both jsdom-reproducible shapes (detail page with the Edit panel closed;
+ *   tasks/new with canWrite false, where no editor mounts at all).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
@@ -39,6 +42,11 @@ const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizat
 // attached anywhere before the mount.
 const rejectMemories = () => Promise.reject(new Error('memories read failed'));
 
+// The loaders' contract since #1588 QA F2: failures arrive as VALUES.
+const failedRead = () => Promise.resolve({ kind: 'failed' } as const);
+const okRead = (memories: Array<{ id: string; name: string; urn: string }>) =>
+  Promise.resolve({ kind: 'ok', value: memories } as const);
+
 /** The editor's kind select sits among the page's other selects — target it by id (`{idPrefix}-ref-kind`). */
 async function pickNodeKind(target: HTMLElement, idPrefix: 'new' | 'edit') {
   const select = target.querySelector<HTMLSelectElement>(`#${idPrefix}-ref-kind`)!;
@@ -50,9 +58,9 @@ async function pickNodeKind(target: HTMLElement, idPrefix: 'new' | 'edit') {
 const button = (root: HTMLElement, text: string) =>
   [...root.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === text)!;
 
-describe('task detail: a failed memories stream never becomes an uncaught page error (#1588 QA F2)', () => {
+describe('task detail: the memories read never becomes an uncaught page error (#1588 QA F2)', () => {
   const holger = { id: 'u1', kind: 'USER' as const, name: 'Holger', urn: null };
-  const detailData = (nodeMemories: Promise<unknown[]> | unknown[]) => ({
+  const detailData = (nodeMemories: unknown) => ({
     app,
     canWrite: true,
     impersonating: null,
@@ -76,17 +84,18 @@ describe('task detail: a failed memories stream never becomes an uncaught page e
     nodeMemories,
   });
 
-  function mountDetail(nodeMemories: Promise<unknown[]> | unknown[]) {
+  function mountDetail(nodeMemories: unknown) {
     const m = mountComponent(DetailPage as never, { data: detailData(nodeMemories) } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     flushSync();
     return m.target as HTMLElement;
   }
 
-  it('a load over a rejected stream (edit panel closed) fires no unhandled rejection', async () => {
-    // Red without the page-level $effect: until Edit details opens, nothing
-    // on this page attaches to the promise, so the rejection is unhandled at
-    // the checkpoint — the pageerror Celine saw once per failure-path load.
+  it('belt: a load over a stream that rejects anyway (edit panel closed) fires no unhandled rejection', async () => {
+    // The loaders resolve failures as values now; this pins the page-level
+    // markStreamHandled guard against a rejecting stream arriving regardless.
+    // Red with that guard removed: until Edit details opens, nothing on this
+    // page attaches to the promise.
     const rejections = await captureUnhandledRejections(async () => {
       mountDetail(rejectMemories());
       await tick(5);
@@ -94,8 +103,8 @@ describe('task detail: a failed memories stream never becomes an uncaught page e
     expect(rejections).toEqual([]);
   });
 
-  it('opening Edit details still renders the failure copy — the page-level catch swallows nothing', async () => {
-    const target = mountDetail(rejectMemories());
+  it('opening Edit details over a failed read renders the failure copy — the VALUE reaches the picker', async () => {
+    const target = mountDetail(failedRead());
     await tick(5);
     button(target, 'Edit details').click();
     await tick(3);
@@ -105,17 +114,17 @@ describe('task detail: a failed memories stream never becomes an uncaught page e
     expect(target.textContent).toContain("Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.");
   });
 
-  it('a healthy stream stays clean too', async () => {
+  it('a healthy read stays clean too', async () => {
     const rejections = await captureUnhandledRejections(async () => {
-      mountDetail(Promise.resolve([{ id: 'm1', name: 'Alpha KB', urn: 'hrn:mem:acme.com:alpha' }]));
+      mountDetail(okRead([{ id: 'm1', name: 'Alpha KB', urn: 'hrn:mem:acme.com:alpha' }]));
       await tick(5);
     });
     expect(rejections).toEqual([]);
   });
 });
 
-describe('tasks/new: the page-level catch does not swallow the rejection (#1588 QA F2)', () => {
-  const newData = (nodeMemories: Promise<unknown[]> | unknown[], canWrite = true) => ({
+describe('tasks/new: a failed read is a value; the page-level guard is the belt (#1588 QA F2)', () => {
+  const newData = (nodeMemories: unknown, canWrite = true) => ({
     app,
     // canWrite true: the page renders the form with the editor to drive.
     // canWrite false (impersonation): the read-only notice and NO editor —
@@ -128,7 +137,7 @@ describe('tasks/new: the page-level catch does not swallow the rejection (#1588 
     nodeMemories,
   });
 
-  function mountNew(nodeMemories: Promise<unknown[]> | unknown[], canWrite = true) {
+  function mountNew(nodeMemories: unknown, canWrite = true) {
     const m = mountComponent(NewPage as never, { data: newData(nodeMemories, canWrite), form: null } as never) as Mounted<Record<string, unknown>>;
     mounted.push(m);
     flushSync();
@@ -146,8 +155,8 @@ describe('tasks/new: the page-level catch does not swallow the rejection (#1588 
     expect(rejections).toEqual([]);
   });
 
-  it('the editor still renders the failure copy from its own handler', async () => {
-    const target = mountNew(rejectMemories());
+  it('the editor renders the failure copy from the failed VALUE through the whole real page', async () => {
+    const target = mountNew(failedRead());
     await tick(5);
     await pickNodeKind(target, 'new');
     button(target, 'Choose a node…').click();
@@ -155,9 +164,9 @@ describe('tasks/new: the page-level catch does not swallow the rejection (#1588 
     expect(target.textContent).toContain("Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.");
   });
 
-  it('a healthy stream stays clean and never shows the failure copy', async () => {
+  it('a healthy read stays clean and never shows the failure copy', async () => {
     const rejections = await captureUnhandledRejections(async () => {
-      const target = mountNew(Promise.resolve([{ id: 'm1', name: 'Alpha KB', urn: 'hrn:mem:acme.com:alpha' }]));
+      const target = mountNew(okRead([{ id: 'm1', name: 'Alpha KB', urn: 'hrn:mem:acme.com:alpha' }]));
       await tick(5);
       await pickNodeKind(target, 'new');
       button(target, 'Choose a node…').click();

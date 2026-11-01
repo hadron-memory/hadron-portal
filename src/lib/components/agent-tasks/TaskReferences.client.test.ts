@@ -36,7 +36,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function openEdit(references: unknown[] = [], nodeMemories: unknown = [{ id: 'm1', name: 'Team KB', urn: 'hrn:mem:acme.com:team', visibility: null }]) {
+async function openEdit(references: unknown[] = [], nodeMemories: unknown = { kind: 'ok', value: [{ id: 'm1', name: 'Team KB', urn: 'hrn:mem:acme.com:team', visibility: null }] }) {
   const p = reactiveProps<Record<string, unknown>>({
     task: task(references), canWrite: true, impersonating: null, candidates: { workers: [], people: [] },
     roles: [], families: [], openChildren: { count: 0, capped: false }, appUrn: 'hrn:app:acme.com:team',
