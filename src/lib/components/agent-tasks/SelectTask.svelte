@@ -8,7 +8,9 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import type { TaskChoice, TaskRead } from '$lib/agent-tasks/types';
-  let { appId, open = $bindable(false), onselect }: { appId: string; open?: boolean; onselect: (task: TaskChoice) => void } = $props();
+  // portal#1575: `includeEnded` lists finished and cancelled tasks too (the reference picker only); every
+  // other caller keeps the open-tasks default.
+  let { appId, open = $bindable(false), onselect, includeEnded = false }: { appId: string; open?: boolean; onselect: (task: TaskChoice) => void; includeEnded?: boolean } = $props();
   let items = $state<TaskChoice[]>([]);
   let offset = $state(0);
   let hasMore = $state(true);
@@ -40,7 +42,7 @@
     pending = true; failed = false;
     if (exactRef) { exactDone = true; exactItems = []; }
     try {
-      const params = exactRef ? `exact=${encodeURIComponent(exactRef)}` : `offset=${offset}`;
+      const params = (exactRef ? `exact=${encodeURIComponent(exactRef)}` : `offset=${offset}`) + (includeEnded ? '&ended=1' : '');
       const response = await fetch(`/app/apps/${encodeURIComponent(targetApp)}/tasks/choices?${params}`);
       if (!response.ok) throw new Error('unavailable');
       const result: TaskRead<{ items: TaskChoice[]; hasMore: boolean }> = await response.json();
@@ -95,7 +97,7 @@
         {/snippet}
       </DataTable>
       {#if !exactDone && hasMore}<button type="button" disabled={pending} class="rounded border px-3 py-1 disabled:opacity-50" onclick={() => read()}>{t('app.tasks.picker.more', 'Load more tasks')}</button>{/if}
-      {#if !pending && !failed && !items.length && !exactDone}<p role="status">{t('app.tasks.picker.empty', 'No open tasks to choose from.')}</p>{/if}
+      {#if !pending && !failed && !items.length && !exactDone}<p role="status">{includeEnded ? t('app.tasks.picker.empty-any', 'No tasks to choose from.') : t('app.tasks.picker.empty', 'No open tasks to choose from.')}</p>{/if}
     </div>
   </div>
 {/if}

@@ -36,3 +36,29 @@ describe('task planning authorized reads', () => {
   });
 
 });
+
+// portal#1575 acceptance 4: the reference picker also lists ended tasks (a reference to a finished or
+// cancelled task is normal), through a named mode the server maps to its own status list. The default,
+// which the new-task parent and TaskPlanning use, is unchanged and pinned above.
+describe('taskChoices for a reference (portal#1575)', () => {
+  it('lists FINISHED and CANCELLED besides the open statuses, through the reference query', async () => {
+    const c = client({ agentTasks: [{ ...task, status: 'FINISHED' }, { ...task, id: 't2', status: 'CANCELLED' }] });
+    expect(await taskChoices(c.api, app, 0, undefined, { includeEnded: true })).toMatchObject({ kind: 'ok', value: { items: [{ status: 'FINISHED' }, { status: 'CANCELLED' }] } });
+    expect(c.request.mock.calls[0][0]).toMatch(/status: \[BACKLOG, PENDING, STARTED, FINISHED, CANCELLED\]/);
+    expect(c.request.mock.calls[0][1]).toEqual({ appRef: 'app', offset: 0 });
+  });
+  it('the default list query still names the open statuses only', async () => {
+    const c = client({ agentTasks: [] });
+    await taskChoices(c.api, app, 0);
+    expect(c.request.mock.calls[0][0]).toMatch(/status: \[BACKLOG, PENDING, STARTED\]/);
+  });
+  it.each(['FINISHED', 'CANCELLED'])('an exact lookup finds a %s task', async (status) => {
+    const c = client({ agentTask: { ...task, status } });
+    expect(await taskChoices(c.api, app, 0, 'AT1.2', { includeEnded: true })).toMatchObject({ kind: 'ok', value: { items: [{ status }] } });
+  });
+  it('an exact lookup still conceals a foreign task or AT0', async () => {
+    for (const agentTask of [{ ...task, appId: 'foreign', status: 'FINISHED' }, { ...task, handle: 'AT0', status: 'BACKLOG' }]) {
+      expect(await taskChoices(client({ agentTask }).api, app, 0, 'id', { includeEnded: true })).toEqual({ kind: 'ok', value: { items: [], hasMore: false } });
+    }
+  });
+});
