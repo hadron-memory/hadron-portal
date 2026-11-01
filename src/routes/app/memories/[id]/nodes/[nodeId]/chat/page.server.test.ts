@@ -153,6 +153,41 @@ describe('chat page load — fullUrn', () => {
     expect(data.chatApp).toBeNull();
     expect(data.chatApp).not.toBeUndefined();
   });
+
+describe('chat page load — team-Channel classification (portal#1525)', () => {
+  // A team Channel is positive canonical evidence only — `chatPostTarget`'s
+  // platform kind: nodeType `chat` + the canonical team loc + an App
+  // membership (Xylon's binding scope). Nothing about names or descriptions,
+  // and each missing leg flips the answer, because the same route renders
+  // agent chats that must keep today's wording.
+  it("marks the App's canonical team chat as a team channel", async () => {
+    const data = await loadWith(
+      'hrn:mem:acme.com:notes',
+      teamChat({ memory: { id: 'mem-1', appId: APP.id, app: APP } }),
+    );
+    expect(data.isTeamChannel).toBe(true);
+  });
+
+  it('a platform chat at another loc is not a team channel', async () => {
+    const data = await loadWith(
+      'hrn:mem:acme.com:notes',
+      teamChat({ loc: 'chats:design-review', memory: { id: 'mem-1', appId: APP.id, app: APP } }),
+    );
+    expect(data.isTeamChannel).toBe(false);
+  });
+
+  it('the canonical loc without an App membership is not a team channel', async () => {
+    // All three legs of the platform evidence are required; `teamChat()`'s
+    // default memory carries appId 'app-1', so this case strips it on purpose.
+    const data = await loadWith('hrn:mem:acme.com:notes', teamChat({ memory: { id: 'mem-1', appId: null } }));
+    expect(data.isTeamChannel).toBe(false);
+  });
+
+  it('a legacy team-chat-tagged thread is not a team channel', async () => {
+    const data = await loadWith('hrn:mem:acme.com:notes', legacyChat());
+    expect(data.isTeamChannel).toBe(false);
+  });
+});
 });
 
 describe('chat sendMessage action', () => {

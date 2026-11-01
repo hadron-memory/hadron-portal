@@ -69,6 +69,7 @@ async function runLoad(tab?: string) {
   return (await load(event)) as unknown as {
     isChat: boolean;
     canPostChat: boolean;
+    isTeamChannel: boolean;
     chatMessages: Array<{ id: string; content: string }> | null;
     initialTab: string | null;
   };
@@ -134,6 +135,32 @@ describe('node-detail load — Chat tab', () => {
     routeRequests();
     expect((await runLoad('content')).initialTab).toBe('content');
     expect((await runLoad()).initialTab).toBeNull();
+  });
+});
+
+describe('node-detail load — team-Channel classification (portal#1525)', () => {
+  // The entry button branches on this: a team Channel gets the icon-only
+  // full-screen entry, every other chat keeps the text button. The loader
+  // decides, from `chatPostTarget`'s platform kind alone — never a name
+  // heuristic (Xylon's binding scope on #1525).
+  it("marks the App's canonical team chat", async () => {
+    routeRequests();
+    expect((await runLoad()).isTeamChannel).toBe(true);
+  });
+
+  it('a platform chat at another loc is not one', async () => {
+    routeRequests({ node: nodeRow({ loc: 'chats:design-review' }) });
+    expect((await runLoad()).isTeamChannel).toBe(false);
+  });
+
+  it('a legacy team-chat-tagged thread is not one', async () => {
+    routeRequests({ node: nodeRow({ nodeType: 'info', loc: 'chats:standup', tags: ['team-chat'] }) });
+    expect((await runLoad()).isTeamChannel).toBe(false);
+  });
+
+  it('an ordinary node is not one', async () => {
+    routeRequests({ node: nodeRow({ nodeType: 'info', tags: [] }) });
+    expect((await runLoad()).isTeamChannel).toBe(false);
   });
 });
 
