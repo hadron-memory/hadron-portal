@@ -8,7 +8,7 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
   const direction = url.searchParams.get('direction');
   const rawOffset = url.searchParams.get('offset') ?? '0';
   const offset = Number(rawOffset);
-  if ((direction !== 'blockedBy' && direction !== 'blocks') || !/^\d+$/.test(rawOffset) || !Number.isSafeInteger(offset)) error(400, 'Invalid relation page');
+  if ((direction !== 'blockedBy' && direction !== 'blocks') || !/^\d+$/.test(rawOffset) || !Number.isSafeInteger(offset) || offset > 2147483647) error(400, 'Invalid relation page');
   const headers = { 'cache-control': 'no-store' };
   try {
     const client = gqlClient(locals.token);

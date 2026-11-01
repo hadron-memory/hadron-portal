@@ -51,7 +51,12 @@ export default defineConfig({
           exclude: ['**/node_modules/**', 'src/**/*.client.test.ts'],
           environment: 'node',
         },
-        resolve: { alias: { $lib } },
+        resolve: { alias: {
+          $lib,
+          // SSR task-page rendering now includes the native reload URL. Share
+          // the same page-store fixture as mounted tests, rather than per-test mocks.
+          '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+        } },
       },
       {
         plugins: [svelte()],

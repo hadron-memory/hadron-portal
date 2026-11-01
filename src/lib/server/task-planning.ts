@@ -38,10 +38,10 @@ export async function taskDependencies(client: GraphQLClient, appId: string, tas
 /** One provider page, not a whole-graph scan or a client-inferred count. */
 export async function taskDependencyPage(client: GraphQLClient, appId: string, taskId: string, direction: 'blockedBy' | 'blocks', offset: number): Promise<TaskRead<TaskDependencyPage>> {
   try {
-    type Response = { agentTask: { id: string; appId: string; blockedBy?: TaskDependencyPage; blocks?: TaskDependencyPage } | null };
+    type PageResponse = { agentTask: { id: string; appId: string; blockedBy?: TaskDependencyPage; blocks?: TaskDependencyPage } | null };
     const { agentTask } = direction === 'blockedBy'
-      ? await client.request<Response>(TASK_BLOCKED_BY_PAGE_QUERY, { id: taskId, offset })
-      : await client.request<Response>(TASK_BLOCKS_PAGE_QUERY, { id: taskId, offset });
+      ? await client.request<PageResponse>(TASK_BLOCKED_BY_PAGE_QUERY, { id: taskId, offset })
+      : await client.request<PageResponse>(TASK_BLOCKS_PAGE_QUERY, { id: taskId, offset });
     const page = agentTask?.[direction];
     if (!agentTask || agentTask.id !== taskId || agentTask.appId !== appId || !page || !Array.isArray(page.items) || typeof page.hasMore !== 'boolean' || page.items.length > 200 || page.items.some((task) => task.appId !== appId)) return { kind: 'failed' };
     return { kind: 'ok', value: page };

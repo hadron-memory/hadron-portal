@@ -43,7 +43,7 @@ describe('relation page endpoint and existing remove action', () => {
       expect(await (await GET(event(direction, '0'))).json()).toMatchObject({ kind: 'ok', value: { items: remaining.slice(0, 200), hasMore: true } });
     }
   });
-  it.each([['blocks','-1'],['blockedBy','1.5'],['bad','0'],['blocks','9007199254740992']])('rejects invalid page %s/%s before reading', async (direction, offset) => {
+  it.each([['blocks','-1'],['blockedBy','1.5'],['bad','0'],['blocks','9007199254740992'],['blocks','2147483648']])('rejects invalid page %s/%s before reading', async (direction, offset) => {
     await expect(GET(event(direction, offset))).rejects.toMatchObject({ status: 400 }); expect(request).not.toHaveBeenCalled();
   });
   it('keeps a failed query unknown without diagnostic disclosure', async () => {

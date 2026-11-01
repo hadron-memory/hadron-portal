@@ -2,6 +2,7 @@
   import { taskChoiceStatus } from '$lib/agent-tasks/planning';
   import TaskHandle from './TaskHandle.svelte';
   import { onDestroy, untrack } from 'svelte';
+  import { page } from '$app/stores';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { t } from '$lib/i18n/t';
@@ -39,9 +40,11 @@
   const canBlockers = $derived(canWrite && task.handle !== 'AT0' && ['BACKLOG', 'PENDING'].includes(task.status));
   type Relation = TaskChoice & { direction: 'blockedBy' | 'blocks' };
   type Direction = 'blockedBy' | 'blocks';
-  let relationView = $state(untrack(() => dependencies));
+  const directions: Direction[] = ['blockedBy', 'blocks'];
+  let loadedMore = $state(false);
+  let relationView = $state.raw(untrack(() => dependencies));
   let pagePending = $state({ blockedBy: false, blocks: false });
-  let pageFailed = $state({ blockedBy: false, blocks: false });
+  let pageFailed = $state<Record<Direction, 'failed' | 'shifted' | null>>({ blockedBy: null, blocks: null });
   let relationFilter = $state('');
   let relationGeneration = 0;
   let relationScope = untrack(() => `${appId}:${task.id}`);
@@ -54,18 +57,19 @@
     untrack(() => {
       relationGeneration++;
       relationView = scope !== relationScope && source === lastDependencies ? { kind: 'failed' } : source;
-      relationScope = scope; lastDependencies = source; relationFilter = '';
+      if (scope !== relationScope) relationFilter = '';
+      relationScope = scope; lastDependencies = source; loadedMore = false;
       pagePending = { blockedBy: false, blocks: false };
-      pageFailed = { blockedBy: false, blocks: false };
+      pageFailed = { blockedBy: null, blocks: null };
     });
   });
   async function loadMore(direction: Direction) {
-    if (pending || pagePending[direction] || relationView.kind !== 'ok' || !relationView.value[direction].hasMore) return;
+    if (pending || pagePending[direction] || pageFailed[direction] === 'shifted' || relationView.kind !== 'ok' || !relationView.value[direction].hasMore) return;
     const current = relationGeneration;
     const targetApp = appId;
     const targetTask = task.id;
     const offset = relationView.value[direction].items.length;
-    pagePending[direction] = true; pageFailed[direction] = false;
+    pagePending[direction] = true; pageFailed[direction] = null;
     try {
       const response = await fetch(`/app/apps/${encodeURIComponent(targetApp)}/tasks/${encodeURIComponent(targetTask)}/relations?direction=${direction}&offset=${offset}`);
       if (!response.ok) throw new Error('unavailable');
@@ -74,11 +78,16 @@
       if (relationView.kind !== 'ok' || result.kind !== 'ok' || !Array.isArray(result.value.items) || typeof result.value.hasMore !== 'boolean' || result.value.items.length > 200 || result.value.items.some((row) => row.appId !== targetApp)) throw new Error('unavailable');
       const page = result.value;
       const seen = new Set(relationView.value[direction].items.map((row) => row.id));
-      // Offset paging can shift under a concurrent edit. Keep the earlier view
-      // and ask for a reload rather than silently presenting an incomplete union.
-      if ((page.hasMore && page.items.length === 0) || page.items.some((row) => { if (seen.has(row.id)) return true; seen.add(row.id); return false; })) throw new Error('unavailable');
+      // Overlap reveals some concurrent edits; deletion can still skip rows under
+      // offset paging, so every multi-page view retains an explicit reload caveat.
+      if (page.hasMore && page.items.length === 0) throw new Error('unavailable');
+      if (page.items.some((row) => { if (seen.has(row.id)) return true; seen.add(row.id); return false; })) {
+        pageFailed[direction] = 'shifted';
+        return;
+      }
+      loadedMore = true;
       relationView = { kind: 'ok', value: { ...relationView.value, [direction]: { items: [...relationView.value[direction].items, ...page.items], hasMore: page.hasMore } } };
-    } catch { if (current === relationGeneration) pageFailed[direction] = true; }
+    } catch { if (current === relationGeneration) pageFailed[direction] = 'failed'; }
     finally { if (current === relationGeneration) pagePending[direction] = false; }
   }
   const rows = $derived<Relation[]>(relationView.kind === 'ok' ? [
@@ -145,14 +154,20 @@
         {:else}{String(cell.getValue() ?? '')}{/if}
       {/snippet}
     </DataTable>
-    <p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.dependencies.loaded-only', 'Search and table pages cover loaded relations only. Load more in each direction to see later relations.')}</p>
+    <p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.dependencies.loaded-only', 'Search and table pages cover loaded relations only.')}</p>
+    {#if directions.some((key) => relationView.kind === 'ok' && relationView.value[key].hasMore && pageFailed[key] !== 'shifted')}
+      <p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.dependencies.load-guidance', 'Load more in each direction to see later relations.')}</p>
+    {/if}
+    {#if loadedMore}
+      <p role="status" class="text-sm">{t('app.tasks.dependencies.concurrent', 'Relations can change while you load pages. Reload this view to check the latest relations.')} <a href={$page.url.pathname + $page.url.search} data-sveltekit-reload class="underline">{t('app.tasks.dependencies.reload-link', 'Reload this view')}</a></p>
+    {/if}
     <div class="flex flex-wrap gap-3">
-      {#each ['blockedBy', 'blocks'] as direction}
-        {@const key = direction as Direction}
+      {#each directions as key}
         <div class="space-y-1">
-          {#if relationView.value[key].hasMore}<button type="button" disabled={pending || pagePending[key]} onclick={() => loadMore(key)} class="rounded border px-3 py-1 text-sm disabled:opacity-50">{key === 'blockedBy' ? t('app.tasks.dependencies.more-waits', 'Load more Waits for') : t('app.tasks.dependencies.more-holds', 'Load more Holds up')}</button>{/if}
+          {#if relationView.value[key].hasMore && pageFailed[key] !== 'shifted'}<button type="button" disabled={pending || pagePending[key]} onclick={() => loadMore(key)} class="rounded border px-3 py-1 text-sm disabled:opacity-50">{key === 'blockedBy' ? t('app.tasks.dependencies.more-waits', 'Load more Waits for') : t('app.tasks.dependencies.more-holds', 'Load more Holds up')}</button>{/if}
           {#if pagePending[key]}<p role="status" class="text-sm">{key === 'blockedBy' ? t('app.tasks.dependencies.loading-waits', 'Loading Waits for…') : t('app.tasks.dependencies.loading-holds', 'Loading Holds up…')}</p>{/if}
-          {#if pageFailed[key]}<p role="alert" class="text-sm">{key === 'blockedBy' ? t('app.tasks.dependencies.failed-waits', 'Couldn’t load more Waits for. Try again.') : t('app.tasks.dependencies.failed-holds', 'Couldn’t load more Holds up. Try again.')} {t('app.tasks.dependencies.reload', 'Loaded rows are unchanged. Reload if the list changed.')}</p>{/if}
+          {#if pageFailed[key] === 'shifted'}<p role="alert" class="text-sm">{t('app.tasks.dependencies.shifted', 'Relations changed while loading. Reload this view before loading more.')} {t('app.tasks.dependencies.unchanged', 'Loaded rows are unchanged.')} <a href={$page.url.pathname + $page.url.search} data-sveltekit-reload class="underline">{t('app.tasks.dependencies.reload-link', 'Reload this view')}</a></p>
+          {:else if pageFailed[key] === 'failed'}<p role="alert" class="text-sm">{key === 'blockedBy' ? t('app.tasks.dependencies.failed-waits', 'Couldn’t load more Waits for. Try again.') : t('app.tasks.dependencies.failed-holds', 'Couldn’t load more Holds up. Try again.')} {t('app.tasks.dependencies.reload', 'Loaded rows are unchanged. Reload if the list changed.')}</p>{/if}
         </div>
       {/each}
     </div>
