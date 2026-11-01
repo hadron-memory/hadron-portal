@@ -1,27 +1,11 @@
-# portal#1525 browser-QA evidence — 2026-11-01
 
-Captured by: Gabriel (portal-engineer), worker `hrn:worker:hadronmemory.com:hadron-dev-team:gabriel`, model GLM/Z.ai (glm-5.3), via Playwright 1.58.2 / Chromium.
+## Fix head c87ff309 — 390px re-capture (UX P2), 2026-11-01
 
-Tested heads (frozen):
-- Portal: `be40963b` on `feature/1525-team-channel-fullscreen` (10 files, +487/−29; identical tree to `06013c06`, which carried the same change without the Worker trailer)
-- Backend: hadron-server `bc70cfa0c` (greta checkout, main)
+Uma's UX seat returned a required P2 at 390px: the header row never wrapped and the title block never shrank, so the URN chip's min-content width pushed Reload and Collapse past the viewport edge (both original 390px captures measured 494px document width for a 390px page). Fix commit `c87ff309` (row `flex-wrap` + gaps, title block `min-w-0` so the chip's own truncation engages, button group `shrink-0`, message column `min-w-0`).
 
-Synthetic stack scope:
-- Disposable PostgreSQL DB `hadron_gabriel_1525` on localhost, built from `prisma migrate deploy` + `pnpm db:seed` (fresh, no production data)
-- hadron-server dev on :4010 (`DEV_LOGIN_ENABLED=true`, loopback), portal dev on :5174 (worktree `.env` → `LOCAL_SERVER_URL=http://localhost:4010`)
-- Users: mike@mentor-co.test (Client Co OWNER), bob@acme-corp.test, alice@platform-co.test — all seed fixtures
-- Team Channel provisioned through the real posting flow (App page → Chats → Team chat → 2 posts → server allocated seqs 1 and 2)
+Re-run on the same synthetic stack (server `bc70cfa0c` on :4010 over `hadron_gabriel_1525`, portal worktree at `c87ff309` on :5174, dev login as the seed OWNER, Playwright/Chromium 390×844):
 
-Captures (all of the same team channel, `chats:team` in the Juno @ Client Co app's shared memory):
-1. `1-team-node-page-dark-1280.png` — node page, Chat tab, icon-only full-screen entry (aria-label "Open full-screen channel"), inline thread WITHOUT seqs
-2. `2-team-fullscreen-dark-1280.png` — full screen: caption "Juno @ Client Co - Team Channel", per-message #1/#2, icon-only Collapse, no "View node details", no App URN line
-3. `3-team-node-page-light-1280.png` — same as 1, light
-4. `4-team-fullscreen-light-1280.png` — same as 2, light
-5. `5-team-fullscreen-light-390.png` — 390px mobile, light
-6. `6-team-fullscreen-dark-390.png` — 390px mobile, dark
+- `7-team-fullscreen-light-390-fix.png` / `8-team-fullscreen-dark-390-fix.png` — the same team channel after the fix
+- 14/14 assertions PASS, zero console/page errors: document scrollWidth 390 == innerWidth 390 in both themes (was 494); Collapse box x=318 w=32, right edge 350 < 390 in both themes (was x≈383..494); rightmost message-bubble edge 350 (was clipped); caption present; `#1`/`#2` shown, no invented `#0`; no "View node details"; Collapse click lands on `?tab=chat`.
 
-Assertion log (17/17 PASS, zero console/page errors): qa3-team-assert.mjs — entry exists/aria-label/no-text-label/title-attr; URL route; document title; caption; no View-node-details; no App line; #1 and #2 shown; no invented #0; collapse exists/aria-label; breadcrumb "Channel"; collapse returns to `?tab=chat`; inline thread shows posted message.
-
-Missing states (recorded, not waived): the non-team (agent-chat) browser contrast could not be captured in this stack — the seeded AI service configs carry no API key, so the agent-chat composer renders its no-llm-config state and no non-team chat node is reachable through the UI. The non-team wording is covered by the branch's loader/SSR/client test matrix (chat/page.server.test.ts, team-channel-header.client.test.ts, fullscreen-entry.client.test.ts).
-
-Cleanup: the disposable DB and both dev servers are session-local and will be dropped/stopped after the QA seat; this branch is evidence-only and must never merge.
+Assertion script kept with the author (scratch, session-local). Branch is evidence-only and must never merge.
