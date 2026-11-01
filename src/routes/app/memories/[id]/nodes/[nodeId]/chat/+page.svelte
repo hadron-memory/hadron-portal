@@ -4,6 +4,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
   import Urn from '$lib/components/Urn.svelte';
+  import { Shrink } from 'lucide-svelte';
   import { t } from '$lib/i18n/t.js';
   import type { ActionData, PageData } from './$types';
 
@@ -13,6 +14,21 @@
   const messages = $derived(data?.messages ?? []);
   const basePath = $derived(data?.graph?.id ? `/app/memories/${data.graph.id}` : '');
   const memoriesHref = $derived(data?.org?.id ? `/app/orgs/${data.org.id}/memories` : undefined);
+
+  // portal#1525: a team CHANNEL reads as a Channel here — caption, icon-only
+  // collapse, per-message seq — while agent/other chats keep today's wording
+  // on the same route. The loader classified the node (`chatPostTarget`'s
+  // platform kind); `=== true` keeps a missing field meaning "not a team
+  // channel" for any stale payload.
+  const isTeamChannel = $derived(data?.isTeamChannel === true);
+  // The caption names what the reader is looking at. An undisclosed App name
+  // (chatApp null) degrades to the bare "Team Channel" — never an empty name
+  // with a dangling " - " (the same absent-not-empty rule as the App chip).
+  const caption = $derived(
+    data?.chatApp?.name
+      ? t('node.chat.team-channel-caption', '{app} - Team Channel', { app: data.chatApp.name })
+      : t('node.chat.team-channel-caption-unnamed', 'Team Channel'),
+  );
 
   // Build breadcrumb from node loc segments
   const breadcrumbItems = $derived.by(() => {
@@ -45,8 +61,9 @@
       href: `${basePath}/nodes/${node.id}`,
     });
 
-    // Add the chat view (not clickable)
-    items.push({ label: 'Chat' });
+    // Add the chat view (not clickable). portal#1525: a team channel is a
+    // Channel; agent/other chats keep "Chat".
+    items.push({ label: isTeamChannel ? 'Channel' : 'Chat' });
 
     return items;
   });
@@ -96,7 +113,9 @@
 </script>
 
 <svelte:head>
-  <title>{node.name} · Team Chat · Hadron</title>
+  <!-- portal#1525: the team channel's caption IS its name for a tab/title;
+       agent chats keep the node-name form they have always had. -->
+  <title>{isTeamChannel ? caption : `${node.name} · Team Chat`} · Hadron</title>
 </svelte:head>
 
 <div class="flex flex-col h-screen bg-white dark:bg-zinc-950">
@@ -107,13 +126,23 @@
       <div>
         <h1 class="text-2xl font-bold text-zinc-900 dark:text-white">{node.name}</h1>
         <Urn value={data.fullUrn} type="node" />
-        <!--
-          #489 part 4. Mirrors the node page's header deliberately: this is the
-          surface a reader STAYS on, and it is one click from there, so the App
-          reference must survive the hop. Same shape (name + URN + link) so the
-          two headers read as one place, not two.
-        -->
-        {#if data.chatApp}
+        {#if isTeamChannel}
+          <!--
+            portal#1525: the team channel's caption. It replaces the App name +
+            URN line this header used to carry (#489 part 4): on a Channel the
+            caption IS the App reference — "<App> - Team Channel" names both
+            halves of what the reader is looking at, so the separate line would
+            say the same thing twice. The App still has its own page; the node
+            page's inline header keeps the full name + URN reference.
+          -->
+          <p class="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">{caption}</p>
+        {:else if data.chatApp}
+          <!--
+            #489 part 4. Mirrors the node page's header deliberately: this is the
+            surface a reader STAYS on, and it is one click from there, so the App
+            reference must survive the hop. Same shape (name + URN + link) so the
+            two headers read as one place, not two.
+          -->
           <div class="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <span class="text-zinc-500 dark:text-zinc-400">{t('node.chat.app-label', 'App')}</span>
             <a
@@ -143,13 +172,30 @@
           {/if}
         </button>
         <!-- ?tab=content: the node page opens on its Chat tab for a chat node,
-             which would make this link look like a no-op. -->
-        <a
-          href="{basePath}/nodes/{node.id}?tab=content"
-          class="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
-        >
-          View node details →
-        </a>
+             which would make this link look like a no-op. portal#1525: a team
+             channel drops this control entirely — the Collapse button below is
+             the way back, and it returns to the INLINE view (the Chat tab the
+             entry opened from), not to node details. Agent/other chats keep
+             the link unchanged. -->
+        {#if !isTeamChannel}
+          <a
+            href="{basePath}/nodes/{node.id}?tab=content"
+            class="rounded-md bg-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+          >
+            View node details →
+          </a>
+        {:else}
+          <!-- Icon-only, so the accessible name IS the label: an aria-free icon
+               link is a mystery to a screen reader and a blank hit target. -->
+          <a
+            href="{basePath}/nodes/{node.id}?tab=chat"
+            aria-label={t('node.chat.collapse', 'Collapse to inline view')}
+            title={t('node.chat.collapse', 'Collapse to inline view')}
+            class="rounded-md bg-gray-200 p-2 text-gray-700 hover:bg-gray-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
+          >
+            <Shrink class="h-4 w-4" aria-hidden="true" />
+          </a>
+        {/if}
       </div>
     </div>
   </div>
@@ -164,5 +210,6 @@
     canPost={data.canPost}
     hasOlder={data.hasOlder ?? false}
     onLoadOlder={loadOlderChat}
+    showSeq={isTeamChannel}
   />
 </div>

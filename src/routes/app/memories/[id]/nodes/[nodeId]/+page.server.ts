@@ -445,7 +445,14 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // input the action re-derives it from), not from the parent layout's memory —
   // a partial/streamed layout must not be able to hide a composer the action
   // would happily accept, or offer one it would reject.
-  const canPostChat = chatPostTarget(node, chatEvidence).kind !== 'none';
+  const chatTarget = chatPostTarget(node, chatEvidence);
+  const canPostChat = chatTarget.kind !== 'none';
+  // portal#1525: is this the App's team CHANNEL? The entry button branches on
+  // it (icon-only full-screen entry vs the text button every other chat
+  // keeps). `chatPostTarget`'s platform kind is the one canonical answer —
+  // nodeType `chat` + the canonical team loc + an App membership — so the
+  // button can never disagree with where a post would land.
+  const isTeamChannel = chatTarget.kind === 'platform';
   // #793: a bounded WINDOW (the newest CHAT_PAGE_SIZE), not the whole thread.
   // The page also carries `hasOlder` so the Chat tab can offer scrollback
   // instead of silently presenting a window as the complete transcript.
@@ -562,6 +569,8 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     chatHasOlder: chatMessages?.hasOlder ?? false,
     chatOffset: chatMessages?.offset ?? 0,
     canPostChat,
+    // portal#1525: the header's full-screen entry branch. See `chatTarget`.
+    isTeamChannel,
     sendChatMessageForm,
     // `?tab=` deep-links a specific tab (the page falls back to its own default
     // for an unknown value). Used by the full-screen chat's "View node details"

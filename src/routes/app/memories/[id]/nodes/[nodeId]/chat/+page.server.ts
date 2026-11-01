@@ -62,6 +62,14 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   }
 
+  // portal#1525: is this the App's team CHANNEL? Asked once, answered by the
+  // one canonical classifier — `chatPostTarget`'s platform kind is exactly the
+  // positive evidence the gate names (nodeType `chat` + the canonical team loc
+  // + an App membership), so the header branches on the same predicate the
+  // composer already trusts. Agent/other chats on this same route are NOT
+  // Channels and keep today's wording (Holger's portal#1482 ruling).
+  const chatTarget = chatPostTarget(node, evidence);
+
   // Non-fatal on error — an empty thread beats crashing the chat page.
   // #793: a bounded WINDOW (newest CHAT_PAGE_SIZE), not the whole thread.
   const page = await loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node) }).catch((err) => {
@@ -125,7 +133,11 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     chatApp: node.memory?.app ?? null,
     // Same predicate the action re-derives from the node, so the composer is
     // shown exactly when a post would be accepted.
-    canPost: chatPostTarget(node, evidence).kind !== 'none',
+    canPost: chatTarget.kind !== 'none',
+    // portal#1525: the header's Channel branch (caption, icon-only collapse,
+    // per-message seq). See `chatTarget` above for why this is the platform
+    // kind and nothing else.
+    isTeamChannel: chatTarget.kind === 'platform',
     form: await superValidate({}, sendChatMessageFormAdapter, { errors: false }),
   };
 };
