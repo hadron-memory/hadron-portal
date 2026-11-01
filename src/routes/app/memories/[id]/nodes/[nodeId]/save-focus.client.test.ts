@@ -72,7 +72,7 @@ async function mountPage(tab: 'content' | 'abstract') {
   if (!m.target.isConnected) document.body.appendChild(m.target);
   await tick();
   flushSync();
-  return m;
+  return Object.assign(m, { props });
 }
 
 const buttonNamed = (target: HTMLElement, label: string) =>
@@ -222,6 +222,46 @@ describe('a save does not steal focus the user moved meanwhile (#1563 BLIND)', (
       for (let i = 0; i < 10; i++) await tick();
       flushSync();
       expect(document.activeElement).toBe(elsewhere);
+    });
+  }
+});
+
+describe('a save finishing after the route moved to another node does not focus it (#1563 LOCAL)', () => {
+  for (const field of ['content', 'abstract'] as const) {
+    it(`${field}: node A's completed save leaves node B's Source toggle alone`, async () => {
+      const { target, props } = await mountPage(field);
+      let answer!: (r: { text: () => Promise<string> }) => void;
+      vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise((r) => (answer = r))));
+      buttonNamed(target, 'Source')!.click();
+      flushSync();
+      const area = target.querySelector<HTMLTextAreaElement>(field === 'content' ? 'textarea' : 'textarea[maxlength="2000"]')!;
+      area.value = `${field} edited`;
+      area.dispatchEvent(new Event('input', { bubbles: true }));
+      flushSync();
+      const save = buttonNamed(target, 'Save')!;
+      save.focus();
+      save.click();
+      flushSync();
+
+      // The moment A's editor unmounts (inside the render the save awaits), the
+      // reused route becomes node B, and navigation leaves focus on <body>.
+      const dataA = props.data as { node: Record<string, unknown> };
+      let moved = false;
+      const mo = new MutationObserver(() => {
+        if (moved || area.isConnected) return;
+        moved = true;
+        props.data = { ...dataA, node: { ...dataA.node, id: 'other-pk', loc: 'bar', name: 'Bar' } };
+        flushSync();
+        blurLikeABrowser();
+      });
+      mo.observe(target, { childList: true, subtree: true });
+      answer({ text: async () => JSON.stringify(SUCCESS) });
+      for (let i = 0; i < 10; i++) await tick();
+      flushSync();
+      mo.disconnect();
+
+      expect(moved).toBe(true);
+      expect(document.activeElement).toBe(document.body);
     });
   }
 });
