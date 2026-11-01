@@ -6,11 +6,13 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { t } from '$lib/i18n/t';
-import { SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
+import { APP_CASTABLE_AGENTS_QUERY, CHANGE_WORKER_AGENT_MUTATION, SET_WORKER_BOOT_PROMPT_MUTATION, TEAM_WORK_ITEMS_QUERY, UPDATE_WORKER_SIGNATURE_MUTATION, WORKER_BOOT_POINTER_QUERY, WORKER_QUERY, WORKER_SESSIONS_QUERY } from '$lib/server/queries';
 import { pointerAction, readPointer, selfCanManage } from '$lib/server/boot-prompt-pointer';
 import type { TeamWorkItem, Worker, WorkerSession } from '$lib/types';
 import { APPLY_AGENT_TICKER_TEMPLATES_MUTATION, loadAppTickerSettings, loadWakeSettings } from '$lib/server/tickers';
 import { applyRefusal } from '$lib/tickers/apply';
+import { changeAgentRefusal } from '$lib/workers/change-agent';
+import { castableAgentOptions } from '../../apps/[appId]/cast-agents';
 import type { Actions, PageServerLoad } from './$types';
 import { updateSignatureFormId, updateSignatureSchema } from './schema';
 
@@ -161,6 +163,24 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     internals ? selfCanManage(client, locals.user?.id, worker.app?.urn) : Promise.resolve(false),
   ]);
 
+  // portal#1538: the "Change agent" control. The server refuses an impersonation,
+  // a worker session, an App key and a run with FORBIDDEN (hrn:node:hadronmemory.com:specs:cor:dmo:050:11); the
+  // portal only hides what would be refused, and the server stays the authority.
+  // `selfCanManage` can answer true for an impersonating admin, so the
+  // impersonation is checked on its own and wins.
+  const canChangeAgent = canManageWorkerApp === true && !locals.impersonation && !!worker.app?.id;
+  const changeAgentOptions = canChangeAgent && worker.app?.id
+    ? await client
+        .request<{ app: { appAgents: Array<{ agent: { id: string; name: string; urn: string; description: string | null; personaRole: string | null } }> } | null }>(APP_CASTABLE_AGENTS_QUERY, { ref: worker.app.id })
+        .then((d) => castableAgentOptions((d.app?.appAgents ?? []).map((x) => x.agent)).filter((a) => a.id !== worker.agentId))
+        .catch((e) => {
+          // Unavailable is not empty: null tells the control to say it could not load
+          // the roster, rather than guiding the manager to install an Agent.
+          console.warn(`[worker-page] installed agents fetch failed for ${params.id}:`, e);
+          return null;
+        })
+    : [];
+
   // portal#1142 P4: seeded with the stored templates and, as bases, the same
   // values, so a save sends only what the reader changed. A masked (null) field
   // seeds as '': the page shows it as "not shown" (it reads worker.signature,
@@ -194,6 +214,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     wakeLoadedAt: new Date().toISOString(),
     bootPointer,
     canManageWorkerApp,
+    canChangeAgent,
+    changeAgentOptions,
+    // The key a change result carries (the action's own params.id; the route may spell the worker as its URN).
+    changeAgentKey: params.id,
     // The key a pointer result carries (the action's own params.id).
     bootPointerKey: params.id,
     // portal#1462: the same for an apply result. The route may spell the worker as its URN while
@@ -208,6 +232,28 @@ export const actions: Actions = {
   setBootPrompt: async ({ request, params, locals }) =>
     pointerAction(await request.formData(), 'app', params.id, (nodeRef) =>
       gqlClient(locals.token).request(SET_WORKER_BOOT_PROMPT_MUTATION, { workerRef: params.id, nodeRef })),
+
+  /**
+   * portal#1538 (hadron-server#2458 S4; hrn:node:hadronmemory.com:specs:cor:dmo:050:11) — change the Agent (and
+   * so the role) THIS worker runs. The worker is the route's, never a posted
+   * field; the Agent is the picker's id. The server decides who may. A refusal
+   * comes back keyed to this worker; a failure without a recognised code is
+   * outcome-unknown and is never retried.
+   */
+  changeWorkerAgent: async ({ request, params, locals }) => {
+    const agentId = String((await request.formData()).get('agentId') ?? '').trim();
+    if (!agentId) {
+      return fail(400, { changeAgent: { key: params.id, refusal: { code: null, outcomeUnknown: false, message: t('worker.change-agent.error.none', 'Choose the agent this worker should run.') } } });
+    }
+    try {
+      const r = await gqlClient(locals.token).request<{ changeWorkerAgent: { id: string; role: string | null; agent: { id: string; name: string } | null } }>(CHANGE_WORKER_AGENT_MUTATION, { workerRef: params.id, agentRef: agentId });
+      return { changeAgent: { key: params.id, ok: true as const, agentName: r.changeWorkerAgent.agent?.name ?? '', role: r.changeWorkerAgent.role ?? null } };
+    } catch (e: unknown) {
+      const { status, ...refusal } = changeAgentRefusal(extractGqlErrorCode(e));
+      if (refusal.outcomeUnknown) console.warn(`[worker-page] change agent for ${params.id} failed:`, e);
+      return fail(status, { changeAgent: { key: params.id, refusal } });
+    }
+  },
 
   /**
    * portal#1462 (hadron-server#2860) — apply the Agent's ticker templates to

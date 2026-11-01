@@ -12,6 +12,8 @@
   import type { ApplyResult } from '$lib/tickers/apply';
   import { workerOfPage } from '$lib/tickers/refresh-page';
   import WorkerSignatureSection from './WorkerSignatureSection.svelte';
+  import ChangeWorkerAgent from './ChangeWorkerAgent.svelte';
+  import { changeAgentResultFor, type ChangeAgentResult } from '$lib/workers/change-agent';
   import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
   import DOMPurify from 'dompurify';
   import { onMount, tick, untrack } from 'svelte';
@@ -419,6 +421,16 @@
         </div>
       {/if}
     </dl>
+
+    <!-- portal#1538: offered only to an App manager acting as themselves (the loader decides). -->
+    {#if data.canChangeAgent}
+      {#key data.worker.id}
+        <ChangeWorkerAgent
+          options={data.changeAgentOptions}
+          result={changeAgentResultFor((form as { changeAgent?: ChangeAgentResult } | null)?.changeAgent, data.changeAgentKey)}
+        />
+      {/key}
+    {/if}
 
     {#if isHeld(hold)}
       <!-- The consequence a reader cannot infer from "held": a name is a person's
