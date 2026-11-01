@@ -319,8 +319,9 @@
         <p id="new-source-help" class={helpClass}>{t('app.tasks.new.source.help', 'A link, a URN or a note on where this came from.')}</p>
       </div>
 
-      <!-- portal#1575: typed references; a refused submit hands the list back, so nothing added is lost. -->
-      <TaskReferencesEditor app={{ id: data.app.id, urn: data.app.urn ?? null }} initial={readReferences(v('references')) ?? []} idPrefix="new" invalid={fieldRefusal('references')} />
+      <!-- portal#1575: typed references; a refused submit hands the list back, so nothing added is lost.
+           #1576 step 2: NODE is picked with SelectNode over the streamed readable memories. -->
+      <TaskReferencesEditor app={{ id: data.app.id, urn: data.app.urn ?? null }} nodeMemories={data.nodeMemories} initial={readReferences(v('references')) ?? []} idPrefix="new" invalid={fieldRefusal('references')} />
 
       <div class="space-y-1">
         <label for="new-tags" class={labelClass}>{t('app.tasks.new.tags', 'Tags')}</label>

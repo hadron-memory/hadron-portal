@@ -123,6 +123,7 @@
           {openChildren}
           created={data.created}
           appUrn={data.app.urn}
+          nodeMemories={data.nodeMemories}
         />
       {/if}
     </div>

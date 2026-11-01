@@ -2,8 +2,10 @@ import { taskDependencies } from '$lib/server/task-planning';
 import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect, isHttpError } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
+import { fetchAllItems } from '$lib/server/paginate';
 import {
   AGENT_TASK_DETAIL_QUERY,
+  MEMORIES_QUERY,
   SET_AGENT_TASK_PRIORITY_MUTATION,
   ADD_AGENT_TASK_BLOCKER_MUTATION,
   REMOVE_AGENT_TASK_BLOCKER_MUTATION,
@@ -28,6 +30,9 @@ import { resolveSegment } from '$lib/agent-tasks/handle';
 import { taskEditPatch } from '$lib/agent-tasks/edit';
 import type { AgentTaskDetail } from '$lib/agent-tasks/types';
 import type { Actions, PageServerLoad } from './$types';
+
+// portal#1576 step 2: the NODE reference picker's memory rows (see the load).
+type PickMemory = { id: string; name: string; urn: string; visibility: string | null };
 
 /**
  * portal#1052 — one task: its facts, its subtask tree and its history
@@ -83,6 +88,16 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // portal#1357: the Edit details panel's requirement pickers.
     roles: candidates.roles,
     families: candidates.families,
+    // portal#1576 step 2: the NODE reference picker's memory stage — the
+    // viewer's readable memories (server-scoped MEMORIES_QUERY, the #512
+    // Move-dialog precedent), STREAMED so it never blocks the page. An
+    // impersonation session writes nothing, so it reads no list either.
+    nodeMemories: canWrite
+      ? fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').catch((e) => {
+          console.warn('[task-detail] node-picker memory list failed:', e);
+          return [] as PickMemory[];
+        })
+      : Promise.resolve([] as PickMemory[]),
     // tasks/new redirects here with ?created=1 (design §6).
     created: url.searchParams.get('created') === '1',
   };

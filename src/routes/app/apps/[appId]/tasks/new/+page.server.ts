@@ -1,7 +1,8 @@
 import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { CREATE_AGENT_TASK_MUTATION } from '$lib/server/queries';
+import { fetchAllItems } from '$lib/server/paginate';
+import { CREATE_AGENT_TASK_MUTATION, MEMORIES_QUERY } from '$lib/server/queries';
 import { loadTasksApp, loadWriteCandidates } from '$lib/server/agent-tasks';
 import {
   formValues,
@@ -29,6 +30,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   if (!app) throw error(404, 'App not found');
   const canWrite = !locals.impersonation;
   const c = canWrite ? await loadWriteCandidates(client, app.id) : { workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] };
+  // portal#1576 step 2: the NODE picker's memory stage — every memory the
+  // viewer can read (MEMORIES_QUERY is server-scoped to the caller, the #512
+  // Move-dialog precedent). STREAMED, not awaited: it never blocks the form;
+  // a failed read degrades to an empty picker.
+  type PickMemory = { id: string; name: string; urn: string; visibility: string | null };
+  const nodeMemories = fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').catch((e) => {
+    console.warn('[tasks-new] node-picker memory list failed:', e);
+    return [] as PickMemory[];
+  });
   return {
     app,
     canWrite,
@@ -36,6 +46,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     candidates: { workers: c.workers, people: c.people, peopleWithheld: c.peopleWithheld, peopleFailed: c.peopleFailed },
     roles: c.roles,
     families: c.families,
+    nodeMemories,
   };
 };
 

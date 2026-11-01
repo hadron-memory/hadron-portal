@@ -30,6 +30,7 @@
     families,
     invalid = null,
     appUrn = null,
+    nodeMemories = [],
   }: {
     task: AgentTaskDetail;
     workers: Array<{ id: string; name: string }>;
@@ -39,6 +40,8 @@
     invalid?: { field: string; message: string } | null;
     /** portal#1575: the App's server-supplied URN, which a picked TASK reference is built from. */
     appUrn?: string | null;
+    /** portal#1576 step 2: the NODE reference picker's memory stage (streamed). */
+    nodeMemories?: Promise<Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>> | Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>;
   } = $props();
 
   // Seeded once, on purpose: the panel is a draft, not a view of `task`.
@@ -133,7 +136,7 @@
   <p id="edit-tags-help" class={helpClass}>{t('app.tasks.edit.tags-help', 'Tags are replaced as shown: what you type here is the whole list.')}</p>
 </div>
 
-<TaskReferencesEditor app={{ id: seed.appId, urn: appUrn }} initial={baseRefs} idPrefix="edit" replaces invalid={fieldError('references')} />
+<TaskReferencesEditor app={{ id: seed.appId, urn: appUrn }} {nodeMemories} initial={baseRefs} idPrefix="edit" replaces invalid={fieldError('references')} />
 
 <div class="space-y-1">
   <label for="edit-start-by" class={labelClass}>{t('app.tasks.new.start-by', 'Start by')} <span class="font-normal text-zinc-500">({zoneLabel})</span></label>

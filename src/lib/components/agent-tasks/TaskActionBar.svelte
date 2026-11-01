@@ -42,6 +42,7 @@
     openChildren,
     created = false,
     appUrn = null,
+    nodeMemories = [],
   }: {
     task: AgentTaskDetail;
     canWrite: boolean;
@@ -54,6 +55,8 @@
     created?: boolean;
     /** portal#1575: the App's server-supplied URN, for a picked TASK reference in Edit details. */
     appUrn?: string | null;
+    /** portal#1576 step 2: the NODE reference picker's memory stage (streamed). */
+    nodeMemories?: Promise<Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>> | Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>;
   } = $props();
 
   const actions = $derived(taskActions(task));
@@ -320,7 +323,7 @@
         <h3 id="task-panel-edit-title" bind:this={panelHeading} tabindex="-1" class="text-sm font-semibold text-zinc-900 dark:text-white">
           {t('app.tasks.write.edit.title', 'Edit details')}
         </h3>
-        <TaskEditFields {task} workers={candidates.workers} {roles} {families} invalid={editInvalid} {appUrn} />
+        <TaskEditFields {task} workers={candidates.workers} {roles} {families} invalid={editInvalid} {appUrn} {nodeMemories} />
         {#if !editInvalid}{@render refusalFor('edit', true)}{/if}
         <div class="flex flex-wrap items-center gap-3">
           <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">

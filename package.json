@@ -13,6 +13,7 @@
     "test:node-phone-layout": "node scripts/test-node-phone-layout.mjs",
     "test:usage-toolbar-layout": "node scripts/test-usage-toolbar-layout.mjs",
     "test:tickers-layout": "node scripts/test-tickers-layout.mjs",
+    "test:select-node-layout": "node scripts/test-select-node-layout.mjs",
     "test:node-list-search": "node scripts/test-node-list-search.mjs",
     "test:watch": "vitest",
     "gql:validate": "node scripts/validate-graphql.mjs",
