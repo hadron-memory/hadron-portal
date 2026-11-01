@@ -32,6 +32,7 @@
   import TaskWarnings from './TaskWarnings.svelte';
   import { HAND_BACK_CODES } from '$lib/agent-tasks/hand-back';
   import { warningsBelow, type TaskWarning } from '$lib/agent-tasks/warnings';
+  import type { MemoriesRead } from '$lib/node-choices';
 
   let {
     task,
@@ -44,7 +45,7 @@
     created = false,
     viewerId = null,
     appUrn = null,
-    nodeMemories = [],
+    nodeMemories = { kind: 'ok', value: [] },
   }: {
     task: AgentTaskDetail;
     canWrite: boolean;
@@ -59,8 +60,8 @@
     viewerId?: string | null;
     /** portal#1575: the App's server-supplied URN, for a picked TASK reference in Edit details. */
     appUrn?: string | null;
-    /** portal#1576 step 2: the NODE reference picker's memory stage (streamed). */
-    nodeMemories?: Promise<Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>> | Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>;
+    /** portal#1576 step 2: the NODE reference picker's memory stage (streamed). #1588 QA F2: a failed read arrives as a VALUE ({kind:'failed'}), never a rejection. */
+    nodeMemories?: Promise<MemoriesRead> | MemoriesRead;
   } = $props();
 
   const actions = $derived(taskActions(task, viewerId));

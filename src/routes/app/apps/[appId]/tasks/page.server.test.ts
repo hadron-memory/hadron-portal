@@ -3,6 +3,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { markStreamHandled } from '$lib/mark-stream-handled';
 
 const request = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request }) }));
@@ -119,12 +120,20 @@ const detail = (over: Record<string, unknown> = {}) => ({
 
 async function loadDetail(taskId = 't1') {
   const { load } = await import('./[taskId]/+page.server');
-  return (await load({
+  const r = (await load({
     params: { appId: 'app-1', taskId },
     locals: { token: 'tok', user: { id: 'u1' }, impersonation: null },
     // portal#1090: the loader reads ?created=1 from the URL.
     url: new URL('http://localhost/app/apps/app-1/tasks/t1'),
   } as never)) as Record<string, unknown>;
+  // Amended for portal#1585: the memories stream now REJECTS through to the
+  // picker's stage instead of the loader swallowing it to [], and per-test
+  // mocks here do not answer MEMORIES_QUERY (these tests exercise the other
+  // reads). Mark the streamed rejection handled so it cannot fail the run
+  // as an unhandled error; the memories-failure behaviour itself is pinned
+  // in node-memories-failure.server.test.ts.
+  markStreamHandled(r.nodeMemories as Promise<unknown>);
+  return r;
 }
 
 describe('views (slice 2)', () => {

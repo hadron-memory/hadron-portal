@@ -21,6 +21,7 @@
   import { isoToLocalInput, localDateTimeToIso } from '$lib/agent-tasks/start-by';
   import { minTierOptions, tierLabel } from '$lib/agent-tasks/tier';
   import type { AgentTaskDetail } from '$lib/agent-tasks/types';
+  import type { MemoriesRead } from '$lib/node-choices';
   import TaskReferencesEditor from './TaskReferencesEditor.svelte';
 
   let {
@@ -30,7 +31,7 @@
     families,
     invalid = null,
     appUrn = null,
-    nodeMemories = [],
+    nodeMemories = { kind: 'ok', value: [] },
   }: {
     task: AgentTaskDetail;
     workers: Array<{ id: string; name: string }>;
@@ -40,8 +41,8 @@
     invalid?: { field: string; message: string } | null;
     /** portal#1575: the App's server-supplied URN, which a picked TASK reference is built from. */
     appUrn?: string | null;
-    /** portal#1576 step 2: the NODE reference picker's memory stage (streamed). */
-    nodeMemories?: Promise<Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>> | Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>;
+    /** portal#1576 step 2: the NODE reference picker's memory stage (streamed). #1588 QA F2: a failed read arrives as a VALUE ({kind:'failed'}), never a rejection. */
+    nodeMemories?: Promise<MemoriesRead> | MemoriesRead;
   } = $props();
 
   // Seeded once, on purpose: the panel is a draft, not a view of `task`.

@@ -30,7 +30,7 @@
   import SelectTask from './SelectTask.svelte';
   import TaskHandle from './TaskHandle.svelte';
   import { taskReferenceTarget } from '$lib/agent-tasks/handle';
-  import type { NodeChoice } from '$lib/node-choices';
+  import type { MemoriesRead, NodeChoice } from '$lib/node-choices';
   import {
     MAX_LABEL_LENGTH,
     MAX_REFERENCES,
@@ -45,7 +45,7 @@
 
   let {
     app,
-    nodeMemories = [],
+    nodeMemories = { kind: 'ok', value: [] },
     initial = [],
     idPrefix,
     replaces = false,
@@ -54,11 +54,14 @@
     /** The App the form is in. Without its URN a TASK target can't be built, so TASK isn't offered. */
     app: { id: string; urn: string | null };
     /**
-     * Memories the viewer can read, for the NODE picker's memory stage. A
-     * STREAMED promise (never blocks the page) or a plain array; a failed
-     * read degrades to an empty picker (#1576 step 2).
+     * Memories the viewer can read, for the NODE picker's memory stage: a
+     * STREAMED MemoriesRead (never blocks the page) or a settled value. A
+     * failed read arrives as {kind:'failed'} — a VALUE, never a rejection
+     * (#1588 QA F2: a rejecting stream pageerrors during kit's parse-time
+     * deserialization, before any component can attach) — and degrades the
+     * picker to its failure stage (#1576 step 2, #1585).
      */
-    nodeMemories?: Promise<Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>> | Array<{ id: string; name: string; urn: string; visibility?: string | null; orgName?: string }>;
+    nodeMemories?: Promise<MemoriesRead> | MemoriesRead;
     initial?: TaskReference[];
     /** `new` or `edit`: every id in here starts with it. */
     idPrefix: string;
@@ -265,16 +268,20 @@
 
   <!-- Inside the fieldset (they are fixed overlays, so they don't move it) so
        Enter in their lookup fields never submits the outer form. The NODE
-       picker's memory list may still be streaming; mount it resolved (#512). -->
+       picker's memory list may still be streaming; mount it resolved (#512).
+       #1588 QA F2: the read settles as a VALUE — {kind:'failed'} degrades the
+       picker to its failure stage (#1585); the {:catch} arm is the belt for a
+       stream that rejects anyway (the loaders never do, on purpose). -->
   {#if app.urn}
     <SelectTask appId={app.id} includeEnded bind:open={picking} onselect={(choice: TaskChoice) => (picked = choice)} />
   {/if}
-  {#await Promise.resolve(nodeMemories) then memories}
-    <SelectNode {memories} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+  {#await Promise.resolve(nodeMemories) then read}
+    {#if read.kind === 'ok'}
+      <SelectNode memories={read.value} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    {:else}
+      <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    {/if}
   {:catch}
-    <!-- A rejected stream still mounts the picker, degraded to an empty memory
-         stage (#1582 BLIND P3): without this arm the rejection was unhandled
-         and "Choose a node…" silently did nothing. -->
-    <SelectNode memories={[]} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
   {/await}
 </fieldset>
