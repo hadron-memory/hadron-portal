@@ -4,6 +4,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { INVITE_USER_MUTATION } from '$lib/server/queries';
+import { INVITE_EXPIRES_IN_DAYS, INVITE_MAX_ACTIVATIONS } from '$lib/invite-limits';
 import type { Actions, PageServerLoad } from './$types';
 import { accountInviteSchema } from './schema';
 
@@ -29,12 +30,16 @@ export const actions: Actions = {
     const email = form.data.inviteEmail || null;
     const githubUsername = form.data.inviteGithub || null;
     try {
-      const data = await gqlClient(locals.token).request<{ inviteUser: { slug: string } }>(
+      const data = await gqlClient(locals.token).request<{
+        inviteUser: { slug: string; maxActivations: number | null; expiresAt: string | null };
+      }>(
         INVITE_USER_MUTATION,
-        { name, email, githubUsername, maxActivations: 1, expiresInDays: 30 },
+        { name, email, githubUsername, maxActivations: INVITE_MAX_ACTIVATIONS, expiresInDays: INVITE_EXPIRES_IN_DAYS },
       );
       const inviteUrl = `${url.origin}/invite/${data.inviteUser.slug}`;
-      return { form, invited: true, inviteUrl };
+      // The success copy states what the server returned, not what we asked for.
+      const { maxActivations, expiresAt } = data.inviteUser;
+      return { form, invited: true, inviteUrl, maxActivations, expiresAt };
     } catch (e: unknown) {
       return message(form, { type: 'error', text: extractGqlError(e, 'Failed to send invitation') }, { status: 500 });
     }

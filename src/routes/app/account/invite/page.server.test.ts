@@ -83,7 +83,7 @@ describe('account invite action', () => {
   });
 
   it('creates an invite with trimmed form data', async () => {
-    mockRequest.mockResolvedValueOnce({ inviteUser: { slug: 'invite-slug' } });
+    mockRequest.mockResolvedValueOnce({ inviteUser: { slug: 'invite-slug', maxActivations: 2, expiresAt: '2026-11-12T00:00:00.000Z' } });
 
     const result = await runInvite({
       inviteName: '  Ada  ',
@@ -94,6 +94,8 @@ describe('account invite action', () => {
     expect(result).toMatchObject({
       invited: true,
       inviteUrl: 'https://portal.example.test/invite/invite-slug',
+      maxActivations: 2,
+      expiresAt: '2026-11-12T00:00:00.000Z',
     });
     expect(result).toHaveProperty('form');
     expect(superFormFrom(result)?.valid).toBe(true);
@@ -101,8 +103,8 @@ describe('account invite action', () => {
       name: 'Ada',
       email: 'ada@example.test',
       githubUsername: 'ada-dev',
-      maxActivations: 1,
-      expiresInDays: 30,
+      maxActivations: 2,
+      expiresInDays: 10,
     });
   });
 
@@ -115,8 +117,8 @@ describe('account invite action', () => {
       name: null,
       email: null,
       githubUsername: null,
-      maxActivations: 1,
-      expiresInDays: 30,
+      maxActivations: 2,
+      expiresInDays: 10,
     });
   });
 

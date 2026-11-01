@@ -12,6 +12,7 @@ import {
   START_IMPERSONATION_MUTATION,
   ORG_MEMBERS_TAB_QUERY,
 } from '$lib/server/queries';
+import { INVITE_EXPIRES_IN_DAYS, INVITE_MAX_ACTIVATIONS } from '$lib/invite-limits';
 import type { Organization } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import {
@@ -128,8 +129,8 @@ export const actions: Actions = {
         memberRole,
         name,
         email,
-        maxActivations: 1,
-        expiresInDays: 30,
+        maxActivations: INVITE_MAX_ACTIVATIONS,
+        expiresInDays: INVITE_EXPIRES_IN_DAYS,
       });
       const inviteUrl = `${url.origin}/invite/${data.createUserInvitation.slug}`;
       // Surface who the link is for so the success message can name them

@@ -10,7 +10,7 @@ afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
 async function renderSuccess() {
   const m = mountComponent(Invite as never, {
     data: { form: defaults(zod4(accountInviteSchema)), prefillEmail: '' },
-    form: { invited: true, inviteUrl: 'https://example.test/invite/synthetic' },
+    form: { invited: true, inviteUrl: 'https://example.test/invite/synthetic', maxActivations: 2, expiresAt: '2026-11-12T12:00:00.000Z' },
   } as never);
   mounted.push(m);
   await tick(2);
@@ -28,7 +28,9 @@ describe('invite success feedback (#1545)', () => {
     const statuses = root.querySelectorAll('[role="status"]');
     expect(statuses).toHaveLength(1);
     expect(statuses[0].textContent).toContain('Invitation created! Share this link:');
-    expect(statuses[0].textContent).toContain('Valid for 30 days, single use.');
+    expect(statuses[0].textContent).toContain('can be used 2 times');
+    expect(statuses[0].textContent).toContain('Expires Nov 12, 2026');
+    expect(statuses[0].textContent).not.toMatch(/single use|30 days/i);
     expect(root.querySelector('code')?.textContent).toBe('https://example.test/invite/synthetic');
     expect(root.querySelector('[role="alert"]')).toBeNull();
   });
