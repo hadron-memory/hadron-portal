@@ -502,6 +502,9 @@
 
 {/snippet}
 
+<!-- The keydown listener only delegates Tab from the rows' own buttons and
+     links (#1488); the nav itself takes no focus and no action. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <nav
   class="tree-view"
   bind:this={navEl}
