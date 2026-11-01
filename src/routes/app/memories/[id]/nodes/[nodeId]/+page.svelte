@@ -24,7 +24,7 @@
   import NodeList from '$lib/components/NodeList.svelte';
   import ChatThread from '$lib/components/ChatThread.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
-  import { searchMemoryNodes, type TypeaheadNode } from '$lib/memory/node-typeahead';
+  import { scheduleTypeahead, targetUrnOptions, type TypeaheadNode } from '$lib/memory/node-typeahead';
   import { composeNodeUrn } from '$lib/urn/compose-node-urn';
   import { isOwnershipChainUrn, moveHintGrammar } from '$lib/urn/move-hint-grammar';
   import { cleanLocInput } from '$lib/urn/clean-loc-input';
@@ -667,28 +667,16 @@
   // Fetched on demand as the user types (portal#1433): the layout carries no
   // node list (portal#1524). No hits is "no suggestions", never "no nodes".
   let outputTargetHits = $state<TypeaheadNode[]>([]);
-  $effect(() => {
-    const q = outputWriteTo.trim();
-    const memoryId = data.graph.id;
-    if (q.length < 2 || isFullyQualifiedNodeUrnInput(q)) {
-      outputTargetHits = [];
-      return;
-    }
-    let stale = false;
-    const timer = setTimeout(async () => {
-      const hits = await searchMemoryNodes(memoryId, q);
-      if (!stale) outputTargetHits = hits;
-    }, 200);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  });
-  const outputTargetOptions = $derived(
-    outputTargetHits
-      .filter((n) => n.id !== node.id)
-      .map((n) => ({ urn: data.graph.urn ? composeNodeUrn(data.graph.urn, n.loc) : n.loc, name: n.name ?? n.loc })),
+  $effect(() =>
+    scheduleTypeahead({
+      query: outputWriteTo,
+      memoryId: data.graph.id,
+      selfId: node.id,
+      skip: isFullyQualifiedNodeUrnInput,
+      onHits: (hits) => (outputTargetHits = hits),
+    }),
   );
+  const outputTargetOptions = $derived(targetUrnOptions(outputTargetHits, data.graph.urn, composeNodeUrn));
 
   const initialFlowForm = untrack(() => submittedForm<NodeUpdateFlowForm>(form, 'updateFlow') as NodeUpdateFlowSuperform | null ?? data.flowForm);
   const {
@@ -1619,23 +1607,14 @@
   // bounded node search. Choosing one fills the loc; the target is still
   // resolved exactly at submit (`addEditableEdge`).
   let edgeTargetHits = $state<TypeaheadNode[]>([]);
-  $effect(() => {
-    const q = newEdgeTargetQuery.trim();
-    const memoryId = data.graph.id;
-    if (q.length < 2) {
-      edgeTargetHits = [];
-      return;
-    }
-    let stale = false;
-    const timer = setTimeout(async () => {
-      const hits = await searchMemoryNodes(memoryId, q);
-      if (!stale) edgeTargetHits = hits.filter((n) => n.id !== node.id);
-    }, 200);
-    return () => {
-      stale = true;
-      clearTimeout(timer);
-    };
-  });
+  $effect(() =>
+    scheduleTypeahead({
+      query: newEdgeTargetQuery,
+      memoryId: data.graph.id,
+      selfId: node.id,
+      onHits: (hits) => (edgeTargetHits = hits),
+    }),
+  );
   let newEdgeName = $state('');
 
   // #656: an outgoing edge whose target sits in a memory the caller can't read

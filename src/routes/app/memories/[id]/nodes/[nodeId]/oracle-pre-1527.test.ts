@@ -47,6 +47,12 @@ const seeded: SeedNode[] = [
   { id: 'msg', loc: 'chats:c1:messages:m1', name: 'm1', nodeType: 'chat-message' },
   { id: 'info', loc: 'notes:n1', name: 'Not a chat', nodeType: 'info' },
   { id: 'fakemsg', loc: 'notes:n1:messages:m2', name: 'm2', nodeType: 'chat-message' },
+  // #1438 BLIND P3: chat roots off the standard `chats:<c>` shape.
+  { id: 'deepchat', loc: 'teams:t1:chats:design', name: 'Design chat', nodeType: 'chat' },
+  { id: 'deepmsg', loc: 'teams:t1:chats:design:messages:007', name: '007', nodeType: 'chat-message' },
+  { id: 'thread', loc: 'threads:old', name: 'Old thread', nodeType: 'info', tags: ['team-chat'] },
+  { id: 'legacymsg', loc: 'threads:old:messages:1', name: '1', nodeType: 'message' },
+  { id: 'nestedmsg', loc: 'chats:c1:messages:m1:messages:r1', name: 'r1', nodeType: 'chat-message' },
   { id: 'foreign', loc: 'other', name: 'Foreign', memoryId: 'mem-B' },
 ];
 const graphNodes = seeded
@@ -90,7 +96,7 @@ async function runNew(id: string) {
 const oldClient = { request: vi.fn(async () => { throw new Error('the old path made no same-memory request'); }) };
 
 describe('node page reads equal the pre-#1527 in-memory path (3b333cf0^)', () => {
-  it.each(['jwt', 'auth', 'specs', 'unnamed', 'chat', 'msg', 'info', 'fakemsg'])('node %s', async (id) => {
+  it.each(['jwt', 'auth', 'specs', 'unnamed', 'chat', 'msg', 'info', 'fakemsg', 'deepchat', 'deepmsg', 'thread', 'legacymsg', 'nestedmsg'])('node %s', async (id) => {
     const got = await runNew(id);
     const node = nodeRow(id);
 
@@ -104,6 +110,14 @@ describe('node page reads equal the pre-#1527 in-memory path (3b333cf0^)', () =>
       }),
     );
     expect(got.ancestorsKnown).toBe(true);
+  });
+
+  it.each([
+    ['msg', 'chat'],
+    ['deepmsg', 'deepchat'],
+    ['legacymsg', 'thread'],
+  ])('the oracle comparison is not vacuous: %s opens chat %s', async (id, root) => {
+    expect((await runNew(id)).openChat).toMatchObject({ nodeId: root });
   });
 
   it('issues no memoryNodes or memoryEdges request (acceptance 1)', async () => {

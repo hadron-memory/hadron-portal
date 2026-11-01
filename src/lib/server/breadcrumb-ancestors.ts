@@ -60,7 +60,9 @@ export async function loadAncestors(
   for (let at = 0; at < refs.length; at += NODE_BATCH_MAX_REFS) chunks.push(refs.slice(at, at + NODE_BATCH_MAX_REFS));
   const settled = await Promise.allSettled(
     chunks.map((chunk) =>
-      client.request<{ nodeBatch: { nodes: Array<Ancestor & { memoryId: string }>; truncated?: boolean | null } }>(
+      client.request<{
+        nodeBatch: { nodes: Array<Ancestor & { memoryId: string }>; truncated?: boolean | null; omitted?: string[] | null };
+      }>(
         NODE_ANCESTORS_QUERY,
         { refs: chunk },
       ),
@@ -79,7 +81,9 @@ export async function loadAncestors(
       known = false;
       continue;
     }
-    if (batch.truncated) known = false;
+    // The server fills `omitted` only when `truncated` (hrn:node:hadronmemory.com:specs:cor:api:040); either
+    // one means a readable ancestor went unanswered (#1438 BLIND P2).
+    if (batch.truncated || (batch.omitted?.length ?? 0) > 0) known = false;
     // Same-memory guard (#234): a ref is memory-qualified, but keep the check
     // load-bearing rather than incidental.
     for (const n of batch.nodes) {

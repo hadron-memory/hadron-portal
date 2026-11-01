@@ -34,3 +34,65 @@ export async function searchMemoryNodes(
   }
 }
 
+
+// Fewer characters than this ask nothing; a keystroke burst asks once.
+export const TYPEAHEAD_MIN_CHARS = 2;
+export const TYPEAHEAD_DEBOUNCE_MS = 200;
+
+/**
+ * One typeahead round for an edit-mode picker, as the body of a `$effect`
+ * (#1438 BLIND P3: this logic used to live inline in the effects, untested).
+ * Returns the effect's cleanup. Cleaning up (the next keystroke or teardown)
+ * cancels a pending search and discards a late answer, so a slow reply for
+ * "au" can never overwrite the hits for "auth". `skip` lets a picker bypass the
+ * search for input it does not need suggestions for (a fully-qualified URN).
+ * The picker's own node is never suggested.
+ */
+export function scheduleTypeahead(opts: {
+  query: string;
+  memoryId: string;
+  selfId: string;
+  onHits: (hits: TypeaheadNode[]) => void;
+  skip?: (q: string) => boolean;
+  search?: (memoryId: string, q: string) => Promise<TypeaheadNode[]>;
+}): () => void {
+  const q = opts.query.trim();
+  if (q.length < TYPEAHEAD_MIN_CHARS || opts.skip?.(q)) {
+    opts.onHits([]);
+    return () => {};
+  }
+  const search = opts.search ?? searchMemoryNodes;
+  let stale = false;
+  const timer = setTimeout(async () => {
+    const hits = await search(opts.memoryId, q);
+    if (!stale) opts.onHits(hits.filter((n) => n.id !== opts.selfId));
+  }, TYPEAHEAD_DEBOUNCE_MS);
+  return () => {
+    stale = true;
+    clearTimeout(timer);
+  };
+}
+
+/**
+ * Datalist options for a target that takes a node URN. A hit whose URN cannot
+ * be composed (a malformed memory URN) is offered as its bare loc, the same
+ * fallback as a memory with no URN, instead of throwing out of the `$derived`
+ * that renders the list (#1438 BLIND P3).
+ */
+export function targetUrnOptions(
+  hits: TypeaheadNode[],
+  memoryUrn: string | null | undefined,
+  compose: (memoryUrn: string, loc: string) => string,
+): Array<{ urn: string; name: string }> {
+  return hits.map((n) => {
+    let urn = n.loc;
+    if (memoryUrn) {
+      try {
+        urn = compose(memoryUrn, n.loc);
+      } catch {
+        urn = n.loc;
+      }
+    }
+    return { urn, name: n.name ?? n.loc };
+  });
+}

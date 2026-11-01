@@ -91,6 +91,15 @@ describe('breadcrumb ancestors equal the old in-memory lookup', () => {
     expect((await loadAncestors(truncating, MEM, 'specs:auth:jwt')).known).toBe(false);
   });
 
+  it('an answer listing omitted ancestors is not "known", even without the truncated flag (#1438 BLIND P2)', async () => {
+    const omitting = {
+      request: vi.fn(async () => ({
+        nodeBatch: { nodes: [], unavailable: [], omitted: ['hrn:node:x.test:m:specs'], truncated: false },
+      })),
+    };
+    expect((await loadAncestors(omitting, MEM, 'specs:auth:jwt')).known).toBe(false);
+  });
+
   it('without the memory URN nothing can be addressed: no request, not "known"', async () => {
     const c = client(seeded);
     expect(await loadAncestors(c, { id: MEM.id, urn: null }, 'specs:auth:jwt')).toEqual({ byLoc: new Map(), known: false });
