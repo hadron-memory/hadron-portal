@@ -39,7 +39,7 @@ const server = await createServer({
     load(id) { if (id === '\0relations-phone-entry') return fixture; },
     configureServer(s) { s.middlewares.use('/__relations-phone', async (_req, res) => {
       res.setHeader('Content-Type', 'text/html');
-      res.end(await s.transformIndexHtml('/__relations-phone', '<html><body><main style="margin:40px;min-width:0"></main><script type="module" src="/__relations-phone-entry.ts"></script></body></html>'));
+      res.end(await s.transformIndexHtml('/__relations-phone', '<html><body class="bg-white dark:bg-zinc-950"><main class="text-zinc-900 dark:text-zinc-100" style="margin:40px;min-width:0"></main><script type="module" src="/__relations-phone-entry.ts"></script></body></html>'));
     }); },
   }], resolve: { alias: { $lib: resolve('src/lib'), ...aliases, '$env/dynamic/public': resolve('src/lib/test/stubs/env-dynamic-public.ts') } },
   server: { host: '127.0.0.1', port: 0 },
@@ -63,10 +63,13 @@ try {
     const title = page.getByRole('link', { name: 'A readable task title first', exact: true });
     await title.scrollIntoViewIfNeeded();
     assert.ok(await title.isVisible());
+    const handle = page.getByText('AT1.23', { exact: true }).first();
+    await handle.scrollIntoViewIfNeeded(); assert.ok(await handle.isVisible());
     const remove = page.locator('form[action="?/removeBlocker"] button').first();
     await remove.focus(); assert.ok(await remove.evaluate(el => el === document.activeElement));
     await page.keyboard.press('Tab'); assert.ok(await title.evaluate(el => el === document.activeElement), 'Remove must precede its row title in keyboard order');
     if (process.env.HADRON_LAYOUT_SHOTS && !legacy) {
+      await page.locator('table').evaluate(el => { el.parentElement.scrollLeft = 0; });
       await mkdir(process.env.HADRON_LAYOUT_SHOTS, { recursive: true });
       await page.screenshot({ path: resolve(process.env.HADRON_LAYOUT_SHOTS, `relations-${width}-${dark ? 'dark' : 'light'}.png`), fullPage: true });
     }

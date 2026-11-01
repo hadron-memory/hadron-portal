@@ -43,13 +43,32 @@
     ...dependencies.value.blocks.items.map((item) => ({ ...item, direction: 'blocks' as const })),
   ] : []);
   const columns: PortalColumnDef<Relation>[] = [
-    { id: 'direction', accessorFn: (row) => row.direction === 'blockedBy' ? t('app.tasks.waits-for', 'Waits for') : t('app.tasks.holds-up', 'Holds up'), header: t('app.tasks.relation', 'Relation'), size: 120 },
+    { id: 'remove', header: t('app.tasks.actions', 'Actions'), enableSorting: false, enableGlobalFilter: false, enableHiding: false, enableResizing: false, size: 110 },
     { accessorKey: 'title', header: t('app.tasks.col.task', 'Task'), size: 240 },
+    { id: 'direction', accessorFn: (row) => row.direction === 'blockedBy' ? t('app.tasks.waits-for', 'Waits for') : t('app.tasks.holds-up', 'Holds up'), header: t('app.tasks.relation', 'Relation'), size: 120 },
     { accessorKey: 'handle', header: t('app.tasks.col.handle', 'Handle'), size: 150 },
     { id: 'status', accessorFn: (row) => taskChoiceStatus(row.status), header: t('app.tasks.col.status', 'Status'), size: 120 },
-    { id: 'remove', header: '', enableSorting: false, enableGlobalFilter: false, size: 90 },
   ];
-  const table = createSvelteTable<Relation>({ get data() { return rows; }, columns, initialState: { pagination: { pageIndex: 0, pageSize: 10 } } });
+  // Keep the existing action visible at scroll zero, including when a saved
+  // arrangement predates this layout. Other column preferences still restore.
+  let columnOrder = $state<string[]>(['remove']);
+  let columnVisibility = $state<Record<string, boolean>>({ remove: true });
+  const table = createSvelteTable<Relation>({
+    get data() { return rows; }, columns,
+    state: {
+      get columnOrder() { return columnOrder; },
+      get columnVisibility() { return columnVisibility; },
+    },
+    onColumnOrderChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnOrder) : updater;
+      columnOrder = ['remove', ...next.filter((id) => id !== 'remove')];
+    },
+    onColumnVisibilityChange: (updater) => {
+      const next = typeof updater === 'function' ? updater(columnVisibility) : updater;
+      columnVisibility = { ...next, remove: true };
+    },
+    initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
+  });
   const submit: Parameters<typeof enhance>[1] = ({ cancel }) => {
     if (pending) { cancel(); return; }
     const target = generation;
