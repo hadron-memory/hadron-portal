@@ -196,6 +196,54 @@ describe('the TASK pick (acceptance 3 in the form)', () => {
     await tick(2);
     expect(posted(form)).toEqual([{ kind: 'TASK', target: 'hrn:agenttask:acme.com:team:AT0.3898', label: null }]);
   });
+
+  // #1578 BLIND P2 (Gizelle): a picked task not yet added was dropped by the outer Save.
+  async function pickOld(form: HTMLFormElement) {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answer([{ id: 'x1', appId: 'app-1', title: 'Old work', handle: 'AT0.3898', status: 'FINISHED' }])));
+    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'TASK');
+    buttonText(form, 'Choose a task…')!.click();
+    await tick(6);
+    buttonText(document.body, 'Select')!.click();
+    await tick(2);
+  }
+
+  it('a picked but un-added task blocks submit, so it is never silently dropped', async () => {
+    const form = await openEdit([]);
+    await pickOld(form);
+    expect(form.checkValidity()).toBe(false);
+    expect(form.querySelector<HTMLInputElement>('#edit-ref-label')!.validationMessage).toBe('Add this reference, or clear the selection.');
+    buttonText(form, 'Add reference')!.click();
+    await tick(2);
+    expect(form.checkValidity()).toBe(true);
+    expect(posted(form)).toEqual([{ kind: 'TASK', target: 'hrn:agenttask:acme.com:team:AT0.3898', label: null }]);
+  });
+
+  it('Clear selection drops the pick and unblocks submit, posting nothing for it', async () => {
+    const form = await openEdit([]);
+    await pickOld(form);
+    byLabel(form, 'Clear the selected task')!.click();
+    await tick(2);
+    expect(form.textContent).not.toContain('Old work');
+    expect(buttonText(form, 'Add reference')!.disabled).toBe(true);
+    expect(form.checkValidity()).toBe(true);
+    expect(posted(form)).toEqual([]);
+  });
+
+  it('switching kind never leaves a hidden draft behind (a pick, or a typed target)', async () => {
+    const form = await openEdit([]);
+    await pickOld(form);
+    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'URL');
+    expect(form.checkValidity()).toBe(true);
+    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'TASK');
+    expect(form.textContent).not.toContain('Old work');
+    expect(form.checkValidity()).toBe(true);
+    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'URL');
+    await type(form.querySelector<HTMLInputElement>('#edit-ref-target')!, 'https://example.com/pending');
+    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'TASK');
+    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'URL');
+    expect(form.querySelector<HTMLInputElement>('#edit-ref-target')!.value).toBe('');
+    expect(posted(form)).toEqual([]);
+  });
 });
 
 describe('SelectTask statuses option (acceptance 4)', () => {
