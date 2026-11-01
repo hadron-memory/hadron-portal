@@ -677,4 +677,35 @@ describe('#1522 chat send form identity', () => {
     await tick();
     expect(m.target.querySelector('[role="alert"]')?.textContent).toContain('Failed to send message');
   });
+
+  // Celine's QA leg 2 (portal#1568): the REAL router still logged one
+  // `Duplicate form id's found: "sendMessage:<nodeId>"` per node→full-screen
+  // handoff even with the scoped ids — a false positive, not a data defect.
+  // Svelte tears the outgoing page down AFTER the incoming page initializes,
+  // and kit only replaces the `$app/stores` page value on popstate, so across
+  // forward navigations superforms' duplicate registry is one shared set and a
+  // navigation boundary between two mounts of the same thread reads as a
+  // duplicate (the same heuristic flags a dozen unrelated node-page forms on
+  // back navigation, on main and here alike). ChatThread therefore sets
+  // `warnings: { duplicateId: false }` — and THIS leg pins that decision:
+  // two live instances of the same chat page (the router's transition window,
+  // one page-store value) must log nothing. It is load-bearing: without the
+  // option this leg fails with exactly the browser's warning.
+  it('two live chat pages (the router transition window) log no duplicate-id warning', async () => {
+    serveNode(teamChatNode());
+    const data = await loadChatPageData('chat-pk');
+    const first = mountComponent(ChatPage as never, reactiveProps({ data: { ...PARENT, ...data }, form: null }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(first);
+    await tick();
+    flushSync();
+    await tick();
+    // The incoming page initializes while the outgoing one is still mounted —
+    // the create-before-destroy window every client-side navigation opens.
+    const second = mountComponent(ChatPage as never, reactiveProps({ data: { ...PARENT, ...data }, form: null }) as never) as Mounted<Record<string, unknown>>;
+    mounted.push(second);
+    await tick();
+    flushSync();
+    await tick();
+    expect(duplicateWarnings()).toEqual([]);
+  });
 });

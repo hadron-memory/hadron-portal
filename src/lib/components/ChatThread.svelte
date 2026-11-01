@@ -151,6 +151,24 @@
     invalidateAll: true,
     clearOnSubmit: 'none',
     resetForm: true,
+    // #1522 QA (portal#1568, Celine's leg 2): superforms' duplicate-id check
+    // logs a warning whenever an id registers while the SAME id is still live.
+    // Svelte tears the outgoing page down AFTER the incoming page initializes,
+    // and kit (2.55) only replaces the `$app/stores` page value on popstate —
+    // so across forward navigations every form in the app shares one registry
+    // set, and a navigation boundary between two mounts of this thread opens a
+    // same-id live window that the check reads as a duplicate. It is a false
+    // positive, not a data defect: the send ids are surface-AND-node scoped
+    // (`sendChatMessage:<nodeId>` / `sendMessage:<nodeId>`, pinned distinct by
+    // chat-form-ids.client.test.ts), and a late result is delivered only to
+    // its own form (the same file's id-fence legs; QA legs 1/3/4 on the real
+    // browser stack). The same heuristic also flags a dozen unrelated node
+    // page forms on back navigation, on main and on this branch alike. The
+    // distinctness the warning existed to catch is test-pinned, so silence it
+    // HERE rather than re-scoping ids to dodge a mount-order artifact — and
+    // the same test file pins this decision: two live ChatThreads (the
+    // router's transition window) must log nothing.
+    warnings: { duplicateId: false },
   });
   const sendError = $derived(
     scopedActionError<SendChatMessageForm>(form, 'sendChatMessage', $sendMessage, $sendErrors, ['content', '_kind']),
