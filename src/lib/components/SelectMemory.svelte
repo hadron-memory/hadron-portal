@@ -82,14 +82,8 @@
     open = false;
   }
 
-  // The Select-family Escape pattern (#1582/#1584): Escape pressed INSIDE the
-  // dialog is consumed here, at the dialog layer — a window-level listener
-  // cannot be stopped from below by a dialog, and listeners above (an edit
-  // panel, a host page) register first and would close together with this
-  // picker on one keypress. The window fallback is the shared CAPTURE helper:
-  // it owns the key only for a focus that never entered the dialog, and it
-  // carries the guards (a consumed Escape, an IME composition) once for every
-  // picker.
+  // Escape: consumed at this dialog's own layer — the shared helper owns the
+  // layering contract and the guards (src/lib/a11y/dialog-escape.ts).
   const escapeFallback = { close: () => { open = false; } };
 
   // Reset search + pagination whenever the modal closes. `open` is the only

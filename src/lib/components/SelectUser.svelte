@@ -89,11 +89,8 @@
     close();
   }
 
-  // The Select-family Escape pattern (#1582/#1584): Escape pressed INSIDE the
-  // dialog is consumed at the dialog layer, so a host whose own window
-  // listener registered first cannot close with us on one keypress; the
-  // window fallback (the shared CAPTURE helper, with the consumed-key and IME
-  // guards) owns the key only for a focus that never entered the dialog.
+  // Escape: consumed at this dialog's own layer — the shared helper owns the
+  // layering contract and the guards (src/lib/a11y/dialog-escape.ts).
   const escapeFallback = { close: () => close() };
 
   // Reset search state whenever the modal is closed — including a close driven

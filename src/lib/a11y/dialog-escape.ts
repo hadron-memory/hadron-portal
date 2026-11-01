@@ -12,6 +12,12 @@
  * phase runs before every bubble listener on window, so only it can shield a
  * host from a keypress the dialog owns.
  *
+ * The same contract serves any INNER floating layer inside a dialog (a
+ * saved-view caret menu, a Columns dropdown): `consumeEscapeAtDialog` on the
+ * layer's own element claims the key BEFORE the dialog above it — the menu's
+ * element is deeper in the tree, so its bubble handler runs first. Without
+ * that, one Escape dismisses the whole dialog instead of the menu (#1584).
+ *
  * The two guards (#1582 delta P3 (b), folded here once — not per picker): an
  * Escape whose event is already `defaultPrevented` was consumed by someone
  * else (another dialog layer that took the key first), and one with
@@ -54,26 +60,43 @@ export function consumeEscapeAtDialog(event: KeyboardEvent, options: DialogEscap
  * entered this dialog — a focus inside is the dialog-level handler's job.
  * On take it consumes the event completely, so an earlier-registered host
  * listener never fires either.
+ *
+ * Last armed wins (#1584): capture listeners on window also fire in
+ * registration order, so with two STACKED fallback-armed dialogs and focus
+ * stranded on <body>, the OUTER dialog's fallback would run first and close
+ * the host out from under the picker still open above it. Each armed
+ * fallback registers itself here; only the last-armed — the topmost layer,
+ * because a dialog above always opens after the one below — may take the
+ * key. `suppressed()` stays as a second belt for nests the caller knows
+ * about (SelectNode's memory picker) and for overlays that don't use the
+ * helper at all.
  */
+const armed: object[] = [];
+
 export function dialogEscapeFallback(el: HTMLElement, options: DialogEscapeOptions) {
   // Held by reference, swapped on update — a spread would snapshot every
   // reactive getter once and the fallback would go stale
   // (review:preserve-getters-when-wrapping-options).
   let current = options;
+  const token = {};
   function onKeydown(event: KeyboardEvent) {
     if (!escapeIsOurs(event)) return;
+    if (armed[armed.length - 1] !== token) return; // a layer above us is armed
     if (current.suppressed?.()) return;
     if (event.target instanceof Node && el.contains(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
     current.close();
   }
+  armed.push(token);
   window.addEventListener('keydown', onKeydown, true);
   return {
     update(next: DialogEscapeOptions) {
       current = next;
     },
     destroy() {
+      const at = armed.indexOf(token);
+      if (at !== -1) armed.splice(at, 1);
       window.removeEventListener('keydown', onKeydown, true);
     },
   };

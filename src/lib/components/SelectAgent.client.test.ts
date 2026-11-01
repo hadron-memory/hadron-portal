@@ -171,8 +171,9 @@ describe('SelectAgent: Escape closes one layer only (#1584)', () => {
   it('one Escape inside the picker closes the picker, not the host dialog around it', async () => {
     const above = vi.fn();
     window.addEventListener('keydown', above); // registered before the picker opened
+    let host: ReturnType<typeof openInHost>;
     try {
-      openInHost();
+      host = openInHost();
       await tick(2);
       expect(overlay()).not.toBeNull();
       const input = overlay()!.querySelector('input');
@@ -184,6 +185,13 @@ describe('SelectAgent: Escape closes one layer only (#1584)', () => {
       expect(overlay()).toBeNull(); // exactly one layer closed: the picker's
       expect(hostDialog()).not.toBeNull(); // the host keeps its layer
       expect(above).not.toHaveBeenCalled(); // the earlier-registered listener never fired
+      expect((host.instance.hostEscapes as () => number)()).toBe(0); // the host's own listener never fired
+      // Positive control at this same position: the host's listener is LIVE —
+      // the next press, with nothing left to consume it, closes the host.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      flushSync();
+      expect(hostDialog()).toBeNull();
+      expect((host.instance.hostEscapes as () => number)()).toBe(1);
     } finally {
       window.removeEventListener('keydown', above);
     }
@@ -192,8 +200,9 @@ describe('SelectAgent: Escape closes one layer only (#1584)', () => {
   it('Escape with focus outside the picker still closes it — the fallback, shielding the host', async () => {
     const above = vi.fn();
     window.addEventListener('keydown', above);
+    let host: ReturnType<typeof openInHost>;
     try {
-      openInHost();
+      host = openInHost();
       await tick(2);
       (document.activeElement as HTMLElement | null)?.blur?.(); // focus never entered the picker
       expect(document.activeElement).toBe(document.body);
@@ -204,6 +213,7 @@ describe('SelectAgent: Escape closes one layer only (#1584)', () => {
       expect(overlay()).toBeNull();
       expect(hostDialog()).not.toBeNull();
       expect(above).not.toHaveBeenCalled();
+      expect((host.instance.hostEscapes as () => number)()).toBe(0);
     } finally {
       window.removeEventListener('keydown', above);
     }

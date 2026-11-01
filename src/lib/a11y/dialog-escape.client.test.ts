@@ -145,4 +145,44 @@ describe('dialogEscapeFallback (the window fallback)', () => {
     document.body.dispatchEvent(escape());
     expect(close).not.toHaveBeenCalled();
   });
+
+  // #1584 fold: two dialogs that BOTH use the fallback, stacked, with focus
+  // stranded on <body> (neither trap holds it). Capture listeners on window
+  // fire in REGISTRATION order — the outer dialog's fallback armed FIRST runs
+  // FIRST. Without a topmost rule the outer layer takes the key and closes
+  // the host out from under a picker still open above it.
+  describe('stacked fallbacks: last armed wins (#1584 fold)', () => {
+    it('a body-focus Escape closes the INNER (last-armed) layer; the next press the outer', () => {
+      const outerClose = vi.fn();
+      const innerClose = vi.fn();
+      const outer = arm({ close: outerClose }); // the host, armed when it opened
+      const inner = arm({ close: innerClose }); // the picker it opened — armed later
+      try {
+        document.body.dispatchEvent(escape());
+        expect(innerClose).toHaveBeenCalledTimes(1);
+        expect(outerClose).not.toHaveBeenCalled();
+        inner.cleanup(); // the picker unmounts ({#if} flips)
+        document.body.dispatchEvent(escape());
+        expect(outerClose).toHaveBeenCalledTimes(1);
+      } finally {
+        inner.cleanup();
+        outer.cleanup();
+      }
+    });
+
+    it('a retired layer stops deciding: after the inner unmounts, the outer owns the key', () => {
+      const outerClose = vi.fn();
+      const innerClose = vi.fn();
+      const outer = arm({ close: outerClose });
+      const inner = arm({ close: innerClose });
+      inner.cleanup();
+      try {
+        document.body.dispatchEvent(escape());
+        expect(innerClose).not.toHaveBeenCalled();
+        expect(outerClose).toHaveBeenCalledTimes(1);
+      } finally {
+        outer.cleanup();
+      }
+    });
+  });
 });

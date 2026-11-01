@@ -59,11 +59,8 @@
     query = '';
   }
 
-  // The Select-family Escape pattern (#1582/#1584): Escape pressed INSIDE the
-  // panel is consumed at the panel layer, so a host whose own window listener
-  // registered first cannot close with us on one keypress; the window
-  // fallback (the shared CAPTURE helper, with the consumed-key and IME
-  // guards) owns the key only for a focus that never entered the panel.
+  // Escape: consumed at this panel's own layer — the shared helper owns the
+  // layering contract and the guards (src/lib/a11y/dialog-escape.ts).
   const escapeFallback = { close: () => { open = false; } };
 </script>
 

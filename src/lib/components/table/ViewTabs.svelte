@@ -5,6 +5,7 @@
   // fixed-position popover so it isn't clipped by the strip's overflow; Save /
   // Reset surface as prominent buttons when the view is modified.
   import { onMount, untrack } from 'svelte';
+  import { consumeEscapeAtDialog, escapeIsOurs } from '$lib/a11y/dialog-escape';
   import type { PortalTable } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
   import { createViewController } from '$lib/table/viewController.svelte';
@@ -74,7 +75,12 @@
       if (menuEl && !menuEl.contains(t) && caretEl && !caretEl.contains(t)) menuOpen = false;
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') menuOpen = false;
+      // escapeIsOurs: a consumed or composing Escape is not ours (the shared
+      // guards, once). This document listener is only the fallback for a
+      // focus outside the menu; a focus inside is consumed at the menu
+      // element below, which outranks this listener AND any picker dialog
+      // around the table (#1584).
+      if (escapeIsOurs(e)) menuOpen = false;
     };
     const close = () => (menuOpen = false);
     const timer = setTimeout(() => document.addEventListener('click', onClick), 0);
@@ -177,9 +183,16 @@
 
 <!-- Active-view ▾ menu — fixed so the strip's overflow can't clip it -->
 {#if menuOpen && ctrl.activeView}
+  <!-- The menu consumes Escape at its OWN element (#1584): inside a picker
+       dialog, the dialog's bubble handler outranks a document listener, so
+       without this one press would dismiss the whole picker — and every
+       loaded page with it — instead of the menu. The element exists only
+       while open, so the key is always ours to take. -->
   <div
     bind:this={menuEl}
     role="menu"
+    tabindex="-1"
+    onkeydown={(event) => consumeEscapeAtDialog(event, { close: () => { menuOpen = false; } })}
     class="fixed z-30 w-44 rounded-lg border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
     style="top: {menuPos.top}px; left: {menuPos.left}px;"
   >

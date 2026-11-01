@@ -9,6 +9,7 @@
   // assignable to a `PortalTable<any>` the way it was under v8.
   import type { PortalTable, PortalColumn } from '$lib/table/features';
   import type { RowData } from '@tanstack/table-core';
+  import { consumeEscapeAtDialog, escapeIsOurs } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
 
   let { table }: { table: PortalTable<T> } = $props();
@@ -33,7 +34,11 @@
       if (detailsEl && !detailsEl.contains(e.target as Node)) open = false;
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') open = false;
+      // escapeIsOurs: the shared guards, once. This document listener is
+      // only the fallback for a focus outside the dropdown; a focus inside
+      // is consumed at the details element below, which outranks it AND any
+      // picker dialog around the table (#1584).
+      if (escapeIsOurs(e)) open = false;
     };
     // Defer the click listener a tick so the opening click doesn't close it.
     const timer = setTimeout(() => document.addEventListener('click', onClick), 0);
@@ -47,7 +52,20 @@
 </script>
 
 {#if columns.length > 0}
-  <details bind:this={detailsEl} bind:open class="relative">
+  <!-- The dropdown consumes Escape at its OWN element while open (#1584):
+       inside a picker dialog, the dialog's bubble handler outranks a document
+       listener, so without this one press would dismiss the whole picker
+       instead of the dropdown. `suppressed` passes the key through while the
+       dropdown is closed — then it is the dialog's to take. -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <!-- (`details` is natively interactive via its summary; the keydown is the
+       Escape consumption above, not new mouse/keyboard behavior.) -->
+  <details
+    bind:this={detailsEl}
+    bind:open
+    class="relative"
+    onkeydown={(event) => consumeEscapeAtDialog(event, { close: () => { open = false; }, suppressed: () => !open })}
+  >
     <summary class="cursor-pointer list-none rounded-md border border-zinc-300 bg-zinc-100 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700">
       {t('table.columns', 'Columns')} ▾
     </summary>
