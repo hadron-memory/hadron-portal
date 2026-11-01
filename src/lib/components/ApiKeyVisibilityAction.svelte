@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
@@ -11,7 +12,7 @@
   // the view the submit started in.
   let { id, preview, hidden, includeHidden, onstart }: {
     id: string; preview: string; hidden: boolean; includeHidden: boolean;
-    onstart: () => { deliver: (notice: Notice) => void; current: () => boolean };
+    onstart: (form: HTMLFormElement) => { deliver: (notice: Notice) => void; current: () => boolean; settled: (success: boolean) => void };
   } = $props();
   let formEl: HTMLFormElement;
   let pending = $state(false);
@@ -19,8 +20,9 @@
   const submit: SubmitFunction = ({ cancel }) => {
     if (pending) { cancel(); return; }
     pending = true;
-    const { deliver, current } = onstart();
+    const { deliver, current, settled } = onstart(formEl);
     return async ({ result, update }) => {
+      let success = false;
       try {
         if (result.type === 'success' || result.type === 'failure') {
           // deliver() drops a notice whose page scope ended (another view, or
@@ -35,6 +37,8 @@
           // so the old result would surface there (#1500).
           if (!current()) return;
           await update({ reset: false, invalidateAll: false });
+          await tick();
+          success = result.type === 'success';
           return;
         }
         if (result.type === 'error') {
@@ -42,7 +46,7 @@
           return;
         }
         await update({ reset: false, invalidateAll: false });
-      } finally { pending = false; }
+      } finally { pending = false; settled(success); }
     };
   };
 </script>
