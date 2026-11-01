@@ -69,8 +69,12 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]" onclick={() => { open = false; }}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!-- #1589: announced as a modal dialog layer, named like the rest of the Select family. -->
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={t('select-public-agent.title', 'Choose a public agent')}
+      tabindex="-1"
       class="w-full max-w-md rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}

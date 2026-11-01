@@ -91,6 +91,10 @@ jobs:
       - name: Check App picker phone layout
         run: node scripts/test-select-app-layout.mjs
 
+      # portal#1590: SelectMemory stacked over SelectNode stays clear of the node dialog's header.
+      - name: Check stacked memory picker layout
+        run: pnpm test:stacked-memory-layout
+
       - name: Check
         run: pnpm check
 

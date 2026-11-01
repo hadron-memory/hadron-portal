@@ -7,6 +7,7 @@
   runes effect context, so the table is built here (TableFooterHarness shape).
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -26,6 +27,11 @@
   });
   let globalFilter = $state('');
   let open = $state(true);
+  // #1591 item 2: a real picker's results table often mounts AFTER its dialog
+  // (SelectNode shows it once a search lands), so the table's layers arm
+  // after the dialog's fallback. `tableLater` reproduces that order.
+  let { tableLater = false }: { tableLater?: boolean } = $props();
+  let showTable = $state(untrack(() => !tableLater)); // read once: the order is fixed at mount
   const escapeFallback = { close: () => { open = false; } };
 </script>
 
@@ -34,8 +40,12 @@
     use:dialogEscapeFallback={escapeFallback}
     onkeydown={(event) => consumeEscapeAtDialog(event, escapeFallback)}
     class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
-    <DataTable {table} listKey="test:inner-layers" showSearch={false} searchPlaceholder="" searchAriaLabel="" bind:globalFilter>
-      {#snippet cell()}<span>x</span>{/snippet}
-    </DataTable>
+    {#if showTable}
+      <DataTable {table} listKey="test:inner-layers" showSearch={false} searchPlaceholder="" searchAriaLabel="" bind:globalFilter>
+        {#snippet cell()}<span>x</span>{/snippet}
+      </DataTable>
+    {:else}
+      <button type="button" data-load-results onclick={() => (showTable = true)}>Load results</button>
+    {/if}
   </div>
 {/if}
