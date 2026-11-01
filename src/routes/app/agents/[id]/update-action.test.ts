@@ -90,7 +90,7 @@ describe('agent update action — shared prompt and persona role (#1241)', () =>
   it('sends only role when the old settings form carries a prompt', async () => {
     await runUpdate({
       name: 'Backend Engineer', urnSlug: 'backend-engineer',
-      personaRole: 'backend-engineer', systemPrompt: 'You are {{name}}, a {{role}}.',
+      personaRole: 'backend-engineer', systemPrompt: 'You are {{worker.name}}, a {{worker.role}}.',
     });
     expect(updateAgentVariables()).toMatchObject({
       personaRole: 'backend-engineer',
