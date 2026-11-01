@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { loadAgentExtensions } from '$lib/server/agent-profile';
+import { FAILED_EXTENSIONS, loadAgentExtensions } from '$lib/server/agent-profile';
+import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import type { RequestHandler } from './$types';
 
 // portal#1503: the Extended-by section's own re-read. Retry used to call
@@ -24,11 +25,19 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
     // Pass-through like the page loader's `extendedAfter`: the server owns
     // cursor validity, and a bad cursor lands in `failed: true`, not a 500.
     const after = url.searchParams.get('after');
-    return json(await loadAgentExtensions(gqlClient(locals.token), params.id, after), { headers });
+    // Bounded like the loader's optional lists: a wedged upstream must not hold
+    // the section in "Retrying…" forever — it settles to the failed read, which
+    // re-arms the alert and the Retry control.
+    const page = await withTimeout(
+      loadAgentExtensions(gqlClient(locals.token), params.id, after),
+      OPTIONAL_LIST_TIMEOUT_MS,
+      FAILED_EXTENSIONS,
+    );
+    return json(page, { headers });
   } catch (e) {
     // Unreachable in practice (loadAgentExtensions never rejects); kept so the
     // endpoint's 200-always-carries-a-payload contract cannot regress silently.
     console.error('[agents/extended-by] reload failed:', e);
-    return json({ items: [], endCursor: null, hasMore: false, failed: true }, { headers });
+    return json(FAILED_EXTENSIONS, { headers });
   }
 };

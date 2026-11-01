@@ -1,12 +1,16 @@
 import type { GraphQLClient } from 'graphql-request';
 
 export interface AgentIdentity { id: string; name: string; urn: string }
+// Changing this shape? Update parseExtensions in $lib/agent-extensions.ts —
+// the client refuses a retry payload field it does not validate (#1503).
 export interface AgentExtensions {
   items: AgentIdentity[];
   endCursor: string | null;
   hasMore: boolean;
   failed: boolean;
 }
+/** One shared failed-read value: a failed read is never "no extending Agents". */
+export const FAILED_EXTENSIONS: AgentExtensions = { items: [], endCursor: null, hasMore: false, failed: true };
 export const AGENT_EXTENSIONS_QUERY = /* GraphQL */ `
   query AgentExtensions($ref: ID!, $after: String) {
     agent(ref: $ref) {
@@ -30,7 +34,7 @@ export async function loadAgentExtensions(client: GraphQLClient, ref: string, af
     if (!page || (page.hasMore && !page.endCursor)) throw new Error('Incomplete extension page');
     return { items: page.items, endCursor: page.endCursor, hasMore: page.hasMore, failed: false };
   } catch {
-    return { items: [], endCursor: null, hasMore: false, failed: true };
+    return FAILED_EXTENSIONS;
   }
 }
 

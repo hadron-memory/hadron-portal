@@ -5,6 +5,7 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
   import type { AgentExtensions, AgentIdentity } from '$lib/server/agent-profile';
+  import { parseExtensions } from '$lib/agent-extensions';
   import { t } from '$lib/i18n/t';
 
   let { agentId, result, requestedAfter = null }: { agentId: string; result: AgentExtensions; requestedAfter?: string | null } = $props();
@@ -31,22 +32,15 @@
   const failedText = $derived(!view.failed || retrying ? '' : requestedAfter === null
     ? t('agent.extended-by.failed-first', 'Could not load extending Agents. Retry this page.')
     : t('agent.extended-by.failed', 'Could not load extending Agents. Retry this page, or return to the first page.'));
-  // Refuse a malformed payload before rendering it: anything that is not a
-  // well-formed AgentExtensions is a failed read, never partial garbage.
-  function parseExtensions(payload: unknown): AgentExtensions | null {
-    if (typeof payload !== 'object' || payload === null) return null;
-    const p = payload as Record<string, unknown>;
-    if (!Array.isArray(p.items)
-      || !p.items.every((it): it is AgentIdentity =>
-        typeof it === 'object' && it !== null
-        && typeof (it as Record<string, unknown>).id === 'string'
-        && typeof (it as Record<string, unknown>).name === 'string'
-        && typeof (it as Record<string, unknown>).urn === 'string')
-      || typeof p.hasMore !== 'boolean'
-      || (p.endCursor !== null && typeof p.endCursor !== 'string')
-      || typeof p.failed !== 'boolean') return null;
-    return { items: p.items, endCursor: p.endCursor as string | null, hasMore: p.hasMore, failed: p.failed };
-  }
+  // Refuse a malformed payload before rendering it (see $lib/agent-extensions):
+  // anything that is not a well-formed AgentExtensions is a failed read.
+  // A pending re-read is aborted when the section unmounts, and its result is
+  // applied only if the section still shows the page it was issued for — a
+  // First-page/Back navigation mid-read must not be clobbered by the stale page.
+  let abortRetry: (() => void) | undefined;
+  $effect(() => {
+    return () => { abortRetry?.(); };
+  });
   async function retry(event: MouseEvent) {
     // Modified links retain native tab/window/download behavior, even while a
     // plain retry is pending. Browsers deliver middle clicks through auxclick.
@@ -54,15 +48,19 @@
     event.preventDefault();
     if (retrying) return;
     retrying = true;
+    const forSrc = retrySrc;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : undefined;
+    abortRetry = () => controller?.abort();
     try {
-      const response = await fetch(retrySrc, { headers: { accept: 'application/json' } });
+      const response = await fetch(retrySrc, { headers: { accept: 'application/json' }, signal: controller?.signal });
       if (!response.ok) throw new Error(`extended-by reload failed (${response.status})`);
       const fresh = parseExtensions(await response.json());
       if (!fresh) throw new Error('extended-by reload returned a malformed payload');
-      if (section?.isConnected) view = fresh;
+      if (section?.isConnected && retrySrc === forSrc) view = fresh;
     } catch {
       // Keep the failed-read alert; the page and its URL are untouched.
     } finally {
+      abortRetry = undefined;
       retrying = false;
       if (section?.isConnected) section.focus();
     }

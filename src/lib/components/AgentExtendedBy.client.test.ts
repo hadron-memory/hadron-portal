@@ -376,14 +376,48 @@ describe('section-owned retry (#1503)', () => {
   it('a rejected re-read after unmount records no unhandled rejection and steals no focus', async () => {
     const rejections = await captureUnhandledRejections(async () => {
       const target = await show({ ...empty, failed: true });
-      let reject!: (e: unknown) => void;
-      fetchMock.mockImplementationOnce(() => new Promise<Response>((_res, rej) => { reject = rej; }));
+      let signal: AbortSignal | undefined;
+      fetchMock.mockImplementationOnce((_input: unknown, init?: RequestInit) => {
+        signal = init?.signal ?? undefined;
+        return new Promise<Response>((_res, rej) => { signal?.addEventListener('abort', () => rej(new DOMException('Aborted', 'AbortError'))); });
+      });
       target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(2);
       mounted[mounted.length - 1].unmount();
+      // Unmount aborts the pending re-read; its rejection lands in the guarded catch.
+      expect(signal?.aborted).toBe(true);
       const other = document.createElement('input'); document.body.append(other); other.focus();
-      try { reject(new TypeError('Failed to fetch')); await tick(5); expect(document.activeElement).toBe(other); }
+      try { await tick(5); expect(document.activeElement).toBe(other); }
       finally { other.remove(); }
     });
     expect(rejections).toHaveLength(0);
+  });
+
+  it('discards a late re-read that outlives an in-page navigation to another cursor', async () => {
+    setStubPage('http://localhost/app/agents/base');
+    const props = reactiveProps({ requestedAfter: 'opaque+/=' as string | null, result: { items: [] as Array<{ id: string; name: string; urn: string }>, hasMore: false, endCursor: null, failed: true } });
+    const m = mountComponent(AgentExtendedBy, props as never); mounted.push(m); await tick(5);
+    let finish!: (body: unknown) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = body => resolve(ok(body)); }));
+    m.target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(2);
+    // A "First page" navigation lands while the re-read is still pending.
+    props.requestedAfter = null;
+    props.result = { items: [{ id: 'first', name: 'First row', urn: 'hrn:agent:example.com:first' }], hasMore: false, endCursor: null, failed: false };
+    await tick(2);
+    finish({ items: [{ id: 'stale', name: 'Stale row', urn: 'hrn:agent:example.com:stale' }], hasMore: false, endCursor: null, failed: false }); await tick(5);
+    expect(m.target.querySelector('a[href="/app/agents/first"]')?.textContent).toBe('First row');
+    expect(m.target.querySelector('a[href="/app/agents/stale"]')).toBeNull();
+  });
+
+  it('applies a late re-read that returns to the very page it was issued for', async () => {
+    setStubPage('http://localhost/app/agents/base');
+    const props = reactiveProps({ requestedAfter: 'opaque+/=' as string | null, result: { items: [] as Array<{ id: string; name: string; urn: string }>, hasMore: false, endCursor: null, failed: true } });
+    const m = mountComponent(AgentExtendedBy, props as never); mounted.push(m); await tick(5);
+    let finish!: (body: unknown) => void;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finish = body => resolve(ok(body)); }));
+    m.target.querySelector<HTMLAnchorElement>('nav a')!.click(); await tick(2);
+    // Same-cursor loader refresh (object identity change only): still this page.
+    props.result = { ...empty, failed: true }; await tick(2);
+    finish({ items: [{ id: 'same', name: 'Same page row', urn: 'hrn:agent:example.com:same' }], hasMore: false, endCursor: null, failed: false }); await tick(5);
+    expect(m.target.querySelector('a[href="/app/agents/same"]')?.textContent).toBe('Same page row');
   });
 });

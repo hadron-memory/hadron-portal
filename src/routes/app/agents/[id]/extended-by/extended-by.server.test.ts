@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET } from './+server';
 import { AGENT_EXTENSIONS_QUERY } from '$lib/server/agent-profile';
+import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
 const request = vi.fn(); const gqlClient = vi.fn(() => ({ request }));
 vi.mock('$lib/server/api', () => ({ gqlClient: (...args: unknown[]) => { void args; return gqlClient(); } }));
 
@@ -41,5 +42,17 @@ describe('extended-by section endpoint (#1503)', () => {
     const response = await GET({ locals: { token: null }, params: { id: 'agent-7' }, url: new URL('http://localhost/extended-by') } as never);
     expect(response.status).toBe(401);
     expect(request).not.toHaveBeenCalled();
+  });
+
+  it('settles a wedged upstream read to the failed page after the optional-list bound', async () => {
+    vi.useFakeTimers();
+    try {
+      request.mockImplementation(() => new Promise(() => { /* wedged */ }));
+      const pending = GET(event());
+      await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
+      expect(await (await pending).json()).toEqual({ items: [], endCursor: null, hasMore: false, failed: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
