@@ -11,7 +11,7 @@
   import { signinRedirectLocation } from '$lib/forms/signin-redirect';
   import { submitTextDraft, syncTextDraftWith, TextDraft } from '$lib/text-draft.svelte';
   import { abstractPlaceholder, abstractSearchHint } from '$lib/abstract-search-hint';
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -267,6 +267,8 @@
         if (!stillOurs()) return;
         contentDraft.reseed({ id: node.id, value: node.content, revision: contentRevision() });
         showSource = false;
+        await tick();
+        if (stillOurs()) contentSourceToggle?.focus();
       } else if (result.code === 'changed') {
         // Load the newer version under the kept draft: Rendered now shows it,
         // and the draft learns whether it was THIS field that moved.
@@ -325,6 +327,11 @@
   // the viewport without pushing its Save button off-screen.
   let contentSaveRow = $state<HTMLElement | null>(null);
   let abstractSaveRow = $state<HTMLElement | null>(null);
+  // #1446: a successful save closes its editor, which unmounts the focused Save
+  // button and would drop focus to <body>. The Source toggle stays mounted and
+  // is the control that reopens the editor, so focus moves there.
+  let contentSourceToggle = $state<HTMLButtonElement | null>(null);
+  let abstractSourceToggle = $state<HTMLButtonElement | null>(null);
   // #936: what the abstract does for THIS memory's search, if anything.
   const abstractHint = $derived(abstractSearchHint(data.graph));
   let copiedAbstract = $state(false);
@@ -368,6 +375,8 @@
         if (!stillOurs()) return;
         abstractDraft.reseed({ id: node.id, value: node.abstract, revision: node.revision });
         showAbstractSource = false;
+        await tick();
+        if (stillOurs()) abstractSourceToggle?.focus();
       } else if (result.code === 'changed') {
         await invalidateAll();
         if (!stillOurs()) return;
@@ -3104,6 +3113,7 @@
           >Rendered</button>
           {#if canEditContent}
           <button
+            bind:this={contentSourceToggle}
             class="px-2 py-1 text-xs {showSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
             onclick={() => showSource = true}
           >Source</button>
@@ -3191,6 +3201,7 @@
             onclick={() => showAbstractSource = false}
           >Rendered</button>
           <button
+            bind:this={abstractSourceToggle}
             class="px-2 py-1 text-xs {showAbstractSource ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500'}"
             onclick={() => showAbstractSource = true}
           >Source</button>
