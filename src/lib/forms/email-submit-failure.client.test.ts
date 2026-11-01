@@ -49,12 +49,19 @@ const ALL_PROVIDERS =
   "Your sign-in link couldn't be sent. Check your connection and try again, or continue with Google, Apple or GitHub.";
 const INVITE_PROVIDERS =
   "Your sign-in link couldn't be sent. Check your connection and try again, or continue with Google or GitHub.";
+// portal#1532 item 2: an edge page or the CSRF 403 answered, so no connection hint.
+const ALL_PROVIDERS_ANSWERED =
+  "Your sign-in link couldn't be sent. Try again in a moment, or continue with Google, Apple or GitHub.";
+const INVITE_PROVIDERS_ANSWERED =
+  "Your sign-in link couldn't be sent. Try again in a moment, or continue with Google or GitHub.";
 
 type Case = {
   name: string;
   mount: () => HTMLElement;
   idleLabel: string;
   failureText: string;
+  /** The copy when something answered (an edge page, the CSRF 403), not a rejected fetch. */
+  answeredText: string;
   schema: typeof authEmailSchema | typeof inviteEmailSchema;
 };
 
@@ -71,6 +78,7 @@ const cases: Case[] = [
     mount: () => mountPage(SignIn, { form: authForm(), authFailed: false }),
     idleLabel: 'Continue with Email',
     failureText: ALL_PROVIDERS,
+    answeredText: ALL_PROVIDERS_ANSWERED,
     schema: authEmailSchema,
   },
   {
@@ -78,6 +86,7 @@ const cases: Case[] = [
     mount: () => mountPage(SignUp, { form: authForm() }),
     idleLabel: 'Continue with Email',
     failureText: ALL_PROVIDERS,
+    answeredText: ALL_PROVIDERS_ANSWERED,
     schema: authEmailSchema,
   },
   {
@@ -92,6 +101,7 @@ const cases: Case[] = [
       }),
     idleLabel: 'Continue with email',
     failureText: INVITE_PROVIDERS,
+    answeredText: INVITE_PROVIDERS_ANSWERED,
     schema: inviteEmailSchema,
   },
 ];
@@ -126,7 +136,7 @@ describe.each(cases)('$name email form: a submit with no ActionResult (portal#15
     const { cancelled } = await submitEnhancedWithRawResult(form, raw);
     expect(cancelled).toBe(false);
     await tick(4);
-    expect(alerts(root)).toEqual([c.failureText]);
+    expect(alerts(root)).toEqual([raw === NON_RESULTS[1][1] ? c.failureText : c.answeredText]);
     expect(submitButton(form).disabled).toBe(false);
     expect(submitButton(form).textContent?.trim()).toBe(c.idleLabel);
   });
@@ -168,7 +178,7 @@ describe.each(cases)('$name email form: controls that already worked stay unchan
 // portal#1532 item 2 (Gabriel P3 1): only a rejected fetch is a connection
 // problem. An edge page or kit's CSRF refusal answered, so the copy must not
 // send the reader off to check their connection.
-const NOT_CONNECTION = "Your sign-in link couldn't be sent. Try again in a moment, or continue with Google, Apple or GitHub.";
+const NOT_CONNECTION = ALL_PROVIDERS_ANSWERED;
 describe('sign-in email form: the failure copy names a connection problem only for a rejected fetch (portal#1532)', () => {
   it.each([
     ['a rejected fetch', NON_RESULTS[1][1], ALL_PROVIDERS],
