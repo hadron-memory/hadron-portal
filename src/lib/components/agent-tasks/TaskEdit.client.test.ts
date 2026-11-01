@@ -122,6 +122,23 @@ describe('Edit details: the panel', () => {
     expect(f2.querySelector<HTMLSelectElement>('[name="minTier"]')!.value).toBe('ultra');
   });
 
+  // portal#1530: with no minimum the server still matches unknown-tier workers (they sort last),
+  // so the help must qualify the exclusion to a selected minimum — in both the Any and the
+  // seeded-minimum render, with the form still serializing exactly what it did.
+  it('the min-tier help qualifies the unknown-tier exclusion to a selected minimum, for Any and for a seeded tier (portal#1530)', async () => {
+    const { root } = await mountBar();
+    const form = await openEdit(root);
+    expect(form.querySelector('#edit-min-tier-help')!.textContent).toContain('When a minimum is selected, a worker whose tier is unknown won’t be picked.');
+    expect(new FormData(form).get('minTier')).toBe('');
+    expect(JSON.parse(field(form, 'requirementsBase').value).minTier).toBeNull();
+    root.remove();
+    const tiered = await mountBar({ requirements: { role: null, familyIn: null, familyNotIn: null, excludeWorkerIds: null, minTier: 'mid' } });
+    const f2 = await openEdit(tiered.root);
+    expect(f2.querySelector('#edit-min-tier-help')!.textContent).toContain('When a minimum is selected, a worker whose tier is unknown won’t be picked.');
+    expect(new FormData(f2).get('minTier')).toBe('mid');
+    expect(JSON.parse(field(f2, 'requirementsBase').value).minTier).toBe('mid');
+  });
+
   it('says tags and requirements are replaced as shown, and that a started or assigned task keeps its worker', async () => {
     const { root } = await mountBar({ status: 'STARTED' });
     const form = await openEdit(root);

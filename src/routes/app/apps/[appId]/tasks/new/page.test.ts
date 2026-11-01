@@ -83,6 +83,21 @@ describe('create page: a warned create (no JS)', () => {
     expect(html).toMatch(/<label[^>]*for="new-min-tier"[^>]*>Minimum model tier<\/label>/);
     const sel = html.match(/<select[^>]*name="minTier"[\s\S]*?<\/select>/)![0];
     expect([...sel.matchAll(/<option[^>]*value="([^"]*)"/g)].map((m) => m[1])).toEqual(['', 'low', 'mid', 'high']);
-    expect(html).toContain('won’t be picked');
+    // Any is the untouched default: no tier option is selected, so the select still posts no minimum.
+    expect(sel).not.toMatch(/<option[^>]*value="(?:low|mid|high)"[^>]*selected/);
+  });
+
+  // portal#1530: with "Any" the server still matches unknown-tier workers (they sort last), so
+  // the exclusion sentence must say it applies only when a minimum is selected.
+  it('with Any selected, the help qualifies the unknown-tier exclusion to a selected minimum (portal#1530)', () => {
+    const html = page();
+    expect(html).toContain('When a minimum is selected, a worker whose tier is unknown won’t be picked.');
+  });
+
+  it('with a minimum kept from a refused create, Mid is selected and the same qualified help shows (portal#1530)', () => {
+    const html = page({ refusal: { kind: 'refused', code: 'TASK_TITLE_REQUIRED', message: 'Give the task a title.' }, values: { title: '', minTier: 'mid' } });
+    const sel = html.match(/<select[^>]*name="minTier"[\s\S]*?<\/select>/)![0];
+    expect(sel).toMatch(/<option[^>]*value="mid"[^>]*selected/);
+    expect(html).toContain('When a minimum is selected, a worker whose tier is unknown won’t be picked.');
   });
 });
