@@ -1,4 +1,4 @@
-# Exported from hadron-server 2c6962c031983fe5a4f7b5c8814cb0bee54059e6 (origin/main, 2026-10-31T18:54:17-06:00) by pnpm gql:schema — do not edit.
+# Exported from hadron-server 1475888faa0d85633347e99e6e9ccc3d440e0297 (1475888faa0d85633347e99e6e9ccc3d440e0297, 2026-11-01T04:38:22-07:00) by pnpm gql:schema — do not edit.
 """
 issue #323: one reason a subject has (or would have) access to a resource.
 """
@@ -533,7 +533,17 @@ type AgentTask {
   """
   createdByRunId: ID
   description: String
+
+  """
+  The finish-by deadline (#2648, hrn:node:hadronmemory.com:specs:cor:agt:050:14). While set, no stall window applies to the task; one stall.finish-by alarm is raised once it passes with the task neither finished nor cancelled.
+  """
+  finishBy: DateTime
   finishedAt: DateTime
+
+  """
+  #2651: the task's latest hand-back by its assignee (hrn:node:hadronmemory.com:specs:cor:agt:050:29); null when it was never handed back. A later hand-back replaces it; every earlier code stays in the task.handed-back events.
+  """
+  handBack: AgentTaskHandBack
 
   """
   The short handle of this task, for example "AT3.405": its project (AT3, a top-level task counted per App) and its
@@ -567,6 +577,13 @@ type AgentTask {
   Derived (hrn:node:hadronmemory.com:specs:cor:agt:050:03): pending with no assignee. Never stored.
   """
   queued: Boolean!
+
+  """
+  #2649 (hrn:node:hadronmemory.com:specs:cor:agt:050:01): the task's ordered, typed references to other things. Each
+  target is the string as stored: never fetched or resolved, so it says nothing about the target's content or whether
+  it exists. Empty when none.
+  """
+  references: [AgentTaskReference!]!
   requirements: AgentTaskRequirements
 
   """Set only on a finished task."""
@@ -615,6 +632,45 @@ type AgentTaskDependencyPage {
 }
 
 """
+#2651: a task's latest hand-back (hrn:node:hadronmemory.com:specs:cor:agt:050:01, :29), readable by whoever may read the task.
+"""
+type AgentTaskHandBack {
+  code: AgentTaskHandBackCode!
+  handedBackAt: DateTime!
+
+  """
+  The optional reason text, up to 2,000 characters. Stored on the task only, never in an event.
+  """
+  text: String
+}
+
+"""
+#2651: why an assignee handed a started task back, a closed set (hrn:node:hadronmemory.com:specs:cor:agt:050:29,
+Proposed details). MISSING_INPUT: something the work needs is not there. CANNOT_DO: the worker lacks the
+capability. REFUSED: a policy or safety refusal. OUT_OF_SCOPE: the work is not what this task's role does.
+DUPLICATE: the same work is already tracked elsewhere.
+"""
+enum AgentTaskHandBackCode {
+  CANNOT_DO
+  DUPLICATE
+  MISSING_INPUT
+  OUT_OF_SCOPE
+  REFUSED
+}
+
+"""
+#2651: the reason a hand-back gives (hrn:node:hadronmemory.com:specs:cor:agt:050:29).
+"""
+input AgentTaskHandBackInput {
+  code: AgentTaskHandBackCode!
+
+  """
+  Optional, up to 2,000 characters after trimming; blank is none. Stored on the task, never put into an event.
+  """
+  text: String
+}
+
+"""
 #2421 experimental symptom search: membership in the hybrid ranking inputs.
 """
 enum AgentTaskMatchedBy {
@@ -660,6 +716,61 @@ enum AgentTaskPartyKind {
 }
 
 """
+#2649 (hrn:node:hadronmemory.com:specs:cor:agt:050:01): one typed reference, as stored. The platform never resolves target.
+"""
+type AgentTaskReference {
+  kind: AgentTaskReferenceKind!
+
+  """Optional, at most 120 characters; null when none was given."""
+  label: String
+
+  """Stored exactly as given (at most 512 characters)."""
+  target: String!
+}
+
+"""
+#2649: agentTasks(reference:) matches tasks carrying a reference with exactly this target (1 to 512 characters, else BAD_USER_INPUT), and this kind when given. The label is ignored.
+"""
+input AgentTaskReferenceFilter {
+  kind: AgentTaskReferenceKind
+  target: String!
+}
+
+"""
+#2649 (hrn:node:hadronmemory.com:specs:cor:agt:050:01): one reference to set. target must have its kind's form and be
+at most 512 characters, with no whitespace or control characters (a URL is written scheme://host, with no
+backslash); label at most 120 (empty means none). A list of more than 20, or any item that fails, is refused
+BAD_USER_INPUT and nothing is written.
+"""
+input AgentTaskReferenceInput {
+  kind: AgentTaskReferenceKind!
+  label: String
+  target: String!
+}
+
+"""
+#2649 (hrn:node:hadronmemory.com:specs:cor:agt:050:01): what a task reference points at, which fixes the form its target takes.
+"""
+enum AgentTaskReferenceKind {
+  """An absolute https URL of an issue. No owner/repo#n shorthand."""
+  ISSUE
+
+  """A node URN (hrn:node:...)."""
+  NODE
+
+  """An absolute https URL of a pull request."""
+  PULL_REQUEST
+
+  """
+  An agent-task URN (hrn:agenttask:<root>:<app-slug>:<task id or handle>), never a bare handle.
+  """
+  TASK
+
+  """An absolute http or https URL."""
+  URL
+}
+
+"""
 What the platform's matcher must respect when it chooses an assignee (plan design:agent-tasks section 3.1; consumed by T3).
 """
 type AgentTaskRequirements {
@@ -671,6 +782,16 @@ type AgentTaskRequirements {
   The lowest model tier the assignee may run at: low, mid or high (hrn:node:hadronmemory.com:specs:cor:agt:060:06). Null when the task names none.
   """
   minTier: String
+
+  """
+  Model groups the assignee's model must be in at least one of (hrn:node:hadronmemory.com:specs:cor:agt:060:12). Null when the task names none.
+  """
+  modelGroupIn: [String!]
+
+  """
+  Model groups the assignee's model must be in none of (hrn:node:hadronmemory.com:specs:cor:agt:060:12). Null when the task names none.
+  """
+  modelGroupNotIn: [String!]
   role: String
 }
 
@@ -688,6 +809,16 @@ input AgentTaskRequirementsInput {
   The lowest model tier the assignee may run at: low, mid or high, in that order (hrn:node:hadronmemory.com:specs:cor:agt:060:06). A worker below it, or whose tier is unknown, is never matched; the lowest sufficient tier wins. There is no maximum.
   """
   minTier: String
+
+  """
+  Model groups of the App (hrn:node:hadronmemory.com:specs:cor:agt:060:12) the assignee's model must be in at least one of. A name no group of the App carries is refused. A worker with no model is in no group, so it never matches.
+  """
+  modelGroupIn: [String!]
+
+  """
+  Model groups of the App (hrn:node:hadronmemory.com:specs:cor:agt:060:12) the assignee's model must be in none of. A name no group of the App carries is refused. A worker with no model is in no group, so it passes.
+  """
+  modelGroupNotIn: [String!]
   role: String
 }
 
@@ -879,7 +1010,7 @@ type AgentTeamEvent {
   taskId: ID
 
   """
-  e.g. task.created, task.assigned, task.reassigned, task.started, task.progress, task.finished, task.cancelled; the alarms stall.not-started, stall.no-progress, stall.owner-unreactive, assignment.unassignable, alarm.dark-worker (#2755: task-less, subjectWorker is the worker gone dark); availability.changed; assignment.queued, assignment.matched (the platform's assignment, hrn:node:hadronmemory.com:specs:cor:agt:060:06); host.registered, host.lost; host.operation.succeeded, host.operation.failed (hrn:node:hadronmemory.com:specs:cor:agt:070:02).
+  e.g. task.created, task.assigned, task.reassigned, task.started, task.progress, task.finished, task.cancelled, task.handed-back (#2651: its payload is the reason code only, never the reason text); the alarms stall.not-started, stall.no-progress, stall.owner-unreactive, assignment.unassignable, stall.finish-by (#2648), alarm.dark-worker (#2755: task-less, subjectWorker is the worker gone dark); availability.changed; assignment.queued, assignment.matched (the platform's assignment, hrn:node:hadronmemory.com:specs:cor:agt:060:06); host.registered, host.lost; host.operation.succeeded, host.operation.failed (hrn:node:hadronmemory.com:specs:cor:agt:070:02).
   """
   type: String!
 
@@ -3321,6 +3452,11 @@ input CreateAgentTaskInput {
   description: String
 
   """
+  #2648 (hrn:node:hadronmemory.com:specs:cor:agt:050:14): an optional finish-by deadline; refused BAD_USER_INPUT if in the past or earlier than startBy. While set, the task raises no stall-window alarm, only stall.finish-by once it passes unfinished.
+  """
+  finishBy: DateTime
+
+  """
   Defaults to the creator. A root task's creator may name any other
   participating worker or person as owner (#1757, hrn:node:hadronmemory.com:specs:cor:agt:050:01);
   a ref outside the App's participants is TASK_OWNER_INVALID. Never for a
@@ -3345,6 +3481,11 @@ input CreateAgentTaskInput {
   owner, a manager, or the assignee named here); any other creator gets the task made without them, not a refusal.
   """
   properties: JSON
+
+  """
+  #2649 (hrn:node:hadronmemory.com:specs:cor:agt:050:01): the task's ordered references; any creator may set them, as it sets the title.
+  """
+  references: [AgentTaskReferenceInput!]
   requirements: AgentTaskRequirementsInput
   source: String
   startBy: DateTime
@@ -4397,6 +4538,14 @@ type Edge {
   See hadron-docs/docs/reference/edge-conditions.md.
   """
   condition: JSON
+
+  """#1151 - when the edge was created."""
+  createdAt: DateTime!
+
+  """
+  #1151 - the User behind this edge's creation, as handle and URN only (the revision-editor projection; never a raw id). Null when the stored creator resolves to no live user (a system job, an app key, a deleted user; the stored value is never echoed), for edges written before attribution was stamped (not backfilled), and for a caller who cannot read the memory the edge lives in (an edge's memory is its source side), so a cross-memory edge never names another tenant's user.
+  """
+  createdByUser: NodeRevisionEditor
   data: JSON
 
   """
@@ -4449,6 +4598,16 @@ type Edge {
   The live target node, or null when deleted or when its memory is unreadable. Deleted-node inspection uses the explicit recovery graph.
   """
   target: Node
+
+  """
+  #1151 - when the edge row last changed (stamped on create too; null only for a row inserted outside the API).
+  """
+  updatedAt: DateTime
+
+  """
+  #1151 - the User behind the last update of this edge; null under the same conditions as createdByUser.
+  """
+  updatedByUser: NodeRevisionEditor
 
   """
   Fully-qualified edge URN (hrn:edge:<root>:<memory>:<loc>), composed server-side from the edge's (source-side) memory URN + loc (#481 parity — edges are loc-addressed peers of nodes, spec 037).
@@ -7548,7 +7707,7 @@ type Mutation {
   
   A worker's post that repeats its own earlier message is refused: the same worker
   (across its sessions), the same Channel, exactly the same body and the same reply
-  target (or none on both sides), earlier than ten minutes ago, with TEAM_CHAT_DUPLICATE.
+  target (or none on both sides), within the preceding ten minutes, with TEAM_CHAT_DUPLICATE.
   The earlier message was posted, so do not retry: the text and the typed fields
   (earlierSeq, channelId) name it. Nothing is stored. A post made as the human
   (no session) is not judged.
@@ -7898,7 +8057,10 @@ type Mutation {
   GDPR erasure posture). Requires a user credential (JWT or hdr_user key);
   App-key callers are rejected.
   
-  Omitting userRef deletes the CALLER's own account (no role needed).
+  Omitting userRef (or passing null) deletes the CALLER's own account
+  (no role needed). A userRef that is supplied but empty after trimming
+  is refused with BAD_USER_INPUT for every caller and deletes nothing
+  (hrn:node:hadronmemory.com:specs:cor:aut:020:03).
   A platform ADMIN/OWNER may name another user; userRef accepts the
   user's ID, handle, or hrn:user:<handle> URN. Any other caller naming a
   target receives the same FORBIDDEN error whether or not that user
@@ -8163,6 +8325,20 @@ type Mutation {
   Mint credits for an org - a positive grant ledger row (spec 046). PLATFORM ADMIN ONLY (self-grant risk); processor top-ups land here later.
   """
   grantCredits(input: GrantCreditsInput!): CreditLedgerEntry!
+
+  """
+  #2651 — hand a started task back: its assignee only (hrn:node:hadronmemory.com:specs:cor:agt:050:29). The task
+  loses its assignee, goes back to PENDING and is queued again (hrn:node:hadronmemory.com:specs:cor:agt:050:03); a
+  returning worker is added to requirements.excludeWorkerIds, so the platform's matcher assigns it to another
+  matching worker (hrn:node:hadronmemory.com:specs:cor:agt:060:06), and whoever may assign the task can remove
+  that exclusion. A person who hands a task back is not added. One task.handed-back event carries the code only; no
+  result is written; child tasks are untouched; every ordinary stall episode the task had ends, while a finish-by
+  episode is kept until the task ends or its finish-by time is edited (hrn:node:hadronmemory.com:specs:cor:agt:050:13). taskRef is the task's id or handle. Refusals: TASK_NOT_FOUND,
+  TASK_NOT_ASSIGNEE (anyone else, or a task with no assignee), TASK_ENDED (finished or cancelled),
+  TASK_INVALID_TRANSITION (pending), BAD_USER_INPUT (a code outside the set, or text over 2,000 characters),
+  SESSION_NOT_BOUND, APP_UNINSTALLED. Nothing changes on a refusal.
+  """
+  handBackAgentTask(reason: AgentTaskHandBackInput!, taskRef: ID!): AgentTask!
 
   """
   Import external content into a node (#457, sync v1). Source: exactly one
@@ -9221,6 +9397,11 @@ type Mutation {
   setQuotaLimit(input: SetQuotaLimitInput!): QuotaCounter!
 
   """
+  Platform ADMIN/OWNER human only. Version-checked limits/mode edit, audit recorded; no counter reset (#1793).
+  """
+  setRateLimitPolicy(input: SetRateLimitPolicyInput!): RateLimitPolicy!
+
+  """
   #2138: pause or resume the whole team, as whoever manages the App. Separate from each worker's own pause: a worker cannot lift it, and ending it clears no self-pause. While paused, no worker is nudged and every worker's check status is PENDING (TEAM_PAUSED).
   """
   setTeamPause(appRef: String!, paused: Boolean!): TeamPause!
@@ -10110,6 +10291,11 @@ type Node {
   #1610 — the Agent behind this node's creation: a worker's role agent, an agent session, or a headless App run. Null when no agent was behind it.
   """
   createdByAgent: ActorRef
+
+  """
+  #1151 - the User behind this node's creation, as handle and URN only (the same projection as updatedByUser). Null when the stored creator resolves to no live user (a system job, an app key, a deleted user; the stored value is never echoed), and for nodes written before the column was stamped, which are not backfilled.
+  """
+  createdByUser: NodeRevisionEditor
 
   """
   #1610 — the Worker that created this node, when it was written in a worker session. The user is createdBy. Null for a write with no worker behind it, and for nodes written before #1610.
@@ -11631,6 +11817,11 @@ type Query {
     owner: AgentTaskPartyInput
     parentTaskId: ID
     queued: Boolean
+
+    """
+    #2649: tasks carrying a reference with exactly this target, and this kind when given; the label is ignored. Runs inside the App read gate.
+    """
+    reference: AgentTaskReferenceFilter
     rootsOnly: Boolean
 
     """Exact opaque source value, without interpretation or prefix matching."""
@@ -12945,6 +13136,11 @@ type Query {
   quotaCounters(appRef: String, orgRef: String!): [QuotaCounter!]!
 
   """
+  Live platform ADMIN/OWNER human only; bounded five-row policy read (#1793).
+  """
+  rateLimitPolicies: [RateLimitPolicy!]!
+
+  """
   Inspect live edges and accessible deleted endpoints in one memory you can read and write. Default 20, maximum 200. edgeIds (1 to 200 ids) restricts the result, total included, to those edges; an id that is not a visible edge of this memory is absent. hrn:node:hadronmemory.com:specs:cor:api:110:02
   """
   recoveryEdges(edgeIds: [ID!], limit: Int = 20, memoryRef: ID!, offset: Int = 0): RecoveryEdgesPage!
@@ -13685,6 +13881,37 @@ type QuotaCounter {
   Window kind (day). The row rolls in place at UTC midnight - used resets, limit persists.
   """
   window: String!
+}
+
+"""Per-class deployment rollout. LOG_ONLY counts without limiter refusal."""
+enum RateLimitEnforcementMode {
+  ENFORCING
+  LOG_ONLY
+}
+
+"""
+Server-owned request cost class (#1793); not a client branching contract.
+"""
+enum RateLimitFieldClass {
+  CREDENTIALS
+  FAN_OUT_READS
+  OTHER_READS
+  OUTBOUND
+  WRITES
+}
+
+"""Admin-only projection; no secrets, subject counters or identities."""
+type RateLimitPolicy {
+  enforcementMode: RateLimitEnforcementMode!
+  fieldClass: RateLimitFieldClass!
+  ipGroupingVersion: String!
+  ipLimit: Int!
+  keyLimit: Int!
+  principalLimit: Int!
+  retentionSeconds: Int!
+  updatedAt: DateTime!
+  version: Int!
+  windowSeconds: Int!
 }
 
 type RecoveryEdgesPage {
@@ -15165,6 +15392,19 @@ input SetQuotaLimitInput {
   orgRef: String!
 }
 
+"""
+Complete limit triple; mode omitted or null preserves (hrn:node:hadronmemory.com:specs:cor:api:210:01).
+"""
+input SetRateLimitPolicyInput {
+  changeReference: String!
+  enforcementMode: RateLimitEnforcementMode
+  expectedVersion: Int!
+  fieldClass: RateLimitFieldClass!
+  ipLimit: Int!
+  keyLimit: Int!
+  principalLimit: Int!
+}
+
 input SetTeamStopSignalInput {
   appRef: String!
 
@@ -16484,6 +16724,14 @@ type TeamRosterEntry {
   model: String
 
   """
+  Current matching model-group names, resolved live from the Team Agent and App overrides.
+  Empty without a reported model or match; null with a field error if group lookup fails.
+  Uses this roster's existing audience; group configuration is read live when selected.
+  Advisory only, never authorization (hrn:node:hadronmemory.com:specs:cor:agt:060:12).
+  """
+  modelGroups: [String!]
+
+  """
   When that binding last reported its model; null when unbound or never reported. Not inferred from session activity.
   """
   modelReportedAt: DateTime
@@ -16945,6 +17193,11 @@ input UpdateAgentTaskInput {
   description: String
 
   """
+  #2648 (hrn:node:hadronmemory.com:specs:cor:agt:050:14): set or change the finish-by deadline (refused BAD_USER_INPUT if in the past or earlier than startBy), or null to clear it, which brings the ordinary stall windows back from this edit. Either change ends the current finish-by episode. Setting only startBy is refused if it is later than the finish-by time.
+  """
+  finishBy: DateTime
+
+  """
   #2420 (hrn:node:hadronmemory.com:specs:cor:agt:050:28): omitted leaves the value, a JSON object replaces the whole of
   it (no merge), null clears it. Writable by the task's owner, a worker the owner reports to, whoever manages the App,
   and the task's assignee; an assignee's update may name this field and no other. Refused on a finished or cancelled
@@ -16952,6 +17205,11 @@ input UpdateAgentTaskInput {
   Team Agent's schema:task-properties PROPERTIES_SCHEMA_VIOLATION, an unusable schema PROPERTIES_SCHEMA_UNUSABLE.
   """
   properties: JSON
+
+  """
+  #2649 (hrn:node:hadronmemory.com:specs:cor:agt:050:09): a list replaces the whole list, order kept; null or an empty list clears it; omission leaves it. The task.edited event names references, never the values.
+  """
+  references: [AgentTaskReferenceInput!]
   requirements: AgentTaskRequirementsInput
 
   """
@@ -17587,6 +17845,13 @@ type Worker {
   model: String
 
   """
+  Current matching model-group names, resolved live from the Team Agent and App overrides.
+  Empty without a reported model or match; null when working-state access is denied.
+  Advisory only, never authorization (hrn:node:hadronmemory.com:specs:cor:agt:060:12).
+  """
+  modelGroups: [String!]
+
+  """
   #2252 — when model was self-reported (a bind, a resume or an updateSession carrying a model; a repeat of the
   same model counts). Null when the session never reported one. A report time, not verified detection.
   """
@@ -17775,7 +18040,7 @@ type WorkerAvailability {
 #2138 §3.4 (experimental) — a worker's check status. Draft spec: hrn:node:hadronmemory.com:hadron-dev-team-vera:work:2138-experiment-spec.
 """
 enum WorkerCheckState {
-  """No live session."""
+  """No live session; noSessionReason says why."""
   NO_SESSION
 
   """
@@ -17803,6 +18068,9 @@ type WorkerCheckStatus {
   When it last checked the App's team channel through its own session; null if never.
   """
   lastCheckedAt: DateTime
+
+  """#3077: set only when status is NO_SESSION."""
+  noSessionReason: WorkerNoSessionReason
 
   """Set only when status is PENDING."""
   pendingReason: WorkerPendingReason
@@ -17889,6 +18157,25 @@ type WorkerHolder {
   Canonical hrn:user:<handle> URN (hrn:node:hadronmemory.com:specs:cor:urn:010:01). Null for a handle-less user.
   """
   urn: String
+}
+
+"""
+#3077 — why a worker is NO_SESSION (hrn:node:hadronmemory.com:specs:cor:agt:100:03; idle versus ended per
+hrn:node:hadronmemory.com:specs:cor:agt:020:03). A closed set: it carries no session id or timestamp.
+"""
+enum WorkerNoSessionReason {
+  """
+  Every session it had is over: ended, auto-expired, or past its promised expiresAt.
+  """
+  ENDED
+
+  """
+  An open session would bind it, but nobody drove it inside its idle window.
+  """
+  IDLE
+
+  """It has never had a session. Deleted sessions count for nothing."""
+  NEVER_BOUND
 }
 
 """
