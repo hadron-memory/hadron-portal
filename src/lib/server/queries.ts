@@ -5343,3 +5343,17 @@ export const CREATE_CHANNEL_MESSAGE_MUTATION = /* GraphQL */ `
     createChannelMessage(channelRef: $channelRef, body: $body, replyToSeq: $replyToSeq) { nodeId seq body at authorName }
   }
 `;
+
+// portal#1538 (hadron-server#2458 S4) — change the Agent (and so the role) a cast worker runs.
+export const CHANGE_WORKER_AGENT_MUTATION = /* GraphQL */ `
+  mutation ChangeWorkerAgent($workerRef: ID!, $agentRef: ID!) {
+    changeWorkerAgent(workerRef: $workerRef, agentRef: $agentRef) { id role agent { id name } }
+  }
+`;
+
+/** The Agents installed in an App, with the persona role the picker policy filters on. */
+export const APP_CASTABLE_AGENTS_QUERY = /* GraphQL */ `
+  query AppCastableAgents($ref: ID!) {
+    app(ref: $ref) { id appAgents { agent { id name urn description personaRole } } }
+  }
+`;
