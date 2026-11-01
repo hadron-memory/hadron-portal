@@ -1,0 +1,35 @@
+{
+  "subject": "hadron-portal#1594 / #1592",
+  "capturedPortalHead": "7af979523def222cb4e774ed01469e07ecbc1f1c",
+  "backendHead": "b6e30a69b234b351ffb1267f79c95e6f4d92d3da",
+  "executor": "runtime-verified gpt-6-luna, Codex CLI0.163.0",
+  "visualReviewer": "Chip, gpt-6.1-sol / OpenAI (Codex)",
+  "environment": "ONE private synthetic Incus stack chip1594, API18994/portal19094; actualPlaywright1.58.2/Chromium145.0.7632.6; 1280x1000",
+  "auth": "synthetic alpha-owner@e2e.test through dev-login; no real identities",
+  "redaction": "Original invitation URL text in existing successful banner replaced before capture with Invitation URL redacted; no success markup injected; PNGs unchanged after capture",
+  "images": [
+    {
+      "file": "screenshots/account-invite-dark.png",
+      "sha256": "4dbb4f12937fc6da8bd4bc687b5780f58da3ed0b00ef535bd5da30d8834144d1"
+    },
+    {
+      "file": "screenshots/account-invite-light.png",
+      "sha256": "c4cdd2e7c37eccc3da9898692c766b068fd2098a45821b2064849a654ef87f5a"
+    },
+    {
+      "file": "screenshots/org-members-invite-dark.png",
+      "sha256": "a3aadb78ba344048e1d455af03dce0bfa0f9b56e13dbf1f1c66b8bbb98aeecf9"
+    },
+    {
+      "file": "screenshots/org-members-invite-light.png",
+      "sha256": "5e8d4514a28471df0d8210b64dc74a8e0bcae9666c189f75ad6d029aa6110e06"
+    }
+  ],
+  "cleanup": "Browser/portal stopped, Incus instance and state removed, bothportsclosed; parent independentlyverified. Private logs removed/sanitized.",
+  "limits": [
+    "Desktoponly, no mobile/clipboard/emaildelivery/acceptinvite coverage",
+    "Org success shows no limits sentence, no claim it does",
+    "Tested head moved afterward; any carry must explicitly inspect delta; these remain exact7af97952 captures"
+  ],
+  "timing": "Capture2026-11-01T20:58:14\u201320:58:17UTC; helper run20:55\u201321:01UTC; cleanup independentlyverified afterward. Helper teardownStarted metadata inconsistent with reporteddownCompletion, so no precise teardown-start duration claimed."
+}
