@@ -45,12 +45,14 @@ describe('#1346 embedFailedView', () => {
     expect(v.failed).toEqual([]);
   });
 
-  it('sums problems and informational declarations for the total, and flags overflow even when the server flag is false', () => {
+  it('flags overflow by the problems+informational sum when problems alone fit the page and the server flag is false', () => {
+    // Problems alone (1) fit the returned page (2), so only the SUM proves the
+    // cap hid declarations — the problems-only comparison stays false (#1533).
     const v = embedFailedView(result({
       findings: [finding('EMBED_FAILED', 1), finding('INDEX_TRUNCATED', 2)],
-      totalFindings: 250, totalInformational: 200, truncated: false,
+      totalFindings: 1, totalInformational: 200, truncated: false,
     }));
-    expect(v.truncation).toEqual({ shown: 2, total: 450 });
+    expect(v.truncation).toEqual({ shown: 2, total: 201 });
   });
 
   it('reports a skipped EMBED_FAILED check rather than an empty, healthy-looking list', () => {
