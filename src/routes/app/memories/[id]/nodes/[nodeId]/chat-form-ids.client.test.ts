@@ -339,8 +339,13 @@ describe('#1522 chat send form identity', () => {
     const nodeB = { ...teamChatNode(), id: 'chat-pk-2', loc: 'chats:team-2', name: 'team 2', tags: ['team-chat'] };
     serveNode(nodeA, nodeB);
     const aData = await loadNodePage(nodeA, new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`));
-    // Same route, same memory, a different chat node: the data swap a
-    // same-route navigation performs without remounting the page component.
+    // Same route, same memory, a different chat node. Careful: this leg
+    // does NOT model the one-instance data swap of a real same-route hop —
+    // HandoffHost mounts a separate page instance per side and switches
+    // which one is live, so no instance ever changes its data. The
+    // same-route hop legs at the bottom of this file pin that shape; this
+    // one pins a late result crossing an instance handoff (and a page
+    // mounting while the old action data is still present).
     const bData = await loadNodePage(nodeB, new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk-2`));
 
     const host = mountComponent(HandoffHost as never, {
