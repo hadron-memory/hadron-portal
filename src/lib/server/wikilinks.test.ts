@@ -39,7 +39,7 @@ function serve(rows: typeof table = table) {
       if (args[0] === WIKILINK_TARGETS_BATCH_QUERY) {
         const refs = (args[1]?.refs ?? []) as string[];
         const nodes = refs.flatMap((r) => (rows[r] ? [{ ...rows[r], loc: r.split(':').slice(4).join(':') }] : []));
-        return { nodeBatch: { nodes, unavailable: [], omitted: 0, truncated: false } };
+        return { nodeBatch: { nodes, unavailable: [], omitted: [], truncated: false } };
       }
       const vars = (args[1] ?? {}) as Record<string, string>;
       return Object.fromEntries(Object.keys(vars).map((k, i) => [`w${i}`, rows[vars[k]] ?? null]));
@@ -118,6 +118,41 @@ describe('resolveWikilinks — same-memory (bare loc)', () => {
     const client = { request: vi.fn().mockRejectedValue(new Error('ECONNREFUSED')) };
     const links = await resolveWikilinks(client, ['[[findings:x]]'], ctx());
     expect(links['findings:x']).toEqual({ href: `/app/u/${NODE_URN('findings:x')}`, label: 'findings:x' });
+  });
+
+  /** A batch the server cut at its response-size cap: `omitted` refs were readable but dropped. */
+  function serveTruncated(answer: { nodes: string[]; omitted: string[]; unavailable: string[] }) {
+    return {
+      request: vi.fn(async () => ({
+        nodeBatch: {
+          nodes: answer.nodes.map((urn) => ({ ...table[urn], loc: urn.split(':').slice(4).join(':') })),
+          omitted: answer.omitted,
+          unavailable: answer.unavailable,
+          truncated: true,
+        },
+      })),
+    };
+  }
+
+  it('renders a size-OMITTED target unchecked, never as a missing node (#1438 LOCAL P2)', async () => {
+    // nodeBatch's byte cap counts content before projection, so even this thin
+    // selection can be truncated; an omitted ref exists and is readable.
+    const client = serveTruncated({ nodes: [NODE_URN('findings:x')], omitted: [NODE_URN('findings:big')], unavailable: [] });
+    const links = await resolveWikilinks(client, ['[[findings:x]] [[findings:big]]'], ctx());
+    expect(links['findings:x']?.href).toBe(`/app/memories/${MEM}/nodes/n1`);
+    expect(links['findings:big']).toEqual({ href: `/app/u/${NODE_URN('findings:big')}`, label: 'findings:big' });
+    expect(client.request).toHaveBeenCalledTimes(1);
+  });
+
+  it('still marks an UNAVAILABLE target missing when the batch was also truncated', async () => {
+    const client = serveTruncated({
+      nodes: [],
+      omitted: [NODE_URN('findings:big')],
+      unavailable: [NODE_URN('findings:never-written')],
+    });
+    const links = await resolveWikilinks(client, ['[[findings:big]] [[findings:never-written]]'], ctx());
+    expect(links['findings:big']?.href).toBe(`/app/u/${NODE_URN('findings:big')}`);
+    expect(links['findings:never-written']).toBeNull();
   });
 
   it('resolves many same-memory links in ONE nodeBatch (up to its 200 cap)', async () => {

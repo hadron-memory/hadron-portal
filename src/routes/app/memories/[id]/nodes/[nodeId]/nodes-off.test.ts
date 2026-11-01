@@ -61,7 +61,7 @@ async function runLoad(opts: {
     if (doc === NODE_BY_ID_QUERY) return { node: opts.node ?? nodeRow() };
     if (doc === NODE_ANCESTORS_QUERY || doc === WIKILINK_TARGETS_BATCH_QUERY) {
       if (opts.boundedReadsThrow) throw new Error('boom');
-      return { nodeBatch: { nodes: [], unavailable: [], omitted: 0, truncated: false } };
+      return { nodeBatch: { nodes: [], unavailable: [], omitted: [], truncated: false } };
     }
     if (doc === NODE_CHILDREN_QUERY) {
       if (opts.childrenThrow) throw new Error('boom');

@@ -190,12 +190,22 @@ async function lookupLocal(
   if (asked.length === 0) return [];
 
   let rows: Array<{ id: string; loc: string; name: string | null; memoryId: string }>;
+  let dropped: (urn: string) => boolean;
   try {
-    const data = await client.request<{ nodeBatch: { nodes: typeof rows } }>(
-      WIKILINK_TARGETS_BATCH_QUERY,
-      { refs: [...new Set(asked.map((a) => a.urn))] },
-    );
+    const data = await client.request<{
+      nodeBatch: { nodes: typeof rows; omitted?: string[] | null; unavailable?: string[] | null; truncated?: boolean | null };
+    }>(WIKILINK_TARGETS_BATCH_QUERY, { refs: [...new Set(asked.map((a) => a.urn))] });
     rows = data.nodeBatch.nodes;
+    // Over the response-size cap the server drops readable nodes and lists
+    // them in `omitted` (hrn:node:hadronmemory.com:specs:cor:api:040). Its byte cap counts content before
+    // projection, so this thin selection is no protection. A dropped target
+    // exists: render it unchecked, never missing. So in a truncated answer
+    // only a ref listed in `unavailable` is a known miss; anything else the
+    // answer lacks (`omitted`, or a ref echoed in another spelling) is
+    // unchecked (#1438 LOCAL P2).
+    const unavailable = new Set(data.nodeBatch.unavailable ?? []);
+    const truncated = data.nodeBatch.truncated === true;
+    dropped = (urn) => truncated && !unavailable.has(urn);
   } catch (err) {
     // Couldn't check is not broken: the same degrade as the old `nodesFailed`.
     console.warn('[wikilinks] same-memory lookup failed:', err);
@@ -206,9 +216,10 @@ async function lookupLocal(
   for (const n of rows) if (n.memoryId === memoryId && !byLoc.has(n.loc)) byLoc.set(n.loc, n);
 
   const misses: WikilinkRef[] = [];
-  for (const { ref } of asked) {
+  for (const { ref, urn } of asked) {
     const hit = byLoc.get(ref.loc);
     if (hit) links[ref.target] = { href: nodeHref(memoryId, hit.id), label: hit.name || ref.loc };
+    else if (dropped(urn)) links[ref.target] = unchecked(memoryUrn, ref.loc);
     else misses.push(ref);
   }
   return misses;

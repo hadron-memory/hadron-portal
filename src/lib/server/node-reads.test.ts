@@ -87,7 +87,7 @@ describe('breadcrumb ancestors equal the old in-memory lookup', () => {
   });
 
   it('a truncated batch is not "known"', async () => {
-    const truncating = { request: vi.fn(async () => ({ nodeBatch: { nodes: [], unavailable: [], omitted: 0, truncated: true } })) };
+    const truncating = { request: vi.fn(async () => ({ nodeBatch: { nodes: [], unavailable: [], omitted: [], truncated: true } })) };
     expect((await loadAncestors(truncating, MEM, 'specs:auth:jwt')).known).toBe(false);
   });
 

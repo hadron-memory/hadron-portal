@@ -53,7 +53,7 @@ export function serveMemoryReads(
     if (doc === NODE_ANCESTORS_QUERY || doc === WIKILINK_TARGETS_BATCH_QUERY) {
       const refs = (vars.refs ?? []) as string[];
       const nodes = refs.flatMap((r) => (byUrn.has(r) ? [full(byUrn.get(r)!)] : []));
-      return { nodeBatch: { nodes, unavailable: [], omitted: 0, truncated: false } };
+      return { nodeBatch: { nodes, unavailable: [], omitted: [], truncated: false } };
     }
     if (doc === NODE_CHILDREN_QUERY) {
       // Every descendant under `locPrefix` in this memory, as the server's
