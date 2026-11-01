@@ -56,13 +56,13 @@
   {/if}
 
   {#if form && 'invited' in form && form.invited}
-    <div class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
       <p class="mb-1">Invitation created! Share this link:</p>
       <div class="flex items-center gap-2">
-        <code class="flex-1 rounded bg-zinc-800 px-3 py-1.5 font-mono text-xs text-green-200 select-all break-all">{form.inviteUrl}</code>
-        <button onclick={() => navigator.clipboard?.writeText(form.inviteUrl)} class="shrink-0 rounded-md border border-green-700 px-2 py-1 text-xs text-green-300 hover:bg-green-900">Copy</button>
+        <code class="flex-1 rounded bg-zinc-100 px-3 py-1.5 font-mono text-xs text-green-800 dark:bg-zinc-800 dark:text-green-200 select-all break-all">{form.inviteUrl}</code>
+        <button onclick={() => navigator.clipboard?.writeText(form.inviteUrl)} class="shrink-0 rounded-md border border-green-300 px-2 py-1 text-xs text-green-700 hover:bg-green-100 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900">Copy</button>
       </div>
-      <p class="mt-2 text-xs text-green-400">Valid for 30 days, single use.</p>
+      <p class="mt-2 text-xs text-green-700 dark:text-green-400">Valid for 30 days, single use.</p>
     </div>
   {/if}
 
