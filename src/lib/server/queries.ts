@@ -1065,8 +1065,11 @@ export const WORKER_QUERY = /* GraphQL */ `
       reportsToWorkerId
       reportsToRetired
       reportsTo { id name urn retiredAt }
-      # The resolved boot briefing (#737): the agent's template with
-      # {{name}}/{{role}} bound, plus any per-worker override. The most literal
+      # The worker's boot prompt (#737): the approved revision of the compiled
+      # boot prompt a bind of this worker is served, with the platform
+      # variables ({{worker.name}}, {{worker.role}}, …) filled
+      # (hrn:node:hadronmemory.com:specs:cor:agt:040:07,
+      # hrn:node:hadronmemory.com:specs:cor:dmo:150:08). The most literal
       # answer to "who is this" — it is the worker's operating instructions in
       # its own voice.
       #
@@ -5297,6 +5300,18 @@ export const TASK_DEPENDENCIES_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1393: one bounded direction per request; the other page is untouched.
+export const TASK_BLOCKED_BY_PAGE_QUERY = /* GraphQL */ `
+  query TaskBlockedByPage($id: ID!, $offset: Int!) {
+    agentTask(id: $id) { id appId blockedBy(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
+  }
+`;
+export const TASK_BLOCKS_PAGE_QUERY = /* GraphQL */ `
+  query TaskBlocksPage($id: ID!, $offset: Int!) {
+    agentTask(id: $id) { id appId blocks(limit: 200, offset: $offset) { items { id appId title handle status } hasMore } }
+  }
+`;
+
 // #1033: arbitrary registered Channels use the same envelope and stable seq cursors.
 export const CHANNEL_MESSAGES_QUERY = /* GraphQL */ `
   # #793: beforeSeq (server #1116) is the BACKWARD mirror of sinceSeq — only
@@ -5338,5 +5353,19 @@ export const CHANNEL_CHAT_TARGET_QUERY = /* GraphQL */ `
 export const CREATE_CHANNEL_MESSAGE_MUTATION = /* GraphQL */ `
   mutation CreateChannelMessage($channelRef: ID!, $body: String!, $replyToSeq: Int) {
     createChannelMessage(channelRef: $channelRef, body: $body, replyToSeq: $replyToSeq) { nodeId seq body at authorName }
+  }
+`;
+
+// portal#1538 (hadron-server#2458 S4) — change the Agent (and so the role) a cast worker runs.
+export const CHANGE_WORKER_AGENT_MUTATION = /* GraphQL */ `
+  mutation ChangeWorkerAgent($workerRef: ID!, $agentRef: ID!) {
+    changeWorkerAgent(workerRef: $workerRef, agentRef: $agentRef) { id role agent { id name } }
+  }
+`;
+
+/** The Agents installed in an App, with the persona role the picker policy filters on. */
+export const APP_CASTABLE_AGENTS_QUERY = /* GraphQL */ `
+  query AppCastableAgents($ref: ID!) {
+    app(ref: $ref) { id appAgents { agent { id name urn description personaRole } } }
   }
 `;

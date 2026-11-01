@@ -10,4 +10,4 @@ Mounted controls retain the existing restrictions for STARTED, FINISHED, CANCELL
 
 Shared grid code, existing column ids and `task-dependencies` listKey are unchanged. Only the action column's leading/visible invariant is normalized; other saved column preferences remain.
 
-Refs #1390. Landing serializes after #1393; merge its landed main before freezing this change. No readiness or deployment claim.
+Refs #1390. Serialized predecessor #1393 / PR #1544 landed at6f533d91. Captures were refreshed after integrating that main; focused paging/recovery/phone/action regressions pass67 tests, check0/0, and the actual mounted Chromium fixture passes. No readiness or deployment claim.

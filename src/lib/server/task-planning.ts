@@ -1,7 +1,7 @@
 import { composeAgentTaskUrnV2, parseUrnV2 } from '$lib/urn/parse-urn';
 import type { GraphQLClient } from 'graphql-request';
 import type { TaskChoice, TaskDependencyPage, TaskRead } from '$lib/agent-tasks/types';
-import { TASK_DEPENDENCIES_QUERY, TASK_PICKER_EXACT_QUERY, TASK_PICKER_QUERY } from './queries';
+import { TASK_DEPENDENCIES_QUERY, TASK_BLOCKED_BY_PAGE_QUERY, TASK_BLOCKS_PAGE_QUERY, TASK_PICKER_EXACT_QUERY, TASK_PICKER_QUERY } from './queries';
 
 export async function taskChoices(client: GraphQLClient, app: { id: string; urn: string }, offset: number, exact?: string): Promise<TaskRead<{ items: TaskChoice[]; hasMore: boolean }>> {
   try {
@@ -28,9 +28,22 @@ export async function taskChoices(client: GraphQLClient, app: { id: string; urn:
 
 export async function taskDependencies(client: GraphQLClient, appId: string, taskId: string): Promise<TaskRead<{ blockedBy: TaskDependencyPage; blocks: TaskDependencyPage }>> {
   try {
-    const { agentTask } = await client.request<{ agentTask: { appId: string; blockedBy: TaskDependencyPage; blocks: TaskDependencyPage } | null }>(TASK_DEPENDENCIES_QUERY, { id: taskId, offset: 0 });
-    if (!agentTask || agentTask.appId !== appId) return { kind: 'failed' };
+    const { agentTask } = await client.request<{ agentTask: { id: string; appId: string; blockedBy: TaskDependencyPage; blocks: TaskDependencyPage } | null }>(TASK_DEPENDENCIES_QUERY, { id: taskId, offset: 0 });
+    if (!agentTask || agentTask.id !== taskId || agentTask.appId !== appId) return { kind: 'failed' };
     if ([...agentTask.blockedBy.items, ...agentTask.blocks.items].some((task) => task.appId !== appId)) return { kind: 'failed' };
     return { kind: 'ok', value: { blockedBy: agentTask.blockedBy, blocks: agentTask.blocks } };
+  } catch { return { kind: 'failed' }; }
+}
+
+/** One provider page, not a whole-graph scan or a client-inferred count. */
+export async function taskDependencyPage(client: GraphQLClient, appId: string, taskId: string, direction: 'blockedBy' | 'blocks', offset: number): Promise<TaskRead<TaskDependencyPage>> {
+  try {
+    type PageResponse = { agentTask: { id: string; appId: string; blockedBy?: TaskDependencyPage; blocks?: TaskDependencyPage } | null };
+    const { agentTask } = direction === 'blockedBy'
+      ? await client.request<PageResponse>(TASK_BLOCKED_BY_PAGE_QUERY, { id: taskId, offset })
+      : await client.request<PageResponse>(TASK_BLOCKS_PAGE_QUERY, { id: taskId, offset });
+    const page = agentTask?.[direction];
+    if (!agentTask || agentTask.id !== taskId || agentTask.appId !== appId || !page || !Array.isArray(page.items) || typeof page.hasMore !== 'boolean' || page.items.length > 200 || page.items.some((task) => task.appId !== appId)) return { kind: 'failed' };
+    return { kind: 'ok', value: page };
   } catch { return { kind: 'failed' }; }
 }
