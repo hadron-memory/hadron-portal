@@ -11,6 +11,7 @@ import {
   REMOVE_AGENT_TASK_BLOCKER_MUTATION,
   ASSIGN_AGENT_TASK_MUTATION,
   CANCEL_AGENT_TASK_MUTATION,
+  HAND_BACK_AGENT_TASK_MUTATION,
   MAKE_AGENT_TASK_READY_MUTATION,
   PARK_AGENT_TASK_MUTATION,
   REASSIGN_AGENT_TASK_MUTATION,
@@ -28,6 +29,7 @@ import {
 import { t } from '$lib/i18n/t';
 import { resolveSegment } from '$lib/agent-tasks/handle';
 import { taskEditPatch } from '$lib/agent-tasks/edit';
+import { parseHandBack } from '$lib/agent-tasks/hand-back';
 import type { AgentTaskDetail } from '$lib/agent-tasks/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -83,6 +85,8 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     ancestors: crumbs.ancestors,
     ancestorsTruncated: crumbs.truncated,
     canWrite,
+    // portal#1571: who is signed in, so Hand back is offered only to the started task's own assignee.
+    viewerId: locals.user?.id ?? null,
     impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
     candidates: { workers: candidates.workers, people: candidates.people, peopleWithheld: candidates.peopleWithheld, peopleFailed: candidates.peopleFailed },
     // portal#1357: the Edit details panel's requirement pickers.
@@ -110,7 +114,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
  * refusal, which goes back verbatim with the reader's values. Park (portal#1143)
  * is offered on state alone; the same refusal answers anyone outside its audience.
  */
-type TaskWrite = 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker';
+type TaskWrite = 'handBack' | 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel' | 'priority' | 'addBlocker' | 'removeBlocker';
 
 async function write(
   action: TaskWrite,
@@ -134,7 +138,7 @@ async function write(
     if (isHttpError(e)) throw e;
     return writeFailure(action, { kind: 'uncertain' }, values);
   }
-  const planning = action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
+  const planning = action === 'handBack' || action === 'priority' || action === 'addBlocker' || action === 'removeBlocker';
   const vars: Record<string, unknown> = { ...(planning ? { taskRef: taskId } : { taskId }), ...built.vars };
   // portal#1214: a write whose response can carry warnings keeps them.
   if (built.path) {
@@ -187,6 +191,12 @@ export const actions: Actions = {
   ready: (event) => write('ready', event, () => ({ doc: MAKE_AGENT_TASK_READY_MUTATION, vars: {} })),
   assign: (event) => write('assign', event, assignment(ASSIGN_AGENT_TASK_MUTATION, 'assignAgentTask')),
   reassign: (event) => write('reassign', event, assignment(REASSIGN_AGENT_TASK_MUTATION, 'reassignAgentTask')),
+  // portal#1571 (hadron-server#2651): the assignee's reason; the server decides who may and when.
+  handBack: (event) => write('handBack', event, (fd) => {
+    const reason = parseHandBack(String(fd.get('code') ?? ''), String(fd.get('text') ?? ''));
+    if ('invalid' in reason) return reason;
+    return { doc: HAND_BACK_AGENT_TASK_MUTATION, vars: { reason } };
+  }),
   park: (event) => write('park', event, () => ({ doc: PARK_AGENT_TASK_MUTATION, vars: {} })),
   // portal#1357 (hadron-server#2645): the changed descriptive fields only; the server decides who may.
   edit: (event) => write('edit', event, (fd) => {
