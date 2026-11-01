@@ -165,7 +165,7 @@
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'title'}<a href="/app/apps/{appId}/tasks/{encodeURIComponent(row.id)}" class="text-indigo-700 underline dark:text-indigo-300">{row.title}</a>
         {:else if cell.column.id === 'remove'}
-          {#if canBlockers && row.direction === 'blockedBy'}<form method="POST" action="?/removeBlocker" use:enhance={submit}><input type="hidden" name="blockerTaskRef" value={row.id} /><button disabled={pending} class="rounded border px-2 py-1 text-sm disabled:opacity-50">{t('app.tasks.blocker.remove', 'Remove')}</button></form>{/if}
+          {#if canBlockers && row.direction === 'blockedBy'}<form method="POST" action="?/removeBlocker" use:enhance={submit}><input type="hidden" name="blockerTaskRef" value={row.id} /><button disabled={pending} aria-label={t('app.tasks.blocker.remove-label', 'Remove blocker {name}', { name: row.title?.trim() || row.handle || row.id })} class="rounded border px-2 py-1 text-sm disabled:opacity-50">{t('app.tasks.blocker.remove', 'Remove')}</button></form>{/if}
         {:else if cell.column.id === 'handle'}<TaskHandle handle={row.handle} />
         {:else}{String(cell.getValue() ?? '')}{/if}
       {/snippet}
