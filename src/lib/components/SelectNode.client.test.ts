@@ -255,6 +255,38 @@ describe('SelectNode: pick flow (#1576)', () => {
     }
   });
 
+  it('paging INTO the cap keeps the rows already loaded and stops there (#1585, #1588 BLIND P3)', async () => {
+    // The capped fixture above arrives on the FIRST request; the real user
+    // path pages normally first — an ordinary full page, then Load more
+    // lands on a capped read. The already-loaded rows must survive the
+    // transition and paging must stop there.
+    serve({
+      [url('m2', 'node', 0)]: [okPage(Array.from({ length: 20 }, (_, i) => node(i)), true, 20)],
+      [url('m2', 'node', 20)]: [async () => ({
+        ok: true,
+        json: async () => ({ kind: 'ok', value: { items: Array.from({ length: 20 }, (_, i) => node(20 + i)), hasMore: false, capped: true, nextOffset: 100_010 } }),
+      })],
+    });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    await search(target, 'node');
+    expect(button(target, 'Load more nodes')).toBeTruthy();
+    button(target, 'Load more nodes')!.click();
+    await tick(5);
+    expect(fetchMock).toHaveBeenLastCalledWith(url('m2', 'node', 20));
+    expect(target.textContent).toContain('Node 5'); // first page's rows survive the transition
+    // 40 rows landed (20 + 20): DataTable's own footer counts them.
+    expect(target.textContent).toContain('Page 1 of 4');
+    expect(button(target, 'Load more nodes')).toBeFalsy(); // nothing left to press
+    expect(target.textContent).toContain('Showing the first results only. Search to narrow the list.');
+    // And no URL above the ceiling was ever built.
+    for (const call of fetchMock.mock.calls) {
+      const offset = Number(/[?&]offset=(\d+)/.exec(String(call[0]))?.[1] ?? 0);
+      expect(offset).toBeLessThanOrEqual(100_000);
+    }
+  });
+
   it('closing the picker dismisses it; reopening the SAME instance starts over at the memory stage', async () => {
     // The reset is the close $effect's job. A remount proves nothing (a fresh
     // mount is trivially reset — the review's P2: the old test passed with

@@ -27,6 +27,9 @@ const page = (raw: number, offset = 0) => ({
 // next offset lands past MAX_OFFSET (99 990 + 20 = 100 010), which the
 // endpoint must refuse — so this is the capped case. (A full page starting
 // exactly PAGE below the ceiling ends ON it: boundary, not capped.)
+// Re-aimed in the fix commit from `MAX - PAGE`: that first aim is the
+// boundary case below, not the capped case (LOCAL P3, marked per
+// acceptance 4; values verified by the seats).
 const CAPPED_OFFSET = MAX_NODE_CHOICES_OFFSET - NODE_CHOICES_PAGE / 2;
 
 describe('nodeChoices: the endpoint owns the offset ceiling (#1585)', () => {
@@ -46,7 +49,9 @@ describe('nodeChoices: the endpoint owns the offset ceiling (#1585)', () => {
   it('a raw-full page ENDING on the ceiling is not capped — the boundary read is legal', async () => {
     // offset + PAGE === MAX_OFFSET exactly: the next request's offset equals
     // the ceiling, which the endpoint accepts (inclusive bound), so paging
-    // continues normally.
+    // continues normally. (Re-aimed in the fix commit from
+    // `MAX - PAGE * 2` to sit exactly ON the boundary; marked per
+    // acceptance 4.)
     const offset = MAX_NODE_CHOICES_OFFSET - NODE_CHOICES_PAGE;
     const result = await nodeChoices(page(NODE_CHOICES_PAGE, offset) as never, 'm1', offset);
     expect(result.kind).toBe('ok');
@@ -72,5 +77,18 @@ describe('nodeChoices: the endpoint owns the offset ceiling (#1585)', () => {
     if (result.kind !== 'ok') return;
     expect(result.value.hasMore).toBe(false);
     expect(result.value.capped).toBeFalsy();
+  });
+
+  it('a raw-full page STARTING at the ceiling is capped — the terminal read of paging from zero (#1588 BLIND P3)', async () => {
+    // Normal paging from offset 0 advances by PAGE and can land exactly ON
+    // 100 000 (a legal read: the ceiling is an inclusive bound). If that
+    // terminal page comes back FULL, its own next offset starts past the
+    // ceiling, so the read must cap — or Load more would build the very
+    // request the endpoint 400s.
+    const result = await nodeChoices(page(NODE_CHOICES_PAGE, MAX_NODE_CHOICES_OFFSET) as never, 'm1', MAX_NODE_CHOICES_OFFSET);
+    expect(result.kind).toBe('ok');
+    if (result.kind !== 'ok') return;
+    expect(result.value.hasMore).toBe(false);
+    expect(result.value.capped).toBe(true);
   });
 });
