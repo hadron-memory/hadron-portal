@@ -8,6 +8,7 @@
   import SubtaskTree from '$lib/components/agent-tasks/SubtaskTree.svelte';
   import TaskHistory from '$lib/components/agent-tasks/TaskHistory.svelte';
   import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
+  import TaskReferences from '$lib/components/agent-tasks/TaskReferences.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   import { isProjectZero, taskHref } from '$lib/agent-tasks/handle';
@@ -121,6 +122,7 @@
           families={data.families}
           {openChildren}
           created={data.created}
+          appUrn={data.app.urn}
         />
       {/if}
     </div>
@@ -171,6 +173,12 @@
       {#if task.source}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.source', 'Source')}</dt>
         <dd class="min-w-0" data-source-kind={sourceKind(task.source)}><TaskSource source={task.source} /></dd>
+      {/if}
+
+      <!-- portal#1575: the task's typed references, in order, under the source; nothing when there are none. -->
+      {#if task.references?.length}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.references', 'References')}</dt>
+        <dd class="min-w-0"><TaskReferences references={task.references} app={data.app} /></dd>
       {/if}
 
       {#if task.startBy}

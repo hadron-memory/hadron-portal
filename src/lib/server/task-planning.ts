@@ -1,9 +1,18 @@
 import { composeAgentTaskUrnV2, parseUrnV2 } from '$lib/urn/parse-urn';
 import type { GraphQLClient } from 'graphql-request';
 import type { TaskChoice, TaskDependencyPage, TaskRead } from '$lib/agent-tasks/types';
-import { TASK_DEPENDENCIES_QUERY, TASK_BLOCKED_BY_PAGE_QUERY, TASK_BLOCKS_PAGE_QUERY, TASK_PICKER_EXACT_QUERY, TASK_PICKER_QUERY } from './queries';
+import { TASK_DEPENDENCIES_QUERY, TASK_BLOCKED_BY_PAGE_QUERY, TASK_BLOCKS_PAGE_QUERY, TASK_PICKER_EXACT_QUERY, TASK_PICKER_QUERY, TASK_REFERENCE_PICKER_QUERY } from './queries';
 
-export async function taskChoices(client: GraphQLClient, app: { id: string; urn: string }, offset: number, exact?: string): Promise<TaskRead<{ items: TaskChoice[]; hasMore: boolean }>> {
+const OPEN = ['BACKLOG', 'PENDING', 'STARTED'];
+const OPEN_OR_ENDED = [...OPEN, 'FINISHED', 'CANCELLED'];
+
+/**
+ * The tasks a picker offers. `includeEnded` (portal#1575, the reference picker only) adds FINISHED and
+ * CANCELLED, from a list fixed here; the default, which the new-task parent and TaskPlanning use, is open
+ * tasks only. Either way a foreign row and AT0 are never offered.
+ */
+export async function taskChoices(client: GraphQLClient, app: { id: string; urn: string }, offset: number, exact?: string, opts: { includeEnded?: boolean } = {}): Promise<TaskRead<{ items: TaskChoice[]; hasMore: boolean }>> {
+  const statuses = opts.includeEnded ? OPEN_OR_ENDED : OPEN;
   try {
     if (exact) {
       // A bare handle belongs to this App, never whichever App the principal last used.
@@ -14,10 +23,10 @@ export async function taskChoices(client: GraphQLClient, app: { id: string; urn:
         ref = composeAgentTaskUrnV2(parsed.root, parsed.segments[0], exact.toUpperCase());
       }
       const { agentTask } = await client.request<{ agentTask: TaskChoice | null }>(TASK_PICKER_EXACT_QUERY, { id: ref });
-      if (!agentTask || agentTask.appId !== app.id || !['BACKLOG', 'PENDING', 'STARTED'].includes(agentTask.status) || agentTask.handle === 'AT0') return { kind: 'ok', value: { items: [], hasMore: false } };
+      if (!agentTask || agentTask.appId !== app.id || !statuses.includes(agentTask.status) || agentTask.handle === 'AT0') return { kind: 'ok', value: { items: [], hasMore: false } };
       return { kind: 'ok', value: { items: [agentTask], hasMore: false } };
     }
-    const { agentTasks } = await client.request<{ agentTasks: TaskChoice[] }>(TASK_PICKER_QUERY, { appRef: app.id, offset });
+    const { agentTasks } = await client.request<{ agentTasks: TaskChoice[] }>(opts.includeEnded ? TASK_REFERENCE_PICKER_QUERY : TASK_PICKER_QUERY, { appRef: app.id, offset });
     // Never expose a foreign row, even if a faulty or skewed transport returns one.
     if (agentTasks.some((task) => task.appId !== app.id)) return { kind: 'failed' };
     // cf9bcfec resolvers.agentTask.agentTasks returns Prisma take/skip directly,
