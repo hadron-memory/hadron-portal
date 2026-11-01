@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, mount, unmount } from 'svelte';
 import { mountComponent } from '$lib/test/mountComponent';
 import TreeView from './TreeView.svelte';
@@ -66,7 +66,7 @@ describe('TreeView bounded window (#1381)', () => {
   });
 
   describe('inside a scroller', () => {
-    function mountInScroller() {
+    function mountInScroller({ banner = false }: { banner?: boolean } = {}) {
       const scroller = document.createElement('div');
       scroller.style.overflowY = 'auto';
       document.body.appendChild(scroller);
@@ -74,6 +74,14 @@ describe('TreeView bounded window (#1381)', () => {
       let top = 0;
       Object.defineProperty(scroller, 'scrollTop', { get: () => top, set: (v: number) => { top = v; }, configurable: true });
       Object.defineProperty(scroller, 'clientHeight', { get: () => 600, configurable: true });
+      // Content above the tree inside the scroller (MemoryBrowser's move-error
+      // banner). Its height shifts the tree; jsdom has no layout, so `above` is
+      // the height the mocked rect below reports.
+      const above = { px: 0, el: null as HTMLElement | null };
+      if (banner) {
+        above.el = document.createElement('p');
+        scroller.appendChild(above.el);
+      }
       const target = document.createElement('div');
       scroller.appendChild(target);
       const instance = mount(TreeView as never, {
@@ -82,8 +90,8 @@ describe('TreeView bounded window (#1381)', () => {
       flushSync();
       // A real browser moves the tree's rect as the scroller scrolls; jsdom's rects are all zero.
       const nav = target.querySelector('nav') as HTMLElement;
-      nav.getBoundingClientRect = () => ({ top: -top } as DOMRect);
-      return { scroller, target, done: () => { unmount(instance); scroller.remove(); } };
+      nav.getBoundingClientRect = () => ({ top: -top + above.px } as DOMRect);
+      return { scroller, target, above, done: () => { unmount(instance); scroller.remove(); } };
     }
     const scrollTo = (scroller: HTMLElement, top: number) => {
       scroller.scrollTop = top;
@@ -129,6 +137,96 @@ describe('TreeView bounded window (#1381)', () => {
       expect(scrollToCalls[0].top).toBeGreaterThan(28 * 1000);
       graphState.selectedNodeId = null;
       done();
+    });
+
+    // #1488 item 1: a focused row pinned far outside the window is first or
+    // last in the DOM, so a native Tab from it would leave the tree. jsdom does
+    // no native tab navigation, so these assert the handler's own move.
+    const rowOf = (el: Element | null) => (el as HTMLElement | null)?.closest<HTMLElement>('.tree-row')?.dataset.nodeId;
+    const press = (el: HTMLElement, shiftKey = false) => {
+      const ev = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });
+      el.dispatchEvent(ev);
+      flushSync();
+      return ev;
+    };
+    function pinFar(id: string) {
+      const mounted = mountInScroller();
+      const link = mounted.target.querySelector(`.tree-row[data-node-id="${id}"] a`) as HTMLElement;
+      link.focus();
+      flushSync();
+      scrollTo(mounted.scroller, 28 * 3000);
+      expect((mounted.target.querySelector(`.tree-row[data-node-id="${id}"]`) as HTMLElement).style.position).toBe('absolute');
+      return { ...mounted, link };
+    }
+
+    it('Tab from a far pinned row moves into the next row in index order (#1488)', () => {
+      const { done, link } = pinFar('r0:c0010');
+      const ev = press(link);
+      expect(ev.defaultPrevented).toBe(true);
+      expect(rowOf(document.activeElement)).toBe('r0:c0011');
+      // And again: the newly focused row is itself pinned far from the window.
+      press(document.activeElement as HTMLElement);
+      expect(rowOf(document.activeElement)).toBe('r0:c0012');
+      done();
+    });
+
+    it('Shift+Tab from a far pinned row moves into the previous row in index order (#1488)', () => {
+      const { done, link } = pinFar('r0:c0010');
+      press(link, true);
+      expect(rowOf(document.activeElement)).toBe('r0:c0009');
+      done();
+    });
+
+    it('Tab inside a pinned row, or past either end of the tree, is left to the browser (#1488)', () => {
+      const { done, link } = pinFar('r0');
+      // r0 has a chevron before its link, so Shift+Tab from the link stays in the row.
+      expect(press(link, true).defaultPrevented).toBe(false);
+      // r0 is index 0: Shift+Tab from its chevron leaves the tree, as it should.
+      const chevron = link.closest('.tree-row')!.querySelector('.chevron') as HTMLElement;
+      chevron.focus();
+      flushSync();
+      expect(press(chevron, true).defaultPrevented).toBe(false);
+      done();
+    });
+
+    // #1488 item 2: the window's offset inside the scroller moves when content
+    // above the tree changes, with no scroll and no scroller resize.
+    describe('content above the tree', () => {
+      class FakeResizeObserver {
+        static all: FakeResizeObserver[] = [];
+        targets = new Set<Element>();
+        constructor(private cb: ResizeObserverCallback) { FakeResizeObserver.all.push(this); }
+        observe(el: Element) { this.targets.add(el); }
+        unobserve(el: Element) { this.targets.delete(el); }
+        disconnect() { this.targets.clear(); }
+        fire(el: Element) { if (this.targets.has(el)) this.cb([{ target: el } as ResizeObserverEntry], this as never); }
+      }
+      const resized = (el: Element) => { for (const o of FakeResizeObserver.all) o.fire(el); flushSync(); };
+      afterEach(() => { vi.unstubAllGlobals(); FakeResizeObserver.all = []; });
+      const padTop = (target: HTMLElement) => (target.querySelector('nav') as HTMLElement).style.paddingTop;
+
+      it('a banner above the tree growing moves the window with no scroll event', () => {
+        vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+        const { scroller, target, above, done } = mountInScroller({ banner: true });
+        scrollTo(scroller, 28 * 3000);
+        expect(padTop(target)).toBe(`${(3000 - 20) * 28 + 4}px`);
+        above.px = 28 * 200;
+        resized(above.el!);
+        expect(padTop(target)).toBe(`${(2800 - 20) * 28 + 4}px`);
+        done();
+      });
+
+      it('a banner inserted above the tree moves the window with no scroll event', async () => {
+        vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+        const { scroller, target, above, done } = mountInScroller();
+        scrollTo(scroller, 28 * 3000);
+        above.px = 28 * 200;
+        scroller.insertBefore(document.createElement('p'), scroller.firstChild);
+        await Promise.resolve();
+        flushSync();
+        expect(padTop(target)).toBe(`${(2800 - 20) * 28 + 4}px`);
+        done();
+      });
     });
 
     it('keeps the focused row mounted after it scrolls out of the window', () => {
