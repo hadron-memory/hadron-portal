@@ -1,6 +1,6 @@
 import { formatPortalDate } from '$lib/format-portal-date';
 
-// V49 (`cor:dmo:040:05`): the server refuses an explicit expiresInDays outside
+// V49 (hrn:node:hadronmemory.com:specs:cor:dmo:040:05): the server refuses an explicit expiresInDays outside
 // 1-10 and maxActivations outside 2-1000. Both invite forms send these values
 // explicitly: valid on today's server and after V49, so there is no window in
 // which an invite fails (hadron-portal#1592, hadron-server#2984).
