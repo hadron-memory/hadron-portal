@@ -352,7 +352,7 @@ describe('TaskActionBar', () => {
     });
   });
 
-  // portal#1571 (cor:agt:050:29): the assignee hands a started task back.
+  // portal#1571 (hrn:node:hadronmemory.com:specs:cor:agt:050:29): the assignee hands a started task back.
   describe('Hand back…', () => {
     const mine = { assignee: holger, status: 'STARTED' };
 

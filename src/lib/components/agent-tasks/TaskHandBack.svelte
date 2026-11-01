@@ -5,7 +5,7 @@
   import type { AgentTaskHandBack } from '$lib/agent-tasks/types';
 
   /**
-   * portal#1571 (hadron-server#2651, cor:agt:050:01, :29) — the task's latest hand-back, so an owner who opens a
+   * portal#1571 (hadron-server#2651, hrn:node:hadronmemory.com:specs:cor:agt:050:01 and :29) — the task's latest hand-back, so an owner who opens a
    * re-queued task sees why it came back. Only the latest is kept; earlier ones are in the task's events. Nothing
    * shows when there is none. The text is the assignee's own and is shown as text, never as markup.
    */

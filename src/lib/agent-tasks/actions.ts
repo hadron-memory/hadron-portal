@@ -20,7 +20,7 @@ import type { AgentTaskRow } from './types';
 export type TaskAction = 'handBack' | 'ready' | 'assign' | 'reassign' | 'park' | 'edit' | 'cancel';
 
 /**
- * portal#1571 (cor:agt:050:29): Hand back is the one action offered by WHO the viewer is. Only the assignee may hand a started
+ * portal#1571 (hrn:node:hadronmemory.com:specs:cor:agt:050:29): Hand back is the one action offered by WHO the viewer is. Only the assignee may hand a started
  * task back and the server refuses everyone else (TASK_NOT_ASSIGNEE), so it is offered only when the assignee is a person
  * and is the signed-in viewer. A WORKER assignee never offers it to a person, even the worker's owner.
  */

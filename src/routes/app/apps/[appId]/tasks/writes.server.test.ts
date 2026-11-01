@@ -63,7 +63,7 @@ describe('task page actions', () => {
     expect(Object.keys(await taskActions()).sort()).toEqual(['addBlocker', 'assign', 'cancel', 'edit', 'handBack', 'park', 'priority', 'ready', 'reassign', 'removeBlocker']);
   });
 
-  // portal#1571 (hadron-server#2651, cor:agt:050:29)
+  // portal#1571 (hadron-server#2651, hrn:node:hadronmemory.com:specs:cor:agt:050:29)
   it('handBack calls handBackAgentTask with the route’s task id and the chosen code and text', async () => {
     request.mockResolvedValue({});
     expect(await (await taskActions()).handBack(event({ code: 'MISSING_INPUT', text: ' no key ' }))).toEqual({ action: 'handBack', ok: true });
