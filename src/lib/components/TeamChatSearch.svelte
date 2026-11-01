@@ -12,7 +12,7 @@
   Results page independently from the live thread and never mark a range read.
 -->
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -45,6 +45,9 @@
   let ticket = 0;
   let destroyed = false;
   let inputEl: HTMLInputElement | undefined = $state();
+  let sectionEl: HTMLElement | undefined = $state();
+  // Polite "N more matches loaded" text; empty until a Load more succeeds.
+  let loadedMore = $state('');
   onMount(() => inputEl?.focus());
   let controller: AbortController | null = null;
   onDestroy(() => {
@@ -74,6 +77,7 @@
     const mine = ++ticket;
     busy = true;
     refusal = laterRefusal = null;
+    loadedMore = '';
     activeQuery = query;
     rows = [];
     table.setPageIndex(0);
@@ -96,6 +100,7 @@
     const mine = ++ticket;
     busy = true;
     laterRefusal = null;
+    loadedMore = '';
     const res = await fetchPage(activeQuery, cursor, mine);
     if (!res) return;
     busy = false;
@@ -109,6 +114,17 @@
     table.setPageIndex(Math.floor(firstNew / table.atoms.pagination.get().pageSize));
     complete = res.complete;
     cursor = res.cursor;
+    // #1483: say what changed. Focus stays on the button; the first new row is
+    // scrolled into view and the count (what the page actually returned, never a
+    // fixed 20) goes to the status node, which was mounted before this text.
+    if (res.items.length > 0) {
+      loadedMore = s.loadedMore(res.items.length);
+      const firstNewId = res.items[0].nodeId;
+      await tick();
+      if (mine !== ticket || destroyed) return; // replaced or torn down while rendering
+      const rowEl = sectionEl?.querySelector(`tr[data-nodeid="${CSS.escape(firstNewId)}"]`);
+      rowEl?.scrollIntoView({ block: 'nearest' });
+    }
   }
 
   // The same cursor can never succeed again: recovery is a fresh search.
@@ -137,7 +153,7 @@
   });
 </script>
 
-<section class="flex min-h-0 flex-col gap-3 p-3" aria-label={s.heading()} data-testid="team-chat-search">
+<section bind:this={sectionEl} class="flex min-h-0 flex-col gap-3 p-3" aria-label={s.heading()} data-testid="team-chat-search">
   <h3 class="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{s.heading()}</h3>
   <p class="text-xs text-zinc-500 dark:text-zinc-400">{s.scope()}</p>
   <form class="flex flex-wrap items-start gap-2" onsubmit={search}>
@@ -175,8 +191,11 @@
     {/if}
   </div>
 
+  <!-- Mounted from the start so a screen reader registers it before its text changes. -->
+  <p class="sr-only" role="status" aria-live="polite" data-testid="team-chat-search-status">{loadedMore}</p>
+
   {#if rows.length > 0}
-    <DataTable {table} listKey="app-team-chat-search" searchPlaceholder="" searchAriaLabel="" showSearch={false} maxHeight="max(200px, calc(100vh - 28rem))">
+    <DataTable {table} listKey="app-team-chat-search" searchPlaceholder="" searchAriaLabel="" showSearch={false} maxHeight="max(200px, calc(100vh - 28rem))" rowAttrs={(r) => ({ 'data-nodeid': r.nodeId })}>
       {#snippet cell(cell, row)}
         {#if cell.column.id === 'message'}
           {#if row.body !== null}

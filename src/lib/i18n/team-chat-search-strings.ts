@@ -18,6 +18,10 @@ export const teamChatSearchStrings = {
   incomplete: () => t('team-chat-search.incomplete', 'More history remains to be searched.'),
   continueSearch: () => t('team-chat-search.continue', 'Continue searching'),
   loadMore: () => t('team-chat-search.load-more', 'Load more matches'),
+  loadedMore: (n: number) =>
+    n === 1
+      ? t('team-chat-search.loaded-more-one', '{n} more match loaded', { n: String(n) })
+      : t('team-chat-search.loaded-more-many', '{n} more matches loaded', { n: String(n) }),
   searchAgain: () => t('team-chat-search.search-again', 'Search again'),
   retry: () => t('team-chat-search.retry', 'Retry'),
   laterFailed: () => t('team-chat-search.later-failed', 'Could not load the next page. The matches below are kept.'),
