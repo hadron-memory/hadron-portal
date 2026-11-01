@@ -113,8 +113,9 @@
   }
 
   function nodeUrn(node: MemoryNode): string {
-    // Some queries don't populate node.memory. Render bare loc rather than throw
-    // and take down the whole list (data-shape concern, fixed at the loader).
+    // The node's own authorized identity survives a withheld Memory record.
+    if (node.urn) return node.urn;
+    // Older/slim reads may not select it; preserve their existing fallback.
     const u = memoryUrn || node.memory?.urn || '';
     return u && node.loc ? composeNodeUrn(u, node.loc) : node.loc;
   }

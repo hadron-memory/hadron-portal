@@ -1,3 +1,4 @@
+import type { AppScopedMemory } from '$lib/app-memory-scope';
 import type { Infer } from 'sveltekit-superforms';
 import { fail } from '@sveltejs/kit';
 import { message, superValidate } from 'sveltekit-superforms/server';
@@ -18,8 +19,8 @@ export const CREATE_APP_MEMORY_MUTATION = /* GraphQL */ `
     createAppMemory(appRef: $appRef, name: $name, description: $description) { id urn name }
   }
 `;
-// No App memory projection exists yet (#2190). Ask for the caller-readable
-// app-class slice of THIS org, drain every page before filtering by App id.
+// App-memory creation panel: retain descriptions from the org memory list.
+// The complete node scope is read separately through appMemoryScope below.
 // This is not the Agent's memoryItems list or a claim about write permission.
 export const APP_MEMORIES_QUERY = /* GraphQL */ `
   query AppMemories($orgId: ID!, $limit: Int, $offset: Int) {
@@ -29,28 +30,30 @@ export const APP_MEMORIES_QUERY = /* GraphQL */ `
     }
   }
 `;
-// A user-owned App has no org to list through. hadron-server#2861 lists its
-// free-standing app memories as the APP_MEMORY source of appMemoryScope, for App
-// participants only. The row is a leaf with no description, so it is null here.
+// The complete caller-specific App node scope. Its leaf rows do not open
+// nested Memory or Agent gates. A user-owned App also reuses the APP_MEMORY
+// rows for its creation panel, where descriptions are unavailable.
 export const APP_MEMORY_SCOPE_QUERY = /* GraphQL */ `
   query AppMemoryScope($appRef: ID!, $limit: Int, $offset: Int) {
     appMemoryScope(appRef: $appRef, limit: $limit, offset: $offset) {
-      items { memoryId memoryUrn name sources { kind } }
+      items { memoryId memoryUrn name class viewerCanWrite sources { kind agentId } }
       total
     }
   }
 `;
-interface ScopedMemoryRow { memoryId: string; memoryUrn: string; name: string; sources: { kind: string }[] }
-async function readUserOwnedAppMemories(client: ReturnType<typeof gqlClient>, appId: string): Promise<AppMemoryRow[] | null> {
+/** Null means unavailable/refused, never a successfully empty scope. */
+export async function readAppMemoryScope(client: ReturnType<typeof gqlClient>, appId: string): Promise<AppScopedMemory[] | null> {
   try {
-    const scope = await withTimeout(fetchAllItems<ScopedMemoryRow>(client, APP_MEMORY_SCOPE_QUERY, 'appMemoryScope', { appRef: appId }), OPTIONAL_LIST_TIMEOUT_MS, null);
-    return scope === null ? null : scope
-      .filter(m => m.sources.some(s => s.kind === 'APP_MEMORY'))
-      .map(m => ({ id: m.memoryId, urn: m.memoryUrn, name: m.name, description: null, appId }));
+    return await withTimeout(fetchAllItems<AppScopedMemory>(client, APP_MEMORY_SCOPE_QUERY, 'appMemoryScope', { appRef: appId }), OPTIONAL_LIST_TIMEOUT_MS, null);
   } catch { return null; }
 }
+export function appMemoriesFromScope(scope: AppScopedMemory[] | null, appId: string): AppMemoryRow[] | null {
+  return scope === null ? null : scope
+    .filter(m => m.sources.some(s => s.kind === 'APP_MEMORY'))
+    .map(m => ({ id: m.memoryId, urn: m.memoryUrn, name: m.name, description: null, appId }));
+}
 export async function readAppMemories(client: ReturnType<typeof gqlClient>, orgId: string | null, appId: string): Promise<AppMemoryRow[] | null> {
-  if (!orgId) return readUserOwnedAppMemories(client, appId);
+  if (!orgId) return appMemoriesFromScope(await readAppMemoryScope(client, appId), appId);
   try {
     const memories = await withTimeout(fetchAllItems<AppMemoryRow>(client, APP_MEMORIES_QUERY, 'memories', { orgId }), OPTIONAL_LIST_TIMEOUT_MS, null);
     return memories === null ? null : memories.filter(m => m.appId === appId);

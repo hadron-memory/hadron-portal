@@ -666,6 +666,8 @@ export interface NodeEdgeRemoval {
 }
 
 export interface MemoryNode {
+  /** Canonical identity where selected, independent of nested Memory admission. */
+  urn?: string;
   id: string;
   memoryId: string;
   nodeType: string;

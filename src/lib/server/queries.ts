@@ -2435,6 +2435,7 @@ export const RELEASE_EDITOR_LOCK_MUTATION = /* GraphQL */ `
 export const APP_NODES_QUERY = /* GraphQL */ `
   query AppNodes($appRef: ID!, $limit: Int) {
     appNodes(appRef: $appRef, limit: $limit) {
+      urn
       id
       memoryId
       nodeType

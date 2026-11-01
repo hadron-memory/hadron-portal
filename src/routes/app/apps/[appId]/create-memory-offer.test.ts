@@ -66,3 +66,17 @@ describe('create-memory offer on a user-owned App', () => {
     expect((await loadAs(false)).canCreateMemory).toBe(false);
   });
 });
+
+it('loader carries the scope and reuses it for a user-owned App creation panel without a duplicate read (#1043)', async () => {
+ const { fetchAllItems }=await import('$lib/server/paginate');
+ const { APP_MEMORY_SCOPE_QUERY }=await import('./app-memories');
+ const rows=[{memoryId:'team',memoryUrn:'hrn:mem:example.com:team',name:'Team',class:'app',viewerCanWrite:true,sources:[{kind:'TEAM_SPACE',agentId:null}]},{memoryId:'free',memoryUrn:'hrn:mem:example.com:free',name:'Free',class:'app',viewerCanWrite:true,sources:[{kind:'APP_MEMORY',agentId:null}]}];
+ vi.mocked(fetchAllItems).mockImplementation(async (_client, query) => query===APP_MEMORY_SCOPE_QUERY ? rows : []);
+ vi.mocked(fetchAllItems).mockClear();
+ try {
+  const result=await loadAs(true);
+  expect(result.appMemoryScope).toEqual(rows);
+  expect(result.appMemories).toEqual([{id:'free',urn:'hrn:mem:example.com:free',name:'Free',description:null,appId:'app-1'}]);
+  expect(vi.mocked(fetchAllItems).mock.calls.filter(c=>c[1]===APP_MEMORY_SCOPE_QUERY)).toHaveLength(1);
+ }finally { vi.mocked(fetchAllItems).mockResolvedValue([]); }
+});

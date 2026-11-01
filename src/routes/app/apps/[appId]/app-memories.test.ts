@@ -107,3 +107,18 @@ describe('complete App memory scope', () => {
     expect(await readAppMemoryScope({ request } as never, 'a')).toEqual([leaf(1)]);
   });
 });
+
+it('selects every leaf field used by summaries and upload selection (GraphQL AST)', async () => {
+ const { parse, Kind } = await import('graphql');
+ const { APP_MEMORY_SCOPE_QUERY } = await import('./app-memories');
+ const operation=parse(APP_MEMORY_SCOPE_QUERY).definitions.find(d=>d.kind===Kind.OPERATION_DEFINITION)!;
+ if(operation.kind!==Kind.OPERATION_DEFINITION)throw new Error('missing query');
+ const scope=operation.selectionSet.selections.find(s=>s.kind===Kind.FIELD&&s.name.value==='appMemoryScope');
+ if(scope?.kind!==Kind.FIELD)throw new Error('missing scope');
+ const items=scope.selectionSet!.selections.find(s=>s.kind===Kind.FIELD&&s.name.value==='items');
+ if(items?.kind!==Kind.FIELD)throw new Error('missing items');
+ expect(items.selectionSet!.selections.filter(s=>s.kind===Kind.FIELD).map(s=>s.name.value)).toEqual(expect.arrayContaining(['memoryId','memoryUrn','name','class','viewerCanWrite','sources']));
+ const sources=items.selectionSet!.selections.find(s=>s.kind===Kind.FIELD&&s.name.value==='sources');
+ if(sources?.kind!==Kind.FIELD)throw new Error('missing sources');
+ expect(sources.selectionSet!.selections.filter(s=>s.kind===Kind.FIELD).map(s=>s.name.value)).toEqual(['kind','agentId']);
+});

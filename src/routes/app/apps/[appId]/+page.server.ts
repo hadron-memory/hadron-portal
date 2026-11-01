@@ -1,7 +1,7 @@
 import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
 import { withRegisteredChannels } from '$lib/app-chats';
 
-import { createMemory, readAppMemories, canCreateAppMemory } from './app-memories';
+import { createMemory, readAppMemories, readAppMemoryScope, appMemoriesFromScope, canCreateAppMemory } from './app-memories';
 import { writeCustomisation } from '$lib/server/install-customisation';
 import { deleteWorkerSchema } from './schema';
 import type { DeleteWorkerResult } from './delete-worker';
@@ -903,13 +903,15 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
           })
       : null;
 
-  const [appMemories, createMemoryForm] = await Promise.all([
-    readAppMemories(client, app.organizationId, app.id),
+  const [appMemoryScope, orgAppMemories, createMemoryForm] = await Promise.all([
+    readAppMemoryScope(client, app.id),
+    app.organizationId ? readAppMemories(client, app.organizationId, app.id) : null,
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
   ]);
 
   return {
-    appMemories,
+    appMemoryScope,
+    appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),
     createMemoryForm,
     canCreateMemory: canCreateAppMemory(org, locals.user?.id ?? null, { userOwned: !app.organizationId, canManageApp: canManageApp as boolean | null }),
     app,
