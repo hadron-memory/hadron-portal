@@ -32,7 +32,7 @@ import { resolveWikilinks } from '$lib/server/wikilinks';
 import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import { loadCommentSummary, loadDiscussion, sendCommentWrite } from '$lib/server/comments';
 import { COMMENT_NODE_TYPE, commentMoveRefusedText, type CommentSummary, type Discussion } from '$lib/comments';
-import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, isChatMessageNode, isChatNode, isTeamChannelChat, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatRootLocForMessage, chatSortKey, chatMessageNodeType, isChatMessageNode, isChatNode, isTeamChannelChat, legacyThreadEvidence, loadChatMessages, postChatMessage, type ChatMessage, type ChatPage } from '$lib/server/team-chat';
 import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
@@ -456,7 +456,7 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
   // The page also carries `hasOlder` so the Chat tab can offer scrollback
   // instead of silently presenting a window as the complete transcript.
   const chatMessagesPromise: Promise<ChatPage | null> = isChat
-    ? loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node) }).catch((e) => {
+    ? loadChatMessages(gqlClient(locals.token), params.id, node.loc, { sort: chatSortKey(node), messageNodeType: chatMessageNodeType(node) }).catch((e) => {
         console.warn('[node-detail] chat messages failed:', e);
         return { messages: [], total: 0, hasOlder: false, offset: 0 };
       })

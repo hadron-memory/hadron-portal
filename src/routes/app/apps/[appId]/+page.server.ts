@@ -64,7 +64,7 @@ import {
 } from '$lib/app-chats';
 import { loadTeamChatTail, teamChatRefusalOf } from '$lib/server/team-chat';
 import { NO_TEAM_FILTER, parseTeamParam } from '$lib/team-chat-filter';
-import { loadChatMessages } from '$lib/server/team-chat';
+import { chatMessageNodeType, loadChatMessages } from '$lib/server/team-chat';
 import { resolveTabIntent } from './tab-intent';
 import {
   addMember,
@@ -896,7 +896,9 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
       { errors: false, id: `channel:${selectedChat.channelId}` }) : null;
   const selectedChatMessages =
     selectedChat?.kind === 'other' && selectedChat.memoryId
-      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key)
+      ? await loadChatMessages(client, selectedChat.memoryId, selectedChat.key, {
+          messageNodeType: chatMessageNodeType(selectedChat),
+        })
           .catch((e) => {
             console.warn(`[app-chats] messages fetch failed for ${selectedChat.key}:`, e);
             return null;

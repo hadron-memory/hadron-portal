@@ -277,9 +277,16 @@ export function chatSortKey(node: Pick<MemoryNode, 'nodeType'>): 'seq' | 'loc' {
   return node.nodeType === CHAT_NODE_TYPE ? 'seq' : 'loc';
 }
 
+/** #1569: only the authenticated root's platform type selects this dialect.
+ * A default seq sort, a tag or a request parameter is not platform evidence.
+ * Legacy reads remain unqualified; #2836 excludes chat-message by default. */
+export function chatMessageNodeType(root: { nodeType?: string | null }): 'chat-message' | undefined {
+  return root.nodeType === CHAT_NODE_TYPE ? 'chat-message' : undefined;
+}
+
 export type ChatPage = {
   messages: ChatMessage[];
-  /** The server's count of nodes under the prefix — not of messages. */
+  /** The server's count in the selected prefix/type domain — not of direct bubbles. */
   total: number;
   /** Is there anything before this window? Drives the scroll-up affordance. */
   hasOlder: boolean;
@@ -319,6 +326,8 @@ export async function loadChatMessages(
     before?: number;
     /** `seq` for a platform chat, `loc` for a legacy one. See the docblock. */
     sort?: 'seq' | 'loc';
+    /** Derived from the authenticated root; absent for legacy/unrelated reads. */
+    messageNodeType?: 'chat-message';
   } = {},
 ): Promise<ChatPage> {
   const limit = opts.limit ?? CHAT_PAGE_SIZE;
@@ -334,6 +343,9 @@ export async function loadChatMessages(
   // scroll-up cost two round trips and one of them was guaranteed waste. The
   // count comes back with whichever window we actually want.
   const sort = opts.sort ?? 'seq';
+  // One domain for count, tail correction and every older window. Conditional
+  // spread preserves exact legacy variables: omission, never null or a default.
+  const messageFilter = opts.messageNodeType ? { nodeType: opts.messageNodeType } : {};
   const firstOffset = opts.before === undefined ? 0 : Math.max(0, opts.before - fetchCount);
   const first = await client.request<{
     findNodes: { total: number | null; hits: Array<{ node: MemoryNode }> };
@@ -343,6 +355,7 @@ export async function loadChatMessages(
     limit: fetchCount,
     offset: firstOffset,
     sort,
+    ...messageFilter,
   });
   const total = first.findNodes.total ?? first.findNodes.hits.length;
 
@@ -374,6 +387,7 @@ export async function loadChatMessages(
               limit: Math.min(fetchCount, end - offset),
               offset,
               sort,
+              ...messageFilter,
             },
           )
         ).findNodes.hits;

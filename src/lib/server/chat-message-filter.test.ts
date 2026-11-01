@@ -26,7 +26,7 @@ describe('portal#1569 explicit transcript domain', () => {
   });
   it('qualifies BOTH count/initial and corrective tail reads', async () => {
     const c = provider(Array.from({ length: 220 }, (_, i) => row(i + 980)));
-    const page = await loadChatMessages(c as never, 'mem', root, { messageNodeType: 'chat-message' } as never);
+    const page = await loadChatMessages(c as never, 'mem', root, { messageNodeType: 'chat-message' });
     expect(page.messages).toHaveLength(100);
     expect(page.messages.at(-1)?.seq).toBe(1199);
     expect(page.total).toBe(220);
@@ -44,7 +44,7 @@ describe('portal#1569 explicit transcript domain', () => {
     let before: number | undefined;
     let all: string[] = [];
     for (let pages = 0; pages < 20; pages++) {
-      const page = await loadChatMessages(c as never, 'mem', root, { limit: 37, before, messageNodeType: 'chat-message' } as never);
+      const page = await loadChatMessages(c as never, 'mem', root, { limit: 37, before, messageNodeType: 'chat-message' });
       expect(page.total).toBe(direct.length + offroad.length / 2);
       all = [...page.messages.map(m => m.id), ...all];
       if (!page.hasOlder) break;
