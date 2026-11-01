@@ -88,3 +88,16 @@ describe('SelectPublicAgent: Escape closes one layer only (#1584)', () => {
     }
   });
 });
+
+describe('SelectPublicAgent is announced as a modal dialog (#1589)', () => {
+  it('the picker panel carries role="dialog", aria-modal="true" and the family accessible name', () => {
+    openInHost();
+    flushSync();
+    const panel = pickerOverlay()!.firstElementChild as HTMLElement;
+    expect(panel.getAttribute('role')).toBe('dialog');
+    expect(panel.getAttribute('aria-modal')).toBe('true');
+    expect(panel.getAttribute('aria-label')).toBe('Choose a public agent');
+    // The Escape consumption is on that same element: the dialog layer the shared pattern names.
+    expect(pickerOverlay()!.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  });
+});

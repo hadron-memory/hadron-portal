@@ -52,7 +52,9 @@ function button(root: HTMLElement, text: string) {
   return [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
 }
 
-export type SelectNodeView = 'memory-stage' | 'results' | 'results-long-urn' | 'more' | 'failed';
+// 'stacked' (#1590): a memory already chosen, then Change… opens SelectMemory
+// over the node dialog: the state where the upper dialog covered the host's header.
+export type SelectNodeView = 'memory-stage' | 'results' | 'results-long-urn' | 'more' | 'failed' | 'stacked';
 
 export async function mountSelectNode(target: HTMLElement, view: SelectNodeView): Promise<() => void> {
   const restore =
@@ -78,7 +80,15 @@ export async function mountSelectNode(target: HTMLElement, view: SelectNodeView)
   const app = mount(SelectNode, { target, props: { memories, open: true, onselect: (n: NodeChoice) => picked.push(n) } });
   flushSync();
 
-  if (view !== 'memory-stage') {
+  if (view === 'stacked') {
+    const row = [...target.querySelectorAll('tr')].find((tr) => tr.textContent?.includes(memories[0].name))!;
+    ([...row.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Select'))!.click();
+    await settle();
+    flushSync();
+    button(target, 'Change…')!.click();
+    await settle();
+    flushSync();
+  } else if (view !== 'memory-stage') {
     // Stage 1: pick the first memory in the nested SelectMemory.
     const row = [...target.querySelectorAll('tr')].find((tr) => tr.textContent?.includes(memories[0].name))!;
     ([...row.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Select'))!.click();

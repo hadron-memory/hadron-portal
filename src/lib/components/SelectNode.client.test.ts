@@ -691,4 +691,26 @@ describe('SelectNode: #1584 fallback guards and carried P3s', () => {
     expect(idb).not.toBe(ida); // per-instance: never the shared literal
     expect(b.target.contains(document.getElementById(idb!))).toBe(true);
   });
+
+  it('the per-instance hint id does not come from Math.random, so it is SSR-stable (#1591 item 1)', async () => {
+    // Gemma's P3 on #1587: `Math.random()` per instance is not deterministic
+    // across server render and hydration. `$props.id()` is. With Math.random
+    // pinned to one value, a random suffix gives both instances the SAME id;
+    // an id from $props.id() stays distinct and owns its own picker.
+    vi.spyOn(Math, 'random').mockReturnValue(0.123456789);
+    const ids: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const m = mount();
+      await tick(2);
+      await chooseMemory(m.target, 'Beta KB');
+      const id = searchInput(m.target).getAttribute('aria-describedby')!;
+      expect(id).toMatch(/^node-picker-search-hint-/);
+      expect(m.target.contains(document.getElementById(id))).toBe(true);
+      ids.push(id);
+      m.unmount();
+      mounted.splice(mounted.indexOf(m), 1);
+    }
+    expect(ids[1]).not.toBe(ids[0]);
+    vi.restoreAllMocks();
+  });
 });

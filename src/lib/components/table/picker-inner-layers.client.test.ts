@@ -40,8 +40,8 @@ beforeEach(() => {
 });
 afterEach(() => localStorage.removeItem(VIEWS_KEY));
 
-async function mountDialog() {
-  const m = mountComponent(DialogTableHarness as never, {} as never) as Mounted<Record<string, unknown>>;
+async function mountDialog(props: { tableLater?: boolean } = {}) {
+  const m = mountComponent(DialogTableHarness as never, props as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(5); // ViewTabs loads its saved views in onMount
   return m;
@@ -161,6 +161,43 @@ describe('a picker dialog hosting a DataTable: inner layers own Escape (#1584 fo
     escapeAt(document.body);
     expect(details.open).toBe(false); // the innermost OPEN layer takes it
     expect(dialog()).not.toBeNull(); // ...not the picker under it
+  });
+
+  it('with every inner layer CLOSED, a body-focus Escape closes the picker: a closed layer holds no armed fallback (#1591 item 2)', async () => {
+    // dialog-escape.ts: arm the fallback only on markup that exists while
+    // the layer is open, never on an always-mounted element — an armed token
+    // from a CLOSED layer sits above the picker's and declines every
+    // body-focus key, so the picker can't be dismissed. Nothing pinned that:
+    // only where `use:dialogEscapeFallback` sits in ViewTabs and ColumnToggle
+    // kept it true. Open and close each layer once (so a lifecycle-gated arm
+    // has run its destroy), then strand focus on <body>. The table mounts
+    // AFTER the dialog, as a picker's results do: a misplaced arm then sits
+    // above the picker's own token, which is the order that orphans the key.
+    await mountDialog({ tableLater: true });
+    expect(caret()).toBeNull(); // oracle: no table yet, so its layers can only arm after the dialog
+    document.querySelector<HTMLButtonElement>('[data-load-results]')!.click();
+    flushSync();
+    await tick(10); // ViewTabs' init awaits the view list, then the active id, before the caret renders
+    expect(caret()).not.toBeNull(); // oracle: the always-mounted tab strip is there
+    caret()!.click();
+    flushSync();
+    expect(menu()).not.toBeNull();
+    caret()!.click();
+    flushSync();
+    expect(menu()).toBeNull();
+    const details = columnsDetails()!;
+    details.querySelector('summary')!.click();
+    details.dispatchEvent(new Event('toggle')); // jsdom's missing half (see above)
+    flushSync();
+    expect(details.open).toBe(true);
+    details.querySelector('summary')!.click();
+    details.dispatchEvent(new Event('toggle'));
+    flushSync();
+    expect(details.open).toBe(false);
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+    escapeAt(document.body);
+    expect(dialog()).toBeNull(); // the picker's own fallback is the topmost armed layer
   });
 
   it("with no inner layer open, the dialog's own consumption still closes the picker", async () => {
