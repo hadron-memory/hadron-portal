@@ -169,9 +169,9 @@
       announcementFailed = false;
       refusal = null;
       refreshFailed = false;
+      const reloadHref = tickerFirstPageHref(appId, ticker.id);
       return async ({ result }: { result: { type: string; data?: unknown } }) => {
         if (mine !== generation) return;
-        submitting = false;
         if (result.type === 'success') {
           const success = asTickerSuccess(result.data);
           // A result names WHAT it was about: only this form's own subscribe,
@@ -187,24 +187,37 @@
           // pattern), so the marker is left just before it and cleared here only
           // while this control is still the one showing.
           const attempt = fence.begin(viewerId, 'subscribe', postedWorkerId);
-          try {
-            await goto(tickerFirstPageHref(appId, ticker.id), { invalidateAll: true });
-          } catch {
-            refreshFailed = true;
-          }
-          fence.refreshSettled(attempt);
-          if (mine !== generation) {
-            // Unmounted during the reload. The marker survives only when the failure
-            // was THIS reload's (this ticker's error page); anything else may not
-            // claim a failed reload later.
-            if (!fence.failedHere(attempt)) fence.clear(attempt);
-            return;
-          }
-          fence.clear(attempt);
+          // The subscribe is NOT over: `submitting` stays held until this reload
+          // settles, so the chooser cannot start a second subscribe while the
+          // reload this one caused is in flight (portal#1511, the sibling of
+          // #1502's Remove window). The settle continuation runs detached: the
+          // handler returns first, so kit's own post-result work never waits on a
+          // full navigation. onDestroy and a ticker switch bump `generation`,
+          // which is what releases a dead control and drops its late settle.
+          const settle = (failed: boolean) => {
+            fence.refreshSettled(attempt);
+            if (mine !== generation) {
+              // Unmounted (or the page moved to another ticker) during the reload.
+              // The marker survives only when the failure was THIS reload's (this
+              // ticker's error page); anything else may not claim a failed reload
+              // later. Nothing is written onto whatever the control shows now.
+              if (!fence.failedHere(attempt)) fence.clear(attempt);
+              return;
+            }
+            refreshFailed = failed;
+            fence.clear(attempt);
+            submitting = false;
+          };
+          void goto(reloadHref, { invalidateAll: true }).then(
+            () => settle(false),
+            () => settle(true),
+          );
           return;
         }
         // On refusal the selection and the draft survive (the chooser stays open,
-        // still holding what it held), so the reader can correct and retry.
+        // still holding what it held), so the reader can correct and retry. No
+        // reload follows a refusal, so the chooser releases with the result.
+        submitting = false;
         refusal = result.type === 'failure' ? asTickerRefusal(result.data) : { kind: 'uncertain' };
         confirming = false;
       };

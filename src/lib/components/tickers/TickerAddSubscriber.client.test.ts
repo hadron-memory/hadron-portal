@@ -5,10 +5,10 @@
  * and a committed add reloads from the FIRST subscriber page.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { page, resetStubPage, setStubPage } from '$lib/test/stubs/app-stores';
 import { TICKER_REFRESH_MARKER_KEY } from '$lib/tickers/ticker-refresh-marker';
 import TickerAddSubscriber from './TickerAddSubscriber.svelte';
@@ -256,5 +256,126 @@ describe('TickerAddSubscriber: submits', () => {
     expect(root.querySelector('select')).toBeNull(); // collapsed back to the opener
     const form2 = await openChooser(root);
     expect(new FormData(form2).get('worker')).toBe(''); // no stale draft
+  });
+});
+
+// portal#1511 — the sibling of #1502's Remove exclusivity window: a submit that
+// triggered a reload holds the chooser until THAT reload settles, and the
+// enhance handler resolves first (kit's own post-result work never waits on a
+// full navigation).
+describe('TickerAddSubscriber: the exclusivity window around its own reload (portal#1511)', () => {
+  async function toConfirmation() {
+    const { root, props } = await mountAdd();
+    const form = await openChooser(root);
+    const select = form.querySelector<HTMLSelectElement>('select')!;
+    select.value = 'w-1';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    ([...form.querySelectorAll('button')].find((b) => /Continue/.test(b.textContent ?? '')) as HTMLButtonElement).click();
+    await tick(2);
+    const submit = [...form.querySelectorAll('button')].find((b) => b.type === 'submit') as HTMLButtonElement;
+    return { root, props, form, select, submit };
+  }
+
+  // Resolves to true when the promise settled within a few ticks, false when it is still pending.
+  async function settled(p: Promise<unknown>): Promise<boolean> {
+    let done = false;
+    void p.then(() => (done = true), () => (done = true));
+    await tick(4);
+    return done;
+  }
+
+  it('a second submit is refused until the reload settles, and the enhance handler resolves BEFORE it does', async () => {
+    const { root, form, select, submit } = await toConfirmation();
+    let settleReload!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { settleReload = resolve; });
+    const pending = await submitEnhancedDeferred(form);
+    const handlerReturned = await settled(pending.finish(SUB_SUCCESS('w-1')));
+    expect(handlerReturned).toBe(true); // the handler did not wait on the navigation
+    expect(navigationCalls.some((c) => c.fn === 'goto')).toBe(true); // the reload is in flight
+    expect(submit.disabled).toBe(true); // …and the chooser is still held
+    expect(select.disabled).toBe(true);
+    for (const label of [/^Subscribe$|^Subscribing/, /^Cancel$/]) {
+      expect(([...form.querySelectorAll('button')].find((b) => label.test((b.textContent ?? '').trim())) as HTMLButtonElement).disabled).toBe(true);
+    }
+    const second = await submitEnhanced(form);
+    expect(second.cancelled).toBe(true);
+    expect(navigationCalls.filter((c) => c.fn === 'goto')).toHaveLength(1);
+    settleReload();
+    await tick(3);
+    expect(submit.disabled).toBe(false); // released at settlement
+    expect(select.disabled).toBe(false);
+    expect(root.querySelector('[data-testid="ticker-add-result"]')!.textContent).toBe('Subscribed');
+  });
+
+  it('Escape does not collapse the chooser while its own reload is in flight', async () => {
+    const { root, form } = await toConfirmation();
+    let settleReload!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { settleReload = resolve; });
+    await submitEnhancedWithResult(form, SUB_SUCCESS('w-1'));
+    await tick(2);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await tick(2);
+    expect(root.querySelector('form')).not.toBeNull();
+    settleReload();
+    await tick(3);
+  });
+
+  it('a reload that fails releases the chooser and says the page could not reload; the write is not replayed', async () => {
+    const { root, form, submit } = await toConfirmation();
+    navigationHooks.onGoto = () => Promise.reject(new Error('refresh failed'));
+    await submitEnhancedWithResult(form, SUB_SUCCESS('w-1'));
+    await tick(3);
+    expect(submit.disabled).toBe(false);
+    expect(root.querySelector('[data-testid="ticker-add-refresh-failed"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="ticker-add-result"]')!.textContent).toBe('Subscribed'); // the write stands
+    expect(navigationCalls.filter((c) => c.fn === 'goto')).toHaveLength(1);
+    expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull();
+  });
+
+  it('a refusal has no reload to wait for: the chooser is released with the result', async () => {
+    const { form, select } = await toConfirmation();
+    await submitEnhancedWithResult(form, { type: 'failure', status: 403, data: { refusal: { kind: 'refused', code: 'SUBSCRIBE_FORBIDDEN', message: 'No.' } } });
+    await tick(2);
+    // a refusal closes the confirmation, so the submit is gone: the rest of the chooser is what must be live
+    expect([...form.querySelectorAll('button')].some((b) => b.disabled)).toBe(false);
+    expect(select.disabled).toBe(false);
+    expect(select.value).toBe('w-1');
+    expect(navigationCalls.some((c) => c.fn === 'goto')).toBe(false);
+  });
+
+  it('unmounting mid-reload leaves nothing stuck and throws nothing when the reload settles late', async () => {
+    const { form } = await toConfirmation();
+    let settleReload!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve) => { settleReload = resolve; });
+    await submitEnhancedWithResult(form, SUB_SUCCESS('w-1'));
+    await tick(2);
+    const errors = await captureUnhandledRejections(async () => {
+      mounted.pop()!.unmount();
+      settleReload();
+      await tick(4);
+    });
+    expect(errors).toEqual([]);
+    expect(sessionStorage.getItem(TICKER_REFRESH_MARKER_KEY)).toBeNull(); // a foreign settle closes its own fence
+    // a fresh mount is a fresh control: its submit is not held by the dead one
+    const next = await mountAdd();
+    const form2 = await openChooser(next.root);
+    expect(form2.querySelector<HTMLSelectElement>('select')!.disabled).toBe(false);
+  });
+
+  it.each(['settles', 'fails'] as const)('a reload that %s after the page moved to another ticker writes nothing onto it', async (how) => {
+    const { root, props, form } = await toConfirmation();
+    let settleReload!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((resolve, reject) => { settleReload = how === 'settles' ? resolve : () => reject(new Error('refresh failed')); });
+    await submitEnhancedWithResult(form, SUB_SUCCESS('w-1'));
+    await tick(2);
+    props.ticker = { id: 'tk-2', name: 'other' };
+    await tick(2);
+    const form2 = await openChooser(root);
+    settleReload();
+    await tick(3);
+    expect(root.querySelector('[data-testid="ticker-add-result"]')).toBeNull();
+    expect(root.querySelector('[data-testid="ticker-add-refresh-failed"]')).toBeNull();
+    expect(form2.querySelector<HTMLSelectElement>('select')!.disabled).toBe(false);
   });
 });
