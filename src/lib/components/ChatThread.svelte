@@ -20,6 +20,11 @@
     author: string;
     content: string;
     createdAt: string;
+    /** The server's ordering key, atomically allocated with the insert
+     *  (hrn:node:hadronmemory.com:specs:cor:agt:020:04). Null on a legacy
+     *  thread, which predates it — never invented client-side (seq has gaps
+     *  by design: it is a watermark, not a count). */
+    seq?: number | null;
     nodeData?: { loc?: string } | null;
   };
 
@@ -36,6 +41,7 @@
     canPost = true,
     hasOlder = false,
     onLoadOlder,
+    showSeq = false,
   }: {
     messages?: ChatThreadMessage[];
     basePath: string;
@@ -47,6 +53,11 @@
     /** False when there is no App to post through — the thread reads, but the
      *  composer would have nowhere to send. */
     canPost?: boolean;
+    /** portal#1525: render the server seq per message. Opt-in so the one
+     *  surface that shows it (the team-Channel full-screen view) turns it on
+     *  and every other consumer of this component — the node page's inline
+     *  Chat tab, agent chats — is unchanged. */
+    showSeq?: boolean;
     /** #793: is there history before the loaded window? Drives scroll-up. */
     hasOlder?: boolean;
     /** #793: fetch the page BEFORE the current window. The route owns HOW to
@@ -251,12 +262,27 @@
             </span>
           </div>
 
-          <!-- Message column -->
-          <div class="flex-1">
+          <!-- Message column. `min-w-0` (portal#1525 fix head): the hover
+               message-URN anchor below is `flex-shrink-0`, so without this the
+               column's min-content width is the full URN and long ones push
+               the bubbles past a 390px viewport — same failure the header had. -->
+          <div class="min-w-0 flex-1">
             <!-- Author and URN on same row, top-aligned -->
             <div class="flex justify-between items-start gap-2 mb-1">
               <div class="text-sm font-semibold text-zinc-900 dark:text-white">
                 {msg.author || 'Unknown'}
+                <!-- portal#1525: the server's seq, only where asked for. Same
+                     rationale as TeamChatThread: seq is how the team addresses
+                     messages to each other, in the CLI (--reply-to) and in
+                     prose ("seq 14"). It is content, not debug output. Null
+                     renders nothing — a legacy thread has no seq, and a
+                     client-invented number would lie about a watermark. -->
+                {#if showSeq && msg.seq != null}
+                  <!-- data-seq: the assertion hook — "no seq renders" is
+                       `[data-seq]` count 0, not a textContent scan for '#'
+                       (which hrefs and ids also contain). -->
+                  <span data-seq={msg.seq} class="ml-1 font-mono text-xs font-normal text-zinc-400 dark:text-zinc-500">#{msg.seq}</span>
+                {/if}
               </div>
               {#if msgUrn}
                 <!-- The chip is hover-revealed, but it stays in the tab order:

@@ -5,7 +5,7 @@ import { gqlClient } from '$lib/server/api';
 import { extractGqlError } from '$lib/server/gqlError';
 import { requireNonConsumer } from '$lib/server/guards';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
-import { chatAuthorName, chatPostTarget, chatSortKey, isChatNode, legacyThreadEvidence, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
+import { chatAuthorName, chatPostTarget, chatSortKey, isChatNode, isTeamChannelChat, legacyThreadEvidence, loadChatMessages, postChatMessage } from '$lib/server/team-chat';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
 import { loadAncestors } from '$lib/server/breadcrumb-ancestors';
 import type { MemoryNode } from '$lib/types';
@@ -61,6 +61,16 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
   if (!isChatNode(node, evidence)) {
     redirect(303, `/app/memories/${params.id}/nodes/${params.nodeId}`);
   }
+
+  // portal#1525: is this the App's team CHANNEL? Answered by the one canonical
+  // predicate (`isTeamChannelChat` in team-chat.ts), so the header branches on
+  // the same classifier the composer's target logic trusts. (`chatPostTarget`
+  // itself runs once here for `canPost`; `isTeamChannelChat` re-reads the same
+  // evidence for its own answer — two calls over one evidence object, not one
+  // shared evaluation.) Agent/other chats on this same route are NOT Channels
+  // and keep today's wording (Holger's portal#1482 ruling).
+  const chatTarget = chatPostTarget(node, evidence);
+  const isTeamChannel = isTeamChannelChat(node, evidence);
 
   // Non-fatal on error — an empty thread beats crashing the chat page.
   // #793: a bounded WINDOW (newest CHAT_PAGE_SIZE), not the whole thread.
@@ -125,7 +135,10 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
     chatApp: node.memory?.app ?? null,
     // Same predicate the action re-derives from the node, so the composer is
     // shown exactly when a post would be accepted.
-    canPost: chatPostTarget(node, evidence).kind !== 'none',
+    canPost: chatTarget.kind !== 'none',
+    // portal#1525: the header's Channel branch (caption, icon-only collapse,
+    // per-message seq). `isTeamChannelChat` above is the one predicate.
+    isTeamChannel,
     form: await superValidate({}, sendChatMessageFormAdapter, { errors: false }),
   };
 };
