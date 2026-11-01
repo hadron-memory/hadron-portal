@@ -71,6 +71,19 @@ describe('task references on the task page (portal#1575)', () => {
     expect(html.indexOf('https://source.test/1')).toBeLessThan(html.indexOf('data-testid="task-references"'));
   });
 
+  // #1578 §10 P3-1 (Rodolfo): an external link opens in a new tab without an opener or a referrer.
+  it('an external link carries rel="noopener noreferrer"; an in-portal link carries no rel and no target', () => {
+    const html = page([
+      { kind: 'URL', target: 'https://example.com/notes', label: null },
+      { kind: 'TASK', target: 'hrn:agenttask:acme.com:team:AT1.2', label: null },
+    ]);
+    const [external, internal] = rows(html);
+    expect(external).toMatch(/<a\b[^>]*\brel="noopener noreferrer"/);
+    expect(external).toMatch(/<a\b[^>]*\btarget="_blank"/);
+    expect(internal).toMatch(/<a\b/);
+    expect(internal).not.toMatch(/\brel=|\btarget=/);
+  });
+
   it('an empty list renders nothing', () => {
     expect(page([])).not.toContain('data-testid="task-references"');
     expect(page([])).not.toContain('References');
