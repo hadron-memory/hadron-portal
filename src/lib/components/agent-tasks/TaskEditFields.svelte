@@ -168,7 +168,7 @@
       <option value="">{t('app.tasks.new.min-tier.any', 'Any')}</option>
       {#each minTierOptions(baseReq.minTier) as tier (tier)}<option value={tier}>{tierLabel(tier)}</option>{/each}
     </select>
-    <p id="edit-min-tier-help" class={helpClass}>{t('app.tasks.new.min-tier.help', 'The task goes to the cheapest free worker at or above this tier. A worker whose tier is unknown won’t be picked.')}</p>
+    <p id="edit-min-tier-help" class={helpClass}>{t('app.tasks.new.min-tier.help', 'The task goes to the cheapest free worker at or above this tier. When a minimum is selected, a worker whose tier is unknown won’t be picked.')}</p>
   </div>
   <p class={helpClass}>
     {t('app.tasks.edit.requirements-help', 'Requirements are replaced as shown. Emptying all of them removes them.')}

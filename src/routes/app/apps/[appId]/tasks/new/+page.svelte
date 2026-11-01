@@ -298,7 +298,7 @@
                   <option value="">{t('app.tasks.new.min-tier.any', 'Any')}</option>
                   {#each MIN_TIERS as tier (tier)}<option value={tier} selected={v('minTier') === tier}>{tierLabel(tier)}</option>{/each}
                 </select>
-                <p id="new-min-tier-help" class={helpClass}>{t('app.tasks.new.min-tier.help', 'The task goes to the cheapest free worker at or above this tier. A worker whose tier is unknown won’t be picked.')}</p>
+                <p id="new-min-tier-help" class={helpClass}>{t('app.tasks.new.min-tier.help', 'The task goes to the cheapest free worker at or above this tier. When a minimum is selected, a worker whose tier is unknown won’t be picked.')}</p>
               </div>
             </div>
           </details>
