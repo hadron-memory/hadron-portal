@@ -4987,6 +4987,9 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
       handBack { code text handedBackAt }
       properties
+      # portal#1575 (hadron-server#3112): needs a server serving 1475888f or later. One without the field
+      # rejects this whole read, so the portal deploys only after production serves it (#1575's Order).
+      references { kind target label }
     }
   }
 `;
@@ -5292,6 +5295,15 @@ export const REMOVE_AGENT_TASK_BLOCKER_MUTATION = /* GraphQL */ `
 export const TASK_PICKER_QUERY = /* GraphQL */ `
   query TaskPicker($appRef: ID!, $offset: Int!) {
     agentTasks(appRef: $appRef, status: [BACKLOG, PENDING, STARTED], limit: 200, offset: $offset) {
+      id appId title handle status
+    }
+  }
+`;
+// portal#1575: the reference picker also lists ended tasks (a reference to a finished or cancelled task is
+// normal; hrn:node:hadronmemory.com:specs:cor:agt:050:01 limits nothing). The status list is fixed here, never taken from the request.
+export const TASK_REFERENCE_PICKER_QUERY = /* GraphQL */ `
+  query TaskReferencePicker($appRef: ID!, $offset: Int!) {
+    agentTasks(appRef: $appRef, status: [BACKLOG, PENDING, STARTED, FINISHED, CANCELLED], limit: 200, offset: $offset) {
       id appId title handle status
     }
   }

@@ -209,16 +209,22 @@
     </div>
   </div>
 
-  <ChatThread
-    {messages}
-    {basePath}
-    {form}
-    memoryUrn={data.graph?.urn ?? null}
-    sendForm={data.form}
-    action="?/sendMessage"
-    canPost={data.canPost}
-    hasOlder={data.hasOlder ?? false}
-    onLoadOlder={loadOlderChat}
-    showSeq={isTeamChannel}
-  />
+  <!-- #1522: keyed by the send form's node-scoped id, for the same reason as
+       the node page's Chat tab — a same-route hop to another node's chat must
+       not leave a live superForm holding the previous node's id (and draft)
+       against the new node's results. -->
+  {#key data.form.id}
+    <ChatThread
+      {messages}
+      {basePath}
+      {form}
+      memoryUrn={data.graph?.urn ?? null}
+      sendForm={data.form}
+      action="?/sendMessage"
+      canPost={data.canPost}
+      hasOlder={data.hasOlder ?? false}
+      onLoadOlder={loadOlderChat}
+      showSeq={isTeamChannel}
+    />
+  {/key}
 </div>

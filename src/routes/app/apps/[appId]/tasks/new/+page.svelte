@@ -1,5 +1,7 @@
 <script lang="ts">
   import SelectTask from '$lib/components/agent-tasks/SelectTask.svelte';
+  import TaskReferencesEditor from '$lib/components/agent-tasks/TaskReferencesEditor.svelte';
+  import { readReferences } from '$lib/agent-tasks/references';
   import type { TaskChoice } from '$lib/agent-tasks/types';
   import { onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
@@ -316,6 +318,9 @@
         <input id="new-source" name="source" type="text" bind:value={source} aria-describedby="new-source-help" class={inputClass} />
         <p id="new-source-help" class={helpClass}>{t('app.tasks.new.source.help', 'A link, a URN or a note on where this came from.')}</p>
       </div>
+
+      <!-- portal#1575: typed references; a refused submit hands the list back, so nothing added is lost. -->
+      <TaskReferencesEditor app={{ id: data.app.id, urn: data.app.urn ?? null }} initial={readReferences(v('references')) ?? []} idPrefix="new" invalid={fieldRefusal('references')} />
 
       <div class="space-y-1">
         <label for="new-tags" class={labelClass}>{t('app.tasks.new.tags', 'Tags')}</label>

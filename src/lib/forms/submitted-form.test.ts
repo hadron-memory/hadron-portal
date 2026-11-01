@@ -28,4 +28,19 @@ describe('failedSubmission', () => {
       expect(failedSubmission<F>(data, 'postTeamChatMessage')).toBeNull();
     }
   });
+
+  // #1522 — the optional formId gate. Both chat send surfaces share a `_kind`
+  // (one schema), so `_kind` alone cannot tell whose result it is: a sibling
+  // form's failure — or a stale result that outlived a navigation — must not
+  // seed this form just because the kind matches.
+  it('with formId, ignores a matching-kind result posted under another form id', () => {
+    const failOnNodeA = {
+      form: { id: 'sendChatMessage:node-a', valid: false, posted: true, errors: {}, data: { _kind: 'sendChatMessage', body: 'sent' } },
+    };
+    expect(failedSubmission<F>(failOnNodeA, 'sendChatMessage', 'sendChatMessage:node-b')).toBeNull();
+    expect(failedSubmission<F>(failOnNodeA, 'sendChatMessage', 'sendChatMessage:node-a')?.data.body).toBe('sent');
+    // Omitted formId keeps the kind-only behavior for callers that have no
+    // sibling sharing their schema.
+    expect(failedSubmission<F>(failOnNodeA, 'sendChatMessage')?.data.body).toBe('sent');
+  });
 });

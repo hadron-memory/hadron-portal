@@ -13,6 +13,7 @@ import {
 import { t } from '$lib/i18n/t';
 import { parseHandle, taskHref } from '$lib/agent-tasks/handle';
 import { startByIso } from '$lib/agent-tasks/start-by';
+import { readReferences, referenceInput } from '$lib/agent-tasks/references';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -118,6 +119,14 @@ export const actions: Actions = {
     const tags = str(fd, 'tags').split(',').map((x) => x.trim()).filter(Boolean);
     if (tags.length) input.tags = tags;
     input.closeSessionWhenDone = fd.get('closeSessionWhenDone') === 'on';
+    // portal#1575: the ordered list, when there is one. The server refuses what it won't store, naming the position.
+    if (fd.has('references')) {
+      const references = readReferences(fd.get('references'));
+      if (!references) {
+        return writeFailure('create', { kind: 'invalid', field: 'references', message: t('app.tasks.edit.references-unreadable', 'The references couldn’t be read. Reload the page and try again.') }, values);
+      }
+      if (references.length) input.references = references.map(referenceInput);
+    }
 
     const out = await taskWrite<{ createAgentTask: { id: string; handle?: string | null } | null }>(client, CREATE_AGENT_TASK_MUTATION, { input }, 'createAgentTask');
     if (out.kind === 'refused') return writeFailure('create', out.refusal, values);
