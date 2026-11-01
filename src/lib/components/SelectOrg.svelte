@@ -4,6 +4,7 @@
   // reset); orgs have a display URN so rows use the Urn component.
   import type { PortalColumnDef } from '$lib/table/features';
   import { untrack } from 'svelte';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import Urn from './Urn.svelte';
   import type { OrgSummary } from '$lib/types';
@@ -82,11 +83,12 @@
     open = false;
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') {
-      open = false;
-    }
-  }
+  // The Select-family Escape pattern (#1582/#1584): Escape pressed INSIDE the
+  // dialog is consumed at the dialog layer, so a host whose own window
+  // listener registered first cannot close with us on one keypress; the
+  // window fallback (the shared CAPTURE helper, with the consumed-key and IME
+  // guards) owns the key only for a focus that never entered the dialog.
+  const escapeFallback = { close: () => { open = false; } };
 
   // Reset search + pagination whenever the modal closes. `open` is the only
   // tracked dependency; the reset itself runs untracked because
@@ -103,8 +105,6 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -114,6 +114,8 @@
     <div
       class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
+      use:dialogEscapeFallback={escapeFallback}
       style="max-height: 70vh;"
     >
       <!-- Header with search -->

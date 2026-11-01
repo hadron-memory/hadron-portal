@@ -4,6 +4,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import type { PortalColumnDef } from '$lib/table/features';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -28,14 +29,20 @@
     if (open) return;
     untrack(() => { query = ''; table.resetPageIndex(); });
   });
+
+  // The Select-family Escape pattern (#1582/#1584): Escape pressed INSIDE the
+  // dialog is consumed at the dialog layer, so a host whose own window
+  // listener registered first cannot close with us on one keypress; the
+  // window fallback (the shared CAPTURE helper, with the consumed-key and IME
+  // guards) owns the key only for a focus that never entered the dialog.
+  const escapeFallback = { close: () => { open = false; } };
 </script>
-<svelte:window onkeydown={(e) => { if (open && e.key === 'Escape') open = false; }} />
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-3 pt-[10vh]" onclick={() => open = false}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <div role="dialog" aria-modal="true" aria-label={t('select-app.title', 'Choose an App')} tabindex="-1" use:focusTrap onclick={(e) => e.stopPropagation()} class="w-full max-w-2xl min-w-0 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+    <div role="dialog" aria-modal="true" aria-label={t('select-app.title', 'Choose an App')} tabindex="-1" use:focusTrap use:dialogEscapeFallback={escapeFallback} onclick={(e) => e.stopPropagation()} onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)} class="w-full max-w-2xl min-w-0 rounded-xl border border-zinc-200 bg-white p-4 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
       <div class="mb-3 flex items-center justify-between gap-3">
         <h2 class="font-semibold text-zinc-900 dark:text-white">{t('select-app.title', 'Choose an App')}</h2>
         <button type="button" onclick={() => open = false} class="rounded-md px-3 py-1 text-sm text-zinc-600 dark:text-zinc-300">{t('select-app.close', 'Close')}</button>

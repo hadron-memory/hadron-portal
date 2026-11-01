@@ -9,6 +9,7 @@
   // substring) are being tightened separately — see hadron-server#384.
 
   import Urn from '$lib/components/Urn.svelte';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import { type SearchUser, type SearchUserPage, userLabel } from '$lib/users/search-user';
 
@@ -88,9 +89,12 @@
     close();
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (open && e.key === 'Escape') close();
-  }
+  // The Select-family Escape pattern (#1582/#1584): Escape pressed INSIDE the
+  // dialog is consumed at the dialog layer, so a host whose own window
+  // listener registered first cannot close with us on one keypress; the
+  // window fallback (the shared CAPTURE helper, with the consumed-key and IME
+  // guards) owns the key only for a focus that never entered the dialog.
+  const escapeFallback = { close: () => close() };
 
   // Reset search state whenever the modal is closed — including a close driven
   // externally by the parent (navigation, parent state reset), which close()
@@ -110,8 +114,6 @@
   });
 </script>
 
-<svelte:window onkeydown={handleKeydown} />
-
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -125,6 +127,8 @@
       tabindex="-1"
       class="w-full max-w-lg rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
+      use:dialogEscapeFallback={escapeFallback}
       style="max-height: 70vh;"
     >
       <!-- #1169: a visible way out, not only Esc and the backdrop. -->

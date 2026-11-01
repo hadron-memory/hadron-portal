@@ -11,6 +11,7 @@
    * subscriptions.
    */
   import { t } from '$lib/i18n/t';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
 
   export type PublicAgentPick = {
     id: string;
@@ -57,13 +58,14 @@
     open = false;
     query = '';
   }
-</script>
 
-<!-- Top-level by necessity: the Svelte compiler forbids <svelte:window>
-     inside elements or blocks (svelte_meta_invalid_placement), so the
-     listener can't be mounted conditionally — the `open &&` guard makes it
-     a no-op while the modal is closed instead. -->
-<svelte:window onkeydown={(e) => { if (open && e.key === 'Escape') open = false; }} />
+  // The Select-family Escape pattern (#1582/#1584): Escape pressed INSIDE the
+  // panel is consumed at the panel layer, so a host whose own window listener
+  // registered first cannot close with us on one keypress; the window
+  // fallback (the shared CAPTURE helper, with the consumed-key and IME
+  // guards) owns the key only for a focus that never entered the panel.
+  const escapeFallback = { close: () => { open = false; } };
+</script>
 
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -74,6 +76,8 @@
     <div
       class="w-full max-w-md rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
+      use:dialogEscapeFallback={escapeFallback}
     >
       <div class="border-b border-zinc-200 p-3 dark:border-zinc-700">
         <!-- svelte-ignore a11y_autofocus -->

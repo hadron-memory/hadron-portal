@@ -12,7 +12,10 @@
     child,
     childProps = {},
   }: {
-    child: Component<Record<string, unknown>, Record<string, unknown>, string>;
+    // Any picker: each requires its own props (agents, orgs, search…), which
+    // arrive via `childProps`, so the constraint here is deliberately loose —
+    // `any` props, or svelte-check demands this exact component's props.
+    child: Component<any, any, string>;
     childProps?: Record<string, unknown>;
   } = $props();
 
