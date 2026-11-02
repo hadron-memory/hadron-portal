@@ -5,8 +5,8 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { beginEnhanced, submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import TickerForm from './TickerForm.svelte';
 import TickerDelete from './TickerDelete.svelte';
@@ -91,6 +91,53 @@ describe('TickerForm (create)', () => {
     expect(status.querySelector('a')?.getAttribute('href')).toBe('/app/apps/app-1/tickers/tk-9');
     expect(field(root, 'name').value).toBe('');
     expect(navigationCalls.some((c) => c.fn === 'invalidateAll')).toBe(true);
+  });
+
+  // portal#1463 — what a create does around a write that is still in flight or just refused.
+  it('a create success keeps what was typed WHILE the request was in flight, and clears what it sent', async () => {
+    const root = await mountIt(TickerForm, { appId: 'app-1', ticker: null });
+    type(field(root, 'name'), 'standup');
+    type(field(root, 'cadenceSeconds'), '60');
+    await tick(2);
+    const deliver = await beginEnhanced(formOf(root));
+    // The reader starts the next ticker's name while the first write is out.
+    type(field(root, 'name'), 'standup-two');
+    await tick(2);
+    await deliver({ type: 'success', status: 200, data: { action: 'create', ok: true, ticker: { id: 'tk-9', name: 'standup' } } });
+    await tick(3);
+    expect(field(root, 'name').value).toBe('standup-two');
+    expect(field(root, 'cadenceSeconds').value).toBe('');
+  });
+
+  it('a new submit clears the previous refusal and its aria-invalid', async () => {
+    const root = await mountIt(TickerForm, { appId: 'app-1', ticker: null });
+    type(field(root, 'name'), 'x');
+    await tick(2);
+    await submitEnhancedWithResult(formOf(root), {
+      type: 'failure', status: 400, data: { action: 'create', refusal: { kind: 'invalid', field: 'name', message: 'Name is taken.' } },
+    });
+    await tick(3);
+    expect(root.querySelector('form [role="alert"]')).not.toBeNull();
+    expect(field(root, 'name').getAttribute('aria-invalid')).toBe('true');
+    await beginEnhanced(formOf(root)); // the next submit goes out; its answer has not come back
+    await tick(3);
+    expect(root.querySelector('form [role="alert"]')).toBeNull();
+    expect(field(root, 'name').getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('an invalid refusal moves focus to the field it names; a whole-form one moves nothing', async () => {
+    const root = await mountIt(TickerForm, { appId: 'app-1', ticker: null });
+    await submitEnhancedWithResult(formOf(root), {
+      type: 'failure', status: 400, data: { action: 'create', refusal: { kind: 'invalid', field: 'cadenceSeconds', message: 'Too fast.' } },
+    });
+    await tick(3);
+    expect(document.activeElement).toBe(field(root, 'cadenceSeconds'));
+    (document.activeElement as HTMLElement).blur();
+    await submitEnhancedWithResult(formOf(root), {
+      type: 'failure', status: 400, data: { action: 'create', refusal: { kind: 'invalid', field: 'form', message: 'No.' } },
+    });
+    await tick(3);
+    expect(document.activeElement).toBe(document.body);
   });
 
   // portal#1384 acceptance 9: the warning a successful create carried (hadron-server#2733).
@@ -226,6 +273,43 @@ describe('TickerForm (edit)', () => {
     expect(m.target.querySelector('[role="status"]')?.textContent).toContain('Saved');
   });
 
+  // Gizelle's READ P2 on #1601: the draft typed during a pending update survives (the reader's newer
+  // input), so the status must not claim the visible fields ARE the stored values.
+  async function editWithDraftDuringRequest(typeDraft: boolean) {
+    const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', ticker: stored, impersonating: null });
+    const m = mountComponent(TickerForm as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    type(field(m.target, 'name'), 'saved-name');
+    await tick(2);
+    const deliver = await beginEnhanced(formOf(m.target));
+    if (typeDraft) {
+      type(field(m.target, 'name'), 'unsaved-next-draft');
+      await tick(2);
+    }
+    navigationHooks.onInvalidateAll = () => {
+      props.ticker = { ...stored, name: 'saved-name' };
+    };
+    await deliver({ type: 'success', status: 200, data: { action: 'update', ok: true } });
+    await tick(3);
+    return m.target;
+  }
+
+  it('a success over a draft typed while it was pending keeps the draft and does NOT say the fields are the stored values', async () => {
+    const root = await editWithDraftDuringRequest(true);
+    expect(field(root, 'name').value).toBe('unsaved-next-draft');
+    const status = root.querySelector('[role="status"]')!.textContent ?? '';
+    expect(status).toContain('Saved');
+    expect(status).not.toContain('stored values');
+    expect(status).toContain('not saved yet');
+  });
+
+  it('with no newer draft the success still says these are the stored values (control)', async () => {
+    const root = await editWithDraftDuringRequest(false);
+    expect(field(root, 'name').value).toBe('saved-name');
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('Saved. These are the stored values.');
+  });
+
   it('another ticker reseeds: nothing typed for the first survives', async () => {
     const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', ticker: stored, impersonating: null });
     const m = mountComponent(TickerForm as never, props as never) as Mounted<Record<string, unknown>>;
@@ -277,6 +361,68 @@ describe('TickerDelete', () => {
     await submitEnhancedWithResult(formOf(root), { type: 'success', status: 200, data: { action: 'delete', ok: true } });
     await tick(3);
     expect(navigationCalls.find((c) => c.fn === 'goto')?.args[0]).toBe('/app/apps/app-1/tickers');
+  });
+
+  // portal#1463 — focus, refusal and the pending window of the confirmation.
+  const deleteButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Delete…')!;
+  const cancelButton = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cancel')!;
+
+  it('opening the confirmation moves focus into it; Cancel returns focus to Delete…', async () => {
+    const root = await mountIt(TickerDelete, { appId: 'app-1', ticker: stored });
+    deleteButton(root).click();
+    await tick(3);
+    expect(formOf(root).contains(document.activeElement)).toBe(true);
+    cancelButton(root).click();
+    await tick(3);
+    expect(document.activeElement).toBe(deleteButton(root));
+  });
+
+  it('Cancel clears a stale refusal', async () => {
+    const root = await mountIt(TickerDelete, { appId: 'app-1', ticker: stored });
+    deleteButton(root).click();
+    await tick(2);
+    await submitEnhancedWithResult(formOf(root), {
+      type: 'failure', status: 404, data: { action: 'delete', refusal: { kind: 'refused', code: 'TICKER_NOT_FOUND', message: 'Ticker not found.' } },
+    });
+    await tick(3);
+    expect(root.querySelector('[role="alert"]')).not.toBeNull();
+    cancelButton(root).click();
+    await tick(3);
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it('a success keeps Delete disabled until the navigation to the list completes', async () => {
+    const root = await mountIt(TickerDelete, { appId: 'app-1', ticker: stored });
+    deleteButton(root).click();
+    await tick(2);
+    let arrive!: () => void;
+    navigationHooks.onGoto = () => new Promise<void>((r) => (arrive = r));
+    const confirmButton = () => formOf(root).querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const deliver = await beginEnhanced(formOf(root));
+    const landed = deliver({ type: 'success', status: 200, data: { action: 'delete', ok: true } });
+    await tick(3);
+    expect(navigationCalls.some((c) => c.fn === 'goto')).toBe(true);
+    // goto is still pending: a second click must not be possible.
+    expect(confirmButton().disabled).toBe(true);
+    arrive();
+    await landed;
+  });
+
+  it('another ticker reseeds the confirmation: no open confirm, no refusal carried over', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', ticker: stored });
+    const root = await mountIt(TickerDelete, props);
+    deleteButton(root).click();
+    await tick(2);
+    await submitEnhancedWithResult(formOf(root), {
+      type: 'failure', status: 404, data: { action: 'delete', refusal: { kind: 'refused', code: 'TICKER_NOT_FOUND', message: 'Ticker not found.' } },
+    });
+    await tick(3);
+    expect(root.querySelector('form')).not.toBeNull();
+    props.ticker = { id: 'tk-2', name: 'retro' };
+    await tick(3);
+    expect(root.querySelector('form')).toBeNull();
+    expect(root.querySelector('[role="alert"]')).toBeNull();
+    expect(deleteButton(root)).toBeDefined();
   });
 
   it('a support session gets no Delete', async () => {

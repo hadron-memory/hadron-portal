@@ -1,4 +1,5 @@
 import type { GraphQLClient } from 'graphql-request';
+import { readAllPages, type PageEnvelope } from '$lib/server/paged';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import type {
   AppTickerSettings,
@@ -130,10 +131,14 @@ export const APPLY_AGENT_TICKER_TEMPLATES_MUTATION = /* GraphQL */ `
 // a non-null list member nulls the whole list. Selected beside the keys, it
 // would empty the App Keys tab for every non-manager.
 export const APP_KEY_SCOPES_QUERY = /* GraphQL */ `
-  query AppKeyScopes($appRef: ID!) {
-    appKeys(appRef: $appRef) {
-      id
-      scopes { scope hostId grantedAt }
+  query AppKeyScopes($appRef: ID!, $limit: Int, $offset: Int) {
+    appKeysPage(appRef: $appRef, limit: $limit, offset: $offset) {
+      items {
+        id
+        scopes { scope hostId grantedAt }
+      }
+      total
+      hasMore
     }
   }
 `;
@@ -262,8 +267,14 @@ export type KeyScopesRead = { kind: 'ok'; byKey: Record<string, KeyScope[]> } | 
 
 export async function loadAppKeyScopes(client: GraphQLClient, appRef: string): Promise<KeyScopesRead> {
   try {
-    const r = await client.request<{ appKeys: { id: string; scopes: KeyScope[] }[] }>(APP_KEY_SCOPES_QUERY, { appRef });
-    return { kind: 'ok', byKey: Object.fromEntries(r.appKeys.map((k) => [k.id, k.scopes])) };
+    // Its own request, followed to the end like the key list (portal#1615);
+    // the two lists are joined by key id, never by position.
+    const keys = await readAllPages((limit, offset) =>
+      client
+        .request<{ appKeysPage: PageEnvelope<{ id: string; scopes: KeyScope[] }> }>(APP_KEY_SCOPES_QUERY, { appRef, limit, offset })
+        .then((r) => r.appKeysPage),
+    );
+    return { kind: 'ok', byKey: Object.fromEntries(keys.map((k) => [k.id, k.scopes])) };
   } catch (e) {
     const code = extractGqlErrorCode(e);
     if (code === 'FORBIDDEN') return { kind: 'hidden' };

@@ -3,6 +3,7 @@
   import TaskHandle from './TaskHandle.svelte';
   import { untrack } from 'svelte';
   import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -74,10 +75,14 @@
     });
     return () => { generation++; };
   });
+
+  // Escape: consumed at this dialog's own layer — the shared helper owns the
+  // layering contract and the guards (src/lib/a11y/dialog-escape.ts).
+  const escapeFallback = { close: () => { open = false; } };
 </script>
 {#if open}
   <div class="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-3 pt-[8vh]">
-    <div role="dialog" aria-modal="true" aria-label={t('app.tasks.choose', 'Choose a task')} tabindex="-1" use:focusTrap onkeydown={(event) => { if (event.key === 'Escape') open = false; }} class="max-h-[84vh] w-full max-w-3xl space-y-3 overflow-auto rounded-xl border border-zinc-300 bg-white p-4 text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
+    <div role="dialog" aria-modal="true" aria-label={t('app.tasks.choose', 'Choose a task')} tabindex="-1" use:focusTrap use:dialogEscapeFallback={escapeFallback} onkeydown={(event) => consumeEscapeAtDialog(event, escapeFallback)} class="max-h-[84vh] w-full max-w-3xl space-y-3 overflow-auto rounded-xl border border-zinc-300 bg-white p-4 text-zinc-900 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
       <div class="flex justify-between gap-3"><h2 class="font-semibold">{t('app.tasks.choose', 'Choose a task')}</h2><button type="button" onclick={() => open = false}>{t('app.tasks.close', 'Close')}</button></div>
       <p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.picker.loaded-only', 'Search filters loaded pages only. Load more tasks, or look up an exact handle or id.')}</p>
       <div class="flex flex-wrap gap-2">

@@ -841,7 +841,7 @@ describe('Worker agents tab (#1009)', () => {
       expect(col[0]).toContain('Locked: Model at capacity');
       expect(col[1]).toContain('Idle');
       expect(col[2]).toContain('Busy');
-      expect(col[3]).toContain('Dark: Missed its tick');
+      expect(col[3]).toContain('Dark: Missed its wake-up');
       for (const c of col) expect(c).toMatch(/checked .*ago/);
       // The session Status cell is untouched by the terminal.
       expect(colTexts(target, 'Status')).toEqual(Array(4).fill('No recorded activity'));
@@ -897,6 +897,171 @@ describe('Worker agents tab (#1009)', () => {
       expect(col[1]).toContain('checked: time unknown');
     });
 
+    // portal#1495 P1 — everything the cell renders must be searchable
+    // (hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable):
+    // the compact cell renders the summary pill AND the checked age; only the
+    // summary was in the accessor, so a reader looking at "checked 5 min. ago"
+    // could not find that row by typing what they saw.
+    it('the checked age the cell renders is reachable through the real grid filter (portal#1495)', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo')],
+        ok({ w1: entry({ terminal: term() }), w2: entry({ terminal: term({ status: 'idle', reason: null, checkedAt: null }) }) }),
+      );
+      expect(colTexts(target, 'Terminal')[0]).toContain('checked 5 min. ago');
+      expect(await search(target, 'checked 5 min')).toEqual(['Ada']);
+      expect(await search(target, 'time unknown')).toEqual(['Bo']);
+    });
+
+    it('age text never matches a row that renders none of it (portal#1495 non-disclosure)', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo'), w('w3', 'Cy'), w('w4', 'Dee', { hasLiveSession: null })],
+        ok({
+          w1: entry({ terminal: term() }),
+          w2: entry({ terminal: null }),
+          // SECURITY P3-1 (#1618, Rook): w4 HAS a terminal object, but the
+          // reader lacks internals — no badge, no age. Without this row the
+          // non-disclosure pin survives a mutant that reads checkedAt straight
+          // off the roster entry, bypassing the internals gate.
+          w4: entry({ terminal: term() }),
+        }),
+      );
+      // w2 is Not reported (no age line); w3 has no roster entry (no badge at
+      // all); w4's terminal is masked by the internals gate.
+      expect(await search(target, 'checked')).toEqual(['Ada']);
+      expect(await search(target, 'min. ago')).toEqual(['Ada']);
+      expect(await search(target, 'Not reported')).toEqual(['Bo']);
+    });
+
+    // portal#1495 P3 — the loader's clock is a seed, not a freeze: on an open
+    // page the ages advance, the display and the grid filter read the SAME
+    // clock, and no request is made to refresh anything.
+    it('the age the cell shows and the filter matches advances on an open page (portal#1495)', async () => {
+      vi.useFakeTimers();
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
+      expect(colTexts(target, 'Terminal')[0]).toContain('checked 5 min. ago');
+      await vi.advanceTimersByTimeAsync(60_000);
+      await tick(2);
+      expect(colTexts(target, 'Terminal')[0]).toContain('checked 6 min. ago');
+      expect(await search(target, 'checked 6 min')).toEqual(['Ada']);
+      expect(await search(target, 'checked 5 min')).toEqual([]);
+    });
+
+    // The teardown half of P3: leaving the page stops the clock. The DOM is
+    // detached but live in jsdom, so a leaked interval would keep writing to it.
+    it('unmounting the page stops the clock: nothing advances after teardown (portal#1495)', async () => {
+      vi.useFakeTimers();
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
+      const ths = [...target.querySelectorAll('thead th')];
+      const idx = ths.findIndex((th) => th.textContent?.trim().startsWith('Terminal'));
+      const cell = target.querySelector('tbody tr')!.children[idx] as HTMLElement;
+      expect(cell.textContent).toContain('checked 5 min. ago');
+      mounted.pop()!.unmount();
+      await vi.advanceTimersByTimeAsync(300_000);
+      await tick(2);
+      expect(cell.textContent).toContain('checked 5 min. ago');
+    });
+
+    // portal#1495 BLIND P3 (George) — the detached-DOM assertion above cannot
+    // detect a leaked interval: Svelte disposes the effects after unmount, so
+    // the DOM stays frozen even while the interval keeps ticking the clock
+    // state. The fake-timer count is the honest witness — the page schedules
+    // exactly one interval (its display clock) and must clear it on unmount,
+    // returning to the pre-mount baseline.
+    it('unmounting the page clears the clock interval itself, not just its DOM writes (portal#1495 BLIND)', async () => {
+      vi.useFakeTimers();
+      const baseline = vi.getTimerCount();
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
+      expect(colTexts(target, 'Terminal')[0]).toContain('checked 5 min. ago');
+      expect(vi.getTimerCount()).toBe(baseline + 1); // the one clock interval
+      mounted.pop()!.unmount();
+      await tick(2);
+      expect(vi.getTimerCount()).toBe(baseline);
+    });
+
+    // portal#1618 LOCAL P2 (Gemma, on the fold head) — the per-tick row
+    // re-bake that makes a tick re-filter (BLIND P2 above) hands the table a
+    // fresh data-array reference every 30 s, and TanStack's default
+    // autoResetPageIndex read exactly that as "data changed": a >20-worker
+    // staff grid bounced to page 1 under a reader who had paged, every tick,
+    // silently. The page keeps its page across a tick; a NEW search still
+    // starts from page 1 (the page owns that reset once the default is off).
+    it('a >20-worker grid keeps its page across a tick, and a new search restarts from page 1 (portal#1618 LOCAL P2)', async () => {
+      vi.useFakeTimers();
+      const staff = Array.from({ length: 21 }, (_, i) => w(`p${i + 1}`, `Pager${i + 1}`));
+      const roster = ok(Object.fromEntries(staff.map((s) => [s.id, entry({ terminal: term() })])));
+      const target = await mountTerminal(staff, roster);
+      const pageOf = () => target.querySelector('[data-testid="table-footer"] span')!.textContent!;
+      const next = [...target.querySelectorAll<HTMLButtonElement>('[data-testid="table-footer"] button')]
+        .find((b) => b.textContent?.trim() === 'Next')!;
+      next.click();
+      flushSync();
+      expect(pageOf()).toBe('Page 2 of 2'); // paged past 20 rows
+      await vi.advanceTimersByTimeAsync(60_000);
+      await tick(3);
+      expect(pageOf()).toBe('Page 2 of 2'); // a tick must not steal the page
+      await search(target, 'Pager'); // still matches every row, so still 2 pages
+      await tick(3);
+      expect(pageOf()).toBe('Page 1 of 2'); // a new search restarts at page 1
+    });
+
+    // The clamp half of the same fix: with autoResetPageIndex off, nothing
+    // resets the page when the DATA shrinks either (the default used to). A
+    // reload that drops the roster below the page the reader sits on must
+    // land them on the new last page with rows in front of them — not strand
+    // them on an empty page 2 with an unreachable footer.
+    it('a shrunken roster never strands the reader past the last page (portal#1618 LOCAL P2)', async () => {
+      vi.useFakeTimers();
+      const staff = Array.from({ length: 21 }, (_, i) => w(`p${i + 1}`, `Pager${i + 1}`));
+      setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+      window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+      const props = reactiveProps({ data: { ...(await pageData()), user: { id: 'u1' }, initialTab: 'staff', staff, teamRoster: ok({}), terminalNow: PAGE_NOW }, form: null });
+      const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      const next = [...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="table-footer"] button')]
+        .find((b) => b.textContent?.trim() === 'Next')!;
+      next.click();
+      flushSync();
+      const names = () => [...m.target.querySelectorAll<HTMLAnchorElement>('tbody a[href^="/app/workers/"]')].map((a) => a.textContent!.trim());
+      expect(names().length).toBe(1); // page 2 of 2 holds the 21st worker
+      props.data = { ...props.data, staff: staff.slice(0, 5) }; await tick(3); // a reload with 5 workers
+      expect(names()).toEqual(staff.slice(0, 5).map((s) => s.name)); // rows in front of the reader, not an empty page
+    });
+
+    // portal#1495 BLIND P2 (George) — a search left ACTIVE across a tick must
+    // re-filter with the advanced clock. The earlier advancing test re-typed
+    // the search after the tick, which set new filter state and forced the
+    // recompute; a reader who leaves one search open sees the memoized model
+    // unless the clock's read inside the filter tracks through the table's
+    // row-model atoms. Ada is 5 min at load (11:55), Bo 4 min (11:56); after
+    // 60 s Ada is 6 min and Bo 5 min — an untouched `checked 5 min` search
+    // must swap which row it shows.
+    it('a search left active across a tick follows the advanced clock (portal#1495 BLIND)', async () => {
+      vi.useFakeTimers();
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo')],
+        ok({
+          w1: entry({ terminal: term() }),
+          w2: entry({ terminal: term({ status: 'idle', reason: null, checkedAt: '2026-10-31T11:56:00.000Z' }) }),
+        }),
+      );
+      const visible = () =>
+        [...target.querySelectorAll<HTMLAnchorElement>('tbody a[href^="/app/workers/"]')].map((a) => a.textContent!.trim());
+      // Before any search: Ada renders 5 min, Bo 4 min.
+      const cells = colTexts(target, 'Terminal').join('|');
+      expect(cells).toContain('checked 5 min. ago');
+      expect(cells).toContain('checked 4 min. ago');
+      expect(await search(target, 'checked 5 min')).toEqual(['Ada']);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await tick(3);
+      // Both cells advanced (Ada→6, Bo→5) and the still-active search follows
+      // the clock without being re-typed: Ada (now 6 min) drops out, Bo enters.
+      const after = colTexts(target, 'Terminal').join('|');
+      expect(after).toContain('checked 5 min. ago');
+      expect(after).not.toContain('checked 6 min. ago');
+      expect(visible()).toEqual(['Bo']);
+    });
+
     it('an unknown state or reason shows fixed copy, never the raw code, in the page or the console', async () => {
       const spies = (['log', 'warn', 'error', 'info'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
       const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'quantum', reason: 'solar_flare' }) }) }));
@@ -913,7 +1078,19 @@ describe('Worker agents tab (#1009)', () => {
       const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
       const headers = () => [...target.querySelectorAll('thead th')].map((th) => th.textContent?.trim());
       expect(headers().some((h) => h?.startsWith('Terminal'))).toBe(true);
-      const box = [...target.querySelectorAll('label')].find((l) => l.textContent?.trim() === 'Terminal')?.querySelector('input');
+      // The Columns dropdown's content renders only while open (#1587: the
+      // open layer arms the shared Escape fallback on that same `{#if open}`
+      // block), so open it before querying its labels. jsdom toggles the
+      // `open` attribute but never fires the `toggle` event, so deliver the
+      // browser's half of the pair.
+      const details = target.querySelector('details')!;
+      details.querySelector('summary')!.click();
+      details.dispatchEvent(new Event('toggle'));
+      flushSync();
+      expect(details.open).toBe(true);
+      // portal#1495 (BLIND hygiene): startsWith, like the header match above —
+      // an icon or count on the label must not break the lookup.
+      const box = [...target.querySelectorAll('label')].find((l) => l.textContent?.trim().startsWith('Terminal'))?.querySelector('input');
       expect(box).toBeTruthy();
       box!.click();
       await tick(2);
@@ -1745,5 +1922,37 @@ describe('App memory scope inventory (#1043)', () => {
   });
   it('renders successful empty scope distinctly', async () => {
     const m=await showSettings([]);expect(m.target.textContent).toContain('No accessible memories');expect(m.target.textContent).not.toContain('OLD FIRST ONLY');
+  });
+});
+
+describe('App Settings: task integrations draft (LOCAL review of #1614, P2-2)', () => {
+  it('does not follow the person to another App: an open draft is dropped on an App change', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=settings', { appId: 'a1' });
+    const data = await pageData();
+    const props = reactiveProps({
+      data: {
+        ...data, user: { id: 'u1' }, initialTab: 'settings', staff: [],
+        appProperties: { kind: 'ok', revision: 1, properties: { taskIntegrations: [{ name: 'app-a-integration', provider: 'github', repositories: ['o/a'] }] } },
+      },
+      form: null,
+    });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    const edit = [...m.target.querySelectorAll<HTMLButtonElement>('[data-task-integrations] button')].find((b) => b.textContent?.trim() === 'Edit')!;
+    edit.click();
+    await tick(3);
+    expect(m.target.querySelector<HTMLInputElement>('[data-task-integrations] input[type="text"]')!.value).toBe('app-a-integration');
+
+    props.data = {
+      ...props.data,
+      app: { ...props.data.app, id: 'a2', urn: 'hrn:app:acme.com:other', name: 'Other App' },
+      appProperties: { kind: 'ok', revision: 7, properties: { taskIntegrations: [{ name: 'app-b-integration', provider: 'github', repositories: ['o/b'] }] } },
+    };
+    await tick(3);
+    const section = m.target.querySelector('[data-task-integrations]')!;
+    expect(section.querySelector('form')).toBeNull();
+    expect(section.textContent).toContain('app-b-integration');
+    expect(section.textContent).not.toContain('app-a-integration');
   });
 });

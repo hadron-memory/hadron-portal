@@ -6,6 +6,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { ActionData, PageData } from './$types';
   import { accountInviteSchema } from './schema';
+  import { describeInviteLimits } from '$lib/invite-limits';
 
   let { form, data }: { form: ActionData; data: PageData } = $props();
 
@@ -62,7 +63,7 @@
         <code class="flex-1 rounded bg-zinc-100 px-3 py-1.5 font-mono text-xs text-green-800 dark:bg-zinc-800 dark:text-green-200 select-all break-all">{form.inviteUrl}</code>
         <button onclick={() => navigator.clipboard?.writeText(form.inviteUrl)} class="shrink-0 rounded-md border border-green-300 px-2 py-1 text-xs text-green-700 hover:bg-green-100 dark:border-green-700 dark:text-green-300 dark:hover:bg-green-900">Copy</button>
       </div>
-      <p class="mt-2 text-xs text-green-700 dark:text-green-400">Valid for 30 days, single use.</p>
+      <p class="mt-2 text-xs text-green-700 dark:text-green-400">{describeInviteLimits(form)}</p>
     </div>
   {/if}
 

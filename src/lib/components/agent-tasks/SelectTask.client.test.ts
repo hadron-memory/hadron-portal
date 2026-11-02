@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
 import { mountComponent, tick } from '$lib/test/mountComponent';
+import EscapeHostHarness from '$lib/test/EscapeHostHarness.svelte';
 import SelectTask from './SelectTask.svelte';
 const mounted: { unmount: () => void }[] = [];
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); vi.unstubAllGlobals(); });
@@ -39,5 +41,95 @@ describe('SelectTask real mounted async picker', () => {
     const m = await mount(); button(m.target, 'Load more tasks').click(); await tick(5);
     expect(m.target.textContent).toContain('Some tasks may be missing');
     expect(button(m.target, 'Load more tasks')).toBeUndefined();
+  });
+});
+
+// #1584 fold — SelectTask is a Select-family picker (role=dialog, trap,
+// DataTable) and was the one left on a bare `if (Escape) open = false`:
+// a keystroke bubbled to window and closed the host layer too (TaskActionBar
+// listens there, TaskActionBar.svelte:233), and a focus dropped to <body>
+// left it keyboard-unclosable — the exact defect class the issue claims to
+// have closed everywhere. Same pins as the five movers.
+describe('SelectTask: Escape closes one layer only (#1584 fold)', () => {
+  const hostDialog = () => document.querySelector<HTMLElement>('[data-host-dialog]');
+  const overlay = () => document.querySelector<HTMLElement>('.fixed.inset-0');
+
+  function openInHost() {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answer([choice()])));
+    const m = mountComponent(EscapeHostHarness as never, { child: SelectTask, childProps: { appId: 'app', onselect: () => {}, open: true } } as never);
+    mounted.push(m);
+    return m;
+  }
+
+  it('one Escape inside the picker closes the picker, not the host dialog around it', async () => {
+    const above = vi.fn();
+    window.addEventListener('keydown', above); // registered before the picker opened
+    let host: ReturnType<typeof openInHost>;
+    try {
+      host = openInHost();
+      await tick(5);
+      expect(overlay()).not.toBeNull();
+      const input = overlay()!.querySelector('input');
+      input!.focus(); // a real press starts at a control in the picker
+      input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      flushSync();
+      expect(overlay()).toBeNull(); // exactly one layer closed: the picker's
+      expect(hostDialog()).not.toBeNull(); // the host keeps its layer
+      expect(above).not.toHaveBeenCalled(); // the earlier-registered listener never fired
+      expect((host.instance.hostEscapes as () => number)()).toBe(0); // the host's own window listener never fired
+      // The positive control at this same position: the host's listener is
+      // live — the NEXT press (nothing left to consume it) closes the host.
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      flushSync();
+      expect(hostDialog()).toBeNull();
+      expect((host.instance.hostEscapes as () => number)()).toBe(1);
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
+  });
+
+  it('Escape with focus outside the picker still closes it — the fallback, shielding the host', async () => {
+    const above = vi.fn();
+    window.addEventListener('keydown', above);
+    let host: ReturnType<typeof openInHost>;
+    try {
+      host = openInHost();
+      await tick(5);
+      (document.activeElement as HTMLElement | null)?.blur?.(); // focus never entered the picker
+      expect(document.activeElement).toBe(document.body);
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      flushSync();
+      expect(overlay()).toBeNull();
+      expect(hostDialog()).not.toBeNull();
+      expect(above).not.toHaveBeenCalled();
+      expect((host.instance.hostEscapes as () => number)()).toBe(0);
+    } finally {
+      window.removeEventListener('keydown', above);
+    }
+  });
+
+  it('an Escape someone else already consumed, and one during IME composition, close nothing', async () => {
+    // Mounted STANDALONE (no host harness): a legacy host's own window
+    // listener may rightly react to a key even we refused — the guards'
+    // contract is that the PICKER stays, and inside a host that closes
+    // itself the picker would unmount with it for an unrelated reason.
+    const consumer = (e: KeyboardEvent) => { if (e.key === 'Escape') e.preventDefault(); };
+    window.addEventListener('keydown', consumer, true); // BEFORE the picker mounts
+    try {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(answer([choice()])));
+      const m = mountComponent(SelectTask, { appId: 'app', open: true, onselect: () => {} });
+      mounted.push(m);
+      await tick(5);
+      const input = m.target.querySelector('input')!;
+      input.focus();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      flushSync();
+      expect(m.target.querySelector('.fixed.inset-0')).not.toBeNull(); // consumed by another layer: not ours
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }));
+      flushSync();
+      expect(m.target.querySelector('.fixed.inset-0')).not.toBeNull(); // cancelling a composition, not the dialog
+    } finally {
+      window.removeEventListener('keydown', consumer, true);
+    }
   });
 });

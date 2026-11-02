@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskHandBack from '$lib/components/agent-tasks/TaskHandBack.svelte';
   import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
   import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
@@ -7,6 +8,7 @@
   import PartyLabel from '$lib/components/agent-tasks/PartyLabel.svelte';
   import SubtaskTree from '$lib/components/agent-tasks/SubtaskTree.svelte';
   import TaskHistory from '$lib/components/agent-tasks/TaskHistory.svelte';
+  import TaskExternalId from '$lib/components/agent-tasks/TaskExternalId.svelte';
   import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
   import TaskReferences from '$lib/components/agent-tasks/TaskReferences.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
@@ -16,6 +18,7 @@
   import { fmtRunTime } from '$lib/flow/runs';
   import { t } from '$lib/i18n/t';
   import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
+  import { markStreamHandled } from '$lib/mark-stream-handled';
   import type { PageData } from './$types';
 
   /**
@@ -23,6 +26,16 @@
    * history. Read-only: nothing here writes.
    */
   let { data }: { data: PageData } = $props();
+
+  // portal#1588 QA F2: the streamed memories promise reaches a consumer only
+  // when the Edit-details panel opens (TaskActionBar -> TaskEditFields ->
+  // TaskReferencesEditor), so a rejected read sat unhandled until then — an
+  // uncaught page error on the failure path. Mark it handled here, at the
+  // page that owns the stream; the editor's {#await}/{:catch} still renders
+  // the failure copy from its own handler.
+  $effect(() => {
+    markStreamHandled(data.nodeMemories);
+  });
 
   const task = $derived(data.task);
   // portal#1349: AT0 is the server's fixed "No project" row — read-only here, whatever the viewer may do elsewhere.
@@ -122,7 +135,9 @@
           families={data.families}
           {openChildren}
           created={data.created}
+          viewerId={data.viewerId}
           appUrn={data.app.urn}
+          nodeMemories={data.nodeMemories}
         />
       {/if}
     </div>
@@ -173,6 +188,12 @@
       {#if task.source}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.source', 'Source')}</dt>
         <dd class="min-w-0" data-source-kind={sourceKind(task.source)}><TaskSource source={task.source} /></dd>
+      {/if}
+
+      <!-- portal#1607: the outside item the task claimed, under Source; nothing when null. -->
+      {#if task.externalId?.trim()}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.external-id', 'External ID')}</dt>
+        <dd class="min-w-0" data-external-id><TaskExternalId externalId={task.externalId} /></dd>
       {/if}
 
       <!-- portal#1575: the task's typed references, in order, under the source; nothing when there are none. -->
@@ -259,6 +280,8 @@
       </div>
     {/if}
   </section>
+
+  <TaskHandBack handBack={task.handBack} />
 
   <TaskProperties properties={task.properties} />
 

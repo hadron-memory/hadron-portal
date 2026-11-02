@@ -14,7 +14,8 @@ import {
   terminalSummary,
 } from './terminal';
 
-const sdl = readFileSync('schema/schema.graphql', 'utf8');
+// portal#1495 (BLIND hygiene): resolved from this file, not the launcher's CWD.
+const sdl = readFileSync(new URL('../../../schema/schema.graphql', import.meta.url), 'utf8');
 function enumValues(name: string): string[] {
   const body = sdl.match(new RegExp(`enum ${name} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
   return body
@@ -49,7 +50,8 @@ describe('labels', () => {
   it('keeps the agreed words for the common reasons', () => {
     expect(terminalReasonLabel('model_at_capacity')).toBe('Model at capacity');
     expect(terminalReasonLabel('menu_or_question')).toBe('Waiting at a menu or question');
-    expect(terminalReasonLabel('no_turn_for_due_ticker')).toBe('Missed its tick');
+    // portal#1495 (Uma, UX): "tick" was jargon; the wake-up is the reader-facing word.
+    expect(terminalReasonLabel('no_turn_for_due_ticker')).toBe('Missed its wake-up');
   });
 
   it('an unknown state or reason shows fixed copy and logs nothing', () => {
@@ -84,7 +86,7 @@ describe('terminalBadge', () => {
     ['idle', null, 'Idle'],
     ['busy', null, 'Busy'],
     ['locked', 'model_at_capacity', 'Locked: Model at capacity'],
-    ['dark', 'no_turn_for_due_ticker', 'Dark: Missed its tick'],
+    ['dark', 'no_turn_for_due_ticker', 'Dark: Missed its wake-up'],
   ])('%s with %s reads %s', (status, reason, summary) => {
     const b = terminalBadge({ status, reason, checkedAt: read.checkedAt }, true)!;
     expect(terminalSummary(b)).toBe(summary);
@@ -120,5 +122,30 @@ describe('age', () => {
     expect(terminalLastTurn('2026-10-31T13:00:00.000Z', NOW)).toBe('Last turn: not known');
     expect(terminalLastTurn('nope', NOW)).toBe('Last turn: not known');
     expect(terminalLastTurn('2026-10-31T11:00:00.000Z', NOW)).toMatch(/^Last turn: .*ago$/);
+  });
+
+  // portal#1495 P2 — a report a moment ahead of the page clock is skew, not a
+  // lie: the server accepts a checkedAt up to 120 s ahead when written, so a
+  // viewer whose clock trails by a second would otherwise read "time unknown"
+  // on the freshest report there is. Display grace: exactly 60 s, inclusive,
+  // clamped to the zero-age word. Never "in N sec.". Beyond it: unknown, and
+  // nothing about the stored report changes (issue gate 6568261816, Vera FIT
+  // 6568235885 — a client display policy, not server invalidity).
+  describe('a future instant within a 60-second grace reads as now (portal#1495)', () => {
+    const ahead = (ms: number) => new Date(NOW + ms).toISOString();
+    it('a checkedAt 1 s ahead reads "checked now", never future wording', () => {
+      expect(terminalCheckedAge(ahead(1_000), NOW)).toBe('checked now');
+    });
+    it('the grace is inclusive at exactly 60 s', () => {
+      expect(terminalCheckedAge(ahead(60_000), NOW)).toBe('checked now');
+    });
+    it('one millisecond past the grace is time unknown again', () => {
+      expect(terminalCheckedAge(ahead(60_001), NOW)).toBe('checked: time unknown');
+    });
+    it('a lastTurnAt gets the same inclusive grace: "Last turn: now" inside, "not known" beyond', () => {
+      expect(terminalLastTurn(ahead(1_000), NOW)).toBe('Last turn: now');
+      expect(terminalLastTurn(ahead(60_000), NOW)).toBe('Last turn: now');
+      expect(terminalLastTurn(ahead(60_001), NOW)).toBe('Last turn: not known');
+    });
   });
 });

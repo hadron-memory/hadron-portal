@@ -254,7 +254,7 @@
     {/if}
 
     {#if tickers.kind === 'ok'}
-      <section aria-labelledby="ticker-create-heading" class="space-y-2" data-testid="ticker-create">
+      <section aria-labelledby="ticker-create-heading" class="space-y-2" data-testid="ticker-create-section">
         <h2 id="ticker-create-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tickers.create.heading', 'New ticker')}</h2>
         <TickerForm appId={data.app.id} impersonating={data.impersonating} />
       </section>

@@ -15,6 +15,7 @@
   import { localDateTimeToIso } from '$lib/agent-tasks/start-by';
   import { MIN_TIERS, tierLabel } from '$lib/agent-tasks/tier';
   import { taskHref } from '$lib/agent-tasks/handle';
+  import { markStreamHandled } from '$lib/mark-stream-handled';
   import type { ActionData, PageData } from './$types';
 
   /**
@@ -29,6 +30,16 @@
    * create. The link uses the returned id, or the Tasks list without one.
    */
   let { data, form }: { data: PageData; form: ActionData } = $props();
+
+  // portal#1588 QA F2: the streamed memories promise can reject before (or
+  // regardless of) when the references editor's {#await} attaches, and a
+  // rejected promise with no handler at the checkpoint is an UNCAUGHT PAGE
+  // ERROR on the failure path (Celine: 4/4 runs, healthy path 0). Mark it
+  // handled here, at the page that owns the stream — the editor's
+  // {#await}/{:catch} still renders the failure copy from its own handler.
+  $effect(() => {
+    markStreamHandled(data.nodeMemories);
+  });
 
   const basePath = $derived(`/app/apps/${data.app.id}`);
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
@@ -319,8 +330,9 @@
         <p id="new-source-help" class={helpClass}>{t('app.tasks.new.source.help', 'A link, a URN or a note on where this came from.')}</p>
       </div>
 
-      <!-- portal#1575: typed references; a refused submit hands the list back, so nothing added is lost. -->
-      <TaskReferencesEditor app={{ id: data.app.id, urn: data.app.urn ?? null }} initial={readReferences(v('references')) ?? []} idPrefix="new" invalid={fieldRefusal('references')} />
+      <!-- portal#1575: typed references; a refused submit hands the list back, so nothing added is lost.
+           #1576 step 2: NODE is picked with SelectNode over the streamed readable memories. -->
+      <TaskReferencesEditor app={{ id: data.app.id, urn: data.app.urn ?? null }} nodeMemories={data.nodeMemories} initial={readReferences(v('references')) ?? []} idPrefix="new" invalid={fieldRefusal('references')} />
 
       <div class="space-y-1">
         <label for="new-tags" class={labelClass}>{t('app.tasks.new.tags', 'Tags')}</label>

@@ -24,6 +24,7 @@ export const WRITE_REFUSAL_CODES = new Set([
   'TASK_NOT_FOUND',
   'TASK_BLOCKER_CYCLE',
   'TASK_NOT_OWNER',
+  'TASK_NOT_ASSIGNEE',
   'TASK_ENDED',
   'TASK_INVALID_TRANSITION',
   'TASK_ASSIGNEE_INVALID',
@@ -55,6 +56,7 @@ export function writeRefusalStatus(r: WriteRefusal): number {
   if (r.kind === 'invalid') return 400;
   switch (r.code) {
     case 'TASK_NOT_OWNER':
+    case 'TASK_NOT_ASSIGNEE':
     case 'FORBIDDEN':
     case 'SUBSCRIBE_FORBIDDEN':
       return 403;

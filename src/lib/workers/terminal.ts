@@ -50,7 +50,9 @@ export function terminalReasonLabel(reason: string): string {
     case 'menu_or_question': return t('worker.terminal.reason.menu-or-question', 'Waiting at a menu or question');
     case 'shed_staged_not_relaunched': return t('worker.terminal.reason.shed-staged-not-relaunched', 'Context reset prepared, not restarted');
     case 'unrecognized': return t('worker.terminal.reason.unrecognized', 'Screen not recognized');
-    case 'no_turn_for_due_ticker': return t('worker.terminal.reason.no-turn-for-due-ticker', 'Missed its tick');
+    // portal#1495 (Uma, UX): "tick" is our jargon; the reader-facing word for a
+    // scheduled wake-up that did not happen is the wake-up itself.
+    case 'no_turn_for_due_ticker': return t('worker.terminal.reason.no-turn-for-due-ticker', 'Missed its wake-up');
     case 'no_terminal': return t('worker.terminal.reason.no-terminal', 'No terminal found');
     case 'bare_shell': return t('worker.terminal.reason.bare-shell', 'Agent not running (plain shell)');
     case 'no_agent': return t('worker.terminal.reason.no-agent', 'No agent in the terminal');
@@ -94,23 +96,40 @@ export function terminalSummary(badge: TerminalBadge): string {
   return badge.reason ? t('worker.terminal.summary', '{state}: {reason}', { state: badge.label, reason: badge.reason }) : badge.label;
 }
 
-/** Parsed instant, or null when missing, unparsable or after the page clock. */
+/**
+ * portal#1495 P2 — a report a moment ahead of the page clock is skew, not a
+ * lie: the server accepts a `checkedAt` up to 120 s ahead when it is written
+ * (hadron-server `WorkerTerminalReportInput`), so a viewer whose clock trails
+ * by a second would otherwise read "time unknown" on the freshest report
+ * there is. Display grace: exactly 60 s, inclusive — a finite client display
+ * policy, never a judgement about the stored report (Vera, FIT 6568235885).
+ */
+const FUTURE_GRACE_MS = 60_000;
+
+/** Parsed instant, or null when missing, unparsable, or past the 60 s display grace. */
 function pastInstant(iso: string | null | undefined, now: number): number | null {
   if (!iso) return null;
   const at = Date.parse(iso);
-  return Number.isNaN(at) || at > now ? null : at;
+  return Number.isNaN(at) || at > now + FUTURE_GRACE_MS ? null : at;
 }
 
-/** "checked 5 min. ago"; a future, missing or unparsable time is "time unknown". */
+/** The instant clamped to `now`: an in-grace future reads as the zero age, never "in N sec.". */
+function clampedIso(at: number, now: number): string {
+  return new Date(Math.min(at, now)).toISOString();
+}
+
+/** "checked 5 min. ago"; beyond the grace, a missing or unparsable time is "time unknown". */
 export function terminalCheckedAge(checkedAt: string | null | undefined, now: number): string {
-  if (pastInstant(checkedAt, now) === null) return t('worker.terminal.checked-unknown', 'checked: time unknown');
-  return t('worker.terminal.checked', 'checked {age}', { age: relativeTime(checkedAt, now) });
+  const at = pastInstant(checkedAt, now);
+  if (at === null) return t('worker.terminal.checked-unknown', 'checked: time unknown');
+  return t('worker.terminal.checked', 'checked {age}', { age: relativeTime(clampedIso(at, now), now) });
 }
 
 /** "Last turn: 2 hr. ago"; null (or a time that cannot be right) is "not known". */
 export function terminalLastTurn(lastTurnAt: string | null | undefined, now: number): string {
-  if (pastInstant(lastTurnAt, now) === null) return t('worker.terminal.last-turn-unknown', 'Last turn: not known');
-  return t('worker.terminal.last-turn', 'Last turn: {age}', { age: relativeTime(lastTurnAt, now) });
+  const at = pastInstant(lastTurnAt, now);
+  if (at === null) return t('worker.terminal.last-turn-unknown', 'Last turn: not known');
+  return t('worker.terminal.last-turn', 'Last turn: {age}', { age: relativeTime(clampedIso(at, now), now) });
 }
 
 /** The page clock the loader returned, as ms; falls back to the instant of the call. */

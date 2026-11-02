@@ -1941,7 +1941,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
 // App Keys
 // ---------------------------------------------------------------------------
 
-// An argument and its $variable share a name — `appKeys(appRef: $appRef)`.
+// An argument and its $variable share a name — `appKeysPage(appRef: $appRef)`.
 // `pnpm gql:validate` checks that, and cross-checks the keys every caller
 // passes, so a mismatch is a build error rather than a convention to remember.
 /**
@@ -1956,10 +1956,34 @@ export const APP_VIEWER_MANAGES_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1607 — the App's properties (hrn:node:hadronmemory.com:specs:cor:dmo:050:20), in their OWN request so a
+ * server without the fields, or a refusal, cannot take the App page with it.
+ * `propertiesRevision` is null only for a caller who may not read properties;
+ * `properties` is also null for an App that has none yet, so only the revision
+ * tells the two apart.
+ */
+export const APP_PROPERTIES_QUERY = /* GraphQL */ `
+  query AppProperties($ref: ID!) {
+    app(ref: $ref) { id properties propertiesRevision }
+  }
+`;
+
+export const SET_APP_PROPERTIES_MUTATION = /* GraphQL */ `
+  mutation SetAppProperties($appRef: String!, $expectedRevision: Int, $properties: JSON) {
+    setAppProperties(appRef: $appRef, expectedRevision: $expectedRevision, properties: $properties) {
+      id
+      propertiesRevision
+    }
+  }
+`;
+
 export const APP_KEYS_QUERY = /* GraphQL */ `
-  query AppKeys($appRef: ID!) {
-    appKeys(appRef: $appRef) {
-      id label keyPreview lastUsedAt createdAt revokedAt
+  query AppKeys($appRef: ID!, $limit: Int, $offset: Int) {
+    appKeysPage(appRef: $appRef, limit: $limit, offset: $offset) {
+      items { id label keyPreview lastUsedAt createdAt revokedAt }
+      total
+      hasMore
     }
   }
 `;
@@ -4242,16 +4266,20 @@ export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
 // ---------------------------------------------------------------------------
 
 export const MY_USER_API_KEYS_QUERY = /* GraphQL */ `
-  query MyUserApiKeys($includeHidden: Boolean = false) {
-    myUserApiKeys(includeHidden: $includeHidden) {
-      id
-      keyPreview
-      label
-      createdAt
-      lastUsedAt
-      revokedAt
-      hiddenAt
-      issuedVia
+  query MyUserApiKeys($includeHidden: Boolean = false, $limit: Int, $offset: Int) {
+    myUserApiKeysPage(includeHidden: $includeHidden, limit: $limit, offset: $offset) {
+      items {
+        id
+        keyPreview
+        label
+        createdAt
+        lastUsedAt
+        revokedAt
+        hiddenAt
+        issuedVia
+      }
+      total
+      hasMore
     }
   }
 `;
@@ -4986,7 +5014,10 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       closeSessionWhenDone
       result { outcome summary evidence }
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
+      handBack { code text handedBackAt }
       properties
+      # portal#1607 (hadron-server#3137): the outside item this task claimed; needs a server serving 986a7cbd or later.
+      externalId
       # portal#1575 (hadron-server#3112): needs a server serving 1475888f or later. One without the field
       # rejects this whole read, so the portal deploys only after production serves it (#1575's Order).
       references { kind target label }
@@ -5181,6 +5212,13 @@ export const MAKE_AGENT_TASK_READY_MUTATION = /* GraphQL */ `
 export const PARK_AGENT_TASK_MUTATION = /* GraphQL */ `
   mutation ParkAgentTask($taskId: ID!) {
     parkAgentTask(taskId: $taskId) { id }
+  }
+`;
+
+/** portal#1571 (hadron-server#2651): the assignee of a started task hands it back; the reason is required. */
+export const HAND_BACK_AGENT_TASK_MUTATION = /* GraphQL */ `
+  mutation HandBackAgentTask($taskRef: ID!, $reason: AgentTaskHandBackInput!) {
+    handBackAgentTask(taskRef: $taskRef, reason: $reason) { id }
   }
 `;
 

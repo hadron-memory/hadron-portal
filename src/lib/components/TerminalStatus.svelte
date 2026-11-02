@@ -26,18 +26,21 @@
 {#if badge}
   {#if compact}
     <span class="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
-      <span class="rounded-full px-2 py-0.5 text-xs font-medium {tone}">{terminalSummary(badge)}</span>
+      <!-- portal#1495 (Uma, UX): the longest "State: Reason" pill used to wrap into a
+           two-line capsule in the 220px column; one line, ellipsis, full text on hover. -->
+      <span class="max-w-full truncate rounded-full px-2 py-0.5 text-xs font-medium {tone}" title={terminalSummary(badge)}>{terminalSummary(badge)}</span>
       {#if badge.state !== 'not-reported'}
-        <span class="text-xs text-zinc-500">{terminalCheckedAge(badge.checkedAt, now)}</span>
+        <span class="text-xs text-zinc-500 dark:text-zinc-400">{terminalCheckedAge(badge.checkedAt, now)}</span>
       {/if}
     </span>
   {:else}
     <div class="space-y-1">
-      <span class="inline-block rounded-full px-2 py-0.5 text-xs font-medium {tone}">{badge.label}</span>
+      <span class="inline-block max-w-full truncate rounded-full px-2 py-0.5 text-xs font-medium {tone}" title={badge.label}>{badge.label}</span>
       {#if badge.reason}<div class="text-sm text-zinc-900 dark:text-white">{badge.reason}</div>{/if}
       {#if badge.state !== 'not-reported'}
-        <div class="text-xs text-zinc-500">{terminalLastTurn(badge.lastTurnAt, now)}</div>
-        <div class="text-xs text-zinc-500">{terminalCheckedAge(badge.checkedAt, now)}</div>
+        <!-- portal#1495 (Uma, UX): zinc-500 on the dark panels measured ~4:1; zinc-400 clears 7:1. -->
+        <div class="text-xs text-zinc-500 dark:text-zinc-400">{terminalLastTurn(badge.lastTurnAt, now)}</div>
+        <div class="text-xs text-zinc-500 dark:text-zinc-400">{terminalCheckedAge(badge.checkedAt, now)}</div>
       {/if}
     </div>
   {/if}

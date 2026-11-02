@@ -4,9 +4,9 @@
  *
  * Add (choose a kind, enter or pick the target, optional label), remove and
  * reorder; the form posts the whole ordered list beside the list it opened
- * with. NODE is a URN text field with a shape check and the chip below it
- * (Patrick's ruling); TASK is picked, never typed, including an ended task.
- * A refusal keeps the draft list.
+ * with. NODE is picked with SelectNode (#1576 step 2) — never typed; the
+ * target is the picker's SERVER-supplied URN. TASK is picked, never typed,
+ * including an ended task. A refusal keeps the draft list.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
@@ -36,10 +36,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function openEdit(references: unknown[] = []) {
+async function openEdit(references: unknown[] = [], nodeMemories: unknown = { kind: 'ok', value: [{ id: 'm1', name: 'Team KB', urn: 'hrn:mem:acme.com:team', visibility: null }] }) {
   const p = reactiveProps<Record<string, unknown>>({
     task: task(references), canWrite: true, impersonating: null, candidates: { workers: [], people: [] },
     roles: [], families: [], openChildren: { count: 0, capped: false }, appUrn: 'hrn:app:acme.com:team',
+    // portal#1576: the NODE picker's memory stage (the page streams this).
+    nodeMemories,
   });
   const m = mountComponent(TaskActionBar as never, p as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
@@ -47,6 +49,42 @@ async function openEdit(references: unknown[] = []) {
   [...m.target.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === 'Edit details')!.click();
   await tick(2);
   return m.target.querySelector<HTMLFormElement>('#task-panel-edit')!;
+}
+
+/**
+ * The node picker's endpoint page, URL-routed like the component's own test.
+ * `nextOffset` is explicit at every call site (#1582 BLIND delta P3): it is
+ * the server's RAW-count word on where the next page starts — offset +
+ * raw window length — and a silent `items.length` default is only that for
+ * an unfiltered first page from offset 0.
+ */
+const nodePage = (items: Array<{ id: string; name: string; loc: string; urn: string }>, hasMore: boolean, nextOffset: number) =>
+  ({ ok: true, json: async () => ({ kind: 'ok', value: { items, hasMore, nextOffset } }) });
+const nodesUrl = (query: string, offset: number) => `/app/memories/m1/nodes/choices?query=${query}&offset=${offset}`;
+
+/** Open the NODE picker, choose its one memory, search, and Select the first row. */
+async function pickNode(form: HTMLFormElement, choice: { id: string; name: string; loc: string; urn: string }, query = 'finding') {
+  const fetch = vi.fn().mockResolvedValue(nodePage([choice], false, 1));
+  vi.stubGlobal('fetch', fetch);
+  await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'NODE');
+  buttonText(form, 'Choose a node…')!.click();
+  await tick(4);
+  // The memory stage: SelectNode reuses SelectMemory over the caller's set.
+  buttonText(document.body, 'Select')!.click();
+  await tick(4);
+  // The search box is named by its visible wrapping label ("Search nodes"),
+  // not an aria-label of its own (#1582 BLIND delta P3,
+  // hrn:node:hadronmemory.com:hadron-portal:review:visible-label-is-the-accessible-name)
+  // — find it through the label.
+  const search = ([...document.body.querySelectorAll('label')].find((l) => l.textContent?.includes('Search nodes'))!).querySelector<HTMLInputElement>('input')!;
+  search.value = query;
+  search.dispatchEvent(new Event('input', { bubbles: true }));
+  await tick(2);
+  buttonText(document.body, 'Find')!.click();
+  await tick(6);
+  buttonText(document.body, 'Select')!.click();
+  await tick(2);
+  return fetch;
 }
 
 const posted = (form: HTMLFormElement) => JSON.parse(form.querySelector<HTMLInputElement>('input[name="references"]')!.value);
@@ -126,8 +164,7 @@ describe('Edit details: references (acceptance 6, the form side)', () => {
     const form = await openEdit([issue]);
     byLabel(form, 'Remove reference 1')!.click();
     await tick(2);
-    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'NODE');
-    await type(form.querySelector<HTMLInputElement>('#edit-ref-target')!, 'hrn:node:acme.com:team:y');
+    await pickNode(form, { id: 'n1', name: 'Findings index', loc: 'findings:index', urn: 'hrn:node:acme.com:team:y' });
     buttonText(form, 'Add reference')!.click();
     await tick(2);
     const message = 'references[0].target: no such node';
@@ -139,30 +176,76 @@ describe('Edit details: references (acceptance 6, the form side)', () => {
   });
 });
 
-describe('the NODE field (acceptance 5)', () => {
-  it('refuses a value that isn’t hrn:node:… before submit', async () => {
+describe('the NODE pick (acceptance 5, #1576 step 2)', () => {
+  // The server urn deliberately differs from any memory-urn + loc concatenation.
+  const choice = { id: 'n1', name: 'Findings index', loc: 'findings:index', urn: 'hrn:node:acme.com:team:special-alias' };
+
+  it('is picked, never typed: no NODE text field, and the SERVER urn is the target', async () => {
     const form = await openEdit([]);
-    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'NODE');
-    const field = form.querySelector<HTMLInputElement>('#edit-ref-target')!;
-    await type(field, 'hrn:mem:acme.com:team');
-    expect(field.getAttribute('aria-invalid')).toBe('true');
-    expect(form.querySelector('#edit-ref-target-error')!.textContent).toContain('hrn:node:');
-    expect(buttonText(form, 'Add reference')!.disabled).toBe(true);
-    // The browser refuses to submit the form with it in place.
-    expect(form.checkValidity()).toBe(false);
-    expect(form.querySelector('[data-testid="edit-ref-node-chip"]')).toBeNull();
+    const fetch = await pickNode(form, choice);
+    // The read went out with the viewer's session (the endpoint), one memory.
+    expect(fetch).toHaveBeenCalledWith(nodesUrl('finding', 0));
+    expect(form.querySelector('#edit-ref-target')).toBeNull();
+    expect(form.textContent).toContain('Findings index');
+    expect(form.textContent).toContain('findings:index');
+    buttonText(form, 'Add reference')!.click();
+    await tick(2);
+    expect(posted(form)).toEqual([{ kind: 'NODE', target: 'hrn:node:acme.com:team:special-alias', label: null }]);
   });
 
-  it('shows the Urn chip under a valid value, and says where to get a URN', async () => {
+  it('a picked but un-added node blocks submit, so it is never silently dropped', async () => {
     const form = await openEdit([]);
+    await pickNode(form, choice);
+    expect(form.checkValidity()).toBe(false);
+    expect(form.querySelector<HTMLInputElement>('#edit-ref-label')!.validationMessage).toBe('Add this reference, or clear the selection.');
+    buttonText(form, 'Add reference')!.click();
+    await tick(2);
+    expect(form.checkValidity()).toBe(true);
+    expect(posted(form)).toEqual([{ kind: 'NODE', target: 'hrn:node:acme.com:team:special-alias', label: null }]);
+  });
+
+  it('Clear drops the pick and unblocks submit, posting nothing for it', async () => {
+    const form = await openEdit([]);
+    await pickNode(form, choice);
+    byLabel(form, 'Clear the selected node')!.click();
+    await tick(2);
+    expect(form.textContent).not.toContain('Findings index');
+    expect(buttonText(form, 'Add reference')!.disabled).toBe(true);
+    expect(form.checkValidity()).toBe(true);
+    expect(posted(form)).toEqual([]);
+  });
+
+  // BLIND P3 (#1582 at d9d2c8c5): the streamed memory list rejecting left the
+  // {#await} with no catch arm, so "Choose a node…" silently did nothing.
+  // AMENDED for #1585: the degraded mount STAYS (the picker opens on a
+  // rejected stream), but the memory stage now says the memories failed
+  // instead of posing as an empty readable set — the old pin asserted the
+  // empty stage's "Pick which memory to search in first." verbatim.
+  it('a rejected memory stream still opens the picker, with the stage saying the memories failed', async () => {
+    // The no-op catch marks the rejection OBSERVED for the runner; the
+    // component still sees a rejected promise, which is the defect's input.
+    const rejected = Promise.reject(new Error('memories read failed'));
+    rejected.catch(() => {});
+    const form = await openEdit([], rejected);
     await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'NODE');
-    const field = form.querySelector<HTMLInputElement>('#edit-ref-target')!;
-    await type(field, 'hrn:node:acme.com:team:x');
-    expect(field.getAttribute('aria-invalid')).toBeNull();
-    const chip = form.querySelector('[data-testid="edit-ref-node-chip"]')!;
-    expect(chip.querySelector('a')!.getAttribute('href')).toBe('/app/u/hrn:node:acme.com:team:x');
-    expect(form.querySelector('#edit-ref-target-help')!.textContent).toMatch(/URN chip/);
-    expect(buttonText(form, 'Add reference')!.disabled).toBe(false);
+    buttonText(form, 'Choose a node…')!.click();
+    await tick(4);
+    const dialog = [...document.body.querySelectorAll('[role="dialog"]')].find(
+      (d) => d.getAttribute('aria-label') === 'Choose a node',
+    );
+    expect(dialog).toBeTruthy();
+    expect(dialog!.textContent).toContain("Your memories couldn’t be loaded, so you can’t pick a node right now. Reload the page to try again.");
+    expect(dialog!.textContent).not.toContain('Pick which memory to search in first.');
+  });
+
+  // BLIND P3 (#1582 at d9d2c8c5): Clear removed the focused button and left
+  // focus on <body>; keyboard users lost their place in the form.
+  it('Clear returns focus to the Choose node… trigger', async () => {
+    const form = await openEdit([]);
+    await pickNode(form, choice);
+    byLabel(form, 'Clear the selected node')!.click();
+    await tick(2);
+    expect(document.activeElement).toBe(buttonText(form, 'Choose a node…'));
   });
 
   it('a typed but un-added target blocks submit, so it is never silently dropped', async () => {
@@ -242,6 +325,14 @@ describe('the TASK pick (acceptance 3 in the form)', () => {
     await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'TASK');
     await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'URL');
     expect(form.querySelector<HTMLInputElement>('#edit-ref-target')!.value).toBe('');
+    expect(posted(form)).toEqual([]);
+    // A picked NODE is cleared the same way, in both directions.
+    await pickNode(form, { id: 'n1', name: 'Findings index', loc: 'findings:index', urn: 'hrn:node:acme.com:team:special-alias' });
+    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'URL');
+    expect(form.textContent).not.toContain('Findings index');
+    expect(form.checkValidity()).toBe(true);
+    await choose(form.querySelector<HTMLSelectElement>('#edit-ref-kind')!, 'NODE');
+    expect(buttonText(form, 'Add reference')!.disabled).toBe(true);
     expect(posted(form)).toEqual([]);
   });
 });

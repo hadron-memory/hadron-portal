@@ -43,6 +43,9 @@ export async function pageData(
     agentConfigs: [],
     configsError: false,
     currentUserId: 'user-1',
+    // portal#1609: the Ticker templates tab's read; a test of the tab supplies its own.
+    tickerTemplates: { kind: 'ok' as const, value: { viewerMayEdit: null, templates: [] } },
+    impersonating: null,
     form: await superValidate(
       { name: `Agent ${id}`, urnSlug: id, description: '', visibility: 'PERSONAL', systemMemoryId: '', personaRole: '' },
       zod4(agentSettingsSchema), { errors: false },

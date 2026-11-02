@@ -109,6 +109,8 @@ describe('terminal status (portal#1492)', () => {
     if (r.kind !== 'ok') throw new Error('expected ok');
     expect(r.byWorker.w1.terminal).toEqual(terminal);
     expect(r.byWorker.w2.terminal).toBeNull();
-    expect(r.byWorker.w3).toBeUndefined();
+    // portal#1495 (BLIND hygiene): the w3 assertion this replaced asserted
+    // nothing — w3 was never in the fixture. The "on the grid, no roster
+    // entry" case it gestured at is covered for real in page.client.test.ts.
   });
 });

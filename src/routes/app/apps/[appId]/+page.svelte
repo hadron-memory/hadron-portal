@@ -1,4 +1,5 @@
 <script lang="ts">
+  import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
   import WorkerDeleteDialog from './WorkerDeleteDialog.svelte';
@@ -105,7 +106,8 @@
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
-  import { pageClock, terminalBadge, terminalSummary } from '$lib/workers/terminal';
+  import { terminalBadge, terminalCheckedAge, terminalSummary } from '$lib/workers/terminal';
+  import { createDisplayClock } from '$lib/workers/display-clock.svelte';
   import { workerInternalsVisible } from '$lib/worker-profile';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -185,7 +187,20 @@
   // portal#1168: Task and Paused, one bulk read joined by worker id.
   const teamRoster = $derived(data.teamRoster);
   // portal#1492: the loader's one clock, so server render and hydration agree on every age.
-  const terminalNow = $derived(pageClock(data.terminalNow));
+  // portal#1495 P3: that instant seeds a display clock that advances every 30 s
+  // in the browser (server-relative offset, cleared on destroy, no requests) —
+  // ages on an open page stop going stale. One clock per page: the grid cells
+  // and the search filter below read this same `terminalNow`.
+  // The seed is read ONCE, deliberately: later ticks carry the offset, not the
+  // seed, and the offset (loader clock vs browser clock at first paint) is a
+  // property of the viewer, unchanged by later data for this same instance.
+  // svelte-ignore state_referenced_locally
+  const terminalClock = createDisplayClock(data.terminalNow);
+  $effect(() => {
+    terminalClock.start();
+    return terminalClock.stop;
+  });
+  const terminalNow = $derived(terminalClock.now);
   // #855: worker id → URN for the team chat's author chip. Null when the roster
   // failed to load, so the chat renders no chip rather than an empty one;
   // workers whose URN is null (pre-v2 App URN) are simply absent.
@@ -430,6 +445,23 @@
     const entry = rosterEntry(worker.id);
     return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker)) : null;
   }
+  // portal#1495 BLIND P2 (#1618, George) — the searchable age must reach the
+  // filter as DATA, not as a live clock read inside the filter callback.
+  // TanStack memoizes the filtered row model on data + filter state; values
+  // read inside `globalFilterFn` track nothing, so a search left active
+  // across a 30 s tick kept matching age text the rows no longer show (the
+  // CELL advanced — templates track — while the filtered model went stale).
+  // Baking the current age text into the rows turns a tick into a data
+  // change, the one invalidation path the table documents, and keeps the
+  // filter callback pure. The clone carries every original field, so the
+  // pill, status and actions render from it unchanged.
+  function terminalAgeSearchText(worker: Worker): string | null {
+    const b = terminalBadgeOf(worker);
+    return b && b.state !== 'not-reported' ? terminalCheckedAge(b.checkedAt, terminalNow) : null;
+  }
+  const staffRows = $derived(
+    sortedStaff.map((worker) => ({ ...worker, terminalAgeSearch: terminalAgeSearchText(worker) })),
+  );
   const TASK_STATUS = {
     STARTED: () => t('app.staff.task.started', 'Started'),
     PENDING: () => t('app.staff.task.pending', 'Pending'),
@@ -562,7 +594,7 @@
 
   const staffTable = createSvelteTable<Worker>({
     get data() {
-      return sortedStaff;
+      return staffRows;
     },
     columns: staffColumns,
     enableMultiSort: false,
@@ -581,8 +613,50 @@
     // share one filter, and the gate this sweep added is file-scoped precisely
     // so a page cannot end up half-converted — which is how the KEY grid above
     // sat broken while this one looked fine.
-    globalFilterFn: makeGlobalFilterFn<Worker>({}),
+    //
+    // portal#1495 P1 — one exception, closed: the Terminal ACCESSOR is the
+    // summary pill, but the CELL also renders the checked age beside it
+    // (everything-the-cell-renders-must-be-searchable). The age joins as extra
+    // searchable text — the field `staffRows` bakes per tick, never a live
+    // clock read here (BLIND P2, above). A row that renders no age — Not
+    // reported, a hidden or failed read, no roster entry, or a terminal a
+    // reader without internals cannot see — contributes nothing, so age text
+    // never discloses or matches a masked row.
+    globalFilterFn: makeGlobalFilterFn<Worker>(
+      {},
+      {
+        terminal: (row: Worker) => (row as (typeof staffRows)[number]).terminalAgeSearch,
+      },
+    ),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+    // portal#1618 LOCAL P2 (Gemma) — staffRows is a NEW array every 30 s tick
+    // by design: the bake above IS the BLIND P2 fix, a tick being the one
+    // data-change invalidation path the table documents. TanStack's default
+    // autoResetPageIndex reads every new data reference as "data changed" and
+    // resets the page, so a paged reader of a >20-worker grid was bounced to
+    // page 1 each tick. Off here as on the tasks grid: the PAGE owns the
+    // reset (the two effects right below) — a tick keeps the reader's page,
+    // a new search still starts from page 1, and a shrunken roster never
+    // strands them past the last page.
+    autoResetPageIndex: false,
+  });
+  // The search reset the default did before it went off: a NEW search
+  // restarts from page 1. Keyed on the filter text alone, and the reset
+  // writes table state untracked — subscribing to what it writes loops.
+  $effect(() => {
+    void staffFilter;
+    untrack(() => staffTable.resetPageIndex());
+  });
+  // With the default off, a SHRUNKEN roster (a retire, a removal, a reload
+  // with fewer workers) no longer resets the page either. Only the derived
+  // bound triggers this write; the index read stays untracked so paging
+  // cannot subscribe itself — the tasks-grid pattern.
+  const staffLastPage = $derived(Math.max(0, staffTable.getPageCount() - 1));
+  $effect(() => {
+    const last = staffLastPage;
+    untrack(() => {
+      if (staffTable.atoms.pagination.get().pageIndex > last) staffTable.setPageIndex(last);
+    });
   });
   // #1006: the Agents tab. The App's install ROSTER (`App.agents`), not
   // `App.agent` — that one is only the first installed agent
@@ -3099,6 +3173,17 @@
           </div>
         {/if}
       </section>
+
+      <!-- portal#1607: the App's task integrations. Keyed on propertiesRevision (null = no section)
+           and viewerManages (edit controls); unknown viewerManages keeps the controls, as the key controls do. -->
+      <!-- Keyed on the App: SvelteKit reuses this page between Apps, and an open draft must not follow the person to another App. -->
+      {#key app.id}
+        <TaskIntegrations
+          read={data.appProperties ?? { kind: 'hidden' }}
+          manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
+          workers={data.staff}
+        />
+      {/key}
 
       <!-- Scope stays visible as error/empty as well as a non-empty inventory. -->
       <section class="max-w-4xl">

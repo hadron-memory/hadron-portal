@@ -1,7 +1,8 @@
 import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
-import { CREATE_AGENT_TASK_MUTATION } from '$lib/server/queries';
+import { fetchAllItems } from '$lib/server/paginate';
+import { CREATE_AGENT_TASK_MUTATION, MEMORIES_QUERY } from '$lib/server/queries';
 import { loadTasksApp, loadWriteCandidates } from '$lib/server/agent-tasks';
 import {
   formValues,
@@ -14,6 +15,7 @@ import { t } from '$lib/i18n/t';
 import { parseHandle, taskHref } from '$lib/agent-tasks/handle';
 import { startByIso } from '$lib/agent-tasks/start-by';
 import { readReferences, referenceInput } from '$lib/agent-tasks/references';
+import type { MemoriesRead } from '$lib/node-choices';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -29,6 +31,30 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   if (!app) throw error(404, 'App not found');
   const canWrite = !locals.impersonation;
   const c = canWrite ? await loadWriteCandidates(client, app.id) : { workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] };
+  // portal#1576 step 2: the NODE picker's memory stage — every memory the
+  // viewer can read (MEMORIES_QUERY is server-scoped to the caller, the #512
+  // Move-dialog precedent). STREAMED, not awaited: it never blocks the form.
+  // portal#1585 (QA P2): a failed read must reach the picker as a FAILURE,
+  // never as [] — resolving to an empty list made "the read failed"
+  // indistinguishable from "you can read nothing".
+  // portal#1588 (QA F2): the failure streams as a VALUE ({kind:'failed'}),
+  // never a rejection — a rejecting stream fires an uncaught pageerror
+  // during kit's parse-time deserialization, before any component can
+  // attach. Warned server-side (the log is the only trace), the page still
+  // loads, and the editor branches on the value.
+  // An impersonation session writes nothing, so it reads no list either
+  // (the task-detail loader's rule): its page renders no editor, so the
+  // fan-out could never be consumed.
+  type PickMemory = { id: string; name: string; urn: string; visibility: string | null };
+  const nodeMemories: Promise<MemoriesRead> = canWrite
+    ? fetchAllItems<PickMemory>(client, MEMORIES_QUERY, 'memories').then(
+        (memories): MemoriesRead => ({ kind: 'ok', value: memories }),
+        (e) => {
+          console.warn('[tasks-new] node-picker memory list failed:', e);
+          return { kind: 'failed' };
+        },
+      )
+    : Promise.resolve({ kind: 'ok', value: [] });
   return {
     app,
     canWrite,
@@ -36,6 +62,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
     candidates: { workers: c.workers, people: c.people, peopleWithheld: c.peopleWithheld, peopleFailed: c.peopleFailed },
     roles: c.roles,
     families: c.families,
+    nodeMemories,
   };
 };
 

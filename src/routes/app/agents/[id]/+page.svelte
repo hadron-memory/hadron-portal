@@ -19,6 +19,7 @@
   import MemoryBrowser from '$lib/components/MemoryBrowser.svelte';
   import NodeTable, { type NodeRow } from '$lib/components/NodeTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
+  import AgentTickerTemplatesPanel from '$lib/components/tickers/AgentTickerTemplatesPanel.svelte';
   import SelectMemory from '$lib/components/SelectMemory.svelte';
   import SelectOrg from '$lib/components/SelectOrg.svelte';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -115,7 +116,7 @@
   // #352 tab reorg: Profile (agent info) is the landing tab; Memories and
   // AI Providers were split out of the old Settings tab; the old "Memory"
   // node browser is now "Nodes"; Settings keeps the danger zone.
-  type TabId = 'tasks' | 'processes' | 'profile' | 'boot' | 'memories' | 'apps' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
+  type TabId = 'tasks' | 'processes' | 'profile' | 'boot' | 'memories' | 'apps' | 'tickers' | 'bundled' | 'nodes' | 'chatbot' | 'ai' | 'settings';
   let activeTab = $state<TabId>('profile');
 
   // ── Chatbot Control sub-tab state ────────────────────────────────────
@@ -205,6 +206,7 @@
     { id: 'processes', label: t('agent.processes.tab', 'Processes') },
     { id: 'memories', label: 'Memories' },
     { id: 'apps', label: 'Apps' },
+    { id: 'tickers', label: t('agent.tickers.tab', 'Ticker templates') },
     // #713: only for an agent that actually bundles others (a Team Agent and
     // its personas) — an always-empty tab on every ordinary agent is noise,
     // same reasoning as Chatbot Control below.
@@ -1137,6 +1139,16 @@
       addMemoryForm.update((current) => ({ ...current, memoryId: memory.id }));
     }}
   />
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- TICKER TEMPLATES TAB — the tickers a worker cast from this Agent starts with (portal#1609) -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  {#if activeTab === 'tickers'}
+    <section>
+      <h2 class="mb-3 font-semibold text-zinc-900 dark:text-white">{t('agent.tickers.heading', 'Ticker templates')}</h2>
+      <AgentTickerTemplatesPanel agentId={data.agent.id} templates={data.tickerTemplates} impersonating={data.impersonating} />
+    </section>
+  {/if}
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- APPS TAB — apps this agent is installed into (via the AppAgent join) -->

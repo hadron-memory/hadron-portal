@@ -8,33 +8,34 @@
   How each kind is entered (Patrick's rulings on #1575):
 
   - ISSUE, PULL_REQUEST, URL: a text field. These targets are URLs by nature.
-  - NODE: a URN text field, a narrow exception to "no free-text URN field"
-    while no node picker exists (#1576). The client checks the `hrn:node:`
-    shape and shows the chip under a valid value; the server stays the
-    authority.
+  - NODE: picked with SelectNode (#1576), never typed. The target is the
+    picker's SERVER-supplied URN (Node.urn), so the #1575 text-field
+    exception to "no free-text URN field" is gone.
   - TASK: picked with SelectTask, never typed, ended tasks included. The
     target is built from the App's server-supplied URN and the handle.
 
   Seeded once: the list is a draft, so a refusal keeps it. A target typed or a
   task picked but not added blocks the submit with a message, rather than
-  being dropped silently (the pick's message sits on the Label field, the one
+  being dropped silently (a pick's message sits on the Label field, the one
   validatable control in that branch, where Enter adds). Switching kind to or
-  from TASK clears the draft it hides, so no unseen draft is ever lost or
-  posted. Enter in an add field adds; it never submits the outer form.
+  from a pick branch (TASK, NODE) clears the draft it hides, so no unseen
+  draft is ever lost or posted. Enter in an add field adds; it never submits
+  the outer form.
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
   import { t } from '$lib/i18n/t';
   import Urn from '$lib/components/Urn.svelte';
+  import SelectNode from '$lib/components/SelectNode.svelte';
   import SelectTask from './SelectTask.svelte';
   import TaskHandle from './TaskHandle.svelte';
   import { taskReferenceTarget } from '$lib/agent-tasks/handle';
+  import type { MemoriesRead, NodeChoice } from '$lib/node-choices';
   import {
     MAX_LABEL_LENGTH,
     MAX_REFERENCES,
     MAX_TARGET_LENGTH,
     REFERENCE_KINDS,
-    isNodeUrn,
     neutralizeFormatChars,
     referenceKindLabel,
     type ReferenceKind,
@@ -44,6 +45,7 @@
 
   let {
     app,
+    nodeMemories = { kind: 'ok', value: [] },
     initial = [],
     idPrefix,
     replaces = false,
@@ -51,6 +53,15 @@
   }: {
     /** The App the form is in. Without its URN a TASK target can't be built, so TASK isn't offered. */
     app: { id: string; urn: string | null };
+    /**
+     * Memories the viewer can read, for the NODE picker's memory stage: a
+     * STREAMED MemoriesRead (never blocks the page) or a settled value. A
+     * failed read arrives as {kind:'failed'} — a VALUE, never a rejection
+     * (#1588 QA F2: a rejecting stream pageerrors during kit's parse-time
+     * deserialization, before any component can attach) — and degrades the
+     * picker to its failure stage (#1576 step 2, #1585).
+     */
+    nodeMemories?: Promise<MemoriesRead> | MemoriesRead;
     initial?: TaskReference[];
     /** `new` or `edit`: every id in here starts with it. */
     idPrefix: string;
@@ -68,36 +79,50 @@
   let label = $state('');
   let picked = $state<TaskChoice | null>(null);
   let picking = $state(false);
+  let pickedNode = $state<NodeChoice | null>(null);
+  let nodePicking = $state(false);
+  // Clear removes the button that had focus; without a home to return to,
+  // focus falls to <body> and a keyboard user loses their place in the form
+  // (#1582 BLIND P3). The trigger stays mounted, so it is that home.
+  let chooseNodeTrigger = $state<HTMLButtonElement | null>(null);
   let targetEl = $state<HTMLInputElement | null>(null);
   let labelEl = $state<HTMLInputElement | null>(null);
 
   const full = $derived(list.length >= MAX_REFERENCES);
-  const draftTarget = $derived(kind === 'TASK' ? (picked && app.urn ? (taskReferenceTarget(app.urn, picked.handle) ?? '') : '') : target.trim());
-  const nodeError = $derived(
-    kind === 'NODE' && target.trim() !== '' && !isNodeUrn(target.trim())
-      ? t('app.tasks.ref.node-invalid', 'Enter a node URN that starts with hrn:node:.')
-      : null,
+  const draftTarget = $derived(
+    kind === 'TASK'
+      ? (picked && app.urn ? (taskReferenceTarget(app.urn, picked.handle) ?? '') : '')
+      : kind === 'NODE'
+        ? (pickedNode?.urn ?? '')
+        : target.trim(),
   );
-  const canAdd = $derived(!full && draftTarget !== '' && !nodeError);
-  // A typed target or a picked task that isn't in the list yet must not be lost on submit: the browser refuses the form with this.
+  const canAdd = $derived(!full && draftTarget !== '');
+  // A typed target or a pick that isn't in the list yet must not be lost on submit: the browser refuses the form with this.
   const pending = $derived(
-    kind !== 'TASK' && target.trim() !== ''
-      ? (nodeError ?? t('app.tasks.ref.pending', 'Add this reference, or clear the field.'))
+    kind === 'ISSUE' || kind === 'PULL_REQUEST' || kind === 'URL'
+      ? (target.trim() !== '' ? t('app.tasks.ref.pending', 'Add this reference, or clear the field.') : '')
       : '',
   );
-  const pendingTask = $derived(kind === 'TASK' && picked ? t('app.tasks.ref.pending-task', 'Add this reference, or clear the selection.') : '');
+  const pendingPick = $derived(
+    (kind === 'TASK' && picked) || (kind === 'NODE' && pickedNode)
+      ? t('app.tasks.ref.pending-pick', 'Add this reference, or clear the selection.')
+      : '',
+  );
   $effect(() => {
     targetEl?.setCustomValidity(pending);
   });
   $effect(() => {
-    labelEl?.setCustomValidity(pendingTask);
+    labelEl?.setCustomValidity(pendingPick);
   });
 
   function setKind(next: ReferenceKind) {
-    // The TASK branch and the text branch each hide the other's draft: clear it rather than keep an unseen one.
-    if ((next === 'TASK') !== (kind === 'TASK')) {
+    // A pick branch (TASK, NODE) and any other branch each hide the other's
+    // draft: clear it rather than keep an unseen one. Text → text keeps the
+    // typed target (paste once, switch the kind).
+    if (next !== kind && (next === 'TASK' || next === 'NODE' || kind === 'TASK' || kind === 'NODE')) {
       target = '';
       picked = null;
+      pickedNode = null;
     }
     kind = next;
   }
@@ -109,6 +134,7 @@
     target = '';
     label = '';
     picked = null;
+    pickedNode = null;
   }
   function remove(i: number) {
     list = list.filter((_, j) => j !== i);
@@ -128,19 +154,13 @@
   }
 
   const targetLabel = $derived(
-    kind === 'NODE'
-      ? t('app.tasks.ref.target.node', 'Node URN')
-      : kind === 'ISSUE'
-        ? t('app.tasks.ref.target.issue', 'Issue URL')
-        : kind === 'PULL_REQUEST'
-          ? t('app.tasks.ref.target.pull-request', 'Pull request URL')
-          : t('app.tasks.ref.target.url', 'URL'),
+    kind === 'ISSUE'
+      ? t('app.tasks.ref.target.issue', 'Issue URL')
+      : kind === 'PULL_REQUEST'
+        ? t('app.tasks.ref.target.pull-request', 'Pull request URL')
+        : t('app.tasks.ref.target.url', 'URL'),
   );
-  const targetHelp = $derived(
-    kind === 'NODE'
-      ? t('app.tasks.ref.target.node-help', 'Paste the node’s URN (hrn:node:…). The URN chip on a node’s page copies it.')
-      : t('app.tasks.ref.target.url-help', 'The full address, starting with https://.'),
-  );
+  const targetHelp = $derived(t('app.tasks.ref.target.url-help', 'The full address, starting with https://.'));
 
   const inputClass =
     'w-full rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100';
@@ -211,17 +231,27 @@
           </div>
           <p class={helpClass}>{t('app.tasks.ref.task-help', 'Any task in this App, finished and cancelled ones included.')}</p>
         </div>
+      {:else if kind === 'NODE'}
+        <div class="space-y-1">
+          <span class={labelClass}>{t('app.tasks.ref.target.node', 'Node')}</span>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" onclick={() => (nodePicking = true)} bind:this={chooseNodeTrigger} class="rounded-md border border-zinc-300 px-3 py-1 text-sm text-zinc-800 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800">{t('app.tasks.ref.choose-node', 'Choose a node…')}</button>
+            {#if pickedNode}
+              <span class="min-w-0 text-sm text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{pickedNode.name}</span>
+              <span class="min-w-0 font-mono text-xs text-zinc-500 [overflow-wrap:anywhere] dark:text-zinc-400">{pickedNode.loc}</span>
+              <Urn value={pickedNode.urn} size={10} />
+              <button type="button" class={smallButton} onclick={() => { pickedNode = null; chooseNodeTrigger?.focus(); }}
+                aria-label={t('app.tasks.ref.clear-node', 'Clear the selected node')}>{t('app.tasks.ref.clear-node-short', 'Clear')}</button>
+            {/if}
+          </div>
+          <p class={helpClass}>{t('app.tasks.ref.node-help', 'Any node in a memory you can read, picked by search.')}</p>
+        </div>
       {:else}
         <div class="space-y-1">
           <label for="{p}-ref-target" class={labelClass}>{targetLabel}</label>
           <input id="{p}-ref-target" type="text" inputmode="url" autocomplete="off" spellcheck="false" maxlength={MAX_TARGET_LENGTH}
             bind:this={targetEl} bind:value={target} class={inputClass}
-            aria-invalid={nodeError ? 'true' : undefined}
-            aria-describedby={nodeError ? `${p}-ref-target-error ${p}-ref-target-help` : `${p}-ref-target-help`} />
-          {#if nodeError}<p id="{p}-ref-target-error" class="text-xs text-red-700 dark:text-red-300">{nodeError}</p>{/if}
-          {#if kind === 'NODE' && target.trim() !== '' && !nodeError}
-            <div data-testid="{p}-ref-node-chip"><Urn value={target.trim()} size={10} linked compact label={t('app.tasks.ref.node-chip', 'node')} /></div>
-          {/if}
+            aria-describedby="{p}-ref-target-help" />
           <p id="{p}-ref-target-help" class={helpClass}>{targetHelp}</p>
         </div>
       {/if}
@@ -236,8 +266,22 @@
     </div>
   {/if}
 
-  <!-- Inside the fieldset (it is a fixed overlay, so this doesn't move it) so Enter in its lookup field never submits the outer form. -->
+  <!-- Inside the fieldset (they are fixed overlays, so they don't move it) so
+       Enter in their lookup fields never submits the outer form. The NODE
+       picker's memory list may still be streaming; mount it resolved (#512).
+       #1588 QA F2: the read settles as a VALUE — {kind:'failed'} degrades the
+       picker to its failure stage (#1585); the {:catch} arm is the belt for a
+       stream that rejects anyway (the loaders never do, on purpose). -->
   {#if app.urn}
     <SelectTask appId={app.id} includeEnded bind:open={picking} onselect={(choice: TaskChoice) => (picked = choice)} />
   {/if}
+  {#await Promise.resolve(nodeMemories) then read}
+    {#if read.kind === 'ok'}
+      <SelectNode memories={read.value} bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    {:else}
+      <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+    {/if}
+  {:catch}
+    <SelectNode memories={[]} memoriesFailed bind:open={nodePicking} onselect={(choice: NodeChoice) => (pickedNode = choice)} />
+  {/await}
 </fieldset>

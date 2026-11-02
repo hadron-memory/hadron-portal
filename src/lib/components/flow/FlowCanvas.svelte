@@ -47,6 +47,7 @@
     if (n.extractionFields.length > 0) h += 26 * Math.ceil(n.extractionFields.length / 2);
     if (n.tools.length > 0) h += 26 * n.tools.length;
     if (n.outputWriteTo) h += 26;
+    if (n.script) h += 52 + (n.script.argKeys.length > 0 ? 24 : 0) + (n.script.bothBodies ? 56 : 0) + (n.script.argsInvalid ? 40 : 0);
     return h;
   }
 
@@ -91,6 +92,7 @@
         extractionFields: n.extractionFields,
         tools: n.tools,
         outputWriteTo: n.outputWriteTo,
+        script: n.script,
         href: `${basePath}/nodes/${n.id}`,
       },
     };
