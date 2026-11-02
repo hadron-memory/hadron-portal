@@ -121,4 +121,29 @@ describe('age', () => {
     expect(terminalLastTurn('nope', NOW)).toBe('Last turn: not known');
     expect(terminalLastTurn('2026-10-31T11:00:00.000Z', NOW)).toMatch(/^Last turn: .*ago$/);
   });
+
+  // portal#1495 P2 — a report a moment ahead of the page clock is skew, not a
+  // lie: the server accepts a checkedAt up to 120 s ahead when written, so a
+  // viewer whose clock trails by a second would otherwise read "time unknown"
+  // on the freshest report there is. Display grace: exactly 60 s, inclusive,
+  // clamped to the zero-age word. Never "in N sec.". Beyond it: unknown, and
+  // nothing about the stored report changes (issue gate 6568261816, Vera FIT
+  // 6568235885 — a client display policy, not server invalidity).
+  describe('a future instant within a 60-second grace reads as now (portal#1495)', () => {
+    const ahead = (ms: number) => new Date(NOW + ms).toISOString();
+    it('a checkedAt 1 s ahead reads "checked now", never future wording', () => {
+      expect(terminalCheckedAge(ahead(1_000), NOW)).toBe('checked now');
+    });
+    it('the grace is inclusive at exactly 60 s', () => {
+      expect(terminalCheckedAge(ahead(60_000), NOW)).toBe('checked now');
+    });
+    it('one millisecond past the grace is time unknown again', () => {
+      expect(terminalCheckedAge(ahead(60_001), NOW)).toBe('checked: time unknown');
+    });
+    it('a lastTurnAt gets the same inclusive grace: "Last turn: now" inside, "not known" beyond', () => {
+      expect(terminalLastTurn(ahead(1_000), NOW)).toBe('Last turn: now');
+      expect(terminalLastTurn(ahead(60_000), NOW)).toBe('Last turn: now');
+      expect(terminalLastTurn(ahead(60_001), NOW)).toBe('Last turn: not known');
+    });
+  });
 });

@@ -897,6 +897,46 @@ describe('Worker agents tab (#1009)', () => {
       expect(col[1]).toContain('checked: time unknown');
     });
 
+    // portal#1495 P1 — everything the cell renders must be searchable
+    // (hrn:node:hadronmemory.com:hadron-portal:review:everything-the-cell-renders-must-be-searchable):
+    // the compact cell renders the summary pill AND the checked age; only the
+    // summary was in the accessor, so a reader looking at "checked 5 min. ago"
+    // could not find that row by typing what they saw.
+    it('the checked age the cell renders is reachable through the real grid filter (portal#1495)', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo')],
+        ok({ w1: entry({ terminal: term() }), w2: entry({ terminal: term({ status: 'idle', reason: null, checkedAt: null }) }) }),
+      );
+      expect(colTexts(target, 'Terminal')[0]).toContain('checked 5 min. ago');
+      expect(await search(target, 'checked 5 min')).toEqual(['Ada']);
+      expect(await search(target, 'time unknown')).toEqual(['Bo']);
+    });
+
+    it('age text never matches a row that renders none of it (portal#1495 non-disclosure)', async () => {
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo'), w('w3', 'Cy')],
+        ok({ w1: entry({ terminal: term() }), w2: entry({ terminal: null }) }),
+      );
+      // w2 is Not reported (no age line); w3 has no roster entry (no badge at all).
+      expect(await search(target, 'checked')).toEqual(['Ada']);
+      expect(await search(target, 'min. ago')).toEqual(['Ada']);
+      expect(await search(target, 'Not reported')).toEqual(['Bo']);
+    });
+
+    // portal#1495 P3 — the loader's clock is a seed, not a freeze: on an open
+    // page the ages advance, the display and the grid filter read the SAME
+    // clock, and no request is made to refresh anything.
+    it('the age the cell shows and the filter matches advances on an open page (portal#1495)', async () => {
+      vi.useFakeTimers();
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
+      expect(colTexts(target, 'Terminal')[0]).toContain('checked 5 min. ago');
+      await vi.advanceTimersByTimeAsync(60_000);
+      await tick(2);
+      expect(colTexts(target, 'Terminal')[0]).toContain('checked 6 min. ago');
+      expect(await search(target, 'checked 6 min')).toEqual(['Ada']);
+      expect(await search(target, 'checked 5 min')).toEqual([]);
+    });
+
     it('an unknown state or reason shows fixed copy, never the raw code, in the page or the console', async () => {
       const spies = (['log', 'warn', 'error', 'info'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
       const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'quantum', reason: 'solar_flare' }) }) }));
