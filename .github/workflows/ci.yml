@@ -74,6 +74,9 @@ jobs:
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Check team chat chip target sizes
+        run: pnpm test:team-chat-chips-layout
+
       - name: Check node phone layout
         run: pnpm test:node-phone-layout
 

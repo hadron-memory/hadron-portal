@@ -1964,6 +1964,7 @@ it('portal#1410 carries an explicit filter focus request through the route-keyed
   const props=reactiveProps({data:{...data,teamChatMessages:[tagged],teamFilter:{kind:'none'} as TeamChatFilter},form:null});
   const m=mountComponent(Page as never,props as never) as Mounted<Record<string,unknown>>;
   mounted.push(m);document.body.append(m.target);await tick(3);
+  const status=m.target.querySelector('[data-testid="team-chat-filter-status"]');
   const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;
   tag.focus();tag.click();await tick(2);
   expect(navigationCalls.some(c=>c.fn==='goto'&&String(c.args[0]).includes('team=head-ada'))).toBe(true);
@@ -1971,5 +1972,6 @@ it('portal#1410 carries an explicit filter focus request through the route-keyed
   await tick(5);
   const active=m.target.querySelector('[data-testid="team-chat-filter-active"]');
   expect(active).not.toBeNull();expect(document.activeElement).toBe(active);
+  expect(m.target.querySelector('[data-testid="team-chat-filter-status"]')).toBe(status);
   expect(m.target.querySelector('[data-testid="team-chat-filter-status"]')?.textContent).toContain('team.ada');
 });

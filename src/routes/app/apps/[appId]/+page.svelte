@@ -173,6 +173,11 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
+  // Survives the filter-keyed thread, but never follows a navigation to another App.
+  let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
+  let teamFilterAnnouncement = $state('');
+  const teamFilterAppId = $derived(app.id);
+  $effect(() => { teamFilterAppId; untrack(() => { teamFilterFocusRequest = null; teamFilterAnnouncement = ''; }); });
   const org = $derived(data.org);
   const availableAgents = $derived(data.availableAgents);
 
@@ -2088,6 +2093,7 @@
           </div>
         {/if}
         <div class={teamSearchOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
+        <span data-testid="team-chat-filter-status" class="sr-only" aria-live="polite" aria-atomic="true">{teamFilterAnnouncement}</span>
         {#key `${app.id}:${data.postTeamChatMessageForm.id}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
           {@const teamStateKey = `${app.id}:team`}
           {@const teamViewKey = `${teamStateKey}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
@@ -2108,6 +2114,8 @@
           filterInvalid={data.teamFilterInvalid}
           refusal={data.teamChatRefusal}
           onSelectTeam={selectTeamFilter}
+          bind:filterFocusRequest={teamFilterFocusRequest}
+          onFilterAnnouncement={(text) => { teamFilterAnnouncement = text; }}
         />
         {/key}
         </div>
