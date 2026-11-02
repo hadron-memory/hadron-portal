@@ -628,6 +628,34 @@
       },
     ),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
+    // portal#1618 LOCAL P2 (Gemma) — staffRows is a NEW array every 30 s tick
+    // by design: the bake above IS the BLIND P2 fix, a tick being the one
+    // data-change invalidation path the table documents. TanStack's default
+    // autoResetPageIndex reads every new data reference as "data changed" and
+    // resets the page, so a paged reader of a >20-worker grid was bounced to
+    // page 1 each tick. Off here as on the tasks grid: the PAGE owns the
+    // reset (the two effects right below) — a tick keeps the reader's page,
+    // a new search still starts from page 1, and a shrunken roster never
+    // strands them past the last page.
+    autoResetPageIndex: false,
+  });
+  // The search reset the default did before it went off: a NEW search
+  // restarts from page 1. Keyed on the filter text alone, and the reset
+  // writes table state untracked — subscribing to what it writes loops.
+  $effect(() => {
+    void staffFilter;
+    untrack(() => staffTable.resetPageIndex());
+  });
+  // With the default off, a SHRUNKEN roster (a retire, a removal, a reload
+  // with fewer workers) no longer resets the page either. Only the derived
+  // bound triggers this write; the index read stays untracked so paging
+  // cannot subscribe itself — the tasks-grid pattern.
+  const staffLastPage = $derived(Math.max(0, staffTable.getPageCount() - 1));
+  $effect(() => {
+    const last = staffLastPage;
+    untrack(() => {
+      if (staffTable.atoms.pagination.get().pageIndex > last) staffTable.setPageIndex(last);
+    });
   });
   // #1006: the Agents tab. The App's install ROSTER (`App.agents`), not
   // `App.agent` — that one is only the first installed agent

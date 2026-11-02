@@ -1004,6 +1004,30 @@ describe('Worker agents tab (#1009)', () => {
       expect(pageOf()).toBe('Page 1 of 2'); // a new search restarts at page 1
     });
 
+    // The clamp half of the same fix: with autoResetPageIndex off, nothing
+    // resets the page when the DATA shrinks either (the default used to). A
+    // reload that drops the roster below the page the reader sits on must
+    // land them on the new last page with rows in front of them — not strand
+    // them on an empty page 2 with an unreachable footer.
+    it('a shrunken roster never strands the reader past the last page (portal#1618 LOCAL P2)', async () => {
+      vi.useFakeTimers();
+      const staff = Array.from({ length: 21 }, (_, i) => w(`p${i + 1}`, `Pager${i + 1}`));
+      setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+      window.history.replaceState({}, '', '/app/apps/a1?tab=staff');
+      const props = reactiveProps({ data: { ...(await pageData()), user: { id: 'u1' }, initialTab: 'staff', staff, teamRoster: ok({}), terminalNow: PAGE_NOW }, form: null });
+      const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+      mounted.push(m);
+      await tick(2);
+      const next = [...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="table-footer"] button')]
+        .find((b) => b.textContent?.trim() === 'Next')!;
+      next.click();
+      flushSync();
+      const names = () => [...m.target.querySelectorAll<HTMLAnchorElement>('tbody a[href^="/app/workers/"]')].map((a) => a.textContent!.trim());
+      expect(names().length).toBe(1); // page 2 of 2 holds the 21st worker
+      props.data = { ...props.data, staff: staff.slice(0, 5) }; await tick(3); // a reload with 5 workers
+      expect(names()).toEqual(staff.slice(0, 5).map((s) => s.name)); // rows in front of the reader, not an empty page
+    });
+
     // portal#1495 BLIND P2 (George) — a search left ACTIVE across a tick must
     // re-filter with the advanced clock. The earlier advancing test re-typed
     // the search after the tick, which set new filter state and forced the
