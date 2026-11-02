@@ -67,7 +67,7 @@ export interface AgentTaskRow {
 
 /** The detail page's task: every field §5.1 shows. */
 export interface AgentTaskDetail extends AgentTaskRow {
-  /** portal#1607: the outside item the task claimed (cor:agt:120:02); set once at create. */
+  /** portal#1607: the outside item the task claimed (hrn:node:hadronmemory.com:specs:cor:agt:120:02); set once at create. */
   externalId?: string | null;
   appId: string;
   /**

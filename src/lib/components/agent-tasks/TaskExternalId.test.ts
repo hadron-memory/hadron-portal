@@ -1,5 +1,5 @@
 /**
- * portal#1607 — a task's externalId (hadron-server#3137, cor:agt:120:02) on the
+ * portal#1607 — a task's externalId (hadron-server#3137, hrn:node:hadronmemory.com:specs:cor:agt:120:02) on the
  * detail page: a link for an http(s) URL, text for anything else, nothing for null.
  * Display only: it is set once, when the task is created.
  */

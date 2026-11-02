@@ -1,6 +1,6 @@
 /**
  * portal#1607 — the App properties read and the task-integrations write
- * (setAppProperties, cor:dmo:050:20): whole replace with expectedRevision,
+ * (setAppProperties, hrn:node:hadronmemory.com:specs:cor:dmo:050:20): whole replace with expectedRevision,
  * a conflict is reported and never retried, a path-bearing refusal is surfaced.
  */
 import { describe, expect, it, vi } from 'vitest';

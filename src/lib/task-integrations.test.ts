@@ -1,5 +1,5 @@
 /**
- * portal#1607 — an App's task integrations (cor:agt:120:01) as the form sees them:
+ * portal#1607 — an App's task integrations (hrn:node:hadronmemory.com:specs:cor:agt:120:01) as the form sees them:
  * read from App.properties, written back whole with every other key kept.
  */
 import { describe, expect, it } from 'vitest';

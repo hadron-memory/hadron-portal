@@ -1,5 +1,5 @@
 <!--
-  portal#1607 — the App's task integrations (cor:agt:120:01), on the Settings tab.
+  portal#1607 — the App's task integrations (hrn:node:hadronmemory.com:specs:cor:agt:120:01), on the Settings tab.
 
   The user wants to choose which repositories, labels and team leads the App's
   tasks are drawn from. Keyed on `propertiesRevision` (null = may not read: no

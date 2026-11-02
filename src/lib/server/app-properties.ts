@@ -11,7 +11,7 @@ import {
 } from '$lib/task-integrations';
 
 /**
- * portal#1607 — an App's properties (cor:dmo:050:20), in their own classified
+ * portal#1607 — an App's properties (hrn:node:hadronmemory.com:specs:cor:dmo:050:20), in their own classified
  * request. `hidden` is the server's own answer that this caller may not read
  * them (`propertiesRevision` null); `failed` is anything else. Neither is ever
  * an empty section. Never throws; logs no server text.

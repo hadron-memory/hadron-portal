@@ -1,5 +1,5 @@
 <!--
-  portal#1607 — a task's externalId (cor:agt:120:02): the outside item the task
+  portal#1607 — a task's externalId (hrn:node:hadronmemory.com:specs:cor:agt:120:02): the outside item the task
   claimed. A link when it is an http(s) URL, text otherwise, nothing when null.
   Display only: it is set once, when the task is created.
 -->

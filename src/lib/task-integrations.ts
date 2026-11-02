@@ -1,7 +1,7 @@
 /**
- * portal#1607 — an App's task integrations (cor:agt:120:01) as the settings form
+ * portal#1607 — an App's task integrations (hrn:node:hadronmemory.com:specs:cor:agt:120:01) as the settings form
  * sees them. They live under the `taskIntegrations` key of `App.properties`,
- * which `setAppProperties` replaces WHOLE (cor:dmo:050:20, V34): the write is
+ * which `setAppProperties` replaces WHOLE (hrn:node:hadronmemory.com:specs:cor:dmo:050:20, V34): the write is
  * therefore the current object with only that key changed.
  *
  * Pure: no I/O, no Svelte. The server-side read and write are

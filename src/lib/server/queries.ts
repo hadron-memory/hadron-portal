@@ -1957,7 +1957,7 @@ export const APP_VIEWER_MANAGES_QUERY = /* GraphQL */ `
 `;
 
 /**
- * portal#1607 — the App's properties (cor:dmo:050:20), in their OWN request so a
+ * portal#1607 — the App's properties (hrn:node:hadronmemory.com:specs:cor:dmo:050:20), in their OWN request so a
  * server without the fields, or a refusal, cannot take the App page with it.
  * `propertiesRevision` is null only for a caller who may not read properties;
  * `properties` is also null for an App that has none yet, so only the revision
