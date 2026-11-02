@@ -34,6 +34,17 @@ describe('task planning authorized reads', () => {
     const page = { items: [], hasMore: false };
     expect(await taskDependencies(client({ agentTask: { id: 'wrong', appId: 'app', blockedBy: page, blocks: page } }).api, app.id, 't2')).toEqual({ kind: 'failed' });
   });
+  // portal#1392: each App guard is pinned on its own, so deleting any one of them fails a test
+  // (Jack's parent-App mutant on #1388 survived the suite before this).
+  it('rejects the right task id returned under another App', async () => {
+    const page = { items: [], hasMore: false };
+    expect(await taskDependencies(client({ agentTask: { id: 't2', appId: 'foreign', blockedBy: page, blocks: page } }).api, app.id, 't2')).toEqual({ kind: 'failed' });
+  });
+  it.each(['blockedBy', 'blocks'] as const)('rejects the whole read when one %s row belongs to another App', async (direction) => {
+    const empty = { items: [], hasMore: false };
+    const pages = { blockedBy: empty, blocks: empty, [direction]: { items: [task, { ...task, id: 'f', appId: 'foreign' }], hasMore: false } };
+    expect(await taskDependencies(client({ agentTask: { id: 't2', appId: 'app', ...pages } }).api, app.id, 't2')).toEqual({ kind: 'failed' });
+  });
 
 });
 

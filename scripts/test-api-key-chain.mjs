@@ -31,6 +31,8 @@ const env = {
   JWT_SECRET: randomBytes(48).toString('hex'), HADRON_ENCRYPTION_KEY: randomBytes(32).toString('hex'),
   GRAPHS_PATH: resolve(scratch, 'graphs'), HADRON_E2E_SERVER_DIR: serverRoot,
   EMBEDDING_API_URL: '', NATS_URL: '', RESEND_API_KEY: '', FRONTEND_URL: '',
+  // The server refuses readiness without a rate-limit keyring (hadron-server src/lib/rateLimit/config.ts); a random one per run.
+  RATE_LIMIT_KEYRING: JSON.stringify({ current: 'e2e', keys: { e2e: randomBytes(32).toString('hex') } }),
 };
 let fixture, portalServer, browser, context, page, created = false, stage = 'setup';
 const savedConsole = Object.fromEntries(['log','info','warn','error','debug'].map(k=>[k,console[k]]));

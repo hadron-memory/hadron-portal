@@ -246,7 +246,7 @@
         aria-disabled={submitting ? 'true' : undefined}
         aria-describedby="apply-tickers-result"
         class="rounded-md bg-indigo-600 px-3 py-2 text-xs font-medium text-white hover:bg-indigo-500 aria-disabled:opacity-50"
-      >{submitting ? t('worker.apply.pending', 'Adding…') : t('worker.apply.button', 'Apply the Agent’s tickers')}</button>
+      >{submitting ? t('worker.apply.pending', 'Applying…') : t('worker.apply.button', 'Apply the Agent’s tickers')}</button>
     </form>
 
     <!-- Mounted before any result, so a screen reader is already watching it; focus moves here after an apply. -->
@@ -311,7 +311,7 @@
         </div>
       {/if}
       {#if shown && refreshFailedFor === workerKey}
-        <p role="status" class="text-xs text-amber-800 dark:text-amber-300" data-testid="apply-refresh-failed">
+        <p role="status" class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200" data-testid="apply-refresh-failed">
           {applyRefreshFailedLine()}
         </p>
       {/if}

@@ -50,9 +50,10 @@ describe('relation page endpoint and existing remove action', () => {
     request.mockRejectedValue(new Error('private fault'));
     expect(await (await GET(event())).json()).toEqual({ kind: 'failed' });
   });
-  it.each(['app', 'task', 'row'])('rejects a foreign or mismatched %s on every page', async (kind) => {
-    const c = { request: vi.fn().mockResolvedValue({ agentTask: { id: kind === 'task' ? 'wrong' : 'canonical', appId: kind === 'app' ? 'foreign' : 'app', blockedBy: { items: [{ ...choice(204), appId: kind === 'row' ? 'foreign' : 'app' }], hasMore: false } } }) };
-    expect(await taskDependencyPage(c as never, app.id, 'canonical', 'blockedBy', 200)).toEqual({ kind: 'failed' });
+  // portal#1392: the same three guards hold in both directions (paging parity with taskDependencies).
+  it.each([['app', 'blockedBy'], ['task', 'blockedBy'], ['row', 'blockedBy'], ['app', 'blocks'], ['task', 'blocks'], ['row', 'blocks']] as const)('rejects a foreign or mismatched %s on every %s page', async (kind, direction) => {
+    const c = { request: vi.fn().mockResolvedValue({ agentTask: { id: kind === 'task' ? 'wrong' : 'canonical', appId: kind === 'app' ? 'foreign' : 'app', [direction]: { items: [{ ...choice(204), appId: kind === 'row' ? 'foreign' : 'app' }], hasMore: false } } }) };
+    expect(await taskDependencyPage(c as never, app.id, 'canonical', direction, 200)).toEqual({ kind: 'failed' });
   });
   it('selects no totals or blocked counts', () => { expect(TASK_BLOCKED_BY_PAGE_QUERY + TASK_BLOCKS_PAGE_QUERY).not.toMatch(/\btotal\b|\bblocked\b/); });
   it('the existing initial query really selects canonical id (id-selection mutant fails)', async () => {

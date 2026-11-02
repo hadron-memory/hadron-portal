@@ -1176,6 +1176,40 @@ describe('memory-detail `checkVectorIndexHealth` action (#1346)', () => {
     expect(result.data?.vectorHealth).toBeUndefined();
   });
 
+  // #1465 (hrn:node:hadronmemory.com:specs:cor:api:140:03): validateMemory answers a memory the caller cannot read with the SAME
+  // MEMORY_NOT_FOUND as a missing one, so this one branch is the whole read refusal. A 500 told
+  // the reader the server broke; one safe 4xx message must not say which of the two it was.
+  it('MEMORY_NOT_FOUND is a 404 with one safe message, never a 500 or the server reason (#1465)', async () => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'Memory mem-secret not found for user u9', extensions: { code: 'MEMORY_NOT_FOUND' } }] } });
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { data?: { vectorHealthError?: string; vectorHealth?: unknown }; status?: number };
+    expect(result.status).toBe(404);
+    expect(result.data?.vectorHealthError).toBeTruthy();
+    expect(result.data?.vectorHealth).toBeUndefined();
+    expect(result.data?.vectorHealthError).not.toContain('mem-secret');
+    expect(result.data?.vectorHealthError).not.toContain('u9');
+  });
+
+  it('a missing and an unreadable memory render byte-identical output (#1465, hrn:node:hadronmemory.com:specs:cor:api:140:03)', async () => {
+    // The server's two refusals differ only in free text; whatever it says must not reach the reader.
+    const run = async (message: string) => {
+      mockRequest.mockRejectedValueOnce({ response: { errors: [{ message, extensions: { code: 'MEMORY_NOT_FOUND' } }] } });
+      const actions = await importActions();
+      return JSON.stringify(await actions.checkVectorIndexHealth(healthEv()));
+    };
+    expect(await run('Memory not found')).toBe(await run('You may not read this memory'));
+  });
+
+  it('an uncoded or transport failure stays a 500 with the generic copy (#1465)', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('socket hang up'));
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { data?: { vectorHealthError?: string }; status?: number };
+    expect(result.status).toBe(500);
+    expect(result.data?.vectorHealthError).toBeTruthy();
+    // #1465 delta (Andi, LOCAL P2): a raw Error.message is not generic copy.
+    expect(result.data?.vectorHealthError).not.toContain('socket hang up');
+  });
+
   it('the settings loader never runs validateMemory: the scan is on demand only', async () => {
     mockRequest.mockResolvedValue({ user: null, organizations: { items: [], total: 0 } });
     const { load } = await import('./+page.server');

@@ -123,8 +123,13 @@
     },
     initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
   });
-  const submit: Parameters<typeof enhance>[1] = ({ cancel }) => {
+  const submit: Parameters<typeof enhance>[1] = ({ action, cancel }) => {
     if (pending) { cancel(); return; }
+    // portal#1626: priority, removal and add share this handler, but `chosen` is the ADD form's unsent
+    // draft. Only a successful addBlocker consumed it; a priority save or a removal must leave it.
+    // (The picker's Choose button is disabled while a write is pending, so no newer draft can arrive
+    // during an add; the draft is the one that was submitted.)
+    const isAdd = action.search === '?/addBlocker';
     const target = generation;
     relationGeneration++; pagePending = { blockedBy: false, blocks: false };
     pending = true; refusal = null; saved = false; refreshFailed = false; warnings = []; more = 0;
@@ -133,7 +138,7 @@
       if (result.type === 'success') {
         const data = result.data as { warnings?: TaskWarning[]; more?: number } | undefined;
         warnings = data?.warnings ?? []; more = data?.more ?? 0;
-        saved = true; chosen = null;
+        saved = true; if (isAdd) chosen = null;
         await invalidateAll().catch(() => { if (target === generation) refreshFailed = true; });
         if (target !== generation) return;
         priority = String(task.priority ?? '');

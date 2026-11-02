@@ -21,7 +21,17 @@
     /**
      * A short immutable code shown as a quiet chip after the label (a task's
      * handle, portal#1349): secondary to the label, outside the link so the
-     * link's name stays the label, with `chipLabel` as its accessible name.
+     * link's name stays the label. `chipLabel` (portal#1415 item 1) renders
+     * as a visually hidden PREFIX inside the chip — content, not an
+     * aria-label, whose support on a generic <code> is uneven — so the
+     * chip's accessible name reads "<chipLabel> <chip>".
+     *
+     * portal#1415 item 5 (decision B): the chip hides below `sm`. A trail
+     * three levels deep carries three chips of up to 8rem each beside capped
+     * titles, which starves the titles at 390px; hiding the chips at phone
+     * width is pure CSS (no hydration flash, conventions:
+     * three-state-responsive-collapse) and leaves every handle reachable on
+     * its own page and in the detail header.
      */
     chip?: string | null;
     chipLabel?: string;
@@ -72,10 +82,9 @@
     {/if}
     {#if item.chip}
       <code
-        class="inline-block max-w-[8rem] shrink-0 truncate rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+        class="hidden max-w-[8rem] shrink-0 truncate rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[11px] text-zinc-600 sm:inline-block dark:bg-zinc-800 dark:text-zinc-300"
         title={item.chip}
-        aria-label={item.chipLabel ?? item.chip}
-        data-crumb-chip>{item.chip}</code
+        data-crumb-chip>{#if item.chipLabel}<span class="sr-only">{item.chipLabel}&nbsp;</span>{/if}{item.chip}</code
       >
     {/if}
   {/each}

@@ -6,6 +6,7 @@ import {
   type ViewStore,
   type SavedViewRecord,
   ViewStorageError,
+  viewStorageErrorMessages,
   normalizeViewName,
 } from './viewStore';
 
@@ -55,11 +56,11 @@ export class LocalStorageViewStore implements ViewStore {
 
   private writeRecords(listKey: string, records: SavedViewRecord[]): void {
     const s = this.storage;
-    if (!s) throw new ViewStorageError('Storage is unavailable.');
+    if (!s) throw new ViewStorageError(viewStorageErrorMessages.unavailable);
     try {
       s.setItem(recordsKey(listKey), JSON.stringify(records));
     } catch {
-      throw new ViewStorageError('Could not save views (storage full or disabled).');
+      throw new ViewStorageError(viewStorageErrorMessages.saveFailed);
     }
   }
 
@@ -95,7 +96,7 @@ export class LocalStorageViewStore implements ViewStore {
   ): Promise<SavedViewRecord> {
     const records = this.readRecords(listKey);
     const idx = records.findIndex((r) => r.id === id);
-    if (idx === -1) throw new ViewStorageError('View not found.');
+    if (idx === -1) throw new ViewStorageError(viewStorageErrorMessages.viewNotFound);
     const next: SavedViewRecord = {
       ...records[idx],
       ...(patch.name !== undefined ? { name: normalizeViewName(patch.name) } : {}),
@@ -139,12 +140,12 @@ export class LocalStorageViewStore implements ViewStore {
 
   async setActiveId(listKey: string, id: string | null): Promise<void> {
     const s = this.storage;
-    if (!s) throw new ViewStorageError('Storage is unavailable.');
+    if (!s) throw new ViewStorageError(viewStorageErrorMessages.unavailable);
     try {
       if (id == null) s.removeItem(activeKey(listKey));
       else s.setItem(activeKey(listKey), id);
     } catch {
-      throw new ViewStorageError('Could not save the active view.');
+      throw new ViewStorageError(viewStorageErrorMessages.saveActiveFailed);
     }
   }
 }
