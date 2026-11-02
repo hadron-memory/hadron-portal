@@ -978,6 +978,32 @@ describe('Worker agents tab (#1009)', () => {
       expect(vi.getTimerCount()).toBe(baseline);
     });
 
+    // portal#1618 LOCAL P2 (Gemma, on the fold head) — the per-tick row
+    // re-bake that makes a tick re-filter (BLIND P2 above) hands the table a
+    // fresh data-array reference every 30 s, and TanStack's default
+    // autoResetPageIndex read exactly that as "data changed": a >20-worker
+    // staff grid bounced to page 1 under a reader who had paged, every tick,
+    // silently. The page keeps its page across a tick; a NEW search still
+    // starts from page 1 (the page owns that reset once the default is off).
+    it('a >20-worker grid keeps its page across a tick, and a new search restarts from page 1 (portal#1618 LOCAL P2)', async () => {
+      vi.useFakeTimers();
+      const staff = Array.from({ length: 21 }, (_, i) => w(`p${i + 1}`, `Pager${i + 1}`));
+      const roster = ok(Object.fromEntries(staff.map((s) => [s.id, entry({ terminal: term() })])));
+      const target = await mountTerminal(staff, roster);
+      const pageOf = () => target.querySelector('[data-testid="table-footer"] span')!.textContent!;
+      const next = [...target.querySelectorAll<HTMLButtonElement>('[data-testid="table-footer"] button')]
+        .find((b) => b.textContent?.trim() === 'Next')!;
+      next.click();
+      flushSync();
+      expect(pageOf()).toBe('Page 2 of 2'); // paged past 20 rows
+      await vi.advanceTimersByTimeAsync(60_000);
+      await tick(3);
+      expect(pageOf()).toBe('Page 2 of 2'); // a tick must not steal the page
+      await search(target, 'Pager'); // still matches every row, so still 2 pages
+      await tick(3);
+      expect(pageOf()).toBe('Page 1 of 2'); // a new search restarts at page 1
+    });
+
     // portal#1495 BLIND P2 (George) — a search left ACTIVE across a tick must
     // re-filter with the advanced clock. The earlier advancing test re-typed
     // the search after the tick, which set new filter state and forced the
