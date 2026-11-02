@@ -1956,3 +1956,47 @@ describe('App Settings: task integrations draft (LOCAL review of #1614, P2-2)', 
     expect(section.textContent).not.toContain('app-a-integration');
   });
 });
+
+// portal#1469 (P3-5): the component test passes showDescription directly, so
+// nothing pinned the PAGE wiring — the Description column must follow whether
+// the App belongs to an organization (its memories read carries descriptions),
+// not any other condition. A user-owned App has no org, so no Description
+// column; an org App keeps it.
+describe('App memories Description column wiring (portal#1469)', () => {
+  const memoryRows = [
+    // non-null descriptions so the org direction proves the column renders
+    // data, not just a header, and the user-owned direction proves the data
+    // does not leak without the column.
+    { id: 'm1', urn: 'hrn:mem:acme.com:m1', name: 'First', description: 'a note', appId: 'a1' },
+    { id: 'm2', urn: 'hrn:mem:acme.com:m2', name: 'Second', description: 'another note', appId: 'a1' },
+  ];
+  async function mountMemoryTab(app: Record<string, unknown>): Promise<HTMLElement> {
+    setStubPage('https://example.test/app/apps/a1?tab=memory', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=memory');
+    const data = await pageData();
+    const createMemoryForm = await superValidate(zod4(createAppMemorySchema), { id: 'createAppMemory:a1', errors: false });
+    const m = mountComponent(Page as never, {
+      data: { ...data, user: { id: 'u1' }, initialTab: 'memory', app: { ...data.app, ...app }, appMemories: memoryRows, createMemoryForm },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  it('a user-owned App (no organizationId) renders the memories grid without the Description column', async () => {
+    const target = await mountMemoryTab({ organizationId: null });
+    const headers = [...target.querySelectorAll('th')].map((h) => h.textContent?.trim() ?? '');
+    expect(headers.some((h) => h.startsWith('Description'))).toBe(false);
+    expect(headers.some((h) => h.startsWith('Name'))).toBe(true);
+    expect(target.textContent).toContain('First');
+    expect(target.textContent).not.toContain('a note');
+  });
+  it('an org-owned App keeps the Description column', async () => {
+    const target = await mountMemoryTab({ organizationId: 'o1' });
+    const headers = [...target.querySelectorAll('th')].map((h) => h.textContent?.trim() ?? '');
+    expect(headers.some((h) => h.startsWith('Description'))).toBe(true);
+    expect(target.textContent).toContain('First');
+    expect(target.textContent).toContain('a note');
+    expect(target.textContent).toContain('another note');
+  });
+});
