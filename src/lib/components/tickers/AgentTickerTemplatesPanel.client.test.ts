@@ -539,4 +539,46 @@ describe('LOCAL review P2s (portal#1613)', () => {
     expect(f.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
     expect(f.querySelector('[data-testid$="-refresh-failed"], [data-testid$="-reload-failed"]')).toBeNull();
   });
+
+  it('while a Reload is re-reading, Save is disabled and a submit is cancelled; the reload then completes and re-enables Reload latest', async () => {
+    const root = await mountPanel();
+    await openEdit(root, 'standup');
+    type(field(updateForm(root) as never, 'name'), 'daily');
+    await tick(2);
+    await submitEnhancedWithResult(updateForm(root), staleRefusal);
+    await tick(3);
+    let release!: () => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((r) => (release = r));
+    reloadBtn(root).click();
+    await tick(3);
+    expect(updateForm(root).querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+    expect((await submitEnhanced(updateForm(root))).cancelled).toBe(true);
+    release();
+    await tick(15);
+    expect(reloadBtn(root)?.disabled ?? false).toBe(false);
+    expect(updateForm(root).querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
+  });
+
+  it('a Reload that SUCCEEDS after the reader opened another template does not re-base the new template draft', async () => {
+    const { props, root } = await mountReactive();
+    await openEdit(root, 'standup');
+    type(field(updateForm(root) as never, 'name'), 'daily');
+    await tick(2);
+    await submitEnhancedWithResult(updateForm(root), staleRefusal);
+    await tick(3);
+    let release!: () => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((r) => (release = r));
+    reloadBtn(root).click();
+    await tick(2);
+    navigationHooks.onInvalidateAll = undefined;
+    await openEdit(root, 'nightly');
+    type(field(updateForm(root) as never, 'name'), 'night draft');
+    await tick(2);
+    props.templates = ok(true, [standup, { ...nightly, name: 'theirs', revision: 10 }]);
+    release();
+    await tick(15);
+    flushSync();
+    expect(updateForm(root).querySelector<HTMLInputElement>('input[name="expectedRevision"]')!.value).toBe('9');
+    expect(field(updateForm(root) as never, 'name').value).toBe('night draft');
+  });
 });

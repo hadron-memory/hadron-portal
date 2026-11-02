@@ -141,7 +141,9 @@
     return ({ cancel }: { cancel: () => void }) => {
       // One request at a time, held through the refresh: a second click while
       // the first is still being confirmed must not send a second mutation.
-      if (submitting) {
+      // Also not while a reload is re-reading: a submit would retire the reload's
+      // ownership and leave "Reload latest" disabled for good.
+      if (submitting || reloading) {
         cancel();
         return;
       }
@@ -321,7 +323,7 @@
   {#if status}
     <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
   {/if}
-  <button type="submit" bind:this={submitBtn} disabled={submitting || refreshFailed} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+  <button type="submit" bind:this={submitBtn} disabled={submitting || reloading || refreshFailed} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
     {#if submitting}{t('agent.tickers.write.saving', 'Saving…')}{:else if editing}{t('agent.tickers.write.save', 'Save')}{:else}{t('agent.tickers.write.add', 'Add')}{/if}
   </button>
 </form>
