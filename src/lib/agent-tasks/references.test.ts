@@ -60,7 +60,7 @@ describe('neutralizeFormatChars (acceptance 2)', () => {
   });
 });
 
-// portal#1580 (cor:agt:050:01 "Blank-looking characters", ruling 0086 A): the server refuses these
+// portal#1580 (hrn:node:hadronmemory.com:specs:cor:agt:050:01 "Blank-looking characters", ruling 0086 A): the server refuses these
 // at write, and clients show the same set visibly for anything stored before. Labels and targets
 // share the six blank characters; variation selectors are revealed in a TARGET only, because an
 // emoji label carries U+FE0F.

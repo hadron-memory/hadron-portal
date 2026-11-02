@@ -99,7 +99,7 @@ describe('task references on the task page (portal#1575)', () => {
     expect(hrefs(html)).toEqual([target]);
   });
 
-  // portal#1580: the non-Cf blank set (cor:agt:050:01, ruling 0086 A) is revealed on the detail view.
+  // portal#1580: the non-Cf blank set (hrn:node:hadronmemory.com:specs:cor:agt:050:01, ruling 0086 A) is revealed on the detail view.
   it('blank characters are revealed in a label, a link’s text and a plain-text target; the href stays the stored string', () => {
     const linkTarget = 'https://example.com/a\u2800b';
     const html = page([
