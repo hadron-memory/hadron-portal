@@ -105,7 +105,8 @@
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
-  import { pageClock, terminalBadge, terminalSummary } from '$lib/workers/terminal';
+  import { terminalBadge, terminalCheckedAge, terminalSummary } from '$lib/workers/terminal';
+  import { createDisplayClock } from '$lib/workers/display-clock.svelte';
   import { workerInternalsVisible } from '$lib/worker-profile';
   import NodeActionsMenu, { type NodeMenuAction } from '$lib/components/NodeActionsMenu.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -185,7 +186,20 @@
   // portal#1168: Task and Paused, one bulk read joined by worker id.
   const teamRoster = $derived(data.teamRoster);
   // portal#1492: the loader's one clock, so server render and hydration agree on every age.
-  const terminalNow = $derived(pageClock(data.terminalNow));
+  // portal#1495 P3: that instant seeds a display clock that advances every 30 s
+  // in the browser (server-relative offset, cleared on destroy, no requests) —
+  // ages on an open page stop going stale. One clock per page: the grid cells
+  // and the search filter below read this same `terminalNow`.
+  // The seed is read ONCE, deliberately: later ticks carry the offset, not the
+  // seed, and the offset (loader clock vs browser clock at first paint) is a
+  // property of the viewer, unchanged by later data for this same instance.
+  // svelte-ignore state_referenced_locally
+  const terminalClock = createDisplayClock(data.terminalNow);
+  $effect(() => {
+    terminalClock.start();
+    return terminalClock.stop;
+  });
+  const terminalNow = $derived(terminalClock.now);
   // #855: worker id → URN for the team chat's author chip. Null when the roster
   // failed to load, so the chat renders no chip rather than an empty one;
   // workers whose URN is null (pre-v2 App URN) are simply absent.
@@ -581,7 +595,23 @@
     // share one filter, and the gate this sweep added is file-scoped precisely
     // so a page cannot end up half-converted — which is how the KEY grid above
     // sat broken while this one looked fine.
-    globalFilterFn: makeGlobalFilterFn<Worker>({}),
+    //
+    // portal#1495 P1 — one exception, closed: the Terminal ACCESSOR is the
+    // summary pill, but the CELL also renders the checked age beside it
+    // (everything-the-cell-renders-must-be-searchable). The age joins as extra
+    // searchable text read from the original row, through the SAME advancing
+    // clock the cell displays. A row that renders no age — Not reported, a
+    // hidden or failed read, no roster entry — contributes nothing, so age
+    // text never discloses or matches a masked row.
+    globalFilterFn: makeGlobalFilterFn<Worker>(
+      {},
+      {
+        terminal: (worker: Worker) => {
+          const b = terminalBadgeOf(worker);
+          return b && b.state !== 'not-reported' ? terminalCheckedAge(b.checkedAt, terminalNow) : null;
+        },
+      },
+    ),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
   });
   // #1006: the Agents tab. The App's install ROSTER (`App.agents`), not

@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mountComponent } from '$lib/test/mountComponent';
 import Page from './+page.svelte';
 import { superValidate } from 'sveltekit-superforms';
@@ -68,7 +68,13 @@ it('#1492 a last turn with a value reads as an age; a returned null is Not repor
   const withTurn = (await mountInternal(terminalOf({ lastTurnAt: '2026-10-31T11:00:00.000Z' }))).textContent!;
   expect(withTurn).toMatch(/Last turn: .*ago/);
   expect(withTurn).not.toContain('not known');
-  expect((await mountInternal(null)).textContent).toContain('Not reported');
+  const unreported = (await mountInternal(null)).textContent!;
+  expect(unreported).toContain('Not reported');
+  // portal#1495 (BLIND hygiene): the not-reported guard in the FULL form was
+  // untested — deleting it would have rendered "Last turn: not known" and
+  // "checked: time unknown" under a report that says none of that.
+  expect(unreported).not.toContain('Last turn');
+  expect(unreported).not.toContain('checked');
 });
 
 it('#1492 renders no host label or prompt, and nothing raw for an unknown state', async () => {
@@ -84,6 +90,26 @@ it('#1492 a stale report keeps its server state; a future checkedAt is time unkn
   expect(stale).not.toMatch(/Dark|Idle: /);
   cleanup?.();
   expect((await mountInternal(terminalOf({ checkedAt: '2027-01-01T00:00:00.000Z' }))).textContent).toContain('checked: time unknown');
+});
+
+it('#1495 P2 a checkedAt a moment ahead of the page clock reads as checked now, never future wording', async () => {
+  const skew = (await mountInternal(terminalOf({ checkedAt: '2026-10-31T12:00:30.000Z' }))).textContent!; // 30 s ahead of NOW
+  expect(skew).toContain('checked now');
+  expect(skew).not.toMatch(/in \d+ sec/);
+});
+
+it('#1495 P3 the full form advances with the page clock, and teardown stops it', async () => {
+  vi.useFakeTimers();
+  const target = await mountInternal(terminalOf());
+  expect(target.textContent).toContain('checked 5 min. ago');
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(target.textContent).toContain('checked 6 min. ago');
+  // Teardown: the DOM is detached but live, so a leaked interval would keep writing.
+  cleanup?.();
+  const frozen = target.textContent;
+  await vi.advanceTimersByTimeAsync(300_000);
+  expect(target.textContent).toBe(frozen);
+  vi.useRealTimers();
 });
 
 it('#1492 the Profile tier shows no terminal, even if a terminal object arrives', () => {

@@ -841,7 +841,7 @@ describe('Worker agents tab (#1009)', () => {
       expect(col[0]).toContain('Locked: Model at capacity');
       expect(col[1]).toContain('Idle');
       expect(col[2]).toContain('Busy');
-      expect(col[3]).toContain('Dark: Missed its tick');
+      expect(col[3]).toContain('Dark: Missed its wake-up');
       for (const c of col) expect(c).toMatch(/checked .*ago/);
       // The session Status cell is untouched by the terminal.
       expect(colTexts(target, 'Status')).toEqual(Array(4).fill('No recorded activity'));
@@ -937,6 +937,21 @@ describe('Worker agents tab (#1009)', () => {
       expect(await search(target, 'checked 5 min')).toEqual([]);
     });
 
+    // The teardown half of P3: leaving the page stops the clock. The DOM is
+    // detached but live in jsdom, so a leaked interval would keep writing to it.
+    it('unmounting the page stops the clock: nothing advances after teardown (portal#1495)', async () => {
+      vi.useFakeTimers();
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
+      const ths = [...target.querySelectorAll('thead th')];
+      const idx = ths.findIndex((th) => th.textContent?.trim().startsWith('Terminal'));
+      const cell = target.querySelector('tbody tr')!.children[idx] as HTMLElement;
+      expect(cell.textContent).toContain('checked 5 min. ago');
+      mounted.pop()!.unmount();
+      await vi.advanceTimersByTimeAsync(300_000);
+      await tick(2);
+      expect(cell.textContent).toContain('checked 5 min. ago');
+    });
+
     it('an unknown state or reason shows fixed copy, never the raw code, in the page or the console', async () => {
       const spies = (['log', 'warn', 'error', 'info'] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
       const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term({ status: 'quantum', reason: 'solar_flare' }) }) }));
@@ -963,7 +978,9 @@ describe('Worker agents tab (#1009)', () => {
       details.dispatchEvent(new Event('toggle'));
       flushSync();
       expect(details.open).toBe(true);
-      const box = [...target.querySelectorAll('label')].find((l) => l.textContent?.trim() === 'Terminal')?.querySelector('input');
+      // portal#1495 (BLIND hygiene): startsWith, like the header match above —
+      // an icon or count on the label must not break the lookup.
+      const box = [...target.querySelectorAll('label')].find((l) => l.textContent?.trim().startsWith('Terminal'))?.querySelector('input');
       expect(box).toBeTruthy();
       box!.click();
       await tick(2);

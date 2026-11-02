@@ -14,7 +14,8 @@ import {
   terminalSummary,
 } from './terminal';
 
-const sdl = readFileSync('schema/schema.graphql', 'utf8');
+// portal#1495 (BLIND hygiene): resolved from this file, not the launcher's CWD.
+const sdl = readFileSync(new URL('../../../schema/schema.graphql', import.meta.url), 'utf8');
 function enumValues(name: string): string[] {
   const body = sdl.match(new RegExp(`enum ${name} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
   return body
@@ -49,7 +50,8 @@ describe('labels', () => {
   it('keeps the agreed words for the common reasons', () => {
     expect(terminalReasonLabel('model_at_capacity')).toBe('Model at capacity');
     expect(terminalReasonLabel('menu_or_question')).toBe('Waiting at a menu or question');
-    expect(terminalReasonLabel('no_turn_for_due_ticker')).toBe('Missed its tick');
+    // portal#1495 (Uma, UX): "tick" was jargon; the wake-up is the reader-facing word.
+    expect(terminalReasonLabel('no_turn_for_due_ticker')).toBe('Missed its wake-up');
   });
 
   it('an unknown state or reason shows fixed copy and logs nothing', () => {
@@ -84,7 +86,7 @@ describe('terminalBadge', () => {
     ['idle', null, 'Idle'],
     ['busy', null, 'Busy'],
     ['locked', 'model_at_capacity', 'Locked: Model at capacity'],
-    ['dark', 'no_turn_for_due_ticker', 'Dark: Missed its tick'],
+    ['dark', 'no_turn_for_due_ticker', 'Dark: Missed its wake-up'],
   ])('%s with %s reads %s', (status, reason, summary) => {
     const b = terminalBadge({ status, reason, checkedAt: read.checkedAt }, true)!;
     expect(terminalSummary(b)).toBe(summary);
