@@ -50,7 +50,7 @@ describe('readAllPages', () => {
     expect(read).toHaveBeenCalledTimes(MAX_PAGES);
   });
 
-  // §10 P2 (Ralion, #1617): a live key must never drop out because the list shifted under the loop.
+  // §10 P2 (Ralion, #1617): the detectable shifts restart the read. The undetectable one (a revoke in the read region plus a join in the unread region, total and page one unchanged) is documented in paged.ts and not pinned here.
   describe('a list that changes while it is read', () => {
     const ids = (n: number, from = 0) => Array.from({ length: n }, (_, i) => ({ id: `k${from + i}` }));
     // A server over a mutable array, with a hook before each page.
