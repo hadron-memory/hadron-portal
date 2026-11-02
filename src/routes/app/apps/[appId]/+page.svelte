@@ -3104,7 +3104,7 @@
       <!-- portal#1607: the App's task integrations. Keyed on propertiesRevision (null = no section)
            and viewerManages (edit controls); unknown viewerManages keeps the controls, as the key controls do. -->
       <TaskIntegrations
-        read={data.appProperties}
+        read={data.appProperties ?? { kind: 'hidden' }}
         manages={data.viewerManages?.kind === 'known' ? data.viewerManages.manages : null}
         workers={data.staff}
       />
