@@ -67,6 +67,35 @@
   let copied = $state(false);
   let urlCopied = $state(false);
 
+  // #1604: a compact chip truncates, and its full URN is only in a `title`
+  // tooltip, which a touch device cannot show. On a coarse pointer a compact,
+  // UNLINKED chip becomes a toggle between the truncated bare value and the
+  // whole fully-qualified URN (hrn:<type>: included), wrapped. A
+  // linked chip is left alone (a tap there navigates), and a fine pointer
+  // keeps the plain chip, with no extra tab stop.
+  //
+  // The pointer is read here, on the client, not by a CSS variant: the toggle
+  // changes the element (a <button> with aria-expanded), which CSS cannot do.
+  // The server render is the fine-pointer chip, which looks identical, so the
+  // switch after hydration moves nothing on screen. matchMedia is absent in
+  // some test environments; the chip then stays plain.
+  let coarsePointer = $state(false);
+  let expanded = $state(false);
+  const revealable = $derived(compact && !linked && coarsePointer);
+  const showFull = $derived(revealable && expanded);
+
+  $effect(() => {
+    if (!compact || linked || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(pointer: coarse)');
+    coarsePointer = mq.matches;
+    const follow = (e: { matches: boolean }) => {
+      coarsePointer = e.matches;
+      if (!e.matches) expanded = false;
+    };
+    mq.addEventListener('change', follow);
+    return () => mq.removeEventListener('change', follow);
+  });
+
   function v2TypeHint(typeHint: UrnTypeHint | undefined): string | undefined {
     if (!typeHint) return undefined;
     if (typeHint === 'memory') return 'mem';
@@ -161,13 +190,17 @@
        ONLY the chip: the copy buttons below are siblings, because a <button> inside
        an <a> is invalid and the anchor would swallow their clicks. -->
   <svelte:element
-    this={linked ? 'a' : 'code'}
+    this={linked ? 'a' : revealable ? 'button' : 'code'}
     href={linked ? `/app/u/${displayFullUrn}` : undefined}
-    class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight {linked ? 'hover:opacity-80' : ''}"
+    type={revealable ? 'button' : undefined}
+    role={revealable ? 'button' : undefined}
+    aria-expanded={revealable ? expanded : undefined}
+    onclick={revealable ? () => (expanded = !expanded) : undefined}
+    class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight {linked ? 'hover:opacity-80' : ''} {revealable ? 'text-left' : ''}"
     style="font-size: 0.6rem;"
   >
     {#if compact}
-      <span class="min-w-0 truncate bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{bareValue}</span>
+      <span class="min-w-0 {showFull ? 'whitespace-normal break-all' : 'truncate'} bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{showFull ? displayFullUrn : bareValue}</span>
     {:else}
       <span class="shrink-0 whitespace-nowrap pl-1.5 pr-0 py-0.5 font-medium {typeBadgeClass}">{CANONICAL_SCHEME}:</span>
       <span class="shrink-0 whitespace-nowrap pl-0 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>

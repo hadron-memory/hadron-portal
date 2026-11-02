@@ -197,7 +197,11 @@
                 <tr class="border-b border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
                   <td class="px-2 py-2 text-sm font-medium break-words text-zinc-900 sm:px-4 dark:text-white">
                     {row.original.name}
-                    <div class="mt-1 text-xs font-normal text-zinc-600 sm:hidden dark:text-zinc-400">{row.original.orgName || '—'}</div>
+                    <!-- #1604: only a real org folds under the name. Here a "—"
+                         is an unlabelled stray glyph, not an empty cell. -->
+                    {#if row.original.orgName}
+                      <div class="mt-1 text-xs font-normal text-zinc-600 sm:hidden dark:text-zinc-400">{row.original.orgName}</div>
+                    {/if}
                   </td>
                   <td class="px-2 py-2 text-xs sm:px-4">
                     <div class="flex items-center gap-2">
