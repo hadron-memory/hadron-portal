@@ -6,10 +6,9 @@
  * Cloudflare's own field name, and hadron-server reads the same name, so the
  * token rides through the portal's form action untouched.
  */
-export const TURNSTILE_FIELD = 'cf-turnstile-response';
+import { t } from '$lib/i18n/t';
 
-export const BOT_CHECK_RETRY_MESSAGE = 'Complete the check and try again.';
-export const BOT_CHECK_UNAVAILABLE_MESSAGE = 'Sign-in is temporarily unavailable. Please try again later.';
+export const TURNSTILE_FIELD = 'cf-turnstile-response';
 
 /** The only error code hadron-server answers a refused bot check with. */
 export const BOT_CHECK_ERROR = 'bot_check_failed';
@@ -21,9 +20,10 @@ export const BOT_CHECK_ERROR = 'bot_check_failed';
  * configured, a reason this build has not met) is not theirs to fix.
  */
 export function botCheckMessage(reason: unknown): string {
+  // portal#1474: through t() (hrn:node:hadronmemory.com:hadron-portal:review:user-strings-through-t-helper).
   return reason === 'missing_token' || reason === 'invalid_token'
-    ? BOT_CHECK_RETRY_MESSAGE
-    : BOT_CHECK_UNAVAILABLE_MESSAGE;
+    ? t('auth.bot-check.retry', 'Complete the check and try again.')
+    : t('auth.bot-check.unavailable', 'Sign-in is temporarily unavailable. Please try again later.');
 }
 
 /** A submitted token, or undefined when the field is absent or blank. */
