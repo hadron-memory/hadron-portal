@@ -109,4 +109,39 @@ describe('board search: an exact handle', () => {
     await type(m, 'hrn:agenttask:acme.com:other:AT3');
     expect(openLink(m)?.getAttribute('href')).toBe(`/app/apps/app-1/tasks/${encodeURIComponent('hrn:agenttask:acme.com:other:AT3')}`);
   });
+
+  // portal#1415 item 3 (cf30a11c P3 2): the link NAMES the canonical handle
+  // `parseHandle` returns, never the case the user typed — and a bare handle
+  // is canonicalized everywhere it travels (text, href, submit), so the URL
+  // bar shows the spelling the server recognizes.
+  it('a typed lowercase bare handle shows and opens the CANONICAL spelling: text, href and submit agree', async () => {
+    const m = mountBoard();
+    await type(m, 'at3.405');
+    expect(openLink(m)?.textContent).toBe('Open AT3.405');
+    expect(openLink(m)?.getAttribute('href')).toBe('/app/apps/app-1/tasks/AT3.405');
+    expect(await submit(m)).toBe(true);
+    expect(gotos()).toEqual(['/app/apps/app-1/tasks/AT3.405']);
+  });
+
+  it('a qualified handle still names its bare handle in the link text while the href forwards the full spelling', async () => {
+    const m = mountBoard();
+    await type(m, 'hrn:agenttask:acme.com:other:AT3');
+    expect(openLink(m)?.textContent).toBe('Open AT3');
+  });
+
+  // portal#1415 item 3 (P3 c): the link appears and disappears as the typed
+  // text crosses in and out of being a whole handle, silently for a screen
+  // reader unless the paragraph is a live region. Polite (role=status), not
+  // assertive — this is a hint beside a search box, never an alarm
+  // (review:ticking-content-outside-live-region: dynamic content in a live
+  // region is polite, and this one carries no per-tick text).
+  it('the link is announced: its paragraph is a polite status region, present only while the text is a whole handle', async () => {
+    const m = mountBoard();
+    const region = () => m.target.querySelector('[data-testid="open-by-handle"]');
+    expect(region()).toBeNull();
+    await type(m, 'AT3.405');
+    expect(region()?.getAttribute('role')).toBe('status');
+    await type(m, 'AT3.405x');
+    expect(region()).toBeNull();
+  });
 });
