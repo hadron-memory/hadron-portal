@@ -1,4 +1,4 @@
-import {it,expect} from 'vitest';
+import {it,expect,vi} from 'vitest';
 import {superValidate} from 'sveltekit-superforms/server';
 import {zod4} from 'sveltekit-superforms/adapters';
 import {mountComponent,tick} from '$lib/test/mountComponent';
@@ -22,13 +22,17 @@ it('a success identifies and links the created memory even when its row is outsi
 // no description, so the column would show a dash for a memory that has one.
 it.each([[true,true],[false,false]])('showDescription=%s puts the Description column in the table: %s',async(showDescription,present)=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
- const memories=[{id:'m1',urn:'hrn:mem:acme.com:m1',name:'First',description:null,appId:'a'}];
+ // non-null description so the present direction proves the column renders
+ // DATA, not just a header (portal#1469 fold: BLIND P3 / LOCAL P3-2)
+ const memories=[{id:'m1',urn:'hrn:mem:acme.com:m1',name:'First',description:'a note',appId:'a'}];
  const m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription} as never);
  try{await tick();
  const headers=[...m.target.querySelectorAll('th')].map(h=>h.textContent?.trim());
  expect(headers.some(h=>h?.startsWith('Description'))).toBe(present);
  expect(headers.some(h=>h?.startsWith('Name'))).toBe(true);
  expect(m.target.textContent).toContain('First');
+ if(present)expect(m.target.textContent).toContain('a note');
+ else expect(m.target.textContent).not.toContain('a note');
  }finally{m.unmount();}
 });
 
@@ -51,16 +55,31 @@ it('restores a saved view that names the absent Description column (user-owned A
  localStorage.setItem('hadron:views:v1:app-memories',JSON.stringify([
   {id:'v1',listKey:'app-memories',name:'Org era',view:staleView,isDefault:true,createdAt:'2026-10-01T00:00:00.000Z',updatedAt:'2026-10-01T00:00:00.000Z'},
  ]));
- const m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription:false} as never);
- // init() awaits the view list, then the active id, before applyView lands —
- // same chain as picker-inner-layers' tick(10); a shorter count reads a
- // not-yet-filtered table and passes vacuously.
- try{await tick(10);
+ // try starts before mount: a throwing mount must still clear storage
+ // (portal#1469 fold, BLIND P3-1).
+ let m:ReturnType<typeof mountComponent>|undefined;
+ try{
+ m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription:false} as never);
+ // init() awaits the view list, then the active id, before applyView lands.
+ // Poll to the positive control rather than counting ticks (fold, BLIND
+ // P2-2): a fixed tick(10) is a magic number that a longer chain silently
+ // outgrows into a false red, and a shorter one reads a not-yet-filtered
+ // table and passes vacuously.
+ await vi.waitFor(async()=>{
+  await tick();
+  expect(m!.target.textContent).not.toContain('Second');
+ });
  const headers=[...m.target.querySelectorAll('th')].map(h=>h.textContent?.trim());
  expect(headers.some(h=>h?.startsWith('Description'))).toBe(false);
  expect(headers.some(h=>h?.startsWith('Name'))).toBe(true);
  expect(m.target.textContent).toContain('First');   // the row the view keeps
  expect(m.target.textContent).not.toContain('Second'); // positive control: the restore ran
- expect(m.target.querySelector('.text-red-600,.text-red-400')).toBeNull(); // no restore error surfaced
- }finally{m.unmount();localStorage.removeItem('hadron:views:v1:app-memories');}
+ // No storage/restore error surfaced. Keyed on the ViewStorageError message
+ // family (all five constructors in localStorageViewStore.ts/viewStore.ts),
+ // not on Tailwind classes (fold, BLIND P2-3 / LOCAL P3-1): the class query
+ // silently asserts nothing if the error span is ever restyled. A throw out
+ // of the restore would fail the awaited waitFor above loudly, so the
+ // render-text-and-throw pair covers both failure modes.
+ expect(m.target.textContent).not.toMatch(/Could not save|Storage is unavailable|View not found|View name cannot be empty/);
+ }finally{m?.unmount();localStorage.removeItem('hadron:views:v1:app-memories');}
 });

@@ -1964,8 +1964,11 @@ describe('App Settings: task integrations draft (LOCAL review of #1614, P2-2)', 
 // column; an org App keeps it.
 describe('App memories Description column wiring (portal#1469)', () => {
   const memoryRows = [
-    { id: 'm1', urn: 'hrn:mem:acme.com:m1', name: 'First', description: null, appId: 'a1' },
-    { id: 'm2', urn: 'hrn:mem:acme.com:m2', name: 'Second', description: null, appId: 'a1' },
+    // non-null descriptions so the org direction proves the column renders
+    // DATA, not just a header, and the user-owned direction proves the data
+    // does not leak without it (portal#1469 fold, BLIND P3).
+    { id: 'm1', urn: 'hrn:mem:acme.com:m1', name: 'First', description: 'a note', appId: 'a1' },
+    { id: 'm2', urn: 'hrn:mem:acme.com:m2', name: 'Second', description: 'another note', appId: 'a1' },
   ];
   async function mountMemoryTab(app: Record<string, unknown>): Promise<HTMLElement> {
     setStubPage('https://example.test/app/apps/a1?tab=memory', { appId: 'a1' });
@@ -1986,11 +1989,13 @@ describe('App memories Description column wiring (portal#1469)', () => {
     expect(headers.some((h) => h.startsWith('Description'))).toBe(false);
     expect(headers.some((h) => h.startsWith('Name'))).toBe(true);
     expect(target.textContent).toContain('First');
+    expect(target.textContent).not.toContain('a note');
   });
   it('an org-owned App keeps the Description column', async () => {
     const target = await mountMemoryTab({ organizationId: 'o1' });
     const headers = [...target.querySelectorAll('th')].map((h) => h.textContent?.trim() ?? '');
     expect(headers.some((h) => h.startsWith('Description'))).toBe(true);
     expect(target.textContent).toContain('First');
+    expect(target.textContent).toContain('a note');
   });
 });

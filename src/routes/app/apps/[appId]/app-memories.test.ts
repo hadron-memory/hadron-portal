@@ -75,8 +75,12 @@ it('bounds an optional scope outage instead of hanging the App page (user-owned)
  vi.useFakeTimers();
  try {
   const pending=readAppMemoryScope({request:vi.fn(()=>new Promise(()=>{}))} as never,'a');
-  await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
+  // +1 past the boundary (fold, BLIND P3): resolving exactly AT the timeout
+  // tick would also pass an off-by-one in withTimeout's scheduling.
+  await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS+1);
   expect(await pending).toBeNull();
+  // the derive keeps null's meaning — unavailable, not a successful empty
+  // list (gate ask 1 keeps both assertions in one pin by design)
   expect(appMemoriesFromScope(null,'a')).toBeNull();
  }finally{vi.useRealTimers();}
 });
