@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import Breadcrumb from './Breadcrumb.svelte';
 
-function html(items: Array<{ label: string; href?: string; title?: string }>) {
+function html(items: Array<{ label: string; href?: string; title?: string; chip?: string | null; chipLabel?: string }>) {
   return render(Breadcrumb, { props: { items } }).body;
 }
 
@@ -93,5 +93,41 @@ describe('Breadcrumb', () => {
     const out = html([{ label: 'A', href: '/a' }, { label: '<img src=x onerror=alert(1)>' }]);
     expect(out).not.toContain('<img src=x');
     expect(out).toContain('&lt;img');
+  });
+
+  // portal#1415 item 1: aria-label on a generic <code> has uneven screen-reader
+  // support, so the chip's accessible name must be CONTENT — a visually hidden
+  // prefix — not an attribute. The pin is on the text an AT actually reads.
+  // MARK tolerates the {#if} comment markers Svelte's SSR emits; \s* is the
+  // &nbsp; that keeps "handle" and the value from running together.
+  it('a chip with a chipLabel names itself through a visually hidden prefix, not an aria-label', () => {
+    const out = html([{ label: 'Root', href: '/r', chip: 'AT3', chipLabel: 'Task handle' }]);
+    const MARK = '(?:<!--.*?-->)*';
+    expect(out).toMatch(new RegExp(`<code[^>]*data-crumb-chip[^>]*>${MARK}<span class="[^"]*\\bsr-only\\b[^"]*"[^>]*>Task handle\\s*</span>${MARK}AT3</code>`));
+    // An aria-label would override the content and reintroduce the original bug.
+    expect(out).not.toMatch(/<code[^>]*data-crumb-chip[^>]*aria-label/);
+    // The visible chip text itself is untouched: the prefix is additive.
+    expect(out).toContain('title="AT3"');
+  });
+
+  it('a chip with no chipLabel is a bare code: no prefix, no aria-label', () => {
+    const out = html([{ label: 'Root', href: '/r', chip: 'AT3' }]);
+    expect(out).toMatch(new RegExp(`<code[^>]*data-crumb-chip[^>]*>${'(?:<!--.*?-->)*'}AT3</code>`));
+    expect(out).not.toContain('sr-only');
+    expect(out).not.toMatch(/<code[^>]*aria-label/);
+  });
+
+  // portal#1415 item 5 (decision B): a trail three levels deep carries three
+  // chips of up to 8rem each alongside capped titles, which starves the titles
+  // at 390px. The chips hide below `sm` — CSS, not JS, so the SSR'd HTML is
+  // already right (hrn:node:hadronmemory.com:hadron-portal:conventions:three-state-responsive-collapse:
+  // the viewport half is CSS). Pinned through the classes, as truncation is
+  // above: jsdom has no layout to measure.
+  it('the chip hides below sm so deep trails keep their titles at phone width', () => {
+    const out = html([{ label: 'Root', href: '/r', chip: 'AT3', chipLabel: 'Task handle' }]);
+    const code = out.match(/<code[^>]*data-crumb-chip[^>]*>/)?.[0] ?? '';
+    const chipClass = code.match(/class="([^"]*)"/)?.[1] ?? '';
+    expect(chipClass).toMatch(/(^|\s)hidden(\s|$)/);
+    expect(chipClass).toMatch(/(^|\s)sm:inline-block(\s|$)/);
   });
 });

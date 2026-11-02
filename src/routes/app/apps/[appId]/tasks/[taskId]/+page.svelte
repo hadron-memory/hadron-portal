@@ -52,8 +52,10 @@
     ...data.ancestors.map((a) => ({
       label: a.title,
       href: taskHref(basePath, a),
+      // portal#1415 item 1: the chip's accessible name is a visually hidden
+      // prefix + the chip value, so the label is the KIND, not the whole name.
       chip: a.handle,
-      chipLabel: t('app.tasks.handle.aria', 'Task handle {handle}', { handle: a.handle }),
+      chipLabel: t('app.tasks.handle.prefix', 'Task handle'),
     })),
     { label: task.title },
   ]);
@@ -142,9 +144,11 @@
       {/if}
     </div>
     <div class="flex min-w-0 flex-col items-start gap-1 sm:items-end">
-      <CopyCode value={task.handle} label={t('app.tasks.copy-handle', 'Copy the task handle')} />
-      <CopyCode value={task.id} label={t('app.tasks.copy-id', 'Copy the task id')} />
-      <CopyCode value="hadron team task get {task.id}" label={t('app.tasks.copy-cli', 'Copy the CLI command that reads this task')} />
+      <!-- portal#1415 item 2: visible names, so three stacked rows are not three
+           anonymous "Copy" buttons to a sighted reader. -->
+      <CopyCode value={task.handle} label={t('app.tasks.copy-handle', 'Copy the task handle')} name={t('app.tasks.copy-name-handle', 'Handle')} />
+      <CopyCode value={task.id} label={t('app.tasks.copy-id', 'Copy the task id')} name={t('app.tasks.copy-name-id', 'ID')} />
+      <CopyCode value="hadron team task get {task.id}" label={t('app.tasks.copy-cli', 'Copy the CLI command that reads this task')} name={t('app.tasks.copy-name-cli', 'CLI')} />
     </div>
   </div>
 

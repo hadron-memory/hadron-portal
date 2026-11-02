@@ -90,11 +90,22 @@
   let typed = $state<string | null>(null);
   const searchValue = $derived(typed ?? data.text ?? '');
   // A whole handle once trimmed: a pasted "AT3.405 " is still one (Uma's P2).
-  const exactHandle = $derived(parseHandle(searchValue.trim()) ? searchValue.trim() : null);
+  // portal#1415 item 3: the link NAMES the canonical spelling `parseHandle`
+  // returns (upper case), never the case the user typed — and a bare handle
+  // canonicalizes everywhere it travels (text, href, submit), so the URL bar
+  // shows what the server recognizes. A qualified handle forwards its full
+  // spelling in the href (the route answers a foreign App as unknown,
+  // portal#1375 — the portal decides nothing) while the text still names its
+  // bare handle.
+  const typedHandle = $derived(parseHandle(searchValue.trim()));
+  const exactHandleHref = $derived(
+    typedHandle
+      ? `${basePath}/tasks/${encodeURIComponent(typedHandle.appUrn === null ? typedHandle.handle : searchValue.trim())}`
+      : '',
+  );
   // Starts like a handle but is not a whole one ("AT3." or "AT3.4x"): the search
   // cannot match handles (#1401 searches titles and descriptions), so say so.
   const looksLikePartialHandle = (text: string) => /^AT\d/i.test(text) && !parseHandle(text);
-  const exactHandleHref = $derived(exactHandle ? `${basePath}/tasks/${encodeURIComponent(exactHandle)}` : '');
   const columns: PortalColumnDef<BoardRow>[] = [
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
     { id: 'title', accessorFn: (r) => r.title, header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 320 },
@@ -166,9 +177,12 @@
     const input = form.elements.namedItem('text') as HTMLInputElement;
     // portal#1349: an exact handle opens that task; the title search would never find it.
     input.value = input.value.trim();
-    if (parseHandle(input.value)) {
+    const parsed = parseHandle(input.value);
+    if (parsed) {
       event.preventDefault();
-      void goto(`${basePath}/tasks/${encodeURIComponent(input.value)}`);
+      // portal#1415 item 3: a bare handle opens its canonical spelling, the
+      // same destination the link offers; a qualified one forwards as-is.
+      void goto(`${basePath}/tasks/${encodeURIComponent(parsed.appUrn === null ? parsed.handle : input.value)}`);
       return;
     }
     input.setCustomValidity(input.value.length > TASK_SEARCH_MAX
@@ -312,11 +326,19 @@
          (the only way to name a subtask like AT3.405 here) is a real link to that
          task. The route hands the handle to the server's resolver; an unknown,
          malformed or foreign one answers there, exactly like an unknown id. -->
-    {#if exactHandle}
-      <p class="text-sm" data-testid="open-by-handle">
-        <a href={exactHandleHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.open-handle', 'Open {handle}', { handle: exactHandle })}</a>
-      </p>
-    {/if}
+    <!-- portal#1415 item 3, P2 fix (Juliet, AT0.4138): the live region is
+         ALWAYS in the DOM and only its content changes — a region that mounts
+         already-populated is not reliably announced, and one that unmounts
+         announces nothing. Empty has no line box, so nothing shifts. No
+         timer-driven text rides in here
+         (hrn:node:hadronmemory.com:hadron-portal:review:ticking-content-outside-live-region):
+         the content changes only on user keystrokes, and only when the text
+         crosses into or out of being a whole handle. -->
+    <p role="status" class="text-sm" data-testid="open-by-handle">
+      {#if typedHandle}
+        <a href={exactHandleHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.open-handle', 'Open {handle}', { handle: typedHandle.handle })}</a>
+      {/if}
+    </p>
 
     {#if board.kind === 'invalid-search'}
       <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('app.tasks.search.bounds', 'Search text is 1 to 200 characters.')}</p>

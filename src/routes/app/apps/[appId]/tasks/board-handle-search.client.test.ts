@@ -109,4 +109,45 @@ describe('board search: an exact handle', () => {
     await type(m, 'hrn:agenttask:acme.com:other:AT3');
     expect(openLink(m)?.getAttribute('href')).toBe(`/app/apps/app-1/tasks/${encodeURIComponent('hrn:agenttask:acme.com:other:AT3')}`);
   });
+
+  // portal#1415 item 3 (cf30a11c P3 2): the link NAMES the canonical handle
+  // `parseHandle` returns, never the case the user typed — and a bare handle
+  // is canonicalized everywhere it travels (text, href, submit), so the URL
+  // bar shows the spelling the server recognizes.
+  it('a typed lowercase bare handle shows and opens the CANONICAL spelling: text, href and submit agree', async () => {
+    const m = mountBoard();
+    await type(m, 'at3.405');
+    expect(openLink(m)?.textContent).toBe('Open AT3.405');
+    expect(openLink(m)?.getAttribute('href')).toBe('/app/apps/app-1/tasks/AT3.405');
+    expect(await submit(m)).toBe(true);
+    expect(gotos()).toEqual(['/app/apps/app-1/tasks/AT3.405']);
+  });
+
+  it('a qualified handle still names its bare handle in the link text while the href forwards the full spelling', async () => {
+    const m = mountBoard();
+    await type(m, 'hrn:agenttask:acme.com:other:AT3');
+    expect(openLink(m)?.textContent).toBe('Open AT3');
+  });
+
+  // portal#1415 item 3 (P3 c), P2 fix (Juliet, AT0.4138): the announcement is
+  // a CONTENT CHANGE inside a persistent polite status region — a region that
+  // mounts already-populated is not reliably announced, and one that unmounts
+  // announces nothing. Polite (role=status), not assertive — this is a hint
+  // beside a search box, never an alarm
+  // (hrn:node:hadronmemory.com:hadron-portal:review:ticking-content-outside-live-region:
+  // dynamic content in a live region is polite, and this one carries no
+  // per-tick text).
+  it('the link comes and goes inside a persistent status region that never unmounts', async () => {
+    const m = mountBoard();
+    const region = () => m.target.querySelector('[data-testid="open-by-handle"]');
+    // Present and empty from the first render — an empty region has no line
+    // box, so nothing shifts.
+    expect(region()?.getAttribute('role')).toBe('status');
+    expect(openLink(m)).toBeNull();
+    await type(m, 'AT3.405');
+    expect(openLink(m)?.textContent).toBe('Open AT3.405');
+    await type(m, 'AT3.405x');
+    expect(openLink(m)).toBeNull();
+    expect(region()).not.toBeNull();
+  });
 });

@@ -5,6 +5,11 @@
   place and the full value stays in `title` and the accessible name. Renders
   nothing for a task that has no handle to show (an older read, or a reference
   that did not resolve): absent, never an empty chip and never a made-up "AT0".
+
+  portal#1415 item 1: the accessible name is CONTENT, not an attribute — a
+  visually hidden "Task handle" prefix before the value. `aria-label` on a
+  generic <code> has uneven screen-reader support (some read only "AT3.405",
+  some nothing), and an aria-label would override the content anyway.
 -->
 <script lang="ts">
   import { t } from '$lib/i18n/t';
@@ -16,7 +21,7 @@
   <code
     class="inline-block max-w-[14rem] shrink-0 truncate rounded bg-zinc-100 px-1.5 py-0.5 align-middle font-mono text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
     title={handle}
-    aria-label={t('app.tasks.handle.aria', 'Task handle {handle}', { handle })}
     data-task-handle
-  >{handle}</code>
+    ><span class="sr-only">{t('app.tasks.handle.prefix', 'Task handle')}&nbsp;</span>{handle}</code
+  >
 {/if}
