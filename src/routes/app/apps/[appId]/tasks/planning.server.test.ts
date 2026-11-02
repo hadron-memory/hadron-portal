@@ -49,6 +49,15 @@ describe('portal#1352 task planning writes', () => {
     rawRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'secret sql', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] } });
     expect(await (await actions()).priority(event({ priority: '2' }))).toMatchObject({ status: 502, data: { refusal: { kind: 'uncertain' }, values: { priority: '2' } } });
   });
+  // portal#1392 (Rook's optional §10 pin on #1388): a cycle is the server's typed refusal, shown with its
+  // sentence and the draft kept, never folded into the "may or may not have landed" uncertainty line.
+  it('TASK_BLOCKER_CYCLE stays a refused draft, distinct from uncertainty', async () => {
+    const message = 'That blocker would make the tasks wait on each other.';
+    rawRequest.mockRejectedValueOnce({ response: { errors: [{ message, extensions: { code: 'TASK_BLOCKER_CYCLE' } }] } });
+    const out = await (await actions()).addBlocker(event({ blockerTaskRef: 't2' })) as { status: number; data: { refusal: unknown; values: unknown } };
+    expect(out.data).toMatchObject({ refusal: { kind: 'refused', code: 'TASK_BLOCKER_CYCLE', message }, values: { blockerTaskRef: 't2' } });
+    expect(out.status).not.toBe(502);
+  });
   it('impersonation planning writes make no request', async () => {
     expect(await (await actions()).addBlocker(event({ blockerTaskRef: 't2' }, {}))).toMatchObject({ status: 403 });
     expect(rawRequest).not.toHaveBeenCalled();

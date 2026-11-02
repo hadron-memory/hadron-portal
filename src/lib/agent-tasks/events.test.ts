@@ -16,6 +16,13 @@ describe('eventSentence', () => {
     ['task.blocker-removed', { blockerTaskId: 'concealed' }, null, 'removed a blocker'],
     ['task.priority', { priority: 3 }, null, 'set priority to 3'],
     ['task.priority', { priority: 'untrusted' }, null, 'changed the priority'],
+    // portal#1392: only an integer 1–5 is shown as a value; anything else is the neutral line.
+    ['task.priority', { priority: 1 }, null, 'set priority to 1'],
+    ['task.priority', { priority: 5 }, null, 'set priority to 5'],
+    ['task.priority', { priority: 0 }, null, 'changed the priority'],
+    ['task.priority', { priority: 6 }, null, 'changed the priority'],
+    ['task.priority', { priority: 2.5 }, null, 'changed the priority'],
+    ['task.priority', { priority: '3' }, null, 'changed the priority'],
     ['task.released', {}, null, 'released this task after its last open blocker ended or was removed'],
     ['task.created', {}, null, 'created this task'],
     ['task.assigned', {}, dara, 'assigned it to Dara'],
