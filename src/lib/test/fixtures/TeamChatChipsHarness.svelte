@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { setContext } from 'svelte';
+  import { setContext, tick } from 'svelte';
   import { writable } from 'svelte/store';
   import TeamChatThread from '$lib/components/TeamChatThread.svelte';
   import type { TeamChatFilter } from '$lib/team-chat-filter';
@@ -8,6 +8,22 @@
     page: writable({ url: new URL('http://localhost/__blank'), params: {}, route: { id: null }, status: 200, error: null, data: {}, form: null }),
     navigating: writable(null), updated: { subscribe: writable(false).subscribe, check: async () => false },
   });
+  let { delaySelection = false }: { delaySelection?: boolean } = $props();
+  let pendingFilter: TeamChatFilter | null = null;
+  let draft = $state({ body: '' });
+  function select(next: TeamChatFilter) {
+    if (delaySelection) {
+      pendingFilter = next;
+      if (focusRequest) Object.assign(focusRequest, { navigation: 'pending' });
+    } else filter = next;
+  }
+  export async function applyPendingFilter() {
+    if (!pendingFilter) return;
+    const request = focusRequest;
+    filter = pendingFilter; pendingFilter = null;
+    await tick();
+    if (request && focusRequest === request) Object.assign(request, { navigation: 'complete' });
+  }
   let announcement = $state('');
   let focusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
   let filter = $state<TeamChatFilter>({ kind: 'none' });
@@ -16,5 +32,5 @@
 </script>
 <span data-testid="team-chat-filter-status" class="sr-only" aria-live="polite" aria-atomic="true">{announcement}</span>
 {#key JSON.stringify(filter)}
-<TeamChatThread onFilterAnnouncement={(text) => { announcement = text; }} bind:filterFocusRequest={focusRequest} {messages} total={1} {filter} postForm={postForm as never} onSelectTeam={(next) => { filter = next; }} heightClass="h-[600px]" pollMs={0} />
+<TeamChatThread onFilterAnnouncement={(text) => { announcement = text; }} bind:filterFocusRequest={focusRequest} {messages} total={1} {filter} postForm={postForm as never} onSelectTeam={select} {draft} onDraftChange={(next) => { draft = next; }} heightClass="h-[600px]" pollMs={0} />
 {/key}

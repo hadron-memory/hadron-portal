@@ -9,7 +9,10 @@ let browser;
 try {
  await server.listen();
  const origin=server.resolvedUrls.local[0];
- const css=await (await fetch(new URL('src/app.css?direct',origin))).text();
+ const cssUrl=new URL('src/app.css?direct',origin);
+ const cssResponse=await fetch(cssUrl);
+ assert(cssResponse.ok, `CSS request failed: ${cssResponse.status} ${cssUrl}`);
+ const css=await cssResponse.text();
  browser=await chromium.launch({headless:true});
  for(const width of [390,1280]) for(const theme of ['light','dark']) {
   const page=await browser.newPage({viewport:{width,height:844}});
@@ -21,9 +24,10 @@ try {
      document.documentElement.classList.toggle('dark',theme==='dark');
      document.documentElement.style.background = document.body.style.background = theme === 'dark' ? '#09090b' : '#fafafa';
      document.body.innerHTML=`<main id="fixture" style="margin:40px;width:${width === 390 ? 308 : 1000}px"></main>`;
-     const style=document.createElement('style');style.textContent=css;document.head.append(style);
+     document.getElementById('fixture-css')?.remove();
+     const style=document.createElement('style');style.id='fixture-css';style.textContent=css;document.head.append(style);
     },{css,theme,width});
-    await page.evaluate(async()=>{const {mountTeamChatChips}=await import('/src/lib/test/fixtures/team-chat-chips-harness.ts');mountTeamChatChips(document.getElementById('fixture'));});
+    await page.evaluate(async()=>{const {mountTeamChatChips}=await import('/src/lib/test/fixtures/team-chat-chips-harness.ts');window.__chatChipsFixture=mountTeamChatChips(document.getElementById('fixture'),true);});
     break;
    } catch(e) {if(attempt>=5||!/Execution context was destroyed|navigation/i.test(String(e)))throw e;}
   }
@@ -34,6 +38,7 @@ try {
    if(stage==='team') {
     await page.locator('[data-testid="team-chat-tag"]').first().focus();
     await page.keyboard.press('Enter');
+    await page.evaluate(()=>window.__chatChipsFixture.applyPendingFilter());
     await page.waitForFunction(()=>document.activeElement?.getAttribute('data-testid')==='team-chat-filter-active', null, {timeout:5000});
     assert(await originalStatus.evaluate(node=>node.isConnected),'live region must survive keyed remount');
     assert.equal(await page.locator('[data-testid="team-chat-filter-status"]').getAttribute('aria-live'),'polite');
@@ -43,6 +48,14 @@ try {
    for(const row of rows) {assert(row.height>=24,`${width}/${theme}/${stage}: ${JSON.stringify(row)} below 24px`);assert(row.width>=24);assert(row.font>=11&&row.font<=12);}
    if(process.env.CHAT_CHIPS_SHOTS) {await mkdir(process.env.CHAT_CHIPS_SHOTS,{recursive:true});await page.screenshot({path:`${process.env.CHAT_CHIPS_SHOTS}/${width}-${theme}-${stage}.png`});}
   }
+  // Hold the next selection while the person moves and types. Both the
+  // textarea and its opener are destroyed by the filter-keyed remount.
+  await page.locator('[data-testid="team-chat-tag"]').last().click();
+  await page.locator('#team-chat-body').fill('draft typed during the pending filter change');
+  await page.evaluate(()=>window.__chatChipsFixture.applyPendingFilter());
+  await page.waitForFunction(()=>document.activeElement===document.querySelector('#team-chat-body'),null,{timeout:5000});
+  assert.equal(await page.locator('#team-chat-body').inputValue(),'draft typed during the pending filter change');
+  console.log(`${width}/${theme}: newer composer focus and draft survived keyed remount`);
   await page.close();
  }
 } finally {await browser?.close();await server.close();}
