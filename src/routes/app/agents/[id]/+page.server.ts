@@ -2,6 +2,15 @@ import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
 import { loadInheritanceManagement, loadBaseCandidates, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
 import { loadAgentInheritance } from '$lib/server/agent-inheritance';
+import {
+  CREATE_AGENT_TICKER_TEMPLATE_MUTATION,
+  DELETE_AGENT_TICKER_TEMPLATE_MUTATION,
+  UPDATE_AGENT_TICKER_TEMPLATE_MUTATION,
+  classifyTemplateError,
+  loadAgentTickerTemplates,
+} from '$lib/server/agent-ticker-templates';
+import { formValues, impersonationRefusal, writeFailure } from '$lib/server/agent-task-writes';
+import { buildTemplateCreateInput, buildTemplateDelete, buildTemplateUpdate } from '$lib/tickers/template-write';
 import { redirect, fail, isRedirect, error } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -371,14 +380,17 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate({ _kind: 'setAgentBase', operation: 'set', baseRef: '' }, zod4(agentBaseSchema), { id: 'agentBase', errors: false }),
     superValidate({ _kind: 'setAgentIndexRefs', tasksOperation: 'keep', tasksIndexRef: '', processesOperation: 'keep', processesIndexRef: '' }, zod4(agentIndexRefsSchema), { id: 'agentIndexRefs', errors: false }),
   ]);
-  const [extendedBy, systemMemoryIdentity] = await Promise.all([
+  const [extendedBy, systemMemoryIdentity, tickerTemplates] = await Promise.all([
     loadAgentExtensions(client, agent.id, url?.searchParams.get('extendedAfter') ?? null),
     loadSystemMemoryIdentity(client, systemMemoryId),
+    // portal#1609: its own read, so a failure costs the Ticker templates tab and never the page.
+    loadAgentTickerTemplates(client, agent.id),
   ]);
   // portal#1377: after the pointer read, because it decides which editor to offer.
   const bootSource = await readBootSource(client, bootPointer, systemMemoryId);
   return {
-    extendedBy, systemMemoryIdentity,
+    extendedBy, systemMemoryIdentity, tickerTemplates,
+    impersonating: locals.impersonation ? (locals.user?.name ?? locals.user?.email ?? locals.user?.id ?? null) : null,
     extendedAfter: url?.searchParams.get('extendedAfter') ?? null,
     inheritanceManagement, baseCandidates, baseForm, indexRefsForm,
     inheritance,
@@ -429,6 +441,56 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 };
 
 export const actions: Actions = {
+  // portal#1609 (slice C of #1141): the Agent's ticker templates. Who may edit is the server's call
+  // (the Agent's manager, hrn:node:hadronmemory.com:specs:cor:agt:080:35) and every write goes with the viewer's own token; the page's
+  // `viewerMayEditTickerTemplates` is only a display hint. An edit and a delete name the revision the
+  // page read, so a stale one is refused, never retried.
+  createTickerTemplate: async ({ request, params, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('createTickerTemplate', impersonationRefusal(), values);
+    const built = buildTemplateCreateInput(fd);
+    if ('invalid' in built) return writeFailure('createTickerTemplate', { kind: 'invalid', ...built.invalid }, values);
+    try {
+      await gqlClient(locals.token).request(CREATE_AGENT_TICKER_TEMPLATE_MUTATION, { agentRef: params.id, input: built.input });
+      return { action: 'createTickerTemplate' as const, ok: true as const };
+    } catch (e) {
+      return writeFailure('createTickerTemplate', classifyTemplateError(e, 'create'), values);
+    }
+  },
+
+  updateTickerTemplate: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('updateTickerTemplate', impersonationRefusal(), values);
+    const built = buildTemplateUpdate(fd);
+    if ('invalid' in built) return writeFailure('updateTickerTemplate', { kind: 'invalid', ...built.invalid }, values);
+    try {
+      await gqlClient(locals.token).request(UPDATE_AGENT_TICKER_TEMPLATE_MUTATION, {
+        id: built.id,
+        expectedRevision: built.expectedRevision,
+        input: built.patch,
+      });
+      return { action: 'updateTickerTemplate' as const, ok: true as const };
+    } catch (e) {
+      return writeFailure('updateTickerTemplate', classifyTemplateError(e, 'update'), values);
+    }
+  },
+
+  deleteTickerTemplate: async ({ request, locals }) => {
+    const fd = await request.formData();
+    const values = formValues(fd);
+    if (locals.impersonation) return writeFailure('deleteTickerTemplate', impersonationRefusal(), values);
+    const built = buildTemplateDelete(fd);
+    if ('invalid' in built) return writeFailure('deleteTickerTemplate', { kind: 'invalid', ...built.invalid }, values);
+    try {
+      await gqlClient(locals.token).request(DELETE_AGENT_TICKER_TEMPLATE_MUTATION, { id: built.id, expectedRevision: built.expectedRevision });
+      return { action: 'deleteTickerTemplate' as const, ok: true as const };
+    } catch (e) {
+      return writeFailure('deleteTickerTemplate', classifyTemplateError(e, 'delete'), values);
+    }
+  },
+
   setBase: async ({ request, params, locals }) => {
     const form = await superValidate(await request.formData(), zod4(agentBaseSchema), { id: 'agentBase', strict: true });
     if (!form.valid) return fail(400, { form });

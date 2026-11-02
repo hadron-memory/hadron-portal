@@ -145,3 +145,27 @@ export interface AppDeliverySettings {
   standbyEnabled: boolean;
   standbyEffective: boolean;
 }
+
+/**
+ * portal#1609 — a ticker template an Agent declares (hadron-server #2024,
+ * hrn:node:hadronmemory.com:specs:cor:agt:080:33). `revision` is what an
+ * update or delete must name; `tickCode` is the server's, never composed here.
+ */
+export interface AgentTickerTemplate {
+  id: string;
+  name: string;
+  cadenceSeconds: number;
+  /** Raw JSON as for a ticker; parse with `parseQuietHours`. */
+  quietHours: unknown;
+  reasons: (TickerReasonName | (string & {}))[];
+  relevance: 'ALL' | 'MENTIONS';
+  revision: number;
+  tickCode: string;
+  updatedAt: string | null;
+}
+
+/** The Agent's templates and whether the viewer may edit them (null: the server could not decide). */
+export interface AgentTickerTemplates {
+  viewerMayEdit: boolean | null;
+  templates: AgentTickerTemplate[];
+}
