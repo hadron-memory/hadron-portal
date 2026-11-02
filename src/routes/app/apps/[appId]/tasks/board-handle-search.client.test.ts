@@ -133,8 +133,9 @@ describe('board search: an exact handle', () => {
   // text crosses in and out of being a whole handle, silently for a screen
   // reader unless the paragraph is a live region. Polite (role=status), not
   // assertive — this is a hint beside a search box, never an alarm
-  // (review:ticking-content-outside-live-region: dynamic content in a live
-  // region is polite, and this one carries no per-tick text).
+  // (hrn:node:hadronmemory.com:hadron-portal:review:ticking-content-outside-live-region:
+  // dynamic content in a live region is polite, and this one carries no
+  // per-tick text).
   it('the link is announced: its paragraph is a polite status region, present only while the text is a whole handle', async () => {
     const m = mountBoard();
     const region = () => m.target.querySelector('[data-testid="open-by-handle"]');

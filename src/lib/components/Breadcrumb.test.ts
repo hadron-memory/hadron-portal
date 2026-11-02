@@ -120,9 +120,9 @@ describe('Breadcrumb', () => {
   // portal#1415 item 5 (decision B): a trail three levels deep carries three
   // chips of up to 8rem each alongside capped titles, which starves the titles
   // at 390px. The chips hide below `sm` — CSS, not JS, so the SSR'd HTML is
-  // already right (conventions:three-state-responsive-collapse: the viewport
-  // half is CSS). Pinned through the classes, as truncation is above: jsdom
-  // has no layout to measure.
+  // already right (hrn:node:hadronmemory.com:hadron-portal:conventions:three-state-responsive-collapse:
+  // the viewport half is CSS). Pinned through the classes, as truncation is
+  // above: jsdom has no layout to measure.
   it('the chip hides below sm so deep trails keep their titles at phone width', () => {
     const out = html([{ label: 'Root', href: '/r', chip: 'AT3', chipLabel: 'Task handle' }]);
     const code = out.match(/<code[^>]*data-crumb-chip[^>]*>/)?.[0] ?? '';

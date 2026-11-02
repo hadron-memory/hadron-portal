@@ -24,8 +24,9 @@ describe('CopyCode', () => {
   });
 
   it('keeps the button name agreeing with its visible text (Label in Name)', () => {
-    // review:visible-label-is-the-accessible-name — an aria-label must not
-    // disagree with visible copy: it has to contain the visible button text.
+    // hrn:node:hadronmemory.com:hadron-portal:review:visible-label-is-the-accessible-name —
+    // an aria-label must not disagree with visible copy: it has to contain the
+    // visible button text.
     const html = out({ value: 'AT3.405', label: 'Copy the task handle', name: 'Handle' });
     expect(html).toMatch(/<button[^>]*aria-label="Copy the task handle"[^>]*>Copy<\/button>/);
   });

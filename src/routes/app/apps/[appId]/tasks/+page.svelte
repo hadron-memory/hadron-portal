@@ -325,7 +325,8 @@
     {#if typedHandle}
       <!-- portal#1415 item 3: role=status makes the link's appearance and
            disappearance a POLITE announcement. No timer-driven text rides in
-           here (review:ticking-content-outside-live-region): the content
+           here (hrn:node:hadronmemory.com:hadron-portal:review:ticking-content-outside-live-region):
+           the content
            changes only on user keystrokes, and only when the text crosses
            into or out of being a whole handle. -->
       <p role="status" class="text-sm" data-testid="open-by-handle">
