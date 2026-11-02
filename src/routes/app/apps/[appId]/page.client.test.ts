@@ -1965,8 +1965,8 @@ describe('App Settings: task integrations draft (LOCAL review of #1614, P2-2)', 
 describe('App memories Description column wiring (portal#1469)', () => {
   const memoryRows = [
     // non-null descriptions so the org direction proves the column renders
-    // DATA, not just a header, and the user-owned direction proves the data
-    // does not leak without it (portal#1469 fold, BLIND P3).
+    // data, not just a header, and the user-owned direction proves the data
+    // does not leak without the column.
     { id: 'm1', urn: 'hrn:mem:acme.com:m1', name: 'First', description: 'a note', appId: 'a1' },
     { id: 'm2', urn: 'hrn:mem:acme.com:m2', name: 'Second', description: 'another note', appId: 'a1' },
   ];
@@ -1997,5 +1997,6 @@ describe('App memories Description column wiring (portal#1469)', () => {
     expect(headers.some((h) => h.startsWith('Description'))).toBe(true);
     expect(target.textContent).toContain('First');
     expect(target.textContent).toContain('a note');
+    expect(target.textContent).toContain('another note');
   });
 });

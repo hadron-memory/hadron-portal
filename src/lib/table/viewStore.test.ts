@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { LocalStorageViewStore } from './localStorageViewStore';
 import { ViewStorageError } from './viewStore';
+import { savedViewsStrings } from '$lib/i18n/saved-views-strings';
 import type { SavedView } from './savedView';
 
 // Map-backed fake Storage so the localStorage store is testable without a DOM.
@@ -141,5 +142,31 @@ describe('LocalStorageViewStore', () => {
     const got = await s.list(KEY);
     // missing slice is filled so it won't read as perpetually "modified"
     expect(got[0].view.columnSizing).toEqual({});
+  });
+
+  // The App-memories restore pin (AppMemories.client.test.ts) asserts "no
+  // storage error surfaced" by matching the ViewStorageError message family
+  // in rendered text. This is that mapping's positive control: rewording any
+  // constructor message must turn THIS red, so the negative match over there
+  // can never silently assert nothing when copy changes.
+  it('throws the ViewStorageError message family the restore pin keys on', async () => {
+    const base = fakeStorage();
+    const failing = new LocalStorageViewStore({
+      ...base,
+      setItem: () => {
+        throw new Error('QuotaExceededError');
+      },
+    } as Storage);
+    await expect(failing.create(KEY, 'v', view())).rejects.toThrow('Could not save views (storage full or disabled).');
+    await expect(failing.setActiveId(KEY, 'v1')).rejects.toThrow('Could not save the active view.');
+    // no injected storage and no DOM localStorage (this is the node lane)
+    await expect(new LocalStorageViewStore(undefined as never).create(KEY, 'v', view())).rejects.toThrow(
+      'Storage is unavailable.',
+    );
+    const working = new LocalStorageViewStore(fakeStorage());
+    await expect(working.update(KEY, 'missing', {})).rejects.toThrow('View not found.');
+    await expect(working.create(KEY, '   ', view())).rejects.toThrow('View name cannot be empty.');
+    // and the generic catch-all ViewTabs.run renders for any non-ViewStorageError
+    expect(savedViewsStrings.updateError()).toBe('Could not update views.');
   });
 });

@@ -23,7 +23,7 @@ it('a success identifies and links the created memory even when its row is outsi
 it.each([[true,true],[false,false]])('showDescription=%s puts the Description column in the table: %s',async(showDescription,present)=>{
  const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
  // non-null description so the present direction proves the column renders
- // DATA, not just a header (portal#1469 fold: BLIND P3 / LOCAL P3-2)
+ // data, not just a header, and the absent direction catches a data leak
  const memories=[{id:'m1',urn:'hrn:mem:acme.com:m1',name:'First',description:'a note',appId:'a'}];
  const m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription} as never);
  try{await tick();
@@ -55,31 +55,36 @@ it('restores a saved view that names the absent Description column (user-owned A
  localStorage.setItem('hadron:views:v1:app-memories',JSON.stringify([
   {id:'v1',listKey:'app-memories',name:'Org era',view:staleView,isDefault:true,createdAt:'2026-10-01T00:00:00.000Z',updatedAt:'2026-10-01T00:00:00.000Z'},
  ]));
- // try starts before mount: a throwing mount must still clear storage
- // (portal#1469 fold, BLIND P3-1).
+ // try starts before mount: a throwing mount must still clear storage.
  let m:ReturnType<typeof mountComponent>|undefined;
  try{
  m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription:false} as never);
  // init() awaits the view list, then the active id, before applyView lands.
- // Poll to the positive control rather than counting ticks (fold, BLIND
- // P2-2): a fixed tick(10) is a magic number that a longer chain silently
- // outgrows into a false red, and a shorter one reads a not-yet-filtered
- // table and passes vacuously.
+ // Poll to the restored state rather than counting ticks: a fixed count
+ // either outgrows the chain into a false red or reads a not-yet-filtered
+ // table and passes vacuously, and waitFor can only pass when the restore
+ // landed or time out loudly. The predicate carries every restore-visible
+ // claim (filter narrowed AND stale column still absent) so no post-poll
+ // assertion can race a later applyView step.
  await vi.waitFor(async()=>{
   await tick();
   expect(m!.target.textContent).not.toContain('Second');
+  const h=[...m!.target.querySelectorAll('th')].map(x=>x.textContent?.trim()??'');
+  expect(h.some(x=>x.startsWith('Description'))).toBe(false);
  });
  const headers=[...m.target.querySelectorAll('th')].map(h=>h.textContent?.trim());
- expect(headers.some(h=>h?.startsWith('Description'))).toBe(false);
  expect(headers.some(h=>h?.startsWith('Name'))).toBe(true);
  expect(m.target.textContent).toContain('First');   // the row the view keeps
  expect(m.target.textContent).not.toContain('Second'); // positive control: the restore ran
- // No storage/restore error surfaced. Keyed on the ViewStorageError message
- // family (all five constructors in localStorageViewStore.ts/viewStore.ts),
- // not on Tailwind classes (fold, BLIND P2-3 / LOCAL P3-1): the class query
- // silently asserts nothing if the error span is ever restyled. A throw out
- // of the restore would fail the awaited waitFor above loudly, so the
- // render-text-and-throw pair covers both failure modes.
- expect(m.target.textContent).not.toMatch(/Could not save|Storage is unavailable|View not found|View name cannot be empty/);
+ // No storage/restore error surfaced. Keyed on the full rendered error
+ // family rather than styling: the ViewStorageError constructor messages
+ // plus ViewTabs.run's generic catch-all for any other throw
+ // (saved-views.error.update, "Could not update views."). A class or
+ // testid query asserts nothing if the error surface is restyled, while
+ // rewording any family member turns the mapping pin in viewStore.test.ts
+ // red instead of silently emptying this match. Throws caught by
+ // ViewTabs.run render as this text; an uncaught throw fails the awaited
+ // waitFor above loudly — both surfaces covered.
+ expect(m.target.textContent).not.toMatch(/Could not (save|update)|Storage is unavailable|View not found|View name cannot be empty/);
  }finally{m?.unmount();localStorage.removeItem('hadron:views:v1:app-memories');}
 });
