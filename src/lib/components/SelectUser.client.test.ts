@@ -232,12 +232,18 @@ describe('SelectUser: the aria-modal promise is kept — focus is trapped (#1599
       .filter((el) => !el.hasAttribute('disabled') && el.tabIndex >= 0);
   }
 
-  it('on open, focus is inside the dialog, on the first tabbable control', async () => {
+  it('on open, focus is inside the dialog, on the search input', async () => {
+    // Head 3eaa3fb3e landed focus on the Close button (first tabbable) —
+    // both review seats' P2: a search picker must open ready to type. The
+    // input carries data-initial-focus and the trap prefers it, so this pin
+    // is red at 3eaa3fb3e (Close) and, like SelectOrg's entry pin, green on
+    // main (whose focusOnMount also focused the input); the red proof for
+    // the mechanism itself lives in focus-trap.test.ts.
     const box = mockLayout();
     try {
       open(emptySearch);
       await tick(2);
-      expect(document.activeElement).toBe(closeButton());
+      expect(document.activeElement).toBe(searchInput());
       expect(dialog()!.contains(document.activeElement)).toBe(true);
     } finally {
       box.mockRestore();
