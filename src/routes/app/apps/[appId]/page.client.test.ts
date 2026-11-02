@@ -1956,3 +1956,20 @@ describe('App Settings: task integrations draft (LOCAL review of #1614, P2-2)', 
     expect(section.textContent).not.toContain('app-a-integration');
   });
 });
+
+it('portal#1410 carries an explicit filter focus request through the route-keyed thread remount', async () => {
+  setStubPage('https://example.test/app/apps/a1?tab=chats&chat=chats:team', {appId:'a1'});
+  const data=await pageData();
+  const tagged={...message(1,'w1'),teamTags:[{headId:'head-ada',label:'team.ada'}]};
+  const props=reactiveProps({data:{...data,teamChatMessages:[tagged],teamFilter:{kind:'none'} as TeamChatFilter},form:null});
+  const m=mountComponent(Page as never,props as never) as Mounted<Record<string,unknown>>;
+  mounted.push(m);document.body.append(m.target);await tick(3);
+  const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;
+  tag.focus();tag.click();await tick(2);
+  expect(navigationCalls.some(c=>c.fn==='goto'&&String(c.args[0]).includes('team=head-ada'))).toBe(true);
+  props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'}};
+  await tick(5);
+  const active=m.target.querySelector('[data-testid="team-chat-filter-active"]');
+  expect(active).not.toBeNull();expect(document.activeElement).toBe(active);
+  expect(m.target.querySelector('[data-testid="team-chat-filter-status"]')?.textContent).toContain('team.ada');
+});
