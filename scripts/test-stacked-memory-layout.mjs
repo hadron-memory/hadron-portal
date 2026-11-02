@@ -172,6 +172,7 @@ try {
           const s = span.getBoundingClientRect();
           return {
             toggle: !!toggle, expanded: toggle?.getAttribute('aria-expanded') ?? null,
+            height: (toggle ?? span).getBoundingClientRect().height,
             truncated: span.scrollWidth > span.clientWidth + 1,
             text: span.textContent, title: span.getAttribute('title'),
             x: r.left + r.width / 2, y: r.top + r.height / 2,
@@ -183,6 +184,8 @@ try {
           assert.equal(before.toggle, true, `${label}: the compact URN chip is not a reveal toggle on a coarse pointer`);
           assert.equal(before.expanded, 'false', `${label}: the URN chip should start collapsed`);
           assert.equal(before.truncated, true, `${label}: the fixture URN must be truncated here, or this leg proves nothing`);
+          // #1642 UX P2: a 24px minimum target beside the 16px copy icons.
+          assert.ok(before.height >= 24, `${label}: the URN toggle is ${before.height}px tall, under 24px`);
           await page.touchscreen.tap(before.x, before.y);
           await page.waitForFunction(() => document.querySelector('[role="dialog"][aria-label="Choose a memory"] tbody tr button[aria-expanded="true"]'), null, { timeout: 5000 });
           const open = await chip();
