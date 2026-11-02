@@ -154,3 +154,85 @@ describe('SelectMemory: dialog semantics (#1279)', () => {
     expect(overlay()).toBeNull();
   });
 });
+
+// portal#1600 items 1 and 4. Item 1: the panel names itself visibly, so a
+// stacked memory panel under SelectNode's "Choose a node" header is not
+// mistaken for it. Item 4: the clearOf host can move under the open overlay
+// by scrolling (a scroll chaining from the memory list to the node dialog),
+// so a scroll anywhere re-measures, not just open and resize.
+describe('SelectMemory: visible title and clearOf scroll re-measure (#1600)', () => {
+  it('shows a visible "Choose a memory" heading that is also the dialog\'s accessible name', async () => {
+    openModal();
+    await tick(2);
+    const heading = dialog()!.querySelector('h2');
+    expect(heading).not.toBeNull();
+    expect(heading!.textContent?.trim()).toBe('Choose a memory');
+    expect(dialog()!.getAttribute('aria-label')).toBe(heading!.textContent?.trim());
+  });
+
+  function hostAt(bottom: { value: number }) {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const rect = vi.spyOn(host, 'getBoundingClientRect').mockImplementation(
+      () => ({ bottom: bottom.value, top: 0, left: 0, right: 0, width: 0, height: bottom.value, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect,
+    );
+    return { host, rect };
+  }
+
+  function openStacked(host: HTMLElement) {
+    const props = reactiveProps<Record<string, unknown>>({ memories, onselect: () => {}, open: true, clearOf: host });
+    const m = mountComponent(SelectMemory as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    return { m, props };
+  }
+
+  it('a scroll on any element re-measures the host edge while open', async () => {
+    const bottom = { value: 100 };
+    const { host } = hostAt(bottom);
+    try {
+      openStacked(host);
+      await tick(2);
+      expect(overlay()!.style.paddingTop).toBe('max(10vh, 108px)');
+      // The host header moves (scroll chaining); scroll does not bubble, so
+      // only a capture-phase listener sees a scroll on an inner scroller.
+      bottom.value = 200;
+      const scroller = dialog()!.querySelector('.overflow-auto')!;
+      scroller.dispatchEvent(new Event('scroll'));
+      flushSync();
+      expect(overlay()!.style.paddingTop).toBe('max(10vh, 208px)');
+    } finally {
+      host.remove();
+    }
+  });
+
+  it('after close and after unmount a scroll no longer measures the host', async () => {
+    const bottom = { value: 100 };
+    const { host, rect } = hostAt(bottom);
+    try {
+      const { m, props } = openStacked(host);
+      await tick(2);
+      // Oracle: while open, a scroll does measure (so the zero below means something).
+      const before = rect.mock.calls.length;
+      document.dispatchEvent(new Event('scroll'));
+      expect(rect.mock.calls.length).toBeGreaterThan(before);
+
+      props.open = false;
+      flushSync();
+      const afterClose = rect.mock.calls.length;
+      document.dispatchEvent(new Event('scroll'));
+      window.dispatchEvent(new Event('resize'));
+      expect(rect.mock.calls.length).toBe(afterClose);
+
+      props.open = true;
+      flushSync();
+      m.unmount();
+      mounted.splice(mounted.indexOf(m), 1);
+      const afterUnmount = rect.mock.calls.length;
+      document.dispatchEvent(new Event('scroll'));
+      window.dispatchEvent(new Event('resize'));
+      expect(rect.mock.calls.length).toBe(afterUnmount);
+    } finally {
+      host.remove();
+    }
+  });
+});
