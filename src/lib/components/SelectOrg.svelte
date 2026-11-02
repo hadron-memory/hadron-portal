@@ -4,6 +4,7 @@
   // reset); orgs have a display URN so rows use the Urn component.
   import type { PortalColumnDef } from '$lib/table/features';
   import { untrack } from 'svelte';
+  import { focusTrap } from '$lib/a11y/focus-trap';
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
@@ -27,14 +28,6 @@
   } = $props();
 
   let query = $state('');
-
-  // Focus the search box when the modal opens. A Svelte action runs on mount,
-  // and the input is (re)created each time the {#if open} block renders, so it
-  // fires on every open. Cleaner than the `autofocus` attribute, which is
-  // unreliable inside {#if} and trips Svelte's a11y_autofocus warning.
-  function focusOnMount(node: HTMLInputElement) {
-    node.focus();
-  }
 
   // NOTE: Headers render from this list, but the <td> cells in <tbody> are
   // hardcoded (custom URN/link markup) — same approach as SelectMemory. Keep
@@ -117,17 +110,22 @@
       class="w-full max-w-2xl rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
+      use:focusTrap
       use:dialogEscapeFallback={escapeFallback}
       style="max-height: 70vh;"
     >
-      <!-- Header with search -->
+      <!-- Header with search. The input must NOT focus itself via an action:
+           child actions run before the parent focusTrap captures
+           document.activeElement, so a self-focusing input gets recorded as
+           the opener and focus is never restored on close (portal#1305). The
+           trap moves focus to the first tabbable control — this input — after
+           capturing the real opener. -->
       <div class="border-b border-zinc-200 p-4 dark:border-zinc-700">
         <input
           type="text"
           bind:value={query}
           {placeholder}
           aria-label={placeholder}
-          use:focusOnMount
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
       </div>

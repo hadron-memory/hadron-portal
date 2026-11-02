@@ -11,6 +11,7 @@
    * subscriptions.
    */
   import { t } from '$lib/i18n/t';
+  import { focusTrap } from '$lib/a11y/focus-trap';
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
 
   export type PublicAgentPick = {
@@ -78,15 +79,19 @@
       class="w-full max-w-md rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
+      use:focusTrap
       use:dialogEscapeFallback={escapeFallback}
     >
+      <!-- The input must NOT focus itself (`autofocus`): on insertion it grabs
+           focus before the parent focusTrap captures document.activeElement,
+           so the input gets recorded as the opener and focus is never restored
+           on close (portal#1305). The trap moves focus to the first tabbable
+           control — this input — after capturing the real opener. -->
       <div class="border-b border-zinc-200 p-3 dark:border-zinc-700">
-        <!-- svelte-ignore a11y_autofocus -->
         <input
           type="text"
           bind:value={query}
           placeholder={t('select-public-agent.placeholder', 'Search public agents...')}
-          autofocus
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
       </div>

@@ -9,6 +9,7 @@
   // substring) are being tightened separately — see hadron-server#384.
 
   import Urn from '$lib/components/Urn.svelte';
+  import { focusTrap } from '$lib/a11y/focus-trap';
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
   import { type SearchUser, type SearchUserPage, userLabel } from '$lib/users/search-user';
@@ -33,12 +34,6 @@
   let loading = $state(false);
   let searched = $state(false);
   let error = $state<string | null>(null);
-
-  // Focus the search box when the modal opens. The input is (re)created each
-  // time {#if open} renders, so this fires on every open.
-  function focusOnMount(node: HTMLInputElement) {
-    node.focus();
-  }
 
   // Avatar fallback: first two letters/digits of the best identifier. Strip
   // non-alphanumerics first so a masked email ("j•••@x.com") yields "J", not "J•".
@@ -125,6 +120,7 @@
       class="w-full max-w-lg rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900 flex flex-col"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => consumeEscapeAtDialog(e, escapeFallback)}
+      use:focusTrap
       use:dialogEscapeFallback={escapeFallback}
       style="max-height: 70vh;"
     >
@@ -138,7 +134,13 @@
         >{t('select-user.close', 'Close')}</button>
       </div>
 
-      <!-- Header: search + Find. Submitting (Enter or the button) runs the search. -->
+      <!-- Header: search + Find. Submitting (Enter or the button) runs the search.
+           The input must NOT focus itself via an action: child actions run
+           before the parent focusTrap captures document.activeElement, so a
+           self-focusing input gets recorded as the opener and focus is never
+           restored on close (portal#1305). The trap moves focus to the FIRST
+           tabbable control after capturing the real opener — here the Close
+           button above, which precedes the search input in the DOM. -->
       <form
         class="flex gap-2 border-b border-zinc-200 p-4 dark:border-zinc-700"
         onsubmit={(e) => { e.preventDefault(); runSearch(); }}
@@ -148,7 +150,6 @@
           bind:value={query}
           {placeholder}
           aria-label={placeholder}
-          use:focusOnMount
           class="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
         <button
