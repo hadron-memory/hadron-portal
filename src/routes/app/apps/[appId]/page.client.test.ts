@@ -2028,3 +2028,20 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     expect(document.activeElement).toBe(applied);expect(status(m).textContent).toContain('All messages selected.');
   });
 });
+
+it('portal#1624 QA restores the newer composer focus after the keyed route destroys that textarea', async()=>{
+  setStubPage('https://example.test/app/apps/a1?tab=chats&chat=chats:team',{appId:'a1'});
+  const data=await pageData();
+  const tagged={...message(1,'w1'),teamTags:[{headId:'head-ada',label:'team.ada'}]};
+  const props=reactiveProps({data:{...data,teamChatMessages:[tagged],teamFilter:{kind:'none'} as TeamChatFilter},form:null});
+  const m=mountComponent(Page as never,props as never) as Mounted<Record<string,unknown>>;
+  mounted.push(m);document.body.append(m.target);await tick(3);
+  let release!:()=>void;navigationHooks.onGoto=()=>new Promise<void>(r=>{release=r;});
+  const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;tag.focus();tag.click();await tick(2);
+  const oldComposer=m.target.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
+  oldComposer.focus();oldComposer.value='draft typed while navigation waits';oldComposer.dispatchEvent(new Event('input',{bubbles:true}));await tick(3);
+  props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);release();await tick(5);
+  const newComposer=m.target.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
+  expect(newComposer).not.toBe(oldComposer);expect(newComposer.value).toBe('draft typed while navigation waits');
+  expect(document.activeElement).toBe(newComposer);
+});
