@@ -31,7 +31,8 @@
      * must not cover (SelectNode's header row, with its title and Close).
      * The picker starts below that element's bottom edge (its 70vh height
      * still fits under a host header on any viewport taller than ~270px).
-     * Measured while open, and again on resize.
+     * Measured while open, and again on resize and on any scroll (#1600
+     * item 4: a scroll chaining to the host dialog moves its header).
      */
     clearOf?: HTMLElement | null;
   } = $props();
@@ -46,9 +47,20 @@
     const host = clearOf;
     const measure = () => { clearTop = host.getBoundingClientRect().bottom + STACK_GAP; };
     measure();
+    // Scroll does not bubble, so only a capture-phase listener on window sees
+    // a scroll on an inner scroller (the host dialog's own list, say).
+    const scrollOpts = { capture: true, passive: true } as const;
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    window.addEventListener('scroll', measure, scrollOpts);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, scrollOpts);
+    };
   });
+
+  // #1600 item 1: one string is both the visible heading and the dialog's
+  // accessible name, so the two cannot drift apart.
+  const title = $derived(t('select-memory.title', 'Choose a memory'));
 
   let query = $state('');
 
@@ -126,14 +138,14 @@
 {#if open}
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="fixed inset-0 z-50 flex items-start justify-center pt-[10vh]"
+  <div class="fixed inset-0 z-50 flex items-start justify-center px-2 pt-[10vh]"
     style={clearTop === null ? undefined : `padding-top: max(10vh, ${clearTop}px);`}
     onclick={() => { open = false; }}>
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={t('select-memory.title', 'Choose a memory')}
+      aria-label={title}
       tabindex="-1"
       use:focusTrap
       use:dialogEscapeFallback={escapeFallback}
@@ -149,6 +161,7 @@
            trap moves focus to the first tabbable control — this input — after
            capturing the real opener. -->
       <div class="border-b border-zinc-200 p-4 dark:border-zinc-700">
+        <h2 class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{title}</h2>
         <input
           type="text"
           bind:value={query}
@@ -163,22 +176,30 @@
         {#if rows.length === 0}
           <div class="px-4 py-8 text-center text-sm text-zinc-500">No memories found.</div>
         {:else}
-          <table class="w-full text-sm border-collapse">
+          <table class="w-full table-fixed border-collapse text-sm sm:table-auto">
             <thead>
               <tr class="text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
                 {#each table.getHeaderGroups()[0]?.headers ?? [] as header (header.id)}
-                  <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 text-left dark:border-zinc-800 dark:bg-zinc-800" style="width: {header.getSize()}px;">
+                  <!-- #1600 item 2: below sm the table is fixed-layout with no
+                       imposed widths (they sum past a phone's width, and a
+                       truncating URN chip's min-content is its full text in an
+                       auto table), and Organization folds into the Name cell,
+                       so every control stays inside the panel. -->
+                  <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-2 py-2 text-left sm:w-(--col-w) sm:px-4 dark:border-zinc-800 dark:bg-zinc-800 {header.column.id === 'orgName' ? 'hidden sm:table-cell' : ''}" style="--col-w: {header.getSize()}px;">
                     {header.column.columnDef.header}
                   </th>
                 {/each}
-                <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-800 w-20"></th>
+                <th class="sticky top-0 border-b border-zinc-200 bg-zinc-50 w-20 px-2 py-2 sm:px-4 dark:border-zinc-800 dark:bg-zinc-800"></th>
               </tr>
             </thead>
             <tbody>
               {#each rows as row (row.id)}
                 <tr class="border-b border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800">
-                  <td class="px-4 py-2 text-sm font-medium text-zinc-900 dark:text-white">{row.original.name}</td>
-                  <td class="px-4 py-2 text-xs">
+                  <td class="px-2 py-2 text-sm font-medium break-words text-zinc-900 sm:px-4 dark:text-white">
+                    {row.original.name}
+                    <div class="mt-1 text-xs font-normal text-zinc-600 sm:hidden dark:text-zinc-400">{row.original.orgName || '—'}</div>
+                  </td>
+                  <td class="px-2 py-2 text-xs sm:px-4">
                     <div class="flex items-center gap-2">
                       <div class="min-w-0 flex-1">
                         <Urn value={row.original.urn} type="memory" size={10} compact />
@@ -188,8 +209,8 @@
                       </a>
                     </div>
                   </td>
-                  <td class="px-4 py-2 text-sm text-zinc-600 dark:text-zinc-400">{row.original.orgName || '—'}</td>
-                  <td class="px-4 py-2 text-right">
+                  <td class="hidden px-4 py-2 text-sm text-zinc-600 sm:table-cell dark:text-zinc-400">{row.original.orgName || '—'}</td>
+                  <td class="px-2 py-2 text-right sm:px-4">
                     <button
                       type="button"
                       onclick={() => select(row.original)}
@@ -230,7 +251,8 @@
             Next →
           </button>
         </div>
-        <div>Esc to close</div>
+        <!-- #1600 item 3: keyboard help; a touch device has no Esc. -->
+        <div class="pointer-coarse:hidden">Esc to close</div>
       </div>
     </div>
   </div>
