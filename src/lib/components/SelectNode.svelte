@@ -269,7 +269,7 @@
                 <p class="mt-0.5 truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">{row.loc}</p>
                 <div class="mt-1"><Urn value={row.urn} /></div>
               </div>
-              <button type="button" class="shrink-0 rounded bg-indigo-600 px-2 py-1 text-white pointer-coarse:min-h-11" aria-label={pickerStrings.selectNamed(row.name)} onclick={() => { onselect(row); open = false; }}>{t('app.nodes.picker.select', 'Select')}</button>
+              <button type="button" class="shrink-0 rounded bg-indigo-600 px-2 py-1 text-white pointer-coarse:min-h-11" aria-label={pickerStrings.selectNamed(row.name)} onclick={() => { onselect(row); open = false; }}>{pickerStrings.select()}</button>
             </div>
           {/snippet}
         </DataTable>

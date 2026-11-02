@@ -51,7 +51,7 @@
                column would put the primary action beyond a phone viewport. -->
           <div class="flex min-w-0 items-center gap-3">
             <div class="min-w-0 flex-1"><p class="truncate font-medium text-zinc-900 dark:text-white">{app.name}</p><div class="mt-1"><Urn value={app.urn} type="app" size={10} /></div></div>
-            <button type="button" onclick={() => { onselect(app); open = false; }} aria-label={pickerStrings.selectNamed(app.name)} class="shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white pointer-coarse:min-h-11 hover:bg-indigo-500">{t('select-app.select', 'Select')}</button>
+            <button type="button" onclick={() => { onselect(app); open = false; }} aria-label={pickerStrings.selectNamed(app.name)} class="shrink-0 rounded-md bg-indigo-600 px-3 py-1.5 text-sm text-white pointer-coarse:min-h-11 hover:bg-indigo-500">{pickerStrings.select()}</button>
           </div>
         {/snippet}
       </DataTable>
