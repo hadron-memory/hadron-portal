@@ -35,7 +35,7 @@ const ticker = (over: Record<string, unknown> = {}) => ({
 
 // portal#1151 (S7b): the New ticker and Edit ticker sections are the ticker writes, pinned in
 // write-forms.test.ts. These tests are about the READ views, so those sections are cut out here.
-const WRITE_SECTION = /<section[^>]*data-testid="ticker-(create|edit)"[\s\S]*?<\/section>/;
+const WRITE_SECTION = /<section[^>]*data-testid="ticker-(create|edit)-section"[\s\S]*?<\/section>/;
 const readView = (html: string) => html.replace(WRITE_SECTION, '');
 
 function listFull(over: Record<string, unknown> = {}) {
