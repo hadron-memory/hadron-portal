@@ -108,7 +108,7 @@ it('a delayed filter response does not steal focus after the reader moves to the
  const props=reactiveProps<Record<string,unknown>>({messages:[message(1,{teamTags:[ADA]})],total:1,filter:{kind:'none'},onSelectTeam:vi.fn()});
  const m=await mountThread(props);document.body.append(m.target);
  const chip=q(m,'team-chat-tag') as HTMLButtonElement;chip.focus();chip.click();await tick(2);
- const composer=m.target.querySelector('[data-testid="team-chat-composer"]')!;composer.focus();
+ const composer=m.target.querySelector<HTMLTextAreaElement>('[data-testid="team-chat-composer"]')!;composer.focus();
  props.filter={kind:'team',headRef:ADA.headId};await tick(4);
  expect(document.activeElement).toBe(composer);
  expect(q(m,'team-chat-filter-status')?.textContent).toContain('team.ada');
