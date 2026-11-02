@@ -20,7 +20,10 @@
   const shown = $derived.by(() => {
     if (!present) return { json: '', failed: false };
     try {
-      return { json: JSON.stringify(properties, null, 2), failed: false };
+      // portal#1474: a value JSON has no text for (a function, a symbol) serialises to undefined;
+      // that is as unreadable as a cycle, never a blank block.
+      const json = JSON.stringify(properties, null, 2) as string | undefined;
+      return json === undefined ? { json: '', failed: true } : { json, failed: false };
     } catch {
       return { json: '', failed: true };
     }
@@ -30,7 +33,9 @@
 <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-properties">
   <h2 id="task-properties" class="mb-2 text-sm font-semibold text-zinc-900 dark:text-white">{t('app.tasks.properties', 'Properties')}</h2>
   {#if present && shown.failed}
-    <p role="alert" class="text-sm text-red-700 dark:text-red-300" data-testid="task-properties-unreadable">{t('app.tasks.properties.unreadable', 'These properties couldn’t be displayed.')}</p>
+    <!-- portal#1474: present at first render, so plain text rather than role="alert", which is not
+         reliably announced for content that is already there. -->
+    <p class="text-sm text-red-700 dark:text-red-300" data-testid="task-properties-unreadable">{t('app.tasks.properties.unreadable', 'These properties couldn’t be displayed.')}</p>
   {:else if present}
     <!-- Wraps rather than scrolls sideways, so a long unbroken value cannot widen the page; the cap
          scrolls vertically and is focusable so a keyboard reader can reach all of it. -->
