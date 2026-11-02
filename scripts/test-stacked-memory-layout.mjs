@@ -36,6 +36,7 @@ async function mountView(page, origin, css, view) {
 }
 
 const viewports = [[375, 667], [390, 844], [768, 1024], [1280, 720], [1440, 900]];
+const GUTTER = 8; // px, #1600 item 2
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
 try {
@@ -46,7 +47,10 @@ try {
   for (const [width, height] of viewports) {
     for (const view of ['memory-stage', 'stacked']) {
       for (const scheme of ['light', 'dark']) {
-        const page = await browser.newPage({ viewport: { width, height } });
+        // Phone widths run as a touch device (pointer: coarse); hasTouch alone
+        // keeps the real layout width, where isMobile would lay out at 980px.
+        const coarse = width <= 390;
+        const page = await browser.newPage({ viewport: { width, height }, hasTouch: coarse });
         await mountView(page, origin, css, view);
         await page.evaluate((dark) => {
           document.documentElement.classList.toggle('dark', dark);
@@ -75,6 +79,29 @@ try {
             viewport: { w: document.documentElement.clientWidth, h: document.documentElement.clientHeight },
             // The memory picker's own rows must still be usable, not squeezed out.
             memoryRows: memory.querySelectorAll('tbody tr').length,
+            // #1600 items 2 and 6: every column header and the first row's
+            // Select are fully inside the panel (and so the viewport), and
+            // the Select is what a tap at its centre actually hits.
+            headers: [...memory.querySelectorAll('thead th')].map((th) => {
+              const r = th.getBoundingClientRect();
+              return { text: th.textContent.trim(), left: r.left, right: r.right, width: r.width };
+            }),
+            select: (() => {
+              const b = [...memory.querySelectorAll('tbody tr button')].find((x) => x.textContent?.trim() === 'Select');
+              if (!b) return null;
+              const r = b.getBoundingClientRect();
+              const x = r.left + r.width / 2, y = r.top + r.height / 2;
+              return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, x, y, hit: b.contains(document.elementFromPoint(x, y)) };
+            })(),
+            // #1600 item 3: "Esc to close" is keyboard help, so a coarse
+            // (touch) pointer doesn't render it.
+            escHint: (() => {
+              const el = [...memory.querySelectorAll('div')].find((d) => d.children.length === 0 && d.textContent?.trim() === 'Esc to close');
+              if (!el) return 'absent';
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' ? 'visible' : 'hidden';
+            })(),
+            coarse: matchMedia('(pointer: coarse)').matches,
           };
         });
         const got = await measure();
@@ -84,8 +111,33 @@ try {
         assert.ok(got.memoryBottom <= got.viewport.h, `${label}: the memory dialog runs off the bottom (${got.memoryBottom} > ${got.viewport.h})`);
         assert.ok(got.memoryLeft >= 0 && got.memoryRight <= got.viewport.w, `${label}: the memory dialog runs off the side`);
         assert.ok(got.memoryRows >= 1, `${label}: the memory list must still show rows`);
-        console.log(JSON.stringify({ width, height, view, scheme, headerBottom: got.headerBottom, memoryTop: got.memoryTop, memoryBottom: got.memoryBottom }));
+        // #1600 item 2: a side gutter, not edge to edge.
+        assert.ok(got.memoryLeft >= GUTTER && got.memoryRight <= got.viewport.w - GUTTER, `${label}: the memory panel needs a ${GUTTER}px side gutter (left ${got.memoryLeft}, right ${got.memoryRight} of ${got.viewport.w})`);
+        for (const h of got.headers) {
+          if (h.width === 0) continue; // a column not rendered at this width (display: none)
+          assert.ok(h.left >= got.memoryLeft && h.right <= got.memoryRight, `${label}: column header "${h.text}" (${h.left}..${h.right}) is outside the memory panel (${got.memoryLeft}..${got.memoryRight})`);
+        }
+        assert.ok(got.select, `${label}: no Select button in the first rows`);
+        assert.ok(got.select.left >= got.memoryLeft && got.select.right <= got.memoryRight && got.select.bottom <= got.memoryBottom && got.select.top >= got.memoryTop,
+          `${label}: the first row's Select (${got.select.left}..${got.select.right}) is outside the memory panel (${got.memoryLeft}..${got.memoryRight})`);
+        assert.equal(got.select.hit, true, `${label}: a tap at the first row's Select centre does not hit it`);
+        // #1600 item 3.
+        assert.equal(got.coarse, coarse, `${label}: pointer emulation is not what this leg expects`);
+        assert.equal(got.escHint, coarse ? 'hidden' : 'visible', `${label}: "Esc to close" should be ${coarse ? 'hidden on a coarse pointer' : 'visible on a fine pointer'}`);
+        console.log(JSON.stringify({ width, height, view, scheme, pointer: coarse ? 'coarse' : 'fine', headerBottom: got.headerBottom, memoryTop: got.memoryTop, memoryBottom: got.memoryBottom, gutter: [got.memoryLeft, got.viewport.w - got.memoryRight], escHint: got.escHint }));
         if (process.env.STACKED_SHOTS) await page.screenshot({ path: `${process.env.STACKED_SHOTS}/stacked-${view}-${width}x${height}-${scheme}.png` });
+        // #1600 items 2 and 6: one tap (a click on a fine pointer) on that
+        // Select picks the memory: the memory panel closes and the node
+        // dialog shows the chosen memory.
+        if (coarse) await page.touchscreen.tap(got.select.x, got.select.y);
+        else await page.mouse.click(got.select.x, got.select.y);
+        await page.waitForTimeout(50);
+        const after = await page.evaluate(() => ({
+          memoryOpen: !!document.querySelector('[role="dialog"][aria-label="Choose a memory"]'),
+          nodeText: document.querySelector('[role="dialog"][aria-label="Choose a node"]')?.textContent ?? '',
+        }));
+        assert.equal(after.memoryOpen, false, `${label}: tapping Select did not close the memory panel`);
+        assert.ok(after.nodeText.includes('Product Team with a fairly long memory name'), `${label}: tapping Select did not pick the memory`);
         await page.close();
       }
     }

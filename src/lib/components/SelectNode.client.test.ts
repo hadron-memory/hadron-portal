@@ -692,7 +692,7 @@ describe('SelectNode: #1584 fallback guards and carried P3s', () => {
     expect(b.target.contains(document.getElementById(idb!))).toBe(true);
   });
 
-  it('the per-instance hint id does not come from Math.random, so it is SSR-stable (#1591 item 1)', async () => {
+  it('the per-instance hint id is $props.id()-based: independent of Math.random and unique across client mounts (#1591 item 1; #1600 item 5)', async () => {
     // Gemma's P3 on #1587: `Math.random()` per instance is not deterministic
     // across server render and hydration. `$props.id()` is. With Math.random
     // pinned to one value, a random suffix gives both instances the SAME id;
