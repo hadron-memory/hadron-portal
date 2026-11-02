@@ -21,6 +21,9 @@
  * created key shifts rows the other way (a duplicate, kept once by id) and is
  * caught by the same count. A revoke plus a create leaves the total alone, so a
  * multi-page read also re-reads page one at the end and starts over if it moved.
+ * Not detectable with offsets: one key leaving the middle while another joins
+ * the middle between two page reads (a hidden key un-hidden, say) with the
+ * total and page one unchanged; the list is then a snapshot a moment stale.
  */
 export const PAGE_SIZE = 20;
 export const MAX_PAGES = 500;

@@ -83,6 +83,13 @@ describe('readAllPages', () => {
       const got = await readAllPages(read);
       expect(got.map((r) => r.id).sort()).toEqual(all.map((r) => r.id).sort());
     });
+    it('rows that do not add up to the reported total are never shown as the whole list', async () => {
+      // total says 30, the pages deliver 29 and stop: the count check restarts, then fails.
+      const all = ids(29);
+      const read = vi.fn(async (limit: number, offset: number) => ({ items: all.slice(offset, offset + limit), total: 30, hasMore: offset + limit < all.length }));
+      await expect(readAllPages(read)).rejects.toBeInstanceOf(PagingError);
+      expect(read.mock.calls.length).toBeGreaterThan(2);
+    });
     it('a list that never settles throws instead of showing a partial list', async () => {
       const all = ids(60);
       let n = 0;
