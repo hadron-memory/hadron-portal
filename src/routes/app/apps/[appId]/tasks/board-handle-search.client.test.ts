@@ -129,20 +129,25 @@ describe('board search: an exact handle', () => {
     expect(openLink(m)?.textContent).toBe('Open AT3');
   });
 
-  // portal#1415 item 3 (P3 c): the link appears and disappears as the typed
-  // text crosses in and out of being a whole handle, silently for a screen
-  // reader unless the paragraph is a live region. Polite (role=status), not
-  // assertive — this is a hint beside a search box, never an alarm
+  // portal#1415 item 3 (P3 c), P2 fix (Juliet, AT0.4138): the announcement is
+  // a CONTENT CHANGE inside a persistent polite status region — a region that
+  // mounts already-populated is not reliably announced, and one that unmounts
+  // announces nothing. Polite (role=status), not assertive — this is a hint
+  // beside a search box, never an alarm
   // (hrn:node:hadronmemory.com:hadron-portal:review:ticking-content-outside-live-region:
   // dynamic content in a live region is polite, and this one carries no
   // per-tick text).
-  it('the link is announced: its paragraph is a polite status region, present only while the text is a whole handle', async () => {
+  it('the link comes and goes inside a persistent status region that never unmounts', async () => {
     const m = mountBoard();
     const region = () => m.target.querySelector('[data-testid="open-by-handle"]');
-    expect(region()).toBeNull();
-    await type(m, 'AT3.405');
+    // Present and empty from the first render — an empty region has no line
+    // box, so nothing shifts.
     expect(region()?.getAttribute('role')).toBe('status');
+    expect(openLink(m)).toBeNull();
+    await type(m, 'AT3.405');
+    expect(openLink(m)?.textContent).toBe('Open AT3.405');
     await type(m, 'AT3.405x');
-    expect(region()).toBeNull();
+    expect(openLink(m)).toBeNull();
+    expect(region()).not.toBeNull();
   });
 });

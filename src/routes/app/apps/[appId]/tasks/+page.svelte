@@ -322,17 +322,19 @@
          (the only way to name a subtask like AT3.405 here) is a real link to that
          task. The route hands the handle to the server's resolver; an unknown,
          malformed or foreign one answers there, exactly like an unknown id. -->
-    {#if typedHandle}
-      <!-- portal#1415 item 3: role=status makes the link's appearance and
-           disappearance a POLITE announcement. No timer-driven text rides in
-           here (hrn:node:hadronmemory.com:hadron-portal:review:ticking-content-outside-live-region):
-           the content
-           changes only on user keystrokes, and only when the text crosses
-           into or out of being a whole handle. -->
-      <p role="status" class="text-sm" data-testid="open-by-handle">
+    <!-- portal#1415 item 3, P2 fix (Juliet, AT0.4138): the live region is
+         ALWAYS in the DOM and only its content changes — a region that mounts
+         already-populated is not reliably announced, and one that unmounts
+         announces nothing. Empty has no line box, so nothing shifts. No
+         timer-driven text rides in here
+         (hrn:node:hadronmemory.com:hadron-portal:review:ticking-content-outside-live-region):
+         the content changes only on user keystrokes, and only when the text
+         crosses into or out of being a whole handle. -->
+    <p role="status" class="text-sm" data-testid="open-by-handle">
+      {#if typedHandle}
         <a href={exactHandleHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.open-handle', 'Open {handle}', { handle: typedHandle.handle })}</a>
-      </p>
-    {/if}
+      {/if}
+    </p>
 
     {#if board.kind === 'invalid-search'}
       <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('app.tasks.search.bounds', 'Search text is 1 to 200 characters.')}</p>
