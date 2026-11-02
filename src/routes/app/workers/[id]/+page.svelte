@@ -25,7 +25,7 @@
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
   import { isHeld, workerHold } from '$lib/worker-hold';
-  import { reportsToOf } from '$lib/worker-reports-to';
+  import { reportsToOf, teamPlacementOf } from '$lib/worker-reports-to';
   import type { PageData } from './$types';
 
   let { data, form }: { data: PageData; form: unknown } = $props();
@@ -165,6 +165,8 @@
   const hold = $derived(workerHold(worker, data.user?.id));
   // portal#1067 — masked like the hold, so `none` renders no row at all.
   const reportsTo = $derived(reportsToOf(worker));
+  // hadron-portal#1149 — the cast's recorded placement; null is withheld.
+  const placement = $derived(teamPlacementOf(worker));
 
   // Mirrors the App detail page's own `appsHref`. `/app/apps` is the ORG-LESS
   // "My apps" list (#647) — it shows only the caller's user-owned Apps, so for
@@ -387,6 +389,21 @@
             <!-- hrn:node:hadronmemory.com:hadron-portal:review:render-urn — nullable, so absent rather than empty. -->
             {#if reportsTo.urn}
               <div class="mt-1"><Urn value={reportsTo.urn} type="worker" size={8} linked /></div>
+            {/if}
+          </dd>
+        </div>
+      {:else if placement.kind === 'no-team' || placement.kind === 'unset'}
+        <!-- hadron-portal#1149 — UNSET and NO_TEAM are different facts and are
+             worded differently. A withheld placement renders nothing at all. -->
+        <div class="bg-white p-4 dark:bg-zinc-950">
+          <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+            {t('worker.field.reports-to', 'Reports to')}
+          </dt>
+          <dd class="mt-1 text-sm text-zinc-900 dark:text-white">
+            {#if placement.kind === 'no-team'}
+              {t('worker.field.reports-to.no-team', 'No team')}
+            {:else}
+              <span class="text-zinc-500">{t('worker.field.reports-to.unset', 'Not set')}</span>
             {/if}
           </dd>
         </div>

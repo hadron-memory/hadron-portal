@@ -2140,3 +2140,121 @@ describe('App memories Description column wiring (portal#1469)', () => {
     expect(target.textContent).toContain('another note');
   });
 });
+
+// ── hadron-portal#1149: the cast asks a deliberate reporting choice ──────────
+describe('Cast reporting choice (#1149)', () => {
+  async function openCast(staff?: Array<Record<string, unknown>>) {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [
+      { id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
+    ] });
+    if (staff) (data as { staff: unknown }).staff = staff;
+    data.initialTab = 'staff';
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    await tick(2);
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    return { m, form };
+  }
+  const radios = (form: HTMLFormElement) => [...form.querySelectorAll<HTMLInputElement>('input[name="reporting"]')];
+
+  it('starts with NEITHER choice selected and no head picker: nothing is guessed', async () => {
+    const { form } = await openCast();
+    const [head, none] = radios(form);
+    expect(head.value).toBe('head');
+    expect(none.value).toBe('none');
+    expect(head.checked).toBe(false);
+    expect(none.checked).toBe(false);
+    expect(form.querySelector('#castReportsTo')).toBeNull();
+    expect(new FormData(form).has('reporting')).toBe(false);
+    expect(form.querySelector('fieldset legend')?.textContent).toContain('Reports to');
+  });
+
+  it('choosing a worker reveals the picker of ACTIVE workers only, with the URN under the name', async () => {
+    const { form } = await openCast([
+      { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null },
+      { id: 'w2', name: 'Old', urn: 'hrn:worker:acme.com:team:old', role: 'qa', retiredAt: '2026-09-01T00:00:00.000Z' },
+    ]);
+    const [head] = radios(form);
+    head.click();
+    await tick(2);
+    const pick = form.querySelector<HTMLSelectElement>('#castReportsTo')!;
+    expect(pick).not.toBeNull();
+    expect([...pick.options].map((o) => o.value)).toEqual(['', 'w1']);
+    expect(pick.value).toBe('');
+    pick.value = 'w1';
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    expect(form.querySelector('span[title="hrn:worker:acme.com:team:ada"]')).not.toBeNull();
+  });
+
+  it('No team hides the picker and submits only the No team arm', async () => {
+    const { form } = await openCast();
+    const [head, none] = radios(form);
+    head.click();
+    await tick(2);
+    none.click();
+    await tick(2);
+    expect(form.querySelector('#castReportsTo')).toBeNull();
+    const data = new FormData(form);
+    expect(data.get('reporting')).toBe('none');
+    expect(data.has('reportsTo')).toBe(false);
+  });
+
+  it('a refused cast keeps the user’s choice for correction and shows the server’s sentence', async () => {
+    const { m, form } = await openCast([
+      { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null },
+    ]);
+    (form.querySelector('[name="agentId"]') as HTMLSelectElement).value = 'agent-a';
+    form.querySelector('[name="agentId"]')!.dispatchEvent(new Event('change', { bubbles: true }));
+    (form.querySelector('[name="name"]') as HTMLInputElement).value = 'Iris';
+    form.querySelector('[name="name"]')!.dispatchEvent(new Event('input', { bubbles: true }));
+    radios(form)[0].click();
+    await tick(2);
+    const pick = form.querySelector<HTMLSelectElement>('#castReportsTo')!;
+    pick.value = 'w1';
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    const result = await superValidate(
+      { agentId: 'agent-a', name: 'Iris', reporting: 'head', reportsTo: 'w1' },
+      zod4(castWorkerSchema),
+      { errors: false },
+    );
+    result.valid = false;
+    result.message = { type: 'error', text: 'Worker not found in this App.' };
+    await submitEnhancedWithResult(form, { type: 'failure', status: 500, data: { form: result } });
+    await tick(3);
+    expect(m.target.textContent).toContain('Worker not found in this App.');
+    // Still a head, still Ada: the permanent cast was refused, nothing re-sent.
+    expect(radios(form)[0].checked).toBe(true);
+    expect(radios(form)[1].checked).toBe(false);
+    expect(form.querySelector<HTMLSelectElement>('#castReportsTo')!.value).toBe('w1');
+  });
+});
+
+describe('Roster placement readback (#1149)', () => {
+  async function rosterText(placements: Array<string | null>) {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    (data as { staff: unknown }).staff = placements.map((teamPlacement, i) => ({
+      id: `w${i}`, name: `Worker${i}`, urn: `hrn:worker:acme.com:team:worker${i}`, role: 'qa',
+      retiredAt: null, reportsToWorkerId: null, reportsToRetired: false, teamPlacement,
+    }));
+    data.initialTab = 'staff';
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    return (i: number) => [...m.target.querySelectorAll('tr')].find((r) => r.textContent?.includes(`Worker${i}`))?.textContent ?? '';
+  }
+
+  it('says No team and Not set for answered placements, and nothing for a masked null', async () => {
+    const row = await rosterText(['NO_TEAM', 'UNSET', null]);
+    expect(row(0)).toContain('No team');
+    expect(row(1)).toContain('Not set');
+    expect(row(2)).not.toContain('No team');
+    expect(row(2)).not.toContain('Not set');
+  });
+});

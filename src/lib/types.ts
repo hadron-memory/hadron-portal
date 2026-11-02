@@ -441,6 +441,8 @@ export interface Worker {
    * `$lib/worker-reports-to`. `undefined` means "not selected".
    */
   reportsToWorkerId?: string | null;
+  /** hadron-portal#1149 — access-masked; null/absent is WITHHELD, never UNSET or NO_TEAM. */
+  teamPlacement?: 'UNSET' | 'NO_TEAM' | 'REPORTS_TO' | null;
   reportsToRetired?: boolean;
   /** The target, selected only by the single-worker read. */
   reportsTo?: { id: string; name: string; urn: string | null; retiredAt: string | null } | null;

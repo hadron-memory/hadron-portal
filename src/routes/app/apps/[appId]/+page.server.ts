@@ -365,6 +365,18 @@ function staleHoldMessage(stale: HoldStale & object, callerId: string | null): R
 }
 
 /**
+ * hadron-portal#1149 — the ONE arm of the cast's reporting choice, with the
+ * other key ABSENT. Typed with both keys because the generated operation types
+ * mark every nullable variable required; at runtime exactly one key exists, and
+ * a test pins that (the wire is presence-based, so `undefined`/`null`/`false`
+ * for the unused arm would be a defect, not a spelling).
+ */
+function castReportingArm(data: { reporting: string; reportsTo: string }): { reportsTo: string; noTeam: boolean } {
+  const arm = data.reporting === 'head' ? { reportsTo: data.reportsTo } : { noTeam: true };
+  return arm as unknown as { reportsTo: string; noTeam: boolean };
+}
+
+/**
  * castWorker's typed refusals (#974), mapped to copy that says what to DO.
  * The raw server message names internals ("no installed agent matches role
  * X"), and the codes are a documented contract, so branching on the code is
@@ -409,6 +421,32 @@ const CAST_WORKER_ERRORS: Record<string, () => string> = {
   APP_UNINSTALLED: () => t(
     'app.staff.error.app-uninstalled',
     'This App has been uninstalled, so nothing can be cast into it.',
+  ),
+  // hadron-portal#1149 — the server's FROZEN public messages (hadron-server#2028,
+  // accepted verbatim by the gate), shown as written. The portal always sends
+  // one deliberate arm, so REQUIRED/INVALID/CONFLICT mean the form and server
+  // have drifted; the sentence beats a code for whoever reads it then.
+  WORKER_TEAM_CHOICE_REQUIRED: () => t(
+    'app.staff.error.team-choice-required',
+    'Choose reportsTo or noTeam: true when casting a worker.',
+  ),
+  WORKER_TEAM_CHOICE_INVALID: () => t(
+    'app.staff.error.team-choice-invalid',
+    'reportsTo must be a non-empty worker reference, or noTeam must be true.',
+  ),
+  WORKER_TEAM_CHOICE_CONFLICT: () => t(
+    'app.staff.error.team-choice-conflict',
+    'Supply reportsTo or noTeam, never both.',
+  ),
+  // Foreign, unknown and malformed heads all answer the same, without the
+  // target; echoing the chosen id here would defeat that concealment.
+  WORKER_NOT_FOUND: () => t('app.staff.error.worker-not-found', 'Worker not found in this App.'),
+  // A head cast can be unavailable while No team still works, but the portal
+  // must not retry it as No team: a cast is permanent, so the choice is the
+  // user's to change.
+  WORKER_REPORTING_CAST_UNAVAILABLE: () => t(
+    'app.staff.error.reporting-cast-unavailable',
+    'Casting under a reporting head is not available right now, and nothing was cast. Choose No team to cast without one, or try again later.',
   ),
 };
 
@@ -1176,7 +1214,10 @@ export const actions: Actions = {
         // has nothing to express — and leaving it would quietly turn a
         // validation gap into a nameless cast the server refuses.
         name: form.data.name,
-
+        // hadron-portal#1149 — exactly ONE arm, the other ABSENT (not null, not
+        // false): the server reads presence, and both keys is a CONFLICT even
+        // when one is null. No team never forwards a head left in the form.
+        ...castReportingArm(form.data),
       });
       return message(form, {
         type: 'success',

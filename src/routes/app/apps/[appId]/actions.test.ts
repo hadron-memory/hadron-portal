@@ -997,6 +997,7 @@ describe('castWorker action', () => {
       agentId: 'agent-1',
       name: 'Iris',
       role: 'backend-engineer',
+      reporting: 'none',
       promptOverride: 'stale must not be forwarded',
     });
     expect(result).toMatchObject({
@@ -1008,7 +1009,7 @@ describe('castWorker action', () => {
         appRef: 'app-1',
         agentRef: 'agent-1',
         name: 'Iris',
-
+        noTeam: true,
       },
     ]);
   });
@@ -1033,7 +1034,7 @@ describe('castWorker action', () => {
   it('omits role entirely from the schema, mutation and variables', async () => {
     // R222: no writable role survives at any layer of this form.
     mockRequest.mockResolvedValueOnce({});
-    await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '' });
+    await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '', reporting: 'none' });
     const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
     expect(vars).not.toHaveProperty('role');
     expect(castWorkerSchema.shape).not.toHaveProperty('role');
@@ -1065,7 +1066,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'taken', extensions: { code: 'WORKER_NAME_TAKEN' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
@@ -1087,7 +1088,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ extensions: { code: 'WORKER_NAME_REQUIRED' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toMatch(/needs a name/i);
@@ -1099,7 +1100,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'WORKER_ROLE_OVERRIDE_REFUSED', extensions: { code: 'WORKER_ROLE_OVERRIDE_REFUSED' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: 'old-role' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: 'old-role', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toBe('A worker’s role comes from its agent. Reload this page and choose the agent for the role you need.');
@@ -1109,7 +1110,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ extensions: { code: 'WORKER_AGENT_NOT_INSTALLED' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-9', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-9', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('not installed');
@@ -1123,7 +1124,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('permission to staff this App');
@@ -1137,7 +1138,7 @@ describe('castWorker action', () => {
       message: 'boom',
       response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toBe('Something went wrong on our side.');
@@ -1147,7 +1148,7 @@ describe('castWorker action', () => {
     // No `response.errors` at all — reading extensions.code off it would yield
     // undefined and, with a catch-all, mislabel an outage.
     mockRequest.mockRejectedValueOnce(new Error('bad gateway'));
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toBe('bad gateway');

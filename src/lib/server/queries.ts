@@ -1065,6 +1065,10 @@ export const WORKER_QUERY = /* GraphQL */ `
       reportsToWorkerId
       reportsToRetired
       reportsTo { id name urn retiredAt }
+      # hadron-portal#1149 — the placement the CAST recorded: UNSET (legacy, or
+      # an omitted choice while the server allows one), NO_TEAM, REPORTS_TO.
+      # Access-masked: null is WITHHELD, which is neither UNSET nor NO_TEAM.
+      teamPlacement
       # The worker's boot prompt (#737): the approved revision of the compiled
       # boot prompt a bind of this worker is served, with the platform
       # variables ({{worker.name}}, {{worker.role}}, …) filled
@@ -1127,6 +1131,8 @@ export const WORKERS_QUERY = /* GraphQL */ `
         # lastActiveAt is masked to null on deny, like the hold.
         reportsToWorkerId
         reportsToRetired
+        # hadron-portal#1149 — masked to null on deny (WITHHELD, not UNSET).
+        teamPlacement
         lastActiveAt
         # portal#1168 — the AI Team grid's Status and Model family columns, and
         # the role agent's system memory for the ⋯ menu. All masked to null on
@@ -1157,9 +1163,14 @@ export const WORKERS_QUERY = /* GraphQL */ `
 // the register — they fired only because a nameless cast had to read one.
 export const CAST_WORKER_MUTATION = /* GraphQL */ `
   ${WORKER_FIELDS}
-  mutation CastWorker($appRef: ID!, $agentRef: ID, $name: String) {
-    castWorker(appRef: $appRef, agentRef: $agentRef, name: $name) {
+  # hadron-portal#1149 — BOTH arms are optional variables with no default, and
+  # the caller supplies exactly one (a head, or noTeam: true). The server reads
+  # PRESENCE: a null or default false is not an omission, so the unused variable
+  # must be absent from the request, never null.
+  mutation CastWorker($appRef: ID!, $agentRef: ID, $name: String, $reportsTo: ID, $noTeam: Boolean) {
+    castWorker(appRef: $appRef, agentRef: $agentRef, name: $name, reportsTo: $reportsTo, noTeam: $noTeam) {
       ...WorkerFields
+      teamPlacement
     }
   }
 `;

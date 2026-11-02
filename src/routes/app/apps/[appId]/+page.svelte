@@ -134,7 +134,7 @@
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
-  import { reportsToOf, reportsToSortKey } from '$lib/worker-reports-to';
+  import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
   import { enhance } from '$app/forms';
@@ -280,6 +280,11 @@
   const selectedCastAgent = $derived(
     installedAgents.find((a) => a.id === $castWorkerForm.agentId) ?? null,
   );
+  // hadron-portal#1149 — the heads a cast may name: this App's ACTIVE workers.
+  // A retired worker can't be a head (the server refuses it), so offering one
+  // would be offering a guaranteed failure. The choice itself starts EMPTY.
+  const castHeads = $derived(sortedStaff.filter((w) => !w.retiredAt));
+  const selectedCastHead = $derived(castHeads.find((w) => w.id === $castWorkerForm.reportsTo) ?? null);
   let castOpen = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
@@ -1167,7 +1172,7 @@
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
         castWorkerForm.update(
-          (current) => ({ ...current, agentId: '', name: '' }),
+          (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
           { taint: false },
         );
         castOpen = false;
@@ -1245,6 +1250,8 @@
   const castWorkerAgentError = $derived($castWorkerErrors.agentId?.[0] ?? null);
   // #760: the name is required since hadron-server#1050 removed the register.
   const castWorkerNameError = $derived($castWorkerErrors.name?.[0] ?? null);
+  const castWorkerReportingError = $derived($castWorkerErrors.reporting?.[0] ?? null);
+  const castWorkerHeadError = $derived($castWorkerErrors.reportsTo?.[0] ?? null);
   const castWorkerActionError = $derived(
     $castWorkerMessage?.type === 'error'
       ? $castWorkerMessage.text
@@ -2397,6 +2404,71 @@
               </p>
             {/if}
           </div>
+          <!-- hadron-portal#1149 — the user wants to say who this worker reports
+               to. Two deliberate choices, NEITHER preselected: a worker, or No
+               team. Omission is never No team and a coordinator is never
+               guessed, so there is no default and no "skip". -->
+          <fieldset
+            aria-describedby={castWorkerReportingError ? 'castReportingError' : undefined}
+            class="space-y-2"
+          >
+            <legend class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('app.staff.field.reports-to', 'Reports to')}
+            </legend>
+            <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
+              <input
+                type="radio"
+                name="reporting"
+                value="head"
+                bind:group={$castWorkerForm.reporting}
+                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
+              />
+              {t('app.staff.reports-to.choice.worker', 'A worker')}
+            </label>
+            {#if $castWorkerForm.reporting === 'head'}
+              <div class="pl-6">
+                <label for="castReportsTo" class="sr-only">
+                  {t('app.staff.reports-to.choice.worker.label', 'Worker this one reports to')}
+                </label>
+                <select
+                  id="castReportsTo"
+                  name="reportsTo"
+                  bind:value={$castWorkerForm.reportsTo}
+                  aria-invalid={!!castWorkerHeadError}
+                  aria-describedby={castWorkerHeadError ? 'castReportsToError' : undefined}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                >
+                  <option value="">{t('app.staff.reports-to.placeholder', '— Select a worker —')}</option>
+                  {#each castHeads as head (head.id)}
+                    <option value={head.id}>{head.name}{head.role ? ` (${head.role})` : ''}</option>
+                  {/each}
+                </select>
+                {#if selectedCastHead?.urn}
+                  <div class="mt-1 min-w-0"><Urn value={selectedCastHead.urn} type="worker" /></div>
+                {/if}
+                {#if castWorkerHeadError}
+                  <p id="castReportsToError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{castWorkerHeadError}</p>
+                {/if}
+              </div>
+            {/if}
+            <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
+              <input
+                type="radio"
+                name="reporting"
+                value="none"
+                bind:group={$castWorkerForm.reporting}
+                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
+              />
+              {t('app.staff.reports-to.choice.none', 'No team')}
+            </label>
+            {#if castWorkerReportingError}
+              <p id="castReportingError" role="alert" class="text-xs text-red-600 dark:text-red-400">{castWorkerReportingError}</p>
+            {:else}
+              <p class="text-xs text-zinc-400">
+                {t('app.staff.reports-to.help', 'Choose deliberately. A cast without a choice will be refused once enforcement is on.')}
+              </p>
+            {/if}
+          </fieldset>
           <div>
             <p class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.role', 'Role')}
@@ -2636,7 +2708,17 @@
                   >{#if rt.retired}{' '}<span class="text-zinc-500">{t('app.staff.reports-to.retired', '(retired)')}</span>{/if}
                 </span>
               {:else}
-                <span class="text-xs text-zinc-400">—</span>
+                <!-- hadron-portal#1149 — only an answered placement says
+                     anything: a masked null (withheld) stays a dash, because a
+                     null pointer proves neither UNSET nor an explicit No team. -->
+                {@const placement = teamPlacementOf(worker)}
+                {#if placement.kind === 'no-team'}
+                  <span class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.staff.reports-to.no-team', 'No team')}</span>
+                {:else if placement.kind === 'unset'}
+                  <span class="text-xs text-zinc-500">{t('app.staff.reports-to.unset', 'Not set')}</span>
+                {:else}
+                  <span class="text-xs text-zinc-400">—</span>
+                {/if}
               {/if}
             {:else if cell.column.id === 'lastActive'}
               <span class="text-xs text-zinc-500">{formatDate(worker.lastActiveAt)}</span>
