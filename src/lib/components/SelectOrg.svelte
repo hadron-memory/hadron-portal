@@ -3,6 +3,7 @@
   // Mirrors SelectMemory.svelte (same TanStack adapter, modal chrome, untrack
   // reset); orgs have a display URN so rows use the Urn component.
   import type { PortalColumnDef } from '$lib/table/features';
+  import { pickerStrings } from '$lib/i18n/picker-strings';
   import { untrack } from 'svelte';
   import { focusTrap } from '$lib/a11y/focus-trap';
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
@@ -164,9 +165,10 @@
                     <button
                       type="button"
                       onclick={() => select(row.original)}
-                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                      aria-label={pickerStrings.selectNamed(row.original.name)}
+                      class="rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white pointer-coarse:min-h-11 hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
                     >
-                      Select
+                      {pickerStrings.select()}
                     </button>
                   </td>
                 </tr>
