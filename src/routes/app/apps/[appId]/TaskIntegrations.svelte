@@ -62,12 +62,10 @@
     cancel();
   }
 
-  const submit: SubmitFunction = ({ cancel: stop, formData }) => {
+  const submit: SubmitFunction = ({ cancel: stop }) => {
     if (read.kind !== 'ok' || pending) { stop(); return; }
     const local = validateDrafts(drafts);
     if (Object.keys(local).length) { errors = local; formError = null; stop(); return; }
-    formData.set('integrations', JSON.stringify($state.snapshot(drafts)));
-    formData.set('revision', String(read.revision));
     pending = true; errors = {}; formError = null; conflict = false;
     return async ({ result }) => {
       pending = false;
@@ -81,7 +79,7 @@
   };
 
   const hasListError = (path: string) => Object.keys(errors).some((k) => k === path || k.startsWith(`${path}[`));
-  const field = (path: string) => `ti-${path.replace(/[^a-z0-9]+/gi, '-')}`;
+  const field = (path: string) => `ti-${path.replace(/[^a-z0-9]+/gi, '-').replace(/-$/, '')}`;
   const describedBy = (path: string) => (errors[path] ? `${field(path)}-error` : undefined);
 
   function pickLead(i: number, j: number, value: string) {
@@ -153,6 +151,8 @@
       {/if}
     {:else}
       <form method="POST" action="?/saveTaskIntegrations" use:enhance={submit} novalidate class="space-y-4">
+        <input type="hidden" name="integrations" value={JSON.stringify(drafts)} />
+        <input type="hidden" name="revision" value={read.kind === 'ok' ? read.revision : ''} />
         {#if formError}
           <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
             {formError}
