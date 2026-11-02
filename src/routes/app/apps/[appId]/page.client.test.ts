@@ -2019,6 +2019,21 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     expect(status(m).textContent).not.toContain('selected');
     expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
   });
+  it('a rejected old navigation cannot cancel a newer choice',async()=>{
+    const {m,props}=await setup();
+    const bo={...tagged,nodeId:'m2',seq:2,teamTags:[{headId:'head-bo',label:'team.bo'}]};
+    props.data={...props.data,teamChatMessages:[tagged,bo]};await tick(3);
+    const pending:Array<{resolve:()=>void;reject:(error:Error)=>void}>=[];
+    navigationHooks.onGoto=()=>new Promise<void>((resolve,reject)=>{pending.push({resolve,reject});});
+    await selectTag(m);
+    const second=m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-tag"]')[1];
+    second.focus();second.click();await tick(2);
+    pending[0].reject(new Error('old navigation cancelled'));await tick(3);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-bo'},teamChatMessages:[bo]};
+    await tick(3);pending[1].resolve();await tick(5);
+    expect(status(m).textContent).toContain('team.bo');
+    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+  });
   it('clearing an initially invalid view still focuses and announces the healthy explicit All choice',async()=>{
     const {m,props,release}=await setup(true);
     const all=[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('All messages'))!;
