@@ -94,8 +94,15 @@ export function focusTrap(container: HTMLElement) {
 
   // Prefer the first tabbable control; fall back to the container itself, so
   // an empty dialog still takes focus off the page behind it rather than
-  // leaving it there.
-  const first = tabbable(container)[0];
+  // leaving it there. A dialog whose first tabbable control is not the one
+  // users arrive to use (SelectUser's Close button precedes its search
+  // input) marks the wanted landing with `data-initial-focus`, and the trap
+  // — never a child action, which runs before this capture and corrupts it
+  // (#1305) — prefers it. The mark is a preference among controls that pass
+  // the same tabbable filter, and only the LANDING changes: the Tab cycle
+  // keeps DOM order (portal#1599, both seats' P2).
+  const items = tabbable(container);
+  const first = items.find((el) => el.hasAttribute('data-initial-focus')) ?? items[0];
   if (first) {
     first.focus();
   } else {
