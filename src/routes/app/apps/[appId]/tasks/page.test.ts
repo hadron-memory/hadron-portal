@@ -497,8 +497,20 @@ describe('task handles', () => {
     // Uma UX P2: say where AT0.<n> tasks are (the board), not that AT0 has none.
     expect(s).toContain('Tasks that belong to no project are listed on the');
     expect(s).toMatch(/<a href="\/app\/apps\/[^"]+\/tasks"[^>]*>Tasks page<\/a>, not under this one\./);
+    // portal#1415 B: the link is marked by more than colour, at rest (not only on hover).
+    const link = s.match(/<a href="\/app\/apps\/[^"]+\/tasks"[^>]*>/)![0];
+    expect(link.split(/\s+/)).toContain('underline');
     expect(s).not.toContain('role="alert"');
     expect(s).not.toContain('Couldn’t load the subtasks.');
+  });
+
+  // portal#1415 A: one sentence is one message, so a translation can place the link anywhere.
+  it('AT0 note: one i18n key with a {link} placeholder, not lead/link/tail', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('./[taskId]/+page.svelte', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/app\.tasks\.tree\.project-zero\.(lead|tail)/);
+    expect(src).toContain("'app.tasks.tree.project-zero'");
+    expect(src).toContain('{link}');
   });
 
   it('a null tree on any other task, and a failed read on any task, keep the alert', () => {

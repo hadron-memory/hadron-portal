@@ -8,7 +8,7 @@
  * lives at the boundary rather than at 35 call sites.
  */
 import { describe, expect, it } from 'vitest';
-import { fill, t } from './t';
+import { fill, splitAt, t } from './t';
 
 describe('fill', () => {
   it('substitutes a placeholder', () => {
@@ -77,5 +77,20 @@ describe('t', () => {
 
   it('interpolates safely when vars are given', () => {
     expect(t('assets.download.aria', 'Download {file}', { file: 'a$&b' })).toBe('Download a$&b');
+  });
+});
+
+// portal#1415 A: a sentence with an inline link is ONE message; the placeholder's
+// position is the translator's to choose.
+describe('splitAt', () => {
+  it('splits a message around a placeholder', () => {
+    expect(splitAt('Listed on the {link}, not here.', 'link')).toEqual(['Listed on the ', ', not here.']);
+  });
+  it('lets a translation put the link first or last', () => {
+    expect(splitAt('{link} zeigt sie', 'link')).toEqual(['', ' zeigt sie']);
+    expect(splitAt('Siehe {link}', 'link')).toEqual(['Siehe ', '']);
+  });
+  it('a message missing the placeholder keeps its text before and drops nothing', () => {
+    expect(splitAt('no link here', 'link')).toEqual(['no link here', '']);
   });
 });
