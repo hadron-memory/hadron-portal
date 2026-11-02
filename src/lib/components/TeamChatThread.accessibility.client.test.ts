@@ -92,7 +92,9 @@ describe('portal#1410 chip feedback and refusal polling', () => {
  });
  it('gives guidance, a non-colour selected cue, plain empty copy and a refusal next step',async()=>{
   const m=await mountThread({messages:[],filter:{kind:'untagged'},onSelectTeam:vi.fn()});
-  expect(q(m,'team-chat-filter')?.textContent).toContain('Choose a team by clicking a tag on a message.');
+  expect(q(m,'team-chat-filter')?.textContent).not.toContain('Choose a team by clicking a tag on a message.');
+  const tagged=await mountThread({messages:[message(1,{teamTags:[ADA]})],total:1,onSelectTeam:vi.fn()});
+  expect(q(tagged,'team-chat-filter')?.textContent).toContain('Choose a team by clicking a tag on a message.');
   expect(q(m,'team-chat-filter-empty')?.textContent).toContain('This view is empty.');
   const selected=q(m,'team-chat-filter')?.querySelector('[aria-pressed="true"]');
   expect(selected?.querySelector('[data-selected-cue]')).not.toBeNull();
@@ -106,7 +108,7 @@ it('a delayed filter response does not steal focus after the reader moves to the
  const props=reactiveProps<Record<string,unknown>>({messages:[message(1,{teamTags:[ADA]})],total:1,filter:{kind:'none'},onSelectTeam:vi.fn()});
  const m=await mountThread(props);document.body.append(m.target);
  const chip=q(m,'team-chat-tag') as HTMLButtonElement;chip.focus();chip.click();await tick(2);
- const composer=m.target.querySelector('textarea')!;composer.focus();
+ const composer=m.target.querySelector('[data-testid="team-chat-composer"]')!;composer.focus();
  props.filter={kind:'team',headRef:ADA.headId};await tick(4);
  expect(document.activeElement).toBe(composer);
  expect(q(m,'team-chat-filter-status')?.textContent).toContain('team.ada');
@@ -118,5 +120,13 @@ it('clearing into an untagged history with no filter bar keeps a logical focus t
  const m=await mountThread(props);document.body.append(m.target);
  const active=q(m,'team-chat-filter-active') as HTMLButtonElement;active.focus();active.click();await tick(4);
  expect(q(m,'team-chat-filter')).toBeNull();
- expect(document.activeElement).toBe(m.target.querySelector('textarea'));
+ expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-composer"]'));
+});
+
+it('clearing only the authoritative refusal unblocks the same-filter poll',async()=>{
+ Object.defineProperty(document,'hidden',{configurable:true,value:false});vi.useFakeTimers();
+ const onRefresh=vi.fn(async()=>({items:[message(2)],total:1,loadFailed:false}));
+ const props=reactiveProps<Record<string,unknown>>({messages:[],total:0,loadError:true,refusal:{code:'TEAM_CHAT_TEAM_HEAD_INVALID',message:'Unavailable.'},filter:{kind:'team',headRef:'head-ada'},onRefresh,pollMs:100,onSelectTeam:vi.fn()});
+ await mountThread(props);await vi.advanceTimersByTimeAsync(100);expect(onRefresh).not.toHaveBeenCalled();
+ props.refusal=null;await tick(3);await vi.advanceTimersByTimeAsync(100);expect(onRefresh).toHaveBeenCalledTimes(1);
 });

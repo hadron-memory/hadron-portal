@@ -393,29 +393,59 @@
   // Polls and loader refreshes never move focus. A superseding choice/unmount
   // cancels the post-tick continuation; a person who moved elsewhere keeps focus.
   let filterBarEl: HTMLDivElement | undefined = $state();
+  let composerEl: HTMLTextAreaElement | undefined = $state();
   let filterAnnouncement = $state('');
   function selectTeam(next: TeamChatFilter, label?: string) {
     if (!onSelectTeam) return;
     filterFocusRequest = { key: filterKeyOf(next), label, opener: document.activeElement };
     onSelectTeam(next);
   }
+  function rememberFilterFocus(event: FocusEvent) {
+    const request = filterFocusRequest;
+    if (!request) return;
+    request.movedFocus = event.target === request.opener ? undefined
+      : event.target === composerEl ? 'composer' : 'elsewhere';
+  }
   $effect(() => {
     const requested = filterFocusRequest;
     const applied = filterKey;
-    if (!requested || requested.key !== applied) return;
+    const navigation = requested?.navigation;
+    // Read each outcome on every run; the route may apply a refused/invalid
+    // response while goto is still pending. A URL key alone is not success.
+    const invalid = filterInvalid;
+    const initialRefusal = refusal;
+    const currentRefusal = liveRefusal;
+    const failedRead = shownLoadError;
+    const failed = invalid || !!initialRefusal || !!currentRefusal || failedRead;
+    if (!requested || navigation === 'pending') return;
+    if (requested.key !== applied && !failed && navigation !== 'complete') return;
     let cancelled = false;
     void tick().then(() => {
       if (cancelled || !messagesEl || filterFocusRequest !== requested || filterKey !== applied) return;
+      if (failed || requested.key !== applied) {
+        // Consume failed and abandoned choices silently: the existing error
+        // UI explains them. No success announcement now or on later history.
+        filterAnnouncement = '';
+        onFilterAnnouncement?.('');
+        filterFocusRequest = null;
+        return;
+      }
       const selected = filterBarEl?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')
-        ?? messagesEl.parentElement?.querySelector<HTMLTextAreaElement>('textarea');
-      if (document.activeElement === requested.opener || document.activeElement === document.body) selected?.focus();
+        ?? composerEl;
+      if (document.activeElement === requested.opener || document.activeElement === document.body) {
+        if (requested.movedFocus === 'composer') composerEl?.focus();
+        else if (requested.movedFocus !== 'elsewhere') selected?.focus();
+      }
       filterAnnouncement = filter.kind === 'team'
         ? t('app.team-chat.filter.announcement.team', 'Team filter selected: {team}.', { team: requested.label ?? activeTeamLabel ?? t('app.team-chat.filter.selected-team', 'Selected team') })
         : filter.kind === 'untagged'
-          ? t('app.team-chat.filter.announcement.untagged', 'No team tag recorded selected.')
+          ? t('app.team-chat.filter.announcement.untagged', 'Showing messages with no team tag recorded.')
           : t('app.team-chat.filter.announcement.all', 'All messages selected.');
       onFilterAnnouncement?.(filterAnnouncement);
       filterFocusRequest = null;
+    }).catch(() => {
+      if (filterFocusRequest === requested) filterFocusRequest = null;
+      console.warn('[team-chat] filter feedback could not be updated');
     });
     return () => { cancelled = true; };
   });
@@ -733,7 +763,7 @@
   }
 </script>
 
-<div class="flex flex-col {heightClass}">
+<div class="flex flex-col {heightClass}" onfocusin={rememberFilterFocus}>
   {#if !onFilterAnnouncement}<span data-testid="team-chat-filter-status" class="sr-only" aria-live="polite" aria-atomic="true">{filterAnnouncement}</span>{/if}
   {#if showFilterBar}
     <!-- #1137: the team filter. Display and request only — the read happens on
@@ -788,7 +818,7 @@
           {t('app.team-chat.filter.untagged', 'No team tag recorded')}
         </button>
       </div>
-      <span class="text-zinc-500 dark:text-zinc-400">{t('app.team-chat.filter.hint', 'Choose a team by clicking a tag on a message.')}</span>
+      {#if tagsObserved}<span class="text-zinc-500 dark:text-zinc-400">{t('app.team-chat.filter.hint', 'Choose a team by clicking a tag on a message.')}</span>{/if}
       {#if filter.kind === 'team'}
         <!-- Count-free on purpose: no exact count of untagged history exists to
              state, and a guessed one would be a claim about the team. -->
@@ -1157,6 +1187,8 @@
       <div class="flex gap-3">
         <textarea
           id="team-chat-body"
+          data-testid="team-chat-composer"
+          bind:this={composerEl}
           name="body"
           bind:value={$postFormData.body}
           oninput={(event) => onDraftChange?.({ body: event.currentTarget.value, replyToSeq: replyTo === null ? undefined : String(replyTo) })}
