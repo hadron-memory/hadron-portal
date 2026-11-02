@@ -550,6 +550,14 @@ export const actions: Actions = {
       );
       return { vectorHealth: embedFailedView(res.validateMemory) };
     } catch (e: unknown) {
+      // #1465 (hrn:node:hadronmemory.com:specs:cor:api:140:03): validateMemory answers a memory the
+      // caller cannot read with the same MEMORY_NOT_FOUND as a missing one. One fixed message and a
+      // 404, never the server's text, so the page cannot say which of the two it was.
+      if (extractGqlErrorCode(e) === 'MEMORY_NOT_FOUND') {
+        return fail(404, {
+          vectorHealthError: t('memory-settings.vector-health.not-found', 'This memory could not be found.'),
+        });
+      }
       return fail(500, {
         vectorHealthError: extractGqlError(
           e,

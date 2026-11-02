@@ -83,4 +83,26 @@ describe('vector health pending state (#1346)', () => {
     await settle();
     expect(buttonOf(target).disabled).toBe(true);
   });
+
+  // #1465 (Gabriel on #1460): the scan is slow and this component is reused on a [id] navigation.
+  // A's result arriving after the reader moved to B must not be applied as B's page data.
+  it("A's late result is not applied after navigating to B (#1465)", async () => {
+    const applied: unknown[] = [];
+    const { target, props } = await mountOn('mem-A');
+    const a = await submitEnhancedDeferred(formOf(target), { update: async (o) => { applied.push(o); } });
+    props.data = await dataFor('mem-B');
+    await settle();
+    await a.finish(OK);
+    await settle();
+    expect(applied).toEqual([]);
+  });
+
+  it('control: a result for the memory still on screen is applied (#1465)', async () => {
+    const applied: unknown[] = [];
+    const { target } = await mountOn('mem-A');
+    const a = await submitEnhancedDeferred(formOf(target), { update: async (o) => { applied.push(o); } });
+    await a.finish(OK);
+    await settle();
+    expect(applied).toHaveLength(1);
+  });
 });

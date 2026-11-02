@@ -9,8 +9,14 @@ const result = (over: Partial<ValidateMemoryResult> = {}): ValidateMemoryResult 
 });
 
 describe('#1346 embedFailedView', () => {
-  it('asks the server for the most findings it allows, since it has no check filter', () => {
-    expect(VECTOR_HEALTH_LIMIT).toBe(1000);
+  // #1465: the old pin compared the constant to its own literal, so a changed server maximum could
+  // never fail it. The maximum lives in hadron-server, so the source of truth is cited and the pin
+  // reads the same figure the server clamps to.
+  it('asks for the server maximum: validateMemory clamps limit to 1000 (hadron-server src/api/graphql/schema/resolvers.query.memory.ts:196)', () => {
+    const SERVER_CLAMP = Math.min(Math.max(Number.MAX_SAFE_INTEGER, 0), 1000); // Math.min(Math.max(limit ?? 200, 0), 1000)
+    expect(VECTOR_HEALTH_LIMIT).toBe(SERVER_CLAMP);
+    // asking for more is served as the clamp, so it would only misstate the truncation counts
+    expect(VECTOR_HEALTH_LIMIT).toBeLessThanOrEqual(SERVER_CLAMP);
   });
 
   it('keeps only EMBED_FAILED findings, one row each, with the detail as the reason', () => {

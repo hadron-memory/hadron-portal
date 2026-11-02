@@ -5,15 +5,16 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'svelte/server';
+import { setStubPage } from '$lib/test/stubs/app-stores';
 import { OWNER, OWNER_ID, settingsForms, settingsGraph } from './settings-page.fixture';
 
-vi.mock('$app/forms', () => ({ enhance: () => ({}) }));
-vi.mock('$app/navigation', () => ({ beforeNavigate: () => {}, goto: vi.fn(), invalidateAll: vi.fn(), replaceState: vi.fn() }));
+// #1465: the shared `$app` stubs, not hand-rolled shapes. `$app/stores` is aliased to the shared stub
+// in the node lane already; forms and navigation are served by the same stub modules. `$app/environment`
+// stays local on purpose: the shared stub says browser = true, and this file renders on the server.
+vi.mock('$app/forms', () => import('$lib/test/stubs/app-forms'));
+vi.mock('$app/navigation', () => import('$lib/test/stubs/app-navigation'));
 vi.mock('$app/environment', () => ({ browser: false, dev: false, building: false, version: 'test' }));
-vi.mock('$app/stores', async () => {
-  const { readable } = await import('svelte/store');
-  return { page: readable({ url: new URL('https://example.test/app/memories/mem-1/settings'), params: { id: 'mem-1' }, route: { id: null }, status: 200, error: null, data: {}, form: null }) };
-});
+setStubPage('https://example.test/app/memories/mem-1/settings', { id: 'mem-1' });
 
 import Page from './+page.svelte';
 
@@ -78,8 +79,8 @@ describe('Vector index health panel (#1346)', () => {
   });
 
   it('a refusal is a plain error state', async () => {
-    const html = await renderSettings(true, { vectorHealthError: 'Forbidden' });
-    expect(html).toContain('Forbidden');
+    const html = await renderSettings(true, { vectorHealthError: 'This memory could not be found.' });
+    expect(html).toContain('This memory could not be found.');
     expect(html).toContain('role="alert"');
     expect(html).not.toContain('data-testid="vector-health-empty"');
   });
