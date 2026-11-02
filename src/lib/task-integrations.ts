@@ -100,3 +100,16 @@ export function leadStatus(
   if (!w) return { kind: 'retired', name: null, urn: lead };
   return w.retiredAt ? { kind: 'retired', name: w.name, urn: lead } : { kind: 'live', name: w.name, urn: lead };
 }
+
+/** What the save action answers: the new revision, or one refusal. */
+export type TaskIntegrationsResult =
+  | { ok: true; revision: number | null }
+  | { ok: false; code: string | null; message: string; path: string | null; currentRevision: number | null };
+
+export const TASK_INTEGRATION_REFUSALS = [
+  'TASK_INTEGRATION_INVALID',
+  'APP_PROPERTIES_CONFLICT',
+  'PROPERTIES_NOT_AN_OBJECT',
+  'PROPERTIES_TOO_LARGE',
+  'PROPERTIES_KEY_RESERVED',
+] as const;
