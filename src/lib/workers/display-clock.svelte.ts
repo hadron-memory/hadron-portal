@@ -14,6 +14,7 @@
  * `start()` must be called from an `$effect` (which never runs during SSR);
  * the interval is cleared on destroy. One clock per page.
  */
+import { untrack } from 'svelte';
 import { pageClock } from './terminal';
 
 export const DISPLAY_CLOCK_INTERVAL_MS = 30_000;
@@ -29,7 +30,13 @@ export function createDisplayClock(loaderIso: string | null | undefined) {
     /** Browser-only (call from `$effect`): record the offset, tick every 30 s. */
     start() {
       if (handle !== null) return;
-      offsetMs = now - Date.now();
+      // LOCAL P3 (#1618): the offset read must NOT track `now`. A page mounts
+      // the clock from `$effect(() => { clock.start(); return clock.stop; })`;
+      // reading `now` there made the effect depend on every tick, so each 30 s
+      // the effect re-ran — stop, then start again — tearing down and
+      // re-creating the interval forever. The offset is recorded once, from
+      // the seed, and only the interval writes `now` afterwards.
+      offsetMs = untrack(() => now) - Date.now();
       handle = setInterval(() => {
         now = Date.now() + offsetMs;
       }, DISPLAY_CLOCK_INTERVAL_MS);

@@ -8,6 +8,10 @@
 
   let { seed }: { seed: string } = $props();
 
+  // The seed is read ONCE, deliberately — same rationale as the pages: the
+  // offset (loader clock vs browser clock at first paint) is a property of
+  // the viewer, and later ticks carry the offset, not the seed.
+  // svelte-ignore state_referenced_locally
   const clock = createDisplayClock(seed);
   $effect(() => {
     clock.start();

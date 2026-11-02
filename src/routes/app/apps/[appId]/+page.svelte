@@ -444,6 +444,23 @@
     const entry = rosterEntry(worker.id);
     return entry ? terminalBadge(entry.terminal, workerInternalsVisible(worker)) : null;
   }
+  // portal#1495 BLIND P2 (#1618, George) — the searchable age must reach the
+  // filter as DATA, not as a live clock read inside the filter callback.
+  // TanStack memoizes the filtered row model on data + filter state; values
+  // read inside `globalFilterFn` track nothing, so a search left active
+  // across a 30 s tick kept matching age text the rows no longer show (the
+  // CELL advanced — templates track — while the filtered model went stale).
+  // Baking the current age text into the rows turns a tick into a data
+  // change, the one invalidation path the table documents, and keeps the
+  // filter callback pure. The clone carries every original field, so the
+  // pill, status and actions render from it unchanged.
+  function terminalAgeSearchText(worker: Worker): string | null {
+    const b = terminalBadgeOf(worker);
+    return b && b.state !== 'not-reported' ? terminalCheckedAge(b.checkedAt, terminalNow) : null;
+  }
+  const staffRows = $derived(
+    sortedStaff.map((worker) => ({ ...worker, terminalAgeSearch: terminalAgeSearchText(worker) })),
+  );
   const TASK_STATUS = {
     STARTED: () => t('app.staff.task.started', 'Started'),
     PENDING: () => t('app.staff.task.pending', 'Pending'),
@@ -576,7 +593,7 @@
 
   const staffTable = createSvelteTable<Worker>({
     get data() {
-      return sortedStaff;
+      return staffRows;
     },
     columns: staffColumns,
     enableMultiSort: false,
@@ -599,17 +616,15 @@
     // portal#1495 P1 — one exception, closed: the Terminal ACCESSOR is the
     // summary pill, but the CELL also renders the checked age beside it
     // (everything-the-cell-renders-must-be-searchable). The age joins as extra
-    // searchable text read from the original row, through the SAME advancing
-    // clock the cell displays. A row that renders no age — Not reported, a
-    // hidden or failed read, no roster entry — contributes nothing, so age
-    // text never discloses or matches a masked row.
+    // searchable text — the field `staffRows` bakes per tick, never a live
+    // clock read here (BLIND P2, above). A row that renders no age — Not
+    // reported, a hidden or failed read, no roster entry, or a terminal a
+    // reader without internals cannot see — contributes nothing, so age text
+    // never discloses or matches a masked row.
     globalFilterFn: makeGlobalFilterFn<Worker>(
       {},
       {
-        terminal: (worker: Worker) => {
-          const b = terminalBadgeOf(worker);
-          return b && b.state !== 'not-reported' ? terminalCheckedAge(b.checkedAt, terminalNow) : null;
-        },
+        terminal: (row: Worker) => (row as (typeof staffRows)[number]).terminalAgeSearch,
       },
     ),
     initialState: { pagination: { pageIndex: 0, pageSize: 20 } },
