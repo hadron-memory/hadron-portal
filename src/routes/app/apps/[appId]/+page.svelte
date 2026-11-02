@@ -100,7 +100,20 @@
   // page reset with the new props, and the URL is linkable. `keepFocus` and
   // `noScroll` leave the composer and its draft alone.
   const selectTeamFilter = (next: TeamChatFilter) => {
-    void goto(withTeamFilter(new URL(window.location.href), next), { keepFocus: true, noScroll: true });
+    const request = teamFilterFocusRequest;
+    if (request) request.navigation = 'pending';
+    void goto(withTeamFilter(new URL(window.location.href), next), { keepFocus: true, noScroll: true })
+      .then(() => {
+        // The loader props are now applied. A cancelled/superseding choice
+        // must not complete a newer request or resurrect an old App's intent.
+        if (request && teamFilterFocusRequest === request) request.navigation = 'complete';
+      })
+      .catch(() => {
+        if (request && teamFilterFocusRequest === request) {
+          teamFilterFocusRequest = null;
+          teamFilterAnnouncement = '';
+        }
+      });
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
@@ -173,6 +186,11 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
+  // Survives the filter-keyed thread, but never follows a navigation to another App.
+  let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
+  let teamFilterAnnouncement = $state('');
+  const teamFilterAppId = $derived(app.id);
+  $effect(() => { void teamFilterAppId; untrack(() => { teamFilterFocusRequest = null; teamFilterAnnouncement = ''; }); });
   const org = $derived(data.org);
   const availableAgents = $derived(data.availableAgents);
 
@@ -2087,6 +2105,7 @@
             {#key app.id}<TeamChatSearch appId={app.id} />{/key}
           </div>
         {/if}
+        <span data-testid="team-chat-filter-status" class="sr-only" aria-live="polite" aria-atomic="true">{teamFilterAnnouncement}</span>
         <div class={teamSearchOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
         {#key `${app.id}:${data.postTeamChatMessageForm.id}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
           {@const teamStateKey = `${app.id}:team`}
@@ -2108,6 +2127,8 @@
           filterInvalid={data.teamFilterInvalid}
           refusal={data.teamChatRefusal}
           onSelectTeam={selectTeamFilter}
+          bind:filterFocusRequest={teamFilterFocusRequest}
+          onFilterAnnouncement={(text) => { teamFilterAnnouncement = text; }}
         />
         {/key}
         </div>
