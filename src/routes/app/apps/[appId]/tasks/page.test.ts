@@ -158,7 +158,7 @@ describe('board', () => {
 
   it('a full page says there may be more', () => {
     const html = board({ board: { kind: 'ok', value: { capped: true, tasks: [task()] } } });
-    expect(html).toContain('There may be more; narrow the search.');
+    expect(html).toContain('There may be more; narrow the status filter or search.');
   });
 
   it('a failed read is an alert, never an empty list', () => {
