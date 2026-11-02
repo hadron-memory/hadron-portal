@@ -35,6 +35,18 @@ export interface FlowCanvasEdgeInput {
   targetId: string;
 }
 
+/**
+ * Display projection of `data.script.call` (hrn:node:hadronmemory.com:specs:cor:agt:010:04). Ships the tool
+ * and the arg KEY names only — arg values may carry templated or literal
+ * content and never reach the client (#1597).
+ */
+export interface FlowCanvasScript {
+  tool: string | null;
+  argKeys: string[];
+  /** script together with tools/extractionSpec (even an empty list): the server refuses it at load. */
+  bothBodies: boolean;
+}
+
 export interface FlowCanvasNode {
   id: string;
   loc: string;
@@ -45,6 +57,7 @@ export interface FlowCanvasNode {
   extractionFields: string[];
   tools: string[];
   outputWriteTo: string | null;
+  script: FlowCanvasScript | null;
 }
 
 export interface FlowCanvasEdge {
@@ -91,6 +104,20 @@ function toolsOf(data: unknown): string[] {
   const tools = (data as Record<string, unknown>).tools;
   if (!Array.isArray(tools)) return [];
   return tools.filter((t): t is string => typeof t === 'string');
+}
+
+function scriptOf(data: unknown): FlowCanvasScript | null {
+  if (data == null || typeof data !== 'object') return null;
+  const d = data as Record<string, unknown>;
+  if (d.script === undefined || d.script === null) return null;
+  const call = (d.script as { call?: { tool?: unknown; args?: unknown } } | null)?.call;
+  const args = call?.args;
+  const argKeys = args && typeof args === 'object' && !Array.isArray(args) ? Object.keys(args) : [];
+  return {
+    tool: typeof call?.tool === 'string' && call.tool.length > 0 ? call.tool : null,
+    argKeys,
+    bothBodies: Array.isArray(d.tools) || Array.isArray(d.extractionSpec),
+  };
 }
 
 const CONDITION_SNIPPET_MAX = 80;
@@ -165,6 +192,7 @@ export function buildFlowCanvas(
     extractionFields: extractionSpecOf(n.data).map((f) => f.field),
     tools: toolsOf(n.data),
     outputWriteTo: outputFromNodeData(n.data)?.writeTo ?? null,
+    script: scriptOf(n.data),
   }));
 
   return { nodes: canvasNodes, edges: canvasEdges };
