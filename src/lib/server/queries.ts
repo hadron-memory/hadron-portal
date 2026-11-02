@@ -1956,6 +1956,28 @@ export const APP_VIEWER_MANAGES_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1607 — the App's properties (hrn:node:hadronmemory.com:specs:cor:dmo:050:20), in their OWN request so a
+ * server without the fields, or a refusal, cannot take the App page with it.
+ * `propertiesRevision` is null only for a caller who may not read properties;
+ * `properties` is also null for an App that has none yet, so only the revision
+ * tells the two apart.
+ */
+export const APP_PROPERTIES_QUERY = /* GraphQL */ `
+  query AppProperties($ref: ID!) {
+    app(ref: $ref) { id properties propertiesRevision }
+  }
+`;
+
+export const SET_APP_PROPERTIES_MUTATION = /* GraphQL */ `
+  mutation SetAppProperties($appRef: String!, $expectedRevision: Int, $properties: JSON) {
+    setAppProperties(appRef: $appRef, expectedRevision: $expectedRevision, properties: $properties) {
+      id
+      propertiesRevision
+    }
+  }
+`;
+
 export const APP_KEYS_QUERY = /* GraphQL */ `
   query AppKeys($appRef: ID!) {
     appKeys(appRef: $appRef) {
@@ -4987,6 +5009,8 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
       handBack { code text handedBackAt }
       properties
+      # portal#1607 (hadron-server#3137): the outside item this task claimed; needs a server serving 986a7cbd or later.
+      externalId
       # portal#1575 (hadron-server#3112): needs a server serving 1475888f or later. One without the field
       # rejects this whole read, so the portal deploys only after production serves it (#1575's Order).
       references { kind target label }
