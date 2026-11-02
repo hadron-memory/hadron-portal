@@ -3,6 +3,7 @@
  * page refresh that followed a committed apply landed on the error page. Only for the viewer and worker
  * whose marker is live, once, and never a claim about anything else.
  */
+import { flushSync } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page } from '$lib/test/stubs/app-stores';
@@ -192,5 +193,36 @@ describe('ApplyRefreshFailedNote', () => {
       await tick(2);
       expect(line(root)).not.toBeNull();
     });
+  });
+});
+
+
+describe('recovery controls and synchronous scope visibility (#1475)', () => {
+  it('has a GET-only native reload link to this page, with no action selector or mutation form', async () => {
+    setRefreshMarker(refreshScope('u-1', 'w-A'));
+    atRoot('/app/workers/w-A?tab=wake&/applyTickerTemplates', 'u-1');
+    // atRoot takes a pathname, including the query here, just as the actual URL does.
+    const root = await mountNote();
+    const note = line(root)!;
+    const reload = note.querySelector<HTMLAnchorElement>('a');
+    expect(reload, 'explicit recovery control').not.toBeNull();
+    expect(reload!.textContent).toMatch(/reload/i);
+    expect(reload!.getAttribute('href')).toBe('/app/workers/w-A?tab=wake');
+    expect(reload!.hasAttribute('data-sveltekit-reload')).toBe(true);
+    expect(note.querySelector('form, button[type="submit"]')).toBeNull();
+  });
+
+  it('S13: one synchronous flush drops a consumed claim on worker/viewer change, and shows a fresh matching claim', async () => {
+    at({ id: 'w-A' }, 'u-1');
+    setRefreshMarker(refreshScope('u-1', 'w-A'));
+    const root = await mountNote();
+    expect(line(root)).not.toBeNull();
+    flushSync(() => at({ id: 'w-B' }, 'u-1'));
+    expect(line(root)).toBeNull();
+    setRefreshMarker(refreshScope('u-2', 'w-B'));
+    flushSync(() => at({ id: 'w-B' }, 'u-2'));
+    expect(line(root)).not.toBeNull();
+    flushSync(() => at({ id: 'w-B' }, 'u-3'));
+    expect(line(root)).toBeNull();
   });
 });

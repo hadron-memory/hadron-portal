@@ -515,6 +515,21 @@ describe('ApplyAgentTickers: the refresh marker (Xavier’s ruling A, #51237)', 
     expect(marker()).toMatchObject({ worker: 'gaby' });
   });
 
+  it('S9d: keeps the committed-apply marker when a URN producer lands on the canonical-id error page', async () => {
+    asViewer('u-1');
+    const urn = 'hrn:worker:example.test:team:worker-a';
+    identity = { id: 'w-A', urn, appId: 'app-1', orgId: 'org-1' };
+    const nav = await import('$lib/test/stubs/app-navigation');
+    const { root } = await mountApply({ workerKey: urn });
+    const update = vi.fn(async () => {});
+    const { finish } = await submitEnhancedDeferred(root.querySelector('form')!, { update });
+    nav.navigationHooks.onInvalidateAll = () => { mounted.pop()!.unmount(); errorAt = 'w-A'; };
+    await finish({ ...ok, data: { applyTickers: { ...receipt, key: urn } } });
+    expect(marker()).toMatchObject({ viewer: 'u-1', worker: urn, workerId: 'w-A' });
+    expect(update).not.toHaveBeenCalled();
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+  });
+
   // Kit's `invalidateAll` is not a navigation: it fires no `beforeNavigate`. A real navigation, which cancels the
   // pending refresh, does. So a marker whose refresh is still in flight is cleared the moment the reader navigates,
   // not when the cancelled refresh finally resolves (George's P2 on 704ad591: an unrelated A error could consume

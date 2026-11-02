@@ -6,12 +6,14 @@
  * hand the panel that same identity: a result the reader just caused may never
  * vanish because the two spellings differ.
  */
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { setStubPage } from '$lib/test/stubs/app-stores';
-import { resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { page, setStubPage } from '$lib/test/stubs/app-stores';
+import { navigationHooks, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
+import { submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
+import { REFRESH_MARKER_KEY, takeRefreshMarker } from '$lib/tickers/refresh-marker';
 import { updateSignatureSchema } from './schema';
 import Page from './+page.svelte';
 
@@ -38,6 +40,12 @@ async function data(applyKey: string) {
     applyKey,
   };
 }
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+  resetNavigationCalls();
+  resetNavigationGuards();
+  sessionStorage.clear();
+});
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 beforeEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
@@ -80,4 +88,28 @@ describe('Worker page: apply result identity (URN route)', () => {
     const root = await mountPage({ data: await data(URN), form: { applyTickers: { key: 'hrn:worker:a.com:team:w-b', ok: true, created: [], alreadyPresent: [] } } });
     expect(root.querySelector('[data-testid="apply-receipt"]')).toBeNull();
   });
+});
+
+
+describe('S16b: the real Page supplies an error-only worker to its displaced apply panel (#1475)', () => {
+  for (const failed of [false, true]) {
+    it(`${failed ? 'keeps a genuine error' : 'clears a healthy same-worker remount'} before an unrelated error can consume the marker`, async () => {
+      const root = await mountPage({ data: await data(URN), form: null });
+      const form = root.querySelector<HTMLFormElement>('[data-testid="apply-tickers"] form')!;
+      expect(form).not.toBeNull();
+      const update = vi.fn(async () => {});
+      const { finish } = await submitEnhancedDeferred(form, { update });
+      let seen: unknown = null;
+      navigationHooks.onInvalidateAll = () => {
+        seen = sessionStorage.getItem(REFRESH_MARKER_KEY);
+        mounted.pop()!.unmount();
+        page.update((p) => ({ ...p, status: failed ? 500 : 200, error: failed ? new Error('refresh failure') : null }));
+      };
+      await finish({ type: 'success', status: 200, data: { applyTickers: { key: URN, ok: true, created: [], alreadyPresent: [] } } });
+      expect(seen, 'the producer really wrote its marker before the refresh').not.toBeNull();
+      expect(update).not.toHaveBeenCalled();
+      expect(takeRefreshMarker({ viewer: 'u1', worker: URN, orgId: 'org-1' })).toBe(failed);
+      expect(sessionStorage.getItem(REFRESH_MARKER_KEY)).toBeNull();
+    });
+  }
 });
