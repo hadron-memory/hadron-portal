@@ -2,7 +2,7 @@
  * Spec 025-oauth-for-mcp US2 / T051 — /app/account/api-keys page server.
  *
  * Uses the user-key GraphQL operations shipped in hadron-server:
- *   - Query `myUserApiKeys` — list every active + revoked key the caller
+ *   - Query `myUserApiKeysPage` (portal#1615, every page followed) — list every active + revoked key the caller
  *     owns. Returned newest-first by the resolver (PR #145 D6).
  *   - Mutation `createUserApiKey(label)` — mint one. Returns the raw
  *     `hdr_user_<…>` token EXACTLY ONCE on the result; only the hash
@@ -33,6 +33,7 @@ import {
   REVOKE_USER_API_KEY_MUTATION,
   SET_USER_API_KEY_HIDDEN_MUTATION,
 } from '$lib/server/queries';
+import { readAllPages, type PageEnvelope } from '$lib/server/paged';
 import type { UserApiKey, UserApiKeyCreateResult } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { createUserApiKeySchema, revokeUserApiKeySchema, keyVisibilitySchema } from './schema';
@@ -53,10 +54,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     return { keys: [] as UserApiKey[], includeHidden, form, revokeForm };
   }
   try {
-    const data = await gqlClient(locals.token).request<{
-      myUserApiKeys: UserApiKey[];
-    }>(MY_USER_API_KEYS_QUERY, { includeHidden });
-    return { keys: data.myUserApiKeys, includeHidden, form, revokeForm };
+    const client = gqlClient(locals.token);
+    // portal#1615: every page; one refused page is the page's load error.
+    const keys = await readAllPages((limit, offset) =>
+      client
+        .request<{ myUserApiKeysPage: PageEnvelope<UserApiKey> }>(MY_USER_API_KEYS_QUERY, { includeHidden, limit, offset })
+        .then((r) => r.myUserApiKeysPage),
+    );
+    return { keys, includeHidden, form, revokeForm };
   } catch (e) {
     // Same posture as other portal loaders: surface a friendly empty
     // state on transient failure rather than crashing the page. The

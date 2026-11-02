@@ -1,5 +1,6 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
+import { readAllPages, type PageEnvelope } from '$lib/server/paged';
 import { mapWithConcurrency } from '$lib/server/concurrency';
 import { APP_KEYS_QUERY, APP_VIEWER_MANAGES_QUERY } from '$lib/server/queries';
 import type { AppKey } from '$lib/types';
@@ -47,8 +48,12 @@ export const ACTIVE_KEY_COUNT_CONCURRENCY = 5;
 
 export async function loadAppKeys(client: GraphQLClient, appRef: string): Promise<KeysRead> {
   try {
-    const r = await client.request<{ appKeys: AppKey[] }>(APP_KEYS_QUERY, { appRef });
-    return { kind: 'ok', keys: r.appKeys };
+    // portal#1615: every page, 20 at a time; a refused page is the whole read's
+    // refusal, never the pages so far presented as the inventory.
+    const keys = await readAllPages((limit, offset) =>
+      client.request<{ appKeysPage: PageEnvelope<AppKey> }>(APP_KEYS_QUERY, { appRef, limit, offset }).then((r) => r.appKeysPage),
+    );
+    return { kind: 'ok', keys };
   } catch (e) {
     if (extractGqlErrorCode(e) === 'FORBIDDEN') return { kind: 'hidden' };
     console.warn(`[app-keys] key read for ${appRef} failed (${extractGqlErrorCode(e) ?? 'transport'})`);
