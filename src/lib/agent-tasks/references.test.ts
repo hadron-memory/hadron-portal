@@ -14,6 +14,7 @@ import { parseHandle, taskReferenceTarget } from './handle';
 import {
   isNodeUrn,
   neutralizeFormatChars,
+  neutralizeTargetChars,
   readReferences,
   referenceKindLabel,
   referenceLink,
@@ -56,6 +57,48 @@ describe('neutralizeFormatChars (acceptance 2)', () => {
     ['a URL', 'https://github.com/hadron-memory/hadron-portal/issues/1575'],
   ])('ordinary %s text is unchanged', (_name, text) => {
     expect(neutralizeFormatChars(text)).toBe(text);
+  });
+});
+
+// portal#1580 (cor:agt:050:01 "Blank-looking characters", ruling 0086 A): the server refuses these
+// at write, and clients show the same set visibly for anything stored before. Labels and targets
+// share the six blank characters; variation selectors are revealed in a TARGET only, because an
+// emoji label carries U+FE0F.
+describe('non-Cf blank characters (portal#1580)', () => {
+  const blank = [0x115f, 0x1160, 0x3164, 0xffa0, 0x2800, 0x034f];
+  const hex = (cp: number) => cp.toString(16).toUpperCase().padStart(4, '0');
+  const ch = (cp: number) => String.fromCodePoint(cp);
+
+  it.each(blank.map((cp) => [hex(cp), cp]))('U+%s is revealed in a label', (h, cp) => {
+    expect(neutralizeFormatChars(`a${ch(cp as number)}b`)).toBe(`a[U+${h}]b`);
+  });
+  it.each(blank.map((cp) => [hex(cp), cp]))('U+%s is revealed in a target', (h, cp) => {
+    expect(neutralizeTargetChars(`a${ch(cp as number)}b`)).toBe(`a[U+${h}]b`);
+  });
+
+  it('a label made only of a blank character is not left looking empty', () => {
+    expect(neutralizeFormatChars('\u3164')).toBe('[U+3164]');
+  });
+
+  it('a variation selector is revealed in a target', () => {
+    expect(neutralizeTargetChars('a\uFE0Fb')).toBe('a[U+FE0F]b');
+    expect(neutralizeTargetChars(`a${ch(0xfe00)}b`)).toBe('a[U+FE00]b');
+  });
+  it('a supplementary-plane variation selector shows its full code point in a target', () => {
+    expect(neutralizeTargetChars(`a${ch(0xe0100)}b`)).toBe('a[U+E0100]b');
+    expect(neutralizeTargetChars(`a${ch(0xe01ef)}b`)).toBe('a[U+E01EF]b');
+  });
+  it('a variation selector is left alone in a label, so an emoji label is unchanged', () => {
+    expect(neutralizeFormatChars('Heart \u2764\uFE0F')).toBe('Heart \u2764\uFE0F');
+    expect(neutralizeFormatChars(`a${ch(0xe0100)}b`)).toBe(`a${ch(0xe0100)}b`);
+  });
+
+  it('a target still reveals every Cf character as before', () => {
+    expect(neutralizeTargetChars('x\u202Ey\u200Dz')).toBe('x[U+202E]y[U+200D]z');
+  });
+  it('ordinary text, including an emoji with a variation selector in a label, is unchanged', () => {
+    expect(neutralizeTargetChars('https://example.com/a-b?q=1')).toBe('https://example.com/a-b?q=1');
+    expect(neutralizeFormatChars('Ship it \u{1F680}')).toBe('Ship it \u{1F680}');
   });
 });
 
