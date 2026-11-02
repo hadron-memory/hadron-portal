@@ -19,6 +19,22 @@
   let submitting = $state(false);
   let refusal = $state<WriteRefusal | null>(null);
   let alertEl = $state<HTMLElement | null>(null);
+  let deleteBtn = $state<HTMLButtonElement | null>(null);
+  let confirmBtn = $state<HTMLButtonElement | null>(null);
+
+  // The step swaps one button for another, so focus is moved on purpose: a
+  // keyboard or screen-reader user must not be dropped on <body> mid-delete.
+  async function openConfirm() {
+    confirming = true;
+    await tick();
+    confirmBtn?.focus();
+  }
+  async function cancelConfirm() {
+    confirming = false;
+    refusal = null;
+    await tick();
+    deleteBtn?.focus();
+  }
 
   let generation = 0;
   let seededFor = $state<string | null>(null);
@@ -61,7 +77,7 @@
 
 <div class="space-y-2" data-testid="agent-template-delete-{template.id}">
   {#if !confirming}
-    <button type="button" onclick={() => (confirming = true)} class="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
+    <button type="button" bind:this={deleteBtn} onclick={openConfirm} class="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950">
       {t('agent.tickers.delete', 'Delete')}
     </button>
   {:else}
@@ -72,10 +88,10 @@
         {t('agent.tickers.delete.confirm', 'Delete {name}? Tickers already made from it keep running.', { name: template.name })}
       </p>
       <div class="flex gap-2">
-        <button type="submit" disabled={submitting} class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
+        <button type="submit" bind:this={confirmBtn} disabled={submitting} class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
           {#if submitting}{t('agent.tickers.deleting', 'Deleting…')}{:else}{t('agent.tickers.delete.confirm-button', 'Confirm delete')}{/if}
         </button>
-        <button type="button" disabled={submitting} onclick={() => (confirming = false)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+        <button type="button" disabled={submitting} onclick={cancelConfirm} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
           {t('agent.tickers.delete.cancel', 'Cancel')}
         </button>
       </div>

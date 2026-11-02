@@ -13,6 +13,7 @@
   - A support (impersonation) session sees the list and no controls.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
   import AgentTickerTemplateForm from '$lib/components/tickers/AgentTickerTemplateForm.svelte';
   import AgentTickerTemplateDelete from '$lib/components/tickers/AgentTickerTemplateDelete.svelte';
@@ -49,6 +50,15 @@
   // The template the editor shows, by identity; one that is gone after a reload drops back to "add".
   let editingId = $state<string | null>(null);
   const editing = $derived(canEdit && editingId ? (list.find((tp) => tp.id === editingId) ?? null) : null);
+
+  let headingEl = $state<HTMLElement | null>(null);
+  // The editor sits below the table; moving focus to its heading reveals it (a phone sees nothing otherwise).
+  async function toggleEdit(id: string) {
+    editingId = editingId === id ? null : id;
+    if (editingId === null) return;
+    await tick();
+    headingEl?.focus();
+  }
 
   let seededFor = $state<string | null>(null);
   $effect.pre(() => {
@@ -132,7 +142,7 @@
           {:else if cell.column.id === 'actions'}
             <button
               type="button"
-              onclick={() => (editingId = editingId === row.template.id ? null : row.template.id)}
+              onclick={() => toggleEdit(row.template.id)}
               aria-pressed={editingId === row.template.id}
               aria-label={t('agent.tickers.edit-named', 'Edit {name}', { name: row.template.name })}
               class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
@@ -144,7 +154,7 @@
 
     {#if canEdit}
       <section aria-labelledby="agent-template-form-heading" class="space-y-2" data-testid="agent-template-editor">
-        <h2 id="agent-template-form-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">
+        <h2 id="agent-template-form-heading" tabindex="-1" bind:this={headingEl} class="text-sm font-semibold text-zinc-900 dark:text-white">
           {editing ? t('agent.tickers.edit.heading', 'Edit {name}', { name: editing.name }) : t('agent.tickers.add.heading', 'Add a ticker template')}
         </h2>
         <AgentTickerTemplateForm {agentId} template={editing} />

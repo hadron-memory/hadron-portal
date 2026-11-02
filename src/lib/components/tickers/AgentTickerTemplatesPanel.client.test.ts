@@ -350,3 +350,43 @@ describe('delete', () => {
     expect(invalidations()).toBeGreaterThan(0);
   });
 });
+
+describe('keyboard focus (UX P2s, portal#1613)', () => {
+  const byLabel = (root: HTMLElement, label: string) => [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === label)!;
+
+  it('Edit moves focus to the form heading, and again when switching templates', async () => {
+    const root = await mountPanel();
+    await openEdit(root, 'nightly');
+    const heading = root.querySelector<HTMLElement>('#agent-template-form-heading')!;
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(heading);
+    (document.activeElement as HTMLElement).blur();
+    await openEdit(root, 'standup');
+    expect(document.activeElement).toBe(root.querySelector('#agent-template-form-heading'));
+  });
+
+  it('Delete focuses Confirm delete; Cancel returns focus to Delete', async () => {
+    const root = await mountPanel();
+    await openEdit(root, 'nightly');
+    byLabel(root, 'Delete').click();
+    await tick(3);
+    expect(document.activeElement).toBe(byLabel(root, 'Confirm delete'));
+    byLabel(root, 'Cancel').click();
+    await tick(3);
+    expect(document.activeElement).toBe(byLabel(root, 'Delete'));
+  });
+
+  it('Cancel clears a refusal left by a stale delete', async () => {
+    const root = await mountPanel();
+    await openEdit(root, 'nightly');
+    byLabel(root, 'Delete').click();
+    await tick(3);
+    await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('form[action="?/deleteTickerTemplate"]')!, {
+      type: 'failure', status: 409, data: { action: 'deleteTickerTemplate', refusal: { kind: 'refused', code: 'TICKER_TEMPLATE_REVISION_MISMATCH', message: 'stale' } },
+    });
+    await tick(3);
+    byLabel(root, 'Cancel').click();
+    await tick(3);
+    expect(root.querySelector('[data-testid="agent-template-delete-tpl-2"] [role="alert"]')).toBeNull();
+  });
+});
