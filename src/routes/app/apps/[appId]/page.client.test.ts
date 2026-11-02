@@ -1757,3 +1757,35 @@ describe('App memory scope inventory (#1043)', () => {
     const m=await showSettings([]);expect(m.target.textContent).toContain('No accessible memories');expect(m.target.textContent).not.toContain('OLD FIRST ONLY');
   });
 });
+
+describe('App Settings: task integrations draft (LOCAL review of #1614, P2-2)', () => {
+  it('does not follow the person to another App: an open draft is dropped on an App change', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=settings', { appId: 'a1' });
+    const data = await pageData();
+    const props = reactiveProps({
+      data: {
+        ...data, user: { id: 'u1' }, initialTab: 'settings', staff: [],
+        appProperties: { kind: 'ok', revision: 1, properties: { taskIntegrations: [{ name: 'app-a-integration', provider: 'github', repositories: ['o/a'] }] } },
+      },
+      form: null,
+    });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    const edit = [...m.target.querySelectorAll<HTMLButtonElement>('[data-task-integrations] button')].find((b) => b.textContent?.trim() === 'Edit')!;
+    edit.click();
+    await tick(3);
+    expect(m.target.querySelector<HTMLInputElement>('[data-task-integrations] input[type="text"]')!.value).toBe('app-a-integration');
+
+    props.data = {
+      ...props.data,
+      app: { ...props.data.app, id: 'a2', urn: 'hrn:app:acme.com:other', name: 'Other App' },
+      appProperties: { kind: 'ok', revision: 7, properties: { taskIntegrations: [{ name: 'app-b-integration', provider: 'github', repositories: ['o/b'] }] } },
+    };
+    await tick(3);
+    const section = m.target.querySelector('[data-task-integrations]')!;
+    expect(section.querySelector('form')).toBeNull();
+    expect(section.textContent).toContain('app-b-integration');
+    expect(section.textContent).not.toContain('app-a-integration');
+  });
+});

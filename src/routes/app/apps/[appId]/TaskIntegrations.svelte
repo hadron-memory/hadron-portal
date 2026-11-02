@@ -8,7 +8,7 @@
   longer a live worker is shown as such and never dropped or sent as null.
 -->
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
@@ -48,6 +48,14 @@
   let formError = $state<string | null>(null);
   let conflict = $state(false);
   let pending = $state(false);
+  // The revision the OPEN draft was taken from. The hidden field posts this, never the live read:
+  // a loader refresh that lands mid-edit must not bless an old draft with a newer revision
+  // (the server then refuses it as APP_PROPERTIES_CONFLICT). Review of #1614, LOCAL P2-1.
+  let baseRevision = $state<number | null>(null);
+  // One epoch per editing session: a response from an earlier session (Cancel, a new Edit, or an
+  // unmounted section) must never act on a newer one. Review of #1614, LOCAL P2-3.
+  let epoch = 0;
+  onDestroy(() => { epoch++; });
   let formEl = $state<HTMLFormElement>();
   let headingEl = $state<HTMLHeadingElement>();
   let bannerEl = $state<HTMLDivElement>();
@@ -70,6 +78,8 @@
   const blank = (): IntegrationDraft => ({ name: '', provider: 'github', repositories: [''], readyLabel: '', excludeLabels: [], teams: [], extra: {} });
 
   function startEdit(addOne: boolean) {
+    epoch++; pending = false;
+    baseRevision = read.kind === 'ok' ? read.revision : null;
     drafts = $state.snapshot(saved) as IntegrationDraft[];
     if (addOne) drafts.push(blank());
     errors = {}; formError = null; conflict = false;
@@ -77,22 +87,28 @@
     focusName(addOne ? drafts.length - 1 : 0);
   }
   function addIntegration() { drafts.push(blank()); focusName(drafts.length - 1); }
-  function cancel() { editing = false; errors = {}; formError = null; conflict = false; focusHeading(); }
+  function cancel() { epoch++; pending = false; editing = false; errors = {}; formError = null; conflict = false; focusHeading(); }
   async function reload() {
     await invalidateAll();
     cancel();
   }
 
   const submit: SubmitFunction = ({ cancel: stop }) => {
-    if (read.kind !== 'ok' || pending) { stop(); return; }
+    if (read.kind !== 'ok' || baseRevision === null || pending) { stop(); return; }
     const local = validateDrafts(drafts);
     if (Object.keys(local).length) { errors = local; formError = null; stop(); focusFirstProblem(); return; }
+    const mine = epoch;
     pending = true; errors = {}; formError = null; conflict = false;
     return async ({ result }) => {
+      if (mine !== epoch) {
+        // A response for a session that is over: it may refresh the saved list, never the open editor.
+        if (result.type === 'success' && (result.data as { taskIntegrationsResult?: TaskIntegrationsResult } | undefined)?.taskIntegrationsResult?.ok) await invalidateAll();
+        return;
+      }
       pending = false;
       const answer = result.type === 'success' ? (result.data as { taskIntegrationsResult?: TaskIntegrationsResult } | undefined)?.taskIntegrationsResult : undefined;
       if (!answer) { formError = t('app.integrations.error.unconfirmed', 'The save was not confirmed. Reload before trying again.'); focusFirstProblem(); return; }
-      if (answer.ok) { await invalidateAll(); cancel(); return; }
+      if (answer.ok) { await invalidateAll(); if (mine === epoch) cancel(); return; }
       if (answer.code === 'APP_PROPERTIES_CONFLICT') { conflict = true; formError = answer.message; focusFirstProblem(); return; }
       if (answer.path && answer.path.startsWith('taskIntegrations[')) errors = { [answer.path]: answer.message };
       else formError = answer.message;
@@ -174,7 +190,7 @@
     {:else}
       <form bind:this={formEl} method="POST" action="?/saveTaskIntegrations" use:enhance={submit} novalidate class="space-y-4">
         <input type="hidden" name="integrations" value={JSON.stringify(drafts)} />
-        <input type="hidden" name="revision" value={read.kind === 'ok' ? read.revision : ''} />
+        <input type="hidden" name="revision" value={baseRevision ?? ''} />
         {#if formError}
           <div role="alert" tabindex="-1" bind:this={bannerEl} class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
             {formError}

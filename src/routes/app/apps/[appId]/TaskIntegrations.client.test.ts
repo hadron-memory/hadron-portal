@@ -5,7 +5,8 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
-import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import { submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import TaskIntegrations from './TaskIntegrations.svelte';
 
@@ -221,5 +222,65 @@ describe('focus and names', () => {
     expect(names.every(Boolean)).toBe(true);
     expect(new Set(names).size).toBe(names.length);
     expect(names).toEqual(expect.arrayContaining(['Remove repository 1', 'Remove repository 2', 'Remove excluded label 1', 'Remove team team:x', 'Remove integration core']));
+  });
+});
+
+// LOCAL review of #1614 (Gizelle): an old draft, an old response, never act on newer state.
+describe('interleavings', () => {
+  const revisionField = (m: Mounted<Record<string, unknown>>) => form(m).querySelector<HTMLInputElement>('input[name="revision"]')!.value;
+  async function mountReactive(read: unknown) {
+    const props = reactiveProps<Record<string, unknown>>({ read, manages: true, workers });
+    const m = mountComponent(TaskIntegrations as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return { m, props };
+  }
+  it('a loader refresh mid-edit keeps the draft\'s own revision (the server then refuses it as a conflict)', async () => {
+    const { m, props } = await mountReactive(ok({ taskIntegrations: [wire('core')] }, 3));
+    await click(btn(m.target, 'Edit'));
+    expect(revisionField(m)).toBe('3');
+    props.read = ok({ taskIntegrations: [wire('changed-elsewhere')] }, 4);
+    await tick(3);
+    expect(posted(m)[0].name).toBe('core');
+    expect(revisionField(m)).toBe('3');
+  });
+  it('a new edit session takes the revision current at its start', async () => {
+    const { m, props } = await mountReactive(ok({ taskIntegrations: [wire('core')] }, 3));
+    await click(btn(m.target, 'Edit'));
+    await click(btn(form(m), 'Cancel'));
+    props.read = ok({ taskIntegrations: [wire('core')] }, 4);
+    await tick(2);
+    await click(btn(m.target, 'Edit'));
+    expect(revisionField(m)).toBe('4');
+  });
+  it('an old save that succeeds after Cancel + Edit again leaves the newer editor and its typed values alone', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    const held = await submitEnhancedDeferred(form(m));
+    await click(btn(form(m), 'Cancel'));
+    await click(btn(m.target, 'Edit'));
+    await type(form(m).querySelector<HTMLInputElement>('#ti-taskIntegrations-0-name')!, 'newer-draft');
+    await held.finish(result({ ok: true, revision: 4 }));
+    await tick(4);
+    expect(form(m)).toBeTruthy();
+    expect(posted(m)[0].name).toBe('newer-draft');
+  });
+  it('an old refusal does not paint its error onto a newer editor', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    const held = await submitEnhancedDeferred(form(m));
+    await click(btn(form(m), 'Cancel'));
+    await click(btn(m.target, 'Edit'));
+    await held.finish(result({ ok: false, code: 'APP_PROPERTIES_CONFLICT', message: 'Old conflict.', path: null, currentRevision: 9 }));
+    await tick(4);
+    expect(form(m).textContent).not.toContain('Old conflict.');
+  });
+  it('the current session\'s own success still closes the form', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    const held = await submitEnhancedDeferred(form(m));
+    await held.finish(result({ ok: true, revision: 4 }));
+    await tick(4);
+    expect(m.target.querySelector('form')).toBeNull();
   });
 });
