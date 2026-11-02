@@ -10,6 +10,12 @@ import type { SearchUserPage } from '$lib/users/search-user';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import EscapeHostHarness from '$lib/test/EscapeHostHarness.svelte';
 import SelectUser from './SelectUser.svelte';
+import { userLabel } from '$lib/users/search-user';
+import { clearDictionary, rowSelectButtons, usePickerLocale } from '$lib/test/i18n-dictionary';
+
+// #1605: a test locale on the t() boundary; empty, t() is unchanged.
+vi.mock('$lib/i18n/t', async (importOriginal) =>
+  (await import('$lib/test/i18n-dictionary')).withDictionary(await importOriginal()));
 
 const u = (id: string) => ({ id, handle: id, urn: null, githubUsername: null, avatarUrl: null, emailMasked: null });
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -306,5 +312,26 @@ describe('SelectUser: the aria-modal promise is kept — focus is trapped (#1599
       opener.remove();
       box.mockRestore();
     }
+  });
+});
+
+// #1605: the per-row Select is localized and carries a distinct accessible
+// name per row (WCAG label-in-name: it starts with the visible label), so a
+// screen-reader user tabbing the list hears which entity each one picks.
+describe('SelectUser: per-row Select (#1605)', () => {
+  afterEach(clearDictionary);
+  it('is localized and named after the user it shows', async () => {
+    usePickerLocale();
+    const users = [u('ada'), u('bob')];
+    const m = open(async () => ({ users, truncated: false }));
+    await find(m, 'example');
+    const buttons = rowSelectButtons('.fixed.inset-0 li');
+    const names = users.map((x) => userLabel(x as never));
+    for (const b of buttons) expect(b.textContent?.trim()).toBe('Wählen');
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wähle ${n}`));
+    expect(new Set(buttons.map((b) => b.getAttribute('aria-label'))).size).toBe(names.length);
+    // The 44px coarse-pointer target (jsdom has no layout; the real-Chromium
+    // stacked layout script measures SelectMemory's).
+    for (const b of buttons) expect(b.classList.contains('pointer-coarse:min-h-11')).toBe(true);
   });
 });
