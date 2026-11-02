@@ -47,8 +47,18 @@ const detail = (over: Record<string, unknown> = {}) =>
 const section = (html: string, id: string) => html.match(new RegExp(`<section[^>]*data-testid="${id}"[\\s\\S]*?</section>`))?.[0] ?? '';
 
 describe('New ticker (list page)', () => {
+  // portal#1463: the section and the form it holds each carry their OWN test id, so a
+  // selector names one of them and never both (the create form was `ticker-create` too).
+  it('the section and its form carry different test ids, each exactly once', () => {
+    const html = list();
+    const count = (id: string) => (html.match(new RegExp(`data-testid="${id}"`, 'g')) ?? []).length;
+    expect(count('ticker-create-section')).toBe(1);
+    expect(count('ticker-create')).toBe(1);
+    expect(section(html, 'ticker-create-section')).toContain('data-testid="ticker-create"');
+  });
+
   it('is offered to every participant, with Team chat preselected and every reason listed with its help', () => {
-    const html = section(list(), 'ticker-create');
+    const html = section(list(), 'ticker-create-section');
     expect(html).toContain('New ticker');
     expect(html).toContain('action="?/create"');
     expect(html).toMatch(/value="READ_TEAM_CHANNEL"[^>]*checked/);
@@ -61,31 +71,37 @@ describe('New ticker (list page)', () => {
   it('is shown on an empty list too, and the old "not available" line is gone', () => {
     const html = list();
     expect(html).toContain('No tickers yet.');
-    expect(html).toContain('data-testid="ticker-create"');
+    expect(html).toContain('data-testid="ticker-create-section"');
     expect(html).not.toContain('isn’t available in the portal');
   });
 
   it('offers no activation, channel, quiet-hours or relevance field', () => {
-    const html = section(list(), 'ticker-create');
+    const html = section(list(), 'ticker-create-section');
     expect(html).not.toMatch(/name="(enabled|channelIds|quietHours|relevance)"/);
     expect(html).toContain('>Create<');
   });
 
   it('a support session sees the reason it can’t change anything, and no form', () => {
-    const html = section(list({ impersonating: 'Rae' }), 'ticker-create');
+    const html = section(list({ impersonating: 'Rae' }), 'ticker-create-section');
     expect(html).not.toMatch(/<form/);
     expect(html).toContain('changes are switched off in a support session');
   });
 
   it('a list that could not be read offers no create form', () => {
-    expect(list({ tickers: { kind: 'failed' } })).not.toContain('data-testid="ticker-create"');
-    expect(list({ tickers: { kind: 'not-participant' } })).not.toContain('data-testid="ticker-create"');
+    expect(list({ tickers: { kind: 'failed' } })).not.toContain('data-testid="ticker-create-section"');
+    expect(list({ tickers: { kind: 'not-participant' } })).not.toContain('data-testid="ticker-create-section"');
   });
 });
 
 describe('Edit ticker (ticker page)', () => {
+  it('the section and its form carry different test ids', () => {
+    const html = detail();
+    expect(section(html, 'ticker-edit-section')).toContain('data-testid="ticker-edit-tk-1"');
+    expect(html).not.toContain('data-testid="ticker-edit"');
+  });
+
   it('shows the stored values with the Was fields an update diffs against', () => {
-    const html = section(detail(), 'ticker-edit');
+    const html = section(detail(), 'ticker-edit-section');
     expect(html).toContain('action="?/update"');
     expect(html).toMatch(/name="nameWas" value="engineering"/);
     expect(html).toMatch(/name="cadenceSecondsWas" value="600"/);
@@ -96,21 +112,21 @@ describe('Edit ticker (ticker page)', () => {
   });
 
   it('a ticker with a reason this build can’t show leaves reasons alone: no checkboxes, no reasonsShown', () => {
-    const html = section(detail({ ticker: ticker({ reasons: ['READ_TEAM_CHANNEL', 'FUTURE_REASON'] }) }), 'ticker-edit');
+    const html = section(detail({ ticker: ticker({ reasons: ['READ_TEAM_CHANNEL', 'FUTURE_REASON'] }) }), 'ticker-edit-section');
     expect(html).not.toContain('name="reasonsShown"');
     expect(html).not.toContain('type="checkbox"');
     expect(html).toContain('its reasons are left as they are');
   });
 
   it('offers a confirmed Delete… and no enable, disable or subscribe control', () => {
-    const html = section(detail(), 'ticker-edit');
+    const html = section(detail(), 'ticker-edit-section');
     expect(html).toContain('Delete…');
     expect(html).not.toMatch(/>\s*(Enable|Disable|Subscribe|Add subscriber)\b/);
     expect(html).not.toContain('name="enabled"');
   });
 
   it('a support session gets neither the form nor Delete', () => {
-    const html = section(detail({ impersonating: 'Rae' }), 'ticker-edit');
+    const html = section(detail({ impersonating: 'Rae' }), 'ticker-edit-section');
     expect(html).not.toMatch(/<form/);
     expect(html).not.toContain('Delete…');
   });
