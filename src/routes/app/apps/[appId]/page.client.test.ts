@@ -2310,6 +2310,65 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(m.target.textContent).not.toContain('Worker cast.');
   });
 
+  it('an old A attempt delivered after A -> B -> A does not touch the fresh A composer (late success, refusal, held refresh)', async () => {
+    const { m, props, form, open } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const delayed = await submitEnhancedDeferred(form());
+    props.data = await dataFor('a2');
+    await tick(3);
+    props.data = await dataFor('a1');
+    await tick(3);
+    open();
+    await tick(2);
+    await fill(form(), 'agent-b', 'FreshA');
+    await delayed.finish(await success());
+    await tick(3);
+    expect(form()).not.toBeNull();
+    expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('FreshA');
+    expect(m.target.textContent).not.toContain('Worker cast.');
+    expect(m.target.textContent).not.toContain('could not be refreshed');
+  });
+
+  it('an old A refusal delivered after A -> B -> A does not replace the fresh A draft', async () => {
+    const { m, props, form, open } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const delayed = await submitEnhancedDeferred(form());
+    props.data = await dataFor('a2');
+    await tick(3);
+    props.data = await dataFor('a1');
+    await tick(3);
+    open();
+    await tick(2);
+    await fill(form(), 'agent-b', 'FreshA');
+    const bad = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false });
+    bad.valid = false;
+    bad.message = { type: 'error', text: 'That name is taken.' };
+    await delayed.finish({ type: 'failure', status: 500, data: { form: bad } } as never);
+    await tick(3);
+    expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('FreshA');
+    expect(m.target.textContent).not.toContain('That name is taken.');
+  });
+
+  it('an old A refresh that rejects after A -> B -> A adds no notice to the fresh A composer', async () => {
+    const { m, props, form, open } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    let rejectRefresh!: (e: Error) => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((_, rej) => { rejectRefresh = rej; });
+    const delayed = await submitEnhancedDeferred(form());
+    const finished = delayed.finish(await success());
+    await tick(3);
+    props.data = await dataFor('a2');
+    await tick(3);
+    props.data = await dataFor('a1');
+    await tick(3);
+    rejectRefresh(new Error('refresh failed'));
+    await finished.catch(() => {});
+    await tick(3);
+    open();
+    await tick(2);
+    expect(m.target.textContent).not.toContain('could not be refreshed');
+  });
+
   it('control: the current App’s success clears and closes its own composer', async () => {
     const { m, form } = await openCast();
     await fill(form(), 'agent-a', 'Iris');

@@ -287,7 +287,10 @@
   const selectedCastHead = $derived(castHeads.find((w) => w.id === $castWorkerForm.reportsTo) ?? null);
   let castOpen = $state(false);
   // App the in-flight cast was submitted for, and whether its post-cast roster refresh failed.
-  let castSubmittedFor = '';
+  // Generation fence: bumped every time the composer's context is LEFT (App change), so a result
+  // that began in an earlier visit to the same App (A -> B -> A) is as stale as one from B.
+  let castGeneration = 0;
+  let castAttemptGeneration = -1;
   let castRefreshFailed = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
@@ -1176,21 +1179,21 @@
     // The cast itself is already committed server-side; only its application to
     // the screen is dropped (never replayed).
     onSubmit: () => {
-      castSubmittedFor = app.id;
+      castAttemptGeneration = castGeneration;
       castRefreshFailed = false;
     },
     onResult: ({ cancel }) => {
-      if (castSubmittedFor !== app.id) cancel();
+      if (castAttemptGeneration !== castGeneration) cancel();
     },
     // The refresh is ours (not Superforms'), so a rejection after a CONFIRMED
     // cast is caught here and told truthfully instead of stranding the form.
     invalidateAll: false,
     onUpdated: async ({ form: f }) => {
-      if (castSubmittedFor !== app.id) return;
+      if (castAttemptGeneration !== castGeneration) return;
       // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
-        const castFor = app.id;
+        const attempt = castAttemptGeneration;
         castWorkerForm.update(
           (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
           { taint: false },
@@ -1200,7 +1203,7 @@
           await invalidateAll();
         } catch {
           // The worker WAS cast; only the roster read failed. Never retry the mint.
-          if (castFor === app.id) castRefreshFailed = true;
+          if (attempt === castGeneration) castRefreshFailed = true;
         }
       }
     },
@@ -1212,6 +1215,7 @@
     const id = app.id;
     if (id === castContextApp) return;
     castContextApp = id;
+    castGeneration += 1;
     untrack(() => {
       castWorkerForm.update(
         (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
