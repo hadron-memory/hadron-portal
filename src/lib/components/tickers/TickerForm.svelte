@@ -126,6 +126,7 @@
           await invalidateAll();
           if (mine !== generation) return;
           // Show the stored values, except where the reader has typed since the submit: that is theirs.
+          const keptDraft = typedName !== sentName || typedCadence !== sentCadence || typedReasons !== sentReasons;
           if (typedName === sentName) typedName = undefined;
           if (typedCadence === sentCadence) typedCadence = undefined;
           if (typedReasons === sentReasons) typedReasons = undefined;
@@ -141,7 +142,10 @@
             // A create a warning proved landed, though no ticker came back to link to.
             status = t('app.tickers.write.created-nolink', 'Ticker created.');
           } else {
-            status = t('app.tickers.write.saved', 'Saved. These are the stored values.');
+            // A draft typed while this was saving stays on screen: the fields are then NOT the stored values.
+            status = keptDraft
+              ? t('app.tickers.write.saved-draft', 'Saved. Your newer changes are not saved yet.')
+              : t('app.tickers.write.saved', 'Saved. These are the stored values.');
           }
           await tick();
           statusLine?.focus();
