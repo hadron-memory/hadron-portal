@@ -41,8 +41,8 @@ describe('disabled Overdue stays readable but unavailable (portal#1434 item 2)',
   it.each(['ended', 'backlog'])('%s: label is not the faint zinc-400, and still reads as unavailable', async (filter) => {
     const m = await mount({ filter });
     const label = box(m).closest('label')!;
-    expect(label.className).not.toMatch(/text-zinc-400/);
-    expect(label.className).toMatch(/text-zinc-500/);
+    expect(label.className).not.toMatch(/(^|\s)text-zinc-400/);
+    expect(label.className).toMatch(/(^|\s)text-zinc-500/);
     expect(label.className).toMatch(/cursor-not-allowed/);
     expect(box(m).getAttribute('aria-disabled')).toBe('true');
     expect(box(m).disabled).toBe(false);

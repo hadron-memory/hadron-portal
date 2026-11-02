@@ -283,8 +283,9 @@
           aria-describedby="task-tags-guidance"
           class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
       </div>
-      <div class="pb-2">
-        <label class="flex items-center gap-2 text-sm font-medium {overdueOffered ? 'text-zinc-700 dark:text-zinc-300' : 'text-zinc-400 dark:text-zinc-500'}">
+      <!-- portal#1434: own row on a phone (full width), back beside the buttons from sm. -->
+      <div class="w-full pb-0 sm:w-auto sm:pb-2">
+        <label class="flex items-center gap-2 text-sm font-medium {overdueOffered ? 'text-zinc-700 dark:text-zinc-300' : 'cursor-not-allowed text-zinc-500 dark:text-zinc-400'}">
           <input type="checkbox" name="overdue" value="1" checked={narrow.overdue} aria-disabled={overdueOffered ? undefined : 'true'}
             onclick={(event) => { if (!overdueOffered) event.preventDefault(); }}
             aria-describedby="task-overdue-guidance" class="size-4 rounded border-zinc-300 dark:border-zinc-700" />
@@ -295,15 +296,18 @@
       <a href={taskBoardHref(basePath, data.filter, '')} data-sveltekit-reload class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">{t('app.tasks.search.clear', 'Clear')}</a>
       <p id="task-search-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.limit', 'Up to 200 characters after trimming. Searches titles and descriptions in this App.')}</p>
       <p id="task-tags-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.narrow.tags.guidance', 'Separate tags with commas. A task must have every tag listed.')}</p>
-      <p id="task-overdue-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
-        {overdueOffered
-          ? t('app.tasks.narrow.overdue.guidance', 'Overdue: the start-by time has passed and the task has not started.')
-          : t('app.tasks.narrow.overdue.unavailable', 'Overdue applies to Active, Queued and All tasks.')}
-      </p>
+      <!-- portal#1434: ONE Overdue note. When Overdue was dropped for the bucket, the
+           dropped notice IS the guidance (same id, still a status), not a second line. -->
+      {#if data.overdueDropped}
+        <p id="task-overdue-guidance" role="status" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="overdue-dropped">{t('app.tasks.narrow.overdue.dropped', 'Overdue was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
+      {:else}
+        <p id="task-overdue-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
+          {overdueOffered
+            ? t('app.tasks.narrow.overdue.guidance', 'Overdue: the start-by time has passed and the task has not started.')
+            : t('app.tasks.narrow.overdue.unavailable', 'Overdue applies to Active, Queued and All tasks.')}
+        </p>
+      {/if}
     </form>
-    {#if data.overdueDropped}
-      <p role="status" class="text-sm text-amber-700 dark:text-amber-300" data-testid="overdue-dropped">{t('app.tasks.narrow.overdue.dropped', 'Overdue was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
-    {/if}
     <!-- portal#1349: the search reads titles and descriptions, so an EXACT handle
          (the only way to name a subtask like AT3.405 here) is a real link to that
          task. The route hands the handle to the server's resolver; an unknown,
@@ -343,7 +347,7 @@
             {:else if data.text}
               {t('app.tasks.search.empty-scoped', 'No matching tasks with status {status}. Clear the search or change the status.', { status: boardFilterLabel(data.filter) })}
             {:else}
-              {narrowed ? t('app.tasks.narrow.empty', 'No tasks match these filters.') : boardEmptyText(data.filter)}
+              {narrowed ? t('app.tasks.narrow.empty', 'No tasks match these filters. Clear removes them.') : boardEmptyText(data.filter)}
             {/if}
           </div>
         {/if}
