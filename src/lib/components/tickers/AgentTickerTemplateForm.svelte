@@ -35,14 +35,35 @@
     template?: Pick<AgentTickerTemplate, 'id' | 'name' | 'cadenceSeconds' | 'reasons' | 'quietHours' | 'revision'> | null;
   } = $props();
 
+  type Tpl = NonNullable<typeof template>;
+  // The template as the DRAFT was started from. A dirty draft keeps its own
+  // revision and changed-only baseline when an unrelated reload brings a newer
+  // one, so Save conflicts (stale revision) instead of overwriting an edit the
+  // reader never saw. It advances only when nothing is typed, or on an explicit
+  // reload or this form's own save.
+  let base = $state.raw<Tpl | null>(null);
+  let baseSeeded = false;
+  const dirty = () => typedName !== undefined || typedCadence !== undefined || typedReasons !== undefined || clearQuiet;
+  async function adoptLatest() {
+    await tick();
+    base = template;
+  }
+  $effect.pre(() => {
+    const incoming = template;
+    if (!baseSeeded || (!dirty() && base !== incoming) || base?.id !== incoming?.id) {
+      base = incoming;
+      baseSeeded = true;
+    }
+  });
+
   const editing = $derived(template !== null);
   const formId = $derived(template ? `agent-template-edit-${template.id}` : 'agent-template-create');
 
-  const reasonsEditable = $derived(!template || (isWellFormedReasons(template.reasons) && template.reasons.every(isKnownReason)));
-  const storedReasons = $derived<string[]>(template ? (isWellFormedReasons(template.reasons) ? template.reasons : []) : ['READ_TEAM_CHANNEL']);
-  const storedName = $derived(template?.name ?? '');
-  const storedCadence = $derived(template ? String(template.cadenceSeconds) : '');
-  const quietText = $derived(template && template.quietHours != null ? quietHoursSummary(template.quietHours) : null);
+  const reasonsEditable = $derived(!base || (isWellFormedReasons(base.reasons) && base.reasons.every(isKnownReason)));
+  const storedReasons = $derived<string[]>(base ? (isWellFormedReasons(base.reasons) ? base.reasons : []) : ['READ_TEAM_CHANNEL']);
+  const storedName = $derived(base?.name ?? '');
+  const storedCadence = $derived(base ? String(base.cadenceSeconds) : '');
+  const quietText = $derived(base && base.quietHours != null ? quietHoursSummary(base.quietHours) : null);
 
   let typedName = $state<string | undefined>(undefined);
   let typedCadence = $state<string | undefined>(undefined);
@@ -53,12 +74,15 @@
   let status = $state<string | null>(null);
   let statusLine = $state<HTMLElement | null>(null);
   let reloading = $state(false);
+  let refreshFailed = $state(false);
+  let formEl = $state<HTMLFormElement | null>(null);
+  let submitBtn = $state<HTMLButtonElement | null>(null);
 
   const name = $derived(typedName ?? storedName);
   const cadence = $derived(typedCadence ?? storedCadence);
   const reasons = $derived(typedReasons ?? storedReasons);
   const cadenceHint = $derived(/^\d+$/.test(cadence.trim()) && Number(cadence) > 0 ? cadenceText(Number(cadence)) : null);
-  const stale = $derived(refusal?.kind === 'refused' && refusal.code === 'TICKER_TEMPLATE_REVISION_MISMATCH');
+  const stale = $derived(refusal?.kind === 'refused' && (refusal.code === 'TICKER_TEMPLATE_REVISION_MISMATCH' || refusal.code === 'TICKER_TEMPLATE_NOT_FOUND'));
 
   // `generation` fences a result that lands late: each submit takes a number, a
   // different Agent or template takes the next, and a stale result touches nothing.
@@ -73,6 +97,7 @@
       refusal = null;
       status = null;
       submitting = false;
+      refreshFailed = false;
       seededFor = key;
     }
   });
@@ -92,14 +117,24 @@
     reloading = true;
     try {
       await invalidateAll();
+      await adoptLatest();
       refusal = null;
+      refreshFailed = false;
+    } catch {
+      refreshFailed = true;
     } finally {
       reloading = false;
     }
   }
 
   function submitter() {
-    return () => {
+    return ({ cancel }: { cancel: () => void }) => {
+      // One request at a time, held through the refresh: a second click while
+      // the first is still being confirmed must not send a second mutation.
+      if (submitting) {
+        cancel();
+        return;
+      }
       const mine = ++generation;
       submitting = true;
       refusal = null;
@@ -109,25 +144,39 @@
       status = null;
       return async ({ result }: { result: { type: string; data?: Record<string, unknown> } }) => {
         if (mine !== generation) return;
-        submitting = false;
         if (result.type === 'success') {
-          await invalidateAll();
-          if (mine !== generation) return;
-          const keptDraft = typedName !== sentName || typedCadence !== sentCadence || typedReasons !== sentReasons;
-          if (typedName === sentName) typedName = undefined;
-          if (typedCadence === sentCadence) typedCadence = undefined;
-          if (typedReasons === sentReasons) typedReasons = undefined;
-          clearQuiet = false;
-          refusal = null;
-          status = !editing
-            ? t('agent.tickers.write.created', 'Added. It reaches workers cast from this Agent from now on.')
-            : keptDraft
-              ? t('agent.tickers.write.saved-draft', 'Saved. Your newer changes are not saved yet.')
-              : t('agent.tickers.write.saved', 'Saved. These are the stored values.');
-          await tick();
-          statusLine?.focus();
+          try {
+            try {
+              await invalidateAll();
+            } catch {
+              // The write is confirmed; only the re-read failed. Say so, never replay it.
+              if (mine === generation) refreshFailed = true;
+              return;
+            }
+            if (mine !== generation) return;
+            await adoptLatest();
+            if (mine !== generation) return;
+            const keptDraft = typedName !== sentName || typedCadence !== sentCadence || typedReasons !== sentReasons;
+            if (typedName === sentName) typedName = undefined;
+            if (typedCadence === sentCadence) typedCadence = undefined;
+            if (typedReasons === sentReasons) typedReasons = undefined;
+            clearQuiet = false;
+            refusal = null;
+            status = !editing
+              ? t('agent.tickers.write.created', 'Added. It reaches workers cast from this Agent from now on.')
+              : keptDraft
+                ? t('agent.tickers.write.saved-draft', 'Saved. Your newer changes are not saved yet.')
+                : t('agent.tickers.write.saved', 'Saved. These are the stored values.');
+            await tick();
+            // Only take focus when the reader has not moved it on purpose.
+            const a = document.activeElement;
+            if (!a || a === document.body || a === submitBtn) statusLine?.focus();
+          } finally {
+            if (mine === generation) submitting = false;
+          }
           return;
         }
+        submitting = false;
         refusal =
           result.type === 'failure' && result.data && typeof result.data === 'object' && 'refusal' in result.data
             ? (result.data.refusal as WriteRefusal)
@@ -149,10 +198,11 @@
   use:enhance={submitter()}
   class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900"
   data-testid={formId}
+  bind:this={formEl}
 >
-  {#if template}
-    <input type="hidden" name="id" value={template.id} />
-    <input type="hidden" name="expectedRevision" value={String(template.revision)} />
+  {#if base}
+    <input type="hidden" name="id" value={base.id} />
+    <input type="hidden" name="expectedRevision" value={String(base.revision)} />
   {/if}
 
   <div class="min-w-0">
@@ -243,10 +293,20 @@
       {t('agent.tickers.write.reload', 'Reload latest')}
     </button>
   {/if}
+  {#if refreshFailed}
+    <p role="alert" class="text-sm text-amber-800 dark:text-amber-300" data-testid="{formId}-refresh-failed">
+      {t('agent.tickers.write.refresh-failed', 'The server accepted this change, but the page could not load the latest values. Reload to see what is stored. Nothing is sent again.')}
+    </p>
+    {#if !stale}
+      <button type="button" onclick={reload} disabled={reloading} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
+        {t('agent.tickers.write.reload', 'Reload latest')}
+      </button>
+    {/if}
+  {/if}
   {#if status}
     <p bind:this={statusLine} tabindex="-1" role="status" aria-live="polite" class="text-sm font-medium text-green-700 dark:text-green-300">{status}</p>
   {/if}
-  <button type="submit" disabled={submitting} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
+  <button type="submit" bind:this={submitBtn} disabled={submitting || refreshFailed} class="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-50">
     {#if submitting}{t('agent.tickers.write.saving', 'Saving…')}{:else if editing}{t('agent.tickers.write.save', 'Save')}{:else}{t('agent.tickers.write.add', 'Add')}{/if}
   </button>
 </form>

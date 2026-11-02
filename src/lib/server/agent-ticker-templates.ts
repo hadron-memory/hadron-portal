@@ -81,6 +81,9 @@ const SERVER_SENTENCE_CODES = new Set([
   'AGENT_NOT_FOUND',
 ]);
 
+export const notFoundText = () =>
+  t('agent.tickers.write.not-found', 'This template no longer exists, so nothing was changed. Reload to see the current list.');
+
 export const staleRevisionText = () =>
   t('agent.tickers.write.stale', 'This template was changed by someone else since you opened it, so nothing was saved. Reload to see the latest version; what you typed stays here until you do.');
 
@@ -103,6 +106,7 @@ export function classifyTemplateError(e: unknown, action: TemplateWriteAction): 
   if (!code || !message) return { kind: 'uncertain' };
   if (SERVER_SENTENCE_CODES.has(code)) return { kind: 'refused', code, message };
   if (code === 'TICKER_TEMPLATE_REVISION_MISMATCH') return { kind: 'refused', code, message: staleRevisionText() };
+  if (code === 'TICKER_TEMPLATE_NOT_FOUND') return { kind: 'refused', code, message: notFoundText() };
   if (code === 'FORBIDDEN') {
     return { kind: 'refused', code, message: message === IMPERSONATION_SENTENCE ? message : forbiddenSentence(action) };
   }

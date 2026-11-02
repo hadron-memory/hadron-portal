@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { beginEnhanced, submitEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Panel from './AgentTickerTemplatesPanel.svelte';
 
@@ -230,6 +230,7 @@ describe('outcomes', () => {
     await openEdit(root, 'standup');
     type(field(updateForm(root) as never, 'name'), 'daily');
     await tick(2);
+    updateForm(root).querySelector<HTMLButtonElement>('button[type="submit"]')!.focus(); // a real Save click leaves focus here
     await submitEnhancedWithResult(updateForm(root), { type: 'success', status: 200, data: { action: 'updateTickerTemplate', ok: true } });
     props.templates = ok(true, [{ ...standup, name: 'daily-stored', revision: 5 }, nightly]);
     await tick(3);
@@ -388,5 +389,115 @@ describe('keyboard focus (UX P2s, portal#1613)', () => {
     byLabel(root, 'Cancel').click();
     await tick(3);
     expect(root.querySelector('[data-testid="agent-template-delete-tpl-2"] [role="alert"]')).toBeNull();
+  });
+});
+
+describe('LOCAL review P2s (portal#1613)', () => {
+  const rev5 = { ...standup, name: 'someone else', revision: 5 };
+  const okResult = (action: string) => ({ type: 'success' as const, status: 200, data: { action, ok: true } });
+  const submitBtn = (root: HTMLElement) => updateForm(root).querySelector<HTMLButtonElement>('button[type="submit"]')!;
+
+  it('a dirty draft keeps the revision and baseline it was started from when an unrelated reload brings a newer one', async () => {
+    const { props, root } = await mountReactive();
+    await openEdit(root, 'standup');
+    type(field(updateForm(root) as never, 'name'), 'my draft');
+    await tick(2);
+    props.templates = ok(true, [rev5, nightly]);
+    await tick(3);
+    flushSync();
+    const f = updateForm(root);
+    expect(f.querySelector<HTMLInputElement>('input[name="expectedRevision"]')!.value).toBe('4');
+    expect(field(f as never, 'nameWas').value).toBe('standup');
+    expect(field(f as never, 'name').value).toBe('my draft');
+  });
+
+  it('with nothing typed, a newer read is adopted (clean refresh positive)', async () => {
+    const { props, root } = await mountReactive();
+    await openEdit(root, 'standup');
+    props.templates = ok(true, [rev5, nightly]);
+    await tick(3);
+    flushSync();
+    expect(updateForm(root).querySelector<HTMLInputElement>('input[name="expectedRevision"]')!.value).toBe('5');
+    expect(field(updateForm(root) as never, 'name').value).toBe('someone else');
+  });
+
+  it('an explicit Reload latest advances the baseline to the newer read', async () => {
+    const { props, root } = await mountReactive();
+    await openEdit(root, 'standup');
+    type(field(updateForm(root) as never, 'name'), 'my draft');
+    await tick(2);
+    await submitEnhancedWithResult(updateForm(root), {
+      type: 'failure', status: 409, data: { action: 'updateTickerTemplate', refusal: { kind: 'refused', code: 'TICKER_TEMPLATE_REVISION_MISMATCH', message: 'x' } },
+    });
+    await tick(3);
+    navigationHooks.onInvalidateAll = () => {
+      props.templates = ok(true, [rev5, nightly]);
+    };
+    [...updateForm(root).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Reload latest')!.click();
+    await tick(10);
+    flushSync();
+    expect(updateForm(root).querySelector<HTMLInputElement>('input[name="expectedRevision"]')!.value).toBe('5');
+  });
+
+  it('the request stays pending through the refresh and a duplicate submit is cancelled', async () => {
+    const root = await mountPanel();
+    let release!: () => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((r) => (release = r));
+    const deliver = await beginEnhanced(createForm(root)!);
+    const done = deliver(okResult('createTickerTemplate'));
+    await tick(3);
+    expect(createForm(root)!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+    expect((await submitEnhanced(createForm(root)!)).cancelled).toBe(true);
+    release();
+    await done;
+    await tick(3);
+    expect(createForm(root)!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
+  });
+
+  it('a late success does not steal focus the reader moved to another field', async () => {
+    const root = await mountPanel();
+    await openEdit(root, 'standup');
+    type(field(updateForm(root) as never, 'name'), 'daily');
+    await tick(2);
+    const deliver = await beginEnhanced(updateForm(root));
+    const cadence = field(updateForm(root) as never, 'cadenceSeconds');
+    cadence.focus();
+    await deliver(okResult('updateTickerTemplate'));
+    await tick(3);
+    expect(document.activeElement).toBe(cadence);
+  });
+
+  it('a confirmed write whose refresh rejects says so, sends nothing again, and does not throw', async () => {
+    const root = await mountPanel();
+    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('refresh 500'));
+    await submitEnhancedWithResult(createForm(root)!, okResult('createTickerTemplate'));
+    await tick(3);
+    expect(root.querySelector('[data-testid="agent-template-create-refresh-failed"]')?.textContent).toMatch(/accepted/);
+    expect(createForm(root)!.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
+  });
+
+  it('a confirmed delete whose refresh rejects says so and offers no second delete', async () => {
+    const root = await mountPanel();
+    await openEdit(root, 'nightly');
+    [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Delete')!.click();
+    await tick(3);
+    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('refresh 500'));
+    await submitEnhancedWithResult(root.querySelector<HTMLFormElement>('form[action="?/deleteTickerTemplate"]')!, okResult('deleteTickerTemplate'));
+    await tick(3);
+    expect(root.querySelector('[data-testid="agent-template-delete-refresh-failed"]')).not.toBeNull();
+    const confirmBtn = [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Confirm delete')!;
+    expect(confirmBtn.disabled).toBe(true);
+  });
+
+  it('a typed not-found refusal offers an explicit reload', async () => {
+    const root = await mountPanel();
+    await openEdit(root, 'standup');
+    type(field(updateForm(root) as never, 'name'), 'daily');
+    await tick(2);
+    await submitEnhancedWithResult(updateForm(root), {
+      type: 'failure', status: 404, data: { action: 'updateTickerTemplate', refusal: { kind: 'refused', code: 'TICKER_TEMPLATE_NOT_FOUND', message: 'no longer exists' } },
+    });
+    await tick(3);
+    expect([...updateForm(root).querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Reload latest')).toBe(true);
   });
 });

@@ -69,6 +69,15 @@ describe('classifyTemplateError', () => {
     }
   });
 
+  it('a typed not-found is the portal sentence, naming no server prose', () => {
+    for (const action of ['update', 'delete'] as const) {
+      const r = classifyTemplateError(err('TICKER_TEMPLATE_NOT_FOUND', 'internal wording'), action) as { kind: string; code: string; message: string };
+      expect(r).toMatchObject({ kind: 'refused', code: 'TICKER_TEMPLATE_NOT_FOUND' });
+      expect(r.message).not.toContain('internal wording');
+      expect(r.message).toMatch(/no longer exists/i);
+    }
+  });
+
   it('a stale revision is the portal sentence, naming no server prose', () => {
     const r = classifyTemplateError(err('TICKER_TEMPLATE_REVISION_MISMATCH', 'internal wording'), 'update');
     expect(r).toMatchObject({ kind: 'refused', code: 'TICKER_TEMPLATE_REVISION_MISMATCH' });
