@@ -118,8 +118,8 @@ describe('task board native search', () => {
   });
   it('keeps no matches, guidance, failure and concealment distinct', async () => {
     const m = await mount({ board: { kind: 'ok', value: { tasks: [], capped: false } } });
-    expect(m.target.textContent).toContain('No matching tasks.');
-    expect(m.target.textContent).toContain('0 tasks shown');
+    expect(m.target.textContent).toContain('No matching tasks with status All.');
+    expect(m.target.textContent).toContain('Tasks shown: 0');
     expect(m.target.textContent).not.toContain('There may be more');
     (m.instance.navigate as (next: unknown) => void)(data({ board: { kind: 'invalid-search' } })); await tick(2);
     expect(m.target.querySelector('[role=alert]')?.textContent).toContain('1 to 200');

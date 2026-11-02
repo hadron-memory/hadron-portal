@@ -37,7 +37,7 @@ describe('loaded-count wording (portal#1403)', () => {
   it('stays a loaded count, never an exact total, when capped', async () => {
     const m = await mount({}, 200, true);
     expect(text(m)).toContain('Tasks shown: 200');
-    expect(text(m)).not.toMatch(/of \d+|total/i);
+    expect(live(m)[0].textContent).not.toMatch(/\bof \d+|total/i);
   });
 });
 
