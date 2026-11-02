@@ -53,10 +53,26 @@ export function referenceKindLabel(kind: ReferenceKind): string {
  * U+200B–200F, the BOM, the soft hyphen…) shown as a visible `[U+XXXX]`
  * instead of obeyed, so a stored string can't reorder or hide what a reader
  * sees. Display only: what is stored, sent and linked is never touched.
+ *
+ * portal#1580 (hrn:node:hadronmemory.com:specs:cor:agt:050:01, "Blank-looking
+ * characters", ruling 0086 A): the server refuses six non-Cf characters that
+ * render blank, and clients show the same set visibly for rows stored before:
+ * U+115F, U+1160, U+3164, U+FFA0, U+2800, U+034F. Use this for a LABEL, where
+ * a variation selector is left alone because an emoji label carries U+FE0F.
  */
 export function neutralizeFormatChars(s: string): string {
-  return s.replace(/\p{Cf}/gu, (c) => `[U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}]`);
+  return s.replace(REVEALED_IN_LABEL, reveal);
 }
+
+/** A TARGET also reveals variation selectors (U+FE00–FE0F, U+E0100–E01EF): no emoji lives in a target. */
+export function neutralizeTargetChars(s: string): string {
+  return s.replace(REVEALED_IN_TARGET, reveal);
+}
+
+const BLANK_CHARS = '\\u115F\\u1160\\u3164\\uFFA0\\u2800\\u034F';
+const REVEALED_IN_LABEL = new RegExp(`[\\p{Cf}${BLANK_CHARS}]`, 'gu');
+const REVEALED_IN_TARGET = new RegExp(`[\\p{Cf}${BLANK_CHARS}\\uFE00-\\uFE0F\\u{E0100}-\\u{E01EF}]`, 'gu');
+const reveal = (c: string) => `[U+${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')}]`;
 
 const FORMAT_CHAR = /\p{Cf}/u;
 
