@@ -8,6 +8,7 @@
   longer a live worker is shown as such and never dropped or sent as null.
 -->
 <script lang="ts">
+  import { tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
@@ -47,6 +48,24 @@
   let formError = $state<string | null>(null);
   let conflict = $state(false);
   let pending = $state(false);
+  let formEl = $state<HTMLFormElement>();
+  let headingEl = $state<HTMLHeadingElement>();
+  let bannerEl = $state<HTMLDivElement>();
+
+  // Mode changes unmount the button that had focus; put it somewhere a keyboard
+  // or screen-reader user can carry on from (UX review of #1614, P2-1/P2-2).
+  async function focusName(i: number) {
+    await tick();
+    formEl?.querySelector<HTMLInputElement>(`[data-integration-form="${i}"] input[type="text"]`)?.focus();
+  }
+  async function focusFirstProblem() {
+    await tick();
+    (formEl?.querySelector<HTMLElement>('[aria-invalid="true"], p[role="alert"]') ?? bannerEl)?.focus();
+  }
+  async function focusHeading() {
+    await tick();
+    headingEl?.focus();
+  }
 
   const blank = (): IntegrationDraft => ({ name: '', provider: 'github', repositories: [''], readyLabel: '', excludeLabels: [], teams: [], extra: {} });
 
@@ -55,8 +74,10 @@
     if (addOne) drafts.push(blank());
     errors = {}; formError = null; conflict = false;
     editing = true;
+    focusName(addOne ? drafts.length - 1 : 0);
   }
-  function cancel() { editing = false; errors = {}; formError = null; conflict = false; }
+  function addIntegration() { drafts.push(blank()); focusName(drafts.length - 1); }
+  function cancel() { editing = false; errors = {}; formError = null; conflict = false; focusHeading(); }
   async function reload() {
     await invalidateAll();
     cancel();
@@ -65,16 +86,17 @@
   const submit: SubmitFunction = ({ cancel: stop }) => {
     if (read.kind !== 'ok' || pending) { stop(); return; }
     const local = validateDrafts(drafts);
-    if (Object.keys(local).length) { errors = local; formError = null; stop(); return; }
+    if (Object.keys(local).length) { errors = local; formError = null; stop(); focusFirstProblem(); return; }
     pending = true; errors = {}; formError = null; conflict = false;
     return async ({ result }) => {
       pending = false;
       const answer = result.type === 'success' ? (result.data as { taskIntegrationsResult?: TaskIntegrationsResult } | undefined)?.taskIntegrationsResult : undefined;
-      if (!answer) { formError = t('app.integrations.error.unconfirmed', 'The save was not confirmed. Reload before trying again.'); return; }
+      if (!answer) { formError = t('app.integrations.error.unconfirmed', 'The save was not confirmed. Reload before trying again.'); focusFirstProblem(); return; }
       if (answer.ok) { await invalidateAll(); cancel(); return; }
-      if (answer.code === 'APP_PROPERTIES_CONFLICT') { conflict = true; formError = answer.message; return; }
+      if (answer.code === 'APP_PROPERTIES_CONFLICT') { conflict = true; formError = answer.message; focusFirstProblem(); return; }
       if (answer.path && answer.path.startsWith('taskIntegrations[')) errors = { [answer.path]: answer.message };
       else formError = answer.message;
+      focusFirstProblem();
     };
   };
 
@@ -104,7 +126,7 @@
 {#if read.kind !== 'hidden'}
   <section class="max-w-2xl" aria-labelledby="task-integrations-heading" data-task-integrations>
     <div class="mb-4 flex items-center justify-between">
-      <h2 id="task-integrations-heading" class="font-semibold text-zinc-900 dark:text-white">{t('app.integrations.heading', 'Task integrations')}</h2>
+      <h2 id="task-integrations-heading" bind:this={headingEl} tabindex="-1" class="font-semibold focus:outline-none text-zinc-900 dark:text-white">{t('app.integrations.heading', 'Task integrations')}</h2>
       {#if canEdit && !editing}
         <div class="flex gap-2">
           {#if saved.length}<button type="button" class={buttonClass} onclick={() => startEdit(false)}>{t('app.integrations.edit', 'Edit')}</button>{/if}
@@ -150,11 +172,11 @@
         </ul>
       {/if}
     {:else}
-      <form method="POST" action="?/saveTaskIntegrations" use:enhance={submit} novalidate class="space-y-4">
+      <form bind:this={formEl} method="POST" action="?/saveTaskIntegrations" use:enhance={submit} novalidate class="space-y-4">
         <input type="hidden" name="integrations" value={JSON.stringify(drafts)} />
         <input type="hidden" name="revision" value={read.kind === 'ok' ? read.revision : ''} />
         {#if formError}
-          <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          <div role="alert" tabindex="-1" bind:this={bannerEl} class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
             {formError}
             {#if conflict}<button type="button" class="ml-2 underline" onclick={reload}>{t('app.integrations.reload', 'Reload')}</button>{/if}
           </div>
@@ -186,13 +208,13 @@
                   <div>
                     <div class="flex gap-2">
                       <input id={field(p)} type="text" bind:value={d.repositories[j]} placeholder="owner/name" aria-label={t('app.integrations.repository-n', 'Repository {n}', { n: j + 1 })} aria-invalid={!!errors[p]} aria-describedby={describedBy(p)} class="{inputClass} {errors[p] ? 'border-red-500' : ''}" />
-                      <button type="button" class={buttonClass} onclick={() => d.repositories.splice(j, 1)}>{t('app.integrations.remove', 'Remove')}</button>
+                      <button type="button" class={buttonClass} aria-label={t('app.integrations.remove-repository-n', 'Remove repository {n}', { n: j + 1 })} onclick={() => d.repositories.splice(j, 1)}>{t('app.integrations.remove', 'Remove')}</button>
                     </div>
                     {#if errors[p]}<p id="{field(p)}-error" role="alert" class={errorClass}>{errors[p]}</p>{/if}
                   </div>
                 {/each}
               </div>
-              {#if errors[`${at}.repositories`]}<p role="alert" class={errorClass}>{errors[`${at}.repositories`]}</p>{/if}
+              {#if errors[`${at}.repositories`]}<p role="alert" tabindex="-1" class={errorClass}>{errors[`${at}.repositories`]}</p>{/if}
               <button type="button" class="{buttonClass} mt-2" disabled={d.repositories.length >= MAX_REPOSITORIES} onclick={() => d.repositories.push('')}>{t('app.integrations.add-repository', 'Add repository')}</button>
             </div>
 
@@ -210,7 +232,7 @@
                   <div>
                     <div class="flex gap-2">
                       <input id={field(p)} type="text" bind:value={d.excludeLabels[j]} aria-label={t('app.integrations.excluded-label-n', 'Excluded label {n}', { n: j + 1 })} aria-invalid={!!errors[p]} aria-describedby={describedBy(p)} class="{inputClass} {errors[p] ? 'border-red-500' : ''}" />
-                      <button type="button" class={buttonClass} onclick={() => d.excludeLabels.splice(j, 1)}>{t('app.integrations.remove', 'Remove')}</button>
+                      <button type="button" class={buttonClass} aria-label={t('app.integrations.remove-excluded-label-n', 'Remove excluded label {n}', { n: j + 1 })} onclick={() => d.excludeLabels.splice(j, 1)}>{t('app.integrations.remove', 'Remove')}</button>
                     </div>
                     {#if errors[p]}<p id="{field(p)}-error" role="alert" class={errorClass}>{errors[p]}</p>{/if}
                   </div>
@@ -249,7 +271,7 @@
                     <label for={field(tp)} class="mt-3 mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('app.integrations.team-label', 'Label')}</label>
                     <div class="flex gap-2">
                       <input id={field(tp)} type="text" bind:value={team.label} aria-invalid={!!errors[tp]} aria-describedby={describedBy(tp)} class="{inputClass} {errors[tp] ? 'border-red-500' : ''}" />
-                      <button type="button" class={buttonClass} onclick={() => d.teams.splice(j, 1)}>{t('app.integrations.remove-team', 'Remove team')}</button>
+                      <button type="button" class={buttonClass} aria-label={t('app.integrations.remove-team-n', 'Remove team {label}', { label: team.label.trim() || String(j + 1) })} onclick={() => d.teams.splice(j, 1)}>{t('app.integrations.remove-team', 'Remove team')}</button>
                     </div>
                     {#if errors[tp]}<p id="{field(tp)}-error" role="alert" class={errorClass}>{errors[tp]}</p>{/if}
                   </div>
@@ -259,13 +281,13 @@
             </div>
 
             <div class="flex justify-end">
-              <button type="button" class={buttonClass} onclick={() => drafts.splice(i, 1)}>{t('app.integrations.remove-integration', 'Remove integration')}</button>
+              <button type="button" class={buttonClass} aria-label={t('app.integrations.remove-integration-n', 'Remove integration {name}', { name: d.name.trim() || String(i + 1) })} onclick={() => drafts.splice(i, 1)}>{t('app.integrations.remove-integration', 'Remove integration')}</button>
             </div>
           </fieldset>
         {/each}
 
         <div class="flex items-center gap-2">
-          <button type="button" class={buttonClass} onclick={() => drafts.push(blank())}>{t('app.integrations.add', 'Add integration')}</button>
+          <button type="button" class={buttonClass} onclick={addIntegration}>{t('app.integrations.add', 'Add integration')}</button>
           <span class="flex-1"></span>
           <button type="button" class={buttonClass} onclick={cancel}>{t('app.integrations.cancel', 'Cancel')}</button>
           <button type="submit" disabled={pending} class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">{t('app.integrations.save', 'Save')}</button>

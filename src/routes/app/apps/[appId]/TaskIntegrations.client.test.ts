@@ -175,3 +175,51 @@ describe('a team whose lead is no longer a live worker', () => {
     expect(cancelled).toBe(false);
   });
 });
+
+// UX review of #1614 (P2-1, P2-2): focus must go somewhere useful, and repeated buttons need distinct names.
+describe('focus and names', () => {
+  const active = () => document.activeElement as HTMLElement | null;
+  it('Edit moves focus to the first field; Add integration to the new integration\'s name', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    document.body.append(m.target);
+    await click(btn(m.target, 'Edit'));
+    expect(active()?.id).toBe('ti-taskIntegrations-0-name');
+    await click(btn(form(m), 'Add integration'));
+    expect(active()?.id).toBe('ti-taskIntegrations-1-name');
+  });
+  it('Cancel and a successful Save return focus to the section heading', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    document.body.append(m.target);
+    await click(btn(m.target, 'Edit'));
+    await click(btn(form(m), 'Cancel'));
+    expect(active()?.id).toBe('task-integrations-heading');
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), result({ ok: true, revision: 4 }));
+    await tick(4);
+    expect(active()?.id).toBe('task-integrations-heading');
+  });
+  it('a failed validation focuses the first invalid field, not the Save button', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core', null)] }));
+    document.body.append(m.target);
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), result({ ok: true, revision: 4 }));
+    await tick(4);
+    expect(active()?.id).toBe('ti-taskIntegrations-0-teams-0-lead');
+  });
+  it('a conflict banner takes focus', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    document.body.append(m.target);
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), result({ ok: false, code: 'APP_PROPERTIES_CONFLICT', message: 'Changed.', path: null, currentRevision: 5 }));
+    await tick(4);
+    expect(active()?.getAttribute('role')).toBe('alert');
+  });
+  it('every Remove button has its own accessible name', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    const names = [...form(m).querySelectorAll('button')].filter((b) => /^Remove/.test(b.textContent?.trim() ?? '')).map((b) => b.getAttribute('aria-label'));
+    expect(names.every(Boolean)).toBe(true);
+    expect(new Set(names).size).toBe(names.length);
+    expect(names).toEqual(expect.arrayContaining(['Remove repository 1', 'Remove repository 2', 'Remove excluded label 1', 'Remove team team:x', 'Remove integration core']));
+  });
+});

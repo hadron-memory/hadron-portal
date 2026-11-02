@@ -11,8 +11,8 @@
 
 {#if id}
   {#if isUrl}
-    <a href={id} rel="noopener noreferrer" target="_blank" class="block max-w-full truncate text-xs text-indigo-600 hover:underline dark:text-indigo-300">{id}</a>
+    <a href={id} title={id} rel="noopener noreferrer" target="_blank" class="block max-w-full truncate text-xs text-indigo-600 hover:underline dark:text-indigo-300">{id}</a>
   {:else}
-    <span class="block max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400">{id}</span>
+    <span title={id} class="block max-w-full truncate text-xs text-zinc-500 dark:text-zinc-400">{id}</span>
   {/if}
 {/if}
