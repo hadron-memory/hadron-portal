@@ -6,7 +6,7 @@
   sentence. An uncertain outcome is shown as uncertain and never retried.
 -->
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
   import { t } from '$lib/i18n/t';
@@ -27,6 +27,8 @@
   let submitting = $state(false);
   let refusal = $state<WriteRefusal | null>(null);
   let shownFor = $state<string | null>(null);
+  let consequenceLine = $state<HTMLElement | null>(null);
+  let startButton = $state<HTMLElement | null>(null);
   let generation = 0;
   $effect.pre(() => {
     if (shownFor !== ticker.id) {
@@ -44,18 +46,39 @@
     generation++;
   });
 
+  // portal#1463: the confirmation takes focus when it opens, and Delete… gets it back on Cancel.
+  async function open() {
+    confirming = true;
+    refusal = null;
+    await tick();
+    consequenceLine?.focus();
+  }
+  async function cancel() {
+    confirming = false;
+    refusal = null;
+    await tick();
+    startButton?.focus();
+  }
+
   function submitter() {
     return () => {
       const mine = ++generation;
       submitting = true;
       return async ({ result }: { result: { type: string; data?: Record<string, unknown> } }) => {
         if (mine !== generation) return;
-        submitting = false;
         if (result.type === 'success') {
-          // The ticker is gone: its own page would 404, so leave it rather than reload it.
-          await goto(`/app/apps/${appId}/tickers`, { invalidateAll: true });
+          // The ticker is gone: its own page would 404, so leave it rather than reload it. Delete
+          // stays disabled until the navigation completes, so a second click cannot go out.
+          try {
+            await goto(`/app/apps/${appId}/tickers`, { invalidateAll: true });
+          } finally {
+            // Arriving destroys this component (the fence above then holds); a navigation that fails
+            // must not leave the control dead.
+            if (mine === generation) submitting = false;
+          }
           return;
         }
+        submitting = false;
         refusal =
           result.type === 'failure' && result.data && typeof result.data === 'object' && 'refusal' in result.data
             ? (result.data.refusal as WriteRefusal)
@@ -70,17 +93,18 @@
     {#if !confirming}
       <button
         type="button"
-        onclick={() => { confirming = true; refusal = null; }}
+        bind:this={startButton}
+        onclick={open}
         class="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-300 dark:hover:bg-red-950"
       >{t('app.tickers.delete.start', 'Delete…')}</button>
     {:else}
       <form method="POST" action="?/delete" use:enhance={submitter()} class="space-y-2 rounded-xl border border-red-300 bg-red-50 p-3 text-sm dark:border-red-900 dark:bg-red-950" data-testid="ticker-delete-confirm">
-        <p class="text-red-900 dark:text-red-200">{t('app.tickers.delete.consequence', 'Delete {name}? Its subscriptions end and nobody is woken by it again. Its name can be used again.', { name: ticker.name })}</p>
+        <p bind:this={consequenceLine} tabindex="-1" class="text-red-900 dark:text-red-200">{t('app.tickers.delete.consequence', 'Delete {name}? Its subscriptions end and nobody is woken by it again. Its name can be used again.', { name: ticker.name })}</p>
         <div class="flex flex-wrap items-center gap-2">
           <button type="submit" disabled={submitting} class="rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-500 disabled:opacity-50">
             {submitting ? t('app.tickers.delete.deleting', 'Deleting…') : t('app.tickers.delete.confirm', 'Delete')}
           </button>
-          <button type="button" disabled={submitting} onclick={() => (confirming = false)} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.tickers.delete.cancel', 'Cancel')}</button>
+          <button type="button" disabled={submitting} onclick={cancel} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">{t('app.tickers.delete.cancel', 'Cancel')}</button>
         </div>
       </form>
     {/if}

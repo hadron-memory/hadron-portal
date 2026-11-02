@@ -106,6 +106,12 @@
     return () => {
       const mine = ++generation;
       submitting = true;
+      // portal#1463: a new submit answers for itself, so the last refusal (and the aria-invalid it set) goes.
+      refusal = null;
+      // What this write sends; input typed while it is in flight is the reader's next draft.
+      const sentName = typedName;
+      const sentCadence = typedCadence;
+      const sentReasons = typedReasons;
       status = null;
       created = null;
       warnings = [];
@@ -119,7 +125,10 @@
           const committedWithError = data.committedWithError === true;
           await invalidateAll();
           if (mine !== generation) return;
-          typedName = typedCadence = typedReasons = undefined;
+          // Show the stored values, except where the reader has typed since the submit: that is theirs.
+          if (typedName === sentName) typedName = undefined;
+          if (typedCadence === sentCadence) typedCadence = undefined;
+          if (typedReasons === sentReasons) typedReasons = undefined;
           refusal = null;
           warnings = Array.isArray(data.warnings) ? (data.warnings as TaskWarning[]) : [];
           moreWarnings = typeof data.more === 'number' ? data.more : 0;

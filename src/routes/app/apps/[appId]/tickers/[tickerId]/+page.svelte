@@ -358,7 +358,7 @@
        the subscriber controls carry their own (hrn:node:hadronmemory.com:specs:cor:agt:080:20). -->
   <p class="text-xs text-zinc-500 dark:text-zinc-400">{t('app.ticker.who', 'Only its owner, the owning worker’s holder, or whoever manages the App can change this ticker.')}</p>
 
-  <section aria-labelledby="ticker-edit-heading" class="space-y-3" data-testid="ticker-edit">
+  <section aria-labelledby="ticker-edit-heading" class="space-y-3" data-testid="ticker-edit-section">
     <h2 id="ticker-edit-heading" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.ticker.edit.heading', 'Edit ticker')}</h2>
     <TickerForm appId={data.app.id} ticker={tk} impersonating={data.impersonating} />
     <TickerDelete appId={data.app.id} ticker={tk} impersonating={data.impersonating} />
