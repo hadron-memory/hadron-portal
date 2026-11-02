@@ -37,6 +37,7 @@
     MAX_TARGET_LENGTH,
     REFERENCE_KINDS,
     neutralizeFormatChars,
+    neutralizeTargetChars,
     referenceKindLabel,
     type ReferenceKind,
     type TaskReference,
@@ -190,7 +191,7 @@
         <li class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
           <span class="shrink-0 font-medium text-zinc-600 dark:text-zinc-300">{referenceKindLabel(ref.kind)}</span>
           {#if ref.label}<span class="min-w-0 text-zinc-800 [overflow-wrap:anywhere] dark:text-zinc-100">{neutralizeFormatChars(ref.label)}</span>{/if}
-          <span class="min-w-0 grow font-mono text-zinc-500 [overflow-wrap:anywhere] dark:text-zinc-400">{neutralizeFormatChars(ref.target)}</span>
+          <span class="min-w-0 grow font-mono text-zinc-500 [overflow-wrap:anywhere] dark:text-zinc-400">{neutralizeTargetChars(ref.target)}</span>
           <span class="flex shrink-0 gap-1">
             <button type="button" class={smallButton} disabled={i === 0} onclick={() => move(i, -1)}
               aria-label={t('app.tasks.ref.up', 'Move reference {n} up', { n: i + 1 })}>{t('app.tasks.ref.up-short', 'Move up')}</button>
