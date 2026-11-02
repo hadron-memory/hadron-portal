@@ -882,7 +882,7 @@
       <div class="flex h-full items-center justify-center text-center">
         <p data-testid="team-chat-filter-empty" class="text-zinc-500 dark:text-zinc-400">
           {filter.kind === 'untagged'
-            ? t('app.team-chat.filter.empty.untagged', 'This view is empty.')
+            ? t('app.team-chat.filter.empty.untagged', 'No messages without a team tag.')
             : t('app.team-chat.filter.empty.team', 'No messages with this team tag.')}
         </p>
       </div>
