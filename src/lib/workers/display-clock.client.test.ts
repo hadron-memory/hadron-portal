@@ -6,9 +6,16 @@
  * page.client.test.ts; these are the module's own contract.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mountComponent } from '$lib/test/mountComponent';
+import ClockHost from '$lib/test/fixtures/ClockHost.svelte';
 import { createDisplayClock, DISPLAY_CLOCK_INTERVAL_MS } from './display-clock.svelte';
 
 const SEED = '2026-10-31T12:00:00.000Z';
+
+const mounted: ReturnType<typeof mountComponent>[] = [];
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+});
 
 describe('createDisplayClock (portal#1495 P3)', () => {
   afterEach(() => {
@@ -57,5 +64,27 @@ describe('createDisplayClock (portal#1495 P3)', () => {
     const frozen = clock.now;
     vi.advanceTimersByTime(120_000);
     expect(clock.now).toBe(frozen);
+  });
+
+  // LOCAL P3 (#1618, Gemma): pages mount the clock from an `$effect` —
+  // `clock.start(); return clock.stop;`. When `start()` read `now` while
+  // recording the offset, that read made the effect depend on every tick, so
+  // each 30 s the effect re-ran and tore down and re-created the interval.
+  // The clock still advanced (the re-armed interval saw to that), which is
+  // why only the SET-INTERVAL call count exposes it: one interval for the
+  // page's whole mounted life, across ticks.
+  it('mounting effect does not re-create the interval on each tick (#1618 LOCAL P3)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime('2026-11-02T04:00:00.000Z');
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    const m = mountComponent(ClockHost, { seed: SEED });
+    mounted.push(m);
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(3 * DISPLAY_CLOCK_INTERVAL_MS);
+    // The clock still advanced across all three ticks…
+    expect(m.target.textContent).toBe(String(Date.parse(SEED) + 3 * DISPLAY_CLOCK_INTERVAL_MS));
+    // …through the ONE interval mount created — not a re-created one per tick.
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    setIntervalSpy.mockRestore();
   });
 });

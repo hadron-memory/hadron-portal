@@ -112,6 +112,22 @@ it('#1495 P3 the full form advances with the page clock, and teardown stops it',
   vi.useRealTimers();
 });
 
+// portal#1495 BLIND P3 (George) — the frozen-DOM check above passes even with
+// a leaked interval (effects are disposed after unmount, so nothing renders).
+// The fake-timer count proves the interval itself was cleared: one interval
+// while mounted, back to the pre-mount baseline after teardown.
+it('#1495 BLIND teardown clears the clock interval itself, not just its DOM writes', async () => {
+  vi.useFakeTimers();
+  const baseline = vi.getTimerCount();
+  const target = await mountInternal(terminalOf());
+  expect(target.textContent).toContain('checked 5 min. ago');
+  expect(vi.getTimerCount()).toBe(baseline + 1); // the one clock interval
+  cleanup?.();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(vi.getTimerCount()).toBe(baseline);
+  vi.useRealTimers();
+});
+
 it('#1492 the Profile tier shows no terminal, even if a terminal object arrives', () => {
   const m = mountComponent(Page as never, { data: { worker: { ...profile, terminal: terminalOf() }, initialTab: 'wake', terminalNow: NOW } } as never);
   cleanup = m.unmount;

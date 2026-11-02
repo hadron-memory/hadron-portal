@@ -914,10 +914,19 @@ describe('Worker agents tab (#1009)', () => {
 
     it('age text never matches a row that renders none of it (portal#1495 non-disclosure)', async () => {
       const target = await mountTerminal(
-        [w('w1', 'Ada'), w('w2', 'Bo'), w('w3', 'Cy')],
-        ok({ w1: entry({ terminal: term() }), w2: entry({ terminal: null }) }),
+        [w('w1', 'Ada'), w('w2', 'Bo'), w('w3', 'Cy'), w('w4', 'Dee', { hasLiveSession: null })],
+        ok({
+          w1: entry({ terminal: term() }),
+          w2: entry({ terminal: null }),
+          // SECURITY P3-1 (#1618, Rook): w4 HAS a terminal object, but the
+          // reader lacks internals — no badge, no age. Without this row the
+          // non-disclosure pin survives a mutant that reads checkedAt straight
+          // off the roster entry, bypassing the internals gate.
+          w4: entry({ terminal: term() }),
+        }),
       );
-      // w2 is Not reported (no age line); w3 has no roster entry (no badge at all).
+      // w2 is Not reported (no age line); w3 has no roster entry (no badge at
+      // all); w4's terminal is masked by the internals gate.
       expect(await search(target, 'checked')).toEqual(['Ada']);
       expect(await search(target, 'min. ago')).toEqual(['Ada']);
       expect(await search(target, 'Not reported')).toEqual(['Bo']);
@@ -950,6 +959,57 @@ describe('Worker agents tab (#1009)', () => {
       await vi.advanceTimersByTimeAsync(300_000);
       await tick(2);
       expect(cell.textContent).toContain('checked 5 min. ago');
+    });
+
+    // portal#1495 BLIND P3 (George) — the detached-DOM assertion above cannot
+    // detect a leaked interval: Svelte disposes the effects after unmount, so
+    // the DOM stays frozen even while the interval keeps ticking the clock
+    // state. The fake-timer count is the honest witness — the page schedules
+    // exactly one interval (its display clock) and must clear it on unmount,
+    // returning to the pre-mount baseline.
+    it('unmounting the page clears the clock interval itself, not just its DOM writes (portal#1495 BLIND)', async () => {
+      vi.useFakeTimers();
+      const baseline = vi.getTimerCount();
+      const target = await mountTerminal([w('w1', 'Ada')], ok({ w1: entry({ terminal: term() }) }));
+      expect(colTexts(target, 'Terminal')[0]).toContain('checked 5 min. ago');
+      expect(vi.getTimerCount()).toBe(baseline + 1); // the one clock interval
+      mounted.pop()!.unmount();
+      await tick(2);
+      expect(vi.getTimerCount()).toBe(baseline);
+    });
+
+    // portal#1495 BLIND P2 (George) — a search left ACTIVE across a tick must
+    // re-filter with the advanced clock. The earlier advancing test re-typed
+    // the search after the tick, which set new filter state and forced the
+    // recompute; a reader who leaves one search open sees the memoized model
+    // unless the clock's read inside the filter tracks through the table's
+    // row-model atoms. Ada is 5 min at load (11:55), Bo 4 min (11:56); after
+    // 60 s Ada is 6 min and Bo 5 min — an untouched `checked 5 min` search
+    // must swap which row it shows.
+    it('a search left active across a tick follows the advanced clock (portal#1495 BLIND)', async () => {
+      vi.useFakeTimers();
+      const target = await mountTerminal(
+        [w('w1', 'Ada'), w('w2', 'Bo')],
+        ok({
+          w1: entry({ terminal: term() }),
+          w2: entry({ terminal: term({ status: 'idle', reason: null, checkedAt: '2026-10-31T11:56:00.000Z' }) }),
+        }),
+      );
+      const visible = () =>
+        [...target.querySelectorAll<HTMLAnchorElement>('tbody a[href^="/app/workers/"]')].map((a) => a.textContent!.trim());
+      // Before any search: Ada renders 5 min, Bo 4 min.
+      const cells = colTexts(target, 'Terminal').join('|');
+      expect(cells).toContain('checked 5 min. ago');
+      expect(cells).toContain('checked 4 min. ago');
+      expect(await search(target, 'checked 5 min')).toEqual(['Ada']);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await tick(3);
+      // Both cells advanced (Ada→6, Bo→5) and the still-active search follows
+      // the clock without being re-typed: Ada (now 6 min) drops out, Bo enters.
+      const after = colTexts(target, 'Terminal').join('|');
+      expect(after).toContain('checked 5 min. ago');
+      expect(after).not.toContain('checked 6 min. ago');
+      expect(visible()).toEqual(['Bo']);
     });
 
     it('an unknown state or reason shows fixed copy, never the raw code, in the page or the console', async () => {
