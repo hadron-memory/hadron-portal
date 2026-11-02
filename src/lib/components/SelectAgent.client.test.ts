@@ -237,7 +237,9 @@ describe('SelectAgent: per-row Select (#1605)', () => {
     const buttons = rowSelectButtons('.fixed.inset-0 tbody tr');
     const names = agents.map((x) => x.name);
     for (const b of buttons) expect(b.textContent?.trim()).toBe('Wählen');
-    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wähle ${n}`));
+    // Label in name (WCAG 2.5.3): the name contains what is on screen.
+    for (const b of buttons) expect(b.getAttribute('aria-label')).toContain(b.textContent?.trim());
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wählen ${n}`));
     expect(new Set(buttons.map((b) => b.getAttribute('aria-label'))).size).toBe(names.length);
     // The 44px coarse-pointer target (jsdom has no layout; the real-Chromium
     // stacked layout script measures SelectMemory's).

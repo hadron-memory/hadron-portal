@@ -28,10 +28,14 @@ export function withDictionary(actual: typeof TModule): typeof TModule {
   };
 }
 
-/** The test locale's entries for the shared picker row button (#1605). */
+/**
+ * The test locale's entry for the shared picker row button (#1605). Only the
+ * visible word is translated: the accessible name is built from it, so a
+ * locale that never translates `picker.select-named` still names each row
+ * "Wählen <entity>" and keeps the visible label in the name.
+ */
 export function usePickerLocale(): void {
   dictionary['picker.select'] = 'Wählen';
-  dictionary['picker.select-named'] = 'Wähle {name}';
 }
 
 /**

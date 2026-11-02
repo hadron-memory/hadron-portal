@@ -725,7 +725,7 @@ describe('SelectNode: #1584 fallback guards and carried P3s', () => {
 // screen-reader user tabbing the list hears which entity each one picks.
 describe('SelectNode: per-row Select (#1605)', () => {
   afterEach(clearDictionary);
-  it('keeps its localized label and is named after its node', async () => {
+  it('is localized and named after its node', async () => {
     serve({ [url('m2', 'findings', 0)]: [okPage([node(1), node(2)], false, 2)] });
     const { target } = mount();
     await tick();
@@ -734,8 +734,10 @@ describe('SelectNode: per-row Select (#1605)', () => {
     await search(target, 'findings');
     const buttons = rowSelectButtons('tbody tr');
     const names = ['Node 1', 'Node 2'];
-    for (const b of buttons) expect(b.textContent?.trim()).toBe('Select');
-    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wähle ${n}`));
+    for (const b of buttons) expect(b.textContent?.trim()).toBe('Wählen');
+    // Label in name (WCAG 2.5.3): the name contains what is on screen.
+    for (const b of buttons) expect(b.getAttribute('aria-label')).toContain(b.textContent?.trim());
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wählen ${n}`));
     expect(new Set(buttons.map((b) => b.getAttribute('aria-label'))).size).toBe(names.length);
     // The 44px coarse-pointer target (jsdom has no layout; the real-Chromium
     // stacked layout script measures SelectMemory's).

@@ -103,14 +103,16 @@ describe('SelectApp: Escape closes one layer only (#1584)', () => {
 // screen-reader user tabbing the list hears which entity each one picks.
 describe('SelectApp: per-row Select (#1605)', () => {
   afterEach(clearDictionary);
-  it('keeps its localized label and is named after its App', async () => {
+  it('is localized and named after its App', async () => {
     usePickerLocale();
     openInHost();
     await tick(2);
     const buttons = rowSelectButtons('.fixed.inset-0 tbody tr');
     const names = apps.map((x) => x.name);
-    for (const b of buttons) expect(b.textContent?.trim()).toBe('Select');
-    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wähle ${n}`));
+    for (const b of buttons) expect(b.textContent?.trim()).toBe('Wählen');
+    // Label in name (WCAG 2.5.3): the name contains what is on screen.
+    for (const b of buttons) expect(b.getAttribute('aria-label')).toContain(b.textContent?.trim());
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wählen ${n}`));
     expect(new Set(buttons.map((b) => b.getAttribute('aria-label'))).size).toBe(names.length);
     // The 44px coarse-pointer target (jsdom has no layout; the real-Chromium
     // stacked layout script measures SelectMemory's).
