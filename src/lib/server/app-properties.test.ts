@@ -82,6 +82,14 @@ describe('saveTaskIntegrations', () => {
     const bad = new FormData(); bad.set('integrations', '{'); bad.set('revision', '1');
     expect(await saveTaskIntegrations(client(current), 'a', bad)).toMatchObject({ ok: false });
   });
+  it('a crafted post with a malformed integration is refused, never a TypeError, and sends no request', async () => {
+    const good = { ...wire, extra: {}, readyLabel: '', excludeLabels: [] };
+    for (const bad of [[null], [42], [{ ...good, name: 5 }], [{ ...good, repositories: 'o/a' }], [{ ...good, provider: 'gitlab' }], [{ ...good, teams: [null] }], [{ ...good, teams: [{ lead: 3, label: 'l' }] }], [{ ...good, extra: null }], [{ ...good, excludeLabels: [1] }]]) {
+      const c = client(current);
+      expect(await saveTaskIntegrations(c, 'a', form(bad))).toMatchObject({ ok: false });
+      expect(c.request).not.toHaveBeenCalled();
+    }
+  });
   it('does not write when the fresh read fails', async () => {
     const c = client(new Error('boom'));
     expect(await saveTaskIntegrations(c, 'a', form([]))).toMatchObject({ ok: false });

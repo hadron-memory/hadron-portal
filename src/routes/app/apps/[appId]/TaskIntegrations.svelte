@@ -161,7 +161,7 @@
         <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.integrations.none', 'None configured')}</p>
       {:else}
         <ul class="space-y-3">
-          {#each saved as d (d.name)}
+          {#each saved as d, i (i)}
             <li class="rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900" data-integration={d.name}>
               <div class="flex items-baseline gap-2">
                 <span class="font-medium text-zinc-900 dark:text-white">{d.name}</span>

@@ -87,6 +87,10 @@ describe('the list', () => {
     expect(team.textContent).toContain('Iris');
     expect(team.textContent).toContain('x.com:app:iris');
   });
+  it('two integrations with the same name both render (no duplicate keys)', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('same'), wire('same')] }));
+    expect(m.target.querySelectorAll('[data-integration="same"]')).toHaveLength(2);
+  });
   it('marks a retired lead and an unknown (null) lead', async () => {
     const m = await mount(ok({ taskIntegrations: [wire('a', OLD), wire('b', null)] }));
     expect(m.target.textContent).toContain('No longer a live worker');

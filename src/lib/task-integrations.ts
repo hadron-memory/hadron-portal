@@ -66,6 +66,22 @@ export function writeProperties(current: unknown, drafts: readonly IntegrationDr
   return { ...base, taskIntegrations };
 }
 
+/**
+ * The posted drafts, checked for SHAPE before anything dereferences them: a crafted POST can carry any
+ * JSON. Returns the drafts, or null when any element is not a well-formed integration (BLIND review of #1614, P2).
+ */
+export function parseDrafts(value: unknown): IntegrationDraft[] | null {
+  if (!Array.isArray(value)) return null;
+  const text = (v: unknown): v is string => typeof v === 'string';
+  const list = (v: unknown): v is string[] => Array.isArray(v) && v.every(text);
+  for (const d of value) {
+    if (!isObject(d) || !text(d.name) || d.provider !== 'github' || !list(d.repositories) || !text(d.readyLabel) || !list(d.excludeLabels)) return null;
+    if (!isObject(d.extra) || !Array.isArray(d.teams)) return null;
+    if (!d.teams.every((team) => isObject(team) && (team.lead === null || text(team.lead)) && text(team.label))) return null;
+  }
+  return value as IntegrationDraft[];
+}
+
 /** Browser-side checks, keyed by the JSON path the server's TASK_INTEGRATION_INVALID names. */
 export function validateDrafts(drafts: readonly IntegrationDraft[]): Record<string, string> {
   const errors: Record<string, string> = {};

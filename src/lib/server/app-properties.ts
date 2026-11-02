@@ -4,6 +4,7 @@ import { APP_PROPERTIES_QUERY, SET_APP_PROPERTIES_MUTATION } from '$lib/server/q
 import { t } from '$lib/i18n/t';
 import {
   TASK_INTEGRATION_REFUSALS,
+  parseDrafts,
   validateDrafts,
   writeProperties,
   type IntegrationDraft,
@@ -52,9 +53,9 @@ const refuse = (message: string, path: string | null = null): TaskIntegrationsRe
 export async function saveTaskIntegrations(client: GraphQLClient, appRef: string, formData: FormData): Promise<TaskIntegrationsResult> {
   let drafts: IntegrationDraft[];
   try {
-    const parsed: unknown = JSON.parse(String(formData.get('integrations') ?? ''));
-    if (!Array.isArray(parsed)) throw new Error('not a list');
-    drafts = parsed as IntegrationDraft[];
+    const parsed = parseDrafts(JSON.parse(String(formData.get('integrations') ?? '')));
+    if (!parsed) throw new Error('not a list of integrations');
+    drafts = parsed;
   } catch {
     return refuse(t('app.integrations.error.unreadable', 'The integrations could not be read. Reload the page and try again.'));
   }
