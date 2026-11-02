@@ -35,8 +35,14 @@ import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
 const mockRequest = vi.fn();
+// Records the token each client is built with (#1632): the action's identity is the
+// token it hands here, so a mock that ignores the argument pins nothing about it.
+const mockGqlClient = vi.fn();
 vi.mock('$lib/server/api', () => ({
-  gqlClient: () => ({ request: mockRequest }),
+  gqlClient: (token?: unknown) => {
+    mockGqlClient(token);
+    return { request: mockRequest };
+  },
 }));
 
 // `$lib/server/guards.requireNonConsumer` is invoked by the `load`
@@ -56,6 +62,7 @@ vi.mock('$lib/server/paginate', () => ({
 
 beforeEach(() => {
   mockRequest.mockReset();
+  mockGqlClient.mockReset();
 });
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -1139,8 +1146,8 @@ describe('memory-settings load: form ids (#841)', () => {
 
 // ── `checkVectorIndexHealth` (#1346) ────────────────────────────────────────
 
-function healthEv(memId = 'mem-real') {
-  return { params: { id: memId }, locals: { token: 'test-token' }, request: { formData: async () => new FormData() } } as unknown as Parameters<
+function healthEv(memId = 'mem-real', token = 'test-token') {
+  return { params: { id: memId }, locals: { token }, request: { formData: async () => new FormData() } } as unknown as Parameters<
     Awaited<ReturnType<typeof importActions>>['checkVectorIndexHealth']
   >[0];
 }
@@ -1208,6 +1215,31 @@ describe('memory-detail `checkVectorIndexHealth` action (#1346)', () => {
     expect(result.data?.vectorHealthError).toBeTruthy();
     // #1465 delta (Andi, LOCAL P2): a raw Error.message is not generic copy.
     expect(result.data?.vectorHealthError).not.toContain('socket hang up');
+  });
+
+  // #1632 (§10 P3 on #1621; hrn:node:hadronmemory.com:specs:cor:api:140:03): a coded error that is neither
+  // MEMORY_NOT_FOUND nor a framework/access code carries no free text to the reader. The six
+  // pass-through codes (BAD_USER_INPUT, FORBIDDEN, ...) keep their message by design and are not this pin.
+  it.each(['INTERNAL_SERVER_ERROR', 'SOME_DOMAIN_REFUSAL'])('an unlisted code %s is a 500 with the generic copy, never the server reason (#1632)', async (code) => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message: 'Memory mem-secret failed for user u9', extensions: { code } }] } });
+    const actions = await importActions();
+    const result = (await actions.checkVectorIndexHealth(healthEv())) as { data?: { vectorHealthError?: string; vectorHealth?: unknown }; status?: number };
+    expect(result.status).toBe(500);
+    expect(result.data?.vectorHealthError).toBe('Something went wrong on our side.');
+    expect(result.data?.vectorHealth).toBeUndefined();
+    expect(result.data?.vectorHealthError).not.toContain('mem-secret');
+    expect(result.data?.vectorHealthError).not.toContain('u9');
+  });
+
+  // #1632: the action's one call is made as the viewer. The token is the event's
+  // locals.token, and a distinct value proves identity, not merely that a client was built.
+  it('builds its one client from the viewer token on the event, not another identity (#1632)', async () => {
+    mockRequest.mockResolvedValueOnce({ validateMemory: { findings: [], totalFindings: 0, totalInformational: 0, truncated: false, nodesChecked: 1, skippedChecks: [] } });
+    const actions = await importActions();
+    await actions.checkVectorIndexHealth(healthEv('mem-real', 'viewer-token-xyz'));
+    expect(mockGqlClient).toHaveBeenCalledTimes(1);
+    expect(mockGqlClient).toHaveBeenCalledWith('viewer-token-xyz');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 
   it('the settings loader never runs validateMemory: the scan is on demand only', async () => {
