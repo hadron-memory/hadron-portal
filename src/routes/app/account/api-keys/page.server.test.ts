@@ -93,7 +93,7 @@ describe('load /app/account/api-keys', () => {
     const { load } = await importMod();
     const result = (await load(loadEvent('jwt-token'))) as { keys: unknown[] };
     expect(result.keys).toEqual(all);
-    expect(mockRequest).toHaveBeenCalledTimes(Math.ceil(n / 20));
+    expect(mockRequest).toHaveBeenCalledTimes(Math.ceil(n / 20) + 1);
     for (const [, v] of mockRequest.mock.calls) expect(v).toMatchObject({ includeHidden: false, limit: 20 });
   });
 

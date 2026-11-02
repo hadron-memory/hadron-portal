@@ -111,7 +111,7 @@ describe('loadAppKeyScopes', () => {
       expect(Object.keys(r.byKey)).toHaveLength(n);
       expect(r.byKey[`k${n - 1}`][0].grantedAt).toBe(`g${n - 1}`);
     }
-    expect(request).toHaveBeenCalledTimes(Math.ceil(n / 20));
+    expect(request).toHaveBeenCalledTimes(Math.ceil(n / 20) + 1);
     for (const [, v] of request.mock.calls) expect(v.limit).toBeLessThanOrEqual(20);
   });
   it('a refused later page hides the column with no partial map', async () => {

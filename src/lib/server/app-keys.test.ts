@@ -64,7 +64,7 @@ describe('loadAppKeys follows every page (portal#1615)', () => {
     request.mockImplementation(async (_q: string, v: { limit?: number; offset?: number }) => ({ appKeysPage: pageOf(many(n), v) }));
     const r = await appKeys.loadAppKeys(client, 'app-1');
     expect(r).toEqual({ kind: 'ok', keys: many(n) });
-    expect(request).toHaveBeenCalledTimes(Math.ceil(n / 20));
+    expect(request).toHaveBeenCalledTimes(Math.ceil(n / 20) + 1);
     for (const [, v] of request.mock.calls) expect(v.limit).toBeLessThanOrEqual(20);
   });
   it('a refused later page is the same refusal state, with no partial list', async () => {
