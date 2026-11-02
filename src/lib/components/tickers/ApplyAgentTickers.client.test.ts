@@ -131,7 +131,7 @@ describe('ApplyAgentTickers: submit and isolation', () => {
     // Not `disabled`: a disabled button drops keyboard focus mid-request (Uma's P3 on #1464).
     expect(pending.getAttribute('aria-disabled')).toBe('true');
     expect(pending.disabled).toBe(false);
-    expect(pending.textContent?.trim()).toBe('Adding…');
+    expect(pending.textContent?.trim()).toBe('Applying…');
     release();
     await done;
     await tick(2);
@@ -371,6 +371,7 @@ describe('ApplyAgentTickers: a refresh that fails after a committed apply says s
     const note = guidance(root)!;
     expect(note).not.toBeNull();
     expect(note.textContent).toMatch(/reload|refresh/i);
+    for (const token of ['rounded-md', 'border', 'border-amber-300', 'bg-amber-50', 'text-amber-900', 'dark:border-amber-900', 'dark:bg-amber-950', 'dark:text-amber-200']) expect(note.classList.contains(token), token).toBe(true);
     expect(note.textContent).not.toMatch(/nothing was created|not created|may or may not/i);
   });
 
