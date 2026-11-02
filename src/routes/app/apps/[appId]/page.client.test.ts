@@ -10,7 +10,7 @@ import { submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
-import type { TeamChatMessage } from '$lib/types';
+import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
 import {
@@ -1965,13 +1965,66 @@ it('portal#1410 carries an explicit filter focus request through the route-keyed
   const m=mountComponent(Page as never,props as never) as Mounted<Record<string,unknown>>;
   mounted.push(m);document.body.append(m.target);await tick(3);
   const status=m.target.querySelector('[data-testid="team-chat-filter-status"]');
+  let finishNavigation!:()=>void;
+  navigationHooks.onGoto=()=>new Promise<void>(resolve=>{finishNavigation=resolve;});
   const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;
   tag.focus();tag.click();await tick(2);
   expect(navigationCalls.some(c=>c.fn==='goto'&&String(c.args[0]).includes('team=head-ada'))).toBe(true);
   props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'}};
-  await tick(5);
+  await tick(2);finishNavigation();await tick(5);
   const active=m.target.querySelector('[data-testid="team-chat-filter-active"]');
   expect(active).not.toBeNull();expect(document.activeElement).toBe(active);
   expect(m.target.querySelector('[data-testid="team-chat-filter-status"]')).toBe(status);
   expect(m.target.querySelector('[data-testid="team-chat-filter-status"]')?.textContent).toContain('team.ada');
+});
+
+describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
+  const tagged = { ...message(1, 'w1'), teamTags: [{headId:'head-ada', label:'team.ada'}] };
+  const refusal: TeamChatRefusal = {code:'TEAM_CHAT_TEAM_HEAD_INVALID', message:'Team broadcast target is unavailable in this Channel.'};
+  async function setup(invalid = false) {
+    setStubPage('https://example.test/app/apps/a1?tab=chats&chat=chats:team',{appId:'a1'});
+    const data=await pageData();
+    const props=reactiveProps({data:{...data,teamChatMessages:invalid?[]:[tagged],teamFilter:{kind:'none'} as TeamChatFilter,teamFilterInvalid:invalid,teamChatError:invalid,teamChatRefusal:null as TeamChatRefusal|null},form:null});
+    const m=mountComponent(Page as never,props as never) as Mounted<Record<string,unknown>>;
+    mounted.push(m);document.body.append(m.target);await tick(3);
+    let release!:()=>void;
+    navigationHooks.onGoto=()=>new Promise<void>(r=>{release=r;});
+    return {m,props,release:()=>release()};
+  }
+  const status=(m:Mounted<Record<string,unknown>>)=>m.target.querySelector('[data-testid="team-chat-filter-status"]')!;
+  const selectTag=async(m:Mounted<Record<string,unknown>>)=>{
+    const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;
+    tag.focus();tag.click();await tick(2);
+  };
+  it('a refused filter never announces selected and cannot reapply its intent on a later healthy reload',async()=>{
+    const {m,props,release}=await setup();await selectTag(m);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'},teamChatMessages:[],teamChatError:true,teamChatRefusal:refusal};
+    await tick(3);release();await tick(5);
+    expect(m.target.querySelector('[data-testid="team-chat-filter-refused"]')?.textContent).toBe(refusal.message);
+    expect(status(m).textContent).not.toContain('selected');
+    props.data={...props.data,teamChatMessages:[tagged],teamChatError:false,teamChatRefusal:null};await tick(4);
+    expect(status(m).textContent).not.toContain('selected');
+  });
+  it('an invalid navigation cancels intent even when its filter key differs; a later matching history visit is not a new choice',async()=>{
+    const {m,props,release}=await setup();await selectTag(m);
+    props.data={...props.data,teamFilterInvalid:true,teamChatError:true,teamChatMessages:[]};await tick(3);release();await tick(4);
+    expect(status(m).textContent).not.toContain('selected');
+    props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'},teamFilterInvalid:false,teamChatError:false,teamChatMessages:[tagged]};await tick(5);
+    expect(status(m).textContent).not.toContain('selected');
+    expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+  });
+  it('a completed navigation that did not apply its requested key cannot fire on a later history visit',async()=>{
+    const {m,props,release}=await setup();await selectTag(m);release();await tick(4);
+    props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'}};await tick(5);
+    expect(status(m).textContent).not.toContain('selected');
+    expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+  });
+  it('clearing an initially invalid view still focuses and announces the healthy explicit All choice',async()=>{
+    const {m,props,release}=await setup(true);
+    const all=[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('All messages'))!;
+    all.focus();all.click();await tick(3);
+    props.data={...props.data,app:{...props.data.app},teamFilterInvalid:false,teamChatError:false,teamChatMessages:[tagged]};await tick(3);release();await tick(5);
+    const applied=[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('All messages'))!;
+    expect(document.activeElement).toBe(applied);expect(status(m).textContent).toContain('All messages selected.');
+  });
 });
