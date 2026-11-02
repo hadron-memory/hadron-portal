@@ -31,3 +31,36 @@ it.each([[true,true],[false,false]])('showDescription=%s puts the Description co
  expect(m.target.textContent).toContain('First');
  }finally{m.unmount();}
 });
+
+// portal#1469 (BLIND P3-6): listKey "app-memories" is shared, but a
+// user-owned App has no Description column. A view saved on an org App names
+// `description` in its visibility, order and sizing; restoring it here must
+// be tolerated — the grid still renders its own columns, the strip shows no
+// storage error, and nothing throws out of the view restore. The view also
+// carries a globalFilter naming First, so the restore is PROVEN to have run:
+// a store that read nothing would leave Second visible and pass vacuously.
+it('restores a saved view that names the absent Description column (user-owned App)',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const memories=[
+  {id:'m1',urn:'hrn:mem:acme.com:m1',name:'First',description:null,appId:'a'},
+  {id:'m2',urn:'hrn:mem:acme.com:m2',name:'Second',description:null,appId:'a'},
+ ];
+ const staleView={sorting:[],columnFilters:[],globalFilter:'First',
+  columnVisibility:{description:false},columnOrder:['description','name','urn'],columnSizing:{description:360,name:220},
+  pagination:{pageIndex:0,pageSize:25}};
+ localStorage.setItem('hadron:views:v1:app-memories',JSON.stringify([
+  {id:'v1',listKey:'app-memories',name:'Org era',view:staleView,isDefault:true,createdAt:'2026-10-01T00:00:00.000Z',updatedAt:'2026-10-01T00:00:00.000Z'},
+ ]));
+ const m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription:false} as never);
+ // init() awaits the view list, then the active id, before applyView lands —
+ // same chain as picker-inner-layers' tick(10); a shorter count reads a
+ // not-yet-filtered table and passes vacuously.
+ try{await tick(10);
+ const headers=[...m.target.querySelectorAll('th')].map(h=>h.textContent?.trim());
+ expect(headers.some(h=>h?.startsWith('Description'))).toBe(false);
+ expect(headers.some(h=>h?.startsWith('Name'))).toBe(true);
+ expect(m.target.textContent).toContain('First');   // the row the view keeps
+ expect(m.target.textContent).not.toContain('Second'); // positive control: the restore ran
+ expect(m.target.querySelector('.text-red-600,.text-red-400')).toBeNull(); // no restore error surfaced
+ }finally{m.unmount();localStorage.removeItem('hadron:views:v1:app-memories');}
+});

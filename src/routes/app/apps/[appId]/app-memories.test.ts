@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('$lib/server/api', () => ({ gqlClient: vi.fn() }));
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
-import { canCreateAppMemory, readAppMemories } from './app-memories';
+import { appMemoriesFromScope, canCreateAppMemory, readAppMemories, readAppMemoryScope } from './app-memories';
 it.each(['OWNER','ADMIN','CONTRIBUTOR','READER'])('creation visibility follows the current user org role %s', role => {
  expect(canCreateAppMemory({members:[{role,user:{id:'me'}},{role:'OWNER',user:{id:'other'}}]},'me')).toBe(['OWNER','ADMIN'].includes(role));
 });
@@ -22,13 +22,14 @@ it('reports a failed memory list instead of claiming it is empty',async()=>{
 // #1451 Ask 2: a user-owned App has no org to list through, so its app memories
 // come from appMemoryScope (hadron-server#2861), keeping the APP_MEMORY rows.
 describe('app memories of an App with no organization', () => {
-  const row = (id: string, kinds: (string | [string, string])[]) => ({
+  const row = (id: string, kinds: string[]) => ({
     memoryId: id, memoryUrn: `hrn:mem:example.com:${id}`, name: `Memory ${id}`,
-    sources: kinds.map(k => (Array.isArray(k) ? { kind: k[0], agentId: k[1] } : { kind: k, agentId: null })),
+    // source kinds only — the org-less projection reads nothing else off a source
+    sources: kinds.map(kind => ({ kind })),
   });
   it('reads the App scope and keeps only the free-standing app memories', async () => {
     const request = vi.fn().mockResolvedValue({ appMemoryScope: { total: 4, items: [
-      row('mine', ['APP_MEMORY']), row('team', ['TEAM_SPACE']), row('agent', [['AGENT_SYSTEM', 'ag1']]), row('also', ['APP_MEMORY', ['AGENT_LINK', 'ag1']]),
+      row('mine', ['APP_MEMORY']), row('team', ['TEAM_SPACE']), row('agent', ['AGENT_SYSTEM']), row('also', ['APP_MEMORY', 'AGENT_LINK']),
     ] } });
     expect(await readAppMemories({ request } as never, null, 'a')).toEqual([
       { id: 'mine', urn: 'hrn:mem:example.com:mine', name: 'Memory mine', description: null, appId: 'a' },
@@ -63,6 +64,20 @@ it('bounds an optional list outage instead of hanging the App page',async()=>{
  vi.useFakeTimers();
  try { const pending=readAppMemories({request:vi.fn(()=>new Promise(()=>{}))} as never,'o','a');
  await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);expect(await pending).toBeNull();
+ }finally{vi.useRealTimers();}
+});
+
+// portal#1469 (Rico §10 P3-1): the org path above had the only timeout pin.
+// The scope read a user-owned App takes needs the same bound — an outage is
+// null (unavailable), never a partial or empty list, and the derive keeps
+// that meaning instead of folding it into a successful [].
+it('bounds an optional scope outage instead of hanging the App page (user-owned)',async()=>{
+ vi.useFakeTimers();
+ try {
+  const pending=readAppMemoryScope({request:vi.fn(()=>new Promise(()=>{}))} as never,'a');
+  await vi.advanceTimersByTimeAsync(OPTIONAL_LIST_TIMEOUT_MS);
+  expect(await pending).toBeNull();
+  expect(appMemoriesFromScope(null,'a')).toBeNull();
  }finally{vi.useRealTimers();}
 });
 
