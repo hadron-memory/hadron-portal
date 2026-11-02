@@ -1170,7 +1170,7 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    // Fence by originating App (review:superforms-late-result-crosses-entity-navigation):
+    // Fence by originating App (hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation):
     // this page component is REUSED across /apps/A -> /apps/B, so A's slow answer
     // must not close B's composer, empty B's draft or print "Worker cast." on B.
     // The cast itself is already committed server-side; only its application to

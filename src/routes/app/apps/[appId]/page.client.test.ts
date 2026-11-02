@@ -2235,7 +2235,7 @@ describe('Cast reporting choice (#1149)', () => {
   });
 });
 
-describe('Cast composer lifecycle (#1149, review: superforms-late-result-crosses-entity-navigation)', () => {
+describe('Cast composer lifecycle (#1149, late result crosses App navigation)', () => {
   const AGENTS = [
     { id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
     { id: 'agent-b', name: 'Server Engineer', urn: 'hrn:agent:acme.com:server', personaRole: 'server-engineer' },
