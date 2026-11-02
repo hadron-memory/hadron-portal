@@ -2,6 +2,9 @@ import {it,expect,vi} from 'vitest';
 import {superValidate} from 'sveltekit-superforms/server';
 import {zod4} from 'sveltekit-superforms/adapters';
 import {mountComponent,tick} from '$lib/test/mountComponent';
+import {viewStorageErrorText} from '$lib/test/viewStorageErrorText';
+import {viewStorageErrorMessages} from '$lib/table/viewStore';
+import {savedViewsStrings} from '$lib/i18n/saved-views-strings';
 import {createAppMemorySchema} from './schema';
 import AppMemories from './AppMemories.svelte';
 
@@ -63,28 +66,57 @@ it('restores a saved view that names the absent Description column (user-owned A
  // Poll to the restored state rather than counting ticks: a fixed count
  // either outgrows the chain into a false red or reads a not-yet-filtered
  // table and passes vacuously, and waitFor can only pass when the restore
- // landed or time out loudly. The predicate carries every restore-visible
- // claim (filter narrowed AND stale column still absent) so no post-poll
- // assertion can race a later applyView step.
+ // landed or time out loudly. The predicate waits on the ONE claim only the
+ // restore can make visible — the saved globalFilter hiding Second. The
+ // Description-header claim is asserted after the poll instead: it is true
+ // from mount (this list never had the column), so waiting on it too would
+ // dilute the poll, not guard it.
  await vi.waitFor(async()=>{
   await tick();
   expect(m!.target.textContent).not.toContain('Second');
-  const h=[...m!.target.querySelectorAll('th')].map(x=>x.textContent?.trim()??'');
-  expect(h.some(x=>x.startsWith('Description'))).toBe(false);
  });
  const headers=[...m.target.querySelectorAll('th')].map(h=>h.textContent?.trim());
+ expect(headers.some(h=>h?.startsWith('Description'))).toBe(false);
  expect(headers.some(h=>h?.startsWith('Name'))).toBe(true);
  expect(m.target.textContent).toContain('First');   // the row the view keeps
  expect(m.target.textContent).not.toContain('Second'); // positive control: the restore ran
- // No storage/restore error surfaced. Keyed on the full rendered error
- // family rather than styling: the ViewStorageError constructor messages
- // plus ViewTabs.run's generic catch-all for any other throw
- // (saved-views.error.update, "Could not update views."). A class or
- // testid query asserts nothing if the error surface is restyled, while
- // rewording any family member turns the mapping pin in viewStore.test.ts
- // red instead of silently emptying this match. Throws caught by
- // ViewTabs.run render as this text; an uncaught throw fails the awaited
- // waitFor above loudly — both surfaces covered.
- expect(m.target.textContent).not.toMatch(/Could not (save|update)|Storage is unavailable|View not found|View name cannot be empty/);
+ // No storage/restore error surfaced. Keyed on the shared
+ // viewStorageErrorText regex — the ViewStorageError message family plus
+ // ViewTabs.run's generic catch-all — BUILT from the same constants the
+ // store throws, so a reworded message rides along with the regex instead
+ // of silently emptying this match (the join is pinned in viewStore.test.ts).
+ // That this text is really what a storage failure renders into THIS tree is
+ // proven by the positive control in the test below; an uncaught throw fails
+ // the awaited waitFor above loudly — both surfaces covered.
+ expect(m.target.textContent).not.toMatch(viewStorageErrorText);
  }finally{m?.unmount();localStorage.removeItem('hadron:views:v1:app-memories');}
+});
+
+// portal#1625 BLIND delta-2 P2: the positive control for the not.toMatch
+// above. A negative regex match can silently assert nothing the day the
+// error stops reaching this text (a different error surface, a toast outside
+// the tree, the render dropped). Mount with a setItem that throws, save a
+// view through the real strip (+ New view → prompt), and prove a storage
+// failure surfaces as text the SAME shared regex matches in THIS component's
+// render tree — no testid or console.error hook needed.
+it('renders the storage-error family text when saving a view fails',async()=>{
+ const initial=await superValidate({},zod4(createAppMemorySchema),{id:'createAppMemory:a',errors:false});
+ const memories=[{id:'m1',urn:'hrn:mem:acme.com:m1',name:'First',description:null,appId:'a'}];
+ const setItem=vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('QuotaExceededError');});
+ const prompt=vi.spyOn(window,'prompt').mockReturnValue('My view');
+ let m:ReturnType<typeof mountComponent>|undefined;
+ try{
+ m=mountComponent(AppMemories as never,{initial,result:null,memories,canCreate:false,showDescription:false} as never);
+ await tick(2); // let ViewTabs init settle before driving the strip
+ const newView=[...m.target.querySelectorAll('button')].find(b=>b.textContent?.trim()===savedViewsStrings.newView());
+ expect(newView).toBeDefined();
+ newView!.click();
+ await vi.waitFor(async()=>{
+  await tick();
+  expect(m!.target.textContent).toMatch(viewStorageErrorText);
+ });
+ // and specifically the write-failure message ViewTabs renders verbatim,
+ // not some unrelated red text the regex happened to graze
+ expect(m.target.textContent).toContain(viewStorageErrorMessages.saveFailed);
+ }finally{m?.unmount();prompt.mockRestore();setItem.mockRestore();}
 });
