@@ -4,6 +4,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as tickers from './tickers';
+import { pageOf } from '$lib/test/pagedFixture';
 
 const request = vi.fn();
 const client = { request } as never;
@@ -95,11 +96,30 @@ describe('loadWakeSettings', () => {
 
 describe('loadAppKeyScopes', () => {
   it('maps scopes by key', async () => {
-    request.mockResolvedValueOnce({ appKeys: [{ id: 'k1', scopes: [{ scope: 'attention:deliver', hostId: null, grantedAt: 'x' }] }] });
+    request.mockResolvedValueOnce({ appKeysPage: pageOf([{ id: 'k1', scopes: [{ scope: 'attention:deliver', hostId: null, grantedAt: 'x' }] }]) });
     await expect(tickers.loadAppKeyScopes(client, 'app-1')).resolves.toEqual({
       kind: 'ok',
       byKey: { k1: [{ scope: 'attention:deliver', hostId: null, grantedAt: 'x' }] },
     });
+  });
+  it.each([21, 201])('%i keys: every key has its scopes, joined by id, 20 per call (portal#1615)', async (n) => {
+    const all = Array.from({ length: n }, (_, i) => ({ id: `k${i}`, scopes: [{ scope: 'attention:deliver', hostId: null, grantedAt: `g${i}` }] }));
+    request.mockImplementation(async (_q: string, v: { limit?: number; offset?: number }) => ({ appKeysPage: pageOf(all, v) }));
+    const r = await tickers.loadAppKeyScopes(client, 'app-1');
+    expect(r.kind).toBe('ok');
+    if (r.kind === 'ok') {
+      expect(Object.keys(r.byKey)).toHaveLength(n);
+      expect(r.byKey[`k${n - 1}`][0].grantedAt).toBe(`g${n - 1}`);
+    }
+    expect(request).toHaveBeenCalledTimes(Math.ceil(n / 20));
+    for (const [, v] of request.mock.calls) expect(v.limit).toBeLessThanOrEqual(20);
+  });
+  it('a refused later page hides the column with no partial map', async () => {
+    request.mockImplementation(async (_q: string, v: { offset?: number }) => {
+      if ((v.offset ?? 0) >= 20) throw gqlError('FORBIDDEN');
+      return { appKeysPage: pageOf(Array.from({ length: 30 }, (_, i) => ({ id: `k${i}`, scopes: [] })), v) };
+    });
+    await expect(tickers.loadAppKeyScopes(client, 'app-1')).resolves.toEqual({ kind: 'hidden' });
   });
   it('FORBIDDEN (not a manager, cor:aut:010:03) hides the column; it is not an error', async () => {
     request.mockRejectedValueOnce(gqlError('FORBIDDEN'));

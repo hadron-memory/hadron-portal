@@ -11,6 +11,7 @@
  * value control + call-signature assertion (mutation variables, etc.).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { pageOf } from '$lib/test/pagedFixture';
 import { expectDistinctFormIds } from '$lib/test/expectDistinctFormIds';
 
 // Mock the GraphQL client BEFORE importing the module under test.
@@ -62,7 +63,7 @@ function fieldError(result: unknown, field: string): string | undefined {
 
 describe('load /app/account/api-keys', () => {
   it('#1320 gives the create and revoke forms their own Superforms ids', async () => {
-    mockRequest.mockResolvedValueOnce({ myUserApiKeys: [] });
+    mockRequest.mockResolvedValueOnce({ myUserApiKeysPage: pageOf([]) });
     const { load } = await importMod();
     expectDistinctFormIds(await load(loadEvent('tok')), 2);
   });
@@ -79,11 +80,33 @@ describe('load /app/account/api-keys', () => {
         issuedVia: 'portal',
       },
     ];
-    mockRequest.mockResolvedValueOnce({ myUserApiKeys: sampleKeys });
+    mockRequest.mockResolvedValueOnce({ myUserApiKeysPage: pageOf(sampleKeys) });
     const { load } = await importMod();
     const result = await load(loadEvent('jwt-token'));
     expect(result).toMatchObject({ keys: sampleKeys, form: { valid: true } });
     expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([21, 201])('portal#1615: %i keys all load, 20 per call, includeHidden kept', async (n) => {
+    const all = Array.from({ length: n }, (_, i) => ({ id: `uak_${i}`, keyPreview: 'abcd', label: `k${i}`, createdAt: 'x', lastUsedAt: null, revokedAt: null, issuedVia: 'portal' }));
+    mockRequest.mockImplementation(async (_q: string, v: { limit?: number; offset?: number }) => ({ myUserApiKeysPage: pageOf(all, v) }));
+    const { load } = await importMod();
+    const result = (await load(loadEvent('jwt-token'))) as { keys: unknown[] };
+    expect(result.keys).toEqual(all);
+    expect(mockRequest).toHaveBeenCalledTimes(Math.ceil(n / 20));
+    for (const [, v] of mockRequest.mock.calls) expect(v).toMatchObject({ includeHidden: false, limit: 20 });
+  });
+
+  it('portal#1615: a refused later page is the load error, never a partial list', async () => {
+    const all = Array.from({ length: 60 }, (_, i) => ({ id: `uak_${i}` }));
+    mockRequest.mockImplementation(async (_q: string, v: { offset?: number }) => {
+      if ((v.offset ?? 0) >= 20) throw new Error('boom');
+      return { myUserApiKeysPage: pageOf(all, v) };
+    });
+    const { load } = await importMod();
+    const result = (await load(loadEvent('jwt-token'))) as { keys: unknown[]; loadError?: string };
+    expect(result.keys).toEqual([]);
+    expect(result.loadError).toBeTruthy();
   });
 
   it('returns empty list (no GraphQL call) when locals.token is missing', async () => {

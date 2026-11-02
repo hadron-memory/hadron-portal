@@ -1941,7 +1941,7 @@ export const UPDATE_APP_MUTATION = /* GraphQL */ `
 // App Keys
 // ---------------------------------------------------------------------------
 
-// An argument and its $variable share a name — `appKeys(appRef: $appRef)`.
+// An argument and its $variable share a name — `appKeysPage(appRef: $appRef)`.
 // `pnpm gql:validate` checks that, and cross-checks the keys every caller
 // passes, so a mismatch is a build error rather than a convention to remember.
 /**
@@ -1957,9 +1957,11 @@ export const APP_VIEWER_MANAGES_QUERY = /* GraphQL */ `
 `;
 
 export const APP_KEYS_QUERY = /* GraphQL */ `
-  query AppKeys($appRef: ID!) {
-    appKeys(appRef: $appRef) {
-      id label keyPreview lastUsedAt createdAt revokedAt
+  query AppKeys($appRef: ID!, $limit: Int, $offset: Int) {
+    appKeysPage(appRef: $appRef, limit: $limit, offset: $offset) {
+      items { id label keyPreview lastUsedAt createdAt revokedAt }
+      total
+      hasMore
     }
   }
 `;
@@ -4241,16 +4243,20 @@ export const AGENT_OWNED_APPS_QUERY = /* GraphQL */ `
 // ---------------------------------------------------------------------------
 
 export const MY_USER_API_KEYS_QUERY = /* GraphQL */ `
-  query MyUserApiKeys($includeHidden: Boolean = false) {
-    myUserApiKeys(includeHidden: $includeHidden) {
-      id
-      keyPreview
-      label
-      createdAt
-      lastUsedAt
-      revokedAt
-      hiddenAt
-      issuedVia
+  query MyUserApiKeys($includeHidden: Boolean = false, $limit: Int, $offset: Int) {
+    myUserApiKeysPage(includeHidden: $includeHidden, limit: $limit, offset: $offset) {
+      items {
+        id
+        keyPreview
+        label
+        createdAt
+        lastUsedAt
+        revokedAt
+        hiddenAt
+        issuedVia
+      }
+      total
+      hasMore
     }
   }
 `;

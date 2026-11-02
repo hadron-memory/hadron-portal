@@ -8,6 +8,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { APP_FIELDS, APP_QUERY, APPS_QUERY, ORGANIZATIONS_QUERY, CREATE_APP_MUTATION, UPDATE_APP_MUTATION } from './queries';
 import * as appKeys from './app-keys';
+import { pageOf } from '$lib/test/pagedFixture';
 
 const request = vi.fn();
 const client = { request } as never;
@@ -35,11 +36,11 @@ describe('no operation selects App.keys', () => {
 
 describe('loadAppKeys', () => {
   it('ok carries the keys', async () => {
-    request.mockResolvedValueOnce({ appKeys: [key('k1')] });
+    request.mockResolvedValueOnce({ appKeysPage: pageOf([key('k1')]) });
     await expect(appKeys.loadAppKeys(client, 'app-1')).resolves.toEqual({ kind: 'ok', keys: [key('k1')] });
   });
   it('ok with no keys is an empty list, distinct from hidden and failed', async () => {
-    request.mockResolvedValueOnce({ appKeys: [] });
+    request.mockResolvedValueOnce({ appKeysPage: pageOf([]) });
     await expect(appKeys.loadAppKeys(client, 'app-1')).resolves.toEqual({ kind: 'ok', keys: [] });
   });
   it('FORBIDDEN (not a manager) is hidden', async () => {
@@ -57,10 +58,33 @@ describe('loadAppKeys', () => {
   });
 });
 
+describe('loadAppKeys follows every page (portal#1615)', () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => key(`k${i}`));
+  it.each([21, 201, 450])('%i keys: every key is shown, 20 per call', async (n) => {
+    request.mockImplementation(async (_q: string, v: { limit?: number; offset?: number }) => ({ appKeysPage: pageOf(many(n), v) }));
+    const r = await appKeys.loadAppKeys(client, 'app-1');
+    expect(r).toEqual({ kind: 'ok', keys: many(n) });
+    expect(request).toHaveBeenCalledTimes(Math.ceil(n / 20));
+    for (const [, v] of request.mock.calls) expect(v.limit).toBeLessThanOrEqual(20);
+  });
+  it('a refused later page is the same refusal state, with no partial list', async () => {
+    request.mockImplementation(async (_q: string, v: { offset?: number }) => {
+      if ((v.offset ?? 0) >= 20) throw gqlError('FORBIDDEN');
+      return { appKeysPage: pageOf(many(60), v) };
+    });
+    await expect(appKeys.loadAppKeys(client, 'app-1')).resolves.toEqual({ kind: 'hidden' });
+    request.mockImplementation(async (_q: string, v: { offset?: number }) => {
+      if ((v.offset ?? 0) >= 40) throw gqlError('INTERNAL_SERVER_ERROR');
+      return { appKeysPage: pageOf(many(60), v) };
+    });
+    await expect(appKeys.loadAppKeys(client, 'app-1')).resolves.toEqual({ kind: 'failed' });
+  });
+});
+
 describe('loadActiveKeyCounts', () => {
   const apps = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `app-${i}` }));
   it('counts per App; zero is a real zero only from ok', async () => {
-    request.mockImplementation(async (_q: string, v: { appRef: string }) => ({ appKeys: v.appRef === 'app-0' ? [key('a'), key('b')] : [] }));
+    request.mockImplementation(async (_q: string, v: { appRef: string }) => ({ appKeysPage: pageOf(v.appRef === 'app-0' ? [key('a'), key('b')] : []) }));
     await expect(appKeys.loadActiveKeyCounts(client, apps(2))).resolves.toEqual({
       'app-0': { kind: 'ok', count: 2 },
       'app-1': { kind: 'ok', count: 0 },
@@ -70,7 +94,7 @@ describe('loadActiveKeyCounts', () => {
     request.mockImplementation(async (_q: string, v: { appRef: string }) => {
       if (v.appRef === 'app-0') throw gqlError('FORBIDDEN');
       if (v.appRef === 'app-1') throw gqlError('INTERNAL_SERVER_ERROR');
-      return { appKeys: [key('a')] };
+      return { appKeysPage: pageOf([key('a')]) };
     });
     const out = await appKeys.loadActiveKeyCounts(client, apps(3));
     expect(out['app-0']).toEqual({ kind: 'hidden' });
@@ -78,7 +102,7 @@ describe('loadActiveKeyCounts', () => {
     expect(out['app-2']).toEqual({ kind: 'ok', count: 1 });
   });
   it('apps past the cap are unknown and are not requested', async () => {
-    request.mockResolvedValue({ appKeys: [] });
+    request.mockResolvedValue({ appKeysPage: pageOf([]) });
     const out = await appKeys.loadActiveKeyCounts(client, apps(appKeys.ACTIVE_KEY_COUNT_CAP + 1));
     expect(request).toHaveBeenCalledTimes(appKeys.ACTIVE_KEY_COUNT_CAP);
     expect(out[`app-${appKeys.ACTIVE_KEY_COUNT_CAP}`]).toEqual({ kind: 'unknown' });
@@ -91,7 +115,7 @@ describe('loadActiveKeyCounts', () => {
       peak = Math.max(peak, inFlight);
       await new Promise((r) => setTimeout(r, 1));
       inFlight--;
-      return { appKeys: [] };
+      return { appKeysPage: pageOf([]) };
     });
     await appKeys.loadActiveKeyCounts(client, apps(20));
     expect(peak).toBeLessThanOrEqual(appKeys.ACTIVE_KEY_COUNT_CONCURRENCY);
