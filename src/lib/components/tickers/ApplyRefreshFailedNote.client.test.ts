@@ -201,7 +201,7 @@ describe('recovery controls and synchronous scope visibility (#1475)', () => {
   it('has a GET-only native reload link to this page, with no action selector or mutation form', async () => {
     setRefreshMarker(refreshScope('u-1', 'w-A'));
     atRoot('/app/workers/w-A?tab=wake&/applyTickerTemplates', 'u-1');
-    // atRoot takes a pathname, including the query here, just as the actual URL does.
+    // Preserve the Wake-ups view while stripping the named action from a failed action URL.
     const root = await mountNote();
     const note = line(root)!;
     const reload = note.querySelector<HTMLAnchorElement>('a');
