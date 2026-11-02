@@ -9,6 +9,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import EscapeHostHarness from '$lib/test/EscapeHostHarness.svelte';
 import SelectOrg from './SelectOrg.svelte';
 
@@ -99,5 +100,101 @@ describe('SelectOrg is announced as a modal dialog (#1589)', () => {
     expect(panel.getAttribute('aria-label')).toBe('Choose an organization');
     // The Escape consumption is on that same element: the dialog layer the shared pattern names.
     expect(pickerOverlay()!.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  });
+});
+
+// portal#1599 — the picker PROMISES aria-modal, so it must trap focus: the
+// open dialog keeps Tab cycling inside it and hands focus back to the trigger
+// on close. Same pins as SelectAgent/SelectMemory (#1305/#1313), bare-mounted
+// because the opener-restore pin needs a focused element OUTSIDE the dialog,
+// which the #1584 host harness doesn't provide.
+describe('SelectOrg: the aria-modal promise is kept — focus is trapped (#1599)', () => {
+  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+  const searchInput = () => document.querySelector<HTMLInputElement>('.fixed.inset-0 input');
+
+  // jsdom lays out nothing, so the trap's rendered-ness filter would drop every
+  // control; give elements a box (same mock as the focus-trap suite).
+  const mockLayout = () =>
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(100);
+
+  function openModal() {
+    const props = reactiveProps<Record<string, unknown>>({ orgs, onselect: () => {}, open: true });
+    const m = mountComponent(SelectOrg as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    return m;
+  }
+
+  function tabbables() {
+    return [...dialog()!.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]')]
+      .filter((el) => !el.hasAttribute('disabled') && el.tabIndex >= 0);
+  }
+
+  it('on open, focus is inside the dialog', async () => {
+    const box = mockLayout();
+    try {
+      openModal();
+      await tick(2);
+      expect(dialog()!.contains(document.activeElement)).toBe(true);
+    } finally {
+      box.mockRestore();
+    }
+  });
+
+  it('Tab from the last tabbable control wraps to the first', async () => {
+    const box = mockLayout();
+    try {
+      openModal();
+      await tick(2);
+      // Two orgs fit one page, so BOTH footer buttons are disabled and drop out
+      // of the tabbable set — the last row's Select is the last tabbable.
+      const last = tabbables().at(-1)!;
+      expect(last.textContent).toContain('Select');
+      last.focus();
+      last.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      flushSync();
+      expect(document.activeElement).toBe(searchInput());
+    } finally {
+      box.mockRestore();
+    }
+  });
+
+  it('Shift+Tab from the first tabbable control wraps to the last', async () => {
+    const box = mockLayout();
+    try {
+      openModal();
+      await tick(2);
+      const last = tabbables().at(-1)!;
+      // Guard the oracle: the wrap target must be a real control, not the input itself.
+      expect(last.textContent).toContain('Select');
+      expect(searchInput()!).not.toBe(last);
+      searchInput()!.focus();
+      searchInput()!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+      );
+      flushSync();
+      expect(document.activeElement).toBe(last);
+      expect(dialog()!.contains(document.activeElement)).toBe(true);
+    } finally {
+      box.mockRestore();
+    }
+  });
+
+  it('Escape closes the picker and focus returns to the trigger that opened it', async () => {
+    const box = mockLayout();
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    try {
+      openModal();
+      await tick(2);
+      expect(dialog()!.contains(document.activeElement)).toBe(true); // the trap took focus in
+      pressEscape(); // from the focused control inside the dialog
+      flushSync();
+      expect(pickerOverlay()).toBeNull();
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      opener.remove();
+      box.mockRestore();
+    }
   });
 });

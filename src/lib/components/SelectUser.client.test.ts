@@ -204,3 +204,101 @@ describe('SelectUser: Escape closes one layer only (#1584)', () => {
     }
   });
 });
+
+// portal#1599 — the picker PROMISES aria-modal, so it must trap focus: the
+// open dialog keeps Tab cycling inside it and hands focus back to the trigger
+// on close. Same pins as SelectAgent/SelectMemory (#1305/#1313). This picker's
+// Close button (#1169) is the FIRST tabbable control — ahead of the search
+// input — so on open the trap lands on Close, where the old input-only
+// `focusOnMount` never did.
+describe('SelectUser: the aria-modal promise is kept — focus is trapped (#1599)', () => {
+  const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
+  const searchInput = () => document.querySelector<HTMLInputElement>('.fixed.inset-0 input');
+  const closeButton = () =>
+    [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+      .find((b) => b.textContent?.trim() === 'Close')!;
+
+  // jsdom lays out nothing, so the trap's rendered-ness filter would drop every
+  // control; give elements a box (same mock as the focus-trap suite).
+  const mockLayout = () =>
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(100);
+
+  const emptySearch = async () => ({ users: [], truncated: false });
+  // One match: the tabbable chain is Close, input, Find, then the row's Select.
+  const oneResult = async () => ({ users: [u('a')], truncated: false });
+
+  function tabbables() {
+    return [...dialog()!.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]')]
+      .filter((el) => !el.hasAttribute('disabled') && el.tabIndex >= 0);
+  }
+
+  it('on open, focus is inside the dialog, on the first tabbable control', async () => {
+    const box = mockLayout();
+    try {
+      open(emptySearch);
+      await tick(2);
+      expect(document.activeElement).toBe(closeButton());
+      expect(dialog()!.contains(document.activeElement)).toBe(true);
+    } finally {
+      box.mockRestore();
+    }
+  });
+
+  it('Tab from the last tabbable control wraps to the first', async () => {
+    const box = mockLayout();
+    try {
+      const m = open(oneResult);
+      await find(m, 'abc');
+      const last = tabbables().at(-1)!;
+      expect(last.textContent!.trim()).toBe('Select');
+      last.focus();
+      last.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+      flushSync();
+      expect(document.activeElement).toBe(closeButton());
+    } finally {
+      box.mockRestore();
+    }
+  });
+
+  it('Shift+Tab from the first tabbable control wraps to the last', async () => {
+    const box = mockLayout();
+    try {
+      const m = open(oneResult);
+      await find(m, 'abc');
+      const last = tabbables().at(-1)!;
+      // Guard the oracle: the wrap target must be a real control, not the first one.
+      expect(last.textContent!.trim()).toBe('Select');
+      expect(last).not.toBe(closeButton());
+      closeButton().focus();
+      closeButton().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }),
+      );
+      flushSync();
+      expect(document.activeElement).toBe(last);
+      expect(dialog()!.contains(document.activeElement)).toBe(true);
+    } finally {
+      box.mockRestore();
+    }
+  });
+
+  it('Escape closes the picker and focus returns to the trigger that opened it', async () => {
+    const box = mockLayout();
+    const opener = document.createElement('button');
+    document.body.append(opener);
+    opener.focus();
+    try {
+      open(emptySearch);
+      await tick(2);
+      expect(dialog()!.contains(document.activeElement)).toBe(true); // the trap took focus in
+      (document.activeElement as HTMLElement).dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+      );
+      flushSync();
+      expect(document.querySelector('.fixed.inset-0')).toBeNull();
+      expect(document.activeElement).toBe(opener);
+    } finally {
+      opener.remove();
+      box.mockRestore();
+    }
+  });
+});
