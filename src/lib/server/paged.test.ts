@@ -76,6 +76,21 @@ describe('readAllPages', () => {
       const got = await readAllPages(read);
       expect(got.map((r) => r.id).sort()).toEqual(all.map((r) => r.id).sort());
     });
+    it('a key that appears after the last page (page-one re-read: same first rows, total moved) restarts, never returns the stale 40', async () => {
+      // 40 keys read in two pages; before the verification re-read a hidden key is
+      // un-hidden at the tail: total 41, first 20 ids unchanged. Must restart and
+      // return all 41, not the 40 collected earlier.
+      const all = ids(40);
+      let calls = 0;
+      const read = vi.fn(async (limit: number, offset: number) => {
+        calls += 1;
+        if (calls === 3) all.push({ id: 'tail' });
+        return { items: all.slice(offset, offset + limit), total: all.length, hasMore: offset + limit < all.length };
+      });
+      const got = await readAllPages(read);
+      expect(got.map((r) => r.id)).toContain('tail');
+      expect(got).toHaveLength(41);
+    });
     it('a key added on an already-read page is not duplicated and is not lost', async () => {
       const all = ids(30);
       let done = false;

@@ -59,7 +59,8 @@ async function readOnce<T extends { id: string }>(
       // (newest first). A single-page read is one atomic answer; skip the check.
       if (pages === 0) return out;
       const again = await readPage(PAGE_SIZE, 0);
-      return again.items.map((i) => i.id).join('\0') === first ? out : null;
+      // The re-read carries its own total: a key joining at the tail leaves page one alone.
+      return again.total === total && again.items.map((i) => i.id).join('\0') === first ? out : null;
     }
     if (added === 0) throw new PagingError('page made no progress');
   }
