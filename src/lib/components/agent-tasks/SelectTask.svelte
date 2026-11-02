@@ -16,13 +16,18 @@
   let offset = $state(0);
   let hasMore = $state(true);
   let pending = $state(false);
-  let failed = $state(false);
   let repeated = $state(false);
   let query = $state('');
   let exact = $state('');
   let exactItems = $state<TaskChoice[]>([]);
   let exactDone = $state(false);
   let generation = 0;
+  // portal#1626: the request that FAILED, kept so Retry repeats it exactly. Retry used to re-read the
+  // exact input at click time, so editing (or clearing) it after a failure turned a failed page read into
+  // a lookup, or a failed lookup into a page read. `failed` IS this being set, so clearing one clears the other.
+  type PickerRequest = { kind: 'exact'; ref: string } | { kind: 'page'; offset: number };
+  let failedRequest = $state.raw<PickerRequest | null>(null);
+  const failed = $derived(failedRequest !== null);
   const columns: PortalColumnDef<TaskChoice>[] = [
     { accessorKey: 'title', header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 240 },
     { accessorKey: 'handle', header: t('app.tasks.col.handle', 'Handle'), size: 150 },
@@ -36,14 +41,15 @@
     onGlobalFilterChange: (u) => { query = typeof u === 'function' ? u(query) : u; },
     initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
   });
-  async function read(exactRef?: string) {
+  async function read(request: PickerRequest = { kind: 'page', offset }) {
     if (pending) return;
     const current = generation;
     const targetApp = appId;
-    pending = true; failed = false;
+    const exactRef = request.kind === 'exact' ? request.ref : undefined;
+    pending = true; failedRequest = null;
     if (exactRef) { exactDone = true; exactItems = []; }
     try {
-      const params = (exactRef ? `exact=${encodeURIComponent(exactRef)}` : `offset=${offset}`) + (includeEnded ? '&ended=1' : '');
+      const params = (request.kind === 'exact' ? `exact=${encodeURIComponent(request.ref)}` : `offset=${request.offset}`) + (includeEnded ? '&ended=1' : '');
       const response = await fetch(`/app/apps/${encodeURIComponent(targetApp)}/tasks/choices?${params}`);
       if (!response.ok) throw new Error('unavailable');
       const result: TaskRead<{ items: TaskChoice[]; hasMore: boolean }> = await response.json();
@@ -61,7 +67,7 @@
         offset += result.value.items.length;
         hasMore = result.value.hasMore && fresh.length > 0;
       }
-    } catch { if (current === generation) failed = true; }
+    } catch { if (current === generation) failedRequest = request; }
     finally { if (current === generation) pending = false; }
   }
   $effect(() => {
@@ -69,8 +75,8 @@
     const visible = open;
     untrack(() => {
       generation++;
-      items = []; exactItems = []; offset = 0; hasMore = true; pending = false;
-      failed = false; repeated = false; query = ''; exact = ''; exactDone = false;
+      items = []; exactItems = []; offset = 0; hasMore = true; pending = false; failedRequest = null;
+      repeated = false; query = ''; exact = ''; exactDone = false;
       if (visible && key) void read();
     });
     return () => { generation++; };
@@ -87,10 +93,10 @@
       <p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.picker.loaded-only', 'Search filters loaded pages only. Load more tasks, or look up an exact handle or id.')}</p>
       <div class="flex flex-wrap gap-2">
         <label class="min-w-0 grow text-sm">{t('app.tasks.picker.exact', 'Exact handle or id')}<input bind:value={exact} class="block w-full rounded border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-600" /></label>
-        <button type="button" disabled={pending || !exact.trim()} onclick={() => read(exact.trim())} class="self-end rounded border px-3 py-1 disabled:opacity-50">{t('app.tasks.picker.lookup', 'Look up')}</button>
+        <button type="button" disabled={pending || !exact.trim()} onclick={() => read({ kind: 'exact', ref: exact.trim() })} class="self-end rounded border px-3 py-1 disabled:opacity-50">{t('app.tasks.picker.lookup', 'Look up')}</button>
         {#if exactDone}<button type="button" onclick={() => { exactDone = false; exactItems = []; }}>{t('app.tasks.picker.browse', 'Browse loaded tasks')}</button>{/if}
       </div>
-      {#if failed}<p role="alert">{t('app.tasks.picker.failed', 'Couldn’t load tasks. Try again.')}</p><button type="button" disabled={pending} onclick={() => read(exact.trim() || undefined)}>{t('app.tasks.retry', 'Try again')}</button>{/if}
+      {#if failed}<p role="alert">{t('app.tasks.picker.failed', 'Couldn’t load tasks. Try again.')}</p><button type="button" disabled={pending} onclick={() => read(failedRequest ?? undefined)}>{t('app.tasks.retry', 'Try again')}</button>{/if}
       {#if repeated}<p role="status">{t('app.tasks.picker.changed', 'The list changed while loading. Some tasks may be missing; close and reopen to refresh, or use an exact lookup.')}</p>{/if}
       {#if pending}<p role="status">{t('app.tasks.picker.loading', 'Loading tasks…')}</p>{/if}
       {#if exactDone && !pending && !failed && exactItems.length === 0}<p role="status">{t('app.tasks.picker.unavailable', 'No available task found in this App.')}</p>{/if}
