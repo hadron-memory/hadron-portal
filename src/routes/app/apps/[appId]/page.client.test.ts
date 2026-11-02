@@ -2042,6 +2042,42 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     const applied=[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('All messages'))!;
     expect(document.activeElement).toBe(applied);expect(status(m).textContent).toContain('All messages selected.');
   });
+  // portal#1629 (Liam's LOCAL gaps on #1624, Gabriel's optional coverage): three pins, no production change.
+  const untaggedButton=(m:Mounted<Record<string,unknown>>)=>[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('No team tag recorded'))!;
+  it('portal#1629 the sole rejected navigation consumes its intent: no stale announcement and no replay on a later history visit',async()=>{
+    const {m,props}=await setup();
+    const pending:Array<{resolve:()=>void;reject:(error:Error)=>void}>=[];
+    navigationHooks.onGoto=()=>new Promise<void>((resolve,reject)=>{pending.push({resolve,reject});});
+    await selectTag(m);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);pending[0].resolve();await tick(5);
+    expect(status(m).textContent).toContain('team.ada');
+    const untagged=untaggedButton(m);untagged.focus();untagged.click();await tick(2);
+    expect(pending).toHaveLength(2);
+    pending[1].reject(new Error('navigation failed'));await tick(5);
+    expect(status(m).textContent).toBe('');
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'untagged'}};await tick(5);
+    expect(status(m).textContent).toBe('');
+    // Positive form (Gloria P2): the untagged chip exists and is the applied filter, yet focus was NOT pulled to it.
+    expect(untaggedButton(m).getAttribute('aria-pressed')).toBe('true');
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"]')).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+  it('portal#1629 focus moved to another thread control, then destroyed by the keyed remount, is left on BODY (not pulled to the chip)',async()=>{
+    const {m,props,release}=await setup();await selectTag(m);
+    expect(navigationCalls.filter(c=>c.fn==='goto')).toHaveLength(1);
+    const other=untaggedButton(m);other.focus();expect(document.activeElement).toBe(other);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);release();await tick(5);
+    expect(m.target.contains(other)).toBe(false);
+    expect(document.activeElement).toBe(document.body);
+    expect(status(m).textContent).toContain('team.ada');
+  });
+  it('portal#1629 choosing the untagged filter announces its own neutral text',async()=>{
+    const {m,props,release}=await setup();
+    const untagged=untaggedButton(m);untagged.focus();untagged.click();await tick(2);
+    expect(navigationCalls.filter(c=>c.fn==='goto')).toHaveLength(1);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'untagged'}};await tick(3);release();await tick(5);
+    expect(status(m).textContent).toBe('Showing messages with no team tag recorded.');
+  });
 });
 
 it('portal#1624 QA restores the newer composer focus after the keyed route destroys that textarea', async()=>{
