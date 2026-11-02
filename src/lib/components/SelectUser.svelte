@@ -9,6 +9,8 @@
   // substring) are being tightened separately — see hadron-server#384.
 
   import Urn from '$lib/components/Urn.svelte';
+
+  import { pickerStrings } from '$lib/i18n/picker-strings';
   import { focusTrap } from '$lib/a11y/focus-trap';
   import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import { t } from '$lib/i18n/t';
@@ -213,8 +215,9 @@
                 <button
                   type="button"
                   onclick={() => select(user)}
-                  class="shrink-0 rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
-                >Select</button>
+                  aria-label={pickerStrings.selectNamed(userLabel(user))}
+                  class="shrink-0 rounded bg-indigo-500 px-3 py-1 text-xs font-medium text-white pointer-coarse:min-h-11 hover:bg-indigo-600 dark:bg-indigo-600 dark:hover:bg-indigo-700"
+                >{pickerStrings.select()}</button>
               </li>
             {/each}
           </ul>

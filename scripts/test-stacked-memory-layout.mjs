@@ -37,6 +37,7 @@ async function mountView(page, origin, css, view) {
 
 const viewports = [[375, 667], [390, 844], [768, 1024], [1280, 720], [1440, 900]];
 const GUTTER = 8; // px, #1600 item 2
+const FINE_SELECT_H = 24; // px, #1605: px-3 py-1 text-xs, as on main
 const server = await createServer({ server: { host: '127.0.0.1', port: 0 } });
 let browser;
 try {
@@ -91,7 +92,7 @@ try {
               if (!b) return null;
               const r = b.getBoundingClientRect();
               const x = r.left + r.width / 2, y = r.top + r.height / 2;
-              return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, x, y, hit: b.contains(document.elementFromPoint(x, y)) };
+              return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height, x, y, hit: b.contains(document.elementFromPoint(x, y)) };
             })(),
             // #1600 item 3: "Esc to close" is keyboard help, so a coarse
             // (touch) pointer doesn't render it.
@@ -137,6 +138,10 @@ try {
         assert.ok(got.select.left >= got.memoryLeft && got.select.right <= got.memoryRight && got.select.bottom <= got.memoryBottom && got.select.top >= got.memoryTop,
           `${label}: the first row's Select (${got.select.left}..${got.select.right}) is outside the memory panel (${got.memoryLeft}..${got.memoryRight})`);
         assert.equal(got.select.hit, true, `${label}: a tap at the first row's Select centre does not hit it`);
+        // #1605: a coarse pointer gets the portal's 44px target (min-h-11);
+        // a fine pointer keeps the dense 24px button, unchanged.
+        if (coarse) assert.ok(got.select.height >= 44, `${label}: the row Select is ${got.select.height}px tall on a coarse pointer, under 44px`);
+        else assert.ok(Math.abs(got.select.height - FINE_SELECT_H) < 0.5, `${label}: the row Select is ${got.select.height}px tall on a fine pointer, not the unchanged ${FINE_SELECT_H}px`);
         // #1600 item 3.
         assert.equal(got.coarse, coarse, `${label}: pointer emulation is not what this leg expects`);
         assert.equal(got.escHint, coarse ? 'hidden' : 'visible', `${label}: "Esc to close" should be ${coarse ? 'hidden on a coarse pointer' : 'visible on a fine pointer'}`);
