@@ -2057,10 +2057,14 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
     expect(status(m).textContent).toBe('');
     props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'untagged'}};await tick(5);
     expect(status(m).textContent).toBe('');
-    expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+    // Positive form (Gloria P2): the untagged chip exists and is the applied filter, yet focus was NOT pulled to it.
+    expect(untaggedButton(m).getAttribute('aria-pressed')).toBe('true');
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"]')).toBeNull();
+    expect(document.activeElement).toBe(document.body);
   });
   it('portal#1629 focus moved to another thread control, then destroyed by the keyed remount, is left on BODY (not pulled to the chip)',async()=>{
     const {m,props,release}=await setup();await selectTag(m);
+    expect(navigationCalls.filter(c=>c.fn==='goto')).toHaveLength(1);
     const other=untaggedButton(m);other.focus();expect(document.activeElement).toBe(other);
     props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);release();await tick(5);
     expect(m.target.contains(other)).toBe(false);
@@ -2070,6 +2074,7 @@ describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
   it('portal#1629 choosing the untagged filter announces its own neutral text',async()=>{
     const {m,props,release}=await setup();
     const untagged=untaggedButton(m);untagged.focus();untagged.click();await tick(2);
+    expect(navigationCalls.filter(c=>c.fn==='goto')).toHaveLength(1);
     props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'untagged'}};await tick(3);release();await tick(5);
     expect(status(m).textContent).toBe('Showing messages with no team tag recorded.');
   });
