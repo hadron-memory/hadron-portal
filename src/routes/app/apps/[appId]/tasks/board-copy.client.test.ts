@@ -42,18 +42,24 @@ describe('loaded-count wording (portal#1403)', () => {
 });
 
 describe('one coherent live region (portal#1403)', () => {
+  // portal#1415 P2 fix: the open-by-handle hint is a SECOND, persistent
+  // status region beside the search box (empty until a whole handle is typed,
+  // so it announces nothing here) — the count/cap/empty trio's one-region
+  // guarantee is about the region that carries the count, not the whole page.
+  const countRegions = (m: Mounted<any>) => live(m).filter((r) => /Tasks shown/.test(r.textContent ?? ''));
+
   it('count, cap notice and empty explanation share ONE status region (empty + capped)', async () => {
     const m = await mount({}, 0, true);
-    expect(live(m)).toHaveLength(1);
-    const t = live(m)[0].textContent!;
+    expect(countRegions(m)).toHaveLength(1);
+    const t = countRegions(m)[0].textContent!;
     expect(t).toContain('Tasks shown: 0');
     expect(t).toContain('No matching tasks');
     expect(t).toContain('There may be more');
   });
   it('a plain loaded board announces through one region too', async () => {
     const m = await mount({}, 3);
-    expect(live(m)).toHaveLength(1);
-    expect(live(m)[0].textContent).toContain('Tasks shown: 3');
+    expect(countRegions(m)).toHaveLength(1);
+    expect(countRegions(m)[0].textContent).toContain('Tasks shown: 3');
   });
   it('the empty explanation is still visible and findable by its marker', async () => {
     const m = await mount({}, 0);
