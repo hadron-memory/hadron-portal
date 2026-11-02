@@ -32,6 +32,17 @@
       {/each}
     </div>
   {/if}
+  {#if script.argsInvalid}
+    <div
+      role="alert"
+      class="rounded border border-red-300 bg-red-50 px-1.5 py-1 text-[10px] text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300"
+    >
+      ⚠ {t(
+        'flow.card.scriptBadArgs',
+        'call.args is not an object — a run refuses this node when the flow loads.',
+      )}
+    </div>
+  {/if}
   {#if script.bothBodies}
     <div
       role="alert"

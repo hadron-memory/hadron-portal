@@ -45,6 +45,8 @@ export interface FlowCanvasScript {
   argKeys: string[];
   /** script together with tools/extractionSpec (even an empty list): the server refuses it at load. */
   bothBodies: boolean;
+  /** call.args is present and not a plain object (null, array, scalar): the server refuses it at load (#1612). */
+  argsInvalid: boolean;
 }
 
 export interface FlowCanvasNode {
@@ -112,11 +114,13 @@ function scriptOf(data: unknown): FlowCanvasScript | null {
   if (d.script === undefined || d.script === null) return null;
   const call = (d.script as { call?: { tool?: unknown; args?: unknown } } | null)?.call;
   const args = call?.args;
-  const argKeys = args && typeof args === 'object' && !Array.isArray(args) ? Object.keys(args) : [];
+  const isPlainObject = args !== null && typeof args === 'object' && !Array.isArray(args);
+  const argKeys = isPlainObject ? Object.keys(args) : [];
   return {
     tool: typeof call?.tool === 'string' && call.tool.length > 0 ? call.tool : null,
     argKeys,
     bothBodies: Array.isArray(d.tools) || Array.isArray(d.extractionSpec),
+    argsInvalid: args !== undefined && !isPlainObject,
   };
 }
 
