@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhancedDeferred, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { holdInvalidateAll, navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import TaskIntegrations from './TaskIntegrations.svelte';
 
 const IRIS = 'hrn:worker:x.com:app:iris';
@@ -115,7 +115,7 @@ describe('the form', () => {
     await tick(3);
     expect(form(m).textContent).toContain('Someone else changed these settings.');
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
-    await click(btn(form(m) ?? m.target, 'Reload'));
+    await click(btn(form(m) ?? m.target, 'Reload (discards your changes)'));
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
     expect(m.target.querySelector('form')).toBeNull();
   });
@@ -282,5 +282,20 @@ describe('interleavings', () => {
     await held.finish(result({ ok: true, revision: 4 }));
     await tick(4);
     expect(m.target.querySelector('form')).toBeNull();
+  });
+  it('a Reload still in flight does not close a newer Cancel/Edit session or its typed values', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), result({ ok: false, code: 'APP_PROPERTIES_CONFLICT', message: 'Changed.', path: null, currentRevision: 5 }));
+    await tick(3);
+    const release = holdInvalidateAll();
+    await click(btn(form(m), 'Reload (discards your changes)'));
+    await click(btn(form(m), 'Cancel'));
+    await click(btn(m.target, 'Edit'));
+    await type(form(m).querySelector<HTMLInputElement>('#ti-taskIntegrations-0-name')!, 'newer-draft');
+    release();
+    await tick(4);
+    expect(form(m)).toBeTruthy();
+    expect(posted(m)[0].name).toBe('newer-draft');
   });
 });
