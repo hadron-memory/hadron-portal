@@ -248,6 +248,8 @@ describe('SelectMemory: folded org line on phones (#1604)', () => {
   const withOrg = [
     { id: 'm1', name: 'Atlas KB', urn: 'hrn:mem:acme.com:atlas', orgName: '' },
     { id: 'm2', name: 'Boreas KB', urn: 'hrn:mem:acme.com:boreas', orgName: 'Acme Inc' },
+    // The key absent, not just empty (#1642 BLIND P3).
+    { id: 'm3', name: 'Caurus KB', urn: 'hrn:mem:acme.com:caurus' },
   ];
 
   function rowFor(name: string) {
@@ -262,6 +264,9 @@ describe('SelectMemory: folded org line on phones (#1604)', () => {
     expect(cells[0].textContent).not.toContain('—');
     expect(cells[0].querySelector('div')).toBeNull();
     expect(cells[2].textContent?.trim()).toBe('—');
+    const missing = rowFor('Caurus KB').querySelectorAll('td');
+    expect(missing[0].querySelector('div')).toBeNull();
+    expect(missing[2].textContent?.trim()).toBe('—');
   });
 
   it('a row with an org still folds its org name under the name', async () => {

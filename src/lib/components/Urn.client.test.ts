@@ -63,12 +63,17 @@ describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
     expect(t!.getAttribute('aria-expanded')).toBe('false');
     expect(valueSpan(m).className).toContain('truncate');
     expect(valueSpan(m).textContent).toBe('hadronmemory.com:hadron-dev-team');
+    // #1642 UX P2: a purpose in the name (with the value kept in it), a
+    // visible cue, and a 24px minimum height.
+    expect(t!.getAttribute('aria-label')).toBe(`Show full URN ${URN}`);
+    expect(t!.querySelector('svg[data-reveal-cue][aria-hidden="true"]')).not.toBeNull();
+    expect(t!.classList.contains('min-h-6')).toBe(true);
 
     t!.click();
     flushSync();
     expect(t!.getAttribute('aria-expanded')).toBe('true');
     expect(valueSpan(m).className).not.toContain('truncate');
-    expect(valueSpan(m).className).toContain('break-all');
+    expect(valueSpan(m).className).toContain('[overflow-wrap:anywhere]');
     expect(valueSpan(m).textContent).toBe(URN);
 
     t!.click();
@@ -120,7 +125,7 @@ describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
     expect(toggle(m)).not.toBeNull();
     toggle(m)!.click();
     flushSync();
-    expect(valueSpan(m).className).toContain('break-all');
+    expect(valueSpan(m).className).toContain('[overflow-wrap:anywhere]');
 
     pointer.set(false);
     expect(toggle(m)).toBeNull();
@@ -162,6 +167,38 @@ describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
     mountUrn({ compact: true, linked: true });
     mountUrn({});
     expect(pointer.listeners.size).toBe(0);
+  });
+
+  it('a chip expanded, then linked, then unlinked comes back collapsed (#1642 BLIND P3)', () => {
+    stubPointer(true);
+    const m = mountUrn({ compact: true });
+    toggle(m)!.click();
+    flushSync();
+    m.props.linked = true;
+    flushSync();
+    m.props.linked = false;
+    flushSync();
+    expect(toggle(m)!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('expanded, linked, fine, unlinked, coarse: comes back collapsed (#1642 LOCAL P3)', () => {
+    const pointer = stubPointer(true);
+    const m = mountUrn({ compact: true });
+    toggle(m)!.click();
+    flushSync();
+    m.props.linked = true;
+    flushSync();
+    pointer.set(false);
+    m.props.linked = false;
+    flushSync();
+    pointer.set(true);
+    expect(toggle(m)!.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('a media query without addEventListener reads the pointer once and does not throw (#1642 BLIND P3)', () => {
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true, media: '(pointer: coarse)' })));
+    const m = mountUrn({ compact: true });
+    expect(toggle(m)).not.toBeNull();
   });
 
   it('removes its media-query listener on unmount', () => {
