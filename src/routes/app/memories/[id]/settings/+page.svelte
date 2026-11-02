@@ -432,7 +432,8 @@
         // #1465: the page component is reused on a [id] navigation, so a scan for memory A can land
         // after the reader moved to B. Applying it would show A's findings under B's heading.
         // A stale result is dropped; it is never B's data.
-        if (g.id === mine.memoryId) await update({ reset: false, invalidateAll: false });
+        // Only the newest scan, and only while its own memory is on screen (A1 -> B -> A -> A2: A1 is stale on A too).
+        if (pendingScan === mine && g.id === mine.memoryId) await update({ reset: false, invalidateAll: false });
       } finally {
         if (pendingScan === mine) pendingScan = null;
       }

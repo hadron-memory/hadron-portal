@@ -563,6 +563,8 @@ export const actions: Actions = {
           e,
           t('memory-settings.vector-health.failed', 'Could not check the vector index'),
           ['BAD_USER_INPUT'],
+          // #1465: a transport Error's own message (socket text, a URL) is not reader copy.
+          { transport: 'fallback' },
         ),
       });
     }

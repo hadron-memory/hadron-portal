@@ -1206,6 +1206,8 @@ describe('memory-detail `checkVectorIndexHealth` action (#1346)', () => {
     const result = (await actions.checkVectorIndexHealth(healthEv())) as { data?: { vectorHealthError?: string }; status?: number };
     expect(result.status).toBe(500);
     expect(result.data?.vectorHealthError).toBeTruthy();
+    // #1465 delta (Andi, LOCAL P2): a raw Error.message is not generic copy.
+    expect(result.data?.vectorHealthError).not.toContain('socket hang up');
   });
 
   it('the settings loader never runs validateMemory: the scan is on demand only', async () => {
