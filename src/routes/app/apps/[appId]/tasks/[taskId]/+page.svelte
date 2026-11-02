@@ -8,6 +8,7 @@
   import PartyLabel from '$lib/components/agent-tasks/PartyLabel.svelte';
   import SubtaskTree from '$lib/components/agent-tasks/SubtaskTree.svelte';
   import TaskHistory from '$lib/components/agent-tasks/TaskHistory.svelte';
+  import TaskExternalId from '$lib/components/agent-tasks/TaskExternalId.svelte';
   import TaskSource from '$lib/components/agent-tasks/TaskSource.svelte';
   import TaskReferences from '$lib/components/agent-tasks/TaskReferences.svelte';
   import TaskStateChips from '$lib/components/agent-tasks/TaskStateChips.svelte';
@@ -187,6 +188,12 @@
       {#if task.source}
         <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.source', 'Source')}</dt>
         <dd class="min-w-0" data-source-kind={sourceKind(task.source)}><TaskSource source={task.source} /></dd>
+      {/if}
+
+      <!-- portal#1607: the outside item the task claimed, under Source; nothing when null. -->
+      {#if task.externalId?.trim()}
+        <dt class="text-zinc-500 dark:text-zinc-400">{t('app.tasks.fact.external-id', 'External ID')}</dt>
+        <dd class="min-w-0" data-external-id><TaskExternalId externalId={task.externalId} /></dd>
       {/if}
 
       <!-- portal#1575: the task's typed references, in order, under the source; nothing when there are none. -->
