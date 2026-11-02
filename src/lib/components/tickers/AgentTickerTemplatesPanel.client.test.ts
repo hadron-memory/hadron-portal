@@ -500,4 +500,43 @@ describe('LOCAL review P2s (portal#1613)', () => {
     await tick(3);
     expect([...updateForm(root).querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Reload latest')).toBe(true);
   });
+
+  const staleRefusal = { type: 'failure' as const, status: 409, data: { action: 'updateTickerTemplate', refusal: { kind: 'refused', code: 'TICKER_TEMPLATE_REVISION_MISMATCH', message: 'x' } } };
+  const reloadBtn = (root: HTMLElement) => [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Reload latest')!;
+
+  it('a Reload that rejects after a refused write says it could not load, never that a change was accepted', async () => {
+    const root = await mountPanel();
+    await openEdit(root, 'standup');
+    type(field(updateForm(root) as never, 'name'), 'daily');
+    await tick(2);
+    await submitEnhancedWithResult(updateForm(root), staleRefusal);
+    await tick(3);
+    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('reload 500'));
+    reloadBtn(root).click();
+    await tick(5);
+    expect(updateForm(root).textContent).not.toMatch(/accepted/);
+    expect(updateForm(root).querySelector('[data-testid$="-reload-failed"]')).not.toBeNull();
+  });
+
+  it('a Reload still pending when the reader opens another template touches nothing of the new one', async () => {
+    const root = await mountPanel();
+    await openEdit(root, 'standup');
+    type(field(updateForm(root) as never, 'name'), 'daily');
+    await tick(2);
+    await submitEnhancedWithResult(updateForm(root), staleRefusal);
+    await tick(3);
+    let fail!: () => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((_, rej) => (fail = () => rej(new Error('reload 500'))));
+    reloadBtn(root).click();
+    await tick(2);
+    navigationHooks.onInvalidateAll = undefined;
+    await openEdit(root, 'nightly');
+    fail();
+    await tick(6);
+    const f = updateForm(root);
+    expect(field(f as never, 'name').value).toBe('nightly');
+    expect(f.querySelector('[role="alert"]')).toBeNull();
+    expect(f.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
+    expect(f.querySelector('[data-testid$="-refresh-failed"], [data-testid$="-reload-failed"]')).toBeNull();
+  });
 });

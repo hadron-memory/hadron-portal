@@ -75,6 +75,7 @@
   let statusLine = $state<HTMLElement | null>(null);
   let reloading = $state(false);
   let refreshFailed = $state(false);
+  let reloadFailed = $state(false);
   let formEl = $state<HTMLFormElement | null>(null);
   let submitBtn = $state<HTMLButtonElement | null>(null);
 
@@ -98,6 +99,8 @@
       status = null;
       submitting = false;
       refreshFailed = false;
+      reloadFailed = false;
+      reloading = false;
       seededFor = key;
     }
   });
@@ -114,16 +117,23 @@
   }
 
   async function reload() {
+    // Fenced like a submit: a reload that settles after the reader moved to
+    // another Agent or template touches nothing of the new one.
+    const mine = generation;
     reloading = true;
+    reloadFailed = false;
     try {
       await invalidateAll();
+      if (mine !== generation) return;
       await adoptLatest();
+      if (mine !== generation) return;
       refusal = null;
       refreshFailed = false;
     } catch {
-      refreshFailed = true;
+      // A reload sends no write, so this is only "could not check", never "accepted".
+      if (mine === generation) reloadFailed = true;
     } finally {
-      reloading = false;
+      if (mine === generation) reloading = false;
     }
   }
 
@@ -292,6 +302,11 @@
     <button type="button" onclick={reload} disabled={reloading} class="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800">
       {t('agent.tickers.write.reload', 'Reload latest')}
     </button>
+  {/if}
+  {#if reloadFailed}
+    <p role="alert" class="text-sm text-amber-800 dark:text-amber-300" data-testid="{formId}-reload-failed">
+      {t('agent.tickers.write.reload-failed', 'Could not load the latest values. Nothing was changed by this reload. Try again.')}
+    </p>
   {/if}
   {#if refreshFailed}
     <p role="alert" class="text-sm text-amber-800 dark:text-amber-300" data-testid="{formId}-refresh-failed">
