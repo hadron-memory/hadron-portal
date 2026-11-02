@@ -1,3 +1,4 @@
+import { pageOf } from '$lib/test/pagedFixture';
 import { castWorkerSchema } from './schema';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OPTIONAL_LIST_TIMEOUT_MS } from '$lib/server/with-timeout';
@@ -193,7 +194,7 @@ describe('load', () => {
   // statements, and the empty state must not tell the second lie. The loader
   // therefore coerces a failed workers fetch to null, never [].
   it('reports a failed staff fetch as null, distinct from an empty staff list', async () => {
-    mockRequest.mockImplementation((query) => {
+    mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) {
         return Promise.resolve({
           app: {
@@ -243,7 +244,7 @@ describe('load', () => {
   });
 
   it('returns an empty staff list as [] with no error flag', async () => {
-    mockRequest.mockImplementation((query) => {
+    mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) {
         return Promise.resolve({
           app: {
@@ -2103,9 +2104,9 @@ describe('#851 — the App-detail org lookup classifies its failures', () => {
 // classified read, so a refusal there is a state, not a 404.
 describe('load: key inventory (portal#1068)', () => {
   const forbidden = { response: { errors: [{ message: 'no', extensions: { code: 'FORBIDDEN' } }] } };
-  async function loadWith(keysRead: () => Promise<unknown>, managesRead: () => Promise<unknown> = () => Promise.resolve({ app: { id: 'app-1', viewerManages: true } })) {
+  async function loadWith(keysRead: (vars: { limit?: number; offset?: number }) => Promise<unknown>, managesRead: () => Promise<unknown> = () => Promise.resolve({ app: { id: 'app-1', viewerManages: true } })) {
     mockFetchAllItems.mockResolvedValue([]);
-    mockRequest.mockImplementation((query) => {
+    mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) {
         return Promise.resolve({
           app: {
@@ -2116,7 +2117,7 @@ describe('load: key inventory (portal#1068)', () => {
           },
         });
       }
-      if (query === APP_KEYS_QUERY) return keysRead();
+      if (query === APP_KEYS_QUERY) return keysRead(vars as { limit?: number; offset?: number });
       if (query === APP_VIEWER_MANAGES_QUERY) return managesRead();
       if (query === APP_MEMBERS_QUERY) return Promise.resolve({ app: { members: [] } });
       if (query === APP_NODES_QUERY) return Promise.resolve({ appNodes: [] });
@@ -2137,8 +2138,21 @@ describe('load: key inventory (portal#1068)', () => {
     expect(APP_QUERY).not.toMatch(/^\s*keys\s*\{/m);
   });
   it('a manager gets the keys', async () => {
-    const r = await loadWith(() => Promise.resolve({ appKeys: [{ id: 'k1' }] }));
+    const r = await loadWith(() => Promise.resolve({ appKeysPage: pageOf([{ id: 'k1' }]) }));
     expect(r.appKeys).toEqual({ kind: 'ok', keys: [{ id: 'k1' }] });
+  });
+  // portal#1615 — the App page's key list follows every page.
+  it.each([21, 201])('a manager with %i keys gets all of them (20 per call)', async (n) => {
+    const all = Array.from({ length: n }, (_, i) => ({ id: `k${i}` }));
+    const limits: (number | undefined)[] = [];
+    const r = await loadWith((v) => { limits.push(v.limit); return Promise.resolve({ appKeysPage: pageOf(all, v) }); });
+    expect(r.appKeys).toEqual({ kind: 'ok', keys: all });
+    expect(Math.max(...(limits as number[]))).toBeLessThanOrEqual(20);
+  });
+  it('a refused later page is failed, not a partial list', async () => {
+    const all = Array.from({ length: 60 }, (_, i) => ({ id: `k${i}` }));
+    const r = await loadWith((v) => ((v.offset ?? 0) >= 20 ? Promise.reject(new Error('boom')) : Promise.resolve({ appKeysPage: pageOf(all, v) })));
+    expect(r.appKeys).toEqual({ kind: 'failed' });
   });
   it('a non-manager still gets the App (no false 404) and a hidden inventory', async () => {
     const r = await loadWith(() => Promise.reject(forbidden));
@@ -2153,7 +2167,7 @@ describe('load: key inventory (portal#1068)', () => {
 
   // portal#1153 — App.viewerManages: `false` is an answer, a failed or missing read is unknown.
   describe('viewerManages', () => {
-    const keys = () => Promise.resolve({ appKeys: [] });
+    const keys = () => Promise.resolve({ appKeysPage: pageOf([]) });
     it('true and false are both known answers', async () => {
       expect((await loadWith(keys, () => Promise.resolve({ app: { id: 'app-1', viewerManages: true } }))).viewerManages).toEqual({ kind: 'known', manages: true });
       expect((await loadWith(keys, () => Promise.resolve({ app: { id: 'app-1', viewerManages: false } }))).viewerManages).toEqual({ kind: 'known', manages: false });
@@ -2197,7 +2211,7 @@ describe('postChannelMessage (#1033)', () => {
 describe('load: Human Team roster states (portal#1148)', () => {
   async function loadMembers(membersRead: () => Promise<unknown>) {
     mockFetchAllItems.mockResolvedValue([]);
-    mockRequest.mockImplementation((query) => {
+    mockRequest.mockImplementation((query, vars) => {
       if (query === APP_QUERY) {
         return Promise.resolve({
           app: {

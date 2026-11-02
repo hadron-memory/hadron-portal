@@ -19,7 +19,6 @@
   import { enhance } from '$app/forms';
   import VectorHealthTable from '$lib/components/VectorHealthTable.svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
-  import type { VectorHealthView } from '$lib/vector-health';
   import { objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import type { PageData, ActionData } from './$types';
   import type { MemoryOwnerTransferPreview } from './+page.server';
@@ -430,14 +429,18 @@
     pendingScan = mine;
     return async ({ update }) => {
       try {
-        await update({ reset: false, invalidateAll: false });
+        // #1465: the page component is reused on a [id] navigation, so a scan for memory A can land
+        // after the reader moved to B. Applying it would show A's findings under B's heading.
+        // A stale result is dropped; it is never B's data.
+        // Only the newest scan, and only while its own memory is on screen (A1 -> B -> A -> A2: A1 is stale on A too).
+        if (pendingScan === mine && g.id === mine.memoryId) await update({ reset: false, invalidateAll: false });
       } finally {
         if (pendingScan === mine) pendingScan = null;
       }
     };
   };
-  const vectorHealth = $derived((form as { vectorHealth?: VectorHealthView } | null)?.vectorHealth ?? null);
-  const vectorHealthError = $derived((form as { vectorHealthError?: string } | null)?.vectorHealthError ?? null);
+  const vectorHealth = $derived(form?.vectorHealth ?? null);
+  const vectorHealthError = $derived(form?.vectorHealthError ?? null);
 
   // ── Property schema (#588 / server #725) ────────────────────────────
   const initialSchemaForm = untrack(() => submittedForm<MemorySchemaSettingsForm>(form, 'updateSchema') as MemorySchemaSettingsSuperform | null ?? data.schemaForm);

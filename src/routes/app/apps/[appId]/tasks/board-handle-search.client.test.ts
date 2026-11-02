@@ -95,7 +95,7 @@ describe('board search: an exact handle', () => {
 
   it('a no-match search for ordinary text gets the plain empty line', () => {
     const m = mountBoard('ship it', []);
-    expect(m.target.textContent).toContain('No matching tasks.');
+    expect(m.target.textContent).toContain('No matching tasks with status');
     expect(m.target.textContent).not.toContain('Handles open only when complete');
   });
 

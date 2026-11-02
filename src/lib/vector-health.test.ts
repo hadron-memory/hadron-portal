@@ -9,7 +9,12 @@ const result = (over: Partial<ValidateMemoryResult> = {}): ValidateMemoryResult 
 });
 
 describe('#1346 embedFailedView', () => {
-  it('asks the server for the most findings it allows, since it has no check filter', () => {
+  // #1465: a snapshot, not a live check. The maximum lives in hadron-server and this portal test cannot
+  // observe it, so a server change will not fail here; the pin records the figure the portal assumes and
+  // cites where it comes from (validateMemory clamps: Math.min(Math.max(limit ?? 200, 0), 1000),
+  // hadron-server src/api/graphql/schema/resolvers.query.memory.ts:196). Asking for more is served as the
+  // clamp, so it would only misstate the truncation counts.
+  it('asks for 1000, the maximum validateMemory serves (snapshot of hadron-server resolvers.query.memory.ts:196)', () => {
     expect(VECTOR_HEALTH_LIMIT).toBe(1000);
   });
 

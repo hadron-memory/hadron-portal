@@ -10,15 +10,15 @@ const action = (values: Record<string, string | undefined>, token: string | null
   const fd = new FormData(); for (const [k,v] of Object.entries(values)) { if (v !== undefined) fd.set(k,v); }
   return { locals: { token }, request: { formData: async () => fd } } as never;
 };
-beforeEach(() => { vi.clearAllMocks(); request.mockResolvedValue({ myUserApiKeys: [] }); });
+beforeEach(() => { vi.clearAllMocks(); request.mockResolvedValue({ myUserApiKeysPage: { items: [], total: 0, hasMore: false } }); });
 describe('#1011 hidden UserApiKey wire', () => {
   it('requests default / included / default at the server, and keeps the selected state', async () => {
     for (const [search, includeHidden] of [['', false], ['?includeHidden=true', true], ['', false]] as const) {
       const result = await load(event(search));
-      expect(request).toHaveBeenLastCalledWith(MY_USER_API_KEYS_QUERY, { includeHidden });
+      expect(request).toHaveBeenLastCalledWith(MY_USER_API_KEYS_QUERY, { includeHidden, limit: 20, offset: 0 });
       expect(result).toMatchObject({ includeHidden });
     }
-    expect(print(parse(MY_USER_API_KEYS_QUERY))).toContain('myUserApiKeys(includeHidden: $includeHidden)');
+    expect(print(parse(MY_USER_API_KEYS_QUERY))).toContain('myUserApiKeysPage(includeHidden: $includeHidden, limit: $limit, offset: $offset)');
     expect(print(parse(MY_USER_API_KEYS_QUERY))).toContain('hiddenAt');
   });
   it.each(['true', 'false'])('sends explicit hidden=%s and id, forwarding only the caller credential', async hidden => {

@@ -344,21 +344,32 @@
         <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.tasks.retry', 'Try again')}</button>
       </div>
     {:else}
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.shown', '{n} tasks shown', { n: rows.length })}</p>
-      {#if board.value.capped}
-        <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-          {t('app.tasks.search.capped', 'There may be more; narrow the search.')}
-        </div>
-      {/if}
-      {#if rows.length === 0}
-        <div role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty={data.filter}>
-          {#if data.text && looksLikePartialHandle(data.text)}
-            {t('app.tasks.search.partial-handle', 'No matching tasks. Handles open only when complete, for example AT3.405.')}
-          {:else}
-            {data.text ? t('app.tasks.search.empty', 'No matching tasks.') : narrowed ? t('app.tasks.narrow.empty', 'No tasks match these filters.') : boardEmptyText(data.filter)}
-          {/if}
-        </div>
-      {/if}
+      <!-- portal#1403: ONE live region for the count, the cap notice and the empty
+           explanation. They used to be three sibling role=status elements, so an
+           empty capped board announced three competing messages at once; one
+           region reads as one coherent update. The count stays loaded-only
+           ("Tasks shown"), never an exact total. -->
+      <div role="status" class="space-y-2">
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.shown', 'Tasks shown: {n}', { n: rows.length })}</p>
+        {#if board.value.capped}
+          <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+            {data.text
+              ? t('app.tasks.search.capped', 'There may be more; narrow the search.')
+              : t('app.tasks.search.capped-no-search', 'There may be more; narrow the status filter or search.')}
+          </div>
+        {/if}
+        {#if rows.length === 0}
+          <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty={data.filter}>
+            {#if data.text && looksLikePartialHandle(data.text)}
+              {t('app.tasks.search.partial-handle', 'No matching tasks. Handles open only when complete, for example AT3.405.')}
+            {:else if data.text}
+              {t('app.tasks.search.empty-scoped', 'No matching tasks with status {status}. Clear the search or change the status.', { status: boardFilterLabel(data.filter) })}
+            {:else}
+              {narrowed ? t('app.tasks.narrow.empty', 'No tasks match these filters.') : boardEmptyText(data.filter)}
+            {/if}
+          </div>
+        {/if}
+      </div>
       <DataTable
         {table}
         listKey="app-tasks:board"

@@ -43,6 +43,18 @@ describe('board GET search (#1400)', () => {
     request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw fail(code); });
     expect((await board('needle')).board).toEqual({ kind });
   });
+  // portal#1403 — the no-text BAD_USER_INPUT branch. The guard in loadBoard is
+  // `text.trim() && BAD_USER_INPUT`; dropping the text predicate would label a
+  // server rejection of an UNSEARCHED read as a search-bounds problem. A read
+  // with no text has no bounds to blame: it is a plain failed read.
+  it('a BAD_USER_INPUT on a read with no text is a failed read, not search guidance', async () => {
+    request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw fail('BAD_USER_INPUT'); });
+    const { load } = await import('./+page.server');
+    const r = await load({ params: { appId: app.id }, locals: { token: 'test', impersonation: null },
+      url: new URL('http://localhost/app/apps/app-1/tasks?status=ended') } as never) as any;
+    expect(r.board).toEqual({ kind: 'failed' });
+    expect(request.mock.calls[1][1]).not.toHaveProperty('text');
+  });
   it('does not add search to other views', async () => {
     request.mockImplementation(async (q: string, vars: any) => {
       if (q === AGENT_TASKS_APP_QUERY) return { app };
