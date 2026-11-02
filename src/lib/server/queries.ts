@@ -4987,6 +4987,8 @@ export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
       sessionEndRequest { requestedAt dueAt resolution resolvedAt }
       handBack { code text handedBackAt }
       properties
+      # portal#1607 (hadron-server#3137): the outside item this task claimed; needs a server serving 986a7cbd or later.
+      externalId
       # portal#1575 (hadron-server#3112): needs a server serving 1475888f or later. One without the field
       # rejects this whole read, so the portal deploys only after production serves it (#1575's Order).
       references { kind target label }
