@@ -15,7 +15,8 @@ const LONG_URN = URN_PREFIX + 'f'.repeat(200 - URN_PREFIX.length);
 
 const memories = [
   { id: 'm1', name: 'Product Team with a fairly long memory name', urn: 'hrn:mem:hadronmemory.com:hadron-dev-team' },
-  { id: 'm2', name: 'Portal engineering findings', urn: 'hrn:mem:hadronmemory.com:hadron-portal' },
+  // #1604: m1 has no org (the folded line must render nothing); m2 has one.
+  { id: 'm2', name: 'Portal engineering findings', urn: 'hrn:mem:hadronmemory.com:hadron-portal', orgName: 'Hadron Memory' },
   { id: 'm3', name: 'Server incidents and operations', urn: 'hrn:mem:hadronmemory.com:hadron-server' },
 ];
 

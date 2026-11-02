@@ -161,7 +161,10 @@ describe('SelectMemory: dialog semantics (#1279)', () => {
 // by scrolling (a scroll chaining from the memory list to the node dialog),
 // so a scroll anywhere re-measures, not just open and resize.
 describe('SelectMemory: visible title and clearOf scroll re-measure (#1600)', () => {
-  it('shows a visible "Choose a memory" heading that is also the dialog\'s accessible name', async () => {
+  // jsdom has no layout, so this proves the heading exists and names the
+  // dialog, not that it is visible; the real-Chromium layout script
+  // (scripts/test-stacked-memory-layout.mjs) owns visibility (#1606 item 2).
+  it('renders a "Choose a memory" h2 that is also the dialog\'s accessible name', async () => {
     openModal();
     await tick(2);
     const heading = dialog()!.querySelector('h2');
@@ -234,5 +237,39 @@ describe('SelectMemory: visible title and clearOf scroll re-measure (#1600)', ()
     } finally {
       host.remove();
     }
+  });
+});
+
+// #1604 item 1: on phones the Organization column folds under the memory
+// name. A memory with no org rendered a bare "—" there: an unlabelled stray
+// glyph under the name. The folded line renders only when there is an org;
+// the desktop column (its own cell, hidden below sm) keeps its "—".
+describe('SelectMemory: folded org line on phones (#1604)', () => {
+  const withOrg = [
+    { id: 'm1', name: 'Atlas KB', urn: 'hrn:mem:acme.com:atlas', orgName: '' },
+    { id: 'm2', name: 'Boreas KB', urn: 'hrn:mem:acme.com:boreas', orgName: 'Acme Inc' },
+  ];
+
+  function rowFor(name: string) {
+    return [...document.querySelectorAll<HTMLTableRowElement>('.fixed.inset-0 tbody tr')].find((tr) => tr.textContent?.includes(name))!;
+  }
+
+  it('a no-org row has no folded line under the name, and its desktop cell keeps the dash', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ memories: withOrg, onselect: () => {}, open: true });
+    mounted.push(mountComponent(SelectMemory as never, props as never) as Mounted<Record<string, unknown>>);
+    await tick(2);
+    const cells = rowFor('Atlas KB').querySelectorAll('td');
+    expect(cells[0].textContent).not.toContain('—');
+    expect(cells[0].querySelector('div')).toBeNull();
+    expect(cells[2].textContent?.trim()).toBe('—');
+  });
+
+  it('a row with an org still folds its org name under the name', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ memories: withOrg, onselect: () => {}, open: true });
+    mounted.push(mountComponent(SelectMemory as never, props as never) as Mounted<Record<string, unknown>>);
+    await tick(2);
+    const cells = rowFor('Boreas KB').querySelectorAll('td');
+    expect(cells[0].querySelector('div')?.textContent?.trim()).toBe('Acme Inc');
+    expect(cells[2].textContent?.trim()).toBe('Acme Inc');
   });
 });

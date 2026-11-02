@@ -1,0 +1,181 @@
+/**
+ * #1604 item 2: a compact chip truncates, and its full URN lived only in a
+ * `title` tooltip, which a touch device cannot show. On a coarse pointer a
+ * compact, UNLINKED chip becomes a toggle that reveals the whole URN. A linked
+ * chip is left alone (a tap there navigates), and a fine pointer is unchanged.
+ *
+ * The pointer is read in an effect (client-only), so this is the client lane:
+ * a server render never runs it.
+ */
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
+import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+import Urn from './Urn.svelte';
+
+const URN = 'hrn:mem:hadronmemory.com:hadron-dev-team';
+
+type Listener = (e: { matches: boolean }) => void;
+
+/** A controllable `(pointer: coarse)` media query, with its listeners visible. */
+function stubPointer(coarse: boolean) {
+  const listeners = new Set<Listener>();
+  const mq = {
+    matches: coarse,
+    media: '(pointer: coarse)',
+    addEventListener: (_: string, l: Listener) => listeners.add(l),
+    removeEventListener: (_: string, l: Listener) => listeners.delete(l),
+  };
+  vi.stubGlobal('matchMedia', vi.fn((q: string) => (q === '(pointer: coarse)' ? mq : { ...mq, matches: false, media: q })));
+  return {
+    listeners,
+    set(next: boolean) {
+      mq.matches = next;
+      for (const l of [...listeners]) l({ matches: next });
+      flushSync();
+    },
+  };
+}
+
+const mounted: Array<Mounted<Record<string, unknown>>> = [];
+afterEach(() => {
+  while (mounted.length) mounted.pop()!.unmount();
+  vi.unstubAllGlobals();
+});
+
+function mountUrn(props: Record<string, unknown>) {
+  const m = mountComponent(Urn as never, reactiveProps({ value: URN, type: 'memory', ...props }) as never) as Mounted<Record<string, unknown>>;
+  mounted.push(m);
+  flushSync();
+  return m;
+}
+
+const toggle = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLButtonElement>('button[aria-expanded]');
+const valueSpan = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLElement>('span[title]')!;
+
+describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
+  it('a compact unlinked chip toggles between truncated and the full URN', () => {
+    stubPointer(true);
+    const m = mountUrn({ compact: true });
+    const t = toggle(m);
+    expect(t).not.toBeNull();
+    expect(t!.getAttribute('type')).toBe('button');
+    expect(t!.getAttribute('aria-expanded')).toBe('false');
+    expect(valueSpan(m).className).toContain('truncate');
+    expect(valueSpan(m).textContent).toBe('hadronmemory.com:hadron-dev-team');
+
+    t!.click();
+    flushSync();
+    expect(t!.getAttribute('aria-expanded')).toBe('true');
+    expect(valueSpan(m).className).not.toContain('truncate');
+    expect(valueSpan(m).className).toContain('break-all');
+    expect(valueSpan(m).textContent).toBe(URN);
+
+    t!.click();
+    flushSync();
+    expect(t!.getAttribute('aria-expanded')).toBe('false');
+    expect(valueSpan(m).className).toContain('truncate');
+  });
+
+  it('the copy buttons stay siblings outside the toggle and still copy the full URN', async () => {
+    stubPointer(true);
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    const m = mountUrn({ compact: true });
+    toggle(m)!.click();
+    flushSync();
+    const copy = m.target.querySelector<HTMLButtonElement>('button[aria-label="Copy URN"]')!;
+    expect(toggle(m)!.contains(copy)).toBe(false);
+    copy.click();
+    expect(writeText).toHaveBeenCalledWith(URN);
+  });
+
+  it('a linked compact chip does not toggle: it stays a link', () => {
+    stubPointer(true);
+    const m = mountUrn({ compact: true, linked: true });
+    expect(toggle(m)).toBeNull();
+    expect(m.target.querySelector('a')?.getAttribute('href')).toBe(`/app/u/${URN}`);
+    expect(valueSpan(m).className).toContain('truncate');
+  });
+
+  it('a fine pointer keeps the plain chip (no toggle, no extra tab stop)', () => {
+    stubPointer(false);
+    const m = mountUrn({ compact: true });
+    expect(toggle(m)).toBeNull();
+    expect(m.target.querySelector('code')).not.toBeNull();
+  });
+
+  it('a non-compact chip never toggles, even on a coarse pointer', () => {
+    stubPointer(true);
+    const m = mountUrn({});
+    expect(toggle(m)).toBeNull();
+  });
+
+  it('follows a pointer change while mounted, and collapses when the toggle goes away', () => {
+    const pointer = stubPointer(false);
+    const m = mountUrn({ compact: true });
+    expect(toggle(m)).toBeNull();
+
+    pointer.set(true);
+    expect(toggle(m)).not.toBeNull();
+    toggle(m)!.click();
+    flushSync();
+    expect(valueSpan(m).className).toContain('break-all');
+
+    pointer.set(false);
+    expect(toggle(m)).toBeNull();
+    expect(valueSpan(m).className).toContain('truncate');
+  });
+
+  it('a chip that becomes linked or non-compact while mounted stops being a toggle', () => {
+    stubPointer(true);
+    const m = mountUrn({ compact: true });
+    expect(toggle(m)).not.toBeNull();
+    m.props.linked = true;
+    flushSync();
+    // Not just "no <button>": the link itself must carry no toggle semantics.
+    expect(m.target.querySelector('[aria-expanded], [role="button"]')).toBeNull();
+    expect(m.target.querySelector('a')).not.toBeNull();
+
+    m.props.linked = false;
+    flushSync();
+    expect(toggle(m)).not.toBeNull();
+    m.props.compact = false;
+    flushSync();
+    expect(toggle(m)).toBeNull();
+  });
+
+  it('a chip revealed, then left on a fine pointer, comes back collapsed', () => {
+    const pointer = stubPointer(true);
+    const m = mountUrn({ compact: true });
+    toggle(m)!.click();
+    flushSync();
+    expect(toggle(m)!.getAttribute('aria-expanded')).toBe('true');
+    pointer.set(false);
+    pointer.set(true);
+    expect(toggle(m)!.getAttribute('aria-expanded')).toBe('false');
+    expect(valueSpan(m).className).toContain('truncate');
+  });
+
+  it('a linked or non-compact chip never listens to the pointer', () => {
+    const pointer = stubPointer(true);
+    mountUrn({ compact: true, linked: true });
+    mountUrn({});
+    expect(pointer.listeners.size).toBe(0);
+  });
+
+  it('removes its media-query listener on unmount', () => {
+    const pointer = stubPointer(true);
+    const m = mountUrn({ compact: true });
+    expect(pointer.listeners.size).toBe(1);
+    m.unmount();
+    expect(pointer.listeners.size).toBe(0);
+  });
+
+  it('renders the plain chip, without throwing, where matchMedia is absent', () => {
+    vi.stubGlobal('matchMedia', undefined);
+    const m = mountUrn({ compact: true });
+    expect(toggle(m)).toBeNull();
+    expect(m.target.querySelector('code')).not.toBeNull();
+  });
+});

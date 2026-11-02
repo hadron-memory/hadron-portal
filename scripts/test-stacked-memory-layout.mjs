@@ -102,6 +102,22 @@ try {
               return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden' ? 'visible' : 'hidden';
             })(),
             coarse: matchMedia('(pointer: coarse)').matches,
+            // #1606 item 2: the memory panel's own heading is visible: a
+            // non-empty box inside the panel (jsdom can only prove it exists).
+            memoryHeading: (() => {
+              const h = memory.querySelector('h2');
+              if (!h) return null;
+              const r = h.getBoundingClientRect();
+              return { text: h.textContent.trim(), left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
+            })(),
+            // #1604 item 1: what the rows actually render (innerText honours
+            // display: none, so a column hidden at this width reads as empty).
+            orgText: [...memory.querySelectorAll('tbody tr')].map((tr) => {
+              const td = tr.querySelectorAll('td');
+              // A display:none element's innerText falls back to its textContent,
+              // so an unrendered cell is read as empty explicitly.
+              return { name: td[0].innerText, org: td[2].getClientRects().length ? td[2].innerText.trim() : '' };
+            }),
           };
         });
         const got = await measure();
@@ -126,12 +142,64 @@ try {
         assert.equal(got.escHint, coarse ? 'hidden' : 'visible', `${label}: "Esc to close" should be ${coarse ? 'hidden on a coarse pointer' : 'visible on a fine pointer'}`);
         console.log(JSON.stringify({ width, height, view, scheme, pointer: coarse ? 'coarse' : 'fine', headerBottom: got.headerBottom, memoryTop: got.memoryTop, memoryBottom: got.memoryBottom, gutter: [got.memoryLeft, got.viewport.w - got.memoryRight], escHint: got.escHint }));
         if (process.env.STACKED_SHOTS) await page.screenshot({ path: `${process.env.STACKED_SHOTS}/stacked-${view}-${width}x${height}-${scheme}.png` });
+        // #1606 item 2.
+        assert.ok(got.memoryHeading, `${label}: the memory panel has no heading`);
+        assert.equal(got.memoryHeading.text, 'Choose a memory', `${label}: memory panel heading text`);
+        assert.ok(got.memoryHeading.width > 0 && got.memoryHeading.height > 0, `${label}: the memory panel heading has an empty box`);
+        assert.ok(got.memoryHeading.left >= got.memoryLeft && got.memoryHeading.right <= got.memoryRight && got.memoryHeading.top >= got.memoryTop && got.memoryHeading.bottom <= got.memoryBottom,
+          `${label}: the memory panel heading (${got.memoryHeading.left}..${got.memoryHeading.right}, ${got.memoryHeading.top}..${got.memoryHeading.bottom}) is outside the panel`);
+        // #1604 item 1: the no-org row (m1, first) shows no stray dash under
+        // its name at any width; at sm and up its own Organization cell keeps
+        // the dash, unchanged. The org row (m2) shows its org either way.
+        const noOrg = got.orgText[0], withOrg = got.orgText[1];
+        assert.ok(!noOrg.name.includes('—'), `${label}: a no-org row shows a stray dash under the name: ${JSON.stringify(noOrg.name)}`);
+        assert.equal(noOrg.org, width >= 640 ? '—' : '', `${label}: the no-org row's Organization column`);
+        assert.ok(width >= 640 ? withOrg.org === 'Hadron Memory' : withOrg.name.includes('Hadron Memory'), `${label}: the org row's org name is not shown`);
+        // #1604 item 2: on a coarse pointer the first row's truncated URN chip
+        // is a toggle; a tap reveals the whole URN inside the panel, a second
+        // tap truncates it again. A fine pointer keeps the plain chip.
+        const chip = () => page.evaluate(() => {
+          const memory = document.querySelector('[role="dialog"][aria-label="Choose a memory"]');
+          const td = memory.querySelector('tbody tr').querySelectorAll('td')[1];
+          const toggle = td.querySelector('button[aria-expanded]');
+          const span = td.querySelector('span[title]');
+          const r = (toggle ?? span).getBoundingClientRect();
+          const s = span.getBoundingClientRect();
+          return {
+            toggle: !!toggle, expanded: toggle?.getAttribute('aria-expanded') ?? null,
+            truncated: span.scrollWidth > span.clientWidth + 1,
+            text: span.textContent, title: span.getAttribute('title'),
+            x: r.left + r.width / 2, y: r.top + r.height / 2,
+            right: s.right, memoryRight: memory.getBoundingClientRect().right,
+          };
+        });
+        const before = await chip();
+        if (coarse) {
+          assert.equal(before.toggle, true, `${label}: the compact URN chip is not a reveal toggle on a coarse pointer`);
+          assert.equal(before.expanded, 'false', `${label}: the URN chip should start collapsed`);
+          assert.equal(before.truncated, true, `${label}: the fixture URN must be truncated here, or this leg proves nothing`);
+          await page.touchscreen.tap(before.x, before.y);
+          await page.waitForFunction(() => document.querySelector('[role="dialog"][aria-label="Choose a memory"] tbody tr button[aria-expanded="true"]'), null, { timeout: 5000 });
+          const open = await chip();
+          assert.equal(open.truncated, false, `${label}: tapping the URN chip did not reveal the whole URN`);
+          assert.equal(open.text, open.title, `${label}: the revealed text is not the whole URN`);
+          assert.ok(open.text.startsWith('hrn:mem:'), `${label}: the revealed URN is not fully qualified: ${open.text}`);
+          assert.ok(open.right <= open.memoryRight, `${label}: the revealed URN runs out of the panel (${open.right} > ${open.memoryRight})`);
+          if (process.env.STACKED_SHOTS) await page.screenshot({ path: `${process.env.STACKED_SHOTS}/stacked-${view}-${width}x${height}-${scheme}-urn-open.png` });
+          await page.touchscreen.tap(open.x, open.y);
+          await page.waitForFunction(() => document.querySelector('[role="dialog"][aria-label="Choose a memory"] tbody tr button[aria-expanded="false"]'), null, { timeout: 5000 });
+          assert.equal((await chip()).truncated, true, `${label}: a second tap did not truncate the URN again`);
+        } else {
+          assert.equal(before.toggle, false, `${label}: a fine pointer must keep the plain URN chip`);
+        }
         // #1600 items 2 and 6: one tap (a click on a fine pointer) on that
         // Select picks the memory: the memory panel closes and the node
         // dialog shows the chosen memory.
         if (coarse) await page.touchscreen.tap(got.select.x, got.select.y);
         else await page.mouse.click(got.select.x, got.select.y);
-        await page.waitForTimeout(50);
+        // #1606 item 1: a bounded condition wait, not a fixed sleep.
+        await page.waitForFunction(() => !document.querySelector('[role="dialog"][aria-label="Choose a memory"]'), null, { timeout: 5000 })
+          .catch(() => {}); // the assertion below reports it
         const after = await page.evaluate(() => ({
           memoryOpen: !!document.querySelector('[role="dialog"][aria-label="Choose a memory"]'),
           nodeText: document.querySelector('[role="dialog"][aria-label="Choose a node"]')?.textContent ?? '',
