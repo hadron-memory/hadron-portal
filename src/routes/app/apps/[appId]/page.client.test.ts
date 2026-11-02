@@ -2235,6 +2235,105 @@ describe('Cast reporting choice (#1149)', () => {
   });
 });
 
+describe('Cast composer lifecycle (#1149, review: superforms-late-result-crosses-entity-navigation)', () => {
+  const AGENTS = [
+    { id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
+    { id: 'agent-b', name: 'Server Engineer', urn: 'hrn:agent:acme.com:server', personaRole: 'server-engineer' },
+  ];
+  async function dataFor(appId: string) {
+    setStubPage(`https://example.test/app/apps/${appId}?tab=staff`, { appId });
+    const data = await pageData();
+    Object.assign(data.app, { id: appId, agents: AGENTS });
+    data.initialTab = 'staff';
+    return data;
+  }
+  async function openCast() {
+    const props = reactiveProps({ data: await dataFor('a1'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const open = () => [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    open();
+    await tick(2);
+    const form = () => m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    return { m, props, form, open };
+  }
+  const fill = async (form: HTMLFormElement, agent: string, name: string) => {
+    const a = form.querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    a.value = agent; a.dispatchEvent(new Event('change', { bubbles: true }));
+    const n = form.querySelector<HTMLInputElement>('[name="name"]')!;
+    n.value = name; n.dispatchEvent(new Event('input', { bubbles: true }));
+    form.querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.click();
+    await tick(2);
+  };
+  const success = async () => {
+    const f = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false });
+    f.message = { type: 'success', text: 'Worker cast.' };
+    return { type: 'success' as const, status: 200, data: { form: f } };
+  };
+
+  it('a No team choice made for App A is not carried to App B', async () => {
+    const { m, props, open, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    props.data = await dataFor('a2');
+    await tick(3);
+    open();
+    await tick(2);
+    expect(form().querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.checked).toBe(false);
+    expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('');
+    expect(m.target.textContent).not.toContain('Worker cast.');
+  });
+
+  it('changing the selected Agent clears the reporting choice', async () => {
+    const { form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    expect(form().querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.checked).toBe(true);
+    const a = form().querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    a.value = 'agent-b'; a.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    expect(form().querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.checked).toBe(false);
+  });
+
+  it('A’s late success does not close B’s composer, empty B’s draft or say Worker cast on B', async () => {
+    const { m, props, form, open } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const delayed = await submitEnhancedDeferred(form());
+    props.data = await dataFor('a2');
+    await tick(3);
+    open();
+    await tick(2);
+    await fill(form(), 'agent-b', 'NewB');
+    await delayed.finish(await success());
+    await tick(3);
+    expect(form()).not.toBeNull();
+    expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('NewB');
+    expect(m.target.textContent).not.toContain('Worker cast.');
+  });
+
+  it('control: the current App’s success clears and closes its own composer', async () => {
+    const { m, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const delayed = await submitEnhancedDeferred(form());
+    await delayed.finish(await success());
+    await tick(3);
+    expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
+    expect(m.target.textContent).toContain('Worker cast.');
+  });
+
+  it('a refresh that rejects after a confirmed cast says so and never offers a blind repeat', async () => {
+    const { m, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after committed cast'); };
+    const delayed = await submitEnhancedDeferred(form());
+    await delayed.finish(await success());
+    await tick(4);
+    expect(m.target.textContent).toContain('Worker cast.');
+    expect(m.target.textContent).toContain('could not be refreshed');
+    const cast = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker') as HTMLButtonElement;
+    expect(cast.disabled).toBe(false);
+  });
+});
+
 describe('Roster placement readback (#1149)', () => {
   async function rosterText(placements: Array<string | null>) {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });

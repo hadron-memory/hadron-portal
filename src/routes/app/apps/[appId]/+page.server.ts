@@ -371,9 +371,11 @@ function staleHoldMessage(stale: HoldStale & object, callerId: string | null): R
  * a test pins that (the wire is presence-based, so `undefined`/`null`/`false`
  * for the unused arm would be a defect, not a spelling).
  */
-function castReportingArm(data: { reporting: string; reportsTo: string }): { reportsTo: string; noTeam: boolean } {
-  const arm = data.reporting === 'head' ? { reportsTo: data.reportsTo } : { noTeam: true };
-  return arm as unknown as { reportsTo: string; noTeam: boolean };
+function castReportingArm(data: { reporting: string; reportsTo: string }): { reportsTo: string } | { noTeam: true } {
+  // Fail closed: only an explicit 'none' may mint a permanent No team.
+  if (data.reporting === 'head') return { reportsTo: data.reportsTo };
+  if (data.reporting === 'none') return { noTeam: true };
+  throw new Error('cast reporting choice missing');
 }
 
 /**
@@ -1217,7 +1219,7 @@ export const actions: Actions = {
         // hadron-portal#1149 — exactly ONE arm, the other ABSENT (not null, not
         // false): the server reads presence, and both keys is a CONFLICT even
         // when one is null. No team never forwards a head left in the form.
-        ...castReportingArm(form.data),
+        ...(castReportingArm(form.data) as { reportsTo: string; noTeam: boolean }),
       });
       return message(form, {
         type: 'success',

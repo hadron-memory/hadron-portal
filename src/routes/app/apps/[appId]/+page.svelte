@@ -286,6 +286,9 @@
   const castHeads = $derived(sortedStaff.filter((w) => !w.retiredAt));
   const selectedCastHead = $derived(castHeads.find((w) => w.id === $castWorkerForm.reportsTo) ?? null);
   let castOpen = $state(false);
+  // App the in-flight cast was submitted for, and whether its post-cast roster refresh failed.
+  let castSubmittedFor = '';
+  let castRefreshFailed = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
   // <table>. Mirrors /app/account/api-keys, which is the same list for a
@@ -1167,17 +1170,57 @@
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onUpdated: ({ form: f }) => {
+    // Fence by originating App (review:superforms-late-result-crosses-entity-navigation):
+    // this page component is REUSED across /apps/A -> /apps/B, so A's slow answer
+    // must not close B's composer, empty B's draft or print "Worker cast." on B.
+    // The cast itself is already committed server-side; only its application to
+    // the screen is dropped (never replayed).
+    onSubmit: () => {
+      castSubmittedFor = app.id;
+      castRefreshFailed = false;
+    },
+    onResult: ({ cancel }) => {
+      if (castSubmittedFor !== app.id) cancel();
+    },
+    // The refresh is ours (not Superforms'), so a rejection after a CONFIRMED
+    // cast is caught here and told truthfully instead of stranding the form.
+    invalidateAll: false,
+    onUpdated: async ({ form: f }) => {
+      if (castSubmittedFor !== app.id) return;
       // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
+        const castFor = app.id;
         castWorkerForm.update(
           (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
           { taint: false },
         );
         castOpen = false;
+        try {
+          await invalidateAll();
+        } catch {
+          // The worker WAS cast; only the roster read failed. Never retry the mint.
+          if (castFor === app.id) castRefreshFailed = true;
+        }
       }
     },
+  });
+
+  // A choice made for App A must not supply App B's deliberate required choice.
+  let castContextApp = untrack(() => data.app.id);
+  $effect(() => {
+    const id = app.id;
+    if (id === castContextApp) return;
+    castContextApp = id;
+    untrack(() => {
+      castWorkerForm.update(
+        (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
+        { taint: false },
+      );
+      castWorkerMessage.set(undefined);
+      castOpen = false;
+      castRefreshFailed = false;
+    });
   });
 
   const initialRetireWorkerForm = untrack(() => submittedForm<RetireWorkerForm>(form, 'retireWorker') as RetireWorkerSuperform | null ?? data.retireWorkerForm);
@@ -2281,6 +2324,11 @@
           {castWorkerActionSuccess}
         </div>
       {/if}
+      {#if castRefreshFailed}
+        <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
+        </div>
+      {/if}
       {#if retireWorkerActionError}
         <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {retireWorkerActionError}
@@ -2360,6 +2408,7 @@
               id="castAgentId"
               name="agentId"
               bind:value={$castWorkerForm.agentId}
+              onchange={() => castWorkerForm.update((c) => ({ ...c, reporting: '', reportsTo: '' }), { taint: false })}
               aria-invalid={!!castWorkerAgentError}
               aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
