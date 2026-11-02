@@ -336,7 +336,7 @@
          crosses into or out of being a whole handle. -->
     <p role="status" class="text-sm" data-testid="open-by-handle">
       {#if typedHandle}
-        <a href={exactHandleHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.open-handle', 'Open {handle}', { handle: typedHandle.handle })}</a>
+        <a href={exactHandleHref} class="inline-flex min-h-6 min-w-6 items-center text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.open-handle', 'Open {handle}', { handle: typedHandle.handle })}</a>
       {/if}
     </p>
 

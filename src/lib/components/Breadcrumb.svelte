@@ -32,6 +32,10 @@
      * width is pure CSS (no hydration flash, conventions:
      * three-state-responsive-collapse) and leaves every handle reachable on
      * its own page and in the detail header.
+     *
+     * portal#1635 item 1: with the chip gone below `sm`, the title takes the
+     * freed row (base cap 14rem, was 8rem). At `sm` the chip returns and the
+     * cap steps back to 12rem on purpose; `sm` and `lg` are unchanged.
      */
     chip?: string | null;
     chipLabel?: string;
@@ -69,14 +73,14 @@
       <a
         href={item.href}
         title={item.title ?? item.label}
-        class="block max-w-[8rem] truncate text-indigo-500 hover:underline sm:max-w-[12rem] lg:max-w-[18rem] dark:text-indigo-400"
+        class="block max-w-[14rem] truncate text-indigo-500 hover:underline sm:max-w-[12rem] lg:max-w-[18rem] dark:text-indigo-400"
         >{item.label}</a
       >
     {:else}
       <span
         aria-current={i === items.length - 1 ? 'page' : undefined}
         title={item.title ?? item.label}
-        class="block max-w-[8rem] truncate text-zinc-700 sm:max-w-[12rem] lg:max-w-[18rem] dark:text-zinc-300"
+        class="block max-w-[14rem] truncate text-zinc-700 sm:max-w-[12rem] lg:max-w-[18rem] dark:text-zinc-300"
         >{item.label}</span
       >
     {/if}

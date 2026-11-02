@@ -64,6 +64,15 @@ describe('board search: an exact handle', () => {
     expect(openLink(m)?.textContent).toContain('Open AT3.405');
   });
 
+  // portal#1635 item 2: the link is a bare inline <a>; give it a 24x24 minimum hit area
+  // (WCAG 2.2 AA 2.5.8) without changing its text size.
+  it('the Open link has a 24x24 minimum hit area', async () => {
+    const m = mountBoard();
+    await type(m, 'AT3.405');
+    const cls = (openLink(m)?.getAttribute('class') ?? '').split(/\s+/);
+    for (const c of ['inline-flex', 'items-center', 'min-h-6', 'min-w-6']) expect(cls).toContain(c);
+  });
+
   it('submitting it opens the task instead of searching; the destination is the same link', async () => {
     const m = mountBoard();
     await type(m, 'AT3.405');

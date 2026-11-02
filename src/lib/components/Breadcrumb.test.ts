@@ -41,7 +41,7 @@ describe('Breadcrumb', () => {
     const out = html(TRAIL);
     // One cap per crumb: capping the NAV would shrink the trail toward its
     // last segment, and the last segment is the one a reader most needs whole.
-    const capped = out.match(/max-w-\[8rem\]/g) ?? [];
+    const capped = out.match(/(^|[\s"])max-w-\[14rem\]/g) ?? [];
     expect(capped).toHaveLength(TRAIL.length);
     expect(out).toContain('truncate');
     // The ladder widens with the viewport — the phone case is the narrow end,
@@ -50,13 +50,21 @@ describe('Breadcrumb', () => {
     expect(out).toContain('lg:max-w-[18rem]');
   });
 
+  // portal#1635 item 1: below `sm` the chip is gone, so the title may use the freed row.
+  // Only the BASE width changes; the sm and lg rungs and the chip stay as they were.
+  it('the phone-tier title cap is wider than the old 8rem now that the chip is hidden', () => {
+    const out = html(TRAIL);
+    expect(out).not.toMatch(/(^|[\s"])max-w-\[8rem\]/);
+    expect(out).toContain('max-w-[14rem]');
+  });
+
   it('truncate is paired with a width to bite against', () => {
     // `truncate` alone is inert on an element with no width constraint, which
     // is the shape this change would silently degrade to if the cap were ever
     // dropped: classes still present, nothing ellipsised.
     const out = html(TRAIL);
     for (const cls of out.match(/class="[^"]*truncate[^"]*"/g) ?? []) {
-      expect(cls).toMatch(/max-w-\[8rem\]/);
+      expect(cls).toMatch(/(^|[\s"])max-w-\[14rem\]/);
     }
   });
 

@@ -37,6 +37,6 @@
     onclick={copy}
     aria-label={label}
     title={label}
-    class="shrink-0 rounded px-1 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+    class="inline-flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded px-1.5 text-xs text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
   >{copied ? t('app.tasks.copied', 'Copied') : t('app.tasks.copy', 'Copy')}</button>
 </span>

@@ -36,4 +36,18 @@ describe('CopyCode', () => {
     expect(html).not.toContain('data-copy-name');
     expect(html).toMatch(/<code[^>]*>hadron team alarm ack a1<\/code>/);
   });
+
+  // portal#1635 item 2: the Copy button is a text-sized target. WCAG 2.2 AA 2.5.8 wants
+  // at least 24x24 CSS px; min-h-6/min-w-6 (1.5rem) reaches it without changing the text size.
+  it('gives the Copy button a 24x24 minimum hit area, centred, text size unchanged', () => {
+    const html = out({ value: 'AT3.405', label: 'Copy the task handle' });
+    const cls = html.match(/<button[^>]*class="([^"]*)"/)?.[1] ?? '';
+    const has = (c: string) => cls.split(/\s+/).includes(c);
+    expect(has('min-h-6')).toBe(true);
+    expect(has('min-w-6')).toBe(true);
+    expect(has('inline-flex')).toBe(true);
+    expect(has('items-center')).toBe(true);
+    expect(has('justify-center')).toBe(true);
+    expect(has('text-xs')).toBe(true);
+  });
 });
