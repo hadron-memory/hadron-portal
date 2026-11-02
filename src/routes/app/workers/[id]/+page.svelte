@@ -2,7 +2,8 @@
   import WorkerProfile from '$lib/components/WorkerProfile.svelte';
   import { workerInternalsVisible } from '$lib/worker-profile';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
-  import { pageClock, terminalBadge } from '$lib/workers/terminal';
+  import { terminalBadge } from '$lib/workers/terminal';
+  import { createDisplayClock } from '$lib/workers/display-clock.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import WorkerBadge from '$lib/components/WorkerBadge.svelte';
@@ -143,7 +144,19 @@
   // portal#1492: this branch renders only for a reader who may see internals, so
   // the terminal is shown; the page clock is the loader's, shared by SSR and hydration.
   const terminal = $derived(terminalBadge(worker.terminal, workerInternalsVisible(worker)));
-  const terminalNow = $derived(pageClock(data.terminalNow));
+  // portal#1495 P3 — the loader's clock seeds a display clock that advances
+  // every 30 s in the browser (server-relative offset, cleared on destroy, no
+  // requests), so ages on an open page stop going stale.
+  // The seed is read ONCE, deliberately: later ticks carry the offset, not the
+  // seed, and the offset (loader clock vs browser clock at first paint) is a
+  // property of the viewer, unchanged by later data for this same instance.
+  // svelte-ignore state_referenced_locally
+  const terminalClock = createDisplayClock(data.terminalNow);
+  $effect(() => {
+    terminalClock.start();
+    return terminalClock.stop;
+  });
+  const terminalNow = $derived(terminalClock.now);
   const retired = $derived(!!worker.retiredAt);
 
   // #1050 / hrn:node:hadronmemory.com:specs:cor:agt:020:09 — whose name this
@@ -264,6 +277,14 @@
     {/if}
 
     <dl class="grid grid-cols-1 gap-px overflow-hidden rounded-lg border border-zinc-200 bg-zinc-200 sm:grid-cols-2 dark:border-zinc-800 dark:bg-zinc-800">
+      <div class="bg-white p-4 dark:bg-zinc-950">
+        <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          {t('worker.field.role', 'Role')}
+        </dt>
+        <dd class="mt-1 text-sm text-zinc-900 dark:text-white">{worker.role ?? '—'}</dd>
+      </div>
+      <!-- portal#1495 (Uma, UX): Terminal used to LEAD this grid, reading as the
+           worker's primary fact; Role is the identity field, so Terminal follows it. -->
       {#if terminal}
         <div class="bg-white p-4 dark:bg-zinc-950">
           <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
@@ -272,12 +293,6 @@
           <dd class="mt-1"><TerminalStatus badge={terminal} now={terminalNow} /></dd>
         </div>
       {/if}
-      <div class="bg-white p-4 dark:bg-zinc-950">
-        <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
-          {t('worker.field.role', 'Role')}
-        </dt>
-        <dd class="mt-1 text-sm text-zinc-900 dark:text-white">{worker.role ?? '—'}</dd>
-      </div>
 
       <div class="bg-white p-4 dark:bg-zinc-950">
         <dt class="text-xs font-medium uppercase tracking-wide text-zinc-500">
