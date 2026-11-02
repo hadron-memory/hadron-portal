@@ -126,7 +126,7 @@ describe('conditionTextOf', () => {
   });
 });
 
-describe('buildFlowCanvas — script nodes (#1597, cor:agt:010:04)', () => {
+describe('buildFlowCanvas — script nodes (#1597, hrn:node:hadronmemory.com:specs:cor:agt:010:04)', () => {
   const build = (data: unknown) =>
     buildFlowCanvas([{ id: 's', loc: 'flow:s', name: 'S', kind: 'flow', data }], []).nodes[0];
 

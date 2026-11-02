@@ -36,7 +36,7 @@ export interface FlowCanvasEdgeInput {
 }
 
 /**
- * Display projection of `data.script.call` (cor:agt:010:04). Ships the tool
+ * Display projection of `data.script.call` (hrn:node:hadronmemory.com:specs:cor:agt:010:04). Ships the tool
  * and the arg KEY names only — arg values may carry templated or literal
  * content and never reach the client (#1597).
  */

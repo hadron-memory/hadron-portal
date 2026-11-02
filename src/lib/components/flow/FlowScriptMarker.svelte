@@ -2,7 +2,7 @@
   import { t } from '$lib/i18n/t';
   import type { FlowCanvasScript } from '$lib/flow/canvas';
 
-  // Read-only marker for a script node (data.script.call, cor:agt:010:04):
+  // Read-only marker for a script node (data.script.call, hrn:node:hadronmemory.com:specs:cor:agt:010:04):
   // one tool call, no model. Receives the server-side projection — the tool
   // name and arg KEYS only, never arg values.
   let { script }: { script: FlowCanvasScript } = $props();
