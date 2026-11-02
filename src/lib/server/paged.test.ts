@@ -107,6 +107,9 @@ describe('readAllPages', () => {
   it('the no-progress guard: hasMore with only already-seen rows throws (pinned)', async () => {
     const pages = [{ items: rows(20), total: 40, hasMore: true }, { items: rows(20), total: 40, hasMore: true }];
     let i = 0;
-    await expect(readAllPages(async () => pages[Math.min(i++, 1)])).rejects.toBeInstanceOf(PagingError);
+    const read = vi.fn(async () => pages[Math.min(i++, 1)]);
+    await expect(readAllPages(read)).rejects.toThrow('page made no progress');
+    // Stopped on the second page, not at the MAX_PAGES backstop (which throws a different message).
+    expect(read).toHaveBeenCalledTimes(2);
   });
 });
