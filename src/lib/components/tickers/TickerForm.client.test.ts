@@ -273,6 +273,43 @@ describe('TickerForm (edit)', () => {
     expect(m.target.querySelector('[role="status"]')?.textContent).toContain('Saved');
   });
 
+  // Gizelle's READ P2 on #1601: the draft typed during a pending update survives (the reader's newer
+  // input), so the status must not claim the visible fields ARE the stored values.
+  async function editWithDraftDuringRequest(typeDraft: boolean) {
+    const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', ticker: stored, impersonating: null });
+    const m = mountComponent(TickerForm as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    type(field(m.target, 'name'), 'saved-name');
+    await tick(2);
+    const deliver = await beginEnhanced(formOf(m.target));
+    if (typeDraft) {
+      type(field(m.target, 'name'), 'unsaved-next-draft');
+      await tick(2);
+    }
+    navigationHooks.onInvalidateAll = () => {
+      props.ticker = { ...stored, name: 'saved-name' };
+    };
+    await deliver({ type: 'success', status: 200, data: { action: 'update', ok: true } });
+    await tick(3);
+    return m.target;
+  }
+
+  it('a success over a draft typed while it was pending keeps the draft and does NOT say the fields are the stored values', async () => {
+    const root = await editWithDraftDuringRequest(true);
+    expect(field(root, 'name').value).toBe('unsaved-next-draft');
+    const status = root.querySelector('[role="status"]')!.textContent ?? '';
+    expect(status).toContain('Saved');
+    expect(status).not.toContain('stored values');
+    expect(status).toContain('not saved yet');
+  });
+
+  it('with no newer draft the success still says these are the stored values (control)', async () => {
+    const root = await editWithDraftDuringRequest(false);
+    expect(field(root, 'name').value).toBe('saved-name');
+    expect(root.querySelector('[role="status"]')?.textContent).toContain('Saved. These are the stored values.');
+  });
+
   it('another ticker reseeds: nothing typed for the first survives', async () => {
     const props = reactiveProps<Record<string, unknown>>({ appId: 'app-1', ticker: stored, impersonating: null });
     const m = mountComponent(TickerForm as never, props as never) as Mounted<Record<string, unknown>>;
