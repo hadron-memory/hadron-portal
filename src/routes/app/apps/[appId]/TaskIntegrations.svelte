@@ -232,7 +232,7 @@
                       {#if s.kind === 'unknown'}
                         <option value="">{t('app.integrations.lead.unknown', 'Unknown worker')}</option>
                       {:else if s.kind === 'retired'}
-                        <option value={s.urn}>{s.name ?? s.urn} ({t('app.integrations.lead.retired', 'No longer a live worker')})</option>
+                        <option value={s.urn}>{s.name ?? s.urn}</option>
                       {/if}
                       {#each liveWorkers as w (w.id)}
                         <option value={w.urn ?? w.id}>{w.name}</option>
