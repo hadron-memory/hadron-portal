@@ -7,7 +7,11 @@
  * cap may have hidden some. Pure: no fetching, no DOM.
  */
 
-/** The server's maximum `limit`; its default is 200. */
+/**
+ * The server's maximum `limit`; its default is 200. `validateMemory` never refuses a limit, it
+ * clamps it: `Math.min(Math.max(limit ?? 200, 0), 1000)` (hadron-server
+ * src/api/graphql/schema/resolvers.query.memory.ts:196), so a larger value is served as 1000.
+ */
 export const VECTOR_HEALTH_LIMIT = 1000;
 
 export interface ValidateMemoryResult {

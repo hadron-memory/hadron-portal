@@ -83,4 +83,45 @@ describe('vector health pending state (#1346)', () => {
     await settle();
     expect(buttonOf(target).disabled).toBe(true);
   });
+
+  // #1465 (Gabriel on #1460): the scan is slow and this component is reused on a [id] navigation.
+  // A's result arriving after the reader moved to B must not be applied as B's page data.
+  it("A's late result is not applied after navigating to B (#1465)", async () => {
+    const applied: unknown[] = [];
+    const { target, props } = await mountOn('mem-A');
+    const a = await submitEnhancedDeferred(formOf(target), { update: async (o) => { applied.push(o); } });
+    props.data = await dataFor('mem-B');
+    await settle();
+    await a.finish(OK);
+    await settle();
+    expect(applied).toEqual([]);
+  });
+
+  it('control: a result for the memory still on screen is applied (#1465)', async () => {
+    const applied: unknown[] = [];
+    const { target } = await mountOn('mem-A');
+    const a = await submitEnhancedDeferred(formOf(target), { update: async (o) => { applied.push(o); } });
+    await a.finish(OK);
+    await settle();
+    expect(applied).toHaveLength(1);
+  });
+
+  // #1465 delta (Andi, LOCAL P2): the memory id alone is not enough. A1 -> B -> A -> A2: A1 lands while the
+  // page is on A again, but A2 is the scan that belongs on screen.
+  it("A1, B, back to A and A2: A1's late result is not applied, A2's is (#1465)", async () => {
+    const applied: string[] = [];
+    const { target, props } = await mountOn('mem-A');
+    const a1 = await submitEnhancedDeferred(formOf(target), { update: async () => { applied.push('A1'); } });
+    props.data = await dataFor('mem-B');
+    await settle();
+    props.data = await dataFor('mem-A');
+    await settle();
+    const a2 = await submitEnhancedDeferred(formOf(target), { update: async () => { applied.push('A2'); } });
+    await a1.finish(OK);
+    await settle();
+    expect(applied).toEqual([]);
+    await a2.finish(OK);
+    await settle();
+    expect(applied).toEqual(['A2']);
+  });
 });
