@@ -95,7 +95,7 @@ describe('portal#1410 chip feedback and refusal polling', () => {
   expect(q(m,'team-chat-filter')?.textContent).not.toContain('Choose a team by clicking a tag on a message.');
   const tagged=await mountThread({messages:[message(1,{teamTags:[ADA]})],total:1,onSelectTeam:vi.fn()});
   expect(q(tagged,'team-chat-filter')?.textContent).toContain('Choose a team by clicking a tag on a message.');
-  expect(q(m,'team-chat-filter-empty')?.textContent).toContain('This view is empty.');
+  expect(q(m,'team-chat-filter-empty')?.textContent).toContain('No messages without a team tag.');
   const selected=q(m,'team-chat-filter')?.querySelector('[aria-pressed="true"]');
   expect(selected?.querySelector('[data-selected-cue]')).not.toBeNull();
   const r=await mountThread({messages:[],loadError:true,refusal:refused,filter:{kind:'team',headRef:'gone'},onSelectTeam:vi.fn()});
