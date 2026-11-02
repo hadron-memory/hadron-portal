@@ -1,5 +1,5 @@
 /**
- * portal#1615 — follow a paged list to its end (cor:api:120:04).
+ * portal#1615 — follow a paged list to its end (hrn:node:hadronmemory.com:specs:cor:api:120:04).
  *
  * The four API-key lists decide things (a truncated key inventory hides a live
  * key from revocation), so a consumer must follow the pages to the end rather
