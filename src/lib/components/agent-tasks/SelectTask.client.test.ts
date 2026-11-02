@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import EscapeHostHarness from '$lib/test/EscapeHostHarness.svelte';
 import SelectTask from './SelectTask.svelte';
 const mounted: { unmount: () => void }[] = [];
@@ -35,6 +36,22 @@ describe('SelectTask real mounted async picker', () => {
     const m = await mount(); m.unmount(); finish(answer([choice()])); await tick(5);
     expect(m.target.textContent).not.toContain('Title t1');
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+  });
+  // portal#1392 (Rook's optional §10 pin on #1388): a response for the window the picker has LEFT —
+  // still mounted, now showing another App — is dropped by the generation guard, not merely by teardown.
+  it('drops a late response from before a live App change while staying mounted', async () => {
+    const finishes: Array<(value: unknown) => void> = [];
+    vi.stubGlobal('fetch', vi.fn(() => new Promise((resolve) => { finishes.push(resolve); })));
+    const props = reactiveProps<Record<string, unknown>>({ appId: 'app', open: true, onselect: vi.fn() });
+    const m = mountComponent(SelectTask as never, props as never); mounted.push(m); await tick(5);
+    props.appId = 'other'; await tick(5); flushSync();
+    expect(finishes).toHaveLength(2);
+    finishes[0](answer([choice('stale', 'app')])); await tick(5);
+    expect(m.target.isConnected).toBe(true);
+    expect(m.target.textContent).not.toContain('Title stale');
+    finishes[1](answer([choice('fresh', 'other')])); await tick(5);
+    expect(m.target.textContent).toContain('Title fresh');
+    expect(m.target.textContent).not.toContain('Title stale');
   });
   it('reports repeated pages instead of claiming the list complete', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(answer([choice()], true)).mockResolvedValueOnce(answer([choice()], true)));
