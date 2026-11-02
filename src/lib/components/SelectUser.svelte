@@ -138,9 +138,11 @@
            The input must NOT focus itself via an action: child actions run
            before the parent focusTrap captures document.activeElement, so a
            self-focusing input gets recorded as the opener and focus is never
-           restored on close (portal#1305). The trap moves focus to the FIRST
-           tabbable control after capturing the real opener — here the Close
-           button above, which precedes the search input in the DOM. -->
+           restored on close (portal#1305). The trap owns initial focus after
+           capturing the real opener: the input carries data-initial-focus so
+           it wins the landing over the Close button above it in the DOM
+           (which stays the first stop of the Tab cycle) — a search picker
+           opens ready to type (portal#1599, both seats' P2). -->
       <form
         class="flex gap-2 border-b border-zinc-200 p-4 dark:border-zinc-700"
         onsubmit={(e) => { e.preventDefault(); runSearch(); }}
@@ -150,6 +152,7 @@
           bind:value={query}
           {placeholder}
           aria-label={placeholder}
+          data-initial-focus
           class="min-w-0 flex-1 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
         <button
