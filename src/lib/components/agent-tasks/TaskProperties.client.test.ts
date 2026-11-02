@@ -85,3 +85,21 @@ describe('TaskProperties mounted', () => {
     expect(text(m)).toContain('None');
   });
 });
+
+// portal#1474 item 6 (#1479 BLIND delta): a value JSON.stringify turns into undefined is unreadable, not a
+// blank block; and the notice is present at first render, so it is plain text, not role="alert".
+describe('TaskProperties unreadable display (portal#1474)', () => {
+  it.each([['a function', () => 1], ['a symbol', Symbol('x')]])('%s shows the unreadable notice, never an empty value block', async (_label, properties) => {
+    const { m } = await mountWith(properties);
+    expect(block(m)).toBeNull();
+    expect(m.target.querySelector('[data-testid="task-properties-unreadable"]')?.textContent).toContain('These properties couldn’t be displayed.');
+  });
+  it('the unreadable notice carries no alert role', async () => {
+    const cycle: Record<string, unknown> = {}; cycle.self = cycle;
+    const { m } = await mountWith(cycle);
+    const notice = m.target.querySelector('[data-testid="task-properties-unreadable"]')!;
+    expect(notice).not.toBeNull();
+    expect(notice.getAttribute('role')).not.toBe('alert');
+    expect(m.target.querySelector('[role="alert"]')).toBeNull();
+  });
+});
