@@ -410,7 +410,7 @@
         <p id="key-visibility-status" role="status" class="text-green-700 dark:text-green-300">{visibilityFeedback?.type === 'success' ? visibilityFeedback.text : ''}</p>
         <p id="key-visibility-alert" role="alert" class="text-red-700 dark:text-red-300">{visibilityFeedback?.type === 'error' ? visibilityFeedback.text : ''}</p>
         {#if showReload}
-          <a href={viewHref} data-testid="key-list-reload" class="text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400">{i18n.reloadList()}</a>
+          <a href={viewHref} data-testid="key-list-reload" data-sveltekit-reload class="text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400">{i18n.reloadList()}</a>
         {/if}
       </div>
     </div>
