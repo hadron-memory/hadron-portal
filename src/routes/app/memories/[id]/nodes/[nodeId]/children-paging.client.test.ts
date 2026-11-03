@@ -8,7 +8,7 @@
  * Mounts the REAL page, as properties-tab.client.test.ts does; the next page is
  * read through `fetch` on the section's own endpoint, stubbed here.
  */
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi, type MockInstance } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
@@ -18,6 +18,7 @@ import Page from './+page.svelte';
 import { load } from './+page.server';
 
 const mockRequest = vi.fn();
+let warn: MockInstance<typeof console.warn>;
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
 vi.mock('$lib/server/guards', () => ({ requireNonConsumer: vi.fn().mockResolvedValue(undefined) }));
 
@@ -44,13 +45,16 @@ const rows = (n: number, from = 0) => Array.from({ length: n }, (_, i) => row(`c
 type Answer = { children: unknown[]; hasMore: boolean } | { failed: true } | { reject: Error };
 let calls: string[] = [];
 let answer: Answer = { children: [], hasMore: false };
+// Gates exactly one read: the next fetch takes it and clears it, so the read
+// after that one answers at once.
 let held: Promise<void> | null = null;
 
 beforeEach(() => {
   mockRequest.mockReset();
-  vi.spyOn(console, 'warn').mockImplementation(() => {});
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   calls = [];
+  answer = { children: [], hasMore: false };
   held = null;
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     calls.push(String(input));
@@ -66,6 +70,7 @@ beforeEach(() => {
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
 afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
+  warn.mockRestore();
   vi.unstubAllGlobals();
   resetStubPage();
 });
@@ -155,6 +160,20 @@ it.each<[string, Answer]>([
   await settle();
   expect(shownLocs(target)).toHaveLength(21);
   expect(target.querySelector('[data-testid="children-more-failed"]')).toBeNull();
+});
+
+it.each<[string, unknown]>([
+  ['a child with no loc', { id: 'id-x' }],
+  ['a child with no id', { loc: 'foo:x' }],
+])('a page holding %s counts as failed, whole, and the rows shown stay', async (_label, malformed) => {
+  const { target, tab } = await mountPage(rows(20), true);
+  answer = { children: [row('c20'), malformed], hasMore: false };
+  showMore(target)!.click();
+  await settle();
+  expect(shownLocs(target)).toEqual(rows(20).map((r) => r.loc.slice(4)));
+  expect(target.querySelector('[data-testid="children-more-failed"]')).not.toBeNull();
+  expect(tab!.textContent).toMatch(/Children\s*20\+$/);
+  expect(showMore(target)).not.toBeNull();
 });
 
 it('a second press while a page is loading asks nothing more', async () => {
