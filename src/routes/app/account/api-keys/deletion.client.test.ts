@@ -429,6 +429,22 @@ describe('#1653 QA P2: a confirmed delete re-reads the list itself, never throug
     expect(rowIds(root)).toEqual(['new-view']);
   });
 
+  it('of two overlapping re-reads, an older answer landing last does not replace the newer one', async () => {
+    const list = stubKeyList({ keys: [key('older-answer', null)] });
+    const { root } = await mount();
+    await openDelete(root, 'live');
+    const first = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    const releaseOlder = list.hold();
+    const olderDone = first.finish(success('FIRST DELETED')); await tick(2);
+    await openDelete(root, 'revoked');
+    const second = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    list.answer({ keys: [key('newer-answer', null)] });
+    await second.finish(success('SECOND DELETED')); await tick(4);
+    expect(rowIds(root)).toEqual(['newer-answer']);
+    releaseOlder(); await olderDone; await tick(4);
+    expect(rowIds(root)).toEqual(['newer-answer']);
+  });
+
   it('after teardown the reply refreshes whatever page is current through the router, and says nothing', async () => {
     const list = stubKeyList({ keys: [] });
     const first = await mount();

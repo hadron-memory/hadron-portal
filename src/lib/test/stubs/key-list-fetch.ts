@@ -16,12 +16,15 @@ export function stubKeyList(initial: Answer) {
   let held: Promise<void> | null = null;
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
     calls.push(String(input));
+    // The answer is the one set when the request was made, so a held older
+    // request still answers with the older list after a newer one lands.
+    const mine = answer;
     const wait = held;
     held = null;
     await wait;
-    if ('reject' in answer) throw answer.reject;
-    if ('status' in answer) return new Response('{"error":"x"}', { status: answer.status, headers: { 'content-type': 'application/json' } });
-    const body = 'body' in answer ? answer.body : answer;
+    if ('reject' in mine) throw mine.reject;
+    if ('status' in mine) return new Response('{"error":"x"}', { status: mine.status, headers: { 'content-type': 'application/json' } });
+    const body = 'body' in mine ? mine.body : mine;
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
   }));
   return {

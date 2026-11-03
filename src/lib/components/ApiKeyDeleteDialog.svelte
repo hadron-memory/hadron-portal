@@ -8,6 +8,10 @@
   was not action JSON) may or may not have committed, so it is UNCERTAIN: the
   page offers a GET reload, never a replay.
 
+  The refresh is the page's own re-read of the list (`refresh`, #1653 QA P2),
+  not invalidateAll(): a failed __data.json there becomes kit's error page and
+  unmounts this page before any catch runs, losing the confirmed deletion.
+
   Without JS the row's <noscript> link opens this dialog through
   `?confirmDelete=<id>`; Cancel is then a real link back to the same view.
   Opened from the row menu, Cancel is a <button> (#1652 item 4).
@@ -21,7 +25,6 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
   import { focusTrap } from '$lib/a11y/focus-trap';
@@ -35,7 +38,11 @@
     cancelHref: string;
     /** Opened by the no-JS `?confirmDelete` step rather than by the row menu. */
     fromUrl: boolean;
-    onstart: (form: HTMLFormElement) => { deliver: (notice: Notice) => void; current: () => boolean; apply: () => boolean; settled: (closed: boolean) => void };
+    onstart: (form: HTMLFormElement) => {
+      deliver: (notice: Notice) => void; current: () => boolean; apply: () => boolean; settled: (closed: boolean) => void;
+      /** Re-read the list; false only when that read failed. Never rejects. */
+      refresh: () => Promise<boolean>;
+    };
     /** Registers this mounted dialog as the open one; its handle closes only while it still is. */
     onopen: () => DialogHandle;
   } = $props();
@@ -67,7 +74,7 @@
   const submit: SubmitFunction = ({ cancel: cancelSubmit }) => {
     if (pending) { cancelSubmit(); return; }
     pending = true;
-    const { deliver, current, apply, settled } = onstart(formEl);
+    const { deliver, apply, settled, refresh } = onstart(formEl);
     return async ({ result, update }) => {
       let closed = false;
       // The handle decides whether this dialog is still the open one (#1652 item 8).
@@ -79,15 +86,11 @@
           close();
           // The delete landed, so refresh whatever page is current; an ended
           // scope still gets a fresh list, never the old notice or focus.
-          if (result.type === 'success') {
-            try {
-              await invalidateAll();
-            } catch {
-              // The delete is confirmed; only the list is stale. Say so, offer
-              // the GET reload, and never relabel it uncertain or replay it.
-              if (notice) deliver({ ...notice, text: `${notice.text} ${i18n.deleteRefreshFailed()}`, recover: true });
-              return;
-            }
+          if (result.type === 'success' && !(await refresh())) {
+            // The delete is confirmed; only the list is stale. Say so, offer
+            // the GET reload, and never relabel it uncertain or replay it.
+            if (notice) deliver({ ...notice, text: `${notice.text} ${i18n.deleteRefreshFailed()}`, recover: true });
+            return;
           }
           if (!apply()) return;
           await update({ reset: false, invalidateAll: false });

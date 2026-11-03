@@ -34,13 +34,12 @@ import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
 import { lookupOwn } from '$lib/lookup';
 import {
-  MY_USER_API_KEYS_QUERY,
   CREATE_USER_API_KEY_MUTATION,
   REVOKE_USER_API_KEY_MUTATION,
   SET_USER_API_KEY_HIDDEN_MUTATION,
   DELETE_USER_API_KEY_MUTATION,
 } from '$lib/server/queries';
-import { readAllPages, type PageEnvelope } from '$lib/server/paged';
+import { readUserApiKeys } from '$lib/server/user-api-keys';
 import type { UserApiKey, UserApiKeyCreateResult } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
 import { createUserApiKeySchema, revokeUserApiKeySchema, keyVisibilitySchema, deleteUserApiKeySchema } from './schema';
@@ -64,13 +63,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     return { keys: [] as UserApiKey[], includeHidden, deleteTarget: null, form, revokeForm };
   }
   try {
-    const client = gqlClient(locals.token);
     // portal#1615: every page; one refused page is the page's load error.
-    const keys = await readAllPages((limit, offset) =>
-      client
-        .request<{ myUserApiKeysPage: PageEnvelope<UserApiKey> }>(MY_USER_API_KEYS_QUERY, { includeHidden, limit, offset })
-        .then((r) => r.myUserApiKeysPage),
-    );
+    const keys = await readUserApiKeys(locals.token, includeHidden);
     const deleteTarget = confirmDelete && keys.some((k) => k.id === confirmDelete) ? confirmDelete : null;
     return { keys, includeHidden, deleteTarget, form, revokeForm };
   } catch (e) {

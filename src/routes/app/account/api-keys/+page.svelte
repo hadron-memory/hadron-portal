@@ -18,6 +18,7 @@
 -->
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -35,6 +36,7 @@
   import type { UserApiKey } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
+  import { readKeyList } from './key-list';
 
   type CreateUserApiKeyForm = Infer<typeof createUserApiKeySchema, 'zod4'>;
   type RevokeUserApiKeyForm = Infer<typeof revokeUserApiKeySchema, 'zod4'>;
@@ -42,7 +44,14 @@
   type RevokeUserApiKeySuperform = SuperValidated<RevokeUserApiKeyForm, App.Superforms.Message, RevokeUserApiKeyForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
-  const keys = $derived(data.keys);
+  // #1653 QA P2: a confirmed delete re-reads the list through its own endpoint
+  // (./list/+server.ts), never invalidateAll(), whose failed __data.json kit
+  // renders as the error page over this one before any catch runs. The answer
+  // is a working copy of the list it was read against: any later load
+  // replaces `data.keys` and with it the copy. Raw, so the identity check
+  // compares the props' own array, not a proxy of it.
+  let reread = $state.raw<{ against: UserApiKey[]; keys: UserApiKey[] } | null>(null);
+  const keys = $derived(reread && reread.against === data.keys ? reread.keys : data.keys);
   // One notice for every row action (Hide/Unhide and, portal#1011 P2, Delete).
   // `recover` marks an outcome the server did not confirm: offer a GET reload.
   type VisibilityNotice = { type: 'success' | 'error'; text: string; recover?: boolean };
@@ -70,7 +79,28 @@
   // A destroyed page never sees a view change, so its scope ends with it: a
   // late reply must not reach the page mounted after it (#1500).
   const focusScopes = new Set<() => void>();
-  onDestroy(() => { view++; for (const end of focusScopes) end(); });
+  let destroyed = false;
+  onDestroy(() => { destroyed = true; view++; for (const end of focusScopes) end(); });
+  // The re-read for a confirmed delete: false only when it failed, so the
+  // dialog says the list is stale. It reads the view current at reply time.
+  // Only the newest re-read lands (an older answer is the older list), and
+  // `keys` shows it only while `data.keys` is still the array it was read
+  // against: a load that landed meanwhile is the newer list. A destroyed page
+  // has no list of its own, so whatever page is current still gets a fresh
+  // one, through the router.
+  let rereads = 0;
+  async function refreshKeys(): Promise<boolean> {
+    if (destroyed) {
+      await invalidateAll();
+      return true;
+    }
+    const against = data.keys;
+    const mine = ++rereads;
+    const fresh = await readKeyList(data.includeHidden);
+    if (fresh === null) return false;
+    if (mine === rereads) reread = { against, keys: fresh };
+    return true;
+  }
   // #1652 item 5: every mounted Delete dialog gets the next number, and
   // `openDialog` holds the open one's (0 = none). An action started before the
   // open dialog appeared still DELIVERS its notice (current()), but must not
@@ -106,6 +136,7 @@
     return {
       current,
       apply: () => current() && !(openDialog !== 0 && openDialog > dialogAtStart),
+      refresh: refreshKeys,
       deliver: (notice: VisibilityNotice) => {
         if (!current()) return;
         visibilityNotice = notice;
