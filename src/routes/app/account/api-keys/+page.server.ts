@@ -32,6 +32,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
 import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
 import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
+import { lookupOwn } from '$lib/lookup';
 import {
   MY_USER_API_KEYS_QUERY,
   CREATE_USER_API_KEY_MUTATION,
@@ -118,7 +119,9 @@ export const actions: Actions = {
     try {
       data = await gqlClient(locals.token).request(DELETE_USER_API_KEY_MUTATION, { id });
     } catch (e) {
-      const refusal = DELETION_REFUSALS[extractGqlErrorCode(e) ?? ''];
+      // Own-property lookup (#835, #1652 item 7): an inherited name such as
+      // `toString` is not a refusal and falls to the uncertain path below.
+      const refusal = lookupOwn(DELETION_REFUSALS, extractGqlErrorCode(e));
       if (refusal) return deletionFailure(refusal[0], refusal[1]());
       return deletionFailure(502, i18n.deleteUncertain(), true);
     }

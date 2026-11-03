@@ -13,7 +13,7 @@
   // ondelete (portal#1011 P2) adds Delete to this row's menu; the page owns the dialog.
   let { id, preview, hidden, includeHidden, onstart, ondelete }: {
     id: string; preview: string; hidden: boolean; includeHidden: boolean; ondelete?: () => void;
-    onstart: (form: HTMLFormElement) => { deliver: (notice: Notice) => void; current: () => boolean; settled: (success: boolean) => void };
+    onstart: (form: HTMLFormElement) => { deliver: (notice: Notice) => void; current: () => boolean; apply: () => boolean; settled: (success: boolean) => void };
   } = $props();
   let formEl: HTMLFormElement;
   let pending = $state(false);
@@ -21,7 +21,7 @@
   const submit: SubmitFunction = ({ cancel }) => {
     if (pending) { cancel(); return; }
     pending = true;
-    const { deliver, current, settled } = onstart(formEl);
+    const { deliver, apply, settled } = onstart(formEl);
     return async ({ result, update }) => {
       let success = false;
       try {
@@ -35,8 +35,10 @@
           if (result.type === 'success') await invalidateAll();
           // Never apply a reply whose scope ended: kit would set the CURRENT
           // page's form (its action match ignores the query) and reset focus,
-          // so the old result would surface there (#1500).
-          if (!current()) return;
+          // so the old result would surface there (#1500). Nor while a Delete
+          // dialog opened after it: Kit's focus reset would take that dialog's
+          // focus (#1652 item 5). Its notice was already delivered above.
+          if (!apply()) return;
           await update({ reset: false, invalidateAll: false });
           await tick();
           success = result.type === 'success';

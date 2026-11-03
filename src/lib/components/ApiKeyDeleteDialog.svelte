@@ -10,9 +10,16 @@
 
   Without JS the row's <noscript> link opens this dialog through
   `?confirmDelete=<id>`; Cancel is then a real link back to the same view.
+  Opened from the row menu, Cancel is a <button> (#1652 item 4).
+
+  #1652 items 5 and 8: the page hands each mounted dialog its own handle
+  (`onopen`). Closing goes through that handle, so a reply from a dialog that
+  is no longer the open one closes nothing. Kit's `update` (action data plus
+  its focus reset) runs only while `apply()` holds: notice delivery is
+  separate and still follows `current()`.
 -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
@@ -21,30 +28,35 @@
   import { consumeEscapeAtDialog, dialogEscapeFallback, type DialogEscapeOptions } from '$lib/a11y/dialog-escape';
   import type { UserApiKey } from '$lib/types';
   type Notice = { type: 'success' | 'error'; text: string; recover?: boolean };
-  let { target, includeHidden, cancelHref, fromUrl, onstart, onclose }: {
+  type DialogHandle = { close: (opts: { returnFocus: boolean }) => boolean; release: () => void };
+  let { target, includeHidden, cancelHref, fromUrl, onstart, onopen }: {
     target: Pick<UserApiKey, 'id' | 'label' | 'keyPreview' | 'revokedAt'>;
     includeHidden: boolean;
     cancelHref: string;
     /** Opened by the no-JS `?confirmDelete` step rather than by the row menu. */
     fromUrl: boolean;
-    onstart: (form: HTMLFormElement) => { deliver: (notice: Notice) => void; current: () => boolean; settled: (closed: boolean) => void };
-    onclose: (opts: { returnFocus: boolean }) => void;
+    onstart: (form: HTMLFormElement) => { deliver: (notice: Notice) => void; current: () => boolean; apply: () => boolean; settled: (closed: boolean) => void };
+    /** Registers this mounted dialog as the open one; its handle closes only while it still is. */
+    onopen: () => DialogHandle;
   } = $props();
   let formEl: HTMLFormElement;
-  let cancelEl: HTMLAnchorElement;
+  let cancelEl = $state<HTMLElement>();
   let pending = $state(false);
   const live = $derived(target.revokedAt === null);
+  // Registered before any submit can start, so a submit's start sees this dialog as open.
+  const handle = untrack(() => onopen());
+  const onclose = handle.close;
+  onDestroy(handle.release);
 
   // The row menu restores focus to its trigger as it closes; take it after that.
   onMount(() => { void tick().then(() => cancelEl?.focus()); });
 
-  function cancel(event: Event) {
-    // A menu-opened dialog closes in place; a URL-opened one follows its link
-    // so the confirmation step leaves the address too.
-    if (fromUrl) return;
-    event.preventDefault();
+  // A menu-opened dialog closes in place (its Cancel is a button); a
+  // URL-opened one follows its link so the confirmation step leaves the address too.
+  function cancel() {
     if (!pending) onclose({ returnFocus: true });
   }
+  const cancelClass = 'rounded-md border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800';
   // Escape is consumed at this dialog's own layer (hrn:node:hadronmemory.com:hadron-portal:review:a-modal-consumes-escape-at-its-own-layer);
   // a pending delete is not dismissable, so it cannot be abandoned mid-write.
   const escape: DialogEscapeOptions = {
@@ -55,10 +67,11 @@
   const submit: SubmitFunction = ({ cancel: cancelSubmit }) => {
     if (pending) { cancelSubmit(); return; }
     pending = true;
-    const { deliver, current, settled } = onstart(formEl);
+    const { deliver, current, apply, settled } = onstart(formEl);
     return async ({ result, update }) => {
       let closed = false;
-      const close = () => { if (current()) { onclose({ returnFocus: false }); closed = true; } };
+      // The handle decides whether this dialog is still the open one (#1652 item 8).
+      const close = () => { closed = onclose({ returnFocus: false }); };
       try {
         if (result.type === 'success' || result.type === 'failure') {
           const notice = result.data?.deletion as Notice | undefined;
@@ -76,7 +89,7 @@
               return;
             }
           }
-          if (!current()) return;
+          if (!apply()) return;
           await update({ reset: false, invalidateAll: false });
           await tick();
           return;
@@ -86,7 +99,7 @@
           close();
           return;
         }
-        if (current()) await update({ reset: false, invalidateAll: false });
+        if (apply()) await update({ reset: false, invalidateAll: false });
       } finally {
         pending = false;
         settled(closed);
@@ -116,9 +129,10 @@
       {#if target.label}<span class="font-medium">{target.label}</span>{/if}
       <span class="font-mono">…{target.keyPreview}</span>
     </p>
+    <!-- #1652 item 1: what cannot be undone comes first, and stands out. -->
     <div id="delete-dialog-body" class="mb-4 space-y-2 text-sm text-zinc-600 dark:text-zinc-400">
+      <p class="text-zinc-900 dark:text-zinc-100"><strong class="font-semibold text-red-700 dark:text-red-400">{i18n.deleteConfirmIrreversible()}</strong> {i18n.deleteConfirmRecordKept()}</p>
       <p>{live ? i18n.deleteConfirmLive() : i18n.deleteConfirmRevoked()}</p>
-      <p>{i18n.deleteConfirmIrreversible()}</p>
     </div>
     <form
       method="POST"
@@ -130,16 +144,16 @@
       <!-- Literal value: no click-time state can swap in another key's id. -->
       <input type="hidden" name="id" value={target.id} />
       <span role="status" class="mr-auto text-xs text-zinc-500 dark:text-zinc-400">{pending ? i18n.deleting() : ''}</span>
-      <a
-        href={cancelHref}
-        bind:this={cancelEl}
-        onclick={cancel}
-        aria-disabled={pending}
-        data-testid="delete-cancel"
-        class="rounded-md border border-zinc-300 px-4 py-2 text-sm text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-      >
-        {i18n.deleteConfirmNo()}
-      </a>
+      {#if fromUrl}
+        <!-- The no-JS step: a real link back to the view, so the address loses ?confirmDelete. -->
+        <a href={cancelHref} bind:this={cancelEl} aria-disabled={pending} data-testid="delete-cancel" class={cancelClass}>
+          {i18n.deleteConfirmNo()}
+        </a>
+      {:else}
+        <button type="button" bind:this={cancelEl} onclick={cancel} aria-disabled={pending} data-testid="delete-cancel" class={cancelClass}>
+          {i18n.deleteConfirmNo()}
+        </button>
+      {/if}
       <button
         type="submit"
         disabled={pending}

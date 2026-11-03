@@ -71,9 +71,18 @@
   // late reply must not reach the page mounted after it (#1500).
   const focusScopes = new Set<() => void>();
   onDestroy(() => { view++; for (const end of focusScopes) end(); });
+  // #1652 item 5: every mounted Delete dialog gets the next number, and
+  // `openDialog` holds the open one's (0 = none). An action started before the
+  // open dialog appeared still DELIVERS its notice (current()), but must not
+  // APPLY (Kit's update: action data, then a focus reset to <body> that the
+  // dialog's trap turns into a lost Cancel). Opening a dialog deliberately does
+  // not bump `attempt`, which would drop a pending Hide/Unhide's own notice.
+  let dialogs = 0;
+  let openDialog = 0;
   function startVisibility(formElement: HTMLFormElement) {
     const startedIn = view;
     const mine = ++attempt;
+    const dialogAtStart = dialogs;
     const origin = document.activeElement;
     const ownedFocus = !!origin && formElement.contains(origin);
     let lastFocus = origin instanceof HTMLElement ? origin : null;
@@ -96,6 +105,7 @@
     const current = () => startedIn === view && mine === attempt;
     return {
       current,
+      apply: () => current() && !(openDialog !== 0 && openDialog > dialogAtStart),
       deliver: (notice: VisibilityNotice) => {
         if (!current()) return;
         visibilityNotice = notice;
@@ -133,6 +143,20 @@
   function openDelete(id: string) {
     deleteTargetId = id;
   }
+  // #1652 item 8: a dialog closes the page's dialog only while it is the open
+  // one; a reply from a dialog the view already closed reaches nothing.
+  function registerDialog() {
+    const mine = ++dialogs;
+    openDialog = mine;
+    return {
+      close: (opts: { returnFocus: boolean }) => {
+        if (openDialog !== mine) return false;
+        closeDelete(opts);
+        return true;
+      },
+      release: () => { if (openDialog === mine) openDialog = 0; },
+    };
+  }
   function closeDelete({ returnFocus }: { returnFocus: boolean }) {
     const id = deleteTarget?.id;
     deleteTargetId = null;
@@ -141,6 +165,7 @@
     void tick().then(() => document.querySelector<HTMLElement>(`[data-key-id="${CSS.escape(id)}"] button[aria-haspopup="menu"]`)?.focus());
   }
   const showReload = $derived(!!loadError || !!visibilityFeedback?.recover);
+  const statusTone = $derived(visibilityFeedback?.type === 'success' && visibilityFeedback.recover ? 'attention' : 'success');
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
@@ -412,7 +437,9 @@
            technology is already watching them; each keeps one role, and only the
            one matching the result holds text. -->
       <div class="text-sm">
-        <p id="key-visibility-status" role="status" class="text-green-700 dark:text-green-300">{visibilityFeedback?.type === 'success' ? visibilityFeedback.text : ''}</p>
+        <!-- #1652 item 6: a confirmed result the reader must still act on (the list
+             could not be refreshed) keeps this polite region but takes the attention tone. -->
+        <p id="key-visibility-status" role="status" data-tone={statusTone} class={statusTone === 'attention' ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}>{visibilityFeedback?.type === 'success' ? visibilityFeedback.text : ''}</p>
         <p id="key-visibility-alert" role="alert" class="text-red-700 dark:text-red-300">{visibilityFeedback?.type === 'error' ? visibilityFeedback.text : ''}</p>
         {#if showReload}
           <a href={viewHref} data-testid="key-list-reload" data-sveltekit-reload class="text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400">{i18n.reloadList()}</a>
@@ -458,7 +485,7 @@
             {:else}
               <ApiKeyVisibilityAction id={key.id} preview={key.keyPreview} hidden={!!key.hiddenAt} includeHidden={data.includeHidden} onstart={startVisibility} ondelete={() => openDelete(key.id)} />
             {/if}
-            <noscript><a href={confirmDeleteHref(key.id)} class="text-xs text-red-600 underline">{i18n.deleteAction()}</a></noscript>
+            <noscript><a href={confirmDeleteHref(key.id)} class="text-xs text-red-600 underline">{i18n.deleteRowLink(key.keyPreview)}</a></noscript>
           {:else}
             {@const f = fmt[cell.column.id]}
             <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
@@ -524,7 +551,7 @@
       cancelHref={viewHref}
       fromUrl={deleteFromUrl}
       onstart={startVisibility}
-      onclose={closeDelete}
+      onopen={registerDialog}
     />
   {/key}
 {/if}
