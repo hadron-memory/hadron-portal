@@ -3007,10 +3007,13 @@ export const APP_CHAT_ROOTS_QUERY = /* GraphQL */ `
 // the caller can tell a complete page from a truncated one (a truncated page
 // cannot prove which direct children exist, so the section is withheld rather
 // than shown short).
+// portal#1656: the direct children of a loc (hadron-server#2832, hrn:node:hadronmemory.com:specs:cor:api:090:02;
+// "" is the top level), one page at a time. No sort is named, so the order is
+// the server's sibling order (hrn:node:hadronmemory.com:specs:cor:dmo:020:01). `total` is null on this filter
+// and nothing else says whether more rows exist; see $lib/server/node-children.
 export const NODE_CHILDREN_QUERY = /* GraphQL */ `
-  query NodeChildren($memoryId: ID!, $locPrefix: String!, $limit: Int) {
-    findNodes(filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }, limit: $limit, sort: seq) {
-      total
+  query NodeChildren($memoryId: ID!, $childrenOf: String!, $limit: Int!, $offset: Int!) {
+    findNodes(filter: { memoryIds: [$memoryId], childrenOf: $childrenOf }, limit: $limit, offset: $offset) {
       hits { node { id loc name description nodeType tags seq isRunnable memoryId commentSummary { openThreads } } }
     }
   }

@@ -1513,7 +1513,7 @@ describe('node-detail load drains no graph (portal#1433)', () => {
         { id: 'g1', memoryId: 'mem-A', loc: 'specs:x:a:deep', name: 'Deep' },
       ],
     }))) as unknown as { children: Array<{ id: string }>; childrenUnavailable: boolean };
-    // Children are main's bounded locPrefix read (portal#1524): direct only.
+    // Children are the server's childrenOf read (portal#1656): direct only.
     expect(result.childrenUnavailable).toBe(false);
     expect(result.children.map((c) => c.id).sort()).toEqual(['c1', 'c2']);
     const docs = mockRequest.mock.calls.map(([d]) => d);

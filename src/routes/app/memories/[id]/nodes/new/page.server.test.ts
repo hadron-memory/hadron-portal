@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { CREATE_NODE_MUTATION } from '$lib/server/queries';
+import { CREATE_NODE_MUTATION, NODE_CHILDREN_QUERY } from '$lib/server/queries';
+import { fakeFindNodesChildren, type FakeChildRow } from '$lib/test/fakeFindNodesChildren';
 
 const mockRequest = vi.fn();
 
@@ -29,6 +30,8 @@ function loadEvent(opts: {
 
   return {
     url,
+    params: { id: 'memory-1' },
+    locals: { token: 'test-token' },
     parent: vi.fn().mockResolvedValue({
       isConsumerMode: opts.isConsumerMode ?? false,
       activeOrgId: opts.activeOrgId ?? 'org-1',
@@ -74,6 +77,7 @@ async function runCreate(fields: Record<string, string>) {
 
 describe('new node load()', () => {
   it('seeds the form and normalizes deep-link loc data without initial errors', async () => {
+    serveSiblings([{ id: 's1', loc: 'parent:path:child' }, { id: 's2', loc: 'parent:path:child:deep' }, { id: 's3', loc: 'parent:other' }]);
     const { load } = await importMod();
     const event = loadEvent({
       parent: 'loc:parent/path',
@@ -90,7 +94,10 @@ describe('new node load()', () => {
     expect(result).toMatchObject({
       parentLoc: 'parent:path',
       prefillLoc: 'parent:child',
-      existingLocs: ['parent:child', 'other-node'],
+      // portal#1656: the siblings under ?parent, read with childrenOf — not the
+      // layout's graphNodes, which is no longer loaded (portal#1524).
+      existingLocs: ['parent:path:child'],
+      siblingsPartial: false,
     });
     expect((result as {
       form: { data: Record<string, string>; errors: Record<string, string[]> };
@@ -122,6 +129,65 @@ describe('new node load()', () => {
     const result = await load(loadEvent({ isConsumerMode: true, activeOrgId: 'personal-org', graph: { organizationId: null } }));
     expect(result).toBeTruthy();
     expect(superFormFrom(result)).toBeTruthy();
+  });
+});
+
+function serveSiblings(tree: FakeChildRow[], fail = false) {
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+    if (doc !== NODE_CHILDREN_QUERY) throw new Error('unexpected document');
+    if (fail) throw new Error('boom');
+    return fakeFindNodesChildren(tree, 'memory-1')(vars);
+  });
+}
+
+describe('new node load(): siblings for the default loc (portal#1656)', () => {
+  type Loaded = { existingLocs: string[]; siblingsPartial: boolean };
+  const run = async (parent: string) => (await (await importMod()).load(loadEvent({ parent }))) as unknown as Loaded;
+
+  it('reads the siblings under ?parent with childrenOf (no locPrefix, no sort), one bounded page', async () => {
+    serveSiblings([{ id: 'a', loc: 'p:a' }]);
+    await run('p');
+    const calls = mockRequest.mock.calls.filter(([d]) => d === NODE_CHILDREN_QUERY);
+    expect(calls).toHaveLength(1);
+    expect(calls[0][1]).toEqual({ memoryId: 'memory-1', childrenOf: 'p', limit: 21, offset: 0 });
+  });
+
+  it('suggests a loc that does not collide with siblings a and a-2', async () => {
+    serveSiblings([{ id: '1', loc: 'p:a' }, { id: '2', loc: 'p:a-2' }]);
+    const data = await run('p');
+    expect(data.existingLocs).toEqual(['p:a', 'p:a-2']);
+    expect(data.siblingsPartial).toBe(false);
+    const { deriveDefaultLoc } = await import('$lib/create-node/derive-default-loc');
+    expect(deriveDefaultLoc('A', 'p', data.existingLocs)).toBe('a-3');
+  });
+
+  it('with no ?parent, reads the top level', async () => {
+    serveSiblings([{ id: '1', loc: 'a' }, { id: '2', loc: 'a:kid' }]);
+    const data = await run('');
+    expect(mockRequest.mock.calls[0][1]).toMatchObject({ childrenOf: '' });
+    expect(data.existingLocs).toEqual(['a']);
+  });
+
+  it('a capped sibling page is partial: the suggestion may collide', async () => {
+    serveSiblings(Array.from({ length: 30 }, (_, i) => ({ id: `${i}`, loc: `p:s${String(i).padStart(2, '0')}` })));
+    const data = await run('p');
+    expect(data.siblingsPartial).toBe(true);
+  });
+
+  it('exactly 20 siblings is a complete page', async () => {
+    serveSiblings(Array.from({ length: 20 }, (_, i) => ({ id: `${i}`, loc: `p:s${String(i).padStart(2, '0')}` })));
+    const data = await run('p');
+    expect(data.existingLocs).toHaveLength(20);
+    expect(data.siblingsPartial).toBe(false);
+  });
+
+  it('a failed sibling read is partial, never "no siblings", and the form still loads', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    serveSiblings([], true);
+    const data = await run('p');
+    expect(data.existingLocs).toEqual([]);
+    expect(data.siblingsPartial).toBe(true);
+    expect(superFormFrom(data)).toBeTruthy();
   });
 });
 
