@@ -1,7 +1,7 @@
 /**
  * portal#1649 — the pure half of the action-register views.
  *
- * The server owns every count, state and order (cor:agt:110:03, cor:api:120:04);
+ * The server owns every count, state and order (hrn:node:hadronmemory.com:specs:cor:agt:110:03, hrn:node:hadronmemory.com:specs:cor:api:120:04);
  * this file only reads the URL's paging, labels a row by what it resolves to,
  * and says what one page may claim about the whole list.
  */

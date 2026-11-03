@@ -7,7 +7,7 @@ import type { PageServerLoad } from './$types';
 
 /**
  * portal#1649 — the App's action-register index: which code sends work to
- * which role task (hadron-server#3287, cor:agt:110:03). Read only.
+ * which role task (hadron-server#3287, hrn:node:hadronmemory.com:specs:cor:agt:110:03). Read only.
  *
  * Its own sub-route, like Tasks and Stops, so a read that answers a
  * non-participant APP_NOT_FOUND never reaches the App page's loader. The
