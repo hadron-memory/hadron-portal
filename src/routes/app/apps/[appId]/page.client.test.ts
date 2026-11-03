@@ -2160,6 +2160,8 @@ describe('Cast reporting choice (#1149)', () => {
     return { m, form };
   }
   const radios = (form: HTMLFormElement) => [...form.querySelectorAll<HTMLInputElement>('input[name="reporting"]')];
+  // The id the server would echo back: the one this form instance posts.
+  const idOf = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
 
   it('starts with NEITHER choice selected and no head picker: nothing is guessed', async () => {
     const { form } = await openCast();
@@ -2221,7 +2223,7 @@ describe('Cast reporting choice (#1149)', () => {
     const result = await superValidate(
       { agentId: 'agent-a', name: 'Iris', reporting: 'head', reportsTo: 'w1' },
       zod4(castWorkerSchema),
-      { errors: false },
+      { errors: false, id: idOf(form) },
     );
     result.valid = false;
     result.message = { type: 'error', text: 'Worker not found in this App.' };
@@ -2266,8 +2268,9 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     form.querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.click();
     await tick(2);
   };
-  const success = async () => {
-    const f = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false });
+  const idOf = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
+  const success = async (id: string) => {
+    const f = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false, id });
     f.message = { type: 'success', text: 'Worker cast.' };
     return { type: 'success' as const, status: 200, data: { form: f } };
   };
@@ -2297,13 +2300,14 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
   it('A’s late success does not close B’s composer, empty B’s draft or say Worker cast on B', async () => {
     const { m, props, form, open } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
     const delayed = await submitEnhancedDeferred(form());
     props.data = await dataFor('a2');
     await tick(3);
     open();
     await tick(2);
     await fill(form(), 'agent-b', 'NewB');
-    await delayed.finish(await success());
+    await delayed.finish(await success(sent));
     await tick(3);
     expect(form()).not.toBeNull();
     expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('NewB');
@@ -2313,6 +2317,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
   it('an old A attempt delivered after A -> B -> A does not touch the fresh A composer (late success, refusal, held refresh)', async () => {
     const { m, props, form, open } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
     const delayed = await submitEnhancedDeferred(form());
     props.data = await dataFor('a2');
     await tick(3);
@@ -2321,7 +2326,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     open();
     await tick(2);
     await fill(form(), 'agent-b', 'FreshA');
-    await delayed.finish(await success());
+    await delayed.finish(await success(sent));
     await tick(3);
     expect(form()).not.toBeNull();
     expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('FreshA');
@@ -2332,6 +2337,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
   it('an old A refusal delivered after A -> B -> A does not replace the fresh A draft', async () => {
     const { m, props, form, open } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
     const delayed = await submitEnhancedDeferred(form());
     props.data = await dataFor('a2');
     await tick(3);
@@ -2340,7 +2346,7 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     open();
     await tick(2);
     await fill(form(), 'agent-b', 'FreshA');
-    const bad = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false });
+    const bad = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false, id: sent });
     bad.valid = false;
     bad.message = { type: 'error', text: 'That name is taken.' };
     await delayed.finish({ type: 'failure', status: 500, data: { form: bad } } as never);
@@ -2354,8 +2360,9 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     await fill(form(), 'agent-a', 'Iris');
     let rejectRefresh!: (e: Error) => void;
     navigationHooks.onInvalidateAll = () => new Promise<void>((_, rej) => { rejectRefresh = rej; });
+    const sent = idOf(form());
     const delayed = await submitEnhancedDeferred(form());
-    const finished = delayed.finish(await success());
+    const finished = delayed.finish(await success(sent));
     await tick(3);
     props.data = await dataFor('a2');
     await tick(3);
@@ -2369,11 +2376,39 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     expect(m.target.textContent).not.toContain('could not be refreshed');
   });
 
+  it('a request begun by a destroyed Page cannot seed the fresh mount (success and refusal)', async () => {
+    for (const outcome of ['success', 'refusal'] as const) {
+      const first = await openCast();
+      await fill(first.form(), 'agent-a', 'Iris');
+      const sent = idOf(first.form());
+      const delayed = await submitEnhancedDeferred(first.form());
+      first.m.unmount();
+      const second = await openCast();
+      await fill(second.form(), 'agent-b', 'FreshA');
+      expect(idOf(second.form())).not.toBe(sent);
+      if (outcome === 'success') {
+        await delayed.finish(await success(sent));
+      } else {
+        const bad = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false, id: sent });
+        bad.valid = false;
+        bad.message = { type: 'error', text: 'That name is taken.' };
+        await delayed.finish({ type: 'failure', status: 500, data: { form: bad } } as never);
+      }
+      await tick(3);
+      expect(second.form()).not.toBeNull();
+      expect(second.form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('FreshA');
+      expect(second.m.target.textContent).not.toContain('Worker cast.');
+      expect(second.m.target.textContent).not.toContain('That name is taken.');
+      second.m.unmount();
+    }
+  });
+
   it('control: the current App’s success clears and closes its own composer', async () => {
     const { m, form } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
     const delayed = await submitEnhancedDeferred(form());
-    await delayed.finish(await success());
+    await delayed.finish(await success(sent));
     await tick(3);
     expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
     expect(m.target.textContent).toContain('Worker cast.');
@@ -2383,8 +2418,9 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
     const { m, form } = await openCast();
     await fill(form(), 'agent-a', 'Iris');
     navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after committed cast'); };
+    const sent = idOf(form());
     const delayed = await submitEnhancedDeferred(form());
-    await delayed.finish(await success());
+    await delayed.finish(await success(sent));
     await tick(4);
     expect(m.target.textContent).toContain('Worker cast.');
     expect(m.target.textContent).toContain('could not be refreshed');

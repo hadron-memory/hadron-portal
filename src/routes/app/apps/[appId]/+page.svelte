@@ -1160,6 +1160,7 @@
   });
 
   // ── Casting (#974) ───────────────────────────────────────────────────
+  const castFormId = `castWorker:${Math.random().toString(36).slice(2, 10)}`;
   const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
   const {
     form: castWorkerForm,
@@ -1168,6 +1169,10 @@
     submitting: castWorkerSubmitting,
     enhance: castWorkerEnhance,
   } = superForm<CastWorkerForm, App.Superforms.Message, CastWorkerForm>(initialCastWorkerForm, {
+    // Instance-bound id: Superforms applies an action result only to the live form whose id
+    // matches. A request begun by a Page that has since been destroyed carries the OLD id, so its
+    // late result cannot seed a fresh mount's form (review: lifetime of the result's owner).
+    id: castFormId,
     validators: zod4Client(castWorkerSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
@@ -2404,6 +2409,7 @@
           class="max-w-lg space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
         >
           <input type="hidden" name="_kind" value={$castWorkerForm._kind} />
+          <input type="hidden" name="__superform_id" value={castFormId} />
           <div>
             <label for="castAgentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.agent', 'Agent')}
