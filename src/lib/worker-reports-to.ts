@@ -79,3 +79,45 @@ export function reportsToOf(
 export function reportsToSortKey(r: ReportsTo): string {
   return r.kind === 'none' ? '' : (r.name ?? r.id);
 }
+
+/**
+ * hadron-portal#1149 (hadron-server#2028, S12) — what the CAST recorded about
+ * who a worker reports to, read back from `Worker.teamPlacement`.
+ *
+ * Four answers, and the distinction is the whole point:
+ *
+ *   `unset`    — a legacy worker, or one cast with no choice while the server
+ *                still allowed that. Never on standby, never "no team".
+ *   `no-team`  — an explicit No team at cast (or a later clear).
+ *   `reports-to` — a head; `reportsToOf` names it.
+ *   `withheld` — the server masked the field (`null`). This is NOT `unset` and
+ *                NOT `no-team`: a masked null fabricates no intent and no head,
+ *                and the reportsTo pointer being null proves neither.
+ *
+ * An unrecognised value is withheld rather than guessed, so a placement the
+ * server adds later renders as nothing instead of as the wrong claim.
+ */
+export interface WorkerPlacementFields {
+  /** Present so callers can pass a whole Worker; never read: a null pointer proves nothing. */
+  reportsToWorkerId?: string | null;
+  teamPlacement?: 'UNSET' | 'NO_TEAM' | 'REPORTS_TO' | null;
+}
+
+export type TeamPlacement =
+  | { kind: 'withheld' }
+  | { kind: 'unset' }
+  | { kind: 'no-team' }
+  | { kind: 'reports-to' };
+
+export function teamPlacementOf(worker: WorkerPlacementFields | null | undefined): TeamPlacement {
+  switch (worker?.teamPlacement) {
+    case 'UNSET':
+      return { kind: 'unset' };
+    case 'NO_TEAM':
+      return { kind: 'no-team' };
+    case 'REPORTS_TO':
+      return { kind: 'reports-to' };
+    default:
+      return { kind: 'withheld' };
+  }
+}

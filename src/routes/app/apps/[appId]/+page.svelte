@@ -134,7 +134,7 @@
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
-  import { reportsToOf, reportsToSortKey } from '$lib/worker-reports-to';
+  import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
   import { enhance } from '$app/forms';
@@ -280,7 +280,18 @@
   const selectedCastAgent = $derived(
     installedAgents.find((a) => a.id === $castWorkerForm.agentId) ?? null,
   );
+  // hadron-portal#1149 — the heads a cast may name: this App's ACTIVE workers.
+  // A retired worker can't be a head (the server refuses it), so offering one
+  // would be offering a guaranteed failure. The choice itself starts EMPTY.
+  const castHeads = $derived(sortedStaff.filter((w) => !w.retiredAt));
+  const selectedCastHead = $derived(castHeads.find((w) => w.id === $castWorkerForm.reportsTo) ?? null);
   let castOpen = $state(false);
+  // App the in-flight cast was submitted for, and whether its post-cast roster refresh failed.
+  // Generation fence: bumped every time the composer's context is LEFT (App change), so a result
+  // that began in an earlier visit to the same App (A -> B -> A) is as stale as one from B.
+  let castGeneration = 0;
+  let castAttemptGeneration = -1;
+  let castRefreshFailed = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
   // <table>. Mirrors /app/account/api-keys, which is the same list for a
@@ -1149,6 +1160,7 @@
   });
 
   // ── Casting (#974) ───────────────────────────────────────────────────
+  const castFormId = `castWorker:${Math.random().toString(36).slice(2, 10)}`;
   const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
   const {
     form: castWorkerForm,
@@ -1157,22 +1169,67 @@
     submitting: castWorkerSubmitting,
     enhance: castWorkerEnhance,
   } = superForm<CastWorkerForm, App.Superforms.Message, CastWorkerForm>(initialCastWorkerForm, {
+    // Instance-bound id: Superforms applies an action result only to the live form whose id
+    // matches. A request begun by a Page that has since been destroyed carries the OLD id, so its
+    // late result cannot seed a fresh mount's form (review: lifetime of the result's owner).
+    id: castFormId,
     validators: zod4Client(castWorkerSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onUpdated: ({ form: f }) => {
+    // Fence by originating App (hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation):
+    // this page component is REUSED across /apps/A -> /apps/B, so A's slow answer
+    // must not close B's composer, empty B's draft or print "Worker cast." on B.
+    // The cast itself is already committed server-side; only its application to
+    // the screen is dropped (never replayed).
+    onSubmit: () => {
+      castAttemptGeneration = castGeneration;
+      castRefreshFailed = false;
+    },
+    onResult: ({ cancel }) => {
+      if (castAttemptGeneration !== castGeneration) cancel();
+    },
+    // The refresh is ours (not Superforms'), so a rejection after a CONFIRMED
+    // cast is caught here and told truthfully instead of stranding the form.
+    invalidateAll: false,
+    onUpdated: async ({ form: f }) => {
+      if (castAttemptGeneration !== castGeneration) return;
       // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
+        const attempt = castAttemptGeneration;
         castWorkerForm.update(
-          (current) => ({ ...current, agentId: '', name: '' }),
+          (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
           { taint: false },
         );
         castOpen = false;
+        try {
+          await invalidateAll();
+        } catch {
+          // The worker WAS cast; only the roster read failed. Never retry the mint.
+          if (attempt === castGeneration) castRefreshFailed = true;
+        }
       }
     },
+  });
+
+  // A choice made for App A must not supply App B's deliberate required choice.
+  let castContextApp = untrack(() => data.app.id);
+  $effect(() => {
+    const id = app.id;
+    if (id === castContextApp) return;
+    castContextApp = id;
+    castGeneration += 1;
+    untrack(() => {
+      castWorkerForm.update(
+        (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
+        { taint: false },
+      );
+      castWorkerMessage.set(undefined);
+      castOpen = false;
+      castRefreshFailed = false;
+    });
   });
 
   const initialRetireWorkerForm = untrack(() => submittedForm<RetireWorkerForm>(form, 'retireWorker') as RetireWorkerSuperform | null ?? data.retireWorkerForm);
@@ -1245,6 +1302,8 @@
   const castWorkerAgentError = $derived($castWorkerErrors.agentId?.[0] ?? null);
   // #760: the name is required since hadron-server#1050 removed the register.
   const castWorkerNameError = $derived($castWorkerErrors.name?.[0] ?? null);
+  const castWorkerReportingError = $derived($castWorkerErrors.reporting?.[0] ?? null);
+  const castWorkerHeadError = $derived($castWorkerErrors.reportsTo?.[0] ?? null);
   const castWorkerActionError = $derived(
     $castWorkerMessage?.type === 'error'
       ? $castWorkerMessage.text
@@ -2274,6 +2333,11 @@
           {castWorkerActionSuccess}
         </div>
       {/if}
+      {#if castRefreshFailed}
+        <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
+        </div>
+      {/if}
       {#if retireWorkerActionError}
         <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {retireWorkerActionError}
@@ -2345,6 +2409,7 @@
           class="max-w-lg space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
         >
           <input type="hidden" name="_kind" value={$castWorkerForm._kind} />
+          <input type="hidden" name="__superform_id" value={castFormId} />
           <div>
             <label for="castAgentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.agent', 'Agent')}
@@ -2353,6 +2418,7 @@
               id="castAgentId"
               name="agentId"
               bind:value={$castWorkerForm.agentId}
+              onchange={() => castWorkerForm.update((c) => ({ ...c, reporting: '', reportsTo: '' }), { taint: false })}
               aria-invalid={!!castWorkerAgentError}
               aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
@@ -2397,6 +2463,71 @@
               </p>
             {/if}
           </div>
+          <!-- hadron-portal#1149 — the user wants to say who this worker reports
+               to. Two deliberate choices, NEITHER preselected: a worker, or No
+               team. Omission is never No team and a coordinator is never
+               guessed, so there is no default and no "skip". -->
+          <fieldset
+            aria-describedby={castWorkerReportingError ? 'castReportingError' : undefined}
+            class="space-y-2"
+          >
+            <legend class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('app.staff.field.reports-to', 'Reports to')}
+            </legend>
+            <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
+              <input
+                type="radio"
+                name="reporting"
+                value="head"
+                bind:group={$castWorkerForm.reporting}
+                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
+              />
+              {t('app.staff.reports-to.choice.worker', 'A worker')}
+            </label>
+            {#if $castWorkerForm.reporting === 'head'}
+              <div class="pl-6">
+                <label for="castReportsTo" class="sr-only">
+                  {t('app.staff.reports-to.choice.worker.label', 'Worker this one reports to')}
+                </label>
+                <select
+                  id="castReportsTo"
+                  name="reportsTo"
+                  bind:value={$castWorkerForm.reportsTo}
+                  aria-invalid={!!castWorkerHeadError}
+                  aria-describedby={castWorkerHeadError ? 'castReportsToError' : undefined}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                >
+                  <option value="">{t('app.staff.reports-to.placeholder', '— Select a worker —')}</option>
+                  {#each castHeads as head (head.id)}
+                    <option value={head.id}>{head.name}{head.role ? ` (${head.role})` : ''}</option>
+                  {/each}
+                </select>
+                {#if selectedCastHead?.urn}
+                  <div class="mt-1 min-w-0"><Urn value={selectedCastHead.urn} type="worker" /></div>
+                {/if}
+                {#if castWorkerHeadError}
+                  <p id="castReportsToError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{castWorkerHeadError}</p>
+                {/if}
+              </div>
+            {/if}
+            <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
+              <input
+                type="radio"
+                name="reporting"
+                value="none"
+                bind:group={$castWorkerForm.reporting}
+                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
+              />
+              {t('app.staff.reports-to.choice.none', 'No team')}
+            </label>
+            {#if castWorkerReportingError}
+              <p id="castReportingError" role="alert" class="text-xs text-red-600 dark:text-red-400">{castWorkerReportingError}</p>
+            {:else}
+              <p class="text-xs text-zinc-400">
+                {t('app.staff.reports-to.help', 'Choose deliberately. A cast without a choice will be refused once enforcement is on.')}
+              </p>
+            {/if}
+          </fieldset>
           <div>
             <p class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.role', 'Role')}
@@ -2636,7 +2767,17 @@
                   >{#if rt.retired}{' '}<span class="text-zinc-500">{t('app.staff.reports-to.retired', '(retired)')}</span>{/if}
                 </span>
               {:else}
-                <span class="text-xs text-zinc-400">—</span>
+                <!-- hadron-portal#1149 — only an answered placement says
+                     anything: a masked null (withheld) stays a dash, because a
+                     null pointer proves neither UNSET nor an explicit No team. -->
+                {@const placement = teamPlacementOf(worker)}
+                {#if placement.kind === 'no-team'}
+                  <span class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.staff.reports-to.no-team', 'No team')}</span>
+                {:else if placement.kind === 'unset'}
+                  <span class="text-xs text-zinc-500">{t('app.staff.reports-to.unset', 'Not set')}</span>
+                {:else}
+                  <span class="text-xs text-zinc-400">—</span>
+                {/if}
               {/if}
             {:else if cell.column.id === 'lastActive'}
               <span class="text-xs text-zinc-500">{formatDate(worker.lastActiveAt)}</span>

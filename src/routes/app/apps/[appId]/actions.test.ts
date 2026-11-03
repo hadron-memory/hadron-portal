@@ -997,6 +997,7 @@ describe('castWorker action', () => {
       agentId: 'agent-1',
       name: 'Iris',
       role: 'backend-engineer',
+      reporting: 'none',
       promptOverride: 'stale must not be forwarded',
     });
     expect(result).toMatchObject({
@@ -1008,7 +1009,7 @@ describe('castWorker action', () => {
         appRef: 'app-1',
         agentRef: 'agent-1',
         name: 'Iris',
-
+        noTeam: true,
       },
     ]);
   });
@@ -1033,7 +1034,7 @@ describe('castWorker action', () => {
   it('omits role entirely from the schema, mutation and variables', async () => {
     // R222: no writable role survives at any layer of this form.
     mockRequest.mockResolvedValueOnce({});
-    await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '' });
+    await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: '', reporting: 'none' });
     const vars = mockRequest.mock.calls[0][1] as Record<string, unknown>;
     expect(vars).not.toHaveProperty('role');
     expect(castWorkerSchema.shape).not.toHaveProperty('role');
@@ -1065,7 +1066,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'taken', extensions: { code: 'WORKER_NAME_TAKEN' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       status: number;
       data: { form: { message: { type: string; text: string } } };
     };
@@ -1087,7 +1088,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ extensions: { code: 'WORKER_NAME_REQUIRED' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toMatch(/needs a name/i);
@@ -1099,7 +1100,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'WORKER_ROLE_OVERRIDE_REFUSED', extensions: { code: 'WORKER_ROLE_OVERRIDE_REFUSED' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: 'old-role' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', role: 'old-role', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toBe('A worker’s role comes from its agent. Reload this page and choose the agent for the role you need.');
@@ -1109,7 +1110,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ extensions: { code: 'WORKER_AGENT_NOT_INSTALLED' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-9', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-9', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('not installed');
@@ -1123,7 +1124,7 @@ describe('castWorker action', () => {
     mockRequest.mockRejectedValueOnce({
       response: { errors: [{ message: 'Forbidden', extensions: { code: 'FORBIDDEN' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toContain('permission to staff this App');
@@ -1137,7 +1138,7 @@ describe('castWorker action', () => {
       message: 'boom',
       response: { errors: [{ message: 'boom', extensions: { code: 'INTERNAL_SERVER_ERROR' } }] },
     });
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toBe('Something went wrong on our side.');
@@ -1147,7 +1148,7 @@ describe('castWorker action', () => {
     // No `response.errors` at all — reading extensions.code off it would yield
     // undefined and, with a catch-all, mislabel an outage.
     mockRequest.mockRejectedValueOnce(new Error('bad gateway'));
-    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris' })) as {
+    const result = (await runAction('castWorker', { agentId: 'agent-1', name: 'Iris', reporting: 'none' })) as {
       data: { form: { message: { text: string } } };
     };
     expect(result.data.form.message.text).toBe('bad gateway');
@@ -2253,5 +2254,131 @@ describe('load: Human Team roster states (portal#1148)', () => {
     const r = await loadMembers(() => Promise.resolve({ app: { members: [{ userId: 'u1', appId: 'app-1', role: 'owner' }] } }));
     expect(r).toMatchObject({ membersError: false, membersWithheld: false });
     expect(r.members).toHaveLength(1);
+  });
+});
+
+// ── hadron-portal#1149 (hadron-server#2028, S12): the cast takes a deliberate
+// reporting choice ────────────────────────────────────────────────────────────
+//
+// Gate: hrn:node pointers live on the issue (Xylon 6259594697, binding
+// 6259561416). The wire is PRESENCE-based, so these pins assert actual variable
+// omission, never `null` or a default `false`:
+//   head   → { reportsTo } and NO noTeam key
+//   no team → { noTeam: true } and NO reportsTo key
+//   neither → never sent: the portal always asks, in both server phases.
+describe('castWorker reporting choice (#1149)', () => {
+  const base = { agentId: 'agent-1', name: 'Iris' };
+
+  function sentVariables(): Record<string, unknown> {
+    return mockRequest.mock.calls[0][1] as Record<string, unknown>;
+  }
+
+  it('declares both arms as optional variables and selects teamPlacement, with no default', () => {
+    expect(CAST_WORKER_MUTATION).toMatch(/\$reportsTo:\s*ID(?![!\w])/);
+    expect(CAST_WORKER_MUTATION).toMatch(/\$noTeam:\s*Boolean(?![!\w])/);
+    expect(CAST_WORKER_MUTATION).toMatch(/reportsTo:\s*\$reportsTo/);
+    expect(CAST_WORKER_MUTATION).toMatch(/noTeam:\s*\$noTeam/);
+    expect(CAST_WORKER_MUTATION).not.toMatch(/\$noTeam:\s*Boolean\s*=/);
+    expect(CAST_WORKER_MUTATION).not.toMatch(/\$reportsTo:\s*ID\s*=/);
+    expect(CAST_WORKER_MUTATION).toContain('teamPlacement');
+  });
+
+  it('a chosen head sends reportsTo ALONE: the noTeam key is absent, not false or null', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    const result = await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' });
+    expect(result).toMatchObject({ form: { valid: true, message: { type: 'success' } } });
+    expect(sentVariables()).toEqual({ appRef: 'app-1', agentRef: 'agent-1', name: 'Iris', reportsTo: 'worker-ada' });
+    expect(Object.keys(sentVariables())).not.toContain('noTeam');
+  });
+
+  it('an explicit No team sends noTeam: true ALONE: the reportsTo key is absent, not null', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    await runAction('castWorker', { ...base, reporting: 'none' });
+    expect(sentVariables()).toEqual({ appRef: 'app-1', agentRef: 'agent-1', name: 'Iris', noTeam: true });
+    expect(Object.keys(sentVariables())).not.toContain('reportsTo');
+  });
+
+  it('No team drops a stale head left in the form, so the request never carries both arms', async () => {
+    mockRequest.mockResolvedValueOnce({});
+    await runAction('castWorker', { ...base, reporting: 'none', reportsTo: 'worker-ada' });
+    expect(sentVariables()).toEqual({ appRef: 'app-1', agentRef: 'agent-1', name: 'Iris', noTeam: true });
+  });
+
+  it('refuses a cast with no choice BEFORE the mutation: omission is never No team', async () => {
+    const result = (await runAction('castWorker', base)) as {
+      status: number;
+      data: { form: { errors: { reporting?: string[] } } };
+    };
+    expect(result.status).toBe(400);
+    expect(result.data.form.errors.reporting?.[0]).toMatch(/choose/i);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a head with a blank reference', { reporting: 'head', reportsTo: '   ' }],
+    ['a head with no reference', { reporting: 'head' }],
+    ['an unknown choice value', { reporting: 'false' }],
+    ['a blank choice', { reporting: '', reportsTo: 'worker-ada' }],
+  ])('refuses %s before the mutation, and never guesses an arm', async (_label, extra) => {
+    const result = (await runAction('castWorker', { ...base, ...extra })) as { status: number };
+    expect(result.status).toBe(400);
+    expect(mockRequest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['WORKER_TEAM_CHOICE_REQUIRED', 'Choose reportsTo or noTeam: true when casting a worker.'],
+    ['WORKER_TEAM_CHOICE_INVALID', 'reportsTo must be a non-empty worker reference, or noTeam must be true.'],
+    ['WORKER_TEAM_CHOICE_CONFLICT', 'Supply reportsTo or noTeam, never both.'],
+  ])('shows %s as the server’s frozen message, verbatim', async (code, message) => {
+    mockRequest.mockRejectedValueOnce({ response: { errors: [{ message, extensions: { code } }] } });
+    const result = (await runAction('castWorker', { ...base, reporting: 'none' })) as {
+      status: number;
+      data: { form: { message: { type: string; text: string } } };
+    };
+    expect(result.data.form.message).toEqual({ type: 'error', text: message });
+  });
+
+  it('shows WORKER_NOT_FOUND as copy that names no target, since the server conceals it', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'Worker not found in this App.', extensions: { code: 'WORKER_NOT_FOUND' } }] },
+    });
+    const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-zzz' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toBe('Worker not found in this App.');
+    expect(result.data.form.message.text).not.toContain('worker-zzz');
+  });
+
+  it('says a head cast is unavailable without promising a head always succeeds', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'unavailable', extensions: { code: 'WORKER_REPORTING_CAST_UNAVAILABLE' } }] },
+    });
+    const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toMatch(/not available|unavailable/i);
+    expect(result.data.form.message.text).toMatch(/no team/i);
+    expect(result.data.form.message.text).not.toBe('unavailable');
+  });
+
+  it('a refusal sends exactly one request: no automatic second cast under another choice', async () => {
+    mockRequest.mockRejectedValueOnce({
+      response: { errors: [{ message: 'x', extensions: { code: 'WORKER_REPORTING_CAST_UNAVAILABLE' } }] },
+    });
+    const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' })) as {
+      data: { form: { data: { reporting?: string; reportsTo?: string } } };
+    };
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+    // The user's choice stays available for correction.
+    expect(result.data.form.data).toMatchObject({ reporting: 'head', reportsTo: 'worker-ada' });
+  });
+
+  it('a transport failure is a failure, not a not-found or a retry', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('bad gateway'));
+    const result = (await runAction('castWorker', { ...base, reporting: 'head', reportsTo: 'worker-ada' })) as {
+      data: { form: { message: { text: string } } };
+    };
+    expect(result.data.form.message.text).toBe('bad gateway');
+    expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 });
