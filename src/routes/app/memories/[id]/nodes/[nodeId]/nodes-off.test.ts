@@ -44,11 +44,6 @@ function nodeRow(over: Record<string, unknown> = {}) {
   };
 }
 
-type Child = { id: string; loc: string; name: string; seq: number | null; commentSummary?: { openThreads: number } | null };
-const child = (loc: string, seq: number | null = null, threads = 0): { node: Child } => ({
-  node: { id: `id-${loc}`, loc, name: loc, seq, commentSummary: { openThreads: threads } },
-});
-
 async function runLoad(opts: {
   node?: Record<string, unknown>;
   /** The memory's nodes, answered as the server answers a loc-scoped findNodes. */
@@ -175,9 +170,10 @@ describe('node-detail load with the node list off (portal#1524)', () => {
   });
 
   it('children: the open-thread count is carried through', async () => {
-    mockRequest.mockImplementation(async (doc: string) => {
+    const tree = [{ id: 'id-a:b:leaf:x', loc: 'a:b:leaf:x', commentSummary: { openThreads: 2 } }];
+    mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
       if (doc === NODE_BY_ID_QUERY) return { node: nodeRow() };
-      if (doc === NODE_CHILDREN_QUERY) return { findNodes: { total: null, hits: [{ node: { ...child('a:b:leaf:x').node, commentSummary: { openThreads: 2 } } }] } };
+      if (doc === NODE_CHILDREN_QUERY) return fakeFindNodesChildren(tree, MEM)(vars);
       return { nodeBatch: { nodes: [], unavailable: [], omitted: [], truncated: false } };
     });
     const { load } = await import('./+page.server');
