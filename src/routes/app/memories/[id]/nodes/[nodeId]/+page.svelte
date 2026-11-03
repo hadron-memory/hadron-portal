@@ -2266,8 +2266,11 @@
     moreFailedFor = null;
     const page = await readMoreChildren(basePath, node.id, offset);
     if (morePendingFor === against) morePendingFor = null;
-    // A page read against older page data lands keyed to it, so
-    // `extraChildren` (and `moreChildrenFailed`) ignore it.
+    // A page read against older page data writes nothing: keying the render
+    // would hide it, but the one shared slot holds the NEWER page's own rows
+    // or failure, and overwriting it loses them
+    // (hrn:node:hadronmemory.com:hadron-portal:findings:keyed-render-slot-does-not-reject-stale-writes).
+    if (against !== data.children) return;
     if (!page) {
       moreFailedFor = against;
       return;

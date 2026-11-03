@@ -24,6 +24,9 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
   const raw = url.searchParams.getAll('offset');
   if (raw.length !== 1 || !/^\d+$/.test(raw[0])) return failed(400);
   const offset = Number(raw[0]);
+  // The read's offset is a GraphQL Int (signed 32-bit): refuse beyond it here,
+  // before any read, rather than as a failed upstream call.
+  if (offset > 2147483647) return failed(400);
 
   try {
     const client = gqlClient(locals.token);

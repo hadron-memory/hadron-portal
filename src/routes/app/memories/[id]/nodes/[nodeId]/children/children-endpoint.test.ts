@@ -51,6 +51,14 @@ describe('GET children (portal#1656 "Show more")', () => {
     expect(r.body.hasMore).toBe(true);
   });
 
+  it('reads at the largest GraphQL Int offset (the bound is not off by one)', async () => {
+    serve();
+    const r = await get('?offset=2147483647');
+    expect(r.status).toBe(200);
+    const call = mockRequest.mock.calls.find(([d]) => d === NODE_CHILDREN_QUERY)!;
+    expect(call[1]).toMatchObject({ offset: 2147483647 });
+  });
+
   it('the last page says no more', async () => {
     serve();
     const r = await get('?offset=40');
