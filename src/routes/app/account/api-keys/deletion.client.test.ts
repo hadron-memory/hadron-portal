@@ -9,7 +9,7 @@ import { captureUnhandledRejections, mountComponent, tick } from '$lib/test/moun
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhanced, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import Page from './+page.svelte';
 import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
 
@@ -258,4 +258,84 @@ it('renders a no-JS delete result into the fixed-role regions', async () => {
   const { root } = await mount({ form: { deletion: { type: 'success', text: 'API key deleted.' } } });
   expect(status(root).textContent).toBe('API key deleted.');
   expect(alert(root).textContent).toBe('');
+});
+
+describe('#1011 P2 (LOCAL 4ffcde15): a refresh that fails after a confirmed delete', () => {
+  it('keeps the confirmed deletion, says the list was not refreshed, offers a full GET reload, and nothing escapes', async () => {
+    const { root } = await mount();
+    await openDelete(root, 'live');
+    const update = vi.fn().mockResolvedValue(undefined);
+    const d = await submitEnhancedDeferred(deleteForm()!, { update }); flushSync(); await tick(1);
+    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('synthetic-refresh-failure'));
+    let settled: 'resolved' | 'rejected' | undefined;
+    const rejections = await captureUnhandledRejections(async () => {
+      await d.finish(success('API key deleted.')).then(() => { settled = 'resolved'; }, () => { settled = 'rejected'; });
+      await tick(3);
+    });
+    expect(settled).toBe('resolved');
+    expect(dialog()).toBeNull();
+    expect(status(root).textContent).toContain('API key deleted.');
+    expect(status(root).textContent).toMatch(/could not be refreshed/i);
+    expect(root.textContent).not.toMatch(/not deleted|could not confirm|synthetic-refresh-failure/i);
+    expect(root.querySelector('a[data-testid="key-list-reload"]')?.hasAttribute('data-sveltekit-reload')).toBe(true);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(update).not.toHaveBeenCalled();
+    expect(rejections).toEqual([]);
+  });
+
+  it('control: a refresh that succeeds shows no reload link', async () => {
+    const { root } = await mount();
+    await openDelete(root, 'live');
+    const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    await d.finish(success('API key deleted.')); await tick(3);
+    expect(status(root).textContent).toBe('API key deleted.');
+    expect(root.querySelector('[data-testid="key-list-reload"]')).toBeNull();
+  });
+});
+
+describe('#1011 P2 (LOCAL 4ffcde15): the shared notice belongs to the newest accepted action', () => {
+  const formOf = (root: HTMLElement, id: string) => root.querySelector<HTMLFormElement>(`[data-key-id="${id}"] form`)!;
+  const refusal = (key: 'visibility' | 'deletion', text: string): Result => ({ type: 'failure', status: 400, data: { [key]: { type: 'error', text } } });
+
+  it('an older Unhide reply landing after a newer Delete reply does not replace it', async () => {
+    const { root } = await mount();
+    const olderUpdate = vi.fn().mockResolvedValue(undefined);
+    const older = await submitEnhancedDeferred(formOf(root, 'hidden'), { update: olderUpdate }); flushSync(); await tick(1);
+    await openDelete(root, 'live');
+    const newer = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    await newer.finish(refusal('deletion', 'CURRENT DELETE REFUSAL')); await tick(3);
+    expect(alert(root).textContent).toBe('CURRENT DELETE REFUSAL');
+    await older.finish(refusal('visibility', 'OLDER HIDE REFUSAL')); await tick(3);
+    expect(alert(root).textContent).toBe('CURRENT DELETE REFUSAL');
+    expect(olderUpdate).not.toHaveBeenCalled();
+  });
+
+  it('an older Unhide reply landing while a newer Delete is pending stays out of the notice', async () => {
+    const { root } = await mount();
+    const older = await submitEnhancedDeferred(formOf(root, 'hidden')); flushSync(); await tick(1);
+    await openDelete(root, 'live');
+    const newer = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    await older.finish(refusal('visibility', 'OLDER HIDE REFUSAL')); await tick(3);
+    expect(alert(root).textContent).toBe('');
+    await newer.finish(refusal('deletion', 'CURRENT DELETE REFUSAL')); await tick(3);
+    expect(alert(root).textContent).toBe('CURRENT DELETE REFUSAL');
+  });
+
+  it('control: a lone Unhide reply still lands', async () => {
+    const { root } = await mount();
+    const only = await submitEnhancedDeferred(formOf(root, 'hidden')); flushSync(); await tick(1);
+    await only.finish(refusal('visibility', 'LONE HIDE REFUSAL')); await tick(3);
+    expect(alert(root).textContent).toBe('LONE HIDE REFUSAL');
+  });
+
+  it('an older SUCCESSFUL Unhide still refreshes the list but no longer takes the notice', async () => {
+    const { root } = await mount();
+    const older = await submitEnhancedDeferred(formOf(root, 'hidden')); flushSync(); await tick(1);
+    await openDelete(root, 'live');
+    await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    const before = navigationCalls.filter((c) => c.fn === 'invalidateAll').length;
+    await older.finish({ type: 'success', status: 200, data: { visibility: { type: 'success', text: 'OLDER UNHIDDEN' } } }); await tick(3);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(before + 1);
+    expect(status(root).textContent).not.toContain('OLDER UNHIDDEN');
+  });
 });
