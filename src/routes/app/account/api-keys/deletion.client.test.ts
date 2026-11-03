@@ -193,6 +193,9 @@ describe('#1011 P2: submit lifecycle', () => {
     expect(reload).not.toBeNull();
     expect(new URL(reload!.href).searchParams.get('includeHidden')).toBe('true');
     expect(reload!.closest('form')).toBeNull();
+    // Same-URL client navigation reuses kit's cached server data (has_changed in
+    // load_route), so only a full document load actually refetches the list.
+    expect(reload!.hasAttribute('data-sveltekit-reload')).toBe(true);
   });
 
   it('a thrown action (kit error result) is uncertain too', async () => {
@@ -209,7 +212,7 @@ describe('#1011 P2: submit lifecycle', () => {
     const { root, props } = await mount();
     props.data = { ...props.data, loadError: 'Could not load your API keys.' };
     await tick(2);
-    expect(root.querySelector('[data-testid="key-list-reload"]')).not.toBeNull();
+    expect(root.querySelector('[data-testid="key-list-reload"]')?.hasAttribute('data-sveltekit-reload')).toBe(true);
     expect(root.textContent).not.toMatch(/not deleted|rolled back/i);
   });
 });
