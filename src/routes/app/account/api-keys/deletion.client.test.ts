@@ -120,7 +120,19 @@ describe('#1011 P2: cancel sends nothing', () => {
     expect(cancel).not.toBeNull();
     expect(new URL(cancel!.href).searchParams.get('confirmDelete')).toBeNull();
     expect(new URL(cancel!.href).searchParams.get('includeHidden')).toBe('true');
+    // It is a real navigation, so the address loses ?confirmDelete too.
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    cancel!.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false);
     expect(root).toBeTruthy();
+  });
+
+  it('control: a menu-opened Cancel closes in place instead of navigating', async () => {
+    const { root } = await mount();
+    await openDelete(root, 'live');
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    dialog()!.querySelector<HTMLAnchorElement>('a[data-testid="delete-cancel"]')!.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(true);
   });
 });
 
