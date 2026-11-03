@@ -14,7 +14,7 @@ import Page from './+page.svelte';
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
 const summary = (name = 'Nightly digest') => ({ name, schedule: 'Runs daily.', reads: [], writes: [], tools: [], limits: [], cannotDo: [], flows: [] });
 const data = (state: string, ref = 'sch-1', name = 'Nightly digest', hash = 'h1') =>
-  ({ app, kind: 'SCHEDULE', ref, approval: { state, hash, depth: {}, summary: summary(name) } });
+  ({ app, kind: 'SCHEDULE', ref, approval: { state, hash, depth: {}, summary: summary(name) }, teamGrant: { status: 'hidden' } });
 const mounted: Mounted<Record<string, unknown>>[] = [];
 beforeEach(() => { resetNavigationCalls(); });
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
@@ -151,5 +151,61 @@ describe('the enhanced submit (BLIND P3)', () => {
     expect(form.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true);
     release(); await run; flushSync();
     expect(form.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(false);
+  });
+});
+
+// portal#1650: the grant's control always shows the stored state, because a
+// refused write re-reads it rather than leaving the page's guess on screen.
+describe('team roster and tasks', () => {
+  const live = { id: 'g1', createdAt: '2026-11-01T10:00:00.000Z', revokedAt: null, givenBy: { name: 'Ana', urn: 'hrn:user:ana' }, endedBy: null };
+  const withGrant = (teamGrant: unknown, ref = 'sch-1') => ({ ...data('ADOPTED', ref), teamGrant });
+  function openGrant(teamGrant: unknown) {
+    const props = reactiveProps<Record<string, unknown>>({ data: withGrant(teamGrant), form: null });
+    const m = mountComponent(Page as never, props);
+    mounted.push(m as never);
+    return { t: m.target as HTMLElement, props };
+  }
+  const form = (t: HTMLElement, action: string) => t.querySelector<HTMLFormElement>(`form[action="?/${action}"]`);
+  const reReads = () => navigationCalls.filter((c) => c.fn === 'invalidateAll').length;
+  const refused = { type: 'failure' as const, status: 403, data: { teamGrantRefused: true, teamGrantMessage: 'No.' } };
+  const given = { type: 'success' as const, status: 200, data: { teamGrant: 'given' } };
+
+  it('a refused Give re-reads the stored state and moves focus to what happened', async () => {
+    const { t, props } = openGrant({ status: 'ready', live: null, ended: null });
+    await submitEnhancedWithResult(form(t, 'give')!, refused, { update: async () => { props.form = refused.data; } });
+    await settle();
+    expect(reReads()).toBe(1);
+    expect(document.activeElement).toBe(t.querySelector('[data-testid="team-grant-outcome"]'));
+    expect(form(t, 'give')).not.toBeNull();
+    expect(form(t, 'give')!.querySelector('button')!.disabled).toBe(false);
+  });
+
+  it('a Give that went through is not re-read twice: the form update does it', async () => {
+    const { t } = openGrant({ status: 'ready', live: null, ended: null });
+    await submitEnhancedWithResult(form(t, 'give')!, given);
+    await settle();
+    expect(reReads()).toBe(0);
+  });
+
+  it('the control follows the stored state, not the last press', async () => {
+    const { t, props } = openGrant({ status: 'ready', live: null, ended: null });
+    props.data = withGrant({ status: 'ready', live, ended: null });
+    await settle();
+    expect(form(t, 'give')).toBeNull();
+    expect(form(t, 'stop')).not.toBeNull();
+    props.data = withGrant({ status: 'ready', live: null, ended: null });
+    await settle();
+    expect(form(t, 'stop')).toBeNull();
+    expect(form(t, 'give')).not.toBeNull();
+  });
+
+  it('ended grants are the shared table, with who ended them and when', async () => {
+    const ended = { id: 'g0', createdAt: '2026-10-01T10:00:00.000Z', revokedAt: '2026-10-20T10:00:00.000Z', givenBy: { name: 'Ana', urn: 'hrn:user:ana' }, endedBy: null };
+    const { t } = openGrant({ status: 'ready', live: null, ended: [ended] });
+    await settle();
+    const table = t.querySelector('[data-testid="team-grant-ended"] table');
+    expect(table).not.toBeNull();
+    expect(table!.textContent).toContain('Ana');
+    expect(table!.textContent).toContain('Oct 20, 2026');
   });
 });
