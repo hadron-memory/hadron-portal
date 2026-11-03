@@ -76,11 +76,11 @@ describe('#1011 P2: the confirmation names the key and its real consequences', (
     expect(new FormData(deleteForm()!).get('id')).toBe('live');
   });
 
-  it.each(['revoked', 'hidden'])('a %s key: promises no new revocation', async (id) => {
+  it.each(['revoked', 'hidden'])('a %s key: says it is already revoked and promises no new revocation (#1652 item 2)', async (id) => {
     const { root } = await mount();
     const d = await openDelete(root, id);
     expect(d?.textContent).toContain(`…pv${id}`);
-    expect(d?.textContent).toMatch(/no key is newly revoked/i);
+    expect(d?.textContent).toContain('This key is already revoked.');
     expect(d?.textContent).not.toMatch(/revoked first/i);
     expect(new FormData(deleteForm()!).get('id')).toBe(id);
   });
@@ -127,12 +127,13 @@ describe('#1011 P2: cancel sends nothing', () => {
     expect(root).toBeTruthy();
   });
 
-  it('control: a menu-opened Cancel closes in place instead of navigating', async () => {
+  it('control: a menu-opened Cancel is a button that closes in place, not a link (#1652 item 4)', async () => {
     const { root } = await mount();
     await openDelete(root, 'live');
-    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
-    dialog()!.querySelector<HTMLAnchorElement>('a[data-testid="delete-cancel"]')!.dispatchEvent(click);
-    expect(click.defaultPrevented).toBe(true);
+    expect(dialog()!.querySelector('a[data-testid="delete-cancel"]')).toBeNull();
+    dialog()!.querySelector<HTMLButtonElement>('button[type="button"][data-testid="delete-cancel"]')!.click(); await tick(2);
+    expect(dialog()).toBeNull();
+    expect(navigationCalls).toEqual([]);
   });
 });
 

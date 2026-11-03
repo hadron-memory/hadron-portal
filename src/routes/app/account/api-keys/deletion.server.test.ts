@@ -42,12 +42,10 @@ describe('#1011 P2 deletion wire', () => {
     for (const leaked of ['child', 'deletion-1', 'mintedKeyIds', 'revokedKeyIds']) expect(json).not.toContain(leaked);
   });
 
-  it('an already-revoked delete promises no new revocation', async () => {
+  it('an already-revoked delete says plainly that it was deleted, with no revocation claim (#1652 item 2)', async () => {
     request.mockResolvedValueOnce(record('own-revoked', [], ['child']));
     const result = await actions.delete(action({ id: 'own-revoked' }));
-    expect(notice(result)).toMatchObject({ type: 'success' });
-    expect(String(notice(result)?.text)).toMatch(/no key was newly revoked/i);
-    expect(String(notice(result)?.text)).not.toMatch(/revoked first/i);
+    expect(notice(result)).toMatchObject({ type: 'success', text: 'API key deleted.' });
   });
 
   it.each([{}, { id: '' }, { id: '   ' }])('refuses malformed input without a request: %j', async values => {
@@ -107,6 +105,18 @@ describe('#1011 P2 deletion wire', () => {
     expect(notice(result)).toMatchObject({ type: 'error', recover: true });
     expect(JSON.stringify(result)).not.toContain('synthetic-private-value');
   });
+
+  // #1652 item 7 (§10 at 44e51605): the refusal map is read by own property
+  // (#835). An inherited name must take the generic uncertain path, not throw.
+  it.each(['toString', 'constructor', '__proto__', 'hasOwnProperty'])(
+    'an inherited code (%s) is uncertain, never thrown and never a refusal', async code => {
+      request.mockRejectedValueOnce(refusal(code, 'synthetic-server-prose'));
+      const result = await actions.delete(action({ id: 'own-live' }));
+      expect(result).toMatchObject({ status: 502 });
+      expect(notice(result)).toMatchObject({ type: 'error', recover: true });
+      expect(String(notice(result)?.text)).toMatch(/could not confirm/i);
+      expect(JSON.stringify(result)).not.toContain('synthetic-server-prose');
+    });
 
   it('opens the no-JS confirmation only for a key in the loaded list', async () => {
     const page = { myUserApiKeysPage: { items: [{ id: 'own-live', keyPreview: 'abcd', label: null, createdAt: '2026-11-03T00:00:00Z', lastUsedAt: null, revokedAt: null, hiddenAt: null, issuedVia: 'portal' }], total: 1, hasMore: false } };
