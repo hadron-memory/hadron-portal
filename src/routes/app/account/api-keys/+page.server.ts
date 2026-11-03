@@ -13,6 +13,11 @@
  *     channel; see PR #145 review).
  *   - Mutation `setUserApiKeyHidden(id, hidden)` — reversible list visibility
  *     for a revoked own key; no deletion or token-validity change.
+ *   - Mutation `deleteUserApiKey(id)` (portal#1011 P2, hadron-server#3298,
+ *     hrn:node:hadronmemory.com:specs:cor:dmo:070:03) — delete an own live, revoked or hidden key. A live key
+ *     is revoked first with its live subtree; the keys it minted stay, revoked,
+ *     and only its direct children lose their parent. Returns one append-only
+ *     record with no secret or hash.
  *
  * Route home note: tasks.md T050 / T051 specified `/app/api-keys/` as the
  * URL; we landed at `/app/account/api-keys/` instead because user-scoped
@@ -32,17 +37,21 @@ import {
   CREATE_USER_API_KEY_MUTATION,
   REVOKE_USER_API_KEY_MUTATION,
   SET_USER_API_KEY_HIDDEN_MUTATION,
+  DELETE_USER_API_KEY_MUTATION,
 } from '$lib/server/queries';
 import { readAllPages, type PageEnvelope } from '$lib/server/paged';
 import type { UserApiKey, UserApiKeyCreateResult } from '$lib/types';
 import type { Actions, PageServerLoad } from './$types';
-import { createUserApiKeySchema, revokeUserApiKeySchema, keyVisibilitySchema } from './schema';
+import { createUserApiKeySchema, revokeUserApiKeySchema, keyVisibilitySchema, deleteUserApiKeySchema } from './schema';
 
 const createUserApiKeyFormAdapter = zod4(createUserApiKeySchema);
 const revokeUserApiKeyFormAdapter = zod4(revokeUserApiKeySchema);
 
 export const load: PageServerLoad = async ({ locals, url }) => {
   const includeHidden = url?.searchParams.get('includeHidden') === 'true';
+  // No-JS confirmation step for Delete: the row's <noscript> link asks for it.
+  // Honoured only for a key in the list this load returned.
+  const confirmDelete = url?.searchParams.get('confirmDelete') ?? null;
   const form = await superValidate({}, createUserApiKeyFormAdapter, { errors: false });
   const revokeForm = await superValidate({}, revokeUserApiKeyFormAdapter, { errors: false });
   // Auth gate: locals.token is set by the +layout.server.ts auth flow;
@@ -51,7 +60,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   // an empty list rather than blow up — the page renders the "no keys"
   // empty state, and the actions below 401 cleanly.
   if (!locals.token) {
-    return { keys: [] as UserApiKey[], includeHidden, form, revokeForm };
+    return { keys: [] as UserApiKey[], includeHidden, deleteTarget: null, form, revokeForm };
   }
   try {
     const client = gqlClient(locals.token);
@@ -61,7 +70,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
         .request<{ myUserApiKeysPage: PageEnvelope<UserApiKey> }>(MY_USER_API_KEYS_QUERY, { includeHidden, limit, offset })
         .then((r) => r.myUserApiKeysPage),
     );
-    return { keys, includeHidden, form, revokeForm };
+    const deleteTarget = confirmDelete && keys.some((k) => k.id === confirmDelete) ? confirmDelete : null;
+    return { keys, includeHidden, deleteTarget, form, revokeForm };
   } catch (e) {
     // Same posture as other portal loaders: surface a friendly empty
     // state on transient failure rather than crashing the page. The
@@ -69,6 +79,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
     return {
       keys: [] as UserApiKey[],
       includeHidden,
+      deleteTarget: null,
       form,
       revokeForm,
       loadError: extractGqlError(e, 'Could not load your API keys.'),
@@ -76,7 +87,48 @@ export const load: PageServerLoad = async ({ locals, url }) => {
   }
 };
 
+type DeletionNotice = { type: 'success' | 'error'; text: string; recover?: true };
+const deletionFailure = (status: number, text: string, recover = false) =>
+  fail(status, { deletion: (recover ? { type: 'error', text, recover: true } : { type: 'error', text }) as DeletionNotice });
+// Refusals the server answers before any write: fixed copy, never its prose.
+// Unknown and foreign ids are one NOT_FOUND, so they render identically.
+const DELETION_REFUSALS: Record<string, [number, () => string]> = {
+  NOT_FOUND: [404, i18n.deleteNotFound],
+  FORBIDDEN: [403, i18n.deleteForbidden],
+  UNAUTHENTICATED: [401, i18n.deleteSignedOut],
+  SESSION_EXPIRED: [401, i18n.deleteSignedOut],
+  BAD_USER_INPUT: [400, i18n.deleteInvalid],
+};
+const isIdList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
+
 export const actions: Actions = {
+  /**
+   * portal#1011 P2: delete one own key. Success is claimed only when the
+   * returned record names the submitted key; anything else that is not a
+   * classified refusal may or may not have committed, so it is UNCERTAIN and
+   * the page offers a GET reload, never a replay.
+   */
+  delete: async ({ request, locals }) => {
+    const values = await request.formData();
+    if (!locals.token) return deletionFailure(401, i18n.notSignedIn());
+    const parsed = deleteUserApiKeySchema.safeParse({ id: values.get('id') });
+    if (!parsed.success) return deletionFailure(400, i18n.deleteInvalid());
+    const { id } = parsed.data;
+    let data: { deleteUserApiKey?: { keyId?: unknown; revokedKeyIds?: unknown; mintedKeyIds?: unknown } | null };
+    try {
+      data = await gqlClient(locals.token).request(DELETE_USER_API_KEY_MUTATION, { id });
+    } catch (e) {
+      const refusal = DELETION_REFUSALS[extractGqlErrorCode(e) ?? ''];
+      if (refusal) return deletionFailure(refusal[0], refusal[1]());
+      return deletionFailure(502, i18n.deleteUncertain(), true);
+    }
+    const rec = data?.deleteUserApiKey;
+    if (!rec || rec.keyId !== id || !isIdList(rec.revokedKeyIds) || !isIdList(rec.mintedKeyIds)) {
+      return deletionFailure(502, i18n.deleteUncertain(), true);
+    }
+    const text = rec.revokedKeyIds.length > 0 ? i18n.deleteSuccessLive() : i18n.deleteSuccessRevoked();
+    return { deletion: { type: 'success', text } as DeletionNotice };
+  },
   visibility: async ({ request, locals }) => {
     const values = await request.formData();
     const parsed = keyVisibilitySchema.safeParse({ id: values.get('id'), hidden: values.get('hidden') });

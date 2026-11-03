@@ -17,7 +17,7 @@
   Constitution Principle III; no hardcoded copy.
 -->
 <script lang="ts">
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -27,6 +27,7 @@
   import RawKeyReveal from '$lib/components/RawKeyReveal.svelte';
   import NodeActionsMenu from '$lib/components/NodeActionsMenu.svelte';
   import ApiKeyVisibilityAction from '$lib/components/ApiKeyVisibilityAction.svelte';
+  import ApiKeyDeleteDialog from '$lib/components/ApiKeyDeleteDialog.svelte';
   import { t } from '$lib/i18n/t';
   import { scopedActionError } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -42,22 +43,29 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const keys = $derived(data.keys);
-  type VisibilityNotice = { type: 'success' | 'error'; text: string };
+  // One notice for every row action (Hide/Unhide and, portal#1011 P2, Delete).
+  // `recover` marks an outcome the server did not confirm: offer a GET reload.
+  type VisibilityNotice = { type: 'success' | 'error'; text: string; recover?: boolean };
   // 'cleared' while an accepted Hide/Unhide submit is pending: both feedback
   // regions stay empty (the row's own status says Saving…), so the result lands
   // in an empty region and is a change even when its text equals the last one
   // (#1359, #1500 fix head). It also hides a no-JS result the submit supersedes.
   let visibilityNotice = $state<VisibilityNotice | 'cleared' | null>(null);
   let hiddenToggle: HTMLInputElement;
-  const visibilityFeedback = $derived(visibilityNotice === 'cleared' ? null
-    : visibilityNotice ?? (form && 'visibility' in form ? form.visibility : null));
+  const visibilityFeedback = $derived<VisibilityNotice | null>(visibilityNotice === 'cleared' ? null
+    : visibilityNotice ?? (form && 'visibility' in form ? form.visibility ?? null
+      : form && 'deletion' in form ? form.deletion as VisibilityNotice : null));
   // Toggling Show hidden keys is an in-page navigation to another view. It drops
   // the shown result, and a reply to a submit started before it is not shown.
   let view = 0;
+  // The newest ACCEPTED row action owns the one notice (portal#1011 P2, LOCAL
+  // 4ffcde15): an older reply in the same view must not overwrite a newer one.
+  // Its write still landed, so it still refreshes; it just stops speaking.
+  let attempt = 0;
   const includeHiddenView = $derived(data.includeHidden);
   $effect(() => {
     includeHiddenView;
-    untrack(() => { view++; visibilityNotice = null; });
+    untrack(() => { view++; visibilityNotice = null; deleteTargetId = null; });
   });
   // A destroyed page never sees a view change, so its scope ends with it: a
   // late reply must not reach the page mounted after it (#1500).
@@ -65,6 +73,7 @@
   onDestroy(() => { view++; for (const end of focusScopes) end(); });
   function startVisibility(formElement: HTMLFormElement) {
     const startedIn = view;
+    const mine = ++attempt;
     const origin = document.activeElement;
     const ownedFocus = !!origin && formElement.contains(origin);
     let lastFocus = origin instanceof HTMLElement ? origin : null;
@@ -84,7 +93,7 @@
     };
     focusScopes.add(end);
     visibilityNotice = 'cleared';
-    const current = () => startedIn === view;
+    const current = () => startedIn === view && mine === attempt;
     return {
       current,
       deliver: (notice: VisibilityNotice) => {
@@ -105,6 +114,33 @@
     };
   }
   const loadError = $derived('loadError' in data ? data.loadError : undefined);
+
+  // portal#1011 P2: Delete. The dialog's target comes from the row menu, or,
+  // without JS, from the `?confirmDelete` step the load resolved to an own key.
+  let deleteTargetId = $state<string | null>(null);
+  let urlTargetDismissed = $state(false);
+  const urlDeleteTarget = $derived('deleteTarget' in data ? (data.deleteTarget as string | null) : null);
+  const deleteFromUrl = $derived(deleteTargetId === null && !urlTargetDismissed && urlDeleteTarget !== null);
+  const deleteTarget = $derived.by(() => {
+    const id = deleteTargetId ?? (deleteFromUrl ? urlDeleteTarget : null);
+    return id === null ? null : keys.find((k) => k.id === id) ?? null;
+  });
+  // The current view, as a GET: Cancel without JS, and recovery after an
+  // unconfirmed or unrefreshed delete. Never a replay of the delete.
+  const viewHref = $derived(data.includeHidden ? '?includeHidden=true' : '?');
+  const confirmDeleteHref = (id: string) =>
+    `?${data.includeHidden ? 'includeHidden=true&' : ''}confirmDelete=${encodeURIComponent(id)}`;
+  function openDelete(id: string) {
+    deleteTargetId = id;
+  }
+  function closeDelete({ returnFocus }: { returnFocus: boolean }) {
+    const id = deleteTarget?.id;
+    deleteTargetId = null;
+    urlTargetDismissed = true;
+    if (!returnFocus || !id) return;
+    void tick().then(() => document.querySelector<HTMLElement>(`[data-key-id="${CSS.escape(id)}"] button[aria-haspopup="menu"]`)?.focus());
+  }
+  const showReload = $derived(!!loadError || !!visibilityFeedback?.recover);
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
@@ -378,6 +414,9 @@
       <div class="text-sm">
         <p id="key-visibility-status" role="status" class="text-green-700 dark:text-green-300">{visibilityFeedback?.type === 'success' ? visibilityFeedback.text : ''}</p>
         <p id="key-visibility-alert" role="alert" class="text-red-700 dark:text-red-300">{visibilityFeedback?.type === 'error' ? visibilityFeedback.text : ''}</p>
+        {#if showReload}
+          <a href={viewHref} data-testid="key-list-reload" data-sveltekit-reload class="text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400">{i18n.reloadList()}</a>
+        {/if}
       </div>
     </div>
     {#if keys.length === 0}
@@ -410,15 +449,16 @@
             {#if !isRevoked}
               <!-- #1020: the row's actions live in the shared ⋯ menu. -->
               <NodeActionsMenu
-                actions={[{ id: 'revoke', label: i18n.revokeButton(), danger: true }]}
-                onselect={() => openConfirm(key.id, key.keyPreview)}
+                actions={[{ id: 'revoke', label: i18n.revokeButton(), danger: true }, { id: 'delete', label: i18n.deleteAction(), danger: true }]}
+                onselect={(action) => action === 'delete' ? openDelete(key.id) : openConfirm(key.id, key.keyPreview)}
                 label={t('api-keys.actions.label', 'Actions for key …{key}', { key: key.keyPreview })}
                 fixed
                 compact
               />
             {:else}
-              <ApiKeyVisibilityAction id={key.id} preview={key.keyPreview} hidden={!!key.hiddenAt} includeHidden={data.includeHidden} onstart={startVisibility} />
+              <ApiKeyVisibilityAction id={key.id} preview={key.keyPreview} hidden={!!key.hiddenAt} includeHidden={data.includeHidden} onstart={startVisibility} ondelete={() => openDelete(key.id)} />
             {/if}
+            <noscript><a href={confirmDeleteHref(key.id)} class="text-xs text-red-600 underline">{i18n.deleteAction()}</a></noscript>
           {:else}
             {@const f = fmt[cell.column.id]}
             <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
@@ -473,4 +513,18 @@
       </form>
     </div>
   </div>
+{/if}
+
+<!-- portal#1011 P2: Delete confirmation; one instance per target. -->
+{#if deleteTarget}
+  {#key deleteTarget.id}
+    <ApiKeyDeleteDialog
+      target={deleteTarget}
+      includeHidden={data.includeHidden}
+      cancelHref={viewHref}
+      fromUrl={deleteFromUrl}
+      onstart={startVisibility}
+      onclose={closeDelete}
+    />
+  {/key}
 {/if}
