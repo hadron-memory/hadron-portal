@@ -9,12 +9,13 @@ import { captureUnhandledRejections, mountComponent, tick } from '$lib/test/moun
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhanced, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { stubKeyList } from '$lib/test/stubs/key-list-fetch';
 import Page from './+page.svelte';
 import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
 
 let mounted: ReturnType<typeof mountComponent> | undefined;
-afterEach(() => { mounted?.unmount(); mounted = undefined; vi.restoreAllMocks(); resetNavigationCalls(); });
+afterEach(() => { mounted?.unmount(); mounted = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); resetNavigationCalls(); });
 
 const REVOKED = '2026-10-28T00:00:00Z';
 const key = (id: string, revokedAt: string | null, hiddenAt: string | null = null, label: string | null = `label-${id}`) =>
@@ -52,6 +53,9 @@ const deleteForm = () => dialog()?.querySelector<HTMLFormElement>('form[action^=
 const status = (root: HTMLElement) => root.querySelector<HTMLElement>('#key-visibility-status')!;
 const alert = (root: HTMLElement) => root.querySelector<HTMLElement>('#key-visibility-alert')!;
 const success = (text: string): Result => ({ type: 'success', status: 200, data: { deletion: { type: 'success', text } } });
+const withoutKey = (id: string) => allKeys().filter((k) => k.id !== id);
+const invalidations = () => navigationCalls.filter((c) => c.fn === 'invalidateAll');
+const rowIds = (root: HTMLElement) => [...root.querySelectorAll<HTMLElement>('[data-key-id]')].map((r) => r.dataset.keyId);
 
 describe('#1011 P2: Delete is offered on every own key', () => {
   it.each([['live', ['Revoke', 'Delete']], ['revoked', ['Hide', 'Delete']], ['hidden', ['Unhide', 'Delete']]] as const)(
@@ -160,6 +164,7 @@ describe('#1011 P2: submit lifecycle', () => {
   });
 
   it('a confirmed delete closes the dialog, announces once, refreshes once and applies once', async () => {
+    const list = stubKeyList({ keys: withoutKey('live') });
     const { root } = await mount();
     await openDelete(root, 'live');
     const update = vi.fn().mockResolvedValue(undefined);
@@ -169,18 +174,21 @@ describe('#1011 P2: submit lifecycle', () => {
     expect(dialog()).toBeNull();
     expect(status(root).textContent).toBe('API key deleted.');
     expect(alert(root).textContent).toBe('');
-    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(list.calls).toHaveLength(1);
+    expect(invalidations()).toHaveLength(0);
     expect(update).toHaveBeenCalledExactlyOnceWith({ reset: false, invalidateAll: false });
   });
 
   it('a refusal closes the dialog and lands in the alert without refreshing', async () => {
+    const list = stubKeyList({ keys: [] });
     const { root } = await mount();
     await openDelete(root, 'live');
     const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
     await d.finish({ type: 'failure', status: 404, data: { deletion: { type: 'error', text: 'That key was not found.' } } }); await tick(3);
     expect(dialog()).toBeNull();
     expect(alert(root).textContent).toBe('That key was not found.');
-    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
+    expect(list.calls).toHaveLength(0);
+    expect(invalidations()).toHaveLength(0);
     expect(root.querySelector('[data-testid="key-list-reload"]')).toBeNull();
   });
 
@@ -232,6 +240,7 @@ describe('#1011 P2: a reply never reaches a view or page it did not start in', (
   });
 
   it('control: the same reply at the same position, with no view change, is shown', async () => {
+    stubKeyList({ keys: withoutKey('revoked') });
     const { root } = await mount();
     await openDelete(root, 'revoked');
     const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
@@ -263,11 +272,11 @@ it('renders a no-JS delete result into the fixed-role regions', async () => {
 
 describe('#1011 P2 (LOCAL 4ffcde15): a refresh that fails after a confirmed delete', () => {
   it('keeps the confirmed deletion, says the list was not refreshed, offers a full GET reload, and nothing escapes', async () => {
+    const list = stubKeyList({ reject: new Error('synthetic-refresh-failure') });
     const { root } = await mount();
     await openDelete(root, 'live');
     const update = vi.fn().mockResolvedValue(undefined);
     const d = await submitEnhancedDeferred(deleteForm()!, { update }); flushSync(); await tick(1);
-    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('synthetic-refresh-failure'));
     let settled: 'resolved' | 'rejected' | undefined;
     const rejections = await captureUnhandledRejections(async () => {
       await d.finish(success('API key deleted.')).then(() => { settled = 'resolved'; }, () => { settled = 'rejected'; });
@@ -279,12 +288,14 @@ describe('#1011 P2 (LOCAL 4ffcde15): a refresh that fails after a confirmed dele
     expect(status(root).textContent).toMatch(/could not be refreshed/i);
     expect(root.textContent).not.toMatch(/not deleted|could not confirm|synthetic-refresh-failure/i);
     expect(root.querySelector('a[data-testid="key-list-reload"]')?.hasAttribute('data-sveltekit-reload')).toBe(true);
-    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(1);
+    expect(list.calls).toHaveLength(1);
+    expect(invalidations()).toHaveLength(0);
     expect(update).not.toHaveBeenCalled();
     expect(rejections).toEqual([]);
   });
 
   it('control: a refresh that succeeds shows no reload link', async () => {
+    stubKeyList({ keys: withoutKey('live') });
     const { root } = await mount();
     await openDelete(root, 'live');
     const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
@@ -338,5 +349,96 @@ describe('#1011 P2 (LOCAL 4ffcde15): the shared notice belongs to the newest acc
     await older.finish({ type: 'success', status: 200, data: { visibility: { type: 'success', text: 'OLDER UNHIDDEN' } } }); await tick(3);
     expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(before + 1);
     expect(status(root).textContent).not.toContain('OLDER UNHIDDEN');
+  });
+});
+
+// #1653 QA P2 (Colette, e7ccec27, native browser): a rejected __data.json after
+// a confirmed delete replaced the page with kit's generic 500 boundary, because
+// invalidateAll() does not reject — kit renders the error page and unmounts the
+// caller first (hrn:node:hadronmemory.com:hadron-portal:findings:refresh-failure-lands-on-the-error-page).
+// The list's re-read is the page's own request, so its failure is ours to report.
+describe('#1653 QA P2: a confirmed delete re-reads the list itself, never through the router', () => {
+  it('re-reads the current view and shows its answer, with no invalidateAll', async () => {
+    const list = stubKeyList({ keys: withoutKey('live') });
+    const { root } = await mount();
+    expect(rowIds(root)).toContain('live');
+    await openDelete(root, 'live');
+    const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    await d.finish(success('API key deleted.')); await tick(4);
+    expect(list.calls).toEqual(['/app/account/api-keys/list?includeHidden=true']);
+    expect(invalidations()).toHaveLength(0);
+    expect(rowIds(root)).toEqual(['revoked', 'hidden']);
+    expect(status(root).textContent).toBe('API key deleted.');
+  });
+
+  it('a view without hidden keys re-reads without includeHidden', async () => {
+    const list = stubKeyList({ keys: [key('revoked', REVOKED)] });
+    const { root } = await mount({ includeHidden: false, keys: [key('live', null), key('revoked', REVOKED)] });
+    await openDelete(root, 'live');
+    const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    await d.finish(success('API key deleted.')); await tick(4);
+    expect(list.calls).toEqual(['/app/account/api-keys/list']);
+    expect(rowIds(root)).toEqual(['revoked']);
+  });
+
+  it.each([
+    ['a network failure', { reject: new TypeError('Failed to fetch') }],
+    ['an HTTP 500', { status: 500 }],
+    ['an HTTP 401', { status: 401 }],
+    ['a failed read', { failed: true as const }],
+    ['a malformed payload', { body: { keys: 'nope' } }],
+    ['a malformed key', { body: { keys: [{ id: 7 }] } }],
+  ] as const)('%s keeps the page, the confirmed deletion and one Reload, in the attention tone', async (_, answer) => {
+    const list = stubKeyList(answer as never);
+    const { root } = await mount();
+    await openDelete(root, 'live');
+    const update = vi.fn().mockResolvedValue(undefined);
+    const d = await submitEnhancedDeferred(deleteForm()!, { update }); flushSync(); await tick(1);
+    const rejections = await captureUnhandledRejections(async () => { await d.finish(success('API key deleted.')); await tick(4); });
+    expect(rejections).toEqual([]);
+    expect(list.calls).toHaveLength(1);
+    expect(invalidations()).toHaveLength(0);
+    expect(status(root).getAttribute('data-tone')).toBe('attention');
+    expect(status(root).textContent).toMatch(/^API key deleted\..*could not be refreshed/i);
+    expect(root.querySelectorAll('a[data-testid="key-list-reload"]')).toHaveLength(1);
+    expect(update).not.toHaveBeenCalled();
+    // The page was not replaced: its rows (stale, as the notice says) are still there.
+    expect(rowIds(root)).toContain('revoked');
+  });
+
+  it('a later load replaces the re-read list: the working copy never outlives the data it was read against', async () => {
+    stubKeyList({ keys: withoutKey('live') });
+    const { root, props } = await mount();
+    await openDelete(root, 'live');
+    const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    await d.finish(success('API key deleted.')); await tick(4);
+    expect(rowIds(root)).toEqual(['revoked', 'hidden']);
+    props.data = { ...props.data, keys: [key('fresh', null)] }; await tick(2);
+    expect(rowIds(root)).toEqual(['fresh']);
+  });
+
+  it('an answer that lands after the view changed is not shown; the re-read was of the view current at reply time', async () => {
+    const list = stubKeyList({ keys: [key('stale-answer', null)] });
+    const { root, props } = await mount();
+    await openDelete(root, 'live');
+    const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    const release = list.hold();
+    const done = d.finish(success('API key deleted.')); await tick(2);
+    props.data = { ...props.data, includeHidden: false, keys: [key('new-view', null)] }; props.form = null; await tick(2);
+    release(); await done; await tick(4);
+    expect(rowIds(root)).toEqual(['new-view']);
+  });
+
+  it('after teardown the reply refreshes whatever page is current through the router, and says nothing', async () => {
+    const list = stubKeyList({ keys: [] });
+    const first = await mount();
+    await openDelete(first.root, 'live');
+    const d = await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    first.m.unmount(); mounted = undefined;
+    const fresh = await mount();
+    await d.finish(success('DESTROYED PAGE RESULT')); await tick(4);
+    expect(list.calls).toHaveLength(0);
+    expect(invalidations()).toHaveLength(1);
+    expect(fresh.root.textContent).not.toContain('DESTROYED PAGE RESULT');
   });
 });

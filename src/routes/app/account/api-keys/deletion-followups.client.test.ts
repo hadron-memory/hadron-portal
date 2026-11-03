@@ -11,12 +11,13 @@ import { mountComponent, tick } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { setStubPage } from '$lib/test/stubs/app-stores';
-import { holdInvalidateAll, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { stubKeyList } from '$lib/test/stubs/key-list-fetch';
 import Page from './+page.svelte';
 import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
 
 let mounted: ReturnType<typeof mountComponent> | undefined;
-afterEach(() => { mounted?.unmount(); mounted = undefined; vi.restoreAllMocks(); resetNavigationCalls(); });
+afterEach(() => { mounted?.unmount(); mounted = undefined; vi.restoreAllMocks(); vi.unstubAllGlobals(); resetNavigationCalls(); });
 
 const REVOKED = '2026-10-28T00:00:00Z';
 const key = (id: string, revokedAt: string | null, hiddenAt: string | null = null) =>
@@ -133,11 +134,12 @@ describe('#1652 item 4: Cancel is a button in the JS flow, a link only without J
 
 describe('#1652 item 5: an older action\'s held refresh never takes focus from a newer dialog', () => {
   it('confirmed delete → held refresh → newer dialog opened → release: the newer Cancel keeps focus', async () => {
+    const list = stubKeyList({ keys: allKeys().filter((k) => k.id !== 'live') });
     const { root, props } = await mount();
     await openDelete(root, 'live');
     const update = kitUpdate(props);
     const d = await submitEnhancedDeferred(deleteForm(), { update }); flushSync(); await tick(1);
-    const release = holdInvalidateAll();
+    const release = list.hold();
     const done = d.finish(success('API key deleted.')); await tick(3);
     expect(dialog()).toBeNull();
     expect(status(root).textContent).toBe('API key deleted.');
@@ -152,22 +154,24 @@ describe('#1652 item 5: an older action\'s held refresh never takes focus from a
   });
 
   it('control at the same position: with no newer dialog, the release applies the action once', async () => {
+    const list = stubKeyList({ keys: allKeys().filter((k) => k.id !== 'live') });
     const { root, props } = await mount();
     await openDelete(root, 'live');
     const update = kitUpdate(props);
     const d = await submitEnhancedDeferred(deleteForm(), { update }); flushSync(); await tick(1);
-    const release = holdInvalidateAll();
+    const release = list.hold();
     const done = d.finish(success('API key deleted.')); await tick(3);
     release(); await done; await tick(3);
     expect(update).toHaveBeenCalledExactlyOnceWith({ reset: false, invalidateAll: false });
   });
 
   it('control at the same position: a newer dialog that was cancelled before the release does not fence it', async () => {
+    const list = stubKeyList({ keys: allKeys().filter((k) => k.id !== 'live') });
     const { root, props } = await mount();
     await openDelete(root, 'live');
     const update = kitUpdate(props);
     const d = await submitEnhancedDeferred(deleteForm(), { update }); flushSync(); await tick(1);
-    const release = holdInvalidateAll();
+    const release = list.hold();
     const done = d.finish(success('API key deleted.')); await tick(3);
     await openDelete(root, 'other');
     cancelOf().click(); await tick(2);
@@ -206,8 +210,9 @@ describe('#1652 item 6: a refresh that failed after a confirmed delete asks for 
     expect(region.getAttribute('data-tone')).toBe('success');
     await openDelete(root, 'live');
     const d = await submitEnhancedDeferred(deleteForm()); flushSync(); await tick(1);
-    navigationHooks.onInvalidateAll = () => Promise.reject(new Error('synthetic-refresh-failure'));
+    stubKeyList({ reject: new Error('synthetic-refresh-failure') });
     await d.finish(success('API key deleted.')); await tick(3);
+    expect(navigationCalls.filter((c) => c.fn === 'invalidateAll')).toHaveLength(0);
     expect(status(root)).toBe(region);
     expect(region.getAttribute('role')).toBe('status');
     expect(region.getAttribute('data-tone')).toBe('attention');
@@ -219,6 +224,7 @@ describe('#1652 item 6: a refresh that failed after a confirmed delete asks for 
   });
 
   it('control: a refresh that succeeds keeps the success tone', async () => {
+    stubKeyList({ keys: allKeys().filter((k) => k.id !== 'live') });
     const { root } = await mount();
     await openDelete(root, 'live');
     const d = await submitEnhancedDeferred(deleteForm()); flushSync(); await tick(1);
@@ -258,6 +264,7 @@ describe('#1652 item 8: a stale delete reply never closes a newer dialog', () =>
   });
 
   it('control: the same reply with its own dialog still open closes that dialog', async () => {
+    stubKeyList({ keys: allKeys().filter((k) => k.id !== 'revoked') });
     const { root } = await mount();
     await openDelete(root, 'revoked');
     const d = await submitEnhancedDeferred(deleteForm()); flushSync(); await tick(1);
