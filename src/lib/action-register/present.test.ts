@@ -17,6 +17,8 @@ describe('paging from the URL (cor:api:120:04)', () => {
     expect(parseLimit('500')).toBe(500);
     expect(parseLimit('201')).toBe(201);
     expect(parseLimit('199')).toBe(199);
+    // GraphQL Int is 32-bit: a larger number must not turn the page into a failure.
+    expect(parseLimit('3000000000')).toBe(2147483647);
     // The server serves 200 rows for limit 500; the step must be 200 or codes 200..499 are skipped.
     const asked = parseLimit('500');
     expect(pageClaims({ offset: 0, limit: asked, total: 900, hasMore: true }).nextOffset).toBe(200);
