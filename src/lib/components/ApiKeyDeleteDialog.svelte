@@ -66,7 +66,16 @@
           close();
           // The delete landed, so refresh whatever page is current; an ended
           // scope still gets a fresh list, never the old notice or focus.
-          if (result.type === 'success') await invalidateAll();
+          if (result.type === 'success') {
+            try {
+              await invalidateAll();
+            } catch {
+              // The delete is confirmed; only the list is stale. Say so, offer
+              // the GET reload, and never relabel it uncertain or replay it.
+              if (notice) deliver({ ...notice, text: `${notice.text} ${i18n.deleteRefreshFailed()}`, recover: true });
+              return;
+            }
+          }
           if (!current()) return;
           await update({ reset: false, invalidateAll: false });
           await tick();

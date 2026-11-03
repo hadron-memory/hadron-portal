@@ -58,6 +58,10 @@
   // Toggling Show hidden keys is an in-page navigation to another view. It drops
   // the shown result, and a reply to a submit started before it is not shown.
   let view = 0;
+  // The newest ACCEPTED row action owns the one notice (portal#1011 P2, LOCAL
+  // 4ffcde15): an older reply in the same view must not overwrite a newer one.
+  // Its write still landed, so it still refreshes; it just stops speaking.
+  let attempt = 0;
   const includeHiddenView = $derived(data.includeHidden);
   $effect(() => {
     includeHiddenView;
@@ -69,6 +73,7 @@
   onDestroy(() => { view++; for (const end of focusScopes) end(); });
   function startVisibility(formElement: HTMLFormElement) {
     const startedIn = view;
+    const mine = ++attempt;
     const origin = document.activeElement;
     const ownedFocus = !!origin && formElement.contains(origin);
     let lastFocus = origin instanceof HTMLElement ? origin : null;
@@ -88,7 +93,7 @@
     };
     focusScopes.add(end);
     visibilityNotice = 'cleared';
-    const current = () => startedIn === view;
+    const current = () => startedIn === view && mine === attempt;
     return {
       current,
       deliver: (notice: VisibilityNotice) => {
@@ -135,7 +140,7 @@
     if (!returnFocus || !id) return;
     void tick().then(() => document.querySelector<HTMLElement>(`[data-key-id="${CSS.escape(id)}"] button[aria-haspopup="menu"]`)?.focus());
   }
-  const showReload = $derived(!!loadError || (visibilityFeedback?.type === 'error' && !!visibilityFeedback.recover));
+  const showReload = $derived(!!loadError || !!visibilityFeedback?.recover);
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 

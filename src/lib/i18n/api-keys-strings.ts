@@ -46,6 +46,7 @@ export const apiKeysStrings = {
   deleteForbidden: (): string => t('api-keys.delete.forbidden', 'You can delete only your own keys, signed in as yourself. Nothing was deleted.'),
   deleteSignedOut: (): string => t('api-keys.delete.signed-out', 'Your sign-in has ended, so nothing was deleted. Sign in again to continue.'),
   deleteUncertain: (): string => t('api-keys.delete.uncertain', 'We could not confirm whether the key was deleted. Reload the list to check before you try again.'),
+  deleteRefreshFailed: (): string => t('api-keys.delete.refresh-failed', 'The list could not be refreshed, so it may still show the key. Reload the list.'),
   reloadList: (): string => t('api-keys.reload', 'Reload the list'),
   /** Page-header heading. */
   pageHeading: (): string => t('api-keys.page.heading', 'API keys'),
