@@ -45,8 +45,8 @@ describe('definition register section', () => {
   });
   it('uses the chosen App and the URL paging; an App outside the options is not chosen', async () => {
     answer([a1, a2]);
-    expect(await run('app=app-2&limit=500&offset=40')).toMatchObject({ app: a2, limit: 200, offset: 40 });
-    expect(calls()[0][1]).toMatchObject({ appRef: 'app-2', limit: 200, offset: 40 });
+    expect(await run('app=app-2&limit=500&offset=40')).toMatchObject({ app: a2, limit: 500, offset: 40 });
+    expect(calls()[0][1]).toMatchObject({ appRef: 'app-2', limit: 500, offset: 40 });
     request.mockClear();
     expect(await run('app=app-9')).toMatchObject({ app: null, index: null });
     expect(calls()).toHaveLength(0);

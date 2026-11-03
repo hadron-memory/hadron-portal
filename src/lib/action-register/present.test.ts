@@ -12,14 +12,17 @@ describe('paging from the URL (cor:api:120:04)', () => {
     expect(DEFAULT_LIMIT).toBe(20);
     expect(parseOffset(null)).toBe(0);
   });
-  it('clamps a limit above the server maximum of 200, so Next steps by what a page really holds', () => {
+  it('sends a limit above the server maximum unchanged (the gate: the server clamps), and steps by the effective 200', () => {
     expect(MAX_LIMIT).toBe(200);
-    expect(parseLimit('500')).toBe(200);
-    expect(parseLimit('201')).toBe(200);
-    expect(parseLimit('200')).toBe(200);
+    expect(parseLimit('500')).toBe(500);
+    expect(parseLimit('201')).toBe(201);
     expect(parseLimit('199')).toBe(199);
     // The server serves 200 rows for limit 500; the step must be 200 or codes 200..499 are skipped.
-    expect(pageClaims({ offset: 0, limit: parseLimit('500'), total: 900, hasMore: true }).nextOffset).toBe(200);
+    const asked = parseLimit('500');
+    expect(pageClaims({ offset: 0, limit: asked, total: 900, hasMore: true }).nextOffset).toBe(200);
+    expect(pageClaims({ offset: 400, limit: asked, total: 900, hasMore: true }).prevOffset).toBe(200);
+    expect(pageClaims({ offset: 200, limit: asked, total: 900, hasMore: false }).prevOffset).toBe(0);
+    expect(pageClaims({ offset: 0, limit: 20, total: 900, hasMore: true }).nextOffset).toBe(20);
   });
   it('falls back on junk, zero, negative and fractional values', () => {
     for (const bad of ['', 'x', '0', '-3', '2.5', '1e3']) expect(parseLimit(bad)).toBe(20);

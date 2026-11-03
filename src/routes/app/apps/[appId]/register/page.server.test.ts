@@ -52,10 +52,10 @@ describe('register loader', () => {
     answer();
     const d = await load('?agent=g1&limit=500&offset=40');
     expect(indexCalls()).toHaveLength(1);
-    expect(indexCalls()[0][1]).toMatchObject({ appRef: 'app-1', agentRef: 'g1', limit: 200, offset: 40 });
+    expect(indexCalls()[0][1]).toMatchObject({ appRef: 'app-1', agentRef: 'g1', limit: 500, offset: 40 });
     expect(d.chosen).toEqual(agent);
     expect(d.index).toEqual({ kind: 'ok', page: index });
-    expect(d.key).toBe('app-1|g1|200|40');
+    expect(d.key).toBe('app-1|g1|500|40');
   });
   it('a non-participant App is the uniform not-found', async () => {
     answer({ [ACTION_REGISTER_INDEX_QUERY]: gqlError('APP_NOT_FOUND') });
