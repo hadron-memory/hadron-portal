@@ -31,22 +31,28 @@ export const apiKeysStrings = {
     : t('api-keys.visibility.unhidden-success', 'API key restored to the default list.'),
   /** portal#1011 P2: delete an own key (hadron-server#3298). */
   deleteAction: (): string => t('api-keys.delete.action', 'Delete'),
+  /** #1652 item 3: the no-JS row link names its key, as the row menu does. */
+  deleteRowLink: (key: string): string => t('api-keys.delete.row-link', 'Delete key …{key}', { key }),
   deleteConfirmTitle: (): string => t('api-keys.delete.title', 'Delete this API key?'),
   deleteConfirmKey: (): string => t('api-keys.delete.key', 'Key:'),
-  deleteConfirmIrreversible: (): string => t('api-keys.delete.irreversible', "Deleting can't be undone. A record that the key was deleted is kept, without the key itself."),
+  /** #1652 item 1: shown FIRST and emphasised; the second half is ruling 0007 (no secret, no hash kept). */
+  deleteConfirmIrreversible: (): string => t('api-keys.delete.irreversible-lead', "Deleting can't be undone."),
+  deleteConfirmRecordKept: (): string => t('api-keys.delete.record-kept', 'A record that the key was deleted is kept, without the key itself.'),
   deleteConfirmLive: (): string => t('api-keys.delete.live', 'This key is active. It is revoked first, so anything using it stops working. Keys it created are revoked too; they are not deleted and stay in your list without a parent key.'),
-  deleteConfirmRevoked: (): string => t('api-keys.delete.revoked', 'This key is already revoked, so no key is newly revoked. Keys it created are not deleted and stay in your list without a parent key.'),
+  // #1652 item 2: no double negative. The second sentence is ruling 0005 B and stays.
+  deleteConfirmRevoked: (): string => t('api-keys.delete.revoked-plain', 'This key is already revoked. Keys it created are not deleted and stay in your list without a parent key.'),
   deleteConfirmNo: (): string => t('api-keys.delete.cancel', 'Cancel'),
   deleteConfirmYes: (): string => t('api-keys.delete.confirm', 'Delete key'),
   deleting: (): string => t('api-keys.delete.pending', 'Deleting…'),
   deleteSuccessLive: (): string => t('api-keys.delete.success-live', 'API key deleted. It was revoked first, along with any keys it created.'),
-  deleteSuccessRevoked: (): string => t('api-keys.delete.success-revoked', 'API key deleted. No key was newly revoked.'),
+  deleteSuccessRevoked: (): string => t('api-keys.delete.success-revoked-plain', 'API key deleted.'),
   deleteInvalid: (): string => t('api-keys.delete.invalid', 'Choose a key to delete.'),
   deleteNotFound: (): string => t('api-keys.delete.not-found', 'That key was not found, so nothing was deleted. It may already be gone.'),
   deleteForbidden: (): string => t('api-keys.delete.forbidden', 'You can delete only your own keys, signed in as yourself. Nothing was deleted.'),
   deleteSignedOut: (): string => t('api-keys.delete.signed-out', 'Your sign-in has ended, so nothing was deleted. Sign in again to continue.'),
-  deleteUncertain: (): string => t('api-keys.delete.uncertain', 'We could not confirm whether the key was deleted. Reload the list to check before you try again.'),
-  deleteRefreshFailed: (): string => t('api-keys.delete.refresh-failed', 'The list could not be refreshed, so it may still show the key. Reload the list.'),
+  // #1652 item 6: each ends on the reason; the Reload link below carries the action.
+  deleteUncertain: (): string => t('api-keys.delete.uncertain-reason', 'We could not confirm whether the key was deleted. Check the list before you try again.'),
+  deleteRefreshFailed: (): string => t('api-keys.delete.refresh-failed-reason', 'The list could not be refreshed, so it may still show the key.'),
   reloadList: (): string => t('api-keys.reload', 'Reload the list'),
   /** Page-header heading. */
   pageHeading: (): string => t('api-keys.page.heading', 'API keys'),

@@ -18,6 +18,7 @@
 -->
 <script lang="ts">
   import { onDestroy, tick, untrack } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import type { PortalColumnDef } from '$lib/table/features';
@@ -35,6 +36,7 @@
   import type { UserApiKey } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import { createUserApiKeySchema, revokeUserApiKeySchema } from './schema';
+  import { readKeyList } from './key-list';
 
   type CreateUserApiKeyForm = Infer<typeof createUserApiKeySchema, 'zod4'>;
   type RevokeUserApiKeyForm = Infer<typeof revokeUserApiKeySchema, 'zod4'>;
@@ -42,7 +44,14 @@
   type RevokeUserApiKeySuperform = SuperValidated<RevokeUserApiKeyForm, App.Superforms.Message, RevokeUserApiKeyForm>;
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
-  const keys = $derived(data.keys);
+  // #1653 QA P2: a confirmed delete re-reads the list through its own endpoint
+  // (./list/+server.ts), never invalidateAll(), whose failed __data.json kit
+  // renders as the error page over this one before any catch runs. The answer
+  // is a working copy of the list it was read against: any later load
+  // replaces `data.keys` and with it the copy. Raw, so the identity check
+  // compares the props' own array, not a proxy of it.
+  let reread = $state.raw<{ against: UserApiKey[]; keys: UserApiKey[] } | null>(null);
+  const keys = $derived(reread && reread.against === data.keys ? reread.keys : data.keys);
   // One notice for every row action (Hide/Unhide and, portal#1011 P2, Delete).
   // `recover` marks an outcome the server did not confirm: offer a GET reload.
   type VisibilityNotice = { type: 'success' | 'error'; text: string; recover?: boolean };
@@ -70,10 +79,40 @@
   // A destroyed page never sees a view change, so its scope ends with it: a
   // late reply must not reach the page mounted after it (#1500).
   const focusScopes = new Set<() => void>();
-  onDestroy(() => { view++; for (const end of focusScopes) end(); });
+  let destroyed = false;
+  onDestroy(() => { destroyed = true; view++; for (const end of focusScopes) end(); });
+  // The re-read for a confirmed delete: false only when it failed, so the
+  // dialog says the list is stale. It reads the view current at reply time.
+  // Only the newest re-read lands (an older answer is the older list), and
+  // `keys` shows it only while `data.keys` is still the array it was read
+  // against: a load that landed meanwhile is the newer list. A destroyed page
+  // has no list of its own, so whatever page is current still gets a fresh
+  // one, through the router.
+  let rereads = 0;
+  async function refreshKeys(): Promise<boolean> {
+    if (destroyed) {
+      await invalidateAll();
+      return true;
+    }
+    const against = data.keys;
+    const mine = ++rereads;
+    const fresh = await readKeyList(data.includeHidden);
+    if (fresh === null) return false;
+    if (mine === rereads) reread = { against, keys: fresh };
+    return true;
+  }
+  // #1652 item 5: every mounted Delete dialog gets the next number, and
+  // `openDialog` holds the open one's (0 = none). An action started before the
+  // open dialog appeared still DELIVERS its notice (current()), but must not
+  // APPLY (Kit's update: action data, then a focus reset to <body> that the
+  // dialog's trap turns into a lost Cancel). Opening a dialog deliberately does
+  // not bump `attempt`, which would drop a pending Hide/Unhide's own notice.
+  let dialogs = 0;
+  let openDialog = 0;
   function startVisibility(formElement: HTMLFormElement) {
     const startedIn = view;
     const mine = ++attempt;
+    const dialogAtStart = dialogs;
     const origin = document.activeElement;
     const ownedFocus = !!origin && formElement.contains(origin);
     let lastFocus = origin instanceof HTMLElement ? origin : null;
@@ -96,6 +135,8 @@
     const current = () => startedIn === view && mine === attempt;
     return {
       current,
+      apply: () => current() && !(openDialog !== 0 && openDialog > dialogAtStart),
+      refresh: refreshKeys,
       deliver: (notice: VisibilityNotice) => {
         if (!current()) return;
         visibilityNotice = notice;
@@ -133,6 +174,20 @@
   function openDelete(id: string) {
     deleteTargetId = id;
   }
+  // #1652 item 8: a dialog closes the page's dialog only while it is the open
+  // one; a reply from a dialog the view already closed reaches nothing.
+  function registerDialog() {
+    const mine = ++dialogs;
+    openDialog = mine;
+    return {
+      close: (opts: { returnFocus: boolean }) => {
+        if (openDialog !== mine) return false;
+        closeDelete(opts);
+        return true;
+      },
+      release: () => { if (openDialog === mine) openDialog = 0; },
+    };
+  }
   function closeDelete({ returnFocus }: { returnFocus: boolean }) {
     const id = deleteTarget?.id;
     deleteTargetId = null;
@@ -141,6 +196,7 @@
     void tick().then(() => document.querySelector<HTMLElement>(`[data-key-id="${CSS.escape(id)}"] button[aria-haspopup="menu"]`)?.focus());
   }
   const showReload = $derived(!!loadError || !!visibilityFeedback?.recover);
+  const statusTone = $derived(visibilityFeedback?.type === 'success' && visibilityFeedback.recover ? 'attention' : 'success');
   const inputClass =
     'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
 
@@ -412,7 +468,9 @@
            technology is already watching them; each keeps one role, and only the
            one matching the result holds text. -->
       <div class="text-sm">
-        <p id="key-visibility-status" role="status" class="text-green-700 dark:text-green-300">{visibilityFeedback?.type === 'success' ? visibilityFeedback.text : ''}</p>
+        <!-- #1652 item 6: a confirmed result the reader must still act on (the list
+             could not be refreshed) keeps this polite region but takes the attention tone. -->
+        <p id="key-visibility-status" role="status" data-tone={statusTone} class={statusTone === 'attention' ? 'font-medium text-amber-800 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}>{visibilityFeedback?.type === 'success' ? visibilityFeedback.text : ''}</p>
         <p id="key-visibility-alert" role="alert" class="text-red-700 dark:text-red-300">{visibilityFeedback?.type === 'error' ? visibilityFeedback.text : ''}</p>
         {#if showReload}
           <a href={viewHref} data-testid="key-list-reload" data-sveltekit-reload class="text-indigo-600 underline hover:text-indigo-700 dark:text-indigo-400">{i18n.reloadList()}</a>
@@ -458,7 +516,7 @@
             {:else}
               <ApiKeyVisibilityAction id={key.id} preview={key.keyPreview} hidden={!!key.hiddenAt} includeHidden={data.includeHidden} onstart={startVisibility} ondelete={() => openDelete(key.id)} />
             {/if}
-            <noscript><a href={confirmDeleteHref(key.id)} class="text-xs text-red-600 underline">{i18n.deleteAction()}</a></noscript>
+            <noscript><a href={confirmDeleteHref(key.id)} class="text-xs text-red-600 underline">{i18n.deleteRowLink(key.keyPreview)}</a></noscript>
           {:else}
             {@const f = fmt[cell.column.id]}
             <div class="truncate">{f ? f(cell.getValue()) : cell.getValue()}</div>
@@ -524,7 +582,7 @@
       cancelHref={viewHref}
       fromUrl={deleteFromUrl}
       onstart={startVisibility}
-      onclose={closeDelete}
+      onopen={registerDialog}
     />
   {/key}
 {/if}
