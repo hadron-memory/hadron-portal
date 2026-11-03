@@ -10,8 +10,9 @@
   // onstart runs only for an ACCEPTED submit (never a cancelled duplicate) and
   // returns where that submit's result goes, and whether the page is still on
   // the view the submit started in.
-  let { id, preview, hidden, includeHidden, onstart }: {
-    id: string; preview: string; hidden: boolean; includeHidden: boolean;
+  // ondelete (portal#1011 P2) adds Delete to this row's menu; the page owns the dialog.
+  let { id, preview, hidden, includeHidden, onstart, ondelete }: {
+    id: string; preview: string; hidden: boolean; includeHidden: boolean; ondelete?: () => void;
     onstart: (form: HTMLFormElement) => { deliver: (notice: Notice) => void; current: () => boolean; settled: (success: boolean) => void };
   } = $props();
   let formEl: HTMLFormElement;
@@ -54,7 +55,8 @@
   <!-- Literal per-row values: no click-time state can leak another key's id. -->
   <input type="hidden" name="id" value={id} />
   <input type="hidden" name="hidden" value={hidden ? 'false' : 'true'} />
-  <NodeActionsMenu actions={[{id:'visibility',label}]} onselect={() => formEl.requestSubmit()}
+  <NodeActionsMenu actions={[{id:'visibility',label}, ...(ondelete ? [{id:'delete',label:i18n.deleteAction(),danger:true}] : [])]}
+    onselect={(action) => action === 'delete' ? ondelete?.() : formEl.requestSubmit()}
     label={t('api-keys.actions.label', 'Actions for key …{key}', {key:preview})} disabled={pending} fixed compact />
   <!-- Mounted empty before any submit so the pending text lands in a region already observed (#1359). -->
   <span role="status" class="text-xs text-zinc-500 dark:text-zinc-400">{pending ? i18n.saving() : ''}</span>

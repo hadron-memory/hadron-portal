@@ -4327,6 +4327,22 @@ export const REVOKE_USER_API_KEY_MUTATION = /* GraphQL */ `
   }
 `;
 
+// portal#1011 P2 (hadron-server#3298, cor:dmo:070:03): delete one of the caller's
+// own keys. The record never carries a secret or hash; the page uses keyId to
+// confirm the reply is about the submitted key, and revokedKeyIds only to say
+// whether anything was newly revoked. No count or child id reaches the page.
+export const DELETE_USER_API_KEY_MUTATION = /* GraphQL */ `
+  mutation DeleteUserApiKey($id: ID!) {
+    deleteUserApiKey(id: $id) {
+      id
+      keyId
+      deletedAt
+      revokedKeyIds
+      mintedKeyIds
+    }
+  }
+`;
+
 export const SET_USER_API_KEY_HIDDEN_MUTATION = /* GraphQL */ `
   mutation SetUserApiKeyHidden($id: ID!, $hidden: Boolean!) {
     setUserApiKeyHidden(id: $id, hidden: $hidden) {

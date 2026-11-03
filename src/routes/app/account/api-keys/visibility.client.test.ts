@@ -31,10 +31,10 @@ it('keeps Show hidden keys discoverable with an empty default list', async () =>
 });
 it('offers Hide only on revoked visible keys, Unhide on hidden rows, and marks hidden state', async () => {
   const root = await mount();
-  expect((await menu(root,'active')).map(x=>x.textContent?.trim())).toEqual(['Revoke']);
+  expect((await menu(root,'active')).map(x=>x.textContent?.trim())).toEqual(['Revoke', 'Delete']);
   document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})); await tick();
-  expect((await menu(root,'revoked')).map(x=>x.textContent?.trim())).toEqual(['Hide']);
-  expect((await menu(root,'hidden')).map(x=>x.textContent?.trim())).toEqual(['Unhide']);
+  expect((await menu(root,'revoked')).map(x=>x.textContent?.trim())).toEqual(['Hide', 'Delete']);
+  expect((await menu(root,'hidden')).map(x=>x.textContent?.trim())).toEqual(['Unhide', 'Delete']);
   expect(root.querySelector('[data-key-id="hidden"]')?.textContent).toContain('Hidden');
 });
 it('submits the picked id and explicit boolean, blocks duplicate submits while pending, and renders refusal', async () => {

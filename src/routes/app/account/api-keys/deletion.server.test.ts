@@ -94,7 +94,7 @@ describe('#1011 P2 deletion wire', () => {
       expect(notice(result)).toMatchObject({ type: 'error' });
       expect(notice(result)?.recover).toBeFalsy();
       expect(JSON.stringify(result)).not.toContain('synthetic-server-prose');
-      expect(String(notice(result)?.text)).not.toMatch(/deleted\./i);
+      expect(String(notice(result)?.text)).not.toMatch(/API key deleted/i);
     });
 
   it.each([
