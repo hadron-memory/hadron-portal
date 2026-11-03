@@ -14,7 +14,7 @@
  *   - Mutation `setUserApiKeyHidden(id, hidden)` — reversible list visibility
  *     for a revoked own key; no deletion or token-validity change.
  *   - Mutation `deleteUserApiKey(id)` (portal#1011 P2, hadron-server#3298,
- *     cor:dmo:070:03) — delete an own live, revoked or hidden key. A live key
+ *     hrn:node:hadronmemory.com:specs:cor:dmo:070:03) — delete an own live, revoked or hidden key. A live key
  *     is revoked first with its live subtree; the keys it minted stay, revoked,
  *     and only its direct children lose their parent. Returns one append-only
  *     record with no secret or hash.

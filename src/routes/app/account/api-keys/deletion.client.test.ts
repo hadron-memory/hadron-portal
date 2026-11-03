@@ -146,6 +146,18 @@ describe('#1011 P2: submit lifecycle', () => {
     expect(root).toBeTruthy();
   });
 
+  it('Escape cannot dismiss the dialog while the delete is pending, nor take an already-consumed key', async () => {
+    const { root } = await mount();
+    await openDelete(root, 'live');
+    const consumed = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    consumed.preventDefault();
+    dialog()!.dispatchEvent(consumed); await tick(2);
+    expect(dialog()).not.toBeNull();
+    await submitEnhancedDeferred(deleteForm()!); flushSync(); await tick(1);
+    dialog()!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await tick(2);
+    expect(dialog()).not.toBeNull();
+  });
+
   it('a confirmed delete closes the dialog, announces once, refreshes once and applies once', async () => {
     const { root } = await mount();
     await openDelete(root, 'live');

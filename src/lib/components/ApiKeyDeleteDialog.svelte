@@ -17,6 +17,8 @@
   import { invalidateAll } from '$app/navigation';
   import type { SubmitFunction } from '@sveltejs/kit';
   import { apiKeysStrings as i18n } from '$lib/i18n/api-keys-strings';
+  import { focusTrap } from '$lib/a11y/focus-trap';
+  import { consumeEscapeAtDialog, dialogEscapeFallback, type DialogEscapeOptions } from '$lib/a11y/dialog-escape';
   import type { UserApiKey } from '$lib/types';
   type Notice = { type: 'success' | 'error'; text: string; recover?: boolean };
   let { target, includeHidden, cancelHref, fromUrl, onstart, onclose }: {
@@ -43,11 +45,12 @@
     event.preventDefault();
     if (!pending) onclose({ returnFocus: true });
   }
-  function keydown(event: KeyboardEvent) {
-    if (event.key !== 'Escape' || pending) return;
-    event.preventDefault();
-    onclose({ returnFocus: true });
-  }
+  // Escape is consumed at this dialog's own layer (hrn:node:hadronmemory.com:hadron-portal:review:a-modal-consumes-escape-at-its-own-layer);
+  // a pending delete is not dismissable, so it cannot be abandoned mid-write.
+  const escape: DialogEscapeOptions = {
+    close: () => onclose({ returnFocus: true }),
+    suppressed: () => pending,
+  };
 
   const submit: SubmitFunction = ({ cancel: cancelSubmit }) => {
     if (pending) { cancelSubmit(); return; }
@@ -91,7 +94,9 @@
   aria-describedby="delete-dialog-body"
   data-testid="delete-confirm"
   tabindex="-1"
-  onkeydown={keydown}
+  use:focusTrap
+  use:dialogEscapeFallback={escape}
+  onkeydown={(event) => consumeEscapeAtDialog(event, escape)}
 >
   <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl dark:bg-zinc-900">
     <h2 id="delete-dialog-title" class="mb-2 text-lg font-semibold text-zinc-900 dark:text-white">

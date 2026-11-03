@@ -52,8 +52,8 @@
   // (#1359, #1500 fix head). It also hides a no-JS result the submit supersedes.
   let visibilityNotice = $state<VisibilityNotice | 'cleared' | null>(null);
   let hiddenToggle: HTMLInputElement;
-  const visibilityFeedback = $derived(visibilityNotice === 'cleared' ? null
-    : visibilityNotice ?? (form && 'visibility' in form ? form.visibility
+  const visibilityFeedback = $derived<VisibilityNotice | null>(visibilityNotice === 'cleared' ? null
+    : visibilityNotice ?? (form && 'visibility' in form ? form.visibility ?? null
       : form && 'deletion' in form ? form.deletion as VisibilityNotice : null));
   // Toggling Show hidden keys is an in-page navigation to another view. It drops
   // the shown result, and a reply to a submit started before it is not shown.

@@ -1,5 +1,5 @@
 // portal#1011 P2: delete an own UserApiKey over the merged #3298 wire
-// (deleteUserApiKey(id): UserApiKeyDeletion!, cor:dmo:070:03).
+// (deleteUserApiKey(id): UserApiKeyDeletion!, hrn:node:hadronmemory.com:specs:cor:dmo:070:03).
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parse, print } from 'graphql';
 const request = vi.hoisted(() => vi.fn());
