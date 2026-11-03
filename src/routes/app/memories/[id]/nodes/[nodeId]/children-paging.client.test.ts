@@ -204,3 +204,49 @@ it('a page that lands after the page data changed is dropped', async () => {
   await settle();
   expect(shownLocs(target)).toEqual(['c100', 'c101']);
 });
+
+// George's LOCAL P2 on #1657 (hrn:node:hadronmemory.com:hadron-portal:findings:keyed-render-slot-does-not-reject-stale-writes):
+// keying the render to the page data hides an old page, but the one shared
+// slot it lands in must not be overwritten. Each pin first asserts the newer
+// page's own result is on screen, then lets the older read land.
+it("an older page's late success never replaces the newer page's own \"Show more\"", async () => {
+  const { target, props, tab } = await mountPage(rows(20), true);
+  answer = { children: rows(20, 20), hasMore: true };
+  let releaseOld!: () => void;
+  held = new Promise<void>((r) => (releaseOld = r));
+  showMore(target)!.click();
+  await settle();
+  flushSync(() => { props.data = { ...(props.data as Record<string, unknown>), children: rows(20, 100), childrenHasMore: true }; });
+  await settle();
+  answer = { children: [row('c120')], hasMore: false };
+  showMore(target)!.click();
+  await settle();
+  expect(tab!.textContent).toMatch(/Children\s*21$/);
+  expect(shownLocs(target)).toContain('c120');
+  expect(showMore(target)).toBeNull();
+
+  releaseOld();
+  await settle();
+  expect(tab!.textContent).toMatch(/Children\s*21$/);
+  expect(shownLocs(target)).toContain('c120');
+  expect(showMore(target)).toBeNull();
+});
+
+it("an older page's late failure never clears the newer page's own failure", async () => {
+  const { target, props } = await mountPage(rows(20), true);
+  answer = { failed: true };
+  let releaseOld!: () => void;
+  held = new Promise<void>((r) => (releaseOld = r));
+  showMore(target)!.click();
+  await settle();
+  flushSync(() => { props.data = { ...(props.data as Record<string, unknown>), children: rows(20, 100), childrenHasMore: true }; });
+  await settle();
+  answer = { failed: true };
+  showMore(target)!.click();
+  await settle();
+  expect(target.querySelector('[data-testid="children-more-failed"]')).not.toBeNull();
+
+  releaseOld();
+  await settle();
+  expect(target.querySelector('[data-testid="children-more-failed"]')).not.toBeNull();
+});

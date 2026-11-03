@@ -69,7 +69,7 @@ describe('GET children (portal#1656 "Show more")', () => {
     expect((await get('?offset=20')).cache).toBe('no-store');
   });
 
-  it.each(['', '?offset=', '?offset=-20', '?offset=1.5', '?offset=abc', '?offset=20&offset=40'])(
+  it.each(['', '?offset=', '?offset=-20', '?offset=1.5', '?offset=abc', '?offset=20&offset=40', '?offset=2147483648', '?offset=99999999999999999999'])(
     'refuses a malformed offset (%s) before any read, never defaulting to the first page',
     async (search) => {
       serve();
