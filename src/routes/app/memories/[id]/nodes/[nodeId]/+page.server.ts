@@ -12,7 +12,7 @@ import { fetchAllItems } from '$lib/server/paginate';
 import { deletedEdgeEndpoints } from '$lib/server/deleted-edge-endpoints';
 import { requireNonConsumer } from '$lib/server/guards';
 import { withQuery } from '$lib/safeRedirect';
-import { NODE_CHILDREN_QUERY, RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
+import { RECOVERY_NODE_QUERY, NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY, DELETE_NODE_MUTATION, CREATE_NODE_MUTATION, MOVE_NODE_MUTATION, CLONE_NODE_MUTATION, ORG_APPS_RUNNABLE_QUERY, RUN_TASK_APP_MUTATION, MEMORIES_QUERY, NODE_REVISIONS_QUERY, NODE_EDGE_REMOVALS_QUERY, NODE_PROVENANCE_QUERY, NODE_REVISIONS_PROVENANCE_QUERY, NODE_APPROVAL_QUERY, NODE_SIGNATURES_QUERY, APPROVE_NODE_MUTATION, VERIFY_NODE_QUERY } from '$lib/server/queries';
 import { bindToRevision, type NodeProvenance, type ProvenanceResult } from '$lib/node-provenance';
 import { bindMintToRevision, type NodeMintStatus } from '$lib/node-mint';
 import { bindSignaturesToRevision, type NodeSignatureRead, type NodeSignatureStatus } from '$lib/node-signatures';
@@ -37,6 +37,7 @@ import { isCanonicalNodeType } from '$lib/node-types';
 import { outputFromNodeData, rowsFromNodeData, rowsToSpec } from '$lib/flow/extraction';
 import { t } from '$lib/i18n/t';
 import type { MemoryNode, NodeEdgeRemoval, NodeRevision } from '$lib/types';
+import { readChildrenPage, type ChildRow } from '$lib/server/node-children';
 import { isCapped } from '$lib/server/capped';
 
 // nodeRevisions has no offset or cursor (hadron-server#2212): the history is one
@@ -619,38 +620,30 @@ export const load: PageServerLoad = async ({ params, locals, parent, url }) => {
     // neighbours now that the layout carries no node list. `ancestorsKnown`
     // false means a crumb without a node id is "not looked up", so the page
     // must not offer to create it (portal#1433: true once the bounded ancestor
-    // read answered for every segment); `children` is a bounded read, or null
-    // with the reason when it could not be proven complete.
+    // read answered for every segment); `children` is the first page of direct
+    // children (portal#1656), `childrenHasMore` whether more exist, or null with
+    // `childrenUnavailable` when the read failed.
     ancestorsKnown,
     ...(await loadChildren(gqlClient(locals.token), params.id, node.loc)),
   };
 };
 
-// One bounded page. A direct child of `loc` is a node whose loc is `loc:` plus
-// one segment, and the prefix read returns every descendant, so a page that is
-// not the whole subtree cannot say which direct children exist.
-const CHILDREN_PAGE = 200;
-type ChildRow = Pick<MemoryNode, 'id' | 'loc' | 'name' | 'description' | 'nodeType' | 'tags' | 'seq' | 'isRunnable' | 'openThreads' | 'memoryId'>;
-type ChildHit = Omit<ChildRow, 'openThreads'> & { commentSummary: { openThreads: number } | null };
+// portal#1656: the first page of direct children, read with `childrenOf`
+// ($lib/server/node-children). The rest come from ./children/+server.ts when
+// the user asks. `children` is null only when the read failed: a large subtree
+// no longer withholds the section, and a full page says more exist rather than
+// passing for the whole list.
 async function loadChildren(
   client: ReturnType<typeof gqlClient>,
   memoryId: string,
   loc: string,
-): Promise<{ children: ChildRow[] | null; childrenUnavailable: boolean }> {
+): Promise<{ children: ChildRow[] | null; childrenHasMore: boolean; childrenUnavailable: boolean }> {
   try {
-    const d = await client.request<{ findNodes: { total: number | null; hits: Array<{ node: ChildHit }> } }>(
-      NODE_CHILDREN_QUERY,
-      { memoryId, locPrefix: `${loc}:`, limit: CHILDREN_PAGE },
-    );
-    const hits: ChildRow[] = d.findNodes.hits.map(({ node: { commentSummary, ...n } }) => ({ ...n, openThreads: commentSummary?.openThreads ?? 0 }));
-    // An unknown total proves completeness only on a page the cap did not fill.
-    const total = d.findNodes.total ?? (hits.length < CHILDREN_PAGE ? hits.length : Number.POSITIVE_INFINITY);
-    if (total > hits.length) return { children: null, childrenUnavailable: true };
-    const direct = hits.filter((n) => !n.loc.slice(loc.length + 1).includes(':'));
-    return { children: direct, childrenUnavailable: false };
+    const page = await readChildrenPage(client, memoryId, loc, 0);
+    return { children: page.children, childrenHasMore: page.hasMore, childrenUnavailable: false };
   } catch (err) {
     console.warn('[node-detail] children read failed:', err);
-    return { children: null, childrenUnavailable: true };
+    return { children: null, childrenHasMore: false, childrenUnavailable: true };
   }
 }
 

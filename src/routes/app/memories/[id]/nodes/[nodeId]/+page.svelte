@@ -82,6 +82,7 @@
   import type { MemoryNode, NodeEdge, NodeEdgeRemoval, NodeRevision } from '$lib/types';
   import type { PageData, ActionData } from './$types';
   import NodeStorageForm from './NodeStorageForm.svelte';
+  import { readMoreChildren } from './children-page';
   import {
     isFullyQualifiedNodeUrnInput,
     nodeApproveSchema,
@@ -2242,19 +2243,42 @@
   }
 
   // Children: direct children of this node's loc
-  // portal#1524: one bounded read from the loader (`data.children`), or null
-  // when it could not be proven complete (`data.childrenUnavailable`). Null is
-  // NOT "no children": the section says so instead of vanishing.
-  const children = $derived(
-    [...(data.children ?? [])].sort((a, b) => {
-      if (a.seq !== null && b.seq !== null) return a.seq - b.seq;
-      if (a.seq !== null) return -1;
-      if (b.seq !== null) return 1;
-      return a.loc.localeCompare(b.loc);
-    }) as unknown as MemoryNode[],
-  );
+  // portal#1656: the loader's first page of 20 (`data.children`, read with
+  // `childrenOf`), plus the pages "Show more" read since, in the server's
+  // sibling order: never re-sorted here. Null is a FAILED read
+  // (`data.childrenUnavailable`), NOT "no children": the section says so.
+  // Pages read by "Show more" belong to the loader page they extend: new page
+  // data (any reload) replaces them, and a page that lands after it is dropped.
+  let morePages = $state.raw<{ against: unknown; rows: MemoryNode[]; hasMore: boolean } | null>(null);
+  let morePendingFor = $state.raw<unknown>(null);
+  let moreFailedFor = $state.raw<unknown>(null);
+  const extraChildren = $derived(morePages && morePages.against === data.children ? morePages : null);
+  const children = $derived([...((data.children ?? []) as unknown as MemoryNode[]), ...(extraChildren?.rows ?? [])]);
+  // A full page never passes for the whole list: the count says "20+".
+  const childrenHasMore = $derived(extraChildren ? extraChildren.hasMore : !!data.childrenHasMore);
+  const moreChildrenLoading = $derived(morePendingFor !== null && morePendingFor === data.children);
+  const moreChildrenFailed = $derived(moreFailedFor !== null && moreFailedFor === data.children);
+  async function showMoreChildren() {
+    const against = data.children;
+    if (!against || moreChildrenLoading || !childrenHasMore) return;
+    const offset = children.length;
+    morePendingFor = against;
+    moreFailedFor = null;
+    const page = await readMoreChildren(basePath, node.id, offset);
+    if (morePendingFor === against) morePendingFor = null;
+    // A page read against older page data lands keyed to it, so
+    // `extraChildren` (and `moreChildrenFailed`) ignore it.
+    if (!page) {
+      moreFailedFor = against;
+      return;
+    }
+    morePages = { against, rows: [...(extraChildren?.rows ?? []), ...page.children], hasMore: page.hasMore };
+  }
   const hasChildren = $derived(children.length > 0);
-  const childrenReorderable = $derived(children.some((c) => c.seq !== null));
+  // Reorder rewrites the position of every row it is given, so it is offered
+  // only on the whole list: on a partial one it would renumber the rows shown
+  // and leave the rest where they were.
+  const childrenReorderable = $derived(!childrenHasMore && children.some((c) => c.seq !== null));
   let childDragError = $state<string | null>(null);
   // #309: the children list defaults to the full grid; reordering is a separate
   // mode because drag order is incompatible with sort/filter/pagination.
@@ -3076,11 +3100,11 @@
           data-active={activeTab === 'children' || undefined}
           class="shrink-0 whitespace-nowrap border-b-2 px-3 py-1.5 text-sm font-medium {activeTab === 'children' ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'border-transparent text-zinc-500'}"
           onclick={() => activeTab = 'children'}
-        >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}</span></button>
+        >Children <span class="ml-1 rounded-full bg-zinc-200 px-1.5 text-xs dark:bg-zinc-800">{children.length}{childrenHasMore ? '+' : ''}</span></button>
       {:else if data.childrenUnavailable}
-        <!-- portal#1524: not "no children" — the bounded read could not prove
-             the list complete, so the section says it is withheld. -->
-        <span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be listed completely')} class="shrink-0 whitespace-nowrap px-3 py-1.5 text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>
+        <!-- portal#1524/#1656: not "no children": the read failed, so the
+             section says it is withheld. -->
+        <span data-testid="children-unavailable" title={t('node-detail.children-unavailable-reason', 'The children could not be read')} class="shrink-0 whitespace-nowrap px-3 py-1.5 text-sm italic text-zinc-500">{t('node-detail.children-unavailable', 'Children unavailable')}</span>
       {/if}
       {#if !isComment}
       <button
@@ -3802,14 +3826,14 @@
       {/if}
       <!-- #309: remount on mode switch — NodeList reads enableSorting/
            enableColumnResizing (= !orderable) once at table construction. -->
-      {#key reorderMode}
+      {#key reorderMode && childrenReorderable}
         <NodeList
           nodes={children}
           {basePath}
           memoryUrn={data.graph.urn ?? ''}
-          orderable={reorderMode}
-          listKey={reorderMode ? undefined : 'node-children'}
-          onreorder={reorderMode
+          orderable={reorderMode && childrenReorderable}
+          listKey={reorderMode && childrenReorderable ? undefined : 'node-children'}
+          onreorder={reorderMode && childrenReorderable
             ? async (orderedLocs) => {
                 if (reordering) return;
                 reordering = true;
@@ -3844,6 +3868,26 @@
             : undefined}
         />
       {/key}
+      {#if childrenHasMore}
+        <!-- portal#1656: the next 20, only when the user asks (hrn:node:hadronmemory.com:specs:cor:api:120:04). -->
+        <div class="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            data-testid="children-show-more"
+            disabled={moreChildrenLoading}
+            aria-busy={moreChildrenLoading || undefined}
+            onclick={showMoreChildren}
+            class="rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >{moreChildrenLoading ? t('node-detail.children-loading-more', 'Loading…') : t('node-detail.children-show-more', 'Show more')}</button>
+          <span role="status" class="text-xs text-zinc-500 dark:text-zinc-400">
+            {#if moreChildrenFailed}
+              <span data-testid="children-more-failed" class="text-amber-700 dark:text-amber-400">{t('node-detail.children-more-failed', "Couldn't load more children. Try again.")}</span>
+            {:else}
+              {t('node-detail.children-showing-first', 'Showing the first {count}', { count: children.length })}
+            {/if}
+          </span>
+        </div>
+      {/if}
     {/if}
 
     <!-- ═══ EDGES TAB ═══

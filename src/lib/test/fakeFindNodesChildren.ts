@@ -3,9 +3,9 @@
  * node page and the new-node page make, modelled on the producer
  * (hrn:node:hadronmemory.com:hadron-portal:findings:untyped-json-fixtures-must-follow-producer):
  *
- * - `childrenOf` (hadron-server#2832, cor:api:090:02): the nodes whose loc is
+ * - `childrenOf` (hadron-server#2832, hrn:node:hadronmemory.com:specs:cor:api:090:02): the nodes whose loc is
  *   exactly `childrenOf` plus one segment; `""` is the top level. With no query
- *   and no sort the order is the sibling order of cor:dmo:020:01, "Order A"
+ *   and no sort the order is the sibling order of hrn:node:hadronmemory.com:specs:cor:dmo:020:01, "Order A"
  *   (Holger, Piona 6548016260): positioned nodes first by `seq`, then the rest
  *   by loc. `total` is null on this filter, and nothing says whether more rows
  *   exist.
@@ -14,7 +14,10 @@
  *
  * `limit` clamps to the server's 1-200 and `offset` skips, as `findNodes` does.
  */
-export type FakeChildRow = { id: string; loc: string; name?: string; seq?: number | null; memoryId?: string };
+export type FakeChildRow = {
+  id: string; loc: string; name?: string | null; seq?: number | null; memoryId?: string;
+  nodeType?: string; tags?: string[]; isRunnable?: boolean | null; description?: string | null;
+};
 
 export const siblingOrder = (a: FakeChildRow, b: FakeChildRow): number => {
   const as = a.seq ?? null;
@@ -32,8 +35,9 @@ export function fakeFindNodesChildren(rows: FakeChildRow[], memoryId: string) {
     const inMemory = rows.filter((n) => (n.memoryId ?? memoryId) === ((vars.memoryId as string | undefined) ?? memoryId));
     const hit = (n: FakeChildRow) => ({
       node: {
-        id: n.id, loc: n.loc, name: n.name ?? n.loc, description: null, nodeType: 'info', tags: [],
-        seq: n.seq ?? null, isRunnable: null, memoryId: n.memoryId ?? memoryId, commentSummary: null,
+        id: n.id, loc: n.loc, name: n.name === undefined ? n.loc : n.name, description: n.description ?? null,
+        nodeType: n.nodeType ?? 'info', tags: n.tags ?? [], seq: n.seq ?? null, isRunnable: n.isRunnable ?? null,
+        memoryId: n.memoryId ?? memoryId, commentSummary: null,
       },
     });
     if (typeof vars.childrenOf === 'string') {

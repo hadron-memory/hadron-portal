@@ -125,14 +125,14 @@ it('"Show more" asks the section endpoint for offset 20 and appends the next pag
   showMore(target)!.click();
   await settle();
   expect(calls).toEqual(['/app/memories/mem-A/nodes/leaf-pk/children?offset=20']);
-  expect(shownLocs(target)).toHaveLength(40);
+  // The table pages its rows itself (25 a page), so the count is the tab's.
+  expect(shownLocs(target)).toContain('c20');
   expect(tab!.textContent).toMatch(/Children\s*40\+$/);
 
   answer = { children: rows(3, 40), hasMore: false };
   showMore(target)!.click();
   await settle();
   expect(calls[1]).toBe('/app/memories/mem-A/nodes/leaf-pk/children?offset=40');
-  expect(shownLocs(target)).toHaveLength(43);
   expect(tab!.textContent).toMatch(/Children\s*43$/);
   expect(showMore(target)).toBeNull();
 });
@@ -169,7 +169,7 @@ it('a second press while a page is loading asks nothing more', async () => {
   release();
   await settle();
   expect(calls).toHaveLength(1);
-  expect(shownLocs(target)).toHaveLength(40);
+  expect(shownLocs(target)).toContain('c20');
 });
 
 it('Reorder is not offered while more children exist (it would renumber only the rows shown)', async () => {
@@ -186,7 +186,7 @@ it('new page data (a reload) replaces the pages read before it', async () => {
   answer = { children: rows(20, 20), hasMore: true };
   showMore(target)!.click();
   await settle();
-  expect(shownLocs(target)).toHaveLength(40);
+  expect(shownLocs(target)).toContain('c20');
   flushSync(() => { props.data = { ...(props.data as Record<string, unknown>), children: rows(5, 100), childrenHasMore: false }; });
   await settle();
   expect(shownLocs(target)).toEqual(rows(5, 100).map((r) => r.loc.slice(4)));
