@@ -33,6 +33,7 @@
     searchAriaLabel,
     globalFilter = $bindable(''),
     showSearch = true,
+    showFooter = true,
     maxHeight = 'max(200px, calc(100vh - 23rem))',
     rowClass,
     rowAttrs,
@@ -45,6 +46,8 @@
     globalFilter?: string;
     /** Server-filtered callers supply their own search control. */
     showSearch?: boolean;
+    /** Server-paged callers (a page of a larger list) draw their own Previous/Next and total. */
+    showFooter?: boolean;
     /** Scroll-container max-height. The rem offset is tuned per page to
      *  its chrome height; keep the 200px floor (short-viewport guard). */
     maxHeight?: string;
@@ -171,6 +174,7 @@
      and cannot shrink beside Previous/Next, so a no-wrap footer pushed the
      document 14px wide on a 390px phone. Wrapping keeps every control in
      flow and reachable instead. -->
+{#if showFooter}
 <div data-testid="table-footer" class="flex flex-wrap items-center justify-between gap-3">
   <span class="text-sm text-zinc-500">{pageCount > 1 ? tableStrings.pageOf(pageIndex + 1, pageCount) : ''}</span>
   <div class="flex flex-wrap items-center gap-2">
@@ -189,3 +193,4 @@
     {/if}
   </div>
 </div>
+{/if}

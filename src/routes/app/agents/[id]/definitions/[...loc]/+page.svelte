@@ -5,6 +5,8 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import InheritedFrom from '$lib/components/InheritedFrom.svelte';
+  import DefinitionRegisterSection from '$lib/components/action-register/DefinitionRegisterSection.svelte';
+  import { page as appPage } from '$app/state';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
   let { data }: { data: PageData } = $props();
@@ -34,4 +36,5 @@
   {:else}
   <pre class="whitespace-pre-wrap break-words rounded-lg border border-zinc-200 p-4 font-mono text-sm dark:border-zinc-800">{data.node.content ?? t('agent.definitions.no-content', 'No content.')}</pre>
   {/if}
+  <DefinitionRegisterSection register={data.register} agent={data.agent} basePath={appPage.url.pathname} />
 </div>
