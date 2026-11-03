@@ -1,0 +1,138 @@
+import type { GraphQLClient } from 'graphql-request';
+import type { ApprovalTriggerKind } from '$lib/automation/approval';
+import type { TeamGrant, TeamGrantPerson, TeamGrantRow } from '$lib/automation/team-grant';
+import { ownWords } from '$lib/server/automation-approval';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
+import { fetchAllItems } from '$lib/server/paginate';
+
+/**
+ * portal#1650 — the reads and the two writes behind the automation page's team
+ * snapshot grant (hadron-server#3350, resolvers.runTeamSnapshot.ts at ecdde802).
+ *
+ * The list has no trigger filter: it pages the whole App, so one automation's
+ * grants are found by reading it to the end. Only a complete read may say "not
+ * given". FORBIDDEN (only an App manager, as themselves, may read it) hides the
+ * section; any other failure is `unavailable`, never "not given".
+ *
+ * Mutations map FORBIDDEN alone and rethrow the rest
+ * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
+ */
+
+export const AUTOMATION_TEAM_GRANTS_QUERY = /* GraphQL */ `
+  query AutomationTeamSnapshotGrants($appRef: ID!, $includeRevoked: Boolean, $limit: Int, $offset: Int) {
+    automationTeamSnapshotGrants(appRef: $appRef, includeRevoked: $includeRevoked, limit: $limit, offset: $offset) {
+      items { id triggerKind triggerId grantedBy createdAt revokedAt revokedBy }
+      total
+      hasMore
+    }
+  }
+`;
+
+export const GIVE_AUTOMATION_TEAM_GRANT_MUTATION = /* GraphQL */ `
+  mutation GiveAutomationTeamSnapshotGrant($appRef: ID!, $triggerKind: String!, $triggerId: ID!) {
+    setAutomationTeamSnapshotGrant(appRef: $appRef, triggerKind: $triggerKind, triggerId: $triggerId) { id }
+  }
+`;
+
+export const STOP_AUTOMATION_TEAM_GRANT_MUTATION = /* GraphQL */ `
+  mutation StopAutomationTeamSnapshotGrant($id: ID!) {
+    revokeAutomationTeamSnapshotGrant(id: $id) { id }
+  }
+`;
+
+export const TEAM_GRANT_PERSON_QUERY = /* GraphQL */ `
+  query TeamGrantPerson($ref: ID!) {
+    user(ref: $ref) { id name handle urn }
+  }
+`;
+
+interface StoredGrant {
+  id: string;
+  triggerKind: string;
+  triggerId: string;
+  grantedBy: string;
+  createdAt: string;
+  revokedAt: string | null;
+  revokedBy: string | null;
+}
+
+/** A manual run can never hold the grant, so a manual trigger has no control. */
+export const canHoldTeamGrant = (kind: ApprovalTriggerKind): boolean => kind !== 'MANUAL';
+
+async function grantsOf(client: GraphQLClient, appRef: string, kind: ApprovalTriggerKind, triggerId: string, includeRevoked: boolean) {
+  const all = await fetchAllItems<StoredGrant>(client, AUTOMATION_TEAM_GRANTS_QUERY, 'automationTeamSnapshotGrants', { appRef, includeRevoked });
+  return all.filter((g) => g.triggerKind === kind && g.triggerId === triggerId);
+}
+
+/** A person is optional detail: a failed or refused read of one never costs the section. */
+async function personOf(client: GraphQLClient, ref: string): Promise<TeamGrantPerson | null> {
+  try {
+    const { user } = await client.request<{ user: { name: string | null; handle: string | null; urn: string | null } | null }>(TEAM_GRANT_PERSON_QUERY, { ref });
+    const name = user?.name || user?.handle;
+    return name ? { name, urn: user?.urn ?? null } : null;
+  } catch (e) {
+    console.warn('[automation-team-grant] person read failed:', e);
+    return null;
+  }
+}
+
+export async function loadTeamGrant(
+  client: GraphQLClient,
+  appRef: string,
+  kind: ApprovalTriggerKind,
+  triggerId: string,
+  showEnded: boolean,
+): Promise<TeamGrant> {
+  if (!canHoldTeamGrant(kind)) return { status: 'hidden' };
+  let rows: StoredGrant[];
+  try {
+    rows = await grantsOf(client, appRef, kind, triggerId, showEnded);
+  } catch (e) {
+    if (extractGqlErrorCode(e) === 'FORBIDDEN') return { status: 'hidden' };
+    console.warn('[automation-team-grant] list read failed:', e);
+    return { status: 'unavailable' };
+  }
+
+  const ids = new Set(rows.flatMap((g) => (g.revokedBy ? [g.grantedBy, g.revokedBy] : [g.grantedBy])));
+  const people = new Map(await Promise.all([...ids].map(async (id) => [id, await personOf(client, id)] as const)));
+  const shown = (g: StoredGrant): TeamGrantRow => ({
+    id: g.id,
+    createdAt: g.createdAt,
+    revokedAt: g.revokedAt,
+    givenBy: people.get(g.grantedBy) ?? null,
+    endedBy: g.revokedBy ? (people.get(g.revokedBy) ?? null) : null,
+  });
+  const live = rows.find((g) => g.revokedAt === null);
+  return {
+    status: 'ready',
+    live: live ? shown(live) : null,
+    ended: showEnded ? rows.filter((g) => g.revokedAt !== null).map(shown) : null,
+  };
+}
+
+export type TeamGrantWrite = { ok: true } | { ok: false; message: string };
+
+async function write(run: () => Promise<unknown>): Promise<TeamGrantWrite> {
+  try {
+    await run();
+    return { ok: true };
+  } catch (e) {
+    if (extractGqlErrorCode(e) === 'FORBIDDEN') return { ok: false, message: ownWords(e) };
+    throw e;
+  }
+}
+
+/** Giving is idempotent on the server: an automation already holding it keeps that grant. */
+export const giveTeamGrant = (client: GraphQLClient, appRef: string, kind: ApprovalTriggerKind, triggerId: string) =>
+  write(() => client.request(GIVE_AUTOMATION_TEAM_GRANT_MUTATION, { appRef, triggerKind: kind, triggerId }));
+
+/**
+ * Ends this automation's live grant, found here rather than posted, so a form
+ * can never address another automation's grant. Already ended is the state the
+ * person asked for, and the page re-reads it.
+ */
+export const stopTeamGrant = (client: GraphQLClient, appRef: string, kind: ApprovalTriggerKind, triggerId: string) =>
+  write(async () => {
+    const live = (await grantsOf(client, appRef, kind, triggerId, false))[0];
+    if (live) await client.request(STOP_AUTOMATION_TEAM_GRANT_MUTATION, { id: live.id });
+  });

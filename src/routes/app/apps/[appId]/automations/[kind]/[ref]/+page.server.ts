@@ -2,6 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
 import { loadTasksApp } from '$lib/server/agent-tasks';
 import { approveAutomation, declineAutomation, loadAutomationApproval, type AutomationWrite } from '$lib/server/automation-approval';
+import { canHoldTeamGrant, giveTeamGrant, loadTeamGrant, stopTeamGrant, type TeamGrantWrite } from '$lib/server/automation-team-grant';
 import { kindFromRoute } from '$lib/automation/approval';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -18,14 +19,16 @@ function kindOr404(segment: string) {
   return kind;
 }
 
-export const load: PageServerLoad = async ({ params, locals }) => {
+export const load: PageServerLoad = async ({ params, locals, url }) => {
   const kind = kindOr404(params.kind);
   const client = gqlClient(locals.token);
 
   const app = await loadTasksApp(client, params.appId);
   if (!app) throw error(404, 'App not found');
 
-  return { app, kind, ref: params.ref, approval: await loadAutomationApproval(client, kind, params.ref) };
+  const approval = await loadAutomationApproval(client, kind, params.ref);
+  const showEnded = url.searchParams.get('ended') === '1';
+  return { app, kind, ref: params.ref, approval, teamGrant: await loadTeamGrant(client, params.appId, kind, params.ref, showEnded) };
 };
 
 // The trigger comes from the URL, never from the form: a posted body cannot redirect an approval.
@@ -33,6 +36,17 @@ function outcome(result: AutomationWrite, done: Record<string, true>) {
   if (result.ok) return done;
   if (result.reason === 'stale') return fail(409, { code: 'stale' as const });
   return fail(403, { code: 'refused' as const, message: result.message });
+}
+
+// portal#1650: as above, the trigger comes from the URL. A manual run can never hold the grant.
+function teamGrantKindOr404(segment: string) {
+  const kind = kindOr404(segment);
+  if (!canHoldTeamGrant(kind)) throw error(404, 'Automation not found');
+  return kind;
+}
+function teamGrantOutcome(result: TeamGrantWrite, done: 'given' | 'stopped') {
+  if (result.ok) return { teamGrant: done };
+  return fail(403, { teamGrantRefused: true as const, teamGrantMessage: result.message });
 }
 
 export const actions: Actions = {
@@ -49,5 +63,15 @@ export const actions: Actions = {
   decline: async ({ params, locals }) => {
     const kind = kindOr404(params.kind);
     return outcome(await declineAutomation(gqlClient(locals.token), kind, params.ref), { declined: true });
+  },
+
+  give: async ({ params, locals }) => {
+    const kind = teamGrantKindOr404(params.kind);
+    return teamGrantOutcome(await giveTeamGrant(gqlClient(locals.token), params.appId, kind, params.ref), 'given');
+  },
+
+  stop: async ({ params, locals }) => {
+    const kind = teamGrantKindOr404(params.kind);
+    return teamGrantOutcome(await stopTeamGrant(gqlClient(locals.token), params.appId, kind, params.ref), 'stopped');
   },
 };
