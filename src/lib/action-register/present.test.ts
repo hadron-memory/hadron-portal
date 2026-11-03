@@ -4,7 +4,7 @@
  * whole list. The server owns every count and state; this only labels them.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_LIMIT, parseLimit, parseOffset, pageClaims, rowKind } from './present';
+import { DEFAULT_LIMIT, MAX_LIMIT, parseLimit, parseOffset, pageClaims, rowKind } from './present';
 
 describe('paging from the URL (cor:api:120:04)', () => {
   it('defaults to 20 and offset 0', () => {
@@ -12,8 +12,14 @@ describe('paging from the URL (cor:api:120:04)', () => {
     expect(DEFAULT_LIMIT).toBe(20);
     expect(parseOffset(null)).toBe(0);
   });
-  it('sends a limit above 200 unchanged: the server clamps', () => {
-    expect(parseLimit('500')).toBe(500);
+  it('clamps a limit above the server maximum of 200, so Next steps by what a page really holds', () => {
+    expect(MAX_LIMIT).toBe(200);
+    expect(parseLimit('500')).toBe(200);
+    expect(parseLimit('201')).toBe(200);
+    expect(parseLimit('200')).toBe(200);
+    expect(parseLimit('199')).toBe(199);
+    // The server serves 200 rows for limit 500; the step must be 200 or codes 200..499 are skipped.
+    expect(pageClaims({ offset: 0, limit: parseLimit('500'), total: 900, hasMore: true }).nextOffset).toBe(200);
   });
   it('falls back on junk, zero, negative and fractional values', () => {
     for (const bad of ['', 'x', '0', '-3', '2.5', '1e3']) expect(parseLimit(bad)).toBe(20);
