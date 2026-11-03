@@ -7,6 +7,8 @@
  */
 
 export const DEFAULT_LIMIT = 20;
+/** The most rows the server serves for one page (hadron-server#3287): a larger limit is clamped there. */
+export const MAX_LIMIT = 200;
 
 export type EntryState = 'MAPPED' | 'UNRESOLVED' | 'UNMAPPED';
 
@@ -28,10 +30,14 @@ export interface RegisterPage {
 
 const posInt = (raw: string | null): number | null => (raw !== null && /^[0-9]+$/.test(raw) ? Number(raw) : null);
 
-/** A positive whole number, else the default. Above 200 is sent unchanged: the server clamps. */
+/**
+ * A positive whole number, else the default, never above the server maximum.
+ * The portal clamps too: the server serves at most 200 rows for limit=500, and
+ * Next/Previous step by this number, so an unclamped 500 would skip rows 200-499.
+ */
 export function parseLimit(raw: string | null): number {
   const n = posInt(raw);
-  return n !== null && n > 0 ? n : DEFAULT_LIMIT;
+  return n !== null && n > 0 ? Math.min(n, MAX_LIMIT) : DEFAULT_LIMIT;
 }
 
 /** A whole number from 0, else 0. Past the end is an empty page, not an error. */
