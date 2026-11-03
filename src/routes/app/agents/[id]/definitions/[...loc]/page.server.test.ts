@@ -11,9 +11,10 @@ describe('child Agent node view', () => {
   it('reads a bare loc scoped to child memory, preserving base identity', async () => {
     const agent = { id: 'child', systemMemoryId: 'child-memory', name: 'Child', urn: 'hrn:agent:test:child' };
     const node = { id: 'base-node', loc: 'tasks:ship', name: 'Ship', content: 'Ready', urn: 'hrn:node:test:base:tasks:ship', inheritedFrom: { agentId: 'base', agentUrn: 'hrn:agent:test:base' } };
-    request.mockResolvedValueOnce({ agent }).mockResolvedValueOnce({ node });
-    expect(await load(event)).toEqual({ agent, node });
-    expect(request).toHaveBeenLastCalledWith(AGENT_DEFINITION_QUERY, { ref: 'tasks:ship', memoryRef: 'child-memory' });
+    request.mockResolvedValueOnce({ agent }).mockResolvedValueOnce({ node }).mockResolvedValueOnce({ agent: { id: 'child', apps: [] } });
+    // portal#1649: the register section rides along as its own state; no App option, so not available.
+    expect(await load(event)).toEqual({ agent, node, register: { kind: 'unavailable' } });
+    expect(request).toHaveBeenNthCalledWith(2, AGENT_DEFINITION_QUERY, { ref: 'tasks:ship', memoryRef: 'child-memory' });
   });
   it('keeps denied and missing nodes indistinguishable', async () => {
     request.mockResolvedValueOnce({ agent: { id: 'child', name: 'Child', urn: 'hrn:agent:test:child', systemMemoryId: 'child-memory' } }).mockResolvedValueOnce({ node: null });

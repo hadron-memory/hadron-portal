@@ -5,6 +5,7 @@ it('identifies the base while keeping the node own URN and safely displaying con
   const { body } = render(Page, { props: { data: {
     agent: { id: 'child', name: 'Child', urn: 'hrn:agent:example.com:child', systemMemoryId: 'child-memory' },
     node: { id: 'node', name: 'Ship', loc: 'tasks:ship', urn: 'hrn:node:example.com:base:tasks:ship', content: '<script>danger()</script>', inheritedFrom: { agentId: 'base', agentUrn: 'hrn:agent:example.com:base' } },
+    register: { kind: 'unavailable' },
   } as never } });
   expect(body).toContain('Inherited from');
   expect(body).toContain('/app/u/hrn:agent:example.com:base');
