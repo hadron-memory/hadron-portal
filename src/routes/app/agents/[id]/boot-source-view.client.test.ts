@@ -102,6 +102,17 @@ describe('the source switch (portal#1667)', () => {
     expect(draft(root).value).toBe(edited);
     expect(resolved(root)?.closest('[hidden]')).not.toBeNull();
   });
+  it('offers Cancel and Save only with the source showing, and a draft survives the round trip', async () => {
+    const root = await open();
+    await type(root, `${TAG}more`);
+    const actions = () => [...root.querySelectorAll<HTMLButtonElement>('form[action="?/saveBootSource"] button')].map((b) => b.textContent?.trim());
+    expect(actions()).toEqual(['Cancel', 'Save']);
+    await switchTo(root, 'As readers see it');
+    expect(actions()).toEqual([]);
+    await switchTo(root, 'Source');
+    expect(actions()).toEqual(['Cancel', 'Save']);
+    expect(draft(root).value).toBe(`${TAG}more`);
+  });
   it('says nothing of unsaved changes on a clean draft', async () => {
     const root = await open();
     await switchTo(root, 'As readers see it');
@@ -299,7 +310,7 @@ describe('source lint (portal#1667)', () => {
     routes(saved(), page([warn(kind)]));
     const root = await open();
     expect(root.querySelector(`[data-lint-kind=${kind}]`)?.textContent).toContain(words);
-    expect(root.querySelector(`[data-lint-kind=${kind}]`)?.textContent).toContain('Position 8');
+    expect(root.querySelector(`[data-lint-kind=${kind}]`)?.textContent).toContain('Line 2, column 2');
     expect(lintBox(root)?.textContent).toContain('Warnings for the saved source');
   });
   it('shows a target only as returned, and the pinned and newer revisions', async () => {
@@ -310,8 +321,26 @@ describe('source lint (portal#1667)', () => {
     expect(pinned.querySelector('code')?.textContent?.replace(/\s/g, '')).toContain('policies:conduct');
     expect(pinned.textContent).toContain('Pinned to revision 2');
     expect(pinned.textContent).toContain('Revision 5 is approved');
-    expect(broken.textContent).toContain('Position 40');
+    expect(broken.textContent).toContain('Character 40');
     expect(broken.querySelector('code')).toBeNull();
+  });
+  it('counts lines and columns in the saved text, a character outside it stays a character', async () => {
+    const content = 'one\r\n\u{1F600}{{> a}}\n{{> b}}';
+    routes(saved(), page([warn('BROKEN_INCLUDE', { position: 0 }), warn('BROKEN_INCLUDE', { position: 7 }), warn('BROKEN_INCLUDE', { position: content.indexOf('{{> b') }), warn('BROKEN_INCLUDE', { position: content.length + 1 })]));
+    const root = await open({ ...SOURCE, node: { ...SOURCE.node!, content } } as BootSourceView);
+    const rows = [...root.querySelectorAll('[data-lint-kind]')].map((r) => r.textContent);
+    expect(rows[0]).toContain('Line 1, column 1');
+    expect(rows[1]).toContain('Line 2, column 2');
+    expect(rows[2]).toContain('Line 3, column 1');
+    expect(rows[3]).toContain(`Character ${content.length + 1}`);
+    expect(rows.join(' ')).not.toContain('Position');
+  });
+  it('a warning from another revision than the saved text is a character, never a wrong line', async () => {
+    routes(saved(), page([warn('BROKEN_INCLUDE')], 1, null, 4));
+    const root = await open();
+    const row = root.querySelector('[data-lint-kind]');
+    expect(row?.textContent).toContain('Character 8');
+    expect(row?.textContent).not.toContain('Line');
   });
   it('an empty page renders no list', async () => {
     const root = await open();
