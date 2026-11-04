@@ -177,6 +177,9 @@
     });
   });
 
+  // A loader replaces the worker object on every enhanced save. Its prop getter
+  // invalidates even when id is unchanged; compare the primitive before resetting lint.
+  const lintWorkerId = $derived(workerId);
   const readable = $derived({ signature: signature != null, trailer: trailer != null });
   const anyReadable = $derived(readable.signature || readable.trailer);
   let lintState = $state<'loading' | 'ready' | 'unavailable'>('loading');
@@ -209,7 +212,7 @@
     }
   }
   $effect(() => {
-    workerId; anyReadable;
+    lintWorkerId; anyReadable;
     ++lintEpoch; linkLint = null; lintState = 'loading'; lintBusy = false;
     void untrack(() => readLinkLint());
   });

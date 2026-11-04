@@ -166,6 +166,14 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     release(response(warnings)); await settle();
     expect(advice(root, 'signature')).toBe(original);
+    // A genuinely different worker still starts a new window and clears A's advice.
+    worker.value = { id: 'b', signature: 'other signature', trailer: 'other trailer' };
+    await settle();
+    expect(advice(root, 'signature')).toBeNull();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    release(response(warnings, true, 'b')); await settle();
+    expect(advice(root, 'signature')).not.toBeNull();
+    expect(advice(root, 'signature')).not.toBe(original);
   });
 
 });

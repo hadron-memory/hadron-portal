@@ -1,5 +1,8 @@
 /** Real editor, synthetic GET and Kit stores: author layout only, no sign-in/provider/save claim. */
 import { mount } from 'svelte';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
+let replaceWorker: (() => void) | undefined;
+export function replaceSameWorkerFromLoader() { replaceWorker?.(); }
 import Section from '../../../routes/app/workers/[id]/WorkerSignatureSection.svelte';
 import { setStubPage } from '$lib/test/stubs/app-stores';
 let calls = 0;
@@ -13,5 +16,7 @@ export function mountWorkerLinkLint(target: HTMLElement, variant: string) {
   const signature = variant === 'masked' ? null : '— Engineering helper';
   const trailer = variant === 'masked' ? null : 'Worker: Engineering helper';
   const data = { _kind: 'updateSignature' as const, signature: signature ?? '', trailer: trailer ?? '', signatureBase: signature ?? '', trailerBase: trailer ?? '' };
-  mount(Section, { target, props: { workerId: 'a', signature, trailer, retired: false, actionResult: undefined, initialForm: { id: 'updateSignature:a', valid: true, posted: false, errors: {}, data, constraints: {} } } });
+  const worker = reactiveProps({ value: { id: 'a', signature, trailer } });
+  replaceWorker = () => { worker.value = { ...worker.value, signature: worker.value.signature == null ? null : 'Changed saved signature' }; };
+  mount(Section, { target, props: { get workerId() { return worker.value.id; }, get signature() { return worker.value.signature; }, get trailer() { return worker.value.trailer; }, retired: false, actionResult: undefined, initialForm: { id: 'updateSignature:a', valid: true, posted: false, errors: {}, data, constraints: {} } } });
 }

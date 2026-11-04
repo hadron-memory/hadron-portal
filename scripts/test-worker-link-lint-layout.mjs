@@ -35,6 +35,15 @@ try {
       await page.waitForFunction(() => !document.body.textContent.includes('Checking the saved worker link'));
       if (variant === 'unavailable') await page.getByText('Couldn’t check the worker link.', { exact: true }).waitFor();
       if (variant === 'partial') await page.getByText('2 of 3 saved-value checks shown. The rest isn’t shown.', { exact: true }).waitFor();
+      if (variant === 'both') {
+        await page.evaluate(async () => {
+          window.__oldLintAdvice = document.querySelector('[data-signature-lint-field="signature"]');
+          await (await import('/src/lib/test/fixtures/worker-link-lint-harness.ts')).replaceSameWorkerFromLoader();
+        });
+        await page.waitForTimeout(50);
+        assert.equal(await page.evaluate(() => window.__oldLintAdvice?.isConnected && window.__oldLintAdvice === document.querySelector('[data-signature-lint-field="signature"]')), true, 'same-worker loader replacement unmounted advice');
+        assert.equal(await page.evaluate(async () => (await import('/src/lib/test/fixtures/worker-link-lint-harness.ts')).lintCalls()), 1, 'loader replacement issued a second lint read');
+      }
       await page.locator('textarea[name=signature]').fill('Edited draft');
       assert.equal(await page.getByRole('button', { name: 'Save', exact: true }).isEnabled(), true);
       assert.equal(await page.getByRole('button', { name: 'Retry', exact: true }).count(), variant === 'unavailable' ? 1 : 0);
