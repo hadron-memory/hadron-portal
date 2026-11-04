@@ -82,10 +82,16 @@
      */
     listKey = 'workers:sessions',
     maxHeight = 'max(200px, calc(100vh - 30rem))',
+    onServed = undefined,
+    servedId = null,
   }: {
     sessions: WorkerSession[];
     listKey?: string;
     maxHeight?: string;
+    /** portal#1665: open this session's served-prompt record. Omit to hide the column. */
+    onServed?: (sessionId: string) => void;
+    /** The session whose record is open, for aria-pressed. */
+    servedId?: string | null;
   } = $props();
 
   // Captured once per render rather than per row, so every countdown on the
@@ -181,6 +187,14 @@
       header: t('worker.sessions.col.transcript', 'Transcript'),
       size: 240,
     },
+    {
+      // An action, not data: nothing to sort, search or hide-by-value (portal#1665).
+      id: 'served',
+      accessorFn: () => null,
+      header: t('worker.sessions.col.served', 'Served prompt'),
+      enableSorting: false,
+      size: 150,
+    },
   ];
 
   /** Defensive per-column formatters: null / blank renders as an em dash. */
@@ -267,6 +281,20 @@
           </span>
         {/if}
       </div>
+    {:else if c.column.id === 'served'}
+      {#if onServed}
+        <button
+          type="button"
+          class="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          aria-pressed={servedId === row.id}
+          aria-label={t('worker.sessions.served.aria', 'Served prompt for the session started {when}', { when: fmtDate(dateMs(row.startedAt)) })}
+          onclick={() => onServed(row.id)}
+        >
+          {t('worker.sessions.served.show', 'Show')}
+        </button>
+      {:else}
+        <span class="text-zinc-400">—</span>
+      {/if}
     {:else if c.column.id === 'transcriptPath'}
       <!-- Host-local, and meaningless to anyone not on that machine — so plain
            text, never a link (#737). -->
