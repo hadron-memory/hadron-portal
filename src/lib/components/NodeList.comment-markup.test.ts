@@ -29,7 +29,7 @@ describe('#1058 valid comment rows', () => {
     expect(fallback).toContain('href="/app/memories/memory-pins/nodes/target-pins?tab=discussion"');
   });
   it('renders a plain title, not an empty/undefined link, for a valid target without a base', () => {
-    const node = { ...commentSearchNode(), memory: undefined };
+    const node = { ...commentSearchNode(), memory: undefined, memoryId: undefined as never };
     const body = render(NodeList, { props: { nodes: [node] } }).body;
     expect(body).toMatch(/<span class="font-medium text-zinc-900 dark:text-white">row-saffron<\/span>/);
     expect(body).not.toMatch(/href="(?:|undefined[^"]*)"/);

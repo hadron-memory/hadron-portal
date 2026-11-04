@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LazyNodesBrowser from '$lib/components/LazyNodesBrowser.svelte';
   // #266: memory-detail is a tab layout. The layout renders the breadcrumb +
   // header + tab bar; each tab is a sub-route rendered via {@render children()}.
   import { page } from '$app/stores';
@@ -319,17 +320,19 @@
     <p role="status" class="mb-4 text-sm text-zinc-500">{t('memory-detail.read-only', 'Read only — editing is unavailable for this memory.')}</p>
   {/if}
 
-  <!-- portal#1524 (Holger, 2026-10-31): the Nodes tree and the Graph view are
-       OFF for now. They were fed by a drain of the memory's whole node list
-       (44 MB of HTML, 7.3 s TTFB at 33k nodes, portal#1380), and the layout no
-       longer loads that list at all. MemoryBrowser and TopicGraph are kept,
-       disabled, for the lazy tree that follows (portal#1438): to restore, bring
-       the drain back behind a bounded read and render
-       <MemoryBrowser nodes=... forcedView={activeTab} /> here again. Nodes are
-       still reached by URL, links, wikilinks and node pages. -->
-  {#if !isNodeDetail && (activeTab === 'nodes' || activeTab === 'graph')}
+  <!-- portal#1524 (Holger, 2026-10-31): the layout drains no node list (it
+       loaded 44 MB of HTML at 33k nodes, portal#1380) and the Graph is still
+       OFF; TopicGraph is kept, disabled. portal#1700: the Nodes tab is back on
+       BOUNDED reads only: LazyNodesBrowser reads one page per user action
+       through nodes/children and nodes/page, never the whole list.
+       MemoryBrowser is not rendered here (it takes a loaded array). -->
+  {#if !isNodeDetail && activeTab === 'nodes'}
+    {#key g.id}
+      <LazyNodesBrowser memoryId={g.id} />
+    {/key}
+  {:else if !isNodeDetail && activeTab === 'graph'}
     <p role="status" data-testid="memory-views-off" class="mb-4 rounded-lg border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-      {t('memory-detail.views-off', 'Tree and graph views are temporarily off. Open a node by its URL or from a link to it.')}
+      {t('memory-detail.views-off', 'The graph view is temporarily off. Open a node by its URL or from a link to it.')}
     </p>
   {/if}
   {@render children()}
