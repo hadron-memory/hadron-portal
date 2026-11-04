@@ -430,3 +430,121 @@ describe('label help (#1678)', () => {
     expect(unset).not.toContain(EXCLUDED_HELP);
   });
 });
+
+// portal#1679: a stored entry this portal can't represent stays visible as unsupported, blocks editing until it is
+// consciously removed, and is never coerced to GitHub, dropped or written back. A server refusal at a bare entry
+// or team path is shown at that entry and takes focus.
+describe('unsupported entries (#1679)', () => {
+  const linear = { ...wire('theirs'), provider: 'linear' };
+  const unsupportedProps = () => ok({ taskIntegrations: [wire('core'), linear], other: 1 }, 6);
+  const rows = (m: Mounted<Record<string, unknown>>) => [...m.target.querySelectorAll<HTMLElement>('[data-unsupported]')];
+
+  it('U1: an unknown provider is listed as "Unsupported entry" with its index and provider, not as GitHub', async () => {
+    const m = await mount(unsupportedProps());
+    expect(rows(m)).toHaveLength(1);
+    expect(rows(m)[0].textContent).toContain('Unsupported entry');
+    expect(rows(m)[0].textContent).toContain('2');
+    expect(rows(m)[0].textContent).toContain('linear');
+    expect(m.target.querySelector('[data-integration="theirs"]')).toBeNull();
+  });
+  it('U1: the provider is text, never markup', async () => {
+    const m = await mount(ok({ taskIntegrations: [{ ...wire('x'), provider: '<img src=x onerror=alert(1)>' }] }));
+    expect(m.target.querySelector('img')).toBeNull();
+    expect(rows(m)[0].textContent).toContain('<img src=x onerror=alert(1)>');
+  });
+  it('U2/U3: a non-object entry, a wrong-typed field and an unknown key each list as unsupported, count preserved', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core'), 42, { ...wire('b'), repositories: 5 }, { ...wire('c'), futureKey: 1 }] }));
+    expect(rows(m)).toHaveLength(3);
+    expect(m.target.querySelectorAll('[data-integration]')).toHaveLength(1);
+  });
+  it('U4: with an unsupported entry present Edit and Add are unavailable, the fixed message shows, nothing is posted', async () => {
+    const m = await mount(unsupportedProps());
+    expect(btn(m.target, 'Edit')).toBeUndefined();
+    expect(btn(m.target, 'Add integration')).toBeUndefined();
+    expect(m.target.querySelector('form')).toBeNull();
+    expect(m.target.querySelector('[data-unsupported-notice]')?.textContent).toContain('can’t edit');
+  });
+  it('a reader who does not manage sees the unsupported row, with no Remove control', async () => {
+    const m = await mount(unsupportedProps(), false);
+    expect(rows(m)).toHaveLength(1);
+    expect(btn(m.target, 'Remove entry')).toBeUndefined();
+  });
+  it('U5: Remove then confirm unblocks editing, and the save carries only the kept supported entries and the revision read', async () => {
+    const m = await mount(unsupportedProps());
+    await click(btn(m.target, 'Remove entry'));
+    expect(rows(m)[0].textContent).toContain('linear');
+    await click(btn(m.target, 'Confirm remove'));
+    expect(rows(m)).toHaveLength(0);
+    await click(btn(m.target, 'Edit'));
+    expect(posted(m).map((d: { name: string }) => d.name)).toEqual(['core']);
+    expect(form(m).querySelector<HTMLInputElement>('input[name="revision"]')!.value).toBe('6');
+    expect(JSON.stringify(posted(m))).not.toContain('linear');
+  });
+  it('U5: removing the only entry leaves an empty list that can be saved', async () => {
+    const m = await mount(ok({ taskIntegrations: [linear] }, 2));
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    await click(btn(m.target, 'Add integration'));
+    expect(posted(m)).toHaveLength(1);
+  });
+  it('U6: Remove then keep leaves the list and the blocked state unchanged', async () => {
+    const m = await mount(unsupportedProps());
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Keep entry'));
+    expect(rows(m)).toHaveLength(1);
+    expect(btn(m.target, 'Edit')).toBeUndefined();
+    expect(btn(m.target, 'Confirm remove')).toBeUndefined();
+  });
+  it('C1 control: a list of only supported entries edits and posts as before', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }, 3));
+    await click(btn(m.target, 'Edit'));
+    expect(posted(m)).toHaveLength(1);
+    expect(rows(m)).toHaveLength(0);
+  });
+});
+
+describe('a refusal at a bare entry or team path (#1679)', () => {
+  const two = () => ({ ...wire('core'), teams: [{ lead: IRIS, label: 'a' }, { lead: IRIS, label: 'b' }] });
+  const refused = (path: string) => result({ ok: false, code: 'TASK_INTEGRATION_INVALID', message: 'server words', path, currentRevision: null });
+  const alertIn = (el: Element) => el.querySelector<HTMLElement>('[role="alert"]');
+
+  it('R1: taskIntegrations[0] is shown at entry 0 and takes focus', async () => {
+    const m = await mount(ok({ taskIntegrations: [two()] }));
+    document.body.append(m.target);
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), refused('taskIntegrations[0]'));
+    await tick(4);
+    const fs = form(m).querySelector('[data-integration-form="0"]')!;
+    const a = alertIn(fs)!;
+    expect(a).toBeTruthy();
+    expect(a.textContent?.trim()).not.toBe('');
+    expect(document.activeElement).toBe(a);
+  });
+  it('R2: taskIntegrations[0].teams[1] is shown at team 1 and takes focus', async () => {
+    const m = await mount(ok({ taskIntegrations: [two()] }));
+    document.body.append(m.target);
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), refused('taskIntegrations[0].teams[1]'));
+    await tick(4);
+    const team = form(m).querySelector('[data-team="1"]')!;
+    const a = alertIn(team)!;
+    expect(a).toBeTruthy();
+    expect(document.activeElement).toBe(a);
+  });
+  it('a bare path for an entry that is not on screen falls back to the banner and takes focus', async () => {
+    const m = await mount(ok({ taskIntegrations: [two()] }));
+    document.body.append(m.target);
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), refused('taskIntegrations[5]'));
+    await tick(4);
+    expect(document.activeElement?.getAttribute('role')).toBe('alert');
+    expect(form(m).textContent).toMatch(/\S/);
+  });
+  it('the message at the entry is fixed: the server\'s own words are not echoed', async () => {
+    const m = await mount(ok({ taskIntegrations: [two()] }));
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), refused('taskIntegrations[0]'));
+    await tick(4);
+    expect(form(m).textContent).not.toContain('server words');
+  });
+});
