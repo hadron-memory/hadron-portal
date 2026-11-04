@@ -7,6 +7,7 @@ import {
 } from '$lib/server/queries';
 import { resolveTesterSystemMemory } from '$lib/server/agent-tester/resolve-agent';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
 import { ChatError, publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import {
@@ -247,6 +248,10 @@ async function runOneFixture(
   const turn = fixture.record.turns[0];
   const client = gqlClient(token);
 
+  // portal#1611: one resolution per fixture chat, before startChat, shared by
+  // its welcome turn and its fixture turn.
+  const ai = await resolveChatAi(token, agentId);
+
   const startResult = await client.request<{
     startChat: {
       chatId: string;
@@ -263,6 +268,7 @@ async function runOneFixture(
     // isTestRun skips the AgentSubscription side-effect.
     scope: 'private',
     isTestRun: true,
+    ...llmModelVariable(ai),
   });
 
   const { chatId, conversationName, stageName } = startResult.startChat;
@@ -271,7 +277,7 @@ async function runOneFixture(
   // trace reflects where the user message actually landed (same
   // fix as test-run/+server.ts; see PR #217 review).
   const welcomeTurn = await runChatTurn({
-    token, agentId, chatId, userMessage: null,
+    token, agentId, chatId, userMessage: null, ai,
     startPayload: {
       systemMessage: startResult.startChat.systemMessage,
       tools: startResult.startChat.tools,
@@ -285,7 +291,7 @@ async function runOneFixture(
     throw new ChatError('fixtureEndedWelcome');
   }
 
-  const t = await runChatTurn({ token, agentId, chatId, userMessage: turn.user });
+  const t = await runChatTurn({ token, agentId, chatId, userMessage: turn.user, ai });
 
   const newRoute: RouteTrace = {
     conversationLoc: t.conversationHandoff ?? welcomeTurn.conversationHandoff ?? conversationName ?? null,

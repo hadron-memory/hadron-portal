@@ -480,6 +480,16 @@
     const result = submittedForm(form, 'bootApprove') as typeof data.bootApproveForm | null;
     return result?.id === data.bootApproveForm?.id ? result : null;
   });
+  // Which side of the source switch is showing. Held here because a save remounts the
+  // source view on its new revision; it belongs to the Agent, not to the revision.
+  let bootView = $state<'source' | 'resolved'>('source');
+  let bootViewAgentId = untrack(() => data.agent.id);
+  $effect(() => {
+    const agentId = data.agent.id;
+    untrack(() => {
+      if (agentId !== bootViewAgentId) { bootViewAgentId = agentId; bootView = 'source'; }
+    });
+  });
   $effect(() => {
     if (bootSourceSubmission || bootStartSubmission || bootCompileSubmission || bootApproveSubmission) activeTab = 'boot';
   });
@@ -847,7 +857,7 @@
       {:else if data.bootSource.mode === 'source'}
         <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
         {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
-          <BootPromptSource canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
+          <BootPromptSource agentId={agent.id} shown={activeTab === 'boot'} bind:view={bootView} canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'compiled-only'}
         <section data-boot-compiled-only>
