@@ -38,26 +38,25 @@ export function compileRefusalStatus(code: string | null | undefined): 403 | 404
  * `servedRevision` is the revision workers get now (null: none approved;
  * undefined: couldn't be read, so the line makes no claim about it).
  */
-export function compileRefusalText(code: string | null | undefined, position: unknown, servedRevision: number | null | undefined, level: 'Agent' | 'App' | 'worker' = 'Agent'): string {
+export function compileRefusalText(code: string | null | undefined, position: unknown, servedRevision: number | null | undefined): string {
   const c = code ?? '';
-  if (c === 'CONFLICT') return t('boot.compile.conflict', 'The prompt couldn’t be built right now. Try again.');
-  const typed = ['BOOT_PROMPT_COMPILE_NOT_PERMITTED', 'BOOT_PROMPT_NO_SOURCE', 'BOOT_PROMPT_SOURCE_INVALID', 'BOOT_PROMPT_NODE_TYPE', 'BOOT_PROMPT_TARGET_RETIRED', 'BOOT_PROMPT_GRANT_REQUIRED', 'BOOT_PROMPT_COMPILE_LIMIT_EXCEEDED'];
-  if (!typed.includes(c) && !['MALFORMED', 'UNAVAILABLE', 'RETIRED', 'REVISION_UNAVAILABLE', 'SOURCE_DISALLOWED', 'CYCLE', 'TOO_DEEP'].some(tail => c === `BOOT_PROMPT_INCLUDE_${tail}`)) return t('boot.compile.unknown-outcome', 'Couldn’t confirm whether the prompt was built. Reload to check before trying again.');
   let lead: string;
   switch (c) {
     case 'BOOT_PROMPT_COMPILE_NOT_PERMITTED':
-      lead = t('boot.compile.refused.not-permitted', 'This prompt can’t be updated here. It takes whoever manages this {owner}, signed in as themselves, and an Agent or worker that still exists.', { owner: level === 'Agent' ? 'Agent' : 'App' }); break;
+      lead = t('boot.compile.refused.not-permitted', 'Only whoever manages this Agent, signed in as themselves, can update the prompt.'); break;
     case 'BOOT_PROMPT_NO_SOURCE':
       lead = t('boot.compile.refused.no-source', 'There is no source to build from.'); break;
     case 'BOOT_PROMPT_SOURCE_INVALID':
     case 'BOOT_PROMPT_NODE_TYPE':
       lead = t('boot.compile.refused.source-invalid', 'The source node isn’t a boot-prompt source.'); break;
     case 'BOOT_PROMPT_TARGET_RETIRED':
-      lead = t('boot.compile.refused.target-retired', 'This {level} has been retired, so its prompt can’t be updated.', { level }); break;
+      lead = t('boot.compile.refused.target-retired', 'This Agent has been retired, so its prompt can’t be updated.'); break;
     case 'BOOT_PROMPT_GRANT_REQUIRED':
-      lead = t('boot.compile.refused.grant-required', 'An include in the source needs a grant that this {level} doesn’t have.', { level }); break;
+      lead = t('boot.compile.refused.grant-required', 'An include in the source needs a grant that this Agent doesn’t have.'); break;
     case 'BOOT_PROMPT_COMPILE_LIMIT_EXCEEDED':
       lead = t('boot.compile.refused.limit', 'The source includes too much to build in one go.'); break;
+    case 'CONFLICT':
+      lead = t('boot.compile.refused.conflict', 'It took too long. Try again.'); break;
     default:
       lead = include(c, position) ?? t('boot.compile.refused.unknown', 'The prompt couldn’t be built. Try again.');
   }

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
@@ -739,11 +738,8 @@
   // the pointer panel below the table (omitted when this viewer cannot manage
   // the App, the pre-menu button's gate); Unlink submits the hidden form
   // below the table for the picked row.
-  let compileChoice = $state<{ app: string; agent: string } | null>(null);
-  const compileAgent = $derived(compileChoice?.app === data.app.id ? installedAgents.find(a => a.id === compileChoice?.agent) : undefined);
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
     return [
-      ...(data.canManageApp === true && !impersonating ? [{ id: 'compile-prompt', label: t('app.agents.compile', 'Update the prompt…') }] : []),
       { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
         ? [{
@@ -756,9 +752,7 @@
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
-    if (id === 'compile-prompt') {
-      compileChoice = { app: data.app.id, agent: agent.id };
-    } else if (id === 'customisation') {
+    if (id === 'customisation') {
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
       void tick().then(() => {
@@ -2914,11 +2908,6 @@
             {/if}
           {/snippet}
         </DataTable>
-        {#if compileAgent}
-          {#key `${data.bootPointerAppKey}:${compileAgent.id}`}
-            <BootInstallCompile title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} />
-          {/key}
-        {/if}
         {#if customisationAgent}
           {#key `${data.bootPointerAppKey}\u0000${customisationAgent.id}`}
             <InstallCustomisation bind:this={customisationPanel} appRef={data.bootPointerAppKey} agent={customisationAgent} canManage={data.canManageApp ?? null} onClose={async () => {

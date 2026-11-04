@@ -1,5 +1,4 @@
 <script lang="ts">
-  import BootProvenance from '$lib/components/BootProvenance.svelte';
   import AgentMemberRolesEditor from './AgentMemberRolesEditor.svelte';
   import BootPromptSource from './BootPromptSource.svelte';
   import StartBootSource from './StartBootSource.svelte';
@@ -858,7 +857,7 @@
       {:else if data.bootSource.mode === 'source'}
         <!-- Keyed on the SOURCE only: a compiled-only change (compile, approve, reload) must not reset a dirty source draft. -->
         {#key `${data.bootSourceForm.id}:${data.bootSource.node.revision}`}
-          <BootPromptSource showProvenance={activeTab === 'boot'} agentId={agent.id} shown={activeTab === 'boot'} bind:view={bootView} canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
+          <BootPromptSource agentId={agent.id} shown={activeTab === 'boot'} bind:view={bootView} canManage={data.canManageAgent} urn={data.bootSource.node.urn} revision={data.bootSource.node.revision} compiled={data.bootSource.compiled} initial={data.bootSourceForm} compileInitial={data.bootCompileForm} approveInitial={data.bootApproveForm} noPointer={data.bootSource.noPointer} submitted={bootSourceSubmission} compileSubmitted={bootCompileSubmission} approveSubmitted={bootApproveSubmission} />
         {/key}
       {:else if data.bootSource.mode === 'compiled-only'}
         <section data-boot-compiled-only>
@@ -866,7 +865,6 @@
           <p class="mb-3 text-xs"><Urn value={data.bootSource.compiled.urn} type="node" /> <span class="text-zinc-500 dark:text-zinc-400">{t('agent.boot.source-revision', 'revision {n}', { n: data.bootSource.compiled.revision })}</span></p>
           <!-- svelte-ignore a11y_no_noninteractive_tabindex: a scrollable text region must be reachable by keyboard (WCAG 2.1.1) -->
           <pre tabindex="0" aria-label={t('agent.boot.compiled-text-label', 'Compiled prompt text')} class="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-md border border-zinc-300 bg-zinc-50 p-3 font-mono text-xs text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{data.bootSource.compiled.content}</pre>
-          {#if activeTab === 'boot'}{#key `${data.bootSource.compiled.id}:${data.bootSource.compiled.revision}`}<BootProvenance nodeId={data.bootSource.compiled.id} revision={data.bootSource.compiled.revision} />{/key}{/if}
         </section>
       {:else if data.bootSource.mode === 'source-missing'}
         {#if data.bootSource.canStart}
