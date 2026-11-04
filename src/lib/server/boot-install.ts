@@ -51,15 +51,19 @@ export async function readInstallPrompt(client: Client, owner: CompileOwner): Pr
   }
   // The compiled loc is fixed, including when worker setPointer:false keeps a different pointer.
   let compiled = null;
+  let compiledReadFailed = false;
   try {
     const { installMemory } = await client.request<{ installMemory: { id: string; urn: string } | null }>(INSTALL_MEMORY_QUERY, { appRef: owner.app, agentRef: owner.agent });
     if (installMemory) {
       const loc = owner.level === 'worker' ? `boot:workers:${owner.worker}:compiled` : 'boot:compiled';
       const r = await client.request<{ node: { id: string } | null }>(SOURCE_NODE, { ref: loc, memoryRef: installMemory.id });
-      if (r.node) compiled = await readCompiled(client, r.node.id);
+      if (r.node) {
+        compiled = await readCompiled(client, r.node.id);
+        compiledReadFailed = compiled === null;
+      }
     }
-  } catch { /* compiled unavailable is distinct from no approved revision */ }
-  return { key, source, canStart, compiled, pointerMatches: compiled ? pointer === compiled.id || pointer === compiled.urn : null };
+  } catch { compiledReadFailed = true; }
+  return { key, source, canStart, compiled, compiledReadFailed, pointerMatches: compiled ? pointer === compiled.id || pointer === compiled.urn : null };
 }
 export type InstallIntent = { intent: 'compile' | 'approve' | 'start'; nodeId?: string; revision?: number };
 export async function writeInstallPrompt(client: Client, owner: CompileOwner, input: InstallIntent, impersonating: boolean) {
@@ -78,7 +82,10 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
   }
   if (input.intent === 'approve') {
     // A forged node/revision must belong to this owner, not merely be approvable elsewhere.
-    const view = await readInstallPrompt(client, owner);
+    const notSent = () => refused(t('boot.install.approve-read-failed', 'Couldn’t read this prompt for approval. No approval request was sent. Reload before trying again.'), 502);
+    let view: InstallCompileView;
+    try { view = await readInstallPrompt(client, owner); } catch { return notSent(); }
+    if (view.compiledReadFailed) return notSent();
     if (!view.compiled || view.compiled.id !== input.nodeId || view.compiled.revision !== input.revision) return refused(t('boot.install.2fc00c74cf', 'This prompt changed. Reload and review the current revision before approving it.'), 409);
     try {
       await client.request(APPROVE_NODE_MUTATION, { nodeRef: input.nodeId, revision: input.revision });

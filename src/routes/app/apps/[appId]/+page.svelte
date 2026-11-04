@@ -739,6 +739,7 @@
   // the pointer panel below the table (omitted when this viewer cannot manage
   // the App, the pre-menu button's gate); Unlink submits the hidden form
   // below the table for the picked row.
+  let compilePanel = $state<{ reveal: () => void }>();
   let compileChoice = $state<{ app: string; agent: string } | null>(null);
   const compileAgent = $derived(compileChoice?.app === data.app.id ? installedAgents.find(a => a.id === compileChoice?.agent) : undefined);
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
@@ -757,7 +758,11 @@
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
     if (id === 'compile-prompt') {
-      compileChoice = { app: data.app.id, agent: agent.id };
+      const appId = data.app.id;
+      compileChoice = { app: appId, agent: agent.id };
+      void tick().then(() => {
+        if (appId === data.app.id && compileAgent?.id === agent.id) compilePanel?.reveal();
+      });
     } else if (id === 'customisation') {
       customisationChoice = { appRef: data.bootPointerAppKey, agentId: agent.id };
       const appKey = data.bootPointerAppKey;
@@ -2916,7 +2921,7 @@
         </DataTable>
         {#if compileAgent}
           {#key `${data.bootPointerAppKey}:${compileAgent.id}`}
-            <BootInstallCompile title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} />
+            <BootInstallCompile bind:this={compilePanel} title={t('app.agents.compile-title', 'Boot prompt for {name} in this App', { name: compileAgent.name })} owner={{ level: 'app', app: data.app.id, agent: compileAgent.id }} canManage={data.canManageApp} {impersonating} />
           {/key}
         {/if}
         {#if customisationAgent}

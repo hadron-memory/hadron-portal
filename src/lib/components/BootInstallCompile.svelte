@@ -6,6 +6,11 @@
   import Urn from './Urn.svelte';
   import BootProvenance from './BootProvenance.svelte';
   let { owner, canManage, impersonating = false, title = t('boot.install.heading', 'Boot prompt') }: { title?: string; owner: CompileOwner; canManage: boolean | null | undefined; impersonating?: boolean } = $props();
+  let heading = $state<HTMLHeadingElement>();
+  export function reveal() {
+    heading?.focus();
+    heading?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+  }
   let view = $state<InstallCompileView | null>(null);
   let failed = $state(false);
   let busy = $state(false);
@@ -61,8 +66,8 @@
   const button = 'rounded border border-zinc-400 px-3 py-2 text-sm disabled:opacity-50 dark:border-zinc-600';
 </script>
 <section data-install-compile={key} class="space-y-3 rounded-lg border border-zinc-200 bg-white p-4 text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100" aria-label={title}>
-  <h3 class="font-semibold">{title}</h3>
-  <p role="alert" class={failed ? errorStyle : ''}>{failed ? t("boot.install.fb477751c1", "Couldn’t read this prompt. Reload before trying again.") : ''}</p>
+  <h3 bind:this={heading} tabindex="-1" class="font-semibold">{title}</h3>
+  <p role="alert" class={failed || view?.compiledReadFailed ? errorStyle : ''}>{failed || view?.compiledReadFailed ? t("boot.install.fb477751c1", "Couldn’t read this prompt. Reload before trying again.") : ''}</p>
   {#if view}
     {#if view.source}
       <div><a class="underline" href={`/app/memories/${encodeURIComponent(view.source.memoryId)}/nodes/${encodeURIComponent(view.source.id)}`}>{view.source.name}</a><div class="mt-1"><Urn value={view.source.urn} type="node" /></div></div>

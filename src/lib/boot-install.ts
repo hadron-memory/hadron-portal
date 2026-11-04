@@ -29,4 +29,4 @@ export function servedNowText(value: Serve, owner: CompileOwner, nodeId: string)
 export type ProvenanceRow = { name: string | null; urn: string | null; omitted: boolean; depth: number; revNo: number; selection: { rev: number | null; approved: boolean; signed: boolean }; pruned: boolean | null };
 export type ProvenancePage = { items: ProvenanceRow[]; total: number; hasMore: boolean; pruned: boolean; offset: number };
 export type InstallCompiled = { id: string; urn: string; revision: number; content: string; pending: boolean; lint: { items: { kind: string; position: number; text: string }[]; total: number } | null };
-export type InstallCompileView = { key: string; compiled: InstallCompiled | null; source: { id: string; urn: string; name: string; memoryId: string } | null; canStart: boolean; pointerMatches: boolean | null };
+export type InstallCompileView = { key: string; compiled: InstallCompiled | null; compiledReadFailed?: boolean; source: { id: string; urn: string; name: string; memoryId: string } | null; canStart: boolean; pointerMatches: boolean | null };

@@ -135,7 +135,7 @@
       {/if}
     </section>
   {/if}
-  {#if compiled && showProvenance}{#key `${compiled.id}:${compiled.revision}`}<BootProvenance nodeId={compiled.id} revision={compiled.revision} />{/key}{/if}
   {#if $approveMessage}<p role={$approveMessage.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$approveMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$approveMessage.text}</p>{/if}
   {#if $message}<p role={$message.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
+  {#if compiled && showProvenance}{#key `${compiled.id}:${compiled.revision}`}<BootProvenance nodeId={compiled.id} revision={compiled.revision} />{/key}{/if}
 </section>
