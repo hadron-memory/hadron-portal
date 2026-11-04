@@ -155,4 +155,20 @@ describe('the cell renders text the accessor never sees (@codex on #819)', () =>
     expect(filter(r, 'status', 'Expires in')).toBe(true);
     expect(filter(r, 'status', 'nothing-like-this')).toBe(false);
   });
+
+  describe('served prompt column (portal#1665)', () => {
+    it('with onServed: one named Show button per session, pressed only for the open one', () => {
+      const html = render(WorkerSessionsTable, {
+        props: { sessions: [session({ id: 'a' }), session({ id: 'b' })], onServed: () => {}, servedId: 'b' },
+      }).body;
+      const row = html.slice(html.indexOf('<tbody'), html.indexOf('</tbody>'));
+      expect(row.match(/Served prompt for the session started/g)).toHaveLength(2);
+      expect(row.match(/aria-pressed="true"/g)).toHaveLength(1);
+    });
+
+    it('without onServed: no button, just a dash (the column is hidden of actions)', () => {
+      const row = rows([session()]);
+      expect(row).not.toContain('Served prompt for the session started');
+    });
+  });
 });

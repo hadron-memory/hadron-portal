@@ -9,7 +9,7 @@ import {
 } from '$lib/served-prompts';
 
 /** Never selects `compiledNodeId`'s content, a loc or a name: the record carries ids, revisions and hashes only. */
-const RECORD = /* GraphQL */ `
+const RECORD = /* GraphQL */ `fragment ServedRecord on ServedPrompt {
   id
   kind
   ordinal
@@ -27,13 +27,13 @@ const RECORD = /* GraphQL */ `
     nextCursor
     total
   }
+}
 `;
-const VARS = '$provLimit: Int, $provOffset: Int, $lintFirst: Int, $lintAfter: String';
 
-export const WORKER_SERVED_QUERY = /* GraphQL */ `query WorkerServedPrompt($ref: ID!, ${VARS}) { worker(ref: $ref) { servedPrompt { ${RECORD} } } }`;
-export const SESSION_SERVED_QUERY = /* GraphQL */ `query SessionServedPrompts($id: ID!, $limit: Int, $offset: Int, ${VARS}) { session(id: $id) { servedPrompts(limit: $limit, offset: $offset) { items { ${RECORD} } total } } }`;
-export const RUN_SERVED_QUERY = /* GraphQL */ `query RunServedPrompt($ref: ID!, ${VARS}) { appRun(ref: $ref) { servedPrompt { ${RECORD} } } }`;
-export const CHAT_SERVED_QUERY = /* GraphQL */ `query ChatServedPrompts($chatId: ID!, $limit: Int, $offset: Int, ${VARS}) { chatServedPrompts(chatId: $chatId, limit: $limit, offset: $offset) { items { ${RECORD} } total } }`;
+export const WORKER_SERVED_QUERY = /* GraphQL */ `query WorkerServedPrompt($ref: ID!, $provLimit: Int, $provOffset: Int, $lintFirst: Int, $lintAfter: String) { worker(ref: $ref) { servedPrompt { ...ServedRecord } } } ${RECORD}`;
+export const SESSION_SERVED_QUERY = /* GraphQL */ `query SessionServedPrompts($id: ID!, $limit: Int, $offset: Int, $provLimit: Int, $provOffset: Int, $lintFirst: Int, $lintAfter: String) { session(id: $id) { servedPrompts(limit: $limit, offset: $offset) { items { ...ServedRecord } total } } } ${RECORD}`;
+export const RUN_SERVED_QUERY = /* GraphQL */ `query RunServedPrompt($ref: ID!, $provLimit: Int, $provOffset: Int, $lintFirst: Int, $lintAfter: String) { appRun(ref: $ref) { servedPrompt { ...ServedRecord } } } ${RECORD}`;
+export const CHAT_SERVED_QUERY = /* GraphQL */ `query ChatServedPrompts($chatId: ID!, $limit: Int, $offset: Int, $provLimit: Int, $provOffset: Int, $lintFirst: Int, $lintAfter: String) { chatServedPrompts(chatId: $chatId, limit: $limit, offset: $offset) { items { ...ServedRecord } total } } ${RECORD}`;
 /** Names come from THIS read, as the viewer; `content` is never selected. */
 export const SERVED_NODE_NAMES_QUERY = /* GraphQL */ `query ServedPromptNodeNames($refs: [ID!]) { nodeBatch(refs: $refs) { nodes { id urn name } } }`;
 
