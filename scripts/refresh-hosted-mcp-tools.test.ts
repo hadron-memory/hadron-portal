@@ -10,6 +10,7 @@
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 import { MIN_HOSTED, SWITCH, decodeModule, mcpModules, renderAsset, scanSource, serverTools } from './refresh-hosted-mcp-tools.mjs';
+import { HOSTED_MCP_TOOLS } from '../src/lib/assets/hosted-mcp-tools';
 
 const kept = `
   server.tool(
@@ -186,5 +187,13 @@ describe('renderAsset', () => {
     const [, docblock] = renderAsset(input).split('HOSTED_MCP_TOOLS');
     expect(docblock).toContain('only the parity test');
     expect(docblock).toContain('isn\'t a list of tools that are available');
+  });
+});
+
+// Here rather than in the asset's parity test: importing this script from src/
+// would pull it into `pnpm check`, which doesn't type it.
+describe('the committed asset', () => {
+  it('stays above the floor the script refuses under', () => {
+    expect(HOSTED_MCP_TOOLS.size).toBeGreaterThanOrEqual(MIN_HOSTED);
   });
 });
