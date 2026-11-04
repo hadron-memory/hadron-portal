@@ -277,3 +277,212 @@ describe('a reused host never shows the previous subject', () => {
     expect(caught).toEqual([]);
   });
 });
+
+// portal#1696 — nested paging state. Lint and provenance page the SAME record independently, so
+// their pending and failure state must be independent too (they shared one `busy`/`failed` field:
+// starting provenance re-enabled lint "Show more", a second same-cursor lint request appended
+// the same warnings twice, "22 of 21").
+const lintWarn = (n: number) => ({ kind: 'BROKEN_INCLUDE', position: n, pinnedRevision: null, newerRevision: null, workerField: null, targetUrn: null });
+const provItems = Array.from({ length: 20 }, (_, i) => ({ revSeq: i, hash: `h${i}`, pruned: false }));
+
+/** A fetch whose nested lint / provenance replies are held until the test releases them. */
+function heldFetch(opts: { lintReply?: () => Response; provReply?: () => Response } = {}) {
+  const held: Array<{ kind: 'lint' | 'prov'; url: string; release: () => void }> = [];
+  const calls: string[] = [];
+  const first = () => record({ provenance: { items: provItems, total: 45, offset: 0 }, lint: { items: [lintWarn(1)], total: 21, nextCursor: 'c1' } });
+  const fetchImpl = vi.fn((url: string) => {
+    calls.push(url);
+    const q = new URL(url, 'http://x').searchParams;
+    const kind = q.get('lintAfter') ? 'lint' : q.get('provOffset') !== null ? 'prov' : null;
+    if (!kind) return ok(page([first()]));
+    return new Promise<Response>((resolve) => {
+      held.push({
+        kind, url,
+        release: () => resolve(
+          kind === 'lint'
+            ? (opts.lintReply?.() ?? new Response(JSON.stringify(page([record({ lint: { items: [lintWarn(21)], total: 21, nextCursor: null } })])), { status: 200 }))
+            : (opts.provReply?.() ?? new Response(JSON.stringify(page([record({ provenance: { items: provItems, total: 45, offset: 20 } })])), { status: 200 })),
+        ),
+      });
+    });
+  });
+  return { fetchImpl, held, calls, nested: (k: 'lint' | 'prov') => held.filter((h) => h.kind === k) };
+}
+const button = (m: { target: HTMLElement }, scope: string, label: string) =>
+  [...m.target.querySelectorAll<HTMLButtonElement>(`[data-testid="${scope}"] button`)].find((b) => b.textContent === label)!;
+
+describe('portal#1696 item 1: lint and provenance page independently', () => {
+  it('provenance starting while lint loads does not re-enable lint "Show more": one lint request, one append', async () => {
+    const h = heldFetch();
+    const m = show(h.fetchImpl as never);
+    await settle();
+    button(m, 'served-lint', 'Show more').click();
+    flushSync();
+    button(m, 'served-provenance', 'Next').click();
+    flushSync();
+    expect(button(m, 'served-lint', 'Show more').disabled).toBe(true);
+    button(m, 'served-lint', 'Show more').click();
+    flushSync();
+    expect(h.nested('lint')).toHaveLength(1);
+    expect(h.nested('prov')).toHaveLength(1);
+    h.held.forEach((x) => x.release());
+    await settle();
+    expect(m.target.querySelectorAll('[data-testid="served-lint"] li')).toHaveLength(2);
+    expect(m.target.querySelector('[data-testid="served-lint-count"]')!.textContent!.trim()).toBe('2 of 21');
+  });
+
+  it('lint finishing while provenance loads does not re-enable provenance "Next": one provenance request', async () => {
+    const h = heldFetch();
+    const m = show(h.fetchImpl as never);
+    await settle();
+    button(m, 'served-provenance', 'Next').click();
+    flushSync();
+    button(m, 'served-lint', 'Show more').click();
+    flushSync();
+    h.nested('lint')[0].release();
+    await settle();
+    expect(button(m, 'served-provenance', 'Next').disabled).toBe(true);
+    button(m, 'served-provenance', 'Next').click();
+    flushSync();
+    expect(h.nested('prov')).toHaveLength(1);
+  });
+
+  it('a lint failure survives a provenance request starting and succeeding', async () => {
+    const h = heldFetch({ lintReply: () => new Response('{}', { status: 502 }) });
+    const m = show(h.fetchImpl as never);
+    await settle();
+    button(m, 'served-lint', 'Show more').click();
+    flushSync();
+    h.nested('lint')[0].release();
+    await settle();
+    expect(m.target.querySelector('[data-testid="served-lint"] [role="alert"]')).not.toBeNull();
+    button(m, 'served-provenance', 'Next').click();
+    flushSync();
+    expect(m.target.querySelector('[data-testid="served-lint"] [role="alert"]')).not.toBeNull();
+    h.nested('prov')[0].release();
+    await settle();
+    expect(m.target.querySelector('[data-testid="served-lint"] [role="alert"]')).not.toBeNull();
+    expect(m.target.querySelector('[data-testid="served-provenance"] [role="alert"]')).toBeNull();
+  });
+
+  it('a provenance failure survives a later lint request', async () => {
+    const h = heldFetch({ provReply: () => new Response('{}', { status: 502 }) });
+    const m = show(h.fetchImpl as never);
+    await settle();
+    button(m, 'served-provenance', 'Next').click();
+    flushSync();
+    h.nested('prov')[0].release();
+    await settle();
+    expect(m.target.querySelector('[data-testid="served-provenance"] [role="alert"]')).not.toBeNull();
+    button(m, 'served-lint', 'Show more').click();
+    flushSync();
+    h.nested('lint')[0].release();
+    await settle();
+    expect(m.target.querySelector('[data-testid="served-provenance"] [role="alert"]')).not.toBeNull();
+  });
+
+  it('a subject change while a nested page is in flight clears pending state and drops the stale reply', async () => {
+    const h = heldFetch();
+    const f = vi.fn((url: string) => (new URL(url, 'http://x').searchParams.get('ref') === 'B'
+      ? ok(page([record({ id: 'rec-b', lint: { items: [lintWarn(7)], total: 21, nextCursor: 'cB' } })]))
+      : h.fetchImpl(url)));
+    const props = reactiveProps({ source: 'worker', refId: 'A', fetchImpl: f as never } as Record<string, unknown>);
+    const m = mountComponent(ServedPrompt as never, props as never);
+    mounted.push(m);
+    await settle();
+    button(m, 'served-lint', 'Show more').click();
+    flushSync();
+    props.refId = 'B';
+    flushSync();
+    await settle();
+    expect(button(m, 'served-lint', 'Show more').disabled).toBe(false);
+    h.nested('lint')[0].release();
+    await settle();
+    expect(m.target.querySelectorAll('[data-testid="served-lint"] li')).toHaveLength(1);
+    expect(button(m, 'served-lint', 'Show more').disabled).toBe(false);
+  });
+});
+
+// Item 2 is an OUT-OF-CONTRACT defensive guard, not a production scenario: the provider slices an
+// immutable stored array and reports its length (resolvers.servedPrompt.ts:138-146), so a real
+// provider never answers a later page with empty items for an unchanged record. These fakes
+// exercise the guard only.
+describe('portal#1696 item 2 (out-of-contract fake): an empty later provenance page', () => {
+  const emptyLater = { items: [] as unknown[], total: 45, offset: 20 };
+  function provFetch(later: (q: URLSearchParams) => Response) {
+    return vi.fn((url: string) => {
+      const q = new URL(url, 'http://x').searchParams;
+      if (q.get('provOffset') === null) return ok(page([record({ provenance: { items: provItems, total: 45, offset: 0 } })]));
+      return Promise.resolve(later(q));
+    });
+  }
+  const provCalls = (f: ReturnType<typeof provFetch>) => f.mock.calls.map(([u]) => new URL(String(u), 'http://x').searchParams.get('provOffset')).filter((v) => v !== null);
+
+  it('resets once to the first page: the section and its range come back, same query', async () => {
+    const f = provFetch((q) => new Response(JSON.stringify(page([record({ provenance: q.get('provOffset') === '0' ? { items: provItems, total: 45, offset: 0 } : emptyLater })])), { status: 200 }));
+    const m = show(f as never);
+    await settle();
+    button(m, 'served-provenance', 'Next').click();
+    await settle();
+    expect(provCalls(f)).toEqual(['20', '0']);
+    expect(m.target.querySelector('[data-testid="served-prov-range"]')!.textContent).toBe('1–20 of 45');
+    expect(m.target.querySelector('[data-testid="served-provenance"] [role="alert"]')).toBeNull();
+  });
+
+  it('a failed reset shows the existing failure and never an empty section', async () => {
+    const f = provFetch((q) => (q.get('provOffset') === '0' ? new Response('{}', { status: 502 }) : new Response(JSON.stringify(page([record({ provenance: emptyLater })])), { status: 200 })));
+    const m = show(f as never);
+    await settle();
+    button(m, 'served-provenance', 'Next').click();
+    await settle();
+    const prov = m.target.querySelector('[data-testid="served-provenance"]');
+    expect(prov).not.toBeNull();
+    expect(prov!.querySelector('[role="alert"]')!.textContent).toContain('more');
+    expect(prov!.querySelectorAll('li').length).toBeGreaterThan(0);
+  });
+
+  it('resets ONCE: a reset that is empty again does not loop', async () => {
+    const f = provFetch(() => new Response(JSON.stringify(page([record({ provenance: emptyLater })])), { status: 200 }));
+    const m = show(f as never);
+    await settle();
+    button(m, 'served-provenance', 'Next').click();
+    await wait(60);
+    flushSync();
+    expect(provCalls(f)).toEqual(['20', '0']);
+  });
+
+  it('total 0 keeps the honest state: no section, no "none" text, no reset request', async () => {
+    const f = provFetch(() => new Response(JSON.stringify(page([record({ provenance: { items: [], total: 0, offset: 20 } })])), { status: 200 }));
+    const m = show(f as never);
+    await settle();
+    button(m, 'served-provenance', 'Next').click();
+    await settle();
+    expect(provCalls(f)).toEqual(['20']);
+    expect(m.target.querySelector('[data-testid="served-provenance"]')).toBeNull();
+    expect(text(m)).not.toMatch(/no provenance|none/i);
+  });
+
+  it('a subject change during the reset drops it: nothing repaints for the new subject', async () => {
+    let releaseReset!: () => void;
+    const f = vi.fn((url: string) => {
+      const q = new URL(url, 'http://x').searchParams;
+      if (q.get('ref') === 'B') return ok(page([record({ id: 'rec-b', compiledContentHash: 'HASH-B', provenance: { items: [{ revSeq: 9, hash: 'pb', pruned: false }], total: 1, offset: 0 } })]));
+      if (q.get('provOffset') === '0') return new Promise<Response>((r) => { releaseReset = () => r(new Response(JSON.stringify(page([record({ compiledContentHash: 'HASH-A', provenance: { items: provItems, total: 45, offset: 0 } })])), { status: 200 })); });
+      if (q.get('provOffset') !== null) return ok(page([record({ provenance: emptyLater })]));
+      return ok(page([record({ compiledContentHash: 'HASH-A', provenance: { items: provItems, total: 45, offset: 0 } })]));
+    });
+    const props = reactiveProps({ source: 'worker', refId: 'A', fetchImpl: f as never } as Record<string, unknown>);
+    const m = mountComponent(ServedPrompt as never, props as never);
+    mounted.push(m);
+    await settle();
+    button(m, 'served-provenance', 'Next').click();
+    await settle();
+    props.refId = 'B';
+    flushSync();
+    await settle();
+    releaseReset();
+    await settle();
+    expect(text(m)).toContain('HASH-B');
+    expect(text(m)).not.toContain('HASH-A');
+  });
+});
