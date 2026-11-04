@@ -146,4 +146,26 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(advice(root, 'trailer')).toBe(trailer);
   });
 
+  it('keeps advice mounted when the loader replaces the same readable worker after save', async () => {
+    const warnings = page([item('signature')]);
+    let release!: (value: ReturnType<typeof response>) => void;
+    const fetcher = vi.fn().mockResolvedValueOnce(response(warnings)).mockImplementation(() => new Promise(r => release = r));
+    vi.stubGlobal('fetch', fetcher);
+    const worker = reactiveProps({ value: { id: 'a', signature: 'signature', trailer: 'trailer' } });
+    const initialForm = await superValidate({ signature: 'signature', trailer: 'trailer', signatureBase: 'signature', trailerBase: 'trailer' }, zod4(updateSignatureSchema), { errors: false, id: updateSignatureFormId('a') });
+    const m = mountComponent(Section as never, { get workerId() { return worker.value.id; }, get signature() { return worker.value.signature; }, get trailer() { return worker.value.trailer; }, initialForm, retired: false, actionResult: undefined } as never);
+    mounted.push(m.unmount); await settle();
+    const root = m.target;
+    const original = advice(root, 'signature');
+    type(root, 'changed saved signature');
+    await save(root);
+    // The real enhanced action invalidates the loader as well as calling onUpdated.
+    worker.value = { id: 'a', signature: 'changed saved signature', trailer: 'trailer' };
+    await settle();
+    expect(advice(root, 'signature')).toBe(original);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    release(response(warnings)); await settle();
+    expect(advice(root, 'signature')).toBe(original);
+  });
+
 });
