@@ -10,6 +10,19 @@ import { AGENT_TASK_DETAIL_QUERY } from '$lib/server/queries';
 
 const html = (externalId: string | null) => render(TaskExternalId, { props: { externalId } }).body;
 
+/** Does this document select `externalId` the way the detail page reads it? */
+const selectsExternalId = (query: string) => /\bexternalId\b/.test(query);
+
+/** The real detail query with its `externalId` line rewritten: a mutant, not an invented document. */
+const mutate = (rewrite: (query: string) => string) => {
+  const line = /^\s*externalId$/m;
+  expect(AGENT_TASK_DETAIL_QUERY).toMatch(line);
+  const mutant = rewrite(AGENT_TASK_DETAIL_QUERY);
+  expect(mutant).not.toBe(AGENT_TASK_DETAIL_QUERY);
+  expect(mutant).not.toMatch(line);
+  return mutant;
+};
+
 describe('TaskExternalId', () => {
   it('renders an http(s) id as a safe link', () => {
     const out = html('https://github.com/o/r/issues/7');
@@ -32,6 +45,27 @@ describe('TaskExternalId', () => {
   });
 
   it('is selected by the detail query', () => {
-    expect(AGENT_TASK_DETAIL_QUERY).toMatch(/\bexternalId\b/);
+    expect(selectsExternalId(AGENT_TASK_DETAIL_QUERY)).toBe(true);
+  });
+
+  // portal#1680. The word survives in each of these, so only the structure tells them from the real query.
+  it.each([
+    ['moved into a comment', (q: string) => q.replace(/^(\s*)externalId$/m, '$1# externalId')],
+    ['aliased', (q: string) => q.replace(/^(\s*)externalId$/m, '$1x: externalId')],
+    [
+      'nested under another field',
+      (q: string) =>
+        q.replace(/^\s*externalId\n/m, '').replace('result { outcome summary evidence }', 'result { outcome summary evidence externalId }'),
+    ],
+  ])('does not count externalId %s as selected', (_name, rewrite) => {
+    const mutant = mutate(rewrite);
+    expect(mutant).toMatch(/\bexternalId\b/);
+    expect(selectsExternalId(mutant)).toBe(false);
+  });
+
+  it('does not count a query without externalId as selected', () => {
+    const mutant = mutate(q => q.replace(/^\s*externalId\n/m, ''));
+    expect(mutant).not.toMatch(/\bexternalId\b/);
+    expect(selectsExternalId(mutant)).toBe(false);
   });
 });
