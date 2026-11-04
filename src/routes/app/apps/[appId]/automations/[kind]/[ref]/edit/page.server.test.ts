@@ -54,6 +54,18 @@ describe('edit action', () => {
     await save({ ...same, name: 'Morning digest' });
     expect(updates()).toEqual([{ id: 'sch-1', input: { name: 'Morning digest' } }]);
   });
+  it('BLIND P2: a one-shot saved with the date and time the form seeds sends nothing; a rename alone sends the name alone', async () => {
+    serve([stored({ cron: null, runAt: '2026-11-05T13:45:00.000Z' })]);
+    const once = { entryNodeUrn: 'hrn:node:acme.com:m:e', name: 'Digest', when: 'once', date: '2026-11-05', time: '14:45' };
+    expect(await save(once)).toEqual({ nothingToChange: true });
+    await save({ ...once, name: 'Renamed' });
+    expect(updates()).toEqual([{ id: 'sch-1', input: { name: 'Renamed' } }]);
+  });
+  it('a one-shot given a new time sends runAt alone', async () => {
+    serve([stored({ cron: null, runAt: '2026-11-05T13:45:00.000Z' })]);
+    await save({ entryNodeUrn: 'hrn:node:acme.com:m:e', name: 'Digest', when: 'once', date: '2026-11-05', time: '16:00' });
+    expect(updates()).toEqual([{ id: 'sch-1', input: { runAt: '2026-11-05T15:00:00.000Z' } }]);
+  });
   it('nothing changed sends nothing and says so', async () => {
     serve([stored()]);
     expect(await save(same)).toEqual({ nothingToChange: true });
