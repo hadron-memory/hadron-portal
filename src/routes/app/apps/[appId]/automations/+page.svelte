@@ -71,7 +71,7 @@
         <span class="font-normal text-zinc-400">{t('app.automations.title.prefix', 'Automations:')}</span> {data.app.name}
       </h1>
       <p class="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-        {t('app.automations.intro', 'A schedule or a webhook starts work on its own. It runs only after you approve it.')}
+        {t('app.automations.intro', 'A schedule or a webhook starts work on its own. It runs only once it is approved; a schedule you create here is approved by creating it.')}
       </p>
     </div>
     <!-- Offered to everyone: the server decides who may create (an organization admin), and the refusal is in plain words. -->
