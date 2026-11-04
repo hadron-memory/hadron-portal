@@ -11,8 +11,13 @@
 // Run: node scripts/refresh-hosted-mcp-tools.mjs [<server-ref>]   (default: main)
 import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const REPO = 'hadron-memory/hadron-server';
+
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
 const gh = (...args) => execFileSync('gh', ['api', ...args], { encoding: 'utf8', maxBuffer: 64 << 20 });
 
 const sha = JSON.parse(gh(`repos/${REPO}/commits/${process.argv[2] ?? 'main'}`)).sha;
@@ -51,3 +56,4 @@ ${sorted.map((n) => `  '${n}',`).join('\n')}
 ]);
 `);
 console.log(`hosted-mcp-tools.ts: ${sorted.length} tools at ${REPO}@${sha.slice(0, 12)}`);
+}
