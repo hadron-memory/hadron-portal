@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CREATE_SCOPE_MUTATION,
   DELETE_SCOPE_MUTATION,
+  ORG_SYSTEM_MEMORY_IDS_QUERY,
   RUNNABLE_NODES_QUERY,
   SKILL_PLAN_EXPORT_QUERY,
 } from '$lib/server/queries';
@@ -44,5 +45,16 @@ describe('#1075 Task Nodes operations match the server snapshot', () => {
     expect(errors(CREATE_SCOPE_MUTATION)).toEqual([]);
     expect(errors(DELETE_SCOPE_MUTATION)).toEqual([]);
     expect(errors('mutation M { createScope(input: { name: "x" }) { id } }').join('\n')).toContain('memoryRefs');
+  });
+
+  // #1706 — the helper's install-memory filter reads `appId`, so the field must
+  // be on the snapshot's Memory type AND inside this selection; a dropped
+  // `appId` (snapshot refresh against an older server) must fail HERE, not as
+  // undefined-bytes on a live stack.
+  it('#1706: the system-memory ids query selects Memory.appId from the snapshot', () => {
+    expect(errors(ORG_SYSTEM_MEMORY_IDS_QUERY)).toEqual([]);
+    expect(ORG_SYSTEM_MEMORY_IDS_QUERY).toMatch(/items\s*\{\s*id\s+appId\s*\}/);
+    // A selection the snapshot refuses cannot hold this file green.
+    expect(errors('query Q { memories { items { noSuchField } } }').join('\n')).toContain('Cannot query field "noSuchField"');
   });
 });

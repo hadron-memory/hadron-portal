@@ -49,7 +49,7 @@ function route(opts: {
   planThrows?: boolean;
   otherEntries?: unknown[];
   otherThrows?: boolean;
-  system?: Array<{ id: string }>;
+  system?: Array<{ id: string; appId?: string | null }>;
   systemThrow?: boolean;
   unrecognized?: unknown[];
   scopeThrows?: boolean;
@@ -124,7 +124,7 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
   });
 
   it('#1689: the export scope includes the org\'s system memories, as the list does', async () => {
-    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1' }], entries: [] });
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1', appId: null }], entries: [] });
     await post({ host: 'claudeSkill' });
     const call = mockRequest.mock.calls.find(([q]) => q === CREATE_SCOPE_MUTATION);
     expect(call?.[1]).toMatchObject({ input: { memoryRefs: ['mem-1', 'sys-1'] } });
@@ -141,9 +141,56 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
   });
 
   it('#1689: a complete scope reports scopeIncomplete false', async () => {
-    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1' }] });
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1', appId: null }] });
     const r = await post({ host: 'claudeSkill' });
     expect((r.body as { scopeIncomplete: boolean }).scopeIncomplete).toBe(false);
+  });
+
+  // ── #1706: an App's install memory is not the org's export surface ─────────
+  //
+  // R208 / cor:api:060:04: neither the EXPORT scope nor the other host's
+  // STATUS plan may name an appId-carrying system id. For a platform-ADMIN org
+  // member this is not cosmetic: createScope refuses the set with
+  // `No match for memoryRef "<install memory id>"`, so the id reaching it is
+  // what made that caller's whole org export fail.
+  it('#1706: neither the export scope nor the STATUS plan names an appId-carrying system id', async () => {
+    route({
+      memories: [{ id: 'mem-1' }],
+      system: [{ id: 'sys-agent', appId: null }, { id: 'sys-install', appId: 'app-1' }],
+      entries: [entry()],
+    });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(200);
+    expect(mockRequest.mock.calls.find(([q]) => q === CREATE_SCOPE_MUTATION)?.[1]).toMatchObject({
+      input: { memoryRefs: ['mem-1', 'sys-agent'] },
+    });
+    expect(mockRequest.mock.calls.find(([q]) => q === SKILL_PLAN_STATUS_QUERY)?.[1]).toEqual({
+      host: 'codexSkill',
+      memories: ['mem-1', 'sys-agent'],
+    });
+  });
+
+  it('#1706: an org whose only system memories are install memories is a no-memories refusal, not a failing export', async () => {
+    // The filtered set is empty: the strong-form empty-set refusal applies (no
+    // skillPlan, no scope), and with it the platform-ADMIN createScope refusal
+    // above can no longer happen — the install id never reaches the server.
+    route({ memories: [], system: [{ id: 'sys-install', appId: 'app-1' }] });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r).toEqual({ status: 409, body: { code: 'no-memories' } });
+    expect(mockRequest.mock.calls.filter(([q]) => q === CREATE_SCOPE_MUTATION)).toHaveLength(0);
+    expect(mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_EXPORT_QUERY)).toHaveLength(0);
+    expect(mockRequest.mock.calls.filter(([q]) => q === SKILL_PLAN_STATUS_QUERY)).toHaveLength(0);
+  });
+
+  it('#1706: filtering install memories out does not read as an incomplete scope', async () => {
+    // Dropping App-owned ids is the INTENDED scope, not a failed lookup:
+    // scopeIncomplete stays false (it names a system-list FAILURE) and the
+    // system lookup happened and succeeded.
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-install', appId: 'app-1' }] });
+    const r = await post({ host: 'claudeSkill' });
+    expect(r.status).toBe(200);
+    expect((r.body as { scopeIncomplete: boolean }).scopeIncomplete).toBe(false);
+    expect(mockRequest.mock.calls.filter(([q]) => q === ORG_SYSTEM_MEMORY_IDS_QUERY)).toHaveLength(1);
   });
 
   it('an org with no memories issues NO skillPlan at all', async () => {

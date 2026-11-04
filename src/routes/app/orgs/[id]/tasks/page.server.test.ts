@@ -43,7 +43,7 @@ function ev(orgId = 'org-1') {
 /** Route by document: the org slice, then the runnable-nodes search. */
 function route(opts: {
   memories?: Array<{ id: string }>;
-  system?: Array<{ id: string }>;
+  system?: Array<{ id: string; appId?: string | null }>;
   systemThrow?: boolean;
   nodes?: unknown[];
   nodesThrow?: boolean;
@@ -97,7 +97,7 @@ describe('org tasks load()', () => {
   it('#1689: a task in a system memory is listed — the scope includes the org\'s system memory ids', async () => {
     route({
       memories: [{ id: 'mem-1' }],
-      system: [{ id: 'sys-1' }, { id: 'sys-2' }],
+      system: [{ id: 'sys-1', appId: null }, { id: 'sys-2', appId: null }],
       nodes: [node('n1', 'tasks:one')],
     });
     const load = await importLoad();
@@ -111,7 +111,7 @@ describe('org tasks load()', () => {
   });
 
   it('#1689: an org whose ONLY memories are system ones still lists their tasks', async () => {
-    route({ memories: [], system: [{ id: 'sys-1' }], nodes: [node('n1', 'tasks:one')] });
+    route({ memories: [], system: [{ id: 'sys-1', appId: null }], nodes: [node('n1', 'tasks:one')] });
     const load = await importLoad();
     const result = (await load(ev())) as { tasks: unknown[] };
     expect(result.tasks).toHaveLength(1);
@@ -119,7 +119,7 @@ describe('org tasks load()', () => {
   });
 
   it('#1689: a system id that is also an ordinary memory is not scoped twice', async () => {
-    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'mem-1' }], nodes: [] });
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'mem-1', appId: null }], nodes: [] });
     const load = await importLoad();
     await load(ev());
     expect(mockRequest.mock.calls.find(([q]) => q === RUNNABLE_NODES_QUERY)?.[1]).toMatchObject({ memoryIds: ['mem-1'] });
@@ -131,7 +131,7 @@ describe('org tasks load()', () => {
       memoryId: 'sys-1',
       memory: { id: 'sys-1', urn: 'hrn:mem:acme.com:coordinator-system', name: 'coordinator-system' },
     };
-    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1' }], nodes: [node('n1', 'tasks:one'), sysTask] });
+    route({ memories: [{ id: 'mem-1' }], system: [{ id: 'sys-1', appId: null }], nodes: [node('n1', 'tasks:one'), sysTask] });
     const load = await importLoad();
     const result = (await load(ev())) as { tasks: Array<{ id: string; memoryId: string; urn: string }> };
     const row = result.tasks.find((t) => t.id === 'sys-n1');
@@ -172,7 +172,7 @@ describe('org tasks load()', () => {
   it('#1689: setExport accepts a node that lives in a system memory of this org', async () => {
     const writes = routeAction({ node: storedTask({ memoryId: 'sys-1' }) });
     mockRequest.mockImplementation(((impl) => async (q: string, v: unknown) =>
-      q === ORG_SYSTEM_MEMORY_IDS_QUERY ? { memories: { items: [{ id: 'sys-1' }], total: 1 } } : impl(q, v))(
+      q === ORG_SYSTEM_MEMORY_IDS_QUERY ? { memories: { items: [{ id: 'sys-1', appId: null }], total: 1 } } : impl(q, v))(
       mockRequest.getMockImplementation()!,
     ));
     const actions = await importActions();
@@ -211,6 +211,56 @@ describe('org tasks load()', () => {
     const result = (await load(ev())) as { tasks: Array<{ id: string; urn: string }> };
     expect(result.tasks.map((t) => t.id)).toEqual(['n1']);
     expect(result.tasks[0].urn).toContain('hrn:node:');
+  });
+});
+
+// ── #1706: an App's install memory is not the org's task surface ─────────────
+//
+// R208 / cor:api:060:04 (server#1987): the org's Task Nodes scope never
+// includes a memory that belongs to an App — an install memory is class
+// `system` WITH `appId` set, and the system list returns it to its audience.
+// The ids helper must leave every appId-carrying id OUT, while the #1689
+// control (a system memory with appId null, e.g. the Agent system memory)
+// stays IN.
+describe('org tasks load() — #1706 App-owned install memories', () => {
+  it('omits an appId-carrying system id, keeping org memories and appId-null system ids', async () => {
+    route({
+      memories: [{ id: 'mem-1' }],
+      system: [{ id: 'sys-agent', appId: null }, { id: 'sys-install', appId: 'app-1' }],
+      nodes: [node('n1', 'tasks:one')],
+    });
+    const load = await importLoad();
+    await load(ev());
+    expect(mockRequest.mock.calls.find(([q]) => q === RUNNABLE_NODES_QUERY)?.[1]).toMatchObject({
+      memoryIds: ['mem-1', 'sys-agent'],
+    });
+  });
+
+  it('an org whose system list is ALL install memories reads as no task memories: NO nodes query', async () => {
+    // The filtered set is empty, so the empty-set refusal applies exactly as
+    // it does for an org with no memories at all — the server must never see
+    // an empty/omitted memoryIds as "every accessible memory".
+    route({ memories: [], system: [{ id: 'sys-install', appId: 'app-1' }] });
+    const load = await importLoad();
+    const result = (await load(ev())) as { tasks: unknown[]; failed: boolean; scopeIncomplete: boolean };
+    expect(result).toMatchObject({ tasks: [], failed: false, scopeIncomplete: false });
+    expect(mockRequest.mock.calls.filter(([q]) => q === RUNNABLE_NODES_QUERY)).toHaveLength(0);
+  });
+
+  it('setExport refuses a task that lives in an App-owned install memory as not-found', async () => {
+    // With the id filtered out of the scope, an install-memory node is not one
+    // of the page's rows — the same answer as a node outside the org.
+    const writes = routeAction({ node: storedTask({ memoryId: 'sys-install' }) });
+    mockRequest.mockImplementation(((impl) => async (q: string, v: unknown) =>
+      q === ORG_SYSTEM_MEMORY_IDS_QUERY
+        ? { memories: { items: [{ id: 'sys-install', appId: 'app-1' }], total: 1 } }
+        : impl(q, v))(
+      mockRequest.getMockImplementation()!,
+    ));
+    const actions = await importActions();
+    const out = await actions.setExport(actionEv({ nodeId: 'n1', enable: 'true' }));
+    expect(out).toMatchObject({ status: 404, data: { exportFailed: { code: 'not-found' } } });
+    expect(writes).toHaveLength(0);
   });
 });
 
