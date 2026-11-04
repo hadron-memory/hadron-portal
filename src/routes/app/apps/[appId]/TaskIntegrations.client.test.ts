@@ -100,10 +100,10 @@ describe('the list', () => {
 
 describe('a lead that isn\'t a live worker (portal#1676)', () => {
   const GONE = 'hrn:worker:x.com:app:gone';
-  const MISSING = 'Worker not in this App\'s list';
-  const MISSING_NOTE = 'Can\'t confirm it is still live.';
-  const UNCHECKED = 'Couldn\'t check this worker';
-  const UNCHECKED_NOTE = 'The worker list didn\'t load, so we can\'t tell if it is still live.';
+  const MISSING = 'Worker not in this App’s list';
+  const MISSING_NOTE = 'Can’t confirm it is still live.';
+  const UNCHECKED = 'Couldn’t check this worker';
+  const UNCHECKED_NOTE = 'The worker list didn’t load, so we can’t tell if it is still live.';
   const RETIRED_NOTE = 'No longer a live worker';
   const chip = (root: ParentNode, urn: string) => root.querySelector(`[title="${urn}"]`);
   /** Text outside the chip: a URN here is one a reader can't copy. */
