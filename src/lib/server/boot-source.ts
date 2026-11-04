@@ -1,6 +1,6 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from './gqlError';
-import { AGENT_BOOT_POINTER_QUERY, BOOT_COMPILED_QUERY, BOOT_SOURCE_QUERY } from './queries';
+import { AGENT_BOOT_POINTER_QUERY, AGENT_BOOT_START_QUERY, BOOT_COMPILED_QUERY, BOOT_RESOLVED_SOURCE_QUERY, BOOT_SOURCE_LINT_QUERY, BOOT_SOURCE_QUERY } from './queries';
 import { approvalView, type NodeApprovalStatus } from '$lib/node-approval';
 import type { PointerRead } from '$lib/boot-prompt-pointer';
 
@@ -119,6 +119,37 @@ export async function readBootSource(
   if (!node) return { mode: 'source-missing', compiled: await readCompiled(client, pointer.ref), canStart: true };
   const compiled = await readCompiled(client, pointer.ref);
   return { mode: 'source', node: { id: node.id, urn: node.urn, revision: node.revision, content: node.content ?? '' }, compiled };
+}
+
+/** portal#1667: the saved source as the reader gets it. `revision` is the current one at the read. */
+export interface ResolvedSource { id: string; revision: number; content: string }
+export interface SourceLintItem {
+  kind: string; position: number; targetUrn: string | null; pinnedRevision: number | null; newerRevision: number | null;
+}
+export interface SourceLintPage { items: SourceLintItem[]; total: number; nextCursor: string | null }
+/** `page` null is the server saying lint is unavailable, which is not an empty list. */
+export interface SourceLintRead { id: string; revision: number; page: SourceLintPage | null }
+
+/** The source's memory, from the Agent: never a node id from the browser. */
+async function sourceMemory(client: Pick<GraphQLClient, 'request'>, agentRef: string): Promise<string | null> {
+  const { agent } = await client.request<{ agent: { systemMemoryId: string | null } | null }>(AGENT_BOOT_START_QUERY, { ref: agentRef });
+  return agent?.systemMemoryId ?? null;
+}
+
+/** portal#1667: null when the Agent has no source; a failed read throws. */
+export async function readResolvedSource(client: Pick<GraphQLClient, 'request'>, agentRef: string): Promise<ResolvedSource | null> {
+  const memoryRef = await sourceMemory(client, agentRef);
+  if (!memoryRef) return null;
+  const { node } = await client.request<{ node: { id: string; revision: number; content: string | null } | null }>(BOOT_RESOLVED_SOURCE_QUERY, { ref: BOOT_SOURCE_LOC, memoryRef });
+  return node ? { ...node, content: node.content ?? '' } : null;
+}
+
+/** portal#1667: null when the Agent has no source; a failed read throws. The server owns the cursor. */
+export async function readSourceLint(client: Pick<GraphQLClient, 'request'>, agentRef: string, after: string | null): Promise<SourceLintRead | null> {
+  const memoryRef = await sourceMemory(client, agentRef);
+  if (!memoryRef) return null;
+  const { node } = await client.request<{ node: { id: string; revision: number; lintWarnings: SourceLintPage | null } | null }>(BOOT_SOURCE_LINT_QUERY, { ref: BOOT_SOURCE_LOC, memoryRef, after });
+  return node ? { id: node.id, revision: node.revision, page: node.lintWarnings } : null;
 }
 
 /**

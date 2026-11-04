@@ -14,6 +14,7 @@
     "test:node-phone-layout": "node scripts/test-node-phone-layout.mjs",
     "test:usage-toolbar-layout": "node scripts/test-usage-toolbar-layout.mjs",
     "test:task-integrations-focus": "node scripts/test-task-integrations-focus.mjs",
+    "test:task-integrations-layout": "node scripts/test-task-integrations-layout.mjs",
     "test:tickers-layout": "node scripts/test-tickers-layout.mjs",
     "test:select-node-layout": "node scripts/test-select-node-layout.mjs",
     "test:stacked-memory-layout": "node scripts/test-stacked-memory-layout.mjs",
