@@ -50,10 +50,11 @@ describe('#1075 Task Nodes operations match the server snapshot', () => {
   // #1706 — the helper's install-memory filter reads `appId`, so the field must
   // be on the snapshot's Memory type AND inside this selection; a dropped
   // `appId` (snapshot refresh against an older server) must fail HERE, not as
-  // undefined-bytes on a live stack.
+  // undefined-bytes on a live stack. Braces-bounded and order-free: the field
+  // must sit inside the items selection, however it is formatted.
   it('#1706: the system-memory ids query selects Memory.appId from the snapshot', () => {
     expect(errors(ORG_SYSTEM_MEMORY_IDS_QUERY)).toEqual([]);
-    expect(ORG_SYSTEM_MEMORY_IDS_QUERY).toMatch(/items\s*\{\s*id\s+appId\s*\}/);
+    expect(ORG_SYSTEM_MEMORY_IDS_QUERY).toMatch(/items\s*\{[^}]*\bappId\b[^}]*\}/);
     // A selection the snapshot refuses cannot hold this file green.
     expect(errors('query Q { memories { items { noSuchField } } }').join('\n')).toContain('Cannot query field "noSuchField"');
   });
