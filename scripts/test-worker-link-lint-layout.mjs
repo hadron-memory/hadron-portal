@@ -38,6 +38,19 @@ try {
       await page.locator('textarea[name=signature]').fill('Edited draft');
       assert.equal(await page.getByRole('button', { name: 'Save', exact: true }).isEnabled(), true);
       assert.equal(await page.getByRole('button', { name: 'Retry', exact: true }).count(), variant === 'unavailable' ? 1 : 0);
+      if (variant === 'unavailable') {
+        await page.evaluate(() => {
+          window.fetch = () => new Promise(resolve => { window.__finishLintRetry = () => resolve(Response.json({ workerId: 'a', page: null })); });
+        });
+        const retry = page.getByRole('button', { name: 'Retry', exact: true });
+        await retry.focus(); await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('[data-signature-lint]')?.getAttribute('aria-busy') === 'true');
+        const focused = await page.evaluate(() => ({ tag: document.activeElement?.tagName, retry: document.activeElement?.textContent === 'Retry' }));
+        assert.equal(focused.retry, true, `pending Retry lost focus: ${JSON.stringify(focused)}`);
+        await page.evaluate(() => window.__finishLintRetry());
+        await page.waitForFunction(() => document.querySelector('[data-signature-lint]')?.getAttribute('aria-busy') === 'false');
+      }
+
     }
     const size = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth }));
     assert.equal(size.width, size.scroll, `${variant}/${theme}/${width} overflows`);

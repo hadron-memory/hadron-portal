@@ -114,4 +114,35 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     first(response(page([item('signature')]))); await settle();
     expect(advice(root, 'signature')).toBeNull(); expect(advice(root, 'trailer')).not.toBeNull();
   });
+  it('keeps Retry focused and ignores a second activation while its read is pending', async () => {
+    let finish!: (r: unknown) => void;
+    const fetcher = vi.fn().mockResolvedValueOnce(response(null)).mockImplementationOnce(() => new Promise(r => finish = r));
+    vi.stubGlobal('fetch', fetcher);
+    const { root } = await open();
+    const retry = [...root.querySelectorAll('button')].find(b => b.textContent === 'Retry')!;
+    retry.focus(); retry.click(); await settle();
+    expect(retry.disabled).toBe(false);
+    expect(retry.getAttribute('aria-disabled')).toBe('true');
+    expect(document.activeElement).toBe(retry);
+    retry.click(); await settle(); expect(fetcher).toHaveBeenCalledTimes(2);
+    finish(response(null)); await settle();
+    expect(retry.getAttribute('aria-disabled')).toBe('false');
+    expect(root.textContent).toContain('Couldn’t check');
+  });
+  it('retains the same live advice nodes through a successful save and identical lint refresh', async () => {
+    let finish!: (r: unknown) => void;
+    const warnings = page([item('signature'), item('trailer')]);
+    const fetcher = vi.fn().mockResolvedValueOnce(response(warnings)).mockImplementationOnce(() => new Promise(r => finish = r));
+    vi.stubGlobal('fetch', fetcher);
+    const { root } = await open();
+    const signature = advice(root, 'signature'), trailer = advice(root, 'trailer');
+    type(root, 'edited draft'); await save(root);
+    expect(root.textContent).toContain('Saved.');
+    expect(advice(root, 'signature')).toBe(signature);
+    expect(advice(root, 'trailer')).toBe(trailer);
+    finish(response(warnings)); await settle();
+    expect(advice(root, 'signature')).toBe(signature);
+    expect(advice(root, 'trailer')).toBe(trailer);
+  });
+
 });
