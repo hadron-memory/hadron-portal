@@ -192,9 +192,7 @@
     {/if}
   </div>
 
-  {#if data.teamGrant.status !== 'hidden'}
-    <TeamGrantSection grant={data.teamGrant} {identity} href={approvalHref(data.app.id, data.kind, data.ref)} {form} />
-  {/if}
+  <TeamGrantSection grant={data.teamGrant} {identity} href={approvalHref(data.app.id, data.kind, data.ref)} {form} />
 
   <details class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
     <summary class="cursor-pointer text-sm font-medium text-zinc-800 dark:text-zinc-200">{t('app.automations.details', 'Show details')}</summary>

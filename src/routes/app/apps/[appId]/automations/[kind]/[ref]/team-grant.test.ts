@@ -241,6 +241,12 @@ describe('Stop', () => {
     expect(calls(isStop).map((c) => c[1])).toEqual([{ id: 'g7' }]);
   });
 
+  it('the history it now reads is not a list of things to end: an ended grant is passed over for the live one', async () => {
+    serve([grant({ id: 'g-old', revokedAt: '2026-10-20T10:00:00.000Z', revokedBy: 'u-ana' }), grant({ id: 'g-new' })]);
+    expect(await act('stop')).toEqual({ teamGrant: 'stopped' });
+    expect(calls(isStop).map((c) => c[1])).toEqual([{ id: 'g-new' }]);
+  });
+
   it('finds a grant live throughout when other grants end between pages (LOCAL P2-3)', async () => {
     serveShrinkingLiveList(OTHERS, grant({ id: 'g-live' }));
     expect(await act('stop')).toEqual({ teamGrant: 'stopped' });

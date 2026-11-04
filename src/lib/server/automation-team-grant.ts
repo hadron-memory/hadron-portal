@@ -3,7 +3,7 @@ import type { ApprovalTriggerKind } from '$lib/automation/approval';
 import type { TeamGrant, TeamGrantPerson, TeamGrantRow } from '$lib/automation/team-grant';
 import { ownWords } from '$lib/server/automation-approval';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
-import { fetchAllItems } from '$lib/server/paginate';
+import { PAGE_LIMIT } from '$lib/server/paginate';
 
 /**
  * portal#1650 — the reads and the two writes behind the automation page's team
@@ -11,8 +11,12 @@ import { fetchAllItems } from '$lib/server/paginate';
  *
  * The list has no trigger filter: it pages the whole App, so one automation's
  * grants are found by reading it to the end. Only a complete read may say "not
- * given". FORBIDDEN (only an App manager, as themselves, may read it) hides the
- * section; any other failure is `unavailable`, never "not given".
+ * given", and the read always asks for the history: the live-only list shrinks
+ * under the offset when another manager stops a grant, so a grant live
+ * throughout can fall behind it, where the history only grows at its end
+ * (hrn:node:hadronmemory.com:hadron-portal:findings:offset-drain-can-omit-continuously-live-row).
+ * FORBIDDEN (only an App manager, as themselves, may read it) hides the section;
+ * any other failure is `unavailable`, never "not given".
  *
  * Mutations map FORBIDDEN alone and rethrow the rest
  * (hrn:node:hadronmemory.com:hadron-portal:review:clienterror-map-known-codes-only).
@@ -59,9 +63,30 @@ interface StoredGrant {
 /** A manual run can never hold the grant, so a manual trigger has no control. */
 export const canHoldTeamGrant = (kind: ApprovalTriggerKind): boolean => kind !== 'MANUAL';
 
-async function grantsOf(client: GraphQLClient, appRef: string, kind: ApprovalTriggerKind, triggerId: string, includeRevoked: boolean) {
-  const all = await fetchAllItems<StoredGrant>(client, AUTOMATION_TEAM_GRANTS_QUERY, 'automationTeamSnapshotGrants', { appRef, includeRevoked });
-  return all.filter((g) => g.triggerKind === kind && g.triggerId === triggerId);
+/** One pass over the App's grants, or null when it can't show it saw them all. */
+async function scanGrants(client: GraphQLClient, appRef: string): Promise<StoredGrant[] | null> {
+  const seen = new Map<string, StoredGrant>();
+  for (let offset = 0; ; ) {
+    const { automationTeamSnapshotGrants: page } = await client.request<{ automationTeamSnapshotGrants: { items: StoredGrant[]; total: number } }>(
+      AUTOMATION_TEAM_GRANTS_QUERY,
+      { appRef, includeRevoked: true, limit: PAGE_LIMIT, offset },
+    );
+    const before = seen.size;
+    for (const g of page.items) seen.set(g.id, g);
+    if (seen.size >= page.total) return [...seen.values()];
+    if (seen.size === before) return null;
+    offset += page.items.length;
+  }
+}
+
+const SCAN_ATTEMPTS = 3;
+
+async function grantsOf(client: GraphQLClient, appRef: string, kind: ApprovalTriggerKind, triggerId: string) {
+  for (let attempt = 0; attempt < SCAN_ATTEMPTS; attempt++) {
+    const all = await scanGrants(client, appRef);
+    if (all) return all.filter((g) => g.triggerKind === kind && g.triggerId === triggerId);
+  }
+  throw new Error(`automation-team-grant: no complete read of app ${appRef} in ${SCAN_ATTEMPTS} attempts`);
 }
 
 /** A person is optional detail: a failed or refused read of one never costs the section. */
@@ -86,7 +111,7 @@ export async function loadTeamGrant(
   if (!canHoldTeamGrant(kind)) return { status: 'hidden' };
   let rows: StoredGrant[];
   try {
-    rows = await grantsOf(client, appRef, kind, triggerId, showEnded);
+    rows = (await grantsOf(client, appRef, kind, triggerId)).filter((g) => showEnded || g.revokedAt === null);
   } catch (e) {
     if (extractGqlErrorCode(e) === 'FORBIDDEN') return { status: 'hidden' };
     console.warn('[automation-team-grant] list read failed:', e);
@@ -133,6 +158,6 @@ export const giveTeamGrant = (client: GraphQLClient, appRef: string, kind: Appro
  */
 export const stopTeamGrant = (client: GraphQLClient, appRef: string, kind: ApprovalTriggerKind, triggerId: string) =>
   write(async () => {
-    const live = (await grantsOf(client, appRef, kind, triggerId, false))[0];
+    const live = (await grantsOf(client, appRef, kind, triggerId)).find((g) => g.revokedAt === null);
     if (live) await client.request(STOP_AUTOMATION_TEAM_GRANT_MUTATION, { id: live.id });
   });

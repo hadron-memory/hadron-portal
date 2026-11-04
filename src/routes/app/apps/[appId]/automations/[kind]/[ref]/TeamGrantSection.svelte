@@ -1,7 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
-  import { tick, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import Urn from '$lib/components/Urn.svelte';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -19,9 +19,11 @@
    * no state is kept here, so the control is always the stored one. Only an
    * App manager's read comes back as anything but `hidden`
    * (hrn:node:hadronmemory.com:specs:cor:agt:050:23, rulings:0112 amended).
+   * `hidden` still mounts this: a refused write can be what hides the section,
+   * and what happened must outlive it, with no heading and no control.
    */
   let { grant, identity, href, form }: {
-    grant: Exclude<TeamGrant, { status: 'hidden' }>;
+    grant: TeamGrant;
     /** The automation this page shows, as a scalar. */
     identity: string;
     /** This page, with no query. */
@@ -31,11 +33,21 @@
 
   let submitting = $state(false);
   let outcome = $state<HTMLElement>();
+  /** The submit this control is waiting on. Any other submit's answer has no say here. */
+  let attempt: object | null = null;
+  /** The write the server confirmed when the page then couldn't read it back. */
+  let unread = $state<{ done: 'given' | 'stopped' | null } | null>(null);
   // The page component is reused for the next automation: a write in flight belongs to this one.
   $effect.pre(() => {
     void identity;
-    untrack(() => { submitting = false; });
+    untrack(() => { attempt = null; submitting = false; });
   });
+  // A stored state arrived, so nothing on the page is behind any more.
+  $effect.pre(() => {
+    void grant;
+    untrack(() => { unread = null; });
+  });
+  onDestroy(() => { attempt = null; });
 
   const live = $derived(grant.status === 'ready' ? grant.live : null);
   const ended = $derived(grant.status === 'ready' ? grant.ended : null);
@@ -43,15 +55,31 @@
 
   // A refused write changes nothing here, but it may mean the stored state moved: read it again.
   const submitted: SubmitFunction = () => {
+    const mine = {};
+    attempt = mine;
     submitting = true;
     return async ({ result, update }) => {
-      await update({ reset: false });
-      if (result.type === 'failure') await invalidateAll();
+      if (attempt !== mine) return;
+      let readBack = true;
+      try {
+        await update({ reset: false });
+        if (result.type === 'failure') await invalidateAll();
+      } catch (e) {
+        console.warn('[automation-team-grant] re-read after a write failed:', e);
+        readBack = false;
+      }
+      if (attempt !== mine) return;
+      attempt = null;
       submitting = false;
+      // Kit applies a success only after its re-read, so a failed one loses it: keep what the server said.
+      if (!readBack) unread = { done: result.type === 'success' ? (result.data?.teamGrant ?? null) : null };
       await tick();
-      outcome?.focus();
+      if (attempt === null) outcome?.focus();
     };
   };
+
+  const done = $derived(form?.teamGrant ?? unread?.done ?? null);
+  const hasOutcome = $derived(Boolean(form?.teamGrantRefused || done || unread));
 
   type Row = TeamGrantRow & { givenByText: string; endedByText: string; givenMs: number; endedMs: number };
   const rows = $derived<Row[]>((ended ?? []).map((g) => ({
@@ -89,23 +117,33 @@
   </div>
 {/snippet}
 
+{#snippet outcomeRegion()}
+  <div bind:this={outcome} tabindex="-1" data-testid="team-grant-outcome" class="space-y-2 outline-none">
+    {#if form?.teamGrantRefused}
+      <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.teamGrantMessage || t('app.automations.refused', 'The server refused this action.')}</p>
+    {:else if done === 'given'}
+      <p role="status" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{t('app.automations.team.given-done', 'Given.')}</p>
+    {:else if done === 'stopped'}
+      <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.team.stopped-done', 'Stopped.')}</p>
+    {/if}
+    {#if unread}
+      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unread', "This page couldn't be refreshed, so what it shows may be out of date. Reload the page to check.")}</p>
+    {/if}
+  </div>
+{/snippet}
+
+{#if grant.status === 'hidden'}
+  {#if hasOutcome}{@render outcomeRegion()}{/if}
+{:else}
 <section class="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800" aria-labelledby="auto-team">
   <h2 id="auto-team" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.automations.team.heading', 'Team roster and tasks')}</h2>
   <p class="text-sm text-zinc-700 dark:text-zinc-300">{t('app.automations.team.line', "Let this automation's runs read this App's team roster and tasks. Read-only, this App only.")}</p>
 
+  {@render outcomeRegion()}
+
   {#if grant.status === 'unavailable'}
     <p role="status" data-testid="team-grant-unavailable" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unavailable', "This couldn't be read. Reload the page to try again.")}</p>
   {:else}
-    <div bind:this={outcome} tabindex="-1" data-testid="team-grant-outcome" class="outline-none">
-      {#if form?.teamGrantRefused}
-        <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.teamGrantMessage || t('app.automations.refused', 'The server refused this action.')}</p>
-      {:else if form?.teamGrant === 'given'}
-        <p role="status" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{t('app.automations.team.given-done', 'Given.')}</p>
-      {:else if form?.teamGrant === 'stopped'}
-        <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.team.stopped-done', 'Stopped.')}</p>
-      {/if}
-    </div>
-
     {#if live}
       <div class="text-sm text-zinc-700 dark:text-zinc-300">
         <p>{t('app.automations.team.given', 'Given by {name} on {date}.', { name: live.givenBy?.name ?? someone(), date: formatPortalDate(live.createdAt) })}</p>
@@ -154,3 +192,4 @@
     {/if}
   {/if}
 </section>
+{/if}
