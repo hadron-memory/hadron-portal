@@ -164,6 +164,16 @@ describe('review folds at 1435a933 (George P2s, Uma, Rook)', () => {
     expect(lint.querySelectorAll('li')).toHaveLength(0);
   });
 
+  it('the lint count follows the newest page total, not the first page\'s (Gloria P3)', async () => {
+    const w = (n: number) => ({ kind: 'BROKEN_INCLUDE', position: n, pinnedRevision: null, newerRevision: null, workerField: null, targetUrn: null });
+    const f = (url: string) => ok(page([record({ lint: new URL(url, 'http://x').searchParams.get('lintAfter') ? { items: [w(2)], total: 2, nextCursor: null } : { items: [w(1)], total: 5, nextCursor: 'c1' } })]));
+    const m = show(f as never);
+    await settle();
+    [...m.target.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Show more')!.click();
+    await settle();
+    expect(m.target.querySelector('[data-testid="served-lint-count"]')!.textContent!.trim()).toBe('2 of 2');
+  });
+
   it('non-null lint with no items says "No current warnings"', async () => {
     const m = show(() => ok(page([record()])));
     await settle();
