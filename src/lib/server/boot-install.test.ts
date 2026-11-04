@@ -80,7 +80,7 @@ describe('compile and approval outcomes', () => {
 
 describe('App scope and source reads', () => {
   it('App compile uses only the installed row identity; no setPointer option is sent', async () => {
-    const request = vi.fn().mockResolvedValueOnce({ app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } }).mockResolvedValueOnce({ compileAppAgentBootPrompt: { node: { id: 'c' }, revNo: 2 } }).mockResolvedValueOnce({ app: { appAgents: [{ agent: { id: 'g' }, bootPromptServe: { refusal: 'BOOT_PROMPT_NOT_APPROVED', served: null } }] } });
+    const request = vi.fn().mockResolvedValueOnce({ app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } }).mockResolvedValueOnce({ compileAppAgentBootPrompt: { node: { id: 'c', revision: 2, approvalStatus: { state: 'NOT_APPROVED' } }, revNo: 2 } }).mockResolvedValueOnce({ app: { appAgents: [{ agent: { id: 'g' }, bootPromptServe: { refusal: 'BOOT_PROMPT_NOT_APPROVED', served: null } }] } });
     const result = await writeInstallPrompt({ request } as never, { level: 'app', app: 'a', agent: 'g' }, { intent: 'compile' }, false);
     expect(request.mock.calls[1][1]).toEqual({ appRef: 'a', agentRef: 'g' });
     expect(result.text).toContain('Built revision 2. It isn’t approved yet.');

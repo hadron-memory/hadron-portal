@@ -8,8 +8,8 @@ import { extractGqlErrorCode, extractGqlErrorExtensions } from './gqlError';
 import { APPROVE_NODE_MUTATION, CREATE_NODE_MUTATION, INSTALL_MEMORY_QUERY } from './queries';
 import { readCompiled } from './boot-source';
 type Client = Pick<GraphQLClient, 'request'>;
-export const INSTALL_COMPILE = /* GraphQL */ `mutation CompileAppInstall($appRef: String!, $agentRef: String!) { compileAppAgentBootPrompt(appRef: $appRef, agentRef: $agentRef) { revNo node { id urn } } }`;
-export const WORKER_COMPILE = /* GraphQL */ `mutation CompileWorkerInstall($workerRef: ID!, $setPointer: Boolean!) { compileWorkerBootPrompt(workerRef: $workerRef, setPointer: $setPointer) { revNo node { id urn } } }`;
+export const INSTALL_COMPILE = /* GraphQL */ `mutation CompileAppInstall($appRef: String!, $agentRef: String!) { compileAppAgentBootPrompt(appRef: $appRef, agentRef: $agentRef) { revNo node { id urn revision approvalStatus { state } } } }`;
+export const WORKER_COMPILE = /* GraphQL */ `mutation CompileWorkerInstall($workerRef: ID!, $setPointer: Boolean!) { compileWorkerBootPrompt(workerRef: $workerRef, setPointer: $setPointer) { revNo node { id urn revision approvalStatus { state } } } }`;
 const SOURCE_NODE = /* GraphQL */ `query InstallBootNode($ref: ID!, $memoryRef: ID!) { node(ref: $ref, memoryRef: $memoryRef) { id urn name } }`;
 const WORKER = /* GraphQL */ `query CompileWorkerIdentity($ref: ID!) { worker(ref: $ref) { id app { id } agent { id } bootPromptRef } }`;
 const APP = /* GraphQL */ `query CompileInstallIdentity($ref: ID!) { app(ref: $ref) { id appAgents { agent { id } bootPromptRef } } }`;
@@ -89,7 +89,7 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
     }
     return { ok: true, key: compileOwnerKey(owner), text: `${t('boot.install.approved', 'Revision {n} approved. Sessions already open keep the revision they were bound with.', { n: input.revision! })} ${servedNowText(await serve(client, owner), owner, input.nodeId!)}${owner.level === 'worker' ? ` ${t('boot.install.pointer-unchanged', 'The worker’s pointer wasn’t changed.')}` + (view.pointerMatches === false ? ` ${t('boot.install.not-pointed', 'This worker isn’t pointed at it yet.')}` : '') : ''}` };
   }
-  let result: { node: { id: string; urn?: string }; revNo: number };
+  let result: { node: { id: string; urn?: string; revision?: number; approvalStatus?: { state: string } | null }; revNo: number };
   try {
     if (owner.level === 'worker') result = (await client.request<{ compileWorkerBootPrompt: typeof result }>(WORKER_COMPILE, { workerRef: owner.worker, setPointer: false })).compileWorkerBootPrompt;
     else result = (await client.request<{ compileAppAgentBootPrompt: typeof result }>(INSTALL_COMPILE, { appRef: owner.app, agentRef: owner.agent })).compileAppAgentBootPrompt;
@@ -107,7 +107,15 @@ export async function writeInstallPrompt(client: Client, owner: CompileOwner, in
     pointer = ` ${t('boot.install.pointer-unchanged', 'The worker’s pointer wasn’t changed.')}`;
     try { const current = await installIdentity(client, owner); if (current.pointer !== result.node.id && current.pointer !== result.node.urn) pointer += ` ${t('boot.install.not-pointed', 'This worker isn’t pointed at it yet.')}`; } catch { /* no inference on failed read */ }
   }
-  return { ok: true, key: compileOwnerKey(owner), text: `${t('boot.install.built', 'Built revision {n}. It isn’t approved yet.', { n: result.revNo })} ${servedNowText(state, owner, result.node.id)}${pointer}` };
+  // Approval describes the returned compiled revision, never the independently read serve target.
+  // A concurrent newer revision or unavailable state must not be called unapproved.
+  const approvalState = result.node.revision === result.revNo ? result.node.approvalStatus?.state : null;
+  const approvalText = approvalState === 'APPROVED'
+    ? t('boot.install.retained-approval', 'Its existing approval still applies.')
+    : approvalState === 'NOT_APPROVED' || approvalState === 'SUPERSEDED'
+      ? t('boot.install.not-approved', 'It isn’t approved yet.')
+      : t('boot.install.approval-state-unknown', 'Couldn’t confirm its approval state. Reload to check.');
+  return { ok: true, key: compileOwnerKey(owner), text: `${t('boot.install.built-revision', 'Built revision {n}.', { n: result.revNo })} ${approvalText} ${t('boot.install.compile-no-approval', 'Compiling didn’t approve or sign it.')} ${servedNowText(state, owner, result.node.id)}${pointer}` };
 }
 export const PROVENANCE = /* GraphQL */ `query CompileProvenance($nodeRef: ID!, $revNo: Int!, $offset: Int!) { compiledPromptProvenance(nodeRef: $nodeRef, revNo: $revNo, offset: $offset, limit: 20) { items { nodeId depth revNo selection { rev approved signed } pruned } total hasMore pruned } }`;
 const NAMES = /* GraphQL */ `query CompileProvenanceNames($refs: [ID!]!) { nodeBatch(refs: $refs) { nodes { id urn name } unavailable omitted } }`;
