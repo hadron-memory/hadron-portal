@@ -133,3 +133,14 @@ describe('parseDrafts (the crafted-POST shape check)', () => {
   });
   it('blankIntegration() takes its provider from the constant', () => expect(blankIntegration().provider).toBe(TASK_INTEGRATION_PROVIDERS[0]));
 });
+
+describe('readIntegrations: a wrong-typed optional field is unsupported, never coerced (#1695 review, §10 P3-5)', () => {
+  const base = { name: 'core', provider: 'github', repositories: ['o/a'] };
+  it('excludeLabels that is not a list of strings', () => {
+    expect(readIntegrations({ taskIntegrations: [{ ...base, excludeLabels: 5 }] })[0]).toMatchObject({ unsupported: true });
+    expect(readIntegrations({ taskIntegrations: [{ ...base, excludeLabels: ['ok', 7] }] })[0]).toMatchObject({ unsupported: true });
+  });
+  it('readyLabel that is not a string', () => {
+    expect(readIntegrations({ taskIntegrations: [{ ...base, readyLabel: 7 }] })[0]).toMatchObject({ unsupported: true });
+  });
+});

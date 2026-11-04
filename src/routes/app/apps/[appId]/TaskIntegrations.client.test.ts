@@ -484,8 +484,10 @@ describe('unsupported entries (#1679)', () => {
     const m = await mount(ok({ taskIntegrations: [linear] }, 2));
     await click(btn(m.target, 'Remove entry'));
     await click(btn(m.target, 'Confirm remove'));
-    await click(btn(m.target, 'Add integration'));
-    expect(posted(m)).toHaveLength(1);
+    // The notice tells the person to Edit and save, so that control must exist with nothing else kept.
+    await click(btn(m.target, 'Edit'));
+    expect(posted(m)).toEqual([]);
+    expect(form(m).querySelector<HTMLInputElement>('input[name="revision"]')!.value).toBe('2');
   });
   it('U6: Remove then keep leaves the list and the blocked state unchanged', async () => {
     const m = await mount(unsupportedProps());
@@ -546,5 +548,113 @@ describe('a refusal at a bare entry or team path (#1679)', () => {
     await submitEnhancedWithResult(form(m), refused('taskIntegrations[0]'));
     await tick(4);
     expect(form(m).textContent).not.toContain('server words');
+  });
+});
+
+/**
+ * Review of #1695 at 35fda4f3 (LOCAL George P2-1/P2-2, BLIND Gizelle P2/P3, §10 Rook P2-1/P3-1/P3-5, UX Uma P2/P2/P3/P3):
+ * a staged removal is consent for one row of ONE revision, and the empty list needs a way to be saved.
+ */
+describe('a staged removal belongs to the revision it was confirmed against (#1679 review)', () => {
+  const linear = { ...wire('theirs'), provider: 'linear' };
+  const jira = { ...wire('newcomer'), provider: 'jira' };
+  const rows = (m: Mounted<Record<string, unknown>>) => [...m.target.querySelectorAll<HTMLElement>('[data-unsupported]')];
+  async function mountReactive(read: unknown) {
+    const props = reactiveProps<Record<string, unknown>>({ read, manages: true, workers });
+    const m = mountComponent(TaskIntegrations as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return { m, props };
+  }
+
+  it('a different row at the confirmed position after a refresh is shown, not hidden, and Edit stays off', async () => {
+    const { m, props } = await mountReactive(ok({ taskIntegrations: [wire('core'), linear] }, 6));
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    expect(rows(m)).toHaveLength(0);
+    props.read = ok({ taskIntegrations: [wire('core'), jira] }, 7);
+    await tick(3);
+    expect(rows(m)).toHaveLength(1);
+    expect(rows(m)[0].textContent).toContain('jira');
+    expect(btn(m.target, 'Edit')).toBeUndefined();
+    expect(m.target.querySelector('[data-removal-pending]')).toBeNull();
+  });
+  it('control: a refresh that keeps the same revision keeps the staged removal', async () => {
+    const { m, props } = await mountReactive(ok({ taskIntegrations: [wire('core'), linear] }, 6));
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    props.read = ok({ taskIntegrations: [wire('core'), linear] }, 6);
+    await tick(3);
+    expect(rows(m)).toHaveLength(0);
+    expect(m.target.querySelector('[data-removal-pending]')).toBeTruthy();
+  });
+  it('an open "Remove entry?" question does not carry over to a newer revision', async () => {
+    const { m, props } = await mountReactive(ok({ taskIntegrations: [wire('core'), linear] }, 6));
+    await click(btn(m.target, 'Remove entry'));
+    expect(btn(m.target, 'Confirm remove')).toBeTruthy();
+    props.read = ok({ taskIntegrations: [wire('core'), jira] }, 7);
+    await tick(3);
+    expect(btn(m.target, 'Confirm remove')).toBeUndefined();
+    expect(rows(m)).toHaveLength(1);
+  });
+  it('a removal confirmed at the new revision works as before', async () => {
+    const { m, props } = await mountReactive(ok({ taskIntegrations: [wire('core'), linear] }, 6));
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    props.read = ok({ taskIntegrations: [wire('core'), jira] }, 7);
+    await tick(3);
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    await click(btn(m.target, 'Edit'));
+    expect(posted(m).map((d: { name: string }) => d.name)).toEqual(['core']);
+    expect(form(m).querySelector<HTMLInputElement>('input[name="revision"]')!.value).toBe('7');
+  });
+  it('Cancel drops a staged removal (the unsupported row is back)', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core'), linear] }, 6));
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    await click(btn(m.target, 'Edit'));
+    await click(btn(form(m), 'Cancel'));
+    expect(rows(m)).toHaveLength(1);
+    expect(m.target.querySelector('[data-removal-pending]')).toBeNull();
+  });
+});
+
+describe('removing the last entry, focus and the undo wording (#1679 review)', () => {
+  const linear = { ...wire('theirs'), provider: 'linear' };
+  const active = () => document.activeElement as HTMLElement | null;
+
+  it('with only unsupported entries, Edit is offered once a removal is staged and posts the empty list', async () => {
+    const m = await mount(ok({ taskIntegrations: [linear] }, 2));
+    expect(btn(m.target, 'Edit')).toBeUndefined();
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    expect(btn(m.target, 'Edit')).toBeTruthy();
+    await click(btn(m.target, 'Edit'));
+    expect(posted(m)).toEqual([]);
+    expect(btn(form(m), 'Save')).toBeTruthy();
+  });
+  it('focus never falls to the body: Remove entry, Confirm remove and Keep entry each hand it to a live control', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core'), linear] }, 6));
+    document.body.append(m.target);
+    await click(btn(m.target, 'Remove entry'));
+    expect(active()?.textContent?.trim()).toBe('Confirm remove');
+    await click(btn(m.target, 'Keep entry'));
+    expect(active()?.textContent?.trim()).toBe('Remove entry');
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    expect(active()).not.toBe(document.body);
+    expect(m.target.contains(active())).toBe(true);
+    expect(active()?.closest('[data-removal-pending]')).toBeTruthy();
+  });
+  it('the undo says how many removals it undoes', async () => {
+    const m = await mount(ok({ taskIntegrations: [linear, { ...linear, name: 'second' }] }, 4));
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    expect(btn(m.target, 'Undo removal')).toBeTruthy();
+    await click(btn(m.target, 'Remove entry'));
+    await click(btn(m.target, 'Confirm remove'));
+    expect(btn(m.target, 'Undo removal')).toBeUndefined();
+    expect(btn(m.target, 'Undo all 2 removals')).toBeTruthy();
   });
 });
