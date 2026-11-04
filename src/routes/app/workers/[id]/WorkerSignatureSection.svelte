@@ -185,20 +185,23 @@
   let lintBusy = $state(false);
   let lintEl = $state<HTMLElement | null>(null);
   async function readLinkLint(retry = false) {
-    if (!workerId || !anyReadable) return;
+    if (!workerId || !anyReadable || (retry && lintBusy)) return;
     const expectedWorker = workerId, stamp = ++lintEpoch;
-    lintBusy = true; if (!retry) lintState = 'loading'; linkLint = null;
+    lintBusy = true;
+    // Keep unchanged advice nodes mounted during a saved-value refresh, so they
+    // are not queued again by the live regions beside the save result.
+    if (!linkLint && !retry) lintState = 'loading';
     try {
       const r = await fetch(`/app/workers/${encodeURIComponent(expectedWorker)}/signature-lint`, { signal: AbortSignal.timeout(30_000) });
       const value = await r.json();
       if (lintEpoch !== stamp || workerId !== expectedWorker || !anyReadable) return;
       const page = r.ok && value.workerId === expectedWorker ? signatureLintPage(value.page) : null;
       linkLint = page; lintState = page ? 'ready' : 'unavailable';
-    } catch { if (lintEpoch === stamp && workerId === expectedWorker && anyReadable) lintState = 'unavailable'; }
+    } catch { if (lintEpoch === stamp && workerId === expectedWorker && anyReadable) { linkLint = null; lintState = 'unavailable'; } }
     finally {
       if (lintEpoch === stamp && workerId === expectedWorker) {
         lintBusy = false;
-        if (retry) {
+        if (retry && lintState === 'ready') {
           await tick();
           if (lintEpoch === stamp && workerId === expectedWorker && lintEl?.isConnected) lintEl.focus();
         }
@@ -254,7 +257,7 @@
             {t('worker.signature.signature-label', 'Signature template')}
           </label>
           <textarea id="workerSignature" name="signature" bind:value={$data.signature} disabled={retired} aria-describedby={[retired ? 'worker-signature-retired' : '', signatureAdvice.length ? 'worker-signature-advice' : ''].filter(Boolean).join(' ') || undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
-          <div id="worker-signature-advice" aria-live="polite" aria-atomic="true">{#each signatureAdvice as _}<p data-signature-lint-field="signature" class={adviceClass}>{workerLinkAdvice('signature')}</p>{/each}</div>
+          <div id="worker-signature-advice" aria-busy={lintBusy} aria-live="polite" aria-atomic="true">{#each signatureAdvice as _}<p data-signature-lint-field="signature" class={adviceClass}>{workerLinkAdvice('signature')}</p>{/each}</div>
         </div>
       {:else}
         <p class="text-sm text-zinc-500">{t('worker.signature.signature-not-shown', 'Signature template: not shown.')}</p>
@@ -267,7 +270,7 @@
             {t('worker.signature.trailer-label', 'Trailer template')}
           </label>
           <textarea id="workerTrailer" name="trailer" bind:value={$data.trailer} disabled={retired} aria-describedby={[retired ? 'worker-signature-retired' : '', trailerAdvice.length ? 'worker-trailer-advice' : ''].filter(Boolean).join(' ') || undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
-          <div id="worker-trailer-advice" aria-live="polite" aria-atomic="true">{#each trailerAdvice as _}<p data-signature-lint-field="trailer" class={adviceClass}>{workerLinkAdvice('trailer')}</p>{/each}</div>
+          <div id="worker-trailer-advice" aria-busy={lintBusy} aria-live="polite" aria-atomic="true">{#each trailerAdvice as _}<p data-signature-lint-field="trailer" class={adviceClass}>{workerLinkAdvice('trailer')}</p>{/each}</div>
         </div>
       {:else}
         <p class="text-sm text-zinc-500">{t('worker.signature.trailer-not-shown', 'Trailer template: not shown.')}</p>
@@ -279,7 +282,7 @@
           <p>{t('worker.signature.lint.loading', 'Checking the saved worker link…')}</p>
         {:else if lintState === 'unavailable'}
           <p>{t('worker.signature.lint.unavailable', 'Couldn’t check the worker link.')}</p>
-          <button type="button" disabled={lintBusy} class="rounded border border-zinc-300 px-3 py-1.5 dark:border-zinc-600" onclick={() => readLinkLint(true)}>{t('worker.signature.lint.retry', 'Retry')}</button>
+          <button type="button" aria-disabled={lintBusy} class="rounded border border-zinc-300 px-3 py-1.5 aria-disabled:opacity-60 dark:border-zinc-600" onclick={() => readLinkLint(true)}>{t('worker.signature.lint.retry', 'Retry')}</button>
         {:else if linkLint}
           {#each otherAdvice as _}<p>{t('worker.signature.lint.unknown', 'The worker link check found something to review.')}</p>{/each}
           {#if linkLint.total > linkLint.items.length || linkLint.nextCursor !== null}<p>{t('worker.signature.lint.partial', '{shown} of {total} saved-value checks shown. The rest isn’t shown.', { shown: linkLint.items.length, total: linkLint.total })}</p>{/if}

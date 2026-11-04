@@ -127,6 +127,7 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     retry.click(); await settle(); expect(fetcher).toHaveBeenCalledTimes(2);
     finish(response(null)); await settle();
     expect(retry.getAttribute('aria-disabled')).toBe('false');
+    expect(document.activeElement).toBe(retry);
     expect(root.textContent).toContain('Couldn’t check');
   });
   it('retains the same live advice nodes through a successful save and identical lint refresh', async () => {
