@@ -8,7 +8,7 @@ import { updateScheduleInput } from '$lib/automation/schedule-write';
 import { parseTimingForm } from '$lib/automation/schedule-form';
 import { refusalText } from '$lib/automation/schedule-refusal';
 import { approvalHref } from '$lib/automation/approval';
-import { timingFromSchedule } from '$lib/automation/schedule-timing';
+import { timingFromSchedule, wallTimeIn } from '$lib/automation/schedule-timing';
 import { t } from '$lib/i18n/t';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -71,6 +71,13 @@ export const actions: Actions = {
       const parsed = parseTimingForm(form, stored.timezone);
       if (!parsed.ok) return failed(400, parsed.field, parsed.message);
       timing = parsed.timing;
+      // The form shows a stored one-shot as a minute-precision wall time. Posting back exactly what it showed is "no change":
+      // keep the stored instant (it may carry seconds, or be the second pass of a DST-overlap hour), computed here from the
+      // stored row, never from anything posted.
+      if (timing.kind === 'once' && stored.runAt) {
+        const shown = wallTimeIn(stored.runAt, stored.timezone);
+        if (shown && shown.date === text('date') && shown.time === text('time')) timing = null;
+      }
     }
 
     const input = updateScheduleInput(stored, { name, entryNodeUrn, timing });

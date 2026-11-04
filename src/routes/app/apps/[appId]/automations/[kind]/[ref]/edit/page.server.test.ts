@@ -61,6 +61,25 @@ describe('edit action', () => {
     await save({ ...once, name: 'Renamed' });
     expect(updates()).toEqual([{ id: 'sch-1', input: { name: 'Renamed' } }]);
   });
+  it('LOCAL P2-A: an unchanged one-shot keeps its stored instant, with seconds or in the second DST-overlap hour', async () => {
+    const once = (date: string, time: string, name = 'Digest') => ({ entryNodeUrn: 'hrn:node:acme.com:m:e', name, when: 'once', date, time });
+    serve([stored({ cron: null, runAt: '2027-01-15T13:45:30.123Z' })]);
+    await save(once('2027-01-15', '14:45', 'Renamed'));
+    expect(updates()).toEqual([{ id: 'sch-1', input: { name: 'Renamed' } }]);
+    request.mockClear();
+    serve([stored({ cron: null, runAt: '2027-10-31T00:30:00.000Z' })]); // first 02:30 in Berlin
+    await save(once('2027-10-31', '02:30', 'Renamed'));
+    expect(updates()).toEqual([{ id: 'sch-1', input: { name: 'Renamed' } }]);
+    request.mockClear();
+    serve([stored({ cron: null, runAt: '2027-10-31T01:30:00.000Z' })]); // second 02:30
+    expect(await save(once('2027-10-31', '02:30'))).toEqual({ nothingToChange: true });
+    expect(updates()).toEqual([]);
+  });
+  it('a one-shot whose date or time was really changed is read in the schedule zone', async () => {
+    serve([stored({ cron: null, runAt: '2027-01-15T13:45:30.123Z' })]);
+    await save({ entryNodeUrn: 'hrn:node:acme.com:m:e', name: 'Digest', when: 'once', date: '2027-01-16', time: '14:45' });
+    expect(updates()).toEqual([{ id: 'sch-1', input: { runAt: '2027-01-16T13:45:00.000Z' } }]);
+  });
   it('a one-shot given a new time sends runAt alone', async () => {
     serve([stored({ cron: null, runAt: '2026-11-05T13:45:00.000Z' })]);
     await save({ entryNodeUrn: 'hrn:node:acme.com:m:e', name: 'Digest', when: 'once', date: '2026-11-05', time: '16:00' });

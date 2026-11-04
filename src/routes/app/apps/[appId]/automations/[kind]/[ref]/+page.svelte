@@ -200,7 +200,7 @@
           <button type="submit" disabled={submitting} class="rounded-lg bg-indigo-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-indigo-400 dark:text-zinc-950">{t('app.automations.approve', 'Approve')}</button>
         </form>
       {/if}
-      {#if !confirmingDecline && !(schedule && approved)}
+      {#if !confirmingDecline && !(data.kind === 'SCHEDULE' && approved)}
         <button type="button" bind:this={declineButton} onclick={openDecline} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.decline', 'Decline')}</button>
       {/if}
     </div>

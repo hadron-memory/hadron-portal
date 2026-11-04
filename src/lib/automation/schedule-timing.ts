@@ -152,11 +152,6 @@ export function timingSentence(timing: Timing, zone: string): string {
   }
 }
 
-/**
- * The instant a wall time in a named zone stands for, as ISO text; null when the zone is unknown, the date or time
- * is not real, or the wall time does not exist in that zone (the hour skipped by a spring-forward). Done by
- * searching the zone's offsets rather than doing offset arithmetic, so a DST edge is refused, not guessed.
- */
 /** The wall date and time (yyyy-mm-dd, hh:mm) an instant has in a named zone; null when the zone or instant is unknown. */
 export function wallTimeIn(at: string, zone: string): { date: string; time: string } | null {
   const d = new Date(at);
@@ -164,6 +159,11 @@ export function wallTimeIn(at: string, zone: string): { date: string; time: stri
   return partsIn(d, zone);
 }
 
+/**
+ * The instant a wall time in a named zone stands for, as ISO text; null when the zone is unknown, the date or time
+ * is not real, or the wall time does not exist in that zone (the hour skipped by a spring-forward). Done by
+ * searching the zone's offsets rather than doing offset arithmetic, so a DST edge is refused, not guessed.
+ */
 export function instantFor(date: string, time: string, zone: string): string | null {
   const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   const m = TIME.exec(time);

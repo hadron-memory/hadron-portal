@@ -15,11 +15,13 @@ const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizat
 const summary = (name = 'Nightly digest') => ({ name, schedule: 'Runs daily.', reads: [], writes: [], tools: [], limits: [], cannotDo: [], flows: [] });
 const data = (state: string, ref = 'sch-1', name = 'Nightly digest', hash = 'h1') =>
   ({ app, kind: 'SCHEDULE', ref, approval: { state, hash, depth: {}, summary: summary(name) }, teamGrant: { status: 'hidden' } });
+// An approved SCHEDULE has no Decline (Pause is its stop), so the Decline mechanics are exercised on a webhook.
+const declineData = (state: string, ref = 'sch-1', name = 'Nightly digest', hash = 'h1') => ({ ...data(state, ref, name, hash), kind: 'WEBHOOK' });
 const mounted: Mounted<Record<string, unknown>>[] = [];
 beforeEach(() => { resetNavigationCalls(); });
 afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); vi.restoreAllMocks(); });
 function open(state: string, form: unknown = null) {
-  const props = reactiveProps<Record<string, unknown>>({ data: data(state), form });
+  const props = reactiveProps<Record<string, unknown>>({ data: declineData(state), form });
   const m = mountComponent(Page as never, props);
   mounted.push(m as never);
   return { t: m.target as HTMLElement, props };
@@ -65,7 +67,7 @@ describe('the confirmation belongs to one automation (LOCAL P2)', () => {
     const { t, props } = open('ADOPTED');
     button(t, 'Decline')!.click(); flushSync();
     expect(declineForm(t)).not.toBeNull();
-    props.data = data('ADOPTED', 'sch-2', 'Weekly report', 'h2'); flushSync();
+    props.data = declineData('ADOPTED', 'sch-2', 'Weekly report', 'h2'); flushSync();
     expect(t.querySelector('h1')!.textContent).toBe('Weekly report');
     expect(declineForm(t)).toBeNull();
     expect(button(t, 'Decline')).toBeTruthy();
@@ -74,8 +76,8 @@ describe('the confirmation belongs to one automation (LOCAL P2)', () => {
   it('and coming back to A does not reopen it', () => {
     const { t, props } = open('ADOPTED');
     button(t, 'Decline')!.click(); flushSync();
-    props.data = data('ADOPTED', 'sch-2', 'Weekly report', 'h2'); flushSync();
-    props.data = data('ADOPTED'); flushSync();
+    props.data = declineData('ADOPTED', 'sch-2', 'Weekly report', 'h2'); flushSync();
+    props.data = declineData('ADOPTED'); flushSync();
     expect(t.querySelector('h1')!.textContent).toBe('Nightly digest');
     expect(declineForm(t)).toBeNull();
   });
@@ -83,7 +85,7 @@ describe('the confirmation belongs to one automation (LOCAL P2)', () => {
   it('a reload of the SAME automation keeps the confirmation open', () => {
     const { t, props } = open('ADOPTED');
     button(t, 'Decline')!.click(); flushSync();
-    props.data = data('ADOPTED', 'sch-1', 'Nightly digest', 'h-reloaded'); flushSync();
+    props.data = declineData('ADOPTED', 'sch-1', 'Nightly digest', 'h-reloaded'); flushSync();
     expect(declineForm(t)).not.toBeNull();
   });
 });
@@ -102,7 +104,7 @@ describe('focus (UX P2)', () => {
   it('after a submit the outcome is where focus goes, since the button that sent it is gone', async () => {
     const { t, props } = open('UNADOPTED');
     await submitEnhancedWithResult(approveForm(t)!, { type: 'success', status: 200, data: { approved: true } }, {
-      update: async () => { props.data = data('ADOPTED'); props.form = { approved: true }; },
+      update: async () => { props.data = declineData('ADOPTED'); props.form = { approved: true }; },
     });
     await settle();
     const notice = t.querySelector<HTMLElement>('[data-testid="automation-outcome"]')!;
@@ -114,7 +116,7 @@ describe('focus (UX P2)', () => {
 describe('malformed server data (BLIND P3)', () => {
   it('two flows that share a URN both render instead of throwing a duplicate-key error', () => {
     const flow = { name: 'Digest', urn: 'hrn:node:acme.com:team:flows:digest', tools: [], writes: [] };
-    const d = data('UNADOPTED');
+    const d = declineData('UNADOPTED');
     d.approval.summary.flows = [flow, { ...flow, name: 'Digest again' }] as never;
     const props = reactiveProps<Record<string, unknown>>({ data: d, form: null });
     const m = mountComponent(Page as never, props); mounted.push(m as never);

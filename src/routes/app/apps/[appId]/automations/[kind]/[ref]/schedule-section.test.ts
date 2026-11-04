@@ -58,6 +58,11 @@ describe('schedule section', () => {
     expect(adopted).toMatch(/>\s*Pause\s*</);
     for (const state of ['UNADOPTED', 'CHANGED']) expect(page({ approval: { state, hash: 'h', depth: {}, summary } })).toMatch(/>\s*Decline\s*</);
   });
+  it('LOCAL P2-B: an ADOPTED schedule shows no Decline even when its timing could not be read; a webhook keeps it', () => {
+    const adopted = { state: 'ADOPTED', hash: 'h', depth: {}, summary };
+    expect(page({ schedule: null, approval: adopted })).not.toMatch(/>\s*Decline\s*</);
+    expect(page({ kind: 'WEBHOOK', schedule: null, approval: adopted })).toMatch(/>\s*Decline\s*</);
+  });
   it('UX: the Created note does not repeat the next run, and Paused has a space after the dot', () => {
     const html = page({ created: true });
     expect(html).toMatch(/Created\. You approved it by creating it\.\s*</);
