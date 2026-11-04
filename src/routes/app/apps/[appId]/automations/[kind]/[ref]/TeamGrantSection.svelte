@@ -1,6 +1,5 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { invalidateAll } from '$app/navigation';
   import { onDestroy, tick, untrack } from 'svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import Urn from '$lib/components/Urn.svelte';
@@ -10,13 +9,14 @@
   import { createSvelteTable } from '$lib/table/createSvelteTable.svelte';
   import { makeGlobalFilterFn } from '$lib/table/global-filter';
   import type { PortalColumnDef } from '$lib/table/features';
-  import type { TeamGrant, TeamGrantPerson, TeamGrantRow } from '$lib/automation/team-grant';
+  import { parseTeamGrant, type TeamGrant, type TeamGrantPerson, type TeamGrantRow } from '$lib/automation/team-grant';
   import type { ActionData } from './$types';
 
   /**
    * portal#1650 — the user wants to decide whether this automation's runs may
    * read the App's team roster and tasks. Everything shown is the server's:
-   * no state is kept here, so the control is always the stored one. Only an
+   * the only copy kept is the last re-read, so the control is always the stored
+   * one. Only an
    * App manager's read comes back as anything but `hidden`
    * (hrn:node:hadronmemory.com:specs:cor:agt:050:23, rulings:0112 amended).
    * `hidden` still mounts this: a refused write can be what hides the section,
@@ -35,8 +35,11 @@
   let outcome = $state<HTMLElement>();
   /** The submit this control is waiting on. Any other submit's answer has no say here. */
   let attempt: object | null = null;
-  /** The write the server confirmed when the page then couldn't read it back. */
-  let unread = $state<{ done: 'given' | 'stopped' | null } | null>(null);
+  /** The stored state as re-read after a write. Any later load of the page replaces it. */
+  let reread = $state.raw<{ against: TeamGrant; grant: TeamGrant } | null>(null);
+  const shown = $derived(reread?.against === grant ? reread.grant : grant);
+  /** A write's re-read failed, so what's on the page may be behind. */
+  let unread = $state(false);
   // The page component is reused for the next automation: a write in flight belongs to this one.
   $effect.pre(() => {
     void identity;
@@ -45,41 +48,56 @@
   // A stored state arrived, so nothing on the page is behind any more.
   $effect.pre(() => {
     void grant;
-    untrack(() => { unread = null; });
+    untrack(() => { unread = false; });
   });
   onDestroy(() => { attempt = null; });
 
-  const live = $derived(grant.status === 'ready' ? grant.live : null);
-  const ended = $derived(grant.status === 'ready' ? grant.ended : null);
+  const live = $derived(shown.status === 'ready' ? shown.live : null);
+  const ended = $derived(shown.status === 'ready' ? shown.ended : null);
   const someone = () => t('app.automations.team.someone', 'a person not visible to you');
 
-  // A refused write changes nothing here, but it may mean the stored state moved: read it again.
+  async function readStored(): Promise<TeamGrant | null> {
+    try {
+      const res = await fetch(`${href}/team-grant${ended === null ? '' : '?ended=1'}`);
+      return res.ok ? parseTeamGrant(await res.json()) : null;
+    } catch (e) {
+      console.warn('[automation-team-grant] re-read after a write failed:', e);
+      return null;
+    }
+  }
+
+  // Kit applies an answer only after its own re-read, which can't be fenced and
+  // puts a failure on the error page. So it applies the answer now, while this
+  // submit owns the page, and the section re-reads for itself. A refused write
+  // re-reads too: it may mean the stored state moved.
   const submitted: SubmitFunction = () => {
     const mine = {};
     attempt = mine;
     submitting = true;
+    unread = false;
     return async ({ result, update }) => {
       if (attempt !== mine) return;
-      let readBack = true;
-      try {
-        await update({ reset: false });
-        if (result.type === 'failure') await invalidateAll();
-      } catch (e) {
-        console.warn('[automation-team-grant] re-read after a write failed:', e);
-        readBack = false;
-      }
+      const applied = await update({ reset: false, invalidateAll: false }).then(() => true, (e) => {
+        console.warn('[automation-team-grant] applying the answer failed:', e);
+        return false;
+      });
       if (attempt !== mine) return;
+      if (!applied) unread = true;
+      else if (result.type === 'success' || result.type === 'failure') {
+        const against = grant;
+        const stored = await readStored();
+        if (attempt !== mine) return;
+        if (stored) reread = { against, grant: stored };
+        else unread = true;
+      }
       attempt = null;
       submitting = false;
-      // Kit applies a success only after its re-read, so a failed one loses it: keep what the server said.
-      if (!readBack) unread = { done: result.type === 'success' ? (result.data?.teamGrant ?? null) : null };
       await tick();
       if (attempt === null) outcome?.focus();
     };
   };
 
-  const done = $derived(form?.teamGrant ?? unread?.done ?? null);
-  const hasOutcome = $derived(Boolean(form?.teamGrantRefused || done || unread));
+  const hasOutcome = $derived(Boolean(form?.teamGrantRefused || form?.teamGrant || unread));
 
   type Row = TeamGrantRow & { givenByText: string; endedByText: string; givenMs: number; endedMs: number };
   const rows = $derived<Row[]>((ended ?? []).map((g) => ({
@@ -121,9 +139,9 @@
   <div bind:this={outcome} tabindex="-1" data-testid="team-grant-outcome" class="space-y-2 outline-none">
     {#if form?.teamGrantRefused}
       <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{form.teamGrantMessage || t('app.automations.refused', 'The server refused this action.')}</p>
-    {:else if done === 'given'}
+    {:else if form?.teamGrant === 'given'}
       <p role="status" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">{t('app.automations.team.given-done', 'Given.')}</p>
-    {:else if done === 'stopped'}
+    {:else if form?.teamGrant === 'stopped'}
       <p role="status" class="rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">{t('app.automations.team.stopped-done', 'Stopped.')}</p>
     {/if}
     {#if unread}
@@ -132,7 +150,7 @@
   </div>
 {/snippet}
 
-{#if grant.status === 'hidden'}
+{#if shown.status === 'hidden'}
   {#if hasOutcome}{@render outcomeRegion()}{/if}
 {:else}
 <section class="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800" aria-labelledby="auto-team">
@@ -141,7 +159,7 @@
 
   {@render outcomeRegion()}
 
-  {#if grant.status === 'unavailable'}
+  {#if shown.status === 'unavailable'}
     <p role="status" data-testid="team-grant-unavailable" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.automations.team.unavailable', "This couldn't be read. Reload the page to try again.")}</p>
   {:else}
     {#if live}

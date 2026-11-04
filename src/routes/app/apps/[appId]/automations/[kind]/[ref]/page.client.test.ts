@@ -173,13 +173,13 @@ describe('team roster and tasks', () => {
   const outcomeBox = (t: HTMLElement) => t.querySelector('[data-testid="team-grant-outcome"]');
   const STALE = "This page couldn't be refreshed";
   /** Kit's own applying, as the page sees it: `form` changes, nothing is re-read. */
-  const applying = (props: { form: unknown }, result: { data: unknown }) => ({ update: async () => { props.form = result.data; } });
+  const applying = (props: Record<string, unknown>, result: { data: unknown }) => ({ update: async () => { props.form = result.data; } });
 
   // A re-read goes through the section's own endpoint. A failed __data read is
   // kit's error page over the whole page, so the page could not report it
   // (hrn:node:hadronmemory.com:hadron-portal:findings:section-retry-owns-its-re-read).
   // navigationCalls stays empty: that is the pin that the page cannot be replaced.
-  type Answer = { body: unknown } | { status: number } | { reject: Error };
+  type Answer = { body: unknown; status?: number } | { status: number } | { reject: Error };
   let reads: string[];
   let answer: Answer;
   let held: Promise<void> | null;
@@ -192,8 +192,8 @@ describe('team roster and tasks', () => {
       held = null;
       await wait;
       if ('reject' in mine) throw mine.reject;
-      if ('status' in mine) return new Response('{"error":"x"}', { status: mine.status });
-      return new Response(JSON.stringify(mine.body), { status: 200 });
+      if ('body' in mine) return new Response(JSON.stringify(mine.body), { status: mine.status ?? 200 });
+      return new Response('{"error":"x"}', { status: mine.status });
     }));
   });
   afterEach(() => { vi.unstubAllGlobals(); });
@@ -303,6 +303,18 @@ describe('team roster and tasks', () => {
       expect(document.activeElement).not.toBe(outcomeBox(t));
     });
 
+    it('leaving while the answer is being applied starts no re-read', async () => {
+      const { t, props } = openGrant(none);
+      let applied!: () => void;
+      const applying = new Promise<void>((r) => (applied = r));
+      const deliver = await beginEnhanced(form(t, 'give')!, { update: () => applying });
+      const delivered = deliver(given);
+      await settle();
+      props.data = withGrant(none, 'sch-2'); await settle();
+      applied(); await delivered; await settle();
+      expect(reads).toEqual([]);
+    });
+
     it('a late read does not free B\'s button either, or show on B', async () => {
       const { t, props } = openGrant(none);
       const release = holdRead();
@@ -354,6 +366,7 @@ describe('team roster and tasks', () => {
     const failures: [string, Answer][] = [
       ['the request fails', { reject: new Error('network') }],
       ['the endpoint answers an error', { status: 500 }],
+      ['an error carries what looks like a grant', { status: 500, body: { status: 'ready', live: null, ended: null } }],
       ['the answer is malformed', { body: { status: 'ready', live: 'yes' } }],
     ];
     it.each(failures)('%s: the page stays, says what happened and frees the button', async (_name, broken) => {
@@ -367,6 +380,16 @@ describe('team roster and tasks', () => {
       expect(t.textContent).toContain(STALE);
       expect(form(t, 'give')!.querySelector('button')!.disabled).toBe(false);
       expect(document.activeElement).toBe(outcomeBox(t));
+    });
+
+    it('an answer kit could not apply frees the button and says so', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const { t } = openGrant(none);
+      await submitEnhancedWithResult(form(t, 'give')!, given, { update: async () => { throw new Error('apply failed'); } });
+      await settle();
+      expect(t.textContent).toContain(STALE);
+      expect(reads).toEqual([]);
+      expect(form(t, 'give')!.querySelector('button')!.disabled).toBe(false);
     });
 
     it('a Stop says Stopped, not Given', async () => {

@@ -20,3 +20,30 @@ export type TeamGrant =
   | { status: 'unavailable' }
   /** `ended` is null until the manager asks for it. */
   | { status: 'ready'; live: TeamGrantRow | null; ended: TeamGrantRow[] | null };
+
+const isPerson = (v: unknown): v is TeamGrantPerson | null => {
+  if (v === null) return true;
+  if (typeof v !== 'object') return false;
+  const p = v as Record<string, unknown>;
+  return typeof p.name === 'string' && (p.urn === null || typeof p.urn === 'string');
+};
+
+const isRow = (v: unknown): v is TeamGrantRow => {
+  if (typeof v !== 'object' || v === null) return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.id === 'string' && typeof r.createdAt === 'string'
+    && (r.revokedAt === null || typeof r.revokedAt === 'string')
+    && isPerson(r.givenBy) && isPerson(r.endedBy);
+};
+
+/** What the section's re-read answered, or null when it isn't a grant at all: that is a failed read. */
+export function parseTeamGrant(value: unknown): TeamGrant | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (v.status === 'hidden') return { status: 'hidden' };
+  if (v.status === 'unavailable') return { status: 'unavailable' };
+  if (v.status !== 'ready') return null;
+  if (v.live !== null && !isRow(v.live)) return null;
+  if (v.ended !== null && !(Array.isArray(v.ended) && v.ended.every(isRow))) return null;
+  return { status: 'ready', live: v.live as TeamGrantRow | null, ended: v.ended as TeamGrantRow[] | null };
+}
