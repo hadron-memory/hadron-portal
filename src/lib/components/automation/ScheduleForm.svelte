@@ -54,8 +54,10 @@
   // Timing: the stored choice when the plain controls can express it, else nothing chosen yet.
   const plain = seed.timing && seed.timing.kind !== 'custom' ? seed.timing : null;
   // An edit of a schedule the controls cannot express keeps its timing until the user asks to change it.
-  let keepTiming = $state(mode === 'edit' && (seed.timing === null || seed.timing.kind === 'custom'));
-  let when = $state<string>(plain?.kind ?? (mode === 'create' ? 'daily' : ''));
+  // `mode` is fixed for a mounted form, like `initial`.
+  const startMode = untrack(() => mode);
+  let keepTiming = $state(startMode === 'edit' && (seed.timing === null || seed.timing.kind === 'custom'));
+  let when = $state<string>(plain?.kind ?? (startMode === 'create' ? 'daily' : ''));
   let hours = $state(plain?.kind === 'interval' ? String(plain.hours) : '4');
   let time = $state(plain && 'time' in plain ? plain.time : '09:00');
   let days = $state<string[]>(plain?.kind === 'weekdays' ? plain.days.map(String) : ['1', '2', '3', '4', '5']);
