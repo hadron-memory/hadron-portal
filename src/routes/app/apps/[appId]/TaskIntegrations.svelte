@@ -167,7 +167,7 @@
 {#if read.kind !== 'hidden'}
   <section class="max-w-2xl" aria-labelledby="task-integrations-heading" data-task-integrations>
     <div class="mb-4 flex items-center justify-between">
-      <h2 id="task-integrations-heading" bind:this={headingEl} tabindex="-1" class="font-semibold focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-900 dark:text-white">{t('app.integrations.heading', 'Task integrations')}</h2>
+      <h2 id="task-integrations-heading" bind:this={headingEl} tabindex="-1" class="font-semibold focus:outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-900 dark:text-white">{t('app.integrations.heading', 'Task integrations')}</h2>
       {#if canEdit && !editing}
         <div class="flex gap-2">
           {#if saved.length}<button type="button" class={buttonClass} onclick={() => startEdit(false)}>{t('app.integrations.edit', 'Edit')}</button>{/if}

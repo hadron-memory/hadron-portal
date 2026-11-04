@@ -91,6 +91,10 @@ jobs:
       - name: Check NodeList search
         run: pnpm test:node-list-search
 
+      # portal#1619: the Task integrations heading paints a focus ring after a keyboard Cancel.
+      - name: Check Task integrations focus ring
+        run: pnpm test:task-integrations-focus
+
       # portal#1676: Task integrations' touch targets and overflow at 390px and 1280px.
       - name: Check Task integrations layout
         run: pnpm test:task-integrations-layout
