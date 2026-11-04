@@ -28,7 +28,6 @@ function routes(resolved: Route, lint: Route = noLint) {
     calls.push(url);
     if (/^\/app\/agents\/[ab]\/boot-source\/resolved/.test(url)) return resolved();
     if (/^\/app\/agents\/[ab]\/boot-source\/lint/.test(url)) return lint();
-    if (url.startsWith('/app/boot-prompt?node=')) return new Response(JSON.stringify({ page: { items: [], total: 0, hasMore: false, pruned: false } }));
     throw new Error(`unexpected request ${url}`);
   });
   vi.stubGlobal('fetch', stub);
@@ -423,13 +422,13 @@ describe('who sees it (portal#1667)', () => {
     expect(button(root, 'Save')).toBeUndefined();
   });
   const compiled = { id: 'c1', urn: 'hrn:node:ada:sys:boot:compiled', revision: 2, content: 'COMPILED TEXT', approvedRevision: 2, pending: false, lint: null };
-  it.each<BootSourceView>([{ mode: 'unknown' }, { mode: 'source-unreadable' }, { mode: 'compiled-only', compiled }, { mode: 'legacy', canStart: false }, { mode: 'source-missing', compiled: null, canStart: false }])('$mode shows no switch or lint and never reads the source', async (view) => {
+  it.each<BootSourceView>([{ mode: 'unknown' }, { mode: 'source-unreadable' }, { mode: 'compiled-only', compiled }, { mode: 'legacy', canStart: false }, { mode: 'source-missing', compiled: null, canStart: false }])('$mode shows no switch and no lint, and reads neither', async (view) => {
     const calls = routes(saved(), page([warn('BROKEN_INCLUDE')]));
     const root = await open(view);
     expect(button(root, 'As readers see it')).toBeUndefined();
     expect(resolved(root)).toBeNull();
     expect(lintBox(root)).toBeNull();
-    expect(calls).toEqual(view.mode === 'compiled-only' ? ['/app/boot-prompt?node=c1&revision=2&offset=0'] : []);
+    expect(calls).toEqual([]);
   });
   it('keeps the compiled-only reader\'s view', async () => {
     const root = await open({ mode: 'compiled-only', compiled });
