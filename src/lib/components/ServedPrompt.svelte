@@ -1,5 +1,5 @@
 <!--
-  portal#1665: what a bind, a run or a chat was GIVEN, read-only (cor:agt:040:03).
+  portal#1665: what a bind, a run or a chat was GIVEN, read-only (hrn:node:hadronmemory.com:specs:cor:agt:040:03).
 
   A served record names ids, revisions, hashes and the recorded variables. It never carries
   text, so this view never shows or fetches any: not the prompt, not a provenance entry's source.

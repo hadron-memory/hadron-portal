@@ -764,7 +764,7 @@
         </div>
       {/if}
 
-      <!-- portal#1665: what this chat was given (cor:agt:040:03), for the chat OPEN here. Asked by
+      <!-- portal#1665: what this chat was given (hrn:node:hadronmemory.com:specs:cor:agt:040:03), for the chat OPEN here. Asked by
            {agentId, chatId} and found in the viewer's own list server-side; an end user who does not
            manage the App gets an empty answer and sees nothing (no "no records" text). -->
       {#if activeChatId && !loadingChat}

@@ -1,6 +1,6 @@
 /**
  * portal#1665: the served-record view model, shared by `/api/served-prompts` and the
- * component that renders it. A served record (cor:agt:040:03) names WHAT a bind, run or
+ * component that renders it. A served record (hrn:node:hadronmemory.com:specs:cor:agt:040:03) names WHAT a bind, run or
  * chat was given: ids, revisions, hashes and the recorded variables. Never text.
  */
 

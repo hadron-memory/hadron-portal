@@ -509,7 +509,7 @@
         />
         {/key}
       </section>
-      <!-- portal#1665: what this worker's OPEN session was served (cor:agt:040:03). Ids, revisions and
+      <!-- portal#1665: what this worker's OPEN session was served (hrn:node:hadronmemory.com:specs:cor:agt:040:03). Ids, revisions and
            hashes only; no heading or "none" text of its own, because an empty answer is the provider's
            concealment, not "no record". Keyed by the worker: this page component is reused A to B. -->
       {#key data.worker.id}

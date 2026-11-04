@@ -8,7 +8,7 @@ export const CHAT_ERROR = {
   configUnsupported: t('agent-chat.error.config-unsupported', 'This AI configuration cannot run in portal chats. Check its provider and endpoint.'),
   llmFailed: t('agent-chat.error.llm-failed', 'The AI turn could not be completed. Check the provider configuration and try again.'),
   fixtureEndedWelcome: t('agent-chat.error.fixture-ended-welcome', 'Chat ended during the welcome turn before the fixture message was sent.'),
-  // portal#1665 — the server's closed set of boot-prompt refusals (cor:agt:040:10). One fixed message each.
+  // portal#1665 — the server's closed set of boot-prompt refusals (hrn:node:hadronmemory.com:specs:cor:agt:040:10). One fixed message each.
   // None says which level (Agent, App or worker) decides, and none promises that approving the Agent's own
   // prompt fixes it: the deciding pointer may be the App's. A retry can work once someone legitimately sets up
   // or approves a prompt, so the copy says "until they do", never "can never run".

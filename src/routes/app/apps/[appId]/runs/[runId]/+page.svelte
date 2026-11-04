@@ -186,7 +186,7 @@
     </section>
   {/if}
 
-  <!-- portal#1665: what this run was served (cor:agt:040:03). Keyed by the run: a response for another
+  <!-- portal#1665: what this run was served (hrn:node:hadronmemory.com:specs:cor:agt:040:03). Keyed by the run: a response for another
        run never shows here, and an empty answer renders nothing (the provider's concealment). -->
   {#key run.id}
     <ServedPrompt source="run" refId={run.id} />
