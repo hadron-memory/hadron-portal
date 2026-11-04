@@ -91,6 +91,10 @@ jobs:
       - name: Check NodeList search
         run: pnpm test:node-list-search
 
+      # portal#1619: the Task integrations heading paints a focus ring after a keyboard Cancel.
+      - name: Check Task integrations focus ring
+        run: pnpm test:task-integrations-focus
+
       - name: Check App picker phone layout
         run: node scripts/test-select-app-layout.mjs
 
