@@ -19,43 +19,82 @@ export interface TeamDraft {
   label: string;
 }
 
+/**
+ * The providers this portal can edit. WIRING ONLY (portal#1679 Decision 4): the type, the read, `blankIntegration()`,
+ * the provider picker and the posted-draft gate all derive from it, but it never admits a provider by itself. Only
+ * the server's SDL and closed set (hadron-server `TASK_INTEGRATION_PROVIDERS`) do. A provider the server knows and
+ * this list lacks is "unsupported" here: a limit of this client, not a refusal.
+ */
+export const TASK_INTEGRATION_PROVIDERS = ['github'] as const;
+export type TaskIntegrationProvider = (typeof TASK_INTEGRATION_PROVIDERS)[number];
+const isProvider = (v: unknown): v is TaskIntegrationProvider => typeof v === 'string' && (TASK_INTEGRATION_PROVIDERS as readonly string[]).includes(v);
+
 export interface IntegrationDraft {
   name: string;
-  provider: 'github';
+  provider: TaskIntegrationProvider;
   repositories: string[];
   readyLabel: string;
   excludeLabels: string[];
   teams: TeamDraft[];
-  /** Integration keys this form does not manage, written back as they were. */
-  extra: Record<string, unknown>;
 }
 
-const MANAGED = new Set(['name', 'provider', 'repositories', 'readyLabel', 'excludeLabels', 'teams']);
+/**
+ * A stored entry this portal can't represent (unknown provider, unknown key, wrong-typed or non-object). It is shown,
+ * never coerced, dropped or written back: the server's closed set would refuse a raw round trip, so "preserved" would
+ * be false. It blocks editing until the person removes it on purpose.
+ */
+export interface UnsupportedEntry {
+  unsupported: true;
+  /** Position in the stored list (0-based). */
+  index: number;
+  /** The stored provider when it is a string, else null. Text only. */
+  provider: string | null;
+}
+export type IntegrationEntry = IntegrationDraft | UnsupportedEntry;
+export const isUnsupported = (e: IntegrationEntry): e is UnsupportedEntry => 'unsupported' in e;
+
+const MANAGED = ['name', 'provider', 'repositories', 'readyLabel', 'excludeLabels', 'teams'] as const;
+const TEAM_KEYS = ['lead', 'label'] as const;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+const text = (v: unknown): v is string => typeof v === 'string';
+const stringList = (v: unknown): v is string[] => Array.isArray(v) && v.every(text);
+const onlyKeys = (o: Record<string, unknown>, allowed: readonly string[]) => Object.keys(o).every((k) => allowed.includes(k));
+const isTeam = (v: unknown): v is { lead: string | null; label: string } =>
+  isObject(v) && onlyKeys(v, TEAM_KEYS) && (v.lead === null || text(v.lead)) && text(v.label);
 
-export function readIntegrations(properties: unknown): IntegrationDraft[] {
+export const blankIntegration = (): IntegrationDraft => ({
+  name: '', provider: TASK_INTEGRATION_PROVIDERS[0], repositories: [''], readyLabel: '', excludeLabels: [], teams: [],
+});
+
+/**
+ * Every stored entry, in order. One this portal can fully represent is a draft; anything else is an UnsupportedEntry,
+ * so the count is preserved and nothing is silently dropped or rewritten as something else.
+ */
+export function readIntegrations(properties: unknown): IntegrationEntry[] {
   if (!isObject(properties) || !Array.isArray(properties.taskIntegrations)) return [];
-  return properties.taskIntegrations.filter(isObject).map((raw) => ({
-    name: typeof raw.name === 'string' ? raw.name : '',
-    provider: 'github',
-    repositories: strings(raw.repositories),
-    readyLabel: typeof raw.readyLabel === 'string' ? raw.readyLabel : '',
-    excludeLabels: strings(raw.excludeLabels),
-    teams: (Array.isArray(raw.teams) ? raw.teams : []).filter(isObject).map((team) => ({
-      lead: typeof team.lead === 'string' ? team.lead : null,
-      label: typeof team.label === 'string' ? team.label : '',
-    })),
-    extra: Object.fromEntries(Object.entries(raw).filter(([k]) => !MANAGED.has(k))),
-  }));
+  return properties.taskIntegrations.map((raw, index): IntegrationEntry => {
+    const unsupported: UnsupportedEntry = { unsupported: true, index, provider: isObject(raw) && text(raw.provider) ? raw.provider : null };
+    if (!isObject(raw) || !onlyKeys(raw, MANAGED) || !isProvider(raw.provider) || !text(raw.name)) return unsupported;
+    if (!stringList(raw.repositories)) return unsupported;
+    if (raw.readyLabel !== undefined && !text(raw.readyLabel)) return unsupported;
+    if (raw.excludeLabels !== undefined && !stringList(raw.excludeLabels)) return unsupported;
+    if (raw.teams !== undefined && !(Array.isArray(raw.teams) && raw.teams.every(isTeam))) return unsupported;
+    return {
+      name: raw.name,
+      provider: raw.provider,
+      repositories: raw.repositories,
+      readyLabel: raw.readyLabel ?? '',
+      excludeLabels: raw.excludeLabels ?? [],
+      teams: (raw.teams ?? []).map((team) => ({ lead: (team as { lead: string | null }).lead, label: (team as { label: string }).label })),
+    };
+  });
 }
 
 /** The properties to send: `current` with only `taskIntegrations` replaced. */
 export function writeProperties(current: unknown, drafts: readonly IntegrationDraft[]): Record<string, unknown> {
   const base = isObject(current) ? current : {};
   const taskIntegrations = drafts.map((d) => ({
-    ...d.extra,
     name: d.name.trim(),
     provider: d.provider,
     repositories: d.repositories.map((r) => r.trim()),
@@ -68,16 +107,15 @@ export function writeProperties(current: unknown, drafts: readonly IntegrationDr
 
 /**
  * The posted drafts, checked for SHAPE before anything dereferences them: a crafted POST can carry any
- * JSON. Returns the drafts, or null when any element is not a well-formed integration (BLIND review of #1614, P2).
+ * JSON. Returns the drafts, or null when any element is not a well-formed integration: a key outside the managed set
+ * (the old `extra` included), a provider outside the constant, or a wrong-typed field (BLIND review of #1614, P2;
+ * portal#1679 U7). An unsupported entry is never a draft.
  */
 export function parseDrafts(value: unknown): IntegrationDraft[] | null {
   if (!Array.isArray(value)) return null;
-  const text = (v: unknown): v is string => typeof v === 'string';
-  const list = (v: unknown): v is string[] => Array.isArray(v) && v.every(text);
   for (const d of value) {
-    if (!isObject(d) || !text(d.name) || d.provider !== 'github' || !list(d.repositories) || !text(d.readyLabel) || !list(d.excludeLabels)) return null;
-    if (!isObject(d.extra) || !Array.isArray(d.teams)) return null;
-    if (!d.teams.every((team) => isObject(team) && (team.lead === null || text(team.lead)) && text(team.label))) return null;
+    if (!isObject(d) || !onlyKeys(d, MANAGED) || !text(d.name) || !isProvider(d.provider) || !stringList(d.repositories) || !text(d.readyLabel) || !stringList(d.excludeLabels)) return null;
+    if (!Array.isArray(d.teams) || !d.teams.every(isTeam)) return null;
   }
   return value as IntegrationDraft[];
 }

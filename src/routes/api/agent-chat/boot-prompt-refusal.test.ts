@@ -63,6 +63,9 @@ describe.each(REFUSALS)('%s', (serverCode, portalCode, message) => {
     // Main now resolves the chat AI (its own read) before startChat; the pin is that the
     // refused startChat is sent exactly once (no retry), whatever else is read first.
     expect(request.mock.calls.filter(([q]) => String(q).includes('startChat'))).toHaveLength(1);
+    // portal#1696: nothing is read after the refusal. The refused startChat is the LAST request,
+    // whatever else was read before it (an unrelated total would couple this to the chat-AI read).
+    expect(String(request.mock.calls.at(-1)![0])).toContain('startChat');
     expect(runChatTurn).not.toHaveBeenCalled();
   });
 
