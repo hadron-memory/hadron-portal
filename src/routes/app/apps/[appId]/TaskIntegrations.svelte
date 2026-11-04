@@ -52,9 +52,21 @@
   const liveWorkers = $derived(roster.filter((w) => !w.retiredAt));
   const entries = $derived(read.kind === 'ok' ? readIntegrations(read.properties) : []);
   // portal#1679: an entry this portal can't represent stays visible, blocks editing, and is removed only on purpose.
-  // A removal is staged here and takes effect in the next save; nothing is sent until then.
-  let removed = $state<number[]>([]);
-  let confirming = $state<number | null>(null);
+  // A removal is staged here and takes effect in the next save; nothing is sent until then. A staged removal is consent for
+  // one row of ONE revision: it names a position, so it only counts while the list is still the revision it was confirmed
+  // against. A refresh that replaces the list drops it (and an open "Remove entry?" question), so consent is never carried
+  // over to a row the person did not see. Review of #1695, LOCAL P2-1, BLIND P2, security P2-1.
+  const revision = $derived(read.kind === 'ok' ? read.revision : null);
+  let stagedRevision = $state<number | null>(null);
+  let stagedRemoved = $state<number[]>([]);
+  let stagedConfirming = $state<number | null>(null);
+  const removed = $derived(stagedRevision === revision ? stagedRemoved : []);
+  const confirming = $derived(stagedRevision === revision ? stagedConfirming : null);
+  // Staging against a newer revision starts from nothing.
+  function restage() {
+    if (stagedRevision !== revision) { stagedRemoved = []; stagedConfirming = null; stagedRevision = revision; }
+  }
+  function clearStaged() { stagedRemoved = []; stagedConfirming = null; }
   const shown = $derived(entries.filter((e) => !(isUnsupported(e) && removed.includes(e.index))));
   const saved = $derived(shown.filter((e): e is IntegrationDraft => !isUnsupported(e)));
   const blocked = $derived(shown.some(isUnsupported));
@@ -78,6 +90,7 @@
   let formEl = $state<HTMLFormElement>();
   let headingEl = $state<HTMLHeadingElement>();
   let bannerEl = $state<HTMLDivElement>();
+  let sectionEl = $state<HTMLElement>();
 
   // Mode changes unmount the button that had focus; put it somewhere a keyboard
   // or screen-reader user can carry on from (UX review of #1614, P2-1/P2-2).
@@ -93,6 +106,16 @@
     await tick();
     headingEl?.focus();
   }
+  // The three remove steps each unmount the button that had focus: hand it to the control that carries on from there
+  // (UX review of #1695, P2).
+  async function focusStep(selector: string) {
+    await tick();
+    (sectionEl?.querySelector<HTMLElement>(selector) ?? headingEl)?.focus();
+  }
+  function askRemove(index: number) { restage(); stagedConfirming = index; focusStep(`[data-unsupported="${index}"] [data-step="confirm"]`); }
+  function confirmRemove(index: number) { restage(); stagedRemoved = [...stagedRemoved, index]; stagedConfirming = null; focusStep('[data-removal-pending] button'); }
+  function keepEntry(index: number) { stagedConfirming = null; focusStep(`[data-unsupported="${index}"] [data-step="remove"]`); }
+  function undoRemovals() { clearStaged(); focusHeading(); }
 
 
   function startEdit(addOne: boolean) {
@@ -105,7 +128,7 @@
     focusName(addOne ? drafts.length - 1 : 0);
   }
   function addIntegration() { drafts.push(blankIntegration()); focusName(drafts.length - 1); }
-  function cancel() { epoch++; pending = false; editing = false; errors = {}; formError = null; conflict = false; removed = []; confirming = null; focusHeading(); }
+  function cancel() { epoch++; pending = false; editing = false; errors = {}; formError = null; conflict = false; clearStaged(); focusHeading(); }
   async function reload() {
     const mine = epoch;
     await invalidateAll();
@@ -188,12 +211,12 @@
 {/snippet}
 
 {#if read.kind !== 'hidden'}
-  <section class="max-w-2xl" aria-labelledby="task-integrations-heading" data-task-integrations>
+  <section bind:this={sectionEl} class="max-w-2xl" aria-labelledby="task-integrations-heading" data-task-integrations>
     <div class="mb-4 flex items-center justify-between">
       <h2 id="task-integrations-heading" bind:this={headingEl} tabindex="-1" class="font-semibold focus:outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-900 dark:text-white">{t('app.integrations.heading', 'Task integrations')}</h2>
       {#if canEdit && !editing && !blocked}
         <div class="flex gap-2">
-          {#if saved.length}<button type="button" class={buttonClass} onclick={() => startEdit(false)}>{t('app.integrations.edit', 'Edit')}</button>{/if}
+          {#if saved.length || removed.length}<button type="button" class={buttonClass} onclick={() => startEdit(false)}>{t('app.integrations.edit', 'Edit')}</button>{/if}
           <button type="button" class={buttonClass} onclick={() => startEdit(true)}>{t('app.integrations.add', 'Add integration')}</button>
         </div>
       {/if}
@@ -210,7 +233,7 @@
       {#if canEdit && removed.length}
         <p data-removal-pending class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
           {t('app.integrations.removal-pending', 'The removal isn’t saved yet. Edit and save to apply it.')}
-          <button type="button" class="ml-2 underline pointer-coarse:min-h-11" onclick={() => { removed = []; confirming = null; }}>{t('app.integrations.undo-removal', 'Undo removal')}</button>
+          <button type="button" class="ml-2 underline pointer-coarse:min-h-11" onclick={undoRemovals}>{removed.length > 1 ? t('app.integrations.undo-removals', 'Undo all {n} removals', { n: removed.length }) : t('app.integrations.undo-removal', 'Undo removal')}</button>
         </p>
       {/if}
       {#if shown.length === 0}
@@ -229,12 +252,12 @@
                   {#if confirming === u.index}
                     <p class="mt-2 text-zinc-700 dark:text-zinc-300">{t('app.integrations.remove-entry-confirm', 'Remove entry {n}? It is deleted when you save the integrations.', { n: u.index + 1 })}</p>
                     <div class="mt-2 flex gap-2">
-                      <button type="button" class={buttonClass} onclick={() => { removed = [...removed, u.index]; confirming = null; }}>{t('app.integrations.confirm-remove-entry', 'Confirm remove')}</button>
-                      <button type="button" class={buttonClass} onclick={() => { confirming = null; }}>{t('app.integrations.keep-entry', 'Keep entry')}</button>
+                      <button type="button" class={buttonClass} data-step="confirm" onclick={() => confirmRemove(u.index)}>{t('app.integrations.confirm-remove-entry', 'Confirm remove')}</button>
+                      <button type="button" class={buttonClass} onclick={() => keepEntry(u.index)}>{t('app.integrations.keep-entry', 'Keep entry')}</button>
                     </div>
                   {:else}
                     <div class="mt-2">
-                      <button type="button" class={buttonClass} aria-label={t('app.integrations.remove-entry-n', 'Remove entry {n}', { n: u.index + 1 })} onclick={() => { confirming = u.index; }}>{t('app.integrations.remove-entry', 'Remove entry')}</button>
+                      <button type="button" class={buttonClass} data-step="remove" aria-label={t('app.integrations.remove-entry-n', 'Remove entry {n}', { n: u.index + 1 })} onclick={() => askRemove(u.index)}>{t('app.integrations.remove-entry', 'Remove entry')}</button>
                     </div>
                   {/if}
                 {/if}
