@@ -44,20 +44,20 @@ describe('loadSchedules', () => {
 
 describe('writes', () => {
   it('create sends the input as given and returns the new schedule id', async () => {
-    const request = vi.fn(async () => ({ createAgentSchedule: { id: 'new-1' } }));
+    const request = vi.fn(async (_q: string, _v: Record<string, unknown>) => ({ createAgentSchedule: { id: 'new-1' } }));
     const input = { appRef: 'app-1', name: 'n', entryNodeUrn: 'u', cron: '0 9 * * *', timezone: 'Europe/Berlin' };
     expect(await createSchedule(clientOf(request), input)).toEqual({ ok: true, id: 'new-1' });
     expect(request.mock.calls[0][1]).toEqual({ input });
   });
 
   it('update sends the id and only the given fields', async () => {
-    const request = vi.fn(async () => ({ updateAgentSchedule: { id: 's1' } }));
+    const request = vi.fn(async (_q: string, _v: Record<string, unknown>) => ({ updateAgentSchedule: { id: 's1' } }));
     expect(await updateSchedule(clientOf(request), 's1', { cron: '0 10 * * *' })).toEqual({ ok: true, id: 's1' });
     expect(request.mock.calls[0][1]).toEqual({ id: 's1', input: { cron: '0 10 * * *' } });
   });
 
   it('pause sends exactly {enabled:false}; resume sends exactly {enabled:true}', async () => {
-    const request = vi.fn(async () => ({ updateAgentSchedule: { id: 's1' } }));
+    const request = vi.fn(async (_q: string, _v: Record<string, unknown>) => ({ updateAgentSchedule: { id: 's1' } }));
     await setScheduleEnabled(clientOf(request), 's1', false);
     await setScheduleEnabled(clientOf(request), 's1', true);
     expect(request.mock.calls.map((c) => c[1])).toEqual([{ id: 's1', input: { enabled: false } }, { id: 's1', input: { enabled: true } }]);
