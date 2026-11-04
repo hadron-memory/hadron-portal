@@ -2,6 +2,7 @@ import { gqlClient } from '$lib/server/api';
 import { classifyGqlError, extractGqlError, gqlErrorTextForBranching } from '$lib/server/gqlError';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
 import { publicChatError } from '$lib/server/llm/chatError.js';
 import { t } from '$lib/i18n/t';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
@@ -79,6 +80,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // there. Welcome-turn failures surface as a soft `welcomeError`
   // hint, not a blocking error.
 
+  // 0. portal#1611: resolve the AI config ONCE, before startChat, so the model
+  //    the server is told about is the model the welcome turn (and later
+  //    turns of this request) will actually call. Never throws: with no usable
+  //    config the chat still starts, `llmModel` is omitted, and the welcome
+  //    turn fails exactly as it always did (as a soft `welcomeError`).
+  const ai = await resolveChatAi(locals.token, body.agentId, { appId: body.appId, configName: body.configName });
+
   // 1. Create the chat in Hadron — provisions the user memory and
   //    returns the compiled first-stage prompt + tool schema.
   let chatId: string;
@@ -99,6 +107,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       agentId: body.agentId,
       conversationName: body.conversationName ?? null,
       scope,
+      ...llmModelVariable(ai),
     });
     chatId = startResult.startChat.chatId;
     systemMessage = startResult.startChat.systemMessage;
@@ -165,6 +174,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       userMessage: null,
       appId: body.appId,
       configName: body.configName,
+      ai,
       startPayload: { systemMessage, tools },
     });
     welcomeMessage = turn.assistantMessage;
