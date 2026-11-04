@@ -148,8 +148,9 @@ describe('POST /app/orgs/[id]/tasks/plugin', () => {
 
   // ── #1706: an App's install memory is not the org's export surface ─────────
   //
-  // R208 / cor:api:060:04: neither the EXPORT scope nor the other host's
-  // STATUS plan may name an appId-carrying system id. For a platform-ADMIN org
+  // R208 / hrn:node:hadronmemory.com:specs:cor:api:060:04: neither the EXPORT
+  // scope nor the other host's STATUS plan may name an appId-carrying system
+  // id. For a platform-ADMIN org
   // member this is not cosmetic: createScope refuses the set with
   // `No match for memoryRef "<install memory id>"`, so the id reaching it is
   // what made that caller's whole org export fail.

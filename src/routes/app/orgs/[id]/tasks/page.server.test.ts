@@ -216,8 +216,9 @@ describe('org tasks load()', () => {
 
 // ── #1706: an App's install memory is not the org's task surface ─────────────
 //
-// R208 / cor:api:060:04 (server#1987): the org's Task Nodes scope never
-// includes a memory that belongs to an App — an install memory is class
+// R208 / hrn:node:hadronmemory.com:specs:cor:api:060:04 (server#1987): the
+// org's Task Nodes scope never includes a memory that belongs to an App — an
+// install memory is class
 // `system` WITH `appId` set, and the system list returns it to its audience.
 // The ids helper must leave every appId-carrying id OUT, while the #1689
 // control (a system memory with appId null, e.g. the Agent system memory)

@@ -13,7 +13,8 @@ import { ORG_SYSTEM_MEMORY_IDS_QUERY } from '$lib/server/queries';
  *
  * #1706 — an App's install memory is class `system` WITH `appId` set, and the
  * system list returns it to its audience, but it belongs to its App, not to
- * the org's task surfaces (R208 / cor:api:060:04, server#1987): every
+ * the org's task surfaces (R208 /
+ * hrn:node:hadronmemory.com:specs:cor:api:060:04, server#1987): every
  * appId-carrying id is left OUT of the set. The server stays permissive on
  * purpose; hadron-server#3069 records why its seams were not taken. An
  * appId-null system memory (the Agent system memory) still joins — that is

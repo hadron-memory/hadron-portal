@@ -812,7 +812,8 @@ export const ORG_TASK_MEMORY_IDS_QUERY = /* GraphQL */ `
  *
  * #1706 — `appId` is selected so the caller can leave an App's install memory
  * out: an install memory is class `system` WITH `appId` set, and this list
- * returns it to its audience. R208 / cor:api:060:04 keeps App-owned memories
+ * returns it to its audience. R208 /
+ * hrn:node:hadronmemory.com:specs:cor:api:060:04 keeps App-owned memories
  * off the org's task surfaces, and for a platform-ADMIN org member the id
  * reaching `createScope` is what made the whole org export fail.
  */
