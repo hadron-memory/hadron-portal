@@ -31,6 +31,17 @@ try {
     if (variant === 'source') await page.getByRole('button', { name: 'Start an empty source for this worker', exact: true }).click();
     else if (variant === 'failed') await page.getByRole('alert').filter({ hasText: 'Couldn’t load what this revision was built from' }).waitFor();
     else await page.getByText('Not available to you', { exact: true }).waitFor();
+    if (variant === 'app') {
+      await page.getByRole('button', { name: 'Update the prompt', exact: true }).click();
+      await page.getByRole('region', { name: 'Confirm App prompt update' }).waitFor();
+      if (output) await page.screenshot({ path: `${output}/app-confirm-${theme}-${width}.png`, fullPage: true });
+      await page.getByRole('button', { name: 'Build and point App', exact: true }).click();
+    } else if (variant === 'worker') await page.getByRole('button', { name: 'Update the prompt', exact: true }).click();
+    if (variant === 'app' || variant === 'worker') {
+      const outcome = page.getByRole('alert').filter({ hasText: 'Couldn’t confirm whether the prompt was built' });
+      await outcome.waitFor();
+      assert.ok(await outcome.evaluate(el => Boolean(el.compareDocumentPosition(document.querySelector('section[aria-label="Built from"]')) & Node.DOCUMENT_POSITION_FOLLOWING)));
+    }
     const measured = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scroll: document.documentElement.scrollWidth, html: document.body.innerHTML }));
     assert.equal(measured.scroll, measured.width, `${variant}/${theme}/${width}: horizontal page overflow`);
     assert.ok(!measured.html.includes('private-node-id'));

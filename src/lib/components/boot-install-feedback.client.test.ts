@@ -40,6 +40,21 @@ describe('portal#1674 UX P2: outcomes belong beside controls', () => {
     expect(m.target.textContent).toContain('Built from');
     expect(m.target.textContent).not.toContain('Couldn’t load');
   });
+  it('retries the failed page offset and moves focus to the recovered provenance', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(reply({ page: { ...page, total: 25, hasMore: true } }))
+      .mockResolvedValueOnce(reply({}, false))
+      .mockResolvedValueOnce(reply({ page: { ...page, offset: 20, total: 25 } }));
+    vi.stubGlobal('fetch', fetcher);
+    const m = mountComponent(BootProvenance, { nodeId: 'c', revision: 3 }); cleanups.push(m.unmount); await settle();
+    findButton(m.target, 'Next').click(); await settle();
+    findButton(m.target, 'Retry').click(); await settle();
+    expect(fetcher.mock.calls.map(call => new URL(String(call[0]), 'https://example.test').searchParams.get('offset'))).toEqual(['0', '20', '20']);
+    const region = m.target.querySelector('[aria-label="Compiled prompt provenance"]');
+    expect(document.activeElement).toBe(region);
+    expect(m.target.textContent).not.toContain('Couldn’t load');
+  });
+
 });
 
 describe('portal#1674 BLIND P2-1: App pointer confirmation', () => {
