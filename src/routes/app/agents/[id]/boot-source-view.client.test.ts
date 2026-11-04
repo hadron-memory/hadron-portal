@@ -329,6 +329,12 @@ describe('source lint (portal#1667)', () => {
     expect(lintBox(root)?.textContent).toBe('Couldn’t load warnings');
     expect(draft(root).value).toBe(TAG);
   });
+  it('drops a page for another node', async () => {
+    routes(saved(), ok({ id: 'other', revision: 3, page: { items: [warn('RETIRED_TARGET')], total: 1, nextCursor: null } }));
+    const root = await open();
+    expect(lintBox(root)?.textContent).toBe('Couldn’t load warnings');
+    expect(root.querySelector('[data-lint-kind]')).toBeNull();
+  });
   it('shows n of total, and Show more follows nextCursor', async () => {
     const calls: string[] = [];
     let n = 0;
