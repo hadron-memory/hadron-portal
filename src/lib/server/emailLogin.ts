@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import type { Cookies } from '@sveltejs/kit';
 import type { ErrorStatus } from 'sveltekit-superforms';
 import { emailSignInStrings } from '$lib/i18n/email-sign-in-strings';
+import { LOGIN_NONCE_MAX_AGE_SECONDS } from '$lib/server/loginNonceLifetime';
 import { BOT_CHECK_ERROR, TURNSTILE_FIELD, botCheckMessage } from '$lib/turnstile';
 
 /**
@@ -49,7 +50,8 @@ export async function startBoundMagicLink(
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 60 * 20, // 20 min — covers the server's 15-min magic-link token + slack
+    // Link token + the server's longest pending factor flow + slack (loginNonceLifetime.ts).
+    maxAge: LOGIN_NONCE_MAX_AGE_SECONDS,
   });
 
   const serverUrl = env.LOCAL_SERVER_URL ?? 'http://localhost:4000';
