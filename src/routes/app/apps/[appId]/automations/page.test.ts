@@ -16,9 +16,14 @@ const row = (over: Record<string, unknown> = {}) => ({
   triggerKind: 'SCHEDULE', triggerRef: 'sch-1', name: 'Nightly digest', state: 'UNADOPTED',
   headline: 'Nightly digest: Runs on the schedule "0 6 * * *" (UTC); waiting for approval', ...over,
 });
+const none = { visible: true, schedules: [] };
 function list(approvals: unknown, over: Record<string, unknown> = {}) {
-  return render(List as never, { props: { data: { app, approvals, after: null, ...over } } } as never).body;
+  return render(List as never, { props: { data: { app, approvals, after: null, schedules: none, ...over } } } as never).body;
 }
+const sched = (over: Record<string, unknown> = {}) => ({
+  id: 'sch-1', name: 'Nightly digest', entryNodeUrn: 'hrn:node:acme.com:ops:digest', cron: '0 6 * * *', runAt: null, timezone: 'Europe/Berlin', enabled: true,
+  nextRunAt: null, lastRunAt: null, userId: 'u1', createdBy: 'u1', ...over,
+});
 const ok = (rows: unknown[], extra: Record<string, unknown> = {}) => ({ kind: 'ok', rows, nextCursor: null, omitted: [MANUAL], ...extra });
 
 describe('Automations list', () => {
@@ -45,7 +50,7 @@ describe('Automations list', () => {
   });
 
   it('renders others’ text as text: a name and a headline carrying markup stay inert', () => {
-    const html = list(ok([row({ name: '<img src=x onerror=alert(1)>', headline: '<b>bold</b> **md** [x](javascript:alert(1))' })]));
+    const html = list(ok([row({ triggerKind: 'WEBHOOK', name: '<img src=x onerror=alert(1)>', headline: '<b>bold</b> **md** [x](javascript:alert(1))' })]));
     expect(html).not.toContain('<img src=x');
     expect(html).not.toContain('<b>bold</b>');
     expect(html).not.toMatch(/<a[^>]*href="javascript:/);
@@ -68,5 +73,40 @@ describe('Automations list', () => {
 
   it('offers the first page again from a later page', () => {
     expect(list(ok([row()]), { after: 'c1' })).toContain('href="/app/apps/app-1/automations"');
+  });
+
+  // portal#1701 — a schedule's timing in plain words, wherever schedules are listed (acceptance 1, 4, 5).
+  describe('schedule timing', () => {
+    it('says when a schedule runs in a sentence, in its own zone, and never shows its cron', () => {
+      const html = list(ok([row()]), { schedules: { visible: true, schedules: [sched()] } });
+      expect(html).toContain('Every day at 06:00 (Europe/Berlin)');
+      expect(html).not.toContain('0 6 * * *');
+    });
+
+    it('shows a cron the plain controls cannot express as it is, never rewritten', () => {
+      const html = list(ok([row()]), { schedules: { visible: true, schedules: [sched({ cron: '*/5 9-17 * * 1-5' })] } });
+      expect(html).toContain('On a custom schedule: */5 9-17 * * 1-5 (Europe/Berlin)');
+    });
+
+    it('says a paused schedule is paused', () => {
+      expect(list(ok([row()]), { schedules: { visible: true, schedules: [sched({ enabled: false })] } })).toContain('Paused');
+      expect(list(ok([row()]), { schedules: { visible: true, schedules: [sched()] } })).not.toContain('Paused');
+    });
+
+    it('a schedule row with no matching schedule renders without timing, and without the server headline that quotes the cron', () => {
+      const html = list(ok([row()]), { schedules: none });
+      expect(html).toContain('Nightly digest');
+      expect(html).not.toContain('0 6 * * *');
+      expect(html).not.toContain('Runs on the schedule');
+    });
+
+    it('a webhook row keeps the server\'s own sentence', () => {
+      expect(list(ok([row({ triggerKind: 'WEBHOOK', triggerRef: 'wh-1', headline: 'Inbound: Starts when called; approved' })]))).toContain('Inbound: Starts when called; approved');
+    });
+
+    it('offers a new schedule, to everyone: the server decides who may', () => {
+      expect(list(ok([row()]))).toContain('href="/app/apps/app-1/automations/new-schedule"');
+      expect(list(ok([]))).toContain('href="/app/apps/app-1/automations/new-schedule"');
+    });
   });
 });
