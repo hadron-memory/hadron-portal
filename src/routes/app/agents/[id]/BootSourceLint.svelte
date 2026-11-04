@@ -7,7 +7,7 @@
 
   // Advisory: nothing here gates a save or a compile. A short notice under the editor,
   // like the compiled prompt's warnings, rather than a table: each row is one sentence.
-  let { agentId, nodeId, shown, refresh }: { agentId: string; nodeId: string; shown: boolean; refresh: number } = $props();
+  let { agentId, nodeId, shown, refresh, savedText, savedRevision }: { agentId: string; nodeId: string; shown: boolean; refresh: number; savedText: string; savedRevision: number } = $props();
 
   type Lint = { kind: 'idle' | 'loading' | 'failed' | 'unavailable' } | { kind: 'ready'; revision: number; items: SourceLintItem[]; total: number; nextCursor: string | null; moreFailed: boolean };
   let lint = $state<Lint>({ kind: 'idle' });
@@ -40,6 +40,14 @@
     if (shown && refresh !== loadedFor) untrack(load);
   });
 
+  // `position` is an offset into the saved text of the revision the page was read at. Lines
+  // are only counted in that same text: for any other revision it would name the wrong line.
+  function where(position: number, revision: number): string {
+    if (revision !== savedRevision || position > savedText.length) return t('boot.source-lint.character', 'Character {n}', { n: position });
+    const lines = savedText.slice(0, position).split('\n');
+    return t('boot.source-lint.line-column', 'Line {line}, column {column}', { line: lines.length, column: [...lines[lines.length - 1]].length + 1 });
+  }
+
   // Fixed copy, not the server's sentence, which names targets. An include warning never
   // says more than `kind`: a broken include reads the same for missing and unreadable.
   function wording(kind: string): string {
@@ -69,7 +77,7 @@
         <li data-lint-kind={w.kind}>
           {wording(w.kind)}
           <span class="text-zinc-500 dark:text-zinc-400">
-            {t('boot.source-lint.position', 'Position {n}', { n: w.position })}{#if w.pinnedRevision !== null}. {t('boot.source-lint.pinned', 'Pinned to revision {n}', { n: w.pinnedRevision })}{/if}{#if w.newerRevision !== null}. {t('boot.source-lint.newer', 'Revision {n} is approved', { n: w.newerRevision })}{/if}
+            {where(w.position, lint.revision)}{#if w.pinnedRevision !== null}. {t('boot.source-lint.pinned', 'Pinned to revision {n}', { n: w.pinnedRevision })}{/if}{#if w.newerRevision !== null}. {t('boot.source-lint.newer', 'Revision {n} is approved', { n: w.newerRevision })}{/if}
           </span>
           {#if w.targetUrn}<div class="mt-1"><Urn value={w.targetUrn} type="node" /></div>{/if}
         </li>

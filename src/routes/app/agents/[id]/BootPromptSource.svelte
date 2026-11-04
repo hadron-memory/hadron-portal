@@ -35,6 +35,7 @@
   });
   let savedChanged = $state(0);
   const stored = untrack(() => initial.data.content);
+  const storedRevision = untrack(() => initial.data.expectedRevision);
   // The compile reads the STORED source, so compiling with an unsaved draft would build the old text.
   const dirty = $derived($form.content !== stored);
   const compile = superForm(untrack(() => compileSubmitted ?? compileInitial), { resetForm: false, clearOnSubmit: 'none', invalidateAll: 'force' });
@@ -82,14 +83,15 @@
     <div hidden={view !== 'resolved'}>
       <BootSourceResolved {agentId} nodeId={$form.nodeId} openedRevision={$form.expectedRevision} {dirty} shown={shown && view === 'resolved'} refresh={savedChanged} />
     </div>
-    {#if canManage !== false}
+    <!-- Both act on the draft, which the resolved view doesn't show. -->
+    {#if canManage !== false && view === 'source'}
       <div class="flex justify-end gap-2">
         <button type="button" disabled={$submitting || busy} onclick={() => reset({ data: { ...$form, content: stored } })} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700">{t('agent.boot.cancel', 'Cancel')}</button>
         <button type="submit" disabled={$submitting || busy} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50">{$submitting ? t('agent.boot.saving', 'Saving...') : t('agent.boot.save', 'Save')}</button>
       </div>
     {/if}
   </form>
-  <BootSourceLint {agentId} nodeId={$form.nodeId} {shown} refresh={savedChanged} />
+  <BootSourceLint {agentId} nodeId={$form.nodeId} {shown} refresh={savedChanged} savedText={stored} savedRevision={storedRevision} />
   {#if canManage !== false}
     <form method="POST" action="?/compileBootPrompt" use:compileEnhance class="mt-6 flex items-center gap-3">
       <input type="hidden" name="_kind" value="bootCompile" />
