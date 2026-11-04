@@ -70,6 +70,8 @@ describe('leadStatus', () => {
   ];
   it('names a live lead', () => expect(leadStatus('hrn:worker:x:y:iris', workers)).toEqual({ kind: 'live', name: 'Iris', urn: 'hrn:worker:x:y:iris' }));
   it('marks a retired lead, by name when known', () => expect(leadStatus('hrn:worker:x:y:old', workers)).toEqual({ kind: 'retired', name: 'Old', urn: 'hrn:worker:x:y:old' }));
-  it('marks a lead the roster does not hold, by its URN', () => expect(leadStatus('hrn:worker:x:y:gone', workers)).toEqual({ kind: 'retired', name: null, urn: 'hrn:worker:x:y:gone' }));
+  it('a lead the roster does not hold is missing, never retired', () => expect(leadStatus('hrn:worker:x:y:gone', workers)).toEqual({ kind: 'missing', urn: 'hrn:worker:x:y:gone' }));
+  it('a failed roster read checks nobody, not even a lead it would have named', () => expect(leadStatus('hrn:worker:x:y:old', null)).toEqual({ kind: 'unchecked', urn: 'hrn:worker:x:y:old' }));
+  it('a null lead stays unknown when the roster read failed', () => expect(leadStatus(null, null)).toEqual({ kind: 'unknown' }));
   it('marks a null lead unknown', () => expect(leadStatus(null, workers)).toEqual({ kind: 'unknown' }));
 });
