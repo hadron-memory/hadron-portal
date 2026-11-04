@@ -60,7 +60,9 @@ describe.each(REFUSALS)('%s', (serverCode, portalCode, message) => {
     expect(JSON.parse(text)).toEqual({ error: message, code: portalCode });
     for (const s of SENTINELS) expect(text).not.toContain(s);
     for (const s of SENTINELS) expect(loggedText(spies)).not.toContain(s);
-    expect(request).toHaveBeenCalledTimes(1);
+    // Main now resolves the chat AI (its own read) before startChat; the pin is that the
+    // refused startChat is sent exactly once (no retry), whatever else is read first.
+    expect(request.mock.calls.filter(([q]) => String(q).includes('startChat'))).toHaveLength(1);
     expect(runChatTurn).not.toHaveBeenCalled();
   });
 
