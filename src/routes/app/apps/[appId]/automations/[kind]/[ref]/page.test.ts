@@ -21,7 +21,7 @@ const summary = (over: Record<string, unknown> = {}) => ({
 });
 const approval = (over: Record<string, unknown> = {}) => ({ state: 'UNADOPTED', hash: 'hash-abc123', depth: { entryId: 'n1' }, summary: summary(), ...over });
 function page(over: Record<string, unknown> = {}, form: unknown = null) {
-  return render(Page as never, { props: { data: { app, kind: 'SCHEDULE', ref: 'sch-1', approval: approval(), ...over }, form } } as never).body;
+  return render(Page as never, { props: { data: { app, kind: 'SCHEDULE', ref: 'sch-1', approval: approval(), teamGrant: { status: 'hidden' }, ...over }, form } } as never).body;
 }
 const hashInput = (html: string) => html.match(/<input[^>]*name="expectedHash"[^>]*>/)?.[0] ?? '';
 
@@ -100,5 +100,109 @@ describe('approval page', () => {
     const html = page({}, { code: 'refused', message: '' });
     expect(html).toMatch(/role="alert"[^>]*>[^<]*\S/);
     expect(html).toContain('The server refused this action.');
+  });
+});
+
+// portal#1650: the automation's team snapshot grant.
+describe('team roster and tasks', () => {
+  const person = { name: 'Ana', urn: 'hrn:user:ana' };
+  const live = { id: 'g1', createdAt: '2026-11-01T10:00:00.000Z', revokedAt: null, givenBy: person, endedBy: null };
+  const ready = (over: Record<string, unknown> = {}) => ({ teamGrant: { status: 'ready', live: null, ended: null, ...over } });
+  const HEADING = 'Team roster and tasks';
+
+  it('a viewer the list refuses sees no section at all: no heading, no control, no "off"', () => {
+    const html = page({ teamGrant: { status: 'hidden' } });
+    expect(html).not.toContain(HEADING);
+    expect(html).not.toContain('?/give');
+    expect(html).not.toContain('?/stop');
+    expect(html).not.toContain('Not given');
+  });
+
+  it('a refusal survives the re-read hiding the section: what happened is still said (QA P2)', () => {
+    const html = page({ teamGrant: { status: 'hidden' } }, { teamGrantRefused: true, teamGrantMessage: 'Only a manager can give this.' });
+    expect(html).toContain('Only a manager can give this.');
+    expect(html).not.toContain(HEADING);
+    expect(html).not.toContain('?/give');
+    expect(html).not.toContain('Not given');
+  });
+
+  it('a refusal survives the re-read failing: the section keeps saying what happened', () => {
+    const html = page({ teamGrant: { status: 'unavailable' } }, { teamGrantRefused: true, teamGrantMessage: 'Only a manager can give this.' });
+    expect(html).toContain('Only a manager can give this.');
+    expect(html).toContain('data-testid="team-grant-unavailable"');
+  });
+
+  it('a hidden section with nothing to say leaves nothing behind', () => {
+    expect(page({ teamGrant: { status: 'hidden' } })).not.toContain('team-grant-outcome');
+  });
+
+  it('a failed read says so and offers nothing: it is not "not given"', () => {
+    const html = page({ teamGrant: { status: 'unavailable' } });
+    expect(html).toContain(HEADING);
+    expect(html).toContain('data-testid="team-grant-unavailable"');
+    expect(html).not.toContain('Not given');
+    expect(html).not.toContain('?/give');
+    expect(html).not.toContain('?/stop');
+  });
+
+  it('not given: the plain line, one heading, and Give in its own form', () => {
+    const html = page(ready());
+    expect(html.split(HEADING)).toHaveLength(2);
+    expect(html).toContain('this App&#39;s team roster and tasks. Read-only, this App only.'.replace('&#39;', "'"));
+    expect(html).toContain('Not given');
+    expect(html).toMatch(/<form[^>]*action="\?\/give"/);
+    expect(html).not.toContain('?/stop');
+  });
+
+  it('given: who and when, their URN, and Stop with what stopping means', () => {
+    const html = page(ready({ live }));
+    expect(html).toContain('Given by Ana on Nov 1, 2026');
+    expect(html).toContain('hrn:user:ana');
+    expect(html).toMatch(/<form[^>]*action="\?\/stop"/);
+    expect(html).not.toContain('?/give');
+    expect(html).toContain('You can give it again, which makes a new grant.');
+    expect(html).not.toContain('Not given');
+  });
+
+  it('Stop posts no grant id: the server side finds it from the URL', () => {
+    const html = page(ready({ live }));
+    const form = html.match(/<form[^>]*action="\?\/stop"[\s\S]*?<\/form>/)?.[0] ?? '';
+    expect(form).not.toBe('');
+    expect(form).not.toContain('<input');
+  });
+
+  it('a giver the viewer may not read says so, with no chip', () => {
+    const html = page(ready({ live: { ...live, givenBy: null } }));
+    expect(html).toContain('Given by a person not visible to you on Nov 1, 2026');
+    expect(html).not.toContain('hrn:user:');
+  });
+
+  it('ended grants stay behind "Show ended", which keeps this page', () => {
+    const html = page(ready());
+    expect(html).toContain('Show ended');
+    expect(html).toContain('href="/app/apps/app-1/automations/schedule/sch-1?ended=1"');
+    expect(html).not.toContain('Hide ended');
+  });
+
+  it('a manager who asked for ended grants can put them away; none is said plainly', () => {
+    const html = page(ready({ ended: [] }));
+    expect(html).toContain('Hide ended');
+    expect(html).toContain('href="/app/apps/app-1/automations/schedule/sch-1"');
+    expect(html).toContain('No ended grants.');
+  });
+
+  it('feedback sits with this section, never in the approval outcome', () => {
+    const html = page(ready({ live }), { teamGrantRefused: true, teamGrantMessage: 'Not yours to stop.' });
+    const section = html.slice(html.indexOf(HEADING));
+    expect(section).toContain('Not yours to stop.');
+    expect(html.slice(0, html.indexOf(HEADING))).not.toContain('Not yours to stop.');
+  });
+
+  it('a refusal with no words of its own gets a fixed sentence', () => {
+    expect(page(ready(), { teamGrantRefused: true, teamGrantMessage: '' })).toContain('The server refused this action.');
+  });
+
+  it.each([['given', 'Given.'], ['stopped', 'Stopped.']])('%s is confirmed beside the control', (outcome, words) => {
+    expect(page(ready(), { teamGrant: outcome })).toContain(words);
   });
 });

@@ -5,8 +5,9 @@
   import type { SubmitFunction } from '@sveltejs/kit';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import { orNotStated, pageStateLabel } from '$lib/automation/approval';
+  import { approvalHref, orNotStated, pageStateLabel } from '$lib/automation/approval';
   import { t } from '$lib/i18n/t';
+  import TeamGrantSection from './TeamGrantSection.svelte';
   import type { ActionData, PageData } from './$types';
 
   /**
@@ -190,6 +191,8 @@
       </form>
     {/if}
   </div>
+
+  <TeamGrantSection grant={data.teamGrant} {identity} href={approvalHref(data.app.id, data.kind, data.ref)} {form} />
 
   <details class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
     <summary class="cursor-pointer text-sm font-medium text-zinc-800 dark:text-zinc-200">{t('app.automations.details', 'Show details')}</summary>
