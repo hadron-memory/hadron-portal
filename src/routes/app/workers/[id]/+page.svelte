@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import WorkerProfile from '$lib/components/WorkerProfile.svelte';
   import { workerInternalsVisible } from '$lib/worker-profile';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
@@ -502,6 +503,11 @@
         />
         {/key}
       </section>
+      {#if data.worker.app?.id && data.worker.agent?.id}
+        {#key `${data.worker.id}:${data.worker.app.id}:${data.worker.agent.id}`}
+          <BootInstallCompile owner={{ level: 'worker', worker: data.worker.id, app: data.worker.app.id, agent: data.worker.agent.id }} canManage={data.canManageWorkerApp} impersonating={!!data.impersonation} />
+        {/key}
+      {/if}
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">
           <h2 class="font-semibold text-zinc-900 dark:text-white">
