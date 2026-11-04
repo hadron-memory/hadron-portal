@@ -658,3 +658,25 @@ describe('removing the last entry, focus and the undo wording (#1679 review)', (
     expect(btn(m.target, 'Undo all 2 removals')).toBeTruthy();
   });
 });
+
+describe('the banner for a refusal that is not on screen says the fixed words (#1695 review, security P3-5)', () => {
+  const refused = (path: string) => result({ ok: false, code: 'TASK_INTEGRATION_INVALID', message: 'server words', path, currentRevision: null });
+  it('an entry that is not on screen: the banner is the fixed entry message, never the server\'s words', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), refused('taskIntegrations[5]'));
+    await tick(4);
+    const banner = form(m).querySelector('[role="alert"]')!;
+    expect(banner.textContent).toContain('The server refused this integration');
+    expect(banner.textContent).not.toContain('server words');
+  });
+  it('a team that is not on screen: the banner is the fixed team message', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), refused('taskIntegrations[0].teams[5]'));
+    await tick(4);
+    const banner = form(m).querySelector('[role="alert"]')!;
+    expect(banner.textContent).toContain('The server refused this team');
+    expect(banner.textContent).not.toContain('server words');
+  });
+});
