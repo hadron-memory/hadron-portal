@@ -98,6 +98,86 @@ describe('the list', () => {
   });
 });
 
+describe('a lead that isn\'t a live worker (portal#1676)', () => {
+  const GONE = 'hrn:worker:x.com:app:gone';
+  const MISSING = 'Worker not in this App\'s list';
+  const MISSING_NOTE = 'Can\'t confirm it is still live.';
+  const UNCHECKED = 'Couldn\'t check this worker';
+  const UNCHECKED_NOTE = 'The worker list didn\'t load, so we can\'t tell if it is still live.';
+  const RETIRED_NOTE = 'No longer a live worker';
+  const chip = (root: ParentNode, urn: string) => root.querySelector(`[title="${urn}"]`);
+  /** Text outside the chip: a URN here is one a reader can't copy. */
+  function bareText(root: Element) {
+    const copy = root.cloneNode(true) as Element;
+    copy.querySelectorAll('[title]').forEach((n) => n.remove());
+    return copy.textContent ?? '';
+  }
+
+  it('L1: in the list, a lead the roster lacks gets the label, the note and the chip', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core', GONE)] }));
+    const team = m.target.querySelector('[data-team-label="team:x"]')!;
+    expect(team.textContent).toContain(MISSING);
+    expect(team.textContent).toContain(MISSING_NOTE);
+    expect(chip(team, GONE)).not.toBeNull();
+    expect(bareText(team)).not.toContain('gone');
+    expect(team.textContent).not.toContain(RETIRED_NOTE);
+  });
+  it('L1: in the form, the option is the label, the chip is below, and the lead saves unchanged', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core', GONE)] }));
+    await click(btn(m.target, 'Edit'));
+    const box = form(m).querySelector('[data-team="0"]')!;
+    const select = box.querySelector<HTMLSelectElement>('select')!;
+    const option = select.options[select.selectedIndex];
+    expect(option.value).toBe(GONE);
+    expect(option.text).toBe(MISSING);
+    expect(chip(box, GONE)).not.toBeNull();
+    expect(box.textContent).toContain(MISSING_NOTE);
+    expect(box.textContent).not.toContain(RETIRED_NOTE);
+    expect(posted(m)[0].teams[0].lead).toBe(GONE);
+  });
+  it('L2: a failed roster read says so, retires nobody, and offers no form', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('a', IRIS), wire('b', OLD)] }), true, null);
+    const text = m.target.textContent;
+    expect(text).toContain(UNCHECKED);
+    expect(text).toContain(UNCHECKED_NOTE);
+    expect(text).not.toContain(RETIRED_NOTE);
+    expect(chip(m.target, IRIS)).not.toBeNull();
+    expect(chip(m.target, OLD)).not.toBeNull();
+    expect(btn(m.target, 'Edit')).toBeUndefined();
+  });
+  it('a roster read that fails mid-edit keeps the chosen lead, labelled and saved unchanged', async () => {
+    const props = reactiveProps({ read: ok({ taskIntegrations: [wire('core', IRIS)] }), manages: true, workers: workers as unknown });
+    const m = mountComponent(TaskIntegrations as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    await click(btn(m.target, 'Edit'));
+    props.workers = null;
+    await tick(3);
+    const select = form(m).querySelector<HTMLSelectElement>('select[id*="teams"]')!;
+    expect(select.value).toBe(IRIS);
+    expect(select.options[select.selectedIndex].text).toBe(UNCHECKED);
+    expect(form(m).textContent).toContain(UNCHECKED_NOTE);
+    expect(form(m).textContent).not.toContain(RETIRED_NOTE);
+    expect(posted(m)[0].teams[0].lead).toBe(IRIS);
+  });
+  it('L3: a named retired lead and a null lead read as before', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('a', OLD), wire('b', null)] }));
+    const [retired, none] = [...m.target.querySelectorAll('[data-team-label="team:x"]')];
+    expect(retired.textContent).toContain('Olga');
+    expect(retired.textContent).toContain(RETIRED_NOTE);
+    expect(chip(retired, OLD)).not.toBeNull();
+    expect(none.textContent).toContain('Unknown worker');
+    expect(none.querySelector('[title]')).toBeNull();
+  });
+  it('L4: missing, unchecked and null each read differently', async () => {
+    const shown = await mount(ok({ taskIntegrations: [wire('a', GONE), wire('b', null)] }));
+    const failed = await mount(ok({ taskIntegrations: [wire('a', GONE)] }), true, null);
+    const [missing, none] = [...shown.target.querySelectorAll('[data-team-label="team:x"]')].map((n) => bareText(n));
+    const unchecked = bareText(failed.target.querySelector('[data-team-label="team:x"]')!);
+    expect(new Set([missing, unchecked, none]).size).toBe(3);
+  });
+});
+
 describe('the form', () => {
   it('the lead picker lists only the live workers of the roster', async () => {
     const m = await mount(ok({ taskIntegrations: [wire('core')] }));
