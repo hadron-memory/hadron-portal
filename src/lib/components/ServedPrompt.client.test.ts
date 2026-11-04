@@ -199,6 +199,20 @@ describe('review folds at 1435a933 (George P2s, Uma, Rook)', () => {
     expect(next.disabled).toBe(false);
   });
 
+  it('collapsible: an opened <details> stays open (same element) across Previous/Next paging', async () => {
+    const f = vi.fn((url: string) => ok(page([1, 2, 3, 4, 5].map((n) => record({ id: `r${n}` })), 12, Number(new URL(url, 'http://x').searchParams.get('offset')))));
+    const m = show(f as never, { collapsible: true });
+    await settle();
+    const d = m.target.querySelector('details')!;
+    d.open = true;
+    [...m.target.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Next')!.click();
+    await settle();
+    const after = m.target.querySelector('details')!;
+    expect(after).toBe(d);
+    expect(after.open).toBe(true);
+    expect(m.target.querySelector('[data-testid="served-range"]')!.textContent).toBe('6–10 of 12');
+  });
+
   it('collapsible: closed <details> with the section name, records inside', async () => {
     const m = show(() => ok(page([record()])), { collapsible: true });
     await settle();

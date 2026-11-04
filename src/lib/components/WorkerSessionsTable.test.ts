@@ -166,6 +166,14 @@ describe('the cell renders text the accessor never sees (@codex on #819)', () =>
       expect(row.match(/aria-pressed="true"/g)).toHaveLength(1);
     });
 
+    it('the Show column is right after Started, not off-screen at the end of a 12-column grid', () => {
+      const html = body([session()]);
+      const head = html.slice(html.indexOf('<thead'), html.indexOf('</thead>'));
+      expect(head.indexOf('Served prompt')).toBeGreaterThan(-1);
+      expect(head.indexOf('Served prompt')).toBeLessThan(head.indexOf('Status'));
+      expect(head.indexOf('Served prompt')).toBeGreaterThan(head.indexOf('Started'));
+    });
+
     it('without onServed: no button, just a dash (the column is hidden of actions)', () => {
       const row = rows([session()]);
       expect(row).not.toContain('Served prompt for the session started');
