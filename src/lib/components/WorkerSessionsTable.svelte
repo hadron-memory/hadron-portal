@@ -88,7 +88,7 @@
     sessions: WorkerSession[];
     listKey?: string;
     maxHeight?: string;
-    /** portal#1665: open this session's served-prompt record. Omit to hide the column. */
+    /** portal#1665: open this session's served-prompt record. Omit it and each row shows a dash instead of a button. */
     onServed?: (sessionId: string) => void;
     /** The session whose record is open, for aria-pressed. */
     servedId?: string | null;

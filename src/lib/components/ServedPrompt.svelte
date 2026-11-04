@@ -54,6 +54,7 @@
     lintItems?: ServedLintWarning[];
     lintCursor?: string | null;
     lintUnavailable?: boolean;
+    lintTotal?: number;
     busy?: 'provenance' | 'lint';
     failed?: 'provenance' | 'lint';
   };
@@ -153,6 +154,7 @@
               ...prev,
               lintItems: [...(prev.lintItems ?? record.lint?.items ?? []), ...row.lint.items],
               lintCursor: row.lint.nextCursor,
+              lintTotal: row.lint.total,
               busy: undefined,
             };
       }
@@ -320,7 +322,7 @@
                 {/each}
               </ul>
               <p class="mt-1 text-xs text-zinc-500" data-testid="served-lint-count">
-                {t('served.lint.count', '{n} of {total}', { n: lintItems.length, total: record.lint.total })}
+                {t('served.lint.count', '{n} of {total}', { n: lintItems.length, total: ex.lintTotal ?? record.lint.total })}
               </p>
             {/if}
             {#if lintCursor}

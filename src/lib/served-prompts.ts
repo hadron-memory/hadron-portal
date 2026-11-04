@@ -4,6 +4,8 @@
  * chat was given: ids, revisions, hashes and the recorded variables. Never text.
  */
 
+import { t } from '$lib/i18n/t';
+
 export type ServedPromptSource = 'worker' | 'session' | 'run' | 'chat';
 
 /** Records per page, provenance entries per page, lint warnings per page (issue Ask 6). */
@@ -47,14 +49,14 @@ export interface ServedPromptsResponse {
 
 /** What a section shows for a pointer level; the copy never names which level DECIDES for a refusal. */
 export const POINTER_LEVEL_LABEL: Record<ServedPromptView['pointerLevel'], string> = {
-  WORKER: 'Worker',
-  APP_AGENT: 'App',
-  AGENT: 'Agent',
+  WORKER: t('served.level.worker', 'Worker'),
+  APP_AGENT: t('served.level.app', 'App'),
+  AGENT: t('served.level.agent', 'Agent'),
 };
 
 /** The "x–y of total" line; null when the page is empty. */
 export function pageRange(offset: number, count: number, total: number): string | null {
-  return count > 0 ? `${offset + 1}–${offset + count} of ${total}` : null;
+  return count > 0 ? t('served.range', '{from}–{to} of {total}', { from: offset + 1, to: offset + count, total }) : null;
 }
 
 /** A page is complete only when it reaches the total (the provider has no hasMore). */
