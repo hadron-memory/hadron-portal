@@ -5,13 +5,28 @@
  */
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
+import { Kind, parse, type FieldNode, type OperationDefinitionNode } from 'graphql';
 import TaskExternalId from './TaskExternalId.svelte';
 import { AGENT_TASK_DETAIL_QUERY } from '$lib/server/queries';
 
 const html = (externalId: string | null) => render(TaskExternalId, { props: { externalId } }).body;
 
-/** Does this document select `externalId` the way the detail page reads it? */
-const selectsExternalId = (query: string) => /\bexternalId\b/.test(query);
+/**
+ * Is `externalId` a direct, unaliased field of `agentTask` in AgentTaskDetail? The page reads it under that
+ * name. Direct only, which is where the query has it: moving it into a fragment means updating this check.
+ */
+const selectsExternalId = (query: string) => {
+  const operation = parse(query).definitions.find(
+    (d): d is OperationDefinitionNode => d.kind === Kind.OPERATION_DEFINITION && d.name?.value === 'AgentTaskDetail',
+  );
+  const agentTask = operation?.selectionSet.selections.find(
+    (s): s is FieldNode => s.kind === Kind.FIELD && s.name.value === 'agentTask',
+  );
+  return (
+    agentTask?.selectionSet?.selections.some(s => s.kind === Kind.FIELD && s.name.value === 'externalId' && !s.alias) ??
+    false
+  );
+};
 
 /** The real detail query with its `externalId` line rewritten: a mutant, not an invented document. */
 const mutate = (rewrite: (query: string) => string) => {
