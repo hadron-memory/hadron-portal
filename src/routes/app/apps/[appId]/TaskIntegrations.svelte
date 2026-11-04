@@ -38,6 +38,12 @@
   const buttonClass = 'rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 pointer-coarse:min-h-11 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800';
   const errorClass = 'mt-1 text-xs text-red-600 dark:text-red-400';
 
+  // portal#1678: the exact strings are the specs engineer's scoped FIT (hrn:node:hadronmemory.com:specs:cor:agt:120:01, Decided). One
+  // t() call each, shared by the list and the form; no dispatch wording, no suffix.
+  const readyHelp = $derived(t('app.integrations.ready-label-help', 'Marks items as ready for a team to work on. A search for untracked items can show only these items, or leave them out.'));
+  const excludedHelp = $derived(t('app.integrations.excluded-labels-help', "Items with any of these labels are left out of the untracked items, so they can't be claimed from there."));
+  const helpClass = 'mt-1 text-xs text-zinc-500 dark:text-zinc-400';
+
   const roster = $derived(workers ?? []);
   const liveWorkers = $derived(roster.filter((w) => !w.retiredAt));
   const saved = $derived(read.kind === 'ok' ? readIntegrations(read.properties) : []);
@@ -135,7 +141,8 @@
 
   const hasListError = (path: string) => Object.keys(errors).some((k) => k === path || k.startsWith(`${path}[`));
   const field = (path: string) => `ti-${path.replace(/[^a-z0-9]+/gi, '-').replace(/-$/, '')}`;
-  const describedBy = (path: string) => (errors[path] ? `${field(path)}-error` : undefined);
+  // The help id, when the field has one, is merged with the error id, never swapped for it.
+  const describedBy = (path: string, help?: string) => [help, errors[path] ? `${field(path)}-error` : undefined].filter(Boolean).join(' ') || undefined;
 
   function pickLead(i: number, j: number, value: string) {
     drafts[i].teams[j].lead = value === '' ? null : value;
@@ -187,11 +194,11 @@
                 <dd class="min-w-0 break-words">{d.repositories.join(', ')}</dd>
                 {#if d.readyLabel}
                   <dt class="text-zinc-500 dark:text-zinc-400">{t('app.integrations.ready-label', 'Ready label')}</dt>
-                  <dd>{d.readyLabel}</dd>
+                  <dd>{d.readyLabel}<p class={helpClass}>{readyHelp}</p></dd>
                 {/if}
                 {#if d.excludeLabels.length}
                   <dt class="text-zinc-500 dark:text-zinc-400">{t('app.integrations.excluded-labels', 'Excluded labels')}</dt>
-                  <dd>{d.excludeLabels.join(', ')}</dd>
+                  <dd>{d.excludeLabels.join(', ')}<p class={helpClass}>{excludedHelp}</p></dd>
                 {/if}
                 {#each d.teams as team}
                   <dt class="text-zinc-500 dark:text-zinc-400">{t('app.integrations.team', 'Team')}</dt>
@@ -254,13 +261,15 @@
 
             <div>
               <label for={field(`${at}.readyLabel`)} class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.integrations.ready-label', 'Ready label')}</label>
-              <input id={field(`${at}.readyLabel`)} type="text" bind:value={d.readyLabel} aria-invalid={!!errors[`${at}.readyLabel`]} aria-describedby={describedBy(`${at}.readyLabel`)} class="{inputClass} {errors[`${at}.readyLabel`] ? 'border-red-500' : ''}" />
+              <input id={field(`${at}.readyLabel`)} type="text" bind:value={d.readyLabel} aria-invalid={!!errors[`${at}.readyLabel`]} aria-describedby={describedBy(`${at}.readyLabel`, `${field(`${at}.readyLabel`)}-help`)} class="{inputClass} {errors[`${at}.readyLabel`] ? 'border-red-500' : ''}" />
+              <p id="{field(`${at}.readyLabel`)}-help" class={helpClass}>{readyHelp}</p>
               {#if errors[`${at}.readyLabel`]}<p id="{field(`${at}.readyLabel`)}-error" role="alert" class={errorClass}>{errors[`${at}.readyLabel`]}</p>{/if}
             </div>
 
             <div>
               <span class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300" id={field(`${at}.excludeLabels`)}>{t('app.integrations.excluded-labels', 'Excluded labels')}</span>
-              <div role="group" aria-labelledby={field(`${at}.excludeLabels`)} class="space-y-2">
+              <p id="{field(`${at}.excludeLabels`)}-help" class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">{excludedHelp}</p>
+              <div role="group" aria-labelledby={field(`${at}.excludeLabels`)} aria-describedby="{field(`${at}.excludeLabels`)}-help" class="space-y-2">
                 {#each d.excludeLabels as _, j (j)}
                   {@const p = `${at}.excludeLabels[${j}]`}
                   <div>

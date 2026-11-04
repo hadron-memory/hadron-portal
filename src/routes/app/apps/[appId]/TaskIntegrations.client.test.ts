@@ -383,3 +383,50 @@ describe('interleavings', () => {
     expect(posted(m)[0].name).toBe('newer-draft');
   });
 });
+
+// portal#1678: help lines for the Ready and Excluded labels. The strings are Victor's scoped FIT
+// (https://github.com/hadron-memory/hadron-portal/issues/1678#issuecomment-6629518531), exact; the
+// optional "Labels are not case-sensitive." suffix is on neither.
+describe('label help (#1678)', () => {
+  const READY_HELP = 'Marks items as ready for a team to work on. A search for untracked items can show only these items, or leave them out.';
+  const EXCLUDED_HELP = "Items with any of these labels are left out of the untracked items, so they can't be claimed from there.";
+  const bare = (name: string) => ({ name, provider: 'github', repositories: ['o/a'], readyLabel: '', excludeLabels: [], teams: [] });
+
+  it('the form shows each exact string under its label, tied to the field', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    const ready = form(m).querySelector<HTMLElement>('#ti-taskIntegrations-0-readyLabel-help')!;
+    const excluded = form(m).querySelector<HTMLElement>('#ti-taskIntegrations-0-excludeLabels-help')!;
+    expect(ready.textContent?.trim()).toBe(READY_HELP);
+    expect(excluded.textContent?.trim()).toBe(EXCLUDED_HELP);
+    expect(form(m).querySelector('#ti-taskIntegrations-0-readyLabel')!.getAttribute('aria-describedby')).toBe(ready.id);
+    expect(form(m).querySelector('[role="group"][aria-labelledby="ti-taskIntegrations-0-excludeLabels"]')!.getAttribute('aria-describedby')).toBe(excluded.id);
+  });
+  it('a server error on the Ready label keeps BOTH ids: the help and the error', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), result({ ok: false, code: 'TASK_INTEGRATION_INVALID', message: 'Bad label.', path: 'taskIntegrations[0].readyLabel', currentRevision: null }));
+    await tick(3);
+    const input = form(m).querySelector('#ti-taskIntegrations-0-readyLabel')!;
+    expect(input.getAttribute('aria-describedby')?.split(' ').sort()).toEqual(['ti-taskIntegrations-0-readyLabel-error', 'ti-taskIntegrations-0-readyLabel-help']);
+    expect(form(m).querySelector('#ti-taskIntegrations-0-readyLabel-error')!.textContent).toContain('Bad label.');
+  });
+  it('an excluded-label row error stays on its row input only, the help stays on the group', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core')] }));
+    await click(btn(m.target, 'Edit'));
+    await submitEnhancedWithResult(form(m), result({ ok: false, code: 'TASK_INTEGRATION_INVALID', message: 'Bad excluded label.', path: 'taskIntegrations[0].excludeLabels[0]', currentRevision: null }));
+    await tick(3);
+    const row = form(m).querySelector('#ti-taskIntegrations-0-excludeLabels-0')!;
+    expect(row.getAttribute('aria-describedby')).toBe('ti-taskIntegrations-0-excludeLabels-0-error');
+    expect(form(m).querySelector('[role="group"][aria-labelledby="ti-taskIntegrations-0-excludeLabels"]')!.getAttribute('aria-describedby')).toBe('ti-taskIntegrations-0-excludeLabels-help');
+  });
+  it('the list shows the same strings where the value is set, and not where it is not', async () => {
+    const m = await mount(ok({ taskIntegrations: [wire('core'), bare('plain')] }));
+    const set = m.target.querySelector('[data-integration="core"]')!.textContent!;
+    const unset = m.target.querySelector('[data-integration="plain"]')!.textContent!;
+    expect(set).toContain(READY_HELP);
+    expect(set).toContain(EXCLUDED_HELP);
+    expect(unset).not.toContain(READY_HELP);
+    expect(unset).not.toContain(EXCLUDED_HELP);
+  });
+});
