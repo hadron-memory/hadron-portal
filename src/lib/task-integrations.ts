@@ -103,17 +103,24 @@ export function validateDrafts(drafts: readonly IntegrationDraft[]): Record<stri
 
 export type LeadStatus =
   | { kind: 'live'; name: string; urn: string }
-  | { kind: 'retired'; name: string | null; urn: string }
+  | { kind: 'retired'; name: string; urn: string }
+  | { kind: 'missing'; urn: string }
+  | { kind: 'unchecked'; urn: string }
   | { kind: 'unknown' };
 
-/** Whether a team's lead is a live worker of the App, from the roster read with retired castings included. */
+/**
+ * Whether a team's lead is a live worker of the App, from the roster read with retired castings
+ * included, so a retired worker is always in it. Absent from that roster isn't retirement, and
+ * with no roster (`null`, a failed read) nothing is known about the lead at all.
+ */
 export function leadStatus(
   lead: string | null,
-  workers: readonly { id: string; name: string; urn?: string | null; retiredAt?: string | null }[],
+  workers: readonly { id: string; name: string; urn?: string | null; retiredAt?: string | null }[] | null,
 ): LeadStatus {
   if (lead === null) return { kind: 'unknown' };
+  if (workers === null) return { kind: 'unchecked', urn: lead };
   const w = workers.find((x) => x.urn === lead || x.id === lead);
-  if (!w) return { kind: 'retired', name: null, urn: lead };
+  if (!w) return { kind: 'missing', urn: lead };
   return w.retiredAt ? { kind: 'retired', name: w.name, urn: lead } : { kind: 'live', name: w.name, urn: lead };
 }
 

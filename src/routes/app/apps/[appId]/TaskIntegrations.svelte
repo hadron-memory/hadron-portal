@@ -22,6 +22,7 @@
     readIntegrations,
     validateDrafts,
     type IntegrationDraft,
+    type LeadStatus,
     type TaskIntegrationsResult,
   } from '$lib/task-integrations';
 
@@ -33,8 +34,8 @@
     workers: Worker[] | null;
   } = $props();
 
-  const inputClass = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
-  const buttonClass = 'rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800';
+  const inputClass = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 pointer-coarse:min-h-11 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
+  const buttonClass = 'rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 pointer-coarse:min-h-11 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800';
   const errorClass = 'mt-1 text-xs text-red-600 dark:text-red-400';
 
   // portal#1678: the exact strings are the specs engineer's scoped FIT (hrn:node:hadronmemory.com:specs:cor:agt:120:01, Decided). One
@@ -125,6 +126,19 @@
     };
   };
 
+  type NamedLead = Exclude<LeadStatus, { kind: 'unknown' }>;
+  function leadName(s: NamedLead): string {
+    if (s.kind === 'missing') return t('app.integrations.lead.missing', 'Worker not in this App’s list');
+    if (s.kind === 'unchecked') return t('app.integrations.lead.unchecked', 'Couldn’t check this worker');
+    return s.name;
+  }
+  function leadNote(s: NamedLead): string | null {
+    if (s.kind === 'retired') return t('app.integrations.lead.retired', 'No longer a live worker');
+    if (s.kind === 'missing') return t('app.integrations.lead.missing-note', 'Can’t confirm it is still live.');
+    if (s.kind === 'unchecked') return t('app.integrations.lead.unchecked-note', 'The worker list didn’t load, so we can’t tell if it is still live.');
+    return null;
+  }
+
   const hasListError = (path: string) => Object.keys(errors).some((k) => k === path || k.startsWith(`${path}[`));
   const field = (path: string) => `ti-${path.replace(/[^a-z0-9]+/gi, '-').replace(/-$/, '')}`;
   // The help id, when the field has one, is merged with the error id, never swapped for it.
@@ -137,15 +151,16 @@
 </script>
 
 {#snippet lead(urn: string | null)}
-  {@const s = leadStatus(urn, roster)}
+  {@const s = leadStatus(urn, workers)}
   {#if s.kind === 'unknown'}
     <span class="text-amber-700 dark:text-amber-400">{t('app.integrations.lead.unknown', 'Unknown worker')}</span>
   {:else}
-    <span class="text-zinc-900 dark:text-zinc-100">{s.name ?? s.urn}</span>
-    {#if s.kind === 'retired'}
-      <span class="ml-1 text-amber-700 dark:text-amber-400">{t('app.integrations.lead.retired', 'No longer a live worker')}</span>
+    {@const note = leadNote(s)}
+    <span class="text-zinc-900 dark:text-zinc-100">{leadName(s)}</span>
+    {#if note}
+      <span class="ml-1 text-amber-700 dark:text-amber-400">{note}</span>
     {/if}
-    {#if s.name}<div class="mt-1"><Urn value={s.urn} size={10} compact /></div>{/if}
+    <div class="mt-1"><Urn value={s.urn} size={10} compact /></div>
   {/if}
 {/snippet}
 
@@ -204,13 +219,13 @@
         {#if formError}
           <div role="alert" tabindex="-1" bind:this={bannerEl} class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
             {formError}
-            {#if conflict}<button type="button" class="ml-2 underline" onclick={reload}>{t('app.integrations.reload', 'Reload (discards your changes)')}</button>{/if}
+            {#if conflict}<button type="button" class="ml-2 inline-flex items-center underline pointer-coarse:min-h-11" onclick={reload}>{t('app.integrations.reload', 'Reload (discards your changes)')}</button>{/if}
           </div>
         {/if}
 
         {#each drafts as d, i (i)}
           {@const at = `taskIntegrations[${i}]`}
-          <fieldset class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" data-integration-form={i}>
+          <fieldset class="min-w-0 space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" data-integration-form={i}>
             <legend class="px-1 text-xs text-zinc-500 dark:text-zinc-400">{d.name.trim() || t('app.integrations.new', 'New integration')}</legend>
 
             <div>
@@ -275,23 +290,24 @@
                 {#each d.teams as team, j (j)}
                   {@const lp = `${at}.teams[${j}].lead`}
                   {@const tp = `${at}.teams[${j}].label`}
-                  {@const s = leadStatus(team.lead, roster)}
+                  {@const s = leadStatus(team.lead, workers)}
                   <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800" data-team={j}>
                     <label for={field(lp)} class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('app.integrations.lead', 'Lead')}</label>
                     <select id={field(lp)} value={team.lead ?? ''} onchange={(e) => pickLead(i, j, e.currentTarget.value)} aria-invalid={!!errors[lp]} aria-describedby={describedBy(lp)} class="{inputClass} {errors[lp] ? 'border-red-500' : ''}">
                       {#if s.kind === 'unknown'}
                         <option value="">{t('app.integrations.lead.unknown', 'Unknown worker')}</option>
-                      {:else if s.kind === 'retired'}
-                        <option value={s.urn}>{s.name ?? s.urn}</option>
+                      {:else if s.kind !== 'live'}
+                        <option value={s.urn}>{leadName(s)}</option>
                       {/if}
                       {#each liveWorkers as w (w.id)}
                         <option value={w.urn ?? w.id}>{w.name}</option>
                       {/each}
                     </select>
                     {#if s.kind !== 'unknown'}
+                      {@const note = leadNote(s)}
                       <div class="mt-1 text-xs">
-                        {#if s.name}<Urn value={s.urn} size={10} compact />{/if}
-                        {#if s.kind === 'retired'}<p class="text-amber-700 dark:text-amber-400">{t('app.integrations.lead.retired', 'No longer a live worker')}</p>{/if}
+                        <Urn value={s.urn} size={10} compact />
+                        {#if note}<p class="text-amber-700 dark:text-amber-400">{note}</p>{/if}
                       </div>
                     {/if}
                     {#if errors[lp]}<p id="{field(lp)}-error" role="alert" class={errorClass}>{errors[lp]}</p>{/if}
@@ -314,11 +330,11 @@
           </fieldset>
         {/each}
 
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <button type="button" class={buttonClass} onclick={addIntegration}>{t('app.integrations.add', 'Add integration')}</button>
           <span class="flex-1"></span>
           <button type="button" class={buttonClass} onclick={cancel}>{t('app.integrations.cancel', 'Cancel')}</button>
-          <button type="submit" disabled={pending} class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">{t('app.integrations.save', 'Save')}</button>
+          <button type="submit" disabled={pending} class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white pointer-coarse:min-h-11 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">{t('app.integrations.save', 'Save')}</button>
         </div>
       </form>
     {/if}

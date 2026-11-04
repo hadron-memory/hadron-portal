@@ -91,6 +91,10 @@ jobs:
       - name: Check NodeList search
         run: pnpm test:node-list-search
 
+      # portal#1676: Task integrations' touch targets and overflow at 390px and 1280px.
+      - name: Check Task integrations layout
+        run: pnpm test:task-integrations-layout
+
       - name: Check App picker phone layout
         run: node scripts/test-select-app-layout.mjs
 
