@@ -2,7 +2,7 @@ import { gqlClient } from '$lib/server/api';
 import { classifyGqlError, extractGqlError, gqlErrorTextForBranching } from '$lib/server/gqlError';
 import { START_CHAT_MUTATION } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
-import { publicChatError } from '$lib/server/llm/chatError.js';
+import { bootPromptRefusalCode, publicChatError } from '$lib/server/llm/chatError.js';
 import { t } from '$lib/i18n/t';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import type { RequestHandler } from './$types';
@@ -142,6 +142,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         }),
         { status: 400, headers: { 'Content-Type': 'application/json' } },
       );
+    }
+    if (bootPromptRefusalCode(e)) {
+      const safe = publicChatError(e);
+      return new Response(JSON.stringify({ error: safe.message, code: safe.code }), {
+        status: safe.status,
+        headers: { 'Content-Type': 'application/json' },
+      });
     }
     return new Response(JSON.stringify({ error: classifyGqlError(e).kind === 'internal' ? extractGqlError(e, '') : publicChatError(e).message }), {
       status: 500,
