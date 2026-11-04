@@ -36,6 +36,13 @@ describe('createScheduleInput', () => {
   });
 });
 
+describe('createScheduleInput zone', () => {
+  it('sends the zone trimmed', () => {
+    const input = createScheduleInput({ appRef: 'a', name: 'n', entryNodeUrn: 'u', zone: '  Europe/Berlin ', timing: { kind: 'daily', time: '09:00' } });
+    expect(input.timezone).toBe('Europe/Berlin');
+  });
+});
+
 describe('updateScheduleInput', () => {
   it('a timing edit sends cron alone: no name, no entry, no timezone', () => {
     expect(updateScheduleInput(stored(), { name: 'Morning digest', entryNodeUrn: 'hrn:node:acme.example:ops:digest', timing: { kind: 'daily', time: '10:30' } })).toEqual({ cron: '30 10 * * *' });
