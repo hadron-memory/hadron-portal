@@ -77,7 +77,7 @@ export const actions: Actions = {
     if (Object.keys(input).length === 0) return { nothingToChange: true as const };
 
     const result = await updateSchedule(client, stored.id, input);
-    if (!result.ok) return failed(result.reason === 'forbidden' ? 403 : result.reason === 'not-found' ? 404 : 400, 'name', refusalText('edit', result.reason));
+    if (!result.ok) return failed(result.reason === 'forbidden' ? 403 : result.reason === 'not-found' ? 404 : 400, 'name', refusalText('edit', result.reason, stored.userId !== null));
 
     // Whether the edit left it needing approval is the server's answer, never a guess here.
     const approval = await loadAutomationApproval(client, 'SCHEDULE', stored.id);

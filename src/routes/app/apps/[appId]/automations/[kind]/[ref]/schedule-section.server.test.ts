@@ -78,12 +78,27 @@ describe('pause and resume', () => {
     expect(await act('resume')).toEqual({ scheduleEnabled: true });
     expect(updates()).toEqual([{ id: 'sch-1', input: { enabled: true } }]);
   });
-  it.each([['pause', /Only an organization admin can pause/], ['resume', /created this schedule can start it again/]] as const)('%s refused says who to ask, in plain words', async (name, words) => {
+  it.each([['pause', /Only an organization admin can pause/], ['resume', /Only an organization admin can start a schedule again/]] as const)('%s refused (row unreadable) says who to ask, in plain words, without claiming a creator', async (name, words) => {
     request.mockRejectedValue(gqlError('FORBIDDEN'));
     const r = (await act(name)) as { status: number; data: { scheduleMessage: string } };
     expect(r.status).toBe(403);
     expect(r.data.scheduleMessage).toMatch(words);
     expect(r.data.scheduleMessage).not.toMatch(/FORBIDDEN|run-as/);
+  });
+  it.each([['stored run-as user (CLI-made)', 'u1', /created this schedule can start it again/], ['no stored run-as user (portal-made)', null, /Only an organization admin can start a schedule again/]] as const)('resume refused for a schedule with %s names the creator only when there is one', async (_n, userId, words) => {
+    request.mockImplementation(async (q: string) => {
+      if (q === AGENT_TASKS_APP_QUERY) return { app: { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null } };
+      if (q === AGENT_SCHEDULES_QUERY) return { agentSchedules: { total: 1, items: [sched({ userId })] } };
+      throw gqlError('FORBIDDEN');
+    });
+    const r = (await act('resume')) as { data: { scheduleMessage: string } };
+    expect(r.data.scheduleMessage).toMatch(words);
+  });
+  it('a stored-user row refused to a non-creator (RELATIONSHIP_MISSING) is the same plain refusal', async () => {
+    request.mockRejectedValue(gqlError('RELATIONSHIP_MISSING'));
+    const r = (await act('pause')) as { status: number; data: { scheduleMessage: string } };
+    expect(r.status).toBe(403);
+    expect(r.data.scheduleMessage).toMatch(/Only an organization admin can pause/);
   });
   it('is a 404 for a webhook and calls nothing', async () => {
     await expect(act('pause', 'webhook')).rejects.toMatchObject({ status: 404 });

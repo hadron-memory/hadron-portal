@@ -77,7 +77,7 @@ export async function loadSchedules(client: GraphQLClient, appRef: string): Prom
 
 export type ScheduleWrite = { ok: true; id: string } | { ok: false; reason: 'forbidden' | 'not-found' | 'invalid' };
 
-const REASONS: Record<string, 'forbidden' | 'not-found' | 'invalid'> = { FORBIDDEN: 'forbidden', NOT_FOUND: 'not-found', BAD_USER_INPUT: 'invalid' };
+const REASONS: Record<string, 'forbidden' | 'not-found' | 'invalid'> = { FORBIDDEN: 'forbidden', RELATIONSHIP_MISSING: 'forbidden', NOT_FOUND: 'not-found', BAD_USER_INPUT: 'invalid' };
 
 /** One mutation call, never a retry. */
 async function write(run: () => Promise<string>): Promise<ScheduleWrite> {

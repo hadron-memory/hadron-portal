@@ -73,7 +73,18 @@ async function setEnabled(params: { appId: string; kind: string; ref: string }, 
   scheduleKindOr404(params.kind);
   const r = await setScheduleEnabled(gqlClient(token), params.ref, enabled);
   if (r.ok) return { scheduleEnabled: enabled };
-  return fail(403, { scheduleRefused: true as const, scheduleMessage: refusalText(enabled ? 'resume' : 'pause', r.reason) });
+  // Only a schedule with a stored run-as user (a CLI-made one) is creator-only; say so only then.
+  let creatorOnly = false;
+  if (enabled && r.reason === 'forbidden') {
+    try {
+      const app = await loadTasksApp(gqlClient(token), params.appId);
+      const row = app ? (await loadSchedules(gqlClient(token), app.id)).schedules.find((s) => s.id === params.ref) : undefined;
+      creatorOnly = !!row?.userId;
+    } catch {
+      // The wording is a courtesy; a failed lookup must not turn a refusal into an error page.
+    }
+  }
+  return fail(403, { scheduleRefused: true as const, scheduleMessage: refusalText(enabled ? 'resume' : 'pause', r.reason, creatorOnly) });
 }
 
 export const actions: Actions = {

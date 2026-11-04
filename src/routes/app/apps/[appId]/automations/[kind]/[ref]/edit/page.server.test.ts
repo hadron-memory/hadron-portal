@@ -92,6 +92,17 @@ describe('edit action', () => {
     expect(r.data!.failure.message).toMatch(/created this schedule can change it/);
     expect(r.data!.failure.message).not.toMatch(/run-as|FORBIDDEN/);
   });
+  it('a portal-made schedule (no stored run-as user) never claims creator-only', async () => {
+    serve([stored({ userId: null })]);
+    request.mockImplementation(async (q: string) => {
+      if (q === AGENT_TASKS_APP_QUERY) return { app };
+      if (q === AGENT_SCHEDULES_QUERY) return { agentSchedules: { total: 1, items: [stored({ userId: null })] } };
+      throw gqlError('FORBIDDEN');
+    });
+    const r = await save({ ...same, time: '10:30' });
+    expect(r.data!.failure.message).toMatch(/Only an organization admin can change a schedule/);
+    expect(r.data!.failure.message).not.toMatch(/created/);
+  });
   it('a schedule that is gone is a plain failure and nothing is sent', async () => {
     serve([]);
     const r = await save({ ...same, time: '10:30' });
