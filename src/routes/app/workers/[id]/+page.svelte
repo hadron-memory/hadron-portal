@@ -22,6 +22,8 @@
   import { page } from '$app/stores';
   import { get } from 'svelte/store';
   import { t } from '$lib/i18n/t';
+  import ServedPrompt from '$lib/components/ServedPrompt.svelte';
+  import { pickedSessionFor } from '$lib/served-prompts';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
   import { isHeld, workerHold } from '$lib/worker-hold';
@@ -42,6 +44,12 @@
   // a deep link here is exactly the link #761 taught to survive the resolver.
   // Labels may be reworded; these ids may not.
   type WorkerTabId = 'profile' | 'briefing' | 'sessions' | 'worklog' | 'wake';
+  // portal#1665: the session whose served record is open. It counts only while it is a row of THIS
+  // worker's list: the page component is reused across /workers/A to /workers/B, and A's pick must not
+  // open a record under B (the id is never typed, only ever one of the rows shown).
+  let pickedSessionId = $state<string | null>(null);
+  const servedSessionId = $derived(pickedSessionFor(data.workerSessions, pickedSessionId));
+
   let activeTab = $state<WorkerTabId>(
     untrack(() => (data.initialTab as WorkerTabId | null) ?? 'profile'),
   );
@@ -502,6 +510,12 @@
         />
         {/key}
       </section>
+      <!-- portal#1665: what this worker's OPEN session was served (hrn:node:hadronmemory.com:specs:cor:agt:040:03). Ids, revisions and
+           hashes only; no heading or "none" text of its own, because an empty answer is the provider's
+           concealment, not "no record". Keyed by the worker: this page component is reused A to B. -->
+      {#key data.worker.id}
+        <ServedPrompt collapsible source="worker" refId={data.worker.id} />
+      {/key}
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">
           <h2 class="font-semibold text-zinc-900 dark:text-white">
@@ -650,7 +664,13 @@
              (hrn:node:hadronmemory.com:hadron-portal:findings:table-chrome-conventions),
              and here the chrome is the feature: the fields are now sortable
              columns a reader can hide, search and page rather than a ribbon. -->
-        <WorkerSessionsTable sessions={data.workerSessions} />
+        <WorkerSessionsTable sessions={data.workerSessions} onServed={(id) => (pickedSessionId = servedSessionId === id ? null : id)} servedId={servedSessionId} />
+        {#if servedSessionId}
+          <!-- portal#1665: the picked session's record. The id is one of THIS list's rows, never typed. -->
+          {#key servedSessionId}
+            <ServedPrompt source="session" refId={servedSessionId} />
+          {/key}
+        {/if}
 
         {#if data.sessionsTruncated}
           <!-- `sessions` returns a bare list with no `total`, so this says "there

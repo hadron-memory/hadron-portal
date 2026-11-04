@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ServedPrompt from '$lib/components/ServedPrompt.svelte';
   import { onDestroy, onMount, tick } from 'svelte';
   import { replaceState } from '$app/navigation';
   import { renderChatMarkdown } from '$lib/markdown/chat-markdown';
@@ -709,8 +710,15 @@
   <!-- ── Active chat ─────────────────────────────────────────────────── -->
   <main class="flex min-h-0 min-w-0 flex-1 flex-col">
     {#if !activeChatId && !loadingChat}
-      <div class="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-sm text-zinc-500">
-        Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.
+      <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-sm text-zinc-500">
+        <p>Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.</p>
+        <!-- portal#1611: a refused or failed start has no chat pane to show its
+             error in; without this the user saw nothing at all. -->
+        {#if turnError}
+          <div role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            {turnError}
+          </div>
+        {/if}
       </div>
     {:else}
       <!-- Header -->
@@ -760,6 +768,17 @@
       {#if welcomeNotice}
         <div class="mx-4 mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
           {welcomeNotice}
+        </div>
+      {/if}
+
+      <!-- portal#1665: what this chat was given (hrn:node:hadronmemory.com:specs:cor:agt:040:03), for the chat OPEN here. Asked by
+           {agentId, chatId} and found in the viewer's own list server-side; an end user who does not
+           manage the App gets an empty answer and sees nothing (no "no records" text). -->
+      {#if activeChatId && !loadingChat}
+        <div class="mx-4 mt-2">
+          {#key activeChatId}
+            <ServedPrompt collapsible source="chat" {agentId} chatId={activeChatId} />
+          {/key}
         </div>
       {/if}
 

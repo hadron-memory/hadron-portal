@@ -2245,12 +2245,14 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
     $conversationName: String
     $scope: ChatScope
     $isTestRun: Boolean
+    $llmModel: String
   ) {
     startChat(
       agentId: $agentId
       conversationName: $conversationName
       scope: $scope
       isTestRun: $isTestRun
+      llmModel: $llmModel
     ) {
       chatId
       systemMessage
@@ -2262,8 +2264,8 @@ export const START_CHAT_MUTATION = /* GraphQL */ `
 `;
 
 export const SEND_CHAT_MESSAGE_MUTATION = /* GraphQL */ `
-  mutation SendChatMessage($chatId: String!, $userMessage: String!) {
-    sendChatMessage(chatId: $chatId, userMessage: $userMessage) {
+  mutation SendChatMessage($chatId: String!, $userMessage: String!, $llmModel: String) {
+    sendChatMessage(chatId: $chatId, userMessage: $userMessage, llmModel: $llmModel) {
       systemMessage
       tools
       messageHistory

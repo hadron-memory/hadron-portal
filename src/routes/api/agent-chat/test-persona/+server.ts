@@ -5,6 +5,7 @@ import {
   PROCESS_CHAT_RESPONSE_MUTATION,
 } from '$lib/server/queries';
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
+import { llmModelVariable, resolveChatAi } from '$lib/server/llm/chatAi.js';
 import { publicChatError } from '$lib/server/llm/chatError.js';
 import type { HadronTool } from '$lib/server/llm/agentChatLlm.js';
 import { rateLimitResponse } from '$lib/server/rate-limit';
@@ -97,6 +98,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   try {
     const client = gqlClient(locals.token);
+    // portal#1611: resolve the AI config once, before startChat; the welcome
+    // turn and every scripted turn run it, and startChat reports its model.
+    const ai = await resolveChatAi(locals.token, body.agentId);
+
     const turns: Array<{
       step: number;
       role: 'user' | 'assistant';
@@ -126,6 +131,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       conversationName: body.conversationName ?? null,
       scope: 'private',
       isTestRun: true,
+      ...llmModelVariable(ai),
     });
 
     const { chatId } = startResult.startChat;
@@ -136,6 +142,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       agentId: body.agentId,
       chatId,
       userMessage: null,
+      ai,
       startPayload: {
         systemMessage: startResult.startChat.systemMessage,
         tools: startResult.startChat.tools,
@@ -165,6 +172,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         agentId: body.agentId,
         chatId,
         userMessage,
+        ai,
       });
 
       turns.push({
