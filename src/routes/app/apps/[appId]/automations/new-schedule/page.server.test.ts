@@ -76,6 +76,7 @@ describe('create action', () => {
     request.mockImplementation(async (q: string) => { if (q === AGENT_TASKS_APP_QUERY) return { app }; throw refusal('FORBIDDEN'); });
     const r = (await submit(good)) as { status: number; data: { failure: { field: string; message: string } } };
     expect(r.status).toBe(403);
+    expect(r.data.failure.field).toBe('create'); // the create screen renders this field (it has no name input)
     expect(r.data.failure.message).toMatch(/organization admin/i);
     expect(JSON.stringify(r)).not.toMatch(/FORBIDDEN|run-as|raw words|mutation/);
   });

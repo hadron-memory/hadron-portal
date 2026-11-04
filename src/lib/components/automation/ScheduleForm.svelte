@@ -2,7 +2,7 @@
   import { onMount, tick, untrack, type Snippet } from 'svelte';
   import SelectNode from '$lib/components/SelectNode.svelte';
   import Urn from '$lib/components/Urn.svelte';
-  import { dayName, timingSentence, type Timing } from '$lib/automation/schedule-timing';
+  import { dayName, timingSentence, wallTimeIn, type Timing } from '$lib/automation/schedule-timing';
   import { t } from '$lib/i18n/t';
   import type { NodeChoice, MemoriesRead } from '$lib/node-choices';
 
@@ -62,9 +62,11 @@
   let keepTiming = $state(startMode === 'edit' && (seed.timing === null || seed.timing.kind === 'custom'));
   let when = $state<string>(plain?.kind ?? (startMode === 'create' ? 'daily' : ''));
   let hours = $state(plain?.kind === 'interval' ? String(plain.hours) : '4');
-  let time = $state(plain && 'time' in plain ? plain.time : '09:00');
+  // A stored one-shot is shown at its wall date and time in the schedule's own zone, so a name-only change cannot move it.
+  const onceAt = plain?.kind === 'once' && seed.timezone ? wallTimeIn(plain.at, seed.timezone) : null;
+  let time = $state(plain && 'time' in plain ? plain.time : onceAt?.time ?? '09:00');
   let days = $state<string[]>(plain?.kind === 'weekdays' ? plain.days.map(String) : ['1', '2', '3', '4', '5']);
-  let date = $state('');
+  let date = $state(onceAt?.date ?? '');
 
   // A new schedule's zone is the browser's, sent explicitly (the server would otherwise default to UTC). An edit keeps the stored zone.
   let browserZone = $state('');
@@ -189,6 +191,8 @@
   {#if mode === 'create'}<input type="hidden" name="zone" value={zone} />{/if}
 
   {#if preview}{@render preview()}{/if}
+
+  {#if mode === 'create' && errorFor('create')}<p role="alert" class="text-sm text-red-700 dark:text-red-300" data-testid="schedule-form-create-failure">{errorFor('create')}</p>{/if}
 
   <div class="flex flex-wrap items-center gap-3">
     <button type="submit" disabled={!canSubmit || submitting} aria-disabled={!canSubmit || submitting}

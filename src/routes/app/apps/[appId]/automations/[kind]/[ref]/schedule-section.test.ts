@@ -52,4 +52,16 @@ describe('schedule section', () => {
     expect(html).not.toContain('action="?/pause"');
     expect(html).not.toContain('/edit');
   });
+  it('LOCAL P2-5: an ADOPTED schedule offers Pause, not Decline; an unapproved or changed one keeps Decline', () => {
+    const adopted = page({ approval: { state: 'ADOPTED', hash: 'h', depth: {}, summary } });
+    expect(adopted).not.toMatch(/>\s*Decline\s*</);
+    expect(adopted).toMatch(/>\s*Pause\s*</);
+    for (const state of ['UNADOPTED', 'CHANGED']) expect(page({ approval: { state, hash: 'h', depth: {}, summary } })).toMatch(/>\s*Decline\s*</);
+  });
+  it('UX: the Created note does not repeat the next run, and Paused has a space after the dot', () => {
+    const html = page({ created: true });
+    expect(html).toMatch(/Created\. You approved it by creating it\.\s*</);
+    expect(html.match(/Next run:/g)?.length).toBe(1);
+    expect(page({ schedule: sched({ enabled: false }) })).toContain('Paused · Every day');
+  });
 });

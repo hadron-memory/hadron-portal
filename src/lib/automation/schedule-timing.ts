@@ -157,6 +157,13 @@ export function timingSentence(timing: Timing, zone: string): string {
  * is not real, or the wall time does not exist in that zone (the hour skipped by a spring-forward). Done by
  * searching the zone's offsets rather than doing offset arithmetic, so a DST edge is refused, not guessed.
  */
+/** The wall date and time (yyyy-mm-dd, hh:mm) an instant has in a named zone; null when the zone or instant is unknown. */
+export function wallTimeIn(at: string, zone: string): { date: string; time: string } | null {
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return null;
+  return partsIn(d, zone);
+}
+
 export function instantFor(date: string, time: string, zone: string): string | null {
   const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   const m = TIME.exec(time);

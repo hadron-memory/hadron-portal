@@ -53,6 +53,7 @@
   </div>
 
   <form method="POST" use:enhance={() => { submitting = true; return async ({ update }) => { await update({ reset: false }); submitting = false; }; }} class="space-y-6">
+    {#key `${data.app.id}:${data.ref}`}
     <ScheduleForm
       mode="edit"
       initial={{ name: data.schedule.name, entryNodeUrn: data.schedule.entryNodeUrn, entryName: null, timing: data.timing, timezone: data.schedule.timezone }}
@@ -61,5 +62,6 @@
       submitLabel={t('app.automations.edit.submit', 'Save')}
       {submitting}
     />
+    {/key}
   </form>
 </div>

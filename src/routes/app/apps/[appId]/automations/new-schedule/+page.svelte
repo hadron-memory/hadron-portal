@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import ScheduleForm from '$lib/components/automation/ScheduleForm.svelte';
   import SchedulePreview, { type PreviewView } from '$lib/components/automation/SchedulePreview.svelte';
@@ -56,6 +56,17 @@
     // The zone is the browser's and lands after mount; asking once it has is the first honest answer.
     changed();
     return () => { seq++; clearTimeout(timer); };
+  });
+
+  // A ready answer belongs to the App it was asked in: moving to another App (the component is reused) turns Create off
+  // and asks again there.
+  let askedIn = untrack(() => data.app.id);
+  $effect(() => {
+    const now = data.app.id;
+    if (now !== askedIn) {
+      askedIn = now;
+      changed();
+    }
   });
 
   const canCreate = $derived(view.state === 'ready');

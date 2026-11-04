@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
+import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import Page from './+page.svelte';
 
 vi.mock('$app/navigation', () => ({ goto: vi.fn(), invalidateAll: vi.fn(), beforeNavigate: () => {} }));
@@ -111,5 +112,29 @@ describe('new schedule: Create follows the preview', () => {
     late({ ok: true, json: async () => READY });
     await settle(0);
     expect(t.isConnected).toBe(false);
+  });
+});
+
+describe('new schedule: a ready answer belongs to its App (LOCAL P2-2)', () => {
+  it('turns Create off when the page is reused for another App, and needs that App’s own answer', async () => {
+    fetchMock.mockImplementation(() => reply(READY));
+    const props = reactiveProps<Record<string, unknown>>({ data: { app: { id: 'app-1', name: 'Team', organizationId: null }, nodeMemories: { kind: 'ok', value: [] } }, form: null });
+    mounted = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    await vi.advanceTimersByTimeAsync(0);
+    const t = mounted.target;
+    await settle();
+    expect(create(t).disabled).toBe(false);
+    fetchMock.mockClear();
+    let release!: (v: Response) => void;
+    fetchMock.mockImplementation(() => new Promise<Response>((r) => { release = r; }));
+    props.data = { app: { id: 'app-2', name: 'Other', organizationId: null }, nodeMemories: { kind: 'ok', value: [] } };
+    flushSync();
+    expect(create(t).disabled).toBe(true);
+    await settle();
+    expect(fetchMock.mock.calls[0][0]).toBe('/app/apps/app-2/automations/new-schedule/preview');
+    expect(create(t).disabled).toBe(true);
+    release({ ok: true, json: async () => READY } as Response);
+    await settle(0);
+    expect(create(t).disabled).toBe(false);
   });
 });

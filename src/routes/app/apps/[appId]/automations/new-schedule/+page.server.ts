@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   return { app, nodeMemories: loadNodeMemories(client, 'new-schedule') };
 };
 
-type Field = 'entry' | 'name' | 'when' | 'hours' | 'time' | 'days' | 'date';
+type Field = 'entry' | 'name' | 'create' | 'when' | 'hours' | 'time' | 'days' | 'date';
 const failed = (status: number, field: Field, message: string) => fail(status, { failure: { field, message } });
 
 export const actions: Actions = {
@@ -47,7 +47,7 @@ export const actions: Actions = {
     if (!app) throw error(404, 'App not found');
 
     const result = await createSchedule(client, createScheduleInput({ appRef: app.id, name, entryNodeUrn, zone, timing: timing.timing }));
-    if (!result.ok) return failed(result.reason === 'forbidden' ? 403 : result.reason === 'not-found' ? 404 : 400, 'name', refusalText('create', result.reason));
+    if (!result.ok) return failed(result.reason === 'forbidden' ? 403 : result.reason === 'not-found' ? 404 : 400, 'create', refusalText('create', result.reason));
     // A schedule is approved by its creator; its page shows when it runs next.
     throw redirect(303, `/app/apps/${encodeURIComponent(app.id)}/automations/schedule/${encodeURIComponent(result.id)}?created=1`);
   },

@@ -117,14 +117,14 @@
     <h2 id="auto-when" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.automations.when', 'When it runs')}</h2>
     {#if schedule}
       <p class="text-sm text-zinc-700 dark:text-zinc-300" data-testid="schedule-when">
-        {#if !schedule.enabled}{t('app.automations.paused-lead', 'Paused')} · {/if}{whenSentence ?? orNotStated(null)}
+        {schedule.enabled ? '' : `${t('app.automations.paused-lead', 'Paused')} · `}{whenSentence ?? orNotStated(null)}
       </p>
       {#if schedule.enabled && nextRun}
         <p class="text-sm text-zinc-700 dark:text-zinc-300" data-testid="schedule-next">{t('app.automations.next-run', 'Next run: {when}', { when: `${nextRun} (${schedule.timezone})` })}</p>
       {/if}
       {#if data.created}
         <p role="status" class="text-sm text-emerald-800 dark:text-emerald-300" data-testid="schedule-created">
-          {nextRun ? t('app.automations.created-next', 'Created. You approved it by creating it. Next run: {when}.', { when: `${nextRun} (${schedule.timezone})` }) : t('app.automations.created', 'Created. You approved it by creating it.')}
+          {t('app.automations.created', 'Created. You approved it by creating it.')}
         </p>
       {/if}
       <div class="flex flex-wrap items-center gap-2 pt-1">
@@ -200,7 +200,7 @@
           <button type="submit" disabled={submitting} class="rounded-lg bg-indigo-900 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 dark:bg-indigo-400 dark:text-zinc-950">{t('app.automations.approve', 'Approve')}</button>
         </form>
       {/if}
-      {#if !confirmingDecline}
+      {#if !confirmingDecline && !(schedule && approved)}
         <button type="button" bind:this={declineButton} onclick={openDecline} class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.decline', 'Decline')}</button>
       {/if}
     </div>

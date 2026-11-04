@@ -86,3 +86,16 @@ describe('edit', () => {
     expect(t.querySelector('[role="alert"]')!.textContent).toBe('Pick a time of day.');
   });
 });
+
+describe('LOCAL P2-3 and P2-4', () => {
+  it('shows a stored one-shot at its wall date and time in the stored zone', async () => {
+    const t = await show({ mode: 'edit', initial: { name: 'Once', entryNodeUrn: entry, entryName: null, timing: { kind: 'once', at: '2026-11-05T13:45:00.000Z' }, timezone: 'Europe/Berlin' } });
+    expect(t.querySelector<HTMLInputElement>('input[name="when"]:checked')!.value).toBe('once');
+    expect(field(t, 'date')!.value).toBe('2026-11-05');
+    expect(field(t, 'time')!.value).toBe('14:45');
+  });
+  it('a refused create is visible on the create screen, in plain words', async () => {
+    const t = await show({ mode: 'create', initial: { name: '', entryNodeUrn: entry, entryName: null, timing: null, timezone: null }, failure: { field: 'create', message: 'Only an organization admin can create a schedule.' } });
+    expect(t.querySelector('[data-testid="schedule-form-create-failure"]')!.textContent).toContain('Only an organization admin');
+  });
+});
