@@ -4798,6 +4798,28 @@ export const BOOT_COMPILED_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1667 — the saved source as this reader can read it. raw: false, so never
+// feed an editor from it: includes are filled in by the server, as the reader, and a
+// target the reader can't have comes back as the server's notice. Revisions can't be
+// pinned here, so `revision` is what says which one was resolved.
+export const BOOT_RESOLVED_SOURCE_QUERY = /* GraphQL */ `
+  query BootResolvedSource($ref: ID!, $memoryRef: ID!) {
+    node(ref: $ref, memoryRef: $memoryRef, raw: false) { id revision content }
+  }
+`;
+
+// portal#1667 — its own request: the client throws on any error in a response, so
+// read beside the source a lint fault would take the editor with it. No `text`: the
+// list has its own copy, and the server's sentence names targets.
+export const BOOT_SOURCE_LINT_QUERY = /* GraphQL */ `
+  query BootSourceLint($ref: ID!, $memoryRef: ID!, $after: String) {
+    node(ref: $ref, memoryRef: $memoryRef, raw: true) {
+      id revision
+      lintWarnings(first: 50, after: $after) { items { kind position targetUrn pinnedRevision newerRevision } total nextCursor }
+    }
+  }
+`;
+
 // portal#1377 S2 — setPointer is omitted, so the server default (true) applies:
 // the compiled loc is fixed, so the pointer keeps naming the same node.
 export const COMPILE_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
