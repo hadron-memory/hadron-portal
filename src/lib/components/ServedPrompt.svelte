@@ -55,8 +55,9 @@
     lintCursor?: string | null;
     lintUnavailable?: boolean;
     lintTotal?: number;
-    busy?: 'provenance' | 'lint';
-    failed?: 'provenance' | 'lint';
+    /** Pending and failed state is per kind: lint and provenance page the same record independently. */
+    pending?: Partial<Record<'provenance' | 'lint', true>>;
+    failed?: Partial<Record<'provenance' | 'lint', true>>;
   };
 
   let phase = $state<'loading' | 'failed' | 'ok'>('loading');
@@ -132,35 +133,55 @@
    * never re-paged. If the record at that index is no longer this one the list moved: reload instead.
    */
   async function nested(record: ServedPromptView, index: number, kind: 'provenance' | 'lint', more: Record<string, string | number | null>) {
+    // A second request of the same kind while one is in flight would repeat its cursor (and append the
+    // same warnings twice). The buttons are disabled too; this is the guard behind them.
+    if (extra[record.id]?.pending?.[kind]) return;
     const mine = generation;
     const signal = (controller ??= new AbortController()).signal;
-    extra[record.id] = { ...extra[record.id], busy: kind, failed: undefined };
+    const cur = extra[record.id] ?? {};
+    extra[record.id] = { ...cur, pending: { ...cur.pending, [kind]: true }, failed: { ...cur.failed, [kind]: undefined } };
+    // Leave only this kind's flags alone: another kind may have started or failed meanwhile.
+    const settle = (patch: Partial<Extra>, failed = false) => {
+      const prev = extra[record.id] ?? {};
+      extra[record.id] = {
+        ...prev,
+        ...patch,
+        pending: { ...prev.pending, [kind]: undefined },
+        failed: { ...prev.failed, [kind]: failed ? true : undefined },
+      };
+    };
     try {
-      const res = await get(query(index, 1, more), signal);
+      let res = await get(query(index, 1, more), signal);
       if (mine !== generation) return;
-      const row = res.items[0];
+      let row = res.items[0];
+      if (kind === 'provenance' && row && row.id === record.id && row.provenance.items.length === 0 && row.provenance.total > 0 && row.provenance.offset > 0) {
+        // Defensive only: the provider never answers a later page with no items for a record that has
+        // some (the record is immutable). If a reply does, go back to the first page ONCE, as the same
+        // viewer with the same query. total 0 is the honest empty state and is left alone.
+        res = await get(query(index, 1, { ...more, provOffset: 0 }), signal);
+        if (mine !== generation) return;
+        row = res.items[0];
+      }
       if (!row || row.id !== record.id) {
         void load(page?.offset ?? 0);
         return;
       }
-      const prev = extra[record.id] ?? {};
       if (kind === 'provenance') {
-        extra[record.id] = { ...prev, provenance: row.provenance, busy: undefined };
+        settle({ provenance: row.provenance });
       } else {
         // A later page answered "unavailable": say so instead of leaving the earlier warnings up.
-        extra[record.id] = row.lint === null
-          ? { ...prev, lintItems: [], lintCursor: null, lintUnavailable: true, busy: undefined }
+        const prev = extra[record.id] ?? {};
+        settle(row.lint === null
+          ? { lintItems: [], lintCursor: null, lintUnavailable: true }
           : {
-              ...prev,
               lintItems: [...(prev.lintItems ?? record.lint?.items ?? []), ...row.lint.items],
               lintCursor: row.lint.nextCursor,
               lintTotal: row.lint.total,
-              busy: undefined,
-            };
+            });
       }
     } catch {
       if (mine !== generation) return;
-      extra[record.id] = { ...extra[record.id], busy: undefined, failed: kind };
+      settle({}, true);
     }
   }
 
@@ -291,14 +312,14 @@
             <div class="mt-2 flex items-center gap-2 text-xs text-zinc-500">
               <span data-testid="served-prov-range">{pageRange(prov.offset, prov.items.length, prov.total)}</span>
               {#if prov.offset > 0}
-                <button type="button" class={btn} disabled={ex.busy === 'provenance'} onclick={() => nested(record, index, 'provenance', { provOffset: Math.max(0, prov.offset - 20) })}>{t('served.previous', 'Previous')}</button>
+                <button type="button" class={btn} disabled={ex.pending?.provenance} onclick={() => nested(record, index, 'provenance', { provOffset: Math.max(0, prov.offset - 20) })}>{t('served.previous', 'Previous')}</button>
               {/if}
               {#if hasMore(prov.offset, prov.items.length, prov.total)}
-                <button type="button" class={btn} disabled={ex.busy === 'provenance'} onclick={() => nested(record, index, 'provenance', { provOffset: prov.offset + prov.items.length })}>{t('served.next', 'Next')}</button>
+                <button type="button" class={btn} disabled={ex.pending?.provenance} onclick={() => nested(record, index, 'provenance', { provOffset: prov.offset + prov.items.length })}>{t('served.next', 'Next')}</button>
               {/if}
             </div>
           {/if}
-          {#if ex.failed === 'provenance'}
+          {#if ex.failed?.provenance}
             <p role="alert" class="mt-1 text-xs text-red-700 dark:text-red-300">{t('served.failed.more', 'Couldn’t load more. Try again.')}</p>
           {/if}
         </div>
@@ -327,10 +348,10 @@
               </p>
             {/if}
             {#if lintCursor}
-              <button type="button" class="{btn} mt-1" disabled={ex.busy === 'lint'} onclick={() => nested(record, index, 'lint', { lintAfter: lintCursor })}>{t('served.lint.more', 'Show more')}</button>
+              <button type="button" class="{btn} mt-1" disabled={ex.pending?.lint} onclick={() => nested(record, index, 'lint', { lintAfter: lintCursor })}>{t('served.lint.more', 'Show more')}</button>
             {/if}
           {/if}
-          {#if ex.failed === 'lint'}
+          {#if ex.failed?.lint}
             <p role="alert" class="mt-1 text-xs text-red-700 dark:text-red-300">{t('served.failed.more', 'Couldn’t load more. Try again.')}</p>
           {/if}
         </div>

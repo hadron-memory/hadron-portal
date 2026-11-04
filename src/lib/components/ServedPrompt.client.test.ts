@@ -331,6 +331,17 @@ describe('portal#1696 item 1: lint and provenance page independently', () => {
     expect(m.target.querySelector('[data-testid="served-lint-count"]')!.textContent!.trim()).toBe('2 of 21');
   });
 
+  it('two clicks in the same tick (before the button re-renders disabled) send ONE request', async () => {
+    const h = heldFetch();
+    const m = show(h.fetchImpl as never);
+    await settle();
+    const more = button(m, 'served-lint', 'Show more');
+    more.click();
+    more.click();
+    flushSync();
+    expect(h.nested('lint')).toHaveLength(1);
+  });
+
   it('lint finishing while provenance loads does not re-enable provenance "Next": one provenance request', async () => {
     const h = heldFetch();
     const m = show(h.fetchImpl as never);
@@ -466,7 +477,7 @@ describe('portal#1696 item 2 (out-of-contract fake): an empty later provenance p
     let releaseReset!: () => void;
     const f = vi.fn((url: string) => {
       const q = new URL(url, 'http://x').searchParams;
-      if (q.get('ref') === 'B') return ok(page([record({ id: 'rec-b', compiledContentHash: 'HASH-B', provenance: { items: [{ revSeq: 9, hash: 'pb', pruned: false }], total: 1, offset: 0 } })]));
+      if (q.get('ref') === 'B') return ok(page([record({ compiledContentHash: 'HASH-B', provenance: { items: [{ revSeq: 9, hash: 'pb', pruned: false }], total: 1, offset: 0 } })]));
       if (q.get('provOffset') === '0') return new Promise<Response>((r) => { releaseReset = () => r(new Response(JSON.stringify(page([record({ compiledContentHash: 'HASH-A', provenance: { items: provItems, total: 45, offset: 0 } })])), { status: 200 })); });
       if (q.get('provOffset') !== null) return ok(page([record({ provenance: emptyLater })]));
       return ok(page([record({ compiledContentHash: 'HASH-A', provenance: { items: provItems, total: 45, offset: 0 } })]));
@@ -484,5 +495,7 @@ describe('portal#1696 item 2 (out-of-contract fake): an empty later provenance p
     await settle();
     expect(text(m)).toContain('HASH-B');
     expect(text(m)).not.toContain('HASH-A');
+    // The stale reset reply names the SAME record id; it must not repaint B's provenance.
+    expect(m.target.querySelector('[data-testid="served-prov-range"]')!.textContent).toBe('1–1 of 1');
   });
 });
