@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BootInstallCompile from '$lib/components/BootInstallCompile.svelte';
   import WorkerProfile from '$lib/components/WorkerProfile.svelte';
   import { workerInternalsVisible } from '$lib/worker-profile';
   import TerminalStatus from '$lib/components/TerminalStatus.svelte';
@@ -510,6 +511,11 @@
         />
         {/key}
       </section>
+      {#if data.worker.app?.id && data.worker.agent?.id}
+        {#key `${data.worker.id}:${data.worker.app.id}:${data.worker.agent.id}`}
+          <BootInstallCompile owner={{ level: 'worker', worker: data.worker.id, app: data.worker.app.id, agent: data.worker.agent.id }} canManage={data.canManageWorkerApp} impersonating={!!data.impersonation} />
+        {/key}
+      {/if}
       <!-- portal#1665: what this worker's OPEN session was served (hrn:node:hadronmemory.com:specs:cor:agt:040:03). Ids, revisions and
            hashes only; no heading or "none" text of its own, because an empty answer is the provider's
            concealment, not "no record". Keyed by the worker: this page component is reused A to B. -->

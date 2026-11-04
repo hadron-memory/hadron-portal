@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BootProvenance from '$lib/components/BootProvenance.svelte';
   import { untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -14,12 +15,12 @@
   type SourceForm = SuperValidated<Source, App.Superforms.Message>;
   type CompileForm = SuperValidated<Infer<typeof bootCompileSchema, 'zod4'>, App.Superforms.Message>;
   type ApproveForm = SuperValidated<Infer<typeof bootApproveSchema, 'zod4'>, App.Superforms.Message>;
-  let { agentId, shown = true, view = $bindable('source'), urn, revision, compiled, initial, compileInitial, approveInitial, submitted, compileSubmitted, approveSubmitted, canManage = null, noPointer = false }: {
+  let { agentId, shown = true, view = $bindable('source'), urn, revision, compiled, initial, compileInitial, approveInitial, submitted, compileSubmitted, approveSubmitted, canManage = null, noPointer = false, showProvenance = true }: {
     agentId: string; shown?: boolean; view?: 'source' | 'resolved';
     urn: string; revision: number; compiled: CompiledView | null;
     initial: SourceForm; compileInitial: CompileForm; approveInitial: ApproveForm;
     submitted?: SourceForm | null; compileSubmitted?: CompileForm | null; approveSubmitted?: ApproveForm | null;
-    canManage?: boolean | null; noPointer?: boolean;
+    canManage?: boolean | null; noPointer?: boolean; showProvenance?: boolean;
   } = $props();
   const approvedRevision = $derived(compiled?.approvedRevision ?? null);
   // A refused save keeps its draft and the revision it was written against. A saved
@@ -134,6 +135,7 @@
       {/if}
     </section>
   {/if}
+  {#if compiled && showProvenance}{#key `${compiled.id}:${compiled.revision}`}<BootProvenance nodeId={compiled.id} revision={compiled.revision} />{/key}{/if}
   {#if $approveMessage}<p role={$approveMessage.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$approveMessage.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$approveMessage.text}</p>{/if}
   {#if $message}<p role={$message.type === 'error' ? 'alert' : 'status'} class="mt-3 text-sm {$message.type === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-300'}">{$message.text}</p>{/if}
 </section>
