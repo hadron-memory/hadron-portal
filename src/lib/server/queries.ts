@@ -3036,7 +3036,7 @@ export const MEMORY_SCOPE_QUERY = /* GraphQL */ `
 export const NODES_PAGE_QUERY = /* GraphQL */ `
   query NodesPage($memoryId: ID!, $limit: Int!, $offset: Int!) {
     findNodes(filter: { memoryIds: [$memoryId] }, limit: $limit, offset: $offset) {
-      hits { node { id loc name description nodeType tags seq isRunnable memoryId updatedAt memory { id urn name } commentSummary { openThreads } } }
+      hits { node { id urn loc name description nodeType tags seq isRunnable memoryId updatedAt memory { id urn name } commentSummary { openThreads } } }
     }
   }
 `;

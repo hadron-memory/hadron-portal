@@ -31,7 +31,7 @@ export function parseOffset(url: URL): number | null {
   return n > OFFSET_MAX ? null : n;
 }
 
-export type TablePageRow = Pick<MemoryNode, 'id' | 'loc' | 'name' | 'description' | 'nodeType' | 'tags' | 'seq' | 'isRunnable' | 'memoryId' | 'updatedAt' | 'memory'>;
+export type TablePageRow = Pick<MemoryNode, 'id' | 'urn' | 'loc' | 'name' | 'description' | 'nodeType' | 'tags' | 'seq' | 'isRunnable' | 'memoryId' | 'updatedAt' | 'memory'>;
 
 export async function readTablePage(
   client: NodesTabClient,

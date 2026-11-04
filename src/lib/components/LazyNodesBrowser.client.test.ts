@@ -60,17 +60,17 @@ describe('Table (default)', () => {
     expect(fetched).toEqual(['page?offset=0']);
     expect(text(m)).toContain('Node 0');
     expect(m.target.querySelector('[data-testid="table-partial"]')?.textContent).toMatch(/rows loaded so far, not the whole memory/);
-    expect(btn(m, /Show more/)).toBeTruthy();
+    expect(btn(m, /Load more nodes/)).toBeTruthy();
   });
 
-  it('Show more reads the next offset; rows repeated by offset paging are shown once', async () => {
+  it('Load more nodes reads the next offset; rows repeated by offset paging are shown once', async () => {
     replies['page?offset=0'] = [{ rows: range(0, 50), hasMore: true }];
     replies['page?offset=50'] = [{ rows: [...range(48, 2), ...range(50, 10)], hasMore: false }];
     const m = await mount();
-    await click(btn(m, /Show more/));
+    await click(btn(m, /Load more nodes/));
     expect(fetched).toEqual(['page?offset=0', 'page?offset=50']);
     expect(m.target.querySelector('[data-testid="table-partial"]')?.textContent).toMatch(/End of the list\.\s*60 loaded/);
-    expect(btn(m, /Show more/)).toBeUndefined();
+    expect(btn(m, /Load more nodes/)).toBeUndefined();
   });
 
   it('a second click while a page is in flight does not append it twice', async () => {
@@ -78,7 +78,7 @@ describe('Table (default)', () => {
     let release!: (r: Response) => void;
     replies['page?offset=50'] = [new Promise<Response>((r) => { release = r; }) as never];
     const m = await mount();
-    const more = btn(m, /Show more/)!;
+    const more = btn(m, /Load more nodes/)!;
     more.click(); more.click();
     await wait(2);
     release(new Response(JSON.stringify({ rows: range(50, 5), hasMore: false }), { status: 200 }));
@@ -91,7 +91,7 @@ describe('Table (default)', () => {
     replies['page?offset=0'] = [{ rows: range(0, 50), hasMore: true }];
     replies['page?offset=50'] = ['fail', { rows: range(50, 3), hasMore: false }];
     const m = await mount();
-    await click(btn(m, /Show more/));
+    await click(btn(m, /Load more nodes/));
     expect(m.target.querySelector('[role="alert"]')?.textContent).toMatch(/Could not load this page/);
     expect(text(m)).toContain('Node 0');
     await click(btn(m, /Retry/));
@@ -123,13 +123,25 @@ describe('Table (default)', () => {
   });
 
   it('links each row to its OWN memory, including an inherited base-memory row', async () => {
-    const base = node(1, { memoryId: 'mem-base', memory: { id: 'mem-base', urn: 'hrn:mem:acme.com:base', name: 'Base' } });
+    // The server sends memory:null on every inherited node; the row's memoryId is its address.
+    const base = node(1, { memoryId: 'mem-base', memory: null, urn: 'hrn:node:acme.com:base:a:n0001' });
     replies['page?offset=0'] = [{ rows: [node(0), base], hasMore: false }];
     const m = await mount();
     const hrefs = [...m.target.querySelectorAll('a')].map((a) => a.getAttribute('href'));
     expect(hrefs).toContain(`/app/memories/${MEM}/nodes/n0`);
     expect(hrefs).toContain('/app/memories/mem-base/nodes/n1');
     expect(hrefs).not.toContain(`/app/memories/${MEM}/nodes/n1`);
+    // Only the inherited row carries the marker, and its URN is the node's own.
+    expect(m.target.querySelectorAll('[data-testid="node-inherited"]')).toHaveLength(1);
+    expect([...m.target.querySelectorAll('[title]')].some((e) => e.getAttribute('title') === 'hrn:node:acme.com:base:a:n0001')).toBe(true);
+  });
+
+  it('the Table has no search box (hideSearch holds) and labels the empty-loc root node', async () => {
+    replies['page?offset=0'] = [{ rows: [node(0), node(1, { loc: '', name: '' })], hasMore: false }];
+    const m = await mount();
+    expect(m.target.querySelector('input')).toBeNull();
+    expect(m.target.textContent).toContain('(root node)');
+    expect(m.target.querySelectorAll('[data-testid="node-inherited"]')).toHaveLength(0);
   });
 });
 
@@ -146,6 +158,24 @@ describe('Tree', () => {
     expect(m.target.querySelector('[data-testid="tree-limit"]')?.textContent).toMatch(/may leave out a branch that has none/);
     expect(btn(m, /Open the Table/)).toBeTruthy();
     expect(text(m)).toContain('Node 0');
+  });
+
+  it('a loc that names an Object.prototype member opens like any other and does not wedge the Tree', async () => {
+    replies['children?parent=&offset=0'] = [{ rows: [node(0, { loc: 'constructor', name: 'Ctor' }), node(1, { loc: '__proto__', name: 'Proto' })], hasMore: false }];
+    replies['children?parent=constructor&offset=0'] = [{ rows: [node(5, { loc: 'constructor:k', name: 'CtorKid' })], hasMore: false }];
+    const m = await mountTree();
+    const expand = () => m.target.querySelector<HTMLButtonElement>('button[aria-label="Expand"]')!;
+    await click(expand());
+    expect(text(m)).toContain('CtorKid');
+    expect(text(m)).toContain('Proto');
+    expect(m.target.querySelector('[data-testid="tree-list"]')).toBeTruthy();
+  });
+
+  it('a Tree row links to its own memory, an inherited one to its base memory', async () => {
+    replies['children?parent=&offset=0'] = [{ rows: [node(0), node(1, { memoryId: 'mem-base', memory: null })], hasMore: false }];
+    const m = await mountTree();
+    const hrefs = [...m.target.querySelectorAll('[data-testid="tree-node"]')].map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual([`/app/memories/${MEM}/nodes/n0`, '/app/memories/mem-base/nodes/n1']);
   });
 
   it('expanding a folder reads that folder once; collapse and re-expand reads nothing more', async () => {
@@ -177,13 +207,13 @@ describe('Tree', () => {
     expect(text(m)).toContain('Kid');
   });
 
-  it('Show more at a level reads the next offset and dedupes a repeated row', async () => {
+  it('Load more nodes at a level reads the next offset and dedupes a repeated row', async () => {
     replies['children?parent=&offset=0'] = [{ rows: range(0, 20), hasMore: true }];
     replies['children?parent=&offset=20'] = [{ rows: [node(19), ...range(20, 2)], hasMore: false }];
     const m = await mountTree();
-    await click(btn(m, /Show more/));
+    await click(btn(m, /Load more nodes/));
     expect(fetched).toEqual(['children?parent=&offset=0', 'children?parent=&offset=20']);
-    expect(m.target.querySelectorAll('[role="treeitem"]')).toHaveLength(22);
+    expect(m.target.querySelectorAll('[data-testid="tree-node"]')).toHaveLength(22);
   });
 
   it('keeps the DOM bounded as pages accumulate (windowed rows)', async () => {
@@ -193,13 +223,13 @@ describe('Tree', () => {
     const scroller = m.target.querySelector<HTMLElement>('[data-testid="tree-scroller"]')!;
     const toEnd = () => { Object.defineProperty(scroller, 'scrollTop', { value: 1e9, configurable: true }); scroller.dispatchEvent(new Event('scroll')); flushSync(); };
     for (let p = 1; p <= 40; p++) {
-      // The Show more row is the last row: a reader scrolls to it, and only then is it mounted.
+      // The Load more nodes row is the last row: a reader scrolls to it, and only then is it mounted.
       toEnd();
-      await click(btn(m, /Show more/));
+      await click(btn(m, /Load more nodes/));
     }
-    expect(m.target.querySelectorAll('[role="treeitem"]').length).toBeLessThan(80);
+    expect(m.target.querySelectorAll('[data-testid="tree-node"]').length).toBeLessThan(80);
     // ...while every loaded row is still counted in the scroller's height
-    const ul = m.target.querySelector<HTMLElement>('[role="tree"]')!;
+    const ul = m.target.querySelector<HTMLElement>('[data-testid="tree-list"]')!;
     expect(parseInt(ul.style.height, 10)).toBeGreaterThan(800 * 32);
   });
 

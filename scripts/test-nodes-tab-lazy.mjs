@@ -14,10 +14,11 @@ const RELOADED = /Execution context was destroyed|navigation/i;
 const TOP = 3000;
 const KIDS = 9;
 const node = (loc, i) => ({ id: `id:${loc}`, loc, name: `Node ${i}`, description: null, nodeType: 'info', tags: [], memoryId: MEM, memory: { id: MEM, urn: 'hrn:mem:fixture.test:m', name: 'M' } });
-const topLoc = (i) => `t${String(i).padStart(5, '0')}`;
-// Table order: every top node then its kids; 30,000 rows in all (a node-less `ghost:` branch is table-only).
-const tableRow = (n) => (n < TOP * (KIDS + 1) ? (n % (KIDS + 1) === 0 ? node(topLoc(n / (KIDS + 1)), n) : node(`${topLoc(Math.floor(n / (KIDS + 1)))}:k${n % (KIDS + 1)}`, n)) : node(`ghost:deep:g${n}`, n));
 const TABLE_TOTAL = TOP * (KIDS + 1);
+const topLoc = (i) => `t${String(i).padStart(5, '0')}`;
+// Table order: every top node then its kids; 30,000 rows in all, the last one a node-less `ghost:` row (inside the declared count, so a drain reaches it).
+const tableRow = (n) => (n < TABLE_TOTAL - 1 ? (n % (KIDS + 1) === 0 ? node(topLoc(n / (KIDS + 1)), n) : node(`${topLoc(Math.floor(n / (KIDS + 1)))}:k${n % (KIDS + 1)}`, n)) : node(`ghost:deep:g${n}`, n));
+
 
 function page(rows, size, offset, count) {
   const slice = [];
@@ -89,24 +90,24 @@ try {
           await p.waitForSelector('table tbody tr');
           assert.deepEqual(requests, ['page?offset=0'], `${label} table: first paint is exactly one bounded page (${requests})`);
           for (let i = 1; i <= 5; i++) {
-            await p.click('button:has-text("Show more")');
+            await p.click('button:has-text("Load more nodes")');
             await p.waitForFunction((n) => /\b(\d+) loaded/.test(document.body.innerText) && Number(/(\d+) loaded/.exec(document.body.innerText)[1]) >= n, 50 * (i + 1));
           }
           assert.deepEqual(requests, ['page?offset=0', 'page?offset=50', 'page?offset=100', 'page?offset=150', 'page?offset=200', 'page?offset=250'], `${label} table: one read per click`);
           const rows = await p.locator('table tbody tr').count();
           assert.ok(rows <= 60, `${label} table: ${rows} mounted rows after 300 loaded (must stay a page, not the list)`);
         } else {
-          await p.waitForSelector('[role="treeitem"]');
+          await p.waitForSelector('[data-testid="tree-node"]');
           assert.deepEqual(requests, ['children?parent=&offset=0'], `${label} tree: first paint is exactly one top-level page (${requests})`);
           for (let i = 1; i <= 30; i++) {
             await p.evaluate(() => { const s = document.querySelector('[data-testid="tree-scroller"]'); s.scrollTop = s.scrollHeight; });
-            await p.waitForSelector('button:has-text("Show more")');
-            await p.click('button:has-text("Show more")');
-            await p.waitForFunction((n) => document.querySelector('[role="tree"]').style.height === `${n * 32}px`, 20 * (i + 1) + 1);
+            await p.waitForSelector('button:has-text("Load more nodes")');
+            await p.click('button:has-text("Load more nodes")');
+            await p.waitForFunction((n) => document.querySelector('[data-testid="tree-list"]').style.height === `${n * 32}px`, 20 * (i + 1) + 1);
           }
-          const mounted = await p.locator('[role="treeitem"]').count();
+          const mounted = await p.locator('[data-testid="tree-node"]').count();
           assert.ok(mounted < 80, `${label} tree: ${mounted} mounted rows after 620 loaded (windowed, not drained)`);
-          assert.equal(requests.length, 31, `${label} tree: one request per Show more (${requests.length})`);
+          assert.equal(requests.length, 31, `${label} tree: one request per Load more nodes (${requests.length})`);
           // A folder opens its children with one read.
           await p.evaluate(() => { document.querySelector('[data-testid="tree-scroller"]').scrollTop = 0; });
           await p.click('button[aria-label="Expand"]');
