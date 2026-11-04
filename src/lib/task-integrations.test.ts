@@ -59,7 +59,7 @@ describe('readIntegrations', () => {
 describe('writeProperties', () => {
   it('replaces only taskIntegrations: every other top-level key is kept as it was', () => {
     const current = { taskIntegrations: [wire], other: 1, nested: { a: [1, 2] } };
-    const out = writeProperties(current, readIntegrations(current));
+    const out = writeProperties(current, readIntegrations(current) as IntegrationDraft[]);
     expect(out.other).toBe(1);
     expect(out.nested).toEqual({ a: [1, 2] });
     expect(out.taskIntegrations).toEqual([wire]);
