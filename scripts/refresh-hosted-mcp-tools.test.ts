@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
-import { MIN_REGISTERED, SWITCH, renderAsset, scanSource, serverTools } from './refresh-hosted-mcp-tools.mjs';
+import { MIN_HOSTED, SWITCH, decodeModule, mcpModules, renderAsset, scanSource, serverTools } from './refresh-hosted-mcp-tools.mjs';
 
 const kept = `
   server.tool(
@@ -45,7 +45,7 @@ const genericLooking = `
   tool('hadron_gone_generic', 'Reads as a registration, and is disabled.');
 `;
 // Enough kept names to clear the floor, so the refusals below are the only reason to throw.
-const many = Array.from({ length: MIN_REGISTERED }, (_, i) => `server.tool('hadron_filler_${i}', 'x');`).join('\n');
+const many = Array.from({ length: MIN_HOSTED }, (_, i) => `server.tool('hadron_filler_${i}', 'x');`).join('\n');
 
 describe('scanSource', () => {
   it('lists a kept tool as registered and not as switched off', () => {
@@ -76,6 +76,11 @@ describe('scanSource', () => {
 
   it('does not take an unrelated function called off for the switch', () => {
     expect(scanSource(`function off(n: string) {}\noff('hadron_unrelated');`).switchedOff).toEqual([]);
+  });
+
+  it('reads only the alias itself, not a longer name or a method ending in it', () => {
+    const source = `const off = offTeamTool(server);\nkickoff('hadron_longer', 'x');\nthing.off('hadron_method', 'x');`;
+    expect(scanSource(source).switchedOff).toEqual([]);
   });
 
   it('keeps one module\'s alias out of another: each source is read alone', () => {
@@ -115,13 +120,39 @@ describe('serverTools', () => {
     expect(() => serverTools([renamed, many])).toThrow(SWITCH.helper);
   });
 
-  it('refuses a source below the registration floor', () => {
+  it('refuses a source below the hosted floor', () => {
     expect(() => serverTools([switched])).toThrow(/registration shape/);
   });
 
-  it('counts the floor on registrations, so the switched-off names count toward it', () => {
-    const justUnder = Array.from({ length: MIN_REGISTERED - 2 }, (_, i) => `server.tool('hadron_filler_${i}', 'x');`).join('\n');
-    expect(() => serverTools([justUnder, switched])).not.toThrow();
+  // The kept tools change shape and the regex finds none; the switched-off names still count.
+  it('does not let switched-off names clear the floor', () => {
+    const offOnly = Array.from({ length: 71 }, (_, i) => `off('hadron_off_${i}', 'x');`).join('\n');
+    expect(() => serverTools([`const off = offTeamTool(server);\n${offOnly}`])).toThrow(/registration shape/);
+  });
+});
+
+describe('mcpModules', () => {
+  const entry = (path: string) => ({ path });
+
+  it('keeps the modules under src/mcp and leaves out tests and other files', () => {
+    const tree = ['src/mcp/server.ts', 'src/mcp/nested/tools.ts', 'src/mcp/server.test.ts', 'src/lib/other.ts', 'src/mcp/notes.md'].map(entry);
+    expect(mcpModules({ tree, truncated: false })).toEqual(['src/mcp/server.ts', 'src/mcp/nested/tools.ts']);
+  });
+
+  it('refuses a truncated tree', () => {
+    expect(() => mcpModules({ tree: [entry('src/mcp/server.ts')], truncated: true })).toThrow(/truncated/);
+  });
+});
+
+describe('decodeModule', () => {
+  it('decodes a base64 body', () => {
+    const content = Buffer.from(`server.tool('hadron_kept')`).toString('base64');
+    expect(decodeModule('src/mcp/a.ts', { content, encoding: 'base64' })).toBe(`server.tool('hadron_kept')`);
+  });
+
+  // What the contents API sends above 1 MB. server.ts is 765 KB at 99246d46.
+  it('refuses a file sent without a body and names it', () => {
+    expect(() => decodeModule('src/mcp/server.ts', { content: '', encoding: 'none' })).toThrow('src/mcp/server.ts');
   });
 });
 
@@ -152,6 +183,8 @@ describe('renderAsset', () => {
   });
 
   it('says the switched-off set is a parity input, not a list to show', () => {
-    expect(renderAsset(input)).toMatch(/SWITCHED_OFF_MCP_TOOLS[^*]*only the parity test/s);
+    const [, docblock] = renderAsset(input).split('HOSTED_MCP_TOOLS');
+    expect(docblock).toContain('only the parity test');
+    expect(docblock).toContain('isn\'t a list of tools that are available');
   });
 });

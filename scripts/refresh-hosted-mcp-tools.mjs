@@ -1,12 +1,12 @@
 // #1116: regenerate src/lib/assets/hosted-mcp-tools.ts, the set of MCP tools
-// hadron-server registers, which the agent-instructions test checks every
+// hadron-server hosts, which the agent-instructions test checks every
 // `hadron_*` name in hadron-instructions.md against.
 //
-// Reads every non-test `src/mcp/*.ts` in hadron-server at a commit (through
-// the authenticated `gh` CLI) and collects each `server.tool('hadron_…'`
-// registration. Run it when the asset is to name a tool the server has
-// shipped, at the commit that ships it (e.g. hadron-server#1966's
-// `hadron_resume_session`, once it merges AND deploys).
+// Reads every non-test `src/mcp/**/*.ts` in hadron-server at a commit (through
+// the authenticated `gh` CLI), collects each tool registration and takes away
+// the ones registered through the server's disabled-tool switch (#1550). Run it
+// when the asset is to name a tool the server has shipped, at the commit that
+// ships it, once it merges AND deploys. A ref from before the switch is refused.
 //
 // Run: node scripts/refresh-hosted-mcp-tools.mjs [<server-ref>]   (default: main)
 import { execFileSync } from 'node:child_process';
@@ -16,28 +16,72 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = 'hadron-memory/hadron-server';
 
-const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (isMain) {
-const gh = (...args) => execFileSync('gh', ['api', ...args], { encoding: 'utf8', maxBuffer: 64 << 20 });
+// The server's switch, from hadron-server#3208 (merge 99246d46): each module
+// binds `const off = offTeamTool(server)` and registers a disabled tool with
+// `off('hadron_…'`. If the switch is renamed or removed, this changes with it.
+export const SWITCH = { module: 'src/mcp/disabledTools.ts', helper: 'offTeamTool' };
 
-const sha = JSON.parse(gh(`repos/${REPO}/commits/${process.argv[2] ?? 'main'}`)).sha;
-const tree = JSON.parse(gh(`repos/${REPO}/git/trees/${sha}?recursive=1`)).tree;
-const files = tree
-  .map((e) => e.path)
-  .filter((p) => p.startsWith('src/mcp/') && p.endsWith('.ts') && !/test/.test(p));
+// On what's hosted: the switched-off names alone would clear it on the registrations.
+export const MIN_HOSTED = 50;
 
-const names = new Set();
-for (const path of files) {
-  const { content } = JSON.parse(gh(`repos/${REPO}/contents/${path}?ref=${sha}`));
-  const source = Buffer.from(content, 'base64').toString('utf8');
-  for (const m of source.matchAll(/\b(?:\w+\.)?(?:tool|registerTool|addTool)\(\s*['"](hadron_\w+)['"]/g)) names.add(m[1]);
+const NAME = `['"](hadron_\\w+)['"]`;
+const REGISTRATION = new RegExp(`\\b(?:\\w+\\.)?(?:tool|registerTool|addTool)\\(\\s*${NAME}`, 'g');
+const ALIAS = new RegExp(`\\b(?:const|let)\\s+(\\w+)[^=\\n]*=\\s*${SWITCH.helper}\\s*\\(`, 'g');
+const THROUGH_HELPER = new RegExp(`\\b${SWITCH.helper}\\(\\s*\\w+\\s*\\)\\(\\s*${NAME}`, 'g');
+
+const sorted = (names) => [...new Set(names)].sort();
+
+/**
+ * One module's tools. `registered` holds every registration, the switched-off
+ * ones included: going through the switch is what a disabled tool's
+ * registration now looks like, and it doesn't have to miss the regex below.
+ * Aliases are local to a module, so each source is read alone.
+ */
+export function scanSource(source) {
+  const matched = [...source.matchAll(REGISTRATION)].map((m) => m[1]);
+  const switchedOff = [...source.matchAll(THROUGH_HELPER)].map((m) => m[1]);
+  for (const [, alias] of source.matchAll(ALIAS)) {
+    const calls = new RegExp(`(?<![\\w.])${alias}\\(\\s*${NAME}`, 'g');
+    switchedOff.push(...[...source.matchAll(calls)].map((m) => m[1]));
+  }
+  return { registered: sorted([...matched, ...switchedOff]), switchedOff: sorted(switchedOff) };
 }
-if (names.size < 50) throw new Error(`only ${names.size} tools found at ${sha}: has the registration shape changed?`);
 
-const sorted = [...names].sort();
-const date = new Date().toISOString().slice(0, 10);
-writeFileSync('src/lib/assets/hosted-mcp-tools.ts', `/**
- * #1116: every MCP tool hadron-server registers, as a fixture for the agent
+/** The tools across every module. Refuses anything that would make a plausible but wrong list. */
+export function serverTools(sources) {
+  const scans = sources.map(scanSource);
+  const registered = sorted(scans.flatMap((s) => s.registered));
+  const switchedOff = sorted(scans.flatMap((s) => s.switchedOff));
+  if (switchedOff.length === 0) {
+    throw new Error(`no tool registered through ${SWITCH.helper}: was the switch (${SWITCH.module}) renamed, or does this ref predate it?`);
+  }
+  const off = new Set(switchedOff);
+  const hosted = registered.filter((n) => !off.has(n));
+  if (hosted.length < MIN_HOSTED) {
+    throw new Error(`only ${hosted.length} hosted tools found: has the registration shape changed?`);
+  }
+  return { registered, switchedOff, hosted };
+}
+
+/** The modules to read from a git tree. A truncated listing would pass for a smaller server. */
+export function mcpModules({ tree, truncated }) {
+  if (truncated) throw new Error('the git tree came back truncated, so some modules would be missing');
+  return tree
+    .map((e) => e.path)
+    .filter((p) => p.startsWith('src/mcp/') && p.endsWith('.ts') && !/test/.test(p));
+}
+
+/** A module's text. Above 1 MB the contents API sends no body, which would pass for a module with no tools. */
+export function decodeModule(path, { content, encoding }) {
+  if (encoding !== 'base64') throw new Error(`${path}: the contents API sent no base64 body (encoding ${encoding}), so its tools would be missing`);
+  return Buffer.from(content, 'base64').toString('utf8');
+}
+
+const setBody = (names) => names.map((n) => `  '${n}',`).join('\n');
+
+export function renderAsset({ sha, date, hosted, switchedOff }) {
+  return `/**
+ * #1116: every MCP tool hadron-server hosts, as a fixture for the agent
  * instructions the App page hands out (hadron-instructions.md). The asset had
  * named four tools that don't exist (hadron_resume_session,
  * hadron_save_session_task, hadron_save_plan, hadron_create_pr), so an agent
@@ -45,15 +89,40 @@ writeFileSync('src/lib/assets/hosted-mcp-tools.ts', `/**
  * stops that class coming back one name at a time.
  *
  * GENERATED by \`node scripts/refresh-hosted-mcp-tools.mjs [<server-ref>]\`; don't
- * edit by hand. Source: hadron-server \`src/mcp/*.ts\` at ${sha.slice(0, 12)} (${date}),
- * every \`server.tool('hadron_…'\` registration; ${sorted.length} names. Some are
- * feature-gated, so a live tools/list can show fewer. As a superset of what can
- * exist, it answers "is this a real tool". It isn't a list to advertise:
- * refresh it, at the commit that ships a tool, only once production serves it.
+ * edit by hand. Source: the modules under hadron-server \`src/mcp/\` at
+ * ${sha.slice(0, 12)} (${date}), every registration minus those made through the
+ * disabled-tool switch (\`${SWITCH.helper}\`, hadron-server#3082); ${hosted.length} names hosted,
+ * ${switchedOff.length} switched off. Some are feature-gated, so a live tools/list
+ * can show fewer. As a superset of what can exist, it answers "is this a real
+ * tool". It isn't a list to advertise: refresh it, at the commit that ships a
+ * tool, only once production serves it.
  */
 export const HOSTED_MCP_TOOLS: ReadonlySet<string> = new Set([
-${sorted.map((n) => `  '${n}',`).join('\n')}
+${setBody(hosted)}
 ]);
-`);
-console.log(`hosted-mcp-tools.ts: ${sorted.length} tools at ${REPO}@${sha.slice(0, 12)}`);
+
+/**
+ * The tools the switch disabled at the same commit. This set is read by
+ * only the parity test (hosted-mcp-tools.test.ts), held equal to
+ * disabled-team-tools.ts. No page, component or instructions check reads it, and
+ * it isn't a list of tools that are available or coming back.
+ */
+export const SWITCHED_OFF_MCP_TOOLS: ReadonlySet<string> = new Set([
+${setBody(switchedOff)}
+]);
+`;
+}
+
+const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  const gh = (...args) => execFileSync('gh', ['api', ...args], { encoding: 'utf8', maxBuffer: 64 << 20 });
+
+  const sha = JSON.parse(gh(`repos/${REPO}/commits/${process.argv[2] ?? 'main'}`)).sha;
+  const files = mcpModules(JSON.parse(gh(`repos/${REPO}/git/trees/${sha}?recursive=1`)));
+  const sources = files.map((path) => decodeModule(path, JSON.parse(gh(`repos/${REPO}/contents/${path}?ref=${sha}`))));
+  const { registered, switchedOff, hosted } = serverTools(sources);
+
+  const date = new Date().toISOString().slice(0, 10);
+  writeFileSync('src/lib/assets/hosted-mcp-tools.ts', renderAsset({ sha, date, hosted, switchedOff }));
+  console.log(`hosted-mcp-tools.ts: ${registered.length} registered, ${switchedOff.length} switched off, ${hosted.length} hosted at ${REPO}@${sha.slice(0, 12)}`);
 }

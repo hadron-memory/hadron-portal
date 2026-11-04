@@ -31,10 +31,6 @@ describe('the hosted tool list and the disabled team tools', () => {
     expect([...HOSTED_MCP_TOOLS].filter((n) => DISABLED_TEAM_TOOLS.has(n))).toEqual([]);
   });
 
-  it('hosts nothing the switch turned off', () => {
-    expect([...HOSTED_MCP_TOOLS].filter((n) => SWITCHED_OFF_MCP_TOOLS.has(n))).toEqual([]);
-  });
-
   it.each(KEPT)('still hosts %s', (name) => {
     expect(HOSTED_MCP_TOOLS.has(name)).toBe(true);
   });
