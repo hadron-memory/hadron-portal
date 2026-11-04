@@ -113,6 +113,30 @@ describe('focus (UX P2)', () => {
   });
 });
 
+describe('Decline eligibility follows the loader state (LOCAL delta2 P2)', () => {
+  const scheduleData = (state: string) => data(state);
+  it('a confirmation opened while UNADOPTED closes when the same schedule turns ADOPTED, and stays closed', () => {
+    const props = reactiveProps<Record<string, unknown>>({ data: scheduleData('UNADOPTED'), form: null });
+    const m = mountComponent(Page as never, props); mounted.push(m as never);
+    const t = m.target as HTMLElement;
+    button(t, 'Decline')!.click(); flushSync();
+    expect(declineForm(t)).not.toBeNull();
+    props.data = scheduleData('ADOPTED'); flushSync();
+    expect(declineForm(t)).toBeNull();
+    expect(button(t, 'Decline')).toBeUndefined();
+    props.data = scheduleData('UNADOPTED'); flushSync();
+    expect(declineForm(t)).toBeNull();
+    expect(button(t, 'Decline')).toBeDefined();
+  });
+
+  it('a webhook keeps its confirmation across the same transition', () => {
+    const { t, props } = open('UNADOPTED');
+    button(t, 'Decline')!.click(); flushSync();
+    props.data = declineData('ADOPTED'); flushSync();
+    expect(declineForm(t)).not.toBeNull();
+  });
+});
+
 describe('malformed server data (BLIND P3)', () => {
   it('two flows that share a URN both render instead of throwing a duplicate-key error', () => {
     const flow = { name: 'Digest', urn: 'hrn:node:acme.com:team:flows:digest', tools: [], writes: [] };
