@@ -215,6 +215,15 @@ describe('chat: addressed by the viewer\'s own list, never a browser-supplied id
 });
 
 describe('failure is a fixed message, never an empty list', () => {
+  it('logs only the error code, never the error object (a ClientError embeds response errors and request variables)', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    route({ served: () => { throw { message: `leak ${SENTINEL_CONTENT}`, request: { variables: { ref: SENTINEL_CONTENT } }, response: { errors: [{ message: SENTINEL_CONTENT, extensions: { code: 'X_CODE' } }] } }; } });
+    await get('source=worker&ref=w1');
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).not.toContain(SENTINEL_CONTENT);
+    expect(logged).toContain('X_CODE');
+  });
+
   it('a GraphQL failure => 502 with one fixed message and no server text', async () => {
     route({ served: () => { throw { response: { errors: [{ message: `leak ${SENTINEL_CONTENT}` }] } }; } });
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);

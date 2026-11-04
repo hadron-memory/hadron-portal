@@ -144,6 +144,70 @@ describe('paging', () => {
   });
 });
 
+describe('review folds at 1435a933 (George P2s, Uma, Rook)', () => {
+  it('two legal provenance entries with the same revision and hash (different nodes) both render, no duplicate-key crash', async () => {
+    const dup = [{ revSeq: 3, hash: 'same', pruned: false }, { revSeq: 3, hash: 'same', pruned: false }];
+    const m = show(() => ok(page([record({ provenance: { items: dup, total: 2, offset: 0 } })])));
+    await settle();
+    expect(m.target.querySelectorAll('[data-testid="served-provenance"] li')).toHaveLength(2);
+  });
+
+  it('Show more answered with currentLint: null turns the section into "Warnings unavailable", not stale warnings', async () => {
+    const w = { kind: 'BROKEN_INCLUDE', position: 1, pinnedRevision: null, newerRevision: null, workerField: null, targetUrn: null };
+    const f = (url: string) => ok(page([record({ lint: new URL(url, 'http://x').searchParams.get('lintAfter') ? null : { items: [w], total: 21, nextCursor: 'c1' } })]));
+    const m = show(f as never);
+    await settle();
+    [...m.target.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Show more')!.click();
+    await settle();
+    const lint = m.target.querySelector('[data-testid="served-lint"]')!;
+    expect(lint.textContent).toContain('Warnings unavailable');
+    expect(lint.querySelectorAll('li')).toHaveLength(0);
+  });
+
+  it('non-null lint with no items says "No current warnings"', async () => {
+    const m = show(() => ok(page([record()])));
+    await settle();
+    expect(m.target.querySelector('[data-testid="served-lint"]')!.textContent).toContain('No current warnings');
+  });
+
+  it('empty provenance renders no Provenance heading', async () => {
+    const m = show(() => ok(page([record({ provenance: { items: [], total: 0, offset: 0 } })])));
+    await settle();
+    expect(m.target.querySelector('[data-testid="served-provenance"]')).toBeNull();
+  });
+
+  it('the scrollable values block is keyboard focusable and labelled', async () => {
+    const m = show(() => ok(page([record()])));
+    await settle();
+    const pre = m.target.querySelector('[data-testid="served-variables"] pre')!;
+    expect(pre.getAttribute('tabindex')).toBe('0');
+    expect(pre.getAttribute('aria-label')).toBeTruthy();
+  });
+
+  it('a failed nested page says it could not load MORE, and the pager stays usable to retry', async () => {
+    const items = Array.from({ length: 20 }, (_, i) => ({ revSeq: i, hash: `h${i}`, pruned: false }));
+    const f = (url: string) => new URL(url, 'http://x').searchParams.get('provOffset')
+      ? Promise.resolve(new Response('{}', { status: 502 }))
+      : ok(page([record({ provenance: { items, total: 45, offset: 0 } })]));
+    const m = show(f as never);
+    await settle();
+    [...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="served-provenance"] button')].find((b) => b.textContent === 'Next')!.click();
+    await settle();
+    const prov = m.target.querySelector('[data-testid="served-provenance"]')!;
+    expect(prov.querySelector('[role="alert"]')!.textContent).toContain('more');
+    const next = [...prov.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === 'Next')!;
+    expect(next.disabled).toBe(false);
+  });
+
+  it('collapsible: closed <details> with the section name, records inside', async () => {
+    const m = show(() => ok(page([record()])), { collapsible: true });
+    await settle();
+    const d = m.target.querySelector('details')!;
+    expect(d.open).toBe(false);
+    expect(d.querySelector('summary')!.textContent).toContain('Served prompt');
+  });
+});
+
 describe('a reused host never shows the previous subject', () => {
   it('worker A -> B: A\'s late response is dropped, B\'s shows', async () => {
     let releaseA!: () => void;

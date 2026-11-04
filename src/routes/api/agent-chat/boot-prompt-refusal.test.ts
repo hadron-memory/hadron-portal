@@ -109,3 +109,11 @@ describe('everything else is unchanged', () => {
     expect((await res.json()).code).toBe('noConfig');
   });
 });
+
+describe('keyed on the code alone (Rook P3-3)', () => {
+  it('an unknown code whose message reads like a boot-prompt refusal stays the generic failure', async () => {
+    const { publicChatError } = await import('$lib/server/llm/chatError');
+    const err = { response: { errors: [{ message: 'BOOT_PROMPT_NOT_SET: no boot prompt set', extensions: { code: 'SOMETHING_ELSE' } }] } };
+    expect(publicChatError(err)).toMatchObject({ code: 'failed', status: 500 });
+  });
+});
