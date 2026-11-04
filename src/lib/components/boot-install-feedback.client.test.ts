@@ -77,3 +77,13 @@ describe('portal#1674 BLIND P2-1: App pointer confirmation', () => {
     expect(JSON.parse(writes[0][1]!.body as string).owner).toEqual(appOwner);
   });
 });
+
+
+describe('compiled read failure', () => {
+  it('shows a neutral read failure rather than an apparently empty prompt', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(reply({ ...view, compiled: null, compiledReadFailed: true })));
+    const m = mountComponent(BootInstallCompile, { owner, canManage: true }); cleanups.push(m.unmount); await settle();
+    expect(m.target.querySelector('[role=alert]')?.textContent).toContain('Couldn’t read this prompt.');
+    expect(m.target.querySelector('[data-install-compile]')?.textContent).not.toContain('never');
+  });
+});

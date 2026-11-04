@@ -53,12 +53,12 @@ async function pageData(initialTab: 'agents' | 'keys') {
   };
 }
 
-async function mountTab(tab: 'agents' | 'keys') {
+async function mountTab(tab: 'agents' | 'keys', canManageApp?: boolean) {
   setStubPage(`https://example.test/app/apps/a1?tab=${tab}`, { appId: 'a1' });
   // The page may poll chats/authors from onMount regardless of tab; any
   // fetch it makes can resolve empty — these tests are about the menus.
   vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/customisation?') ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
-  const m = mountComponent(Page as never, { data: await pageData(tab), form: null } as never) as Mounted<Record<string, unknown>>;
+  const m = mountComponent(Page as never, { data: { ...await pageData(tab), canManageApp }, form: null } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   await tick(2);
   return m.target;
@@ -152,5 +152,20 @@ describe('customisation panel focus from the real row menu', () => {
     expect(document.activeElement?.getAttribute('aria-label')).toBe(
       'Actions for Beta',
     );
+  });
+});
+
+
+describe('compile panel focus from the real row menu', () => {
+  it('reveals and focuses the selected compile panel, including when already open', async () => {
+    const target = await mountTab('agents', true);
+    const pick = () => openMenu(target, 'Actions for Beta').find(i => i.textContent?.trim() === 'Update the prompt…')!.click();
+    pick(); await tick(5);
+    const panel = target.querySelector<HTMLElement>('[data-install-compile]')!;
+    expect(panel).not.toBeNull();
+    expect(document.activeElement).toBe(panel.querySelector('h3'));
+    target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Beta"]')!.focus();
+    pick(); await tick(5);
+    expect(document.activeElement).toBe(panel.querySelector('h3'));
   });
 });

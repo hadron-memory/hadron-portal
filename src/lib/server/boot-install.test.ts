@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { readProvenance, writeInstallPrompt } from './boot-install';
+import { readInstallPrompt, readProvenance, writeInstallPrompt } from './boot-install';
 const owner = { level: 'worker' as const, worker: 'w', app: 'a', agent: 'g' };
 const worker = { worker: { id: 'w', app: { id: 'a' }, agent: { id: 'g' }, bootPromptRef: null } };
 describe('portal#1666 install compile boundary', () => {
@@ -91,5 +91,31 @@ describe('App scope and source reads', () => {
     const request = vi.fn().mockResolvedValueOnce(worker).mockResolvedValueOnce({ installMemory: { id: 'm' } }).mockRejectedValueOnce(new Error('unreadable')).mockResolvedValueOnce({ installMemory: null });
     const view = await readInstallPrompt({ request } as never, owner);
     expect(view.canStart).toBe(false); expect(view.source).toBeNull();
+  });
+});
+
+
+describe('compiled read availability and approval preflight', () => {
+  const app = { level: 'app' as const, app: 'a', agent: 'g' };
+  const identity = { app: { id: 'a', appAgents: [{ agent: { id: 'g' }, bootPromptRef: null }] } };
+  it('distinguishes a failed compiled read from an absent compiled node', async () => {
+    const failed = vi.fn().mockResolvedValueOnce(identity).mockRejectedValueOnce(new Error('private transport failure'));
+    const absent = vi.fn().mockResolvedValueOnce(identity).mockResolvedValueOnce({ installMemory: null });
+    expect(await readInstallPrompt({ request: failed } as never, app)).toMatchObject({ compiled: null, compiledReadFailed: true });
+    expect(await readInstallPrompt({ request: absent } as never, app)).toMatchObject({ compiled: null, compiledReadFailed: false });
+  });
+  it('reports an unavailable known compiled node honestly even when readCompiled returns null', async () => {
+    const request = vi.fn().mockResolvedValueOnce(identity).mockResolvedValueOnce({ installMemory: { id: 'm' } }).mockResolvedValueOnce({ node: { id: 'c' } }).mockRejectedValueOnce(new Error('private'));
+    expect(await readInstallPrompt({ request } as never, app)).toMatchObject({ compiled: null, compiledReadFailed: true });
+  });
+  it.each(['identity', 'compiled'])('a failed %s approval preflight says no request sent and never approves', async stage => {
+    const request = vi.fn().mockResolvedValueOnce(identity);
+    if (stage === 'identity') request.mockRejectedValueOnce(new Error('private'));
+    else request.mockResolvedValueOnce(identity).mockRejectedValueOnce(new Error('private'));
+    const result = await writeInstallPrompt({ request } as never, app, { intent: 'approve', nodeId: 'c', revision: 3 }, false);
+    expect(result).toMatchObject({ ok: false, status: 502 });
+    expect(result.text).toContain('No approval request was sent.');
+    expect(result.text).not.toContain('private');
+    expect(request.mock.calls.some(([doc]) => String(doc).includes('approveNode'))).toBe(false);
   });
 });
