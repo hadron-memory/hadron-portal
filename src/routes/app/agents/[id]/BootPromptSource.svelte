@@ -7,13 +7,16 @@
   import Urn from '$lib/components/Urn.svelte';
   import { invalidateAll } from '$app/navigation';
   import type { CompiledView } from '$lib/server/boot-source';
+  import BootSourceLint from './BootSourceLint.svelte';
+  import BootSourceResolved from './BootSourceResolved.svelte';
   import { bootApproveSchema, bootCompileSchema, bootSourceSchema } from './schema';
 
   type Source = Infer<typeof bootSourceSchema, 'zod4'>;
   type SourceForm = SuperValidated<Source, App.Superforms.Message>;
   type CompileForm = SuperValidated<Infer<typeof bootCompileSchema, 'zod4'>, App.Superforms.Message>;
   type ApproveForm = SuperValidated<Infer<typeof bootApproveSchema, 'zod4'>, App.Superforms.Message>;
-  let { urn, revision, compiled, initial, compileInitial, approveInitial, submitted, compileSubmitted, approveSubmitted, canManage = null, noPointer = false, showProvenance = true }: {
+  let { agentId, shown = true, view = $bindable('source'), urn, revision, compiled, initial, compileInitial, approveInitial, submitted, compileSubmitted, approveSubmitted, canManage = null, noPointer = false, showProvenance = true }: {
+    agentId: string; shown?: boolean; view?: 'source' | 'resolved';
     urn: string; revision: number; compiled: CompiledView | null;
     initial: SourceForm; compileInitial: CompileForm; approveInitial: ApproveForm;
     submitted?: SourceForm | null; compileSubmitted?: CompileForm | null; approveSubmitted?: ApproveForm | null;
@@ -27,8 +30,13 @@
   const { form, errors, message, submitting, enhance, reset } = superForm(seed, {
     taintedMessage: t('agent.boot.unsaved', 'Discard your unsaved boot prompt?'),
     validators: zod4Client(bootSourceSchema), resetForm: false, clearOnSubmit: 'none', invalidateAll: 'force',
+    // A saved source remounts this view on its new revision, which re-reads both. A refused
+    // save doesn't, and a conflict means what they show is out of date.
+    onResult: ({ result }) => { if (result.type === 'failure') savedChanged += 1; },
   });
+  let savedChanged = $state(0);
   const stored = untrack(() => initial.data.content);
+  const storedRevision = untrack(() => initial.data.expectedRevision);
   // The compile reads the STORED source, so compiling with an unsaved draft would build the old text.
   const dirty = $derived($form.content !== stored);
   const compile = superForm(untrack(() => compileSubmitted ?? compileInitial), { resetForm: false, clearOnSubmit: 'none', invalidateAll: 'force' });
@@ -62,19 +70,29 @@
     {/if}
   </p>
   <p class="mb-3 text-xs"><Urn value={urn} type="node" /> <span class="text-zinc-500 dark:text-zinc-400">{t('agent.boot.source-revision', 'revision {n}', { n: revision })}</span></p>
+  <div role="group" aria-label={t('agent.boot.view-label', 'How the source is shown')} class="mb-3 inline-flex overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700">
+    <button type="button" aria-pressed={view === 'source'} onclick={() => (view = 'source')} class="px-2.5 py-1 text-xs {view === 'source' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500 dark:text-zinc-400'}">{t('agent.boot.view-source', 'Source')}</button>
+    <button type="button" aria-pressed={view === 'resolved'} onclick={() => (view = 'resolved')} class="px-2.5 py-1 text-xs {view === 'resolved' ? 'bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:text-white' : 'text-zinc-500 dark:text-zinc-400'}">{t('agent.boot.view-resolved', 'As readers see it')}</button>
+  </div>
   <form method="POST" action="?/saveBootSource" use:enhance novalidate class="space-y-3">
     <input type="hidden" name="_kind" value={$form._kind} />
     <input type="hidden" name="nodeId" value={$form.nodeId} />
     <input type="hidden" name="expectedRevision" value={$form.expectedRevision} />
     <label for="bootSourceText" class="sr-only">{t('agent.boot.source-label', 'Boot prompt source')}</label>
-    <textarea id="bootSourceText" name="content" bind:value={$form.content} rows="24" readonly={canManage === false || busy} aria-busy={busy} aria-invalid={!!$errors.content?.length} class="w-full rounded-lg border border-zinc-300 bg-white p-4 font-mono text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"></textarea>
-    {#if canManage !== false}
+    <!-- Hidden, never removed: the draft lives here, and a save always posts this raw text. -->
+    <div hidden={view !== 'source'}><textarea id="bootSourceText" name="content" bind:value={$form.content} rows="24" readonly={canManage === false || busy} aria-busy={busy} aria-invalid={!!$errors.content?.length} class="w-full rounded-lg border border-zinc-300 bg-white p-4 font-mono text-sm text-zinc-900 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-950 dark:text-white"></textarea></div>
+    <div hidden={view !== 'resolved'}>
+      <BootSourceResolved {agentId} nodeId={$form.nodeId} openedRevision={$form.expectedRevision} {dirty} shown={shown && view === 'resolved'} refresh={savedChanged} />
+    </div>
+    <!-- Both act on the draft, which the resolved view doesn't show. -->
+    {#if canManage !== false && view === 'source'}
       <div class="flex justify-end gap-2">
         <button type="button" disabled={$submitting || busy} onclick={() => reset({ data: { ...$form, content: stored } })} class="rounded-lg border border-zinc-300 px-4 py-2 text-sm dark:border-zinc-700">{t('agent.boot.cancel', 'Cancel')}</button>
         <button type="submit" disabled={$submitting || busy} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-zinc-950 disabled:opacity-50">{$submitting ? t('agent.boot.saving', 'Saving...') : t('agent.boot.save', 'Save')}</button>
       </div>
     {/if}
   </form>
+  <BootSourceLint {agentId} nodeId={$form.nodeId} {shown} refresh={savedChanged} savedText={stored} savedRevision={storedRevision} />
   {#if canManage !== false}
     <form method="POST" action="?/compileBootPrompt" use:compileEnhance class="mt-6 flex items-center gap-3">
       <input type="hidden" name="_kind" value="bootCompile" />
