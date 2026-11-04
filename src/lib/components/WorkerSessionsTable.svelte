@@ -153,6 +153,14 @@
       size: 190,
     },
     {
+      // An action, not data: nothing to sort, search or hide-by-value (portal#1665).
+      id: 'served',
+      accessorFn: () => null,
+      header: t('worker.sessions.col.served', 'Served prompt'),
+      enableSorting: false,
+      size: 150,
+    },
+    {
       accessorFn: (s) => statusLabel(s),
       id: 'status',
       header: t('worker.sessions.col.status', 'Status'),
@@ -186,14 +194,6 @@
       accessorKey: 'transcriptPath',
       header: t('worker.sessions.col.transcript', 'Transcript'),
       size: 240,
-    },
-    {
-      // An action, not data: nothing to sort, search or hide-by-value (portal#1665).
-      id: 'served',
-      accessorFn: () => null,
-      header: t('worker.sessions.col.served', 'Served prompt'),
-      enableSorting: false,
-      size: 150,
     },
   ];
 

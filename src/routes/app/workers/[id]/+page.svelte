@@ -23,6 +23,7 @@
   import { get } from 'svelte/store';
   import { t } from '$lib/i18n/t';
   import ServedPrompt from '$lib/components/ServedPrompt.svelte';
+  import { pickedSessionFor } from '$lib/served-prompts';
   import BootPromptPointer from '$lib/components/BootPromptPointer.svelte';
   import { pointerResultFor, type PointerResult } from '$lib/boot-prompt-pointer';
   import { isHeld, workerHold } from '$lib/worker-hold';
@@ -47,7 +48,7 @@
   // worker's list: the page component is reused across /workers/A to /workers/B, and A's pick must not
   // open a record under B (the id is never typed, only ever one of the rows shown).
   let pickedSessionId = $state<string | null>(null);
-  const servedSessionId = $derived(data.workerSessions?.some((s) => s.id === pickedSessionId) ? pickedSessionId : null);
+  const servedSessionId = $derived(pickedSessionFor(data.workerSessions, pickedSessionId));
 
   let activeTab = $state<WorkerTabId>(
     untrack(() => (data.initialTab as WorkerTabId | null) ?? 'profile'),
@@ -513,7 +514,7 @@
            hashes only; no heading or "none" text of its own, because an empty answer is the provider's
            concealment, not "no record". Keyed by the worker: this page component is reused A to B. -->
       {#key data.worker.id}
-        <ServedPrompt source="worker" refId={data.worker.id} />
+        <ServedPrompt collapsible source="worker" refId={data.worker.id} />
       {/key}
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div class="min-w-0">

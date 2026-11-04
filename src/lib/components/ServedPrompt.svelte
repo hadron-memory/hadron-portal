@@ -53,6 +53,7 @@
     provenance?: ServedPromptView['provenance'];
     lintItems?: ServedLintWarning[];
     lintCursor?: string | null;
+    lintUnavailable?: boolean;
     busy?: 'provenance' | 'lint';
     failed?: 'provenance' | 'lint';
   };
@@ -90,7 +91,9 @@
     controller?.abort();
     controller = new AbortController();
     const signal = controller.signal;
-    phase = 'loading';
+    // Paging keeps the page that is up (an open <details> must not close under the reader);
+    // only the first load of a subject shows the loading state.
+    if (page === null) phase = 'loading';
     try {
       const res = await get(query(offset, 5), signal);
       if (mine !== generation) return;
@@ -143,12 +146,15 @@
       if (kind === 'provenance') {
         extra[record.id] = { ...prev, provenance: row.provenance, busy: undefined };
       } else {
-        extra[record.id] = {
-          ...prev,
-          lintItems: [...(prev.lintItems ?? record.lint?.items ?? []), ...(row.lint?.items ?? [])],
-          lintCursor: row.lint ? row.lint.nextCursor : null,
-          busy: undefined,
-        };
+        // A later page answered "unavailable": say so instead of leaving the earlier warnings up.
+        extra[record.id] = row.lint === null
+          ? { ...prev, lintItems: [], lintCursor: null, lintUnavailable: true, busy: undefined }
+          : {
+              ...prev,
+              lintItems: [...(prev.lintItems ?? record.lint?.items ?? []), ...row.lint.items],
+              lintCursor: row.lint.nextCursor,
+              busy: undefined,
+            };
       }
     } catch {
       if (mine !== generation) return;
@@ -262,14 +268,16 @@
           {#if model}
             <p class="text-xs text-zinc-500">{t('served.model', 'Model: {source}', { source: model })}</p>
           {/if}
-          <pre class="mt-1 max-h-48 overflow-auto rounded-md bg-zinc-50 p-2 text-xs dark:bg-zinc-950">{JSON.stringify(record.variables, null, 2)}</pre>
+          <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+          <pre tabindex="0" aria-label={t('served.variables.aria', 'Values recorded when this prompt was served')} class="mt-1 max-h-48 overflow-auto rounded-md bg-zinc-50 p-2 text-xs dark:bg-zinc-950">{JSON.stringify(record.variables, null, 2)}</pre>
         </div>
 
+        {#if prov.items.length > 0}
         <div data-testid="served-provenance">
           <h4 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('served.provenance', 'Provenance')}</h4>
           {#if prov.items.length > 0}
             <ul class="mt-1 space-y-1 text-xs">
-              {#each prov.items as entry (entry.revSeq + ':' + entry.hash)}
+              {#each prov.items as entry, pi (pi)}
                 <li class="flex flex-wrap gap-x-3">
                   <span>{t('served.prov.rev', 'rev {n}', { n: entry.revSeq })}</span>
                   <span class="break-all font-mono text-zinc-500">{entry.hash}</span>
@@ -288,17 +296,20 @@
             </div>
           {/if}
           {#if ex.failed === 'provenance'}
-            <p role="alert" class="mt-1 text-xs text-red-700 dark:text-red-300">{t('served.failed', 'Couldn’t load the served prompt.')}</p>
+            <p role="alert" class="mt-1 text-xs text-red-700 dark:text-red-300">{t('served.failed.more', 'Couldn’t load more. Try again.')}</p>
           {/if}
         </div>
+        {/if}
 
         <div data-testid="served-lint">
           <h4 class="text-xs font-semibold uppercase tracking-wide text-zinc-500">{t('served.lint', 'Current warnings')}</h4>
-          {#if record.lint === null}
+          {#if record.lint === null || ex.lintUnavailable}
             <p class="text-xs text-zinc-500">{t('served.lint.unavailable', 'Warnings unavailable')}</p>
           {:else}
             <p class="text-xs text-zinc-500">{t('served.lint.caption', 'Warnings that hold now for this revision, not when it was served.')}</p>
-            {#if lintItems.length > 0}
+            {#if lintItems.length === 0}
+              <p class="text-xs text-zinc-500">{t('served.lint.none', 'No current warnings')}</p>
+            {:else}
               <ul class="mt-1 space-y-1 text-xs">
                 {#each lintItems as w, wi (wi)}
                   <li>
@@ -317,7 +328,7 @@
             {/if}
           {/if}
           {#if ex.failed === 'lint'}
-            <p role="alert" class="mt-1 text-xs text-red-700 dark:text-red-300">{t('served.failed', 'Couldn’t load the served prompt.')}</p>
+            <p role="alert" class="mt-1 text-xs text-red-700 dark:text-red-300">{t('served.failed.more', 'Couldn’t load more. Try again.')}</p>
           {/if}
         </div>
       </article>

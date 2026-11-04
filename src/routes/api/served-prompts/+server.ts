@@ -1,3 +1,4 @@
+import { extractGqlErrorCode } from '$lib/gql-error';
 import { gqlClient } from '$lib/server/api';
 import { findAgentChat } from '$lib/server/agent-chat-metadata';
 import { readServedPrompts, type ServedPromptRead } from '$lib/server/served-prompts';
@@ -35,7 +36,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     try {
       chat = await findAgentChat(client, agentId, chatId);
     } catch (e) {
-      console.warn('[served-prompts] chat list read failed:', e);
+      console.warn('[served-prompts] chat list read failed:', extractGqlErrorCode(e));
       return json({ error: "Couldn't load the served prompt." }, 502);
     }
     // Not in the viewer's own list: 404 and no served-prompt read.
@@ -56,7 +57,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     });
     return json(page, 200);
   } catch (e) {
-    console.warn(`[served-prompts] ${source} read failed:`, e);
+    console.warn(`[served-prompts] ${source} read failed:`, extractGqlErrorCode(e));
     return json({ error: "Couldn't load the served prompt." }, 502);
   }
 };

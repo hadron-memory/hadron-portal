@@ -61,3 +61,8 @@ export function pageRange(offset: number, count: number, total: number): string 
 export function hasMore(offset: number, count: number, total: number): boolean {
   return offset + count < total;
 }
+
+/** The session pick counts only while it is a row of THIS worker's list (the page is reused A to B). */
+export function pickedSessionFor(sessions: ReadonlyArray<{ id: string }> | null | undefined, picked: string | null): string | null {
+  return picked !== null && sessions?.some((s) => s.id === picked) ? picked : null;
+}
