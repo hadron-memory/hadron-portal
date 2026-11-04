@@ -46,6 +46,7 @@ function serve(rows: Record<string, unknown>[], users: Record<string, unknown> =
     if (isGive(q)) return { setAutomationTeamSnapshotGrant: grant() };
     if (isStop(q)) return { revokeAutomationTeamSnapshotGrant: grant({ revokedAt: '2026-11-02T10:00:00.000Z', revokedBy: 'u-ana' }) };
     if (/\buser\(/.test(q)) return { user: users[String(vars.ref)] ?? null };
+    if (/\bagentSchedules\(/.test(q)) return { agentSchedules: { total: 0, items: [] } }; // portal#1701: the schedule section's read
     throw new Error(`unrouted read: ${q}`);
   });
 }
@@ -166,7 +167,8 @@ describe('reading the grant', () => {
   it('FORBIDDEN hides the section and asks nothing about people', async () => {
     request.mockImplementation(async (q: string) => { if (isList(q)) throw gqlError('FORBIDDEN'); throw new Error(`unexpected: ${q}`); });
     expect((await teamGrant()).teamGrant).toEqual({ status: 'hidden' });
-    expect(request).toHaveBeenCalledTimes(1);
+    expect(calls(isList)).toHaveLength(1);
+    expect(calls((q) => /\buser\(/.test(q))).toHaveLength(0);
   });
 
   it('any other failed read is unavailable, never "not given", and the page still loads', async () => {

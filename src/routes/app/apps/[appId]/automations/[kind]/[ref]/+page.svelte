@@ -6,6 +6,7 @@
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { approvalHref, orNotStated, pageStateLabel } from '$lib/automation/approval';
+  import { timingFromSchedule, timingSentence } from '$lib/automation/schedule-timing';
   import { t } from '$lib/i18n/t';
   import TeamGrantSection from './TeamGrantSection.svelte';
   import type { ActionData, PageData } from './$types';
@@ -29,6 +30,13 @@
   // CHANGED means a valid approval exists, so Decline revokes it; UNADOPTED means there is nothing to revoke.
   const approved = $derived(approval.state === 'ADOPTED');
   const hasApproval = $derived(approval.state !== 'UNADOPTED');
+
+  // portal#1701: a schedule says when it runs in its own words and zone. summary.schedule quotes the raw cron, so it is
+  // the fallback only when the schedule could not be read.
+  const schedule = $derived(data.schedule);
+  const timing = $derived(schedule ? timingFromSchedule(schedule) : null);
+  const whenSentence = $derived(schedule && timing ? timingSentence(timing, schedule.timezone) : null);
+  const nextRun = $derived(schedule?.nextRunAt ? new Date(schedule.nextRunAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short', timeZone: schedule.timezone }) : null);
 
   let confirmingDecline = $state(false);
   let submitting = $state(false);
@@ -107,7 +115,30 @@
 
   <section class="space-y-1" aria-labelledby="auto-when">
     <h2 id="auto-when" class="text-sm font-semibold text-zinc-900 dark:text-white">{t('app.automations.when', 'When it runs')}</h2>
-    <p class="text-sm text-zinc-700 dark:text-zinc-300">{orNotStated(summary.schedule)}</p>
+    {#if schedule}
+      <p class="text-sm text-zinc-700 dark:text-zinc-300" data-testid="schedule-when">
+        {#if !schedule.enabled}{t('app.automations.paused-lead', 'Paused')} · {/if}{whenSentence ?? orNotStated(null)}
+      </p>
+      {#if schedule.enabled && nextRun}
+        <p class="text-sm text-zinc-700 dark:text-zinc-300" data-testid="schedule-next">{t('app.automations.next-run', 'Next run: {when}', { when: `${nextRun} (${schedule.timezone})` })}</p>
+      {/if}
+      {#if data.created}
+        <p role="status" class="text-sm text-emerald-800 dark:text-emerald-300" data-testid="schedule-created">
+          {nextRun ? t('app.automations.created-next', 'Created. You approved it by creating it. Next run: {when}.', { when: `${nextRun} (${schedule.timezone})` }) : t('app.automations.created', 'Created. You approved it by creating it.')}
+        </p>
+      {/if}
+      <div class="flex flex-wrap items-center gap-2 pt-1">
+        <a href="{approvalHref(data.app.id, data.kind, data.ref)}/edit" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{t('app.automations.change', 'Change')}</a>
+        <form method="POST" action={schedule.enabled ? '?/pause' : '?/resume'} use:enhance>
+          <button type="submit" class="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-800 dark:border-zinc-700 dark:text-zinc-200">{schedule.enabled ? t('app.automations.pause', 'Pause') : t('app.automations.resume', 'Resume')}</button>
+        </form>
+      </div>
+      {#if form && 'scheduleRefused' in form}
+        <p role="alert" class="text-sm text-red-700 dark:text-red-300" data-testid="schedule-refused">{form.scheduleMessage}</p>
+      {/if}
+    {:else}
+      <p class="text-sm text-zinc-700 dark:text-zinc-300">{orNotStated(summary.schedule)}</p>
+    {/if}
   </section>
 
   <section class="space-y-1" aria-labelledby="auto-reads">
