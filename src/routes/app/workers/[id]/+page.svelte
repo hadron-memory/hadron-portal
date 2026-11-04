@@ -583,6 +583,7 @@
            matched the returned-to editor and clobbered its fresh draft). -->
       {#key data.signatureForm.id}
         <WorkerSignatureSection
+          workerId={worker.id}
           signature={worker.signature}
           trailer={worker.trailer}
           {retired}

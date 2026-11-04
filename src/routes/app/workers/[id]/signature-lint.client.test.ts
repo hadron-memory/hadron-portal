@@ -35,7 +35,6 @@ const advice = (root: HTMLElement, field: string) => root.querySelector(`[data-s
 
 describe('portal#1685 saved signature/trailer link advice', () => {
   it.each([['signature'], ['trailer'], ['signature', 'trailer']])('places %j beside the matching saved field', async (...fields) => {
-    // each supplies one array item as the first argument, rather than a draft parser.
     const names = fields.filter(x => typeof x === 'string') as string[];
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(page(names.map(f => item(f))))));
     const { root } = await open();
@@ -69,6 +68,7 @@ describe('portal#1685 saved signature/trailer link advice', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[1][1]?.method ?? 'GET').toBe('GET');
     expect(root.textContent).not.toContain('Couldn’t check');
+    expect(document.activeElement).toBe(root.querySelector('[data-signature-lint]'));
   });
   it('shows partial count and neutral advice for unknown kinds/fields, never backend prose', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(page([item('signature', 'NEW_KIND'), item('unknown')], 3, 'next'))));
