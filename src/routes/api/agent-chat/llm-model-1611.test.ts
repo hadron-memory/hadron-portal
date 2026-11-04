@@ -1,6 +1,6 @@
 /**
  * portal#1611 — the chat model the portal actually calls is reported to the
- * server (hadron-server#3096, cor:dmo:150:08) on every startChat and
+ * server (hadron-server#3096, hrn:node:hadronmemory.com:specs:cor:dmo:150:08) on every startChat and
  * sendChatMessage, as an optional `llmModel` GraphQL variable.
  *
  * These run the REAL runChatTurn / config resolution; only the GraphQL

@@ -90,3 +90,73 @@ describe('AgentChat: syncChatIdToUrl after teardown (#789)', () => {
     m.unmount();
   });
 });
+
+/**
+ * portal#1611 (A6/A6b): the chat reports its model on every start and send, and
+ * the server may refuse the value (BAD_USER_INPUT). The portal's answer is ONE
+ * fixed message and no replay — in particular never a second call without the
+ * model. The endpoints already turn a refusal into the fixed text (pinned in
+ * llm-model-1611.test.ts); this is the rendered half: what the user sees, and
+ * that the component itself does not retry.
+ */
+describe('AgentChat: a refused start or send is shown once and never replayed (#1611)', () => {
+  const FIXED = 'Chat request failed. Please try again.';
+  const calls: string[] = [];
+
+  function stub(o: { start?: 'refuse'; turn?: 'refuse' }) {
+    calls.length = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url.replace(/\?.*/, ''));
+      const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+      if (url.includes('/api/agent-chat/list')) return json({ chats: [] });
+      if (url.includes('/api/agent-chat/start')) {
+        return o.start === 'refuse'
+          ? json({ error: FIXED }, 500)
+          : json({ chatId: 'chats:c1', conversationName: 'c', stageName: 's', welcomeMessage: null, welcomeError: null, scope: 'private' });
+      }
+      if (url.includes('/api/agent-chat/turn')) return o.turn === 'refuse' ? json({ error: FIXED, code: 'failed' }, 500) : json({ assistantMessage: 'ok' });
+      return json({});
+    }));
+  }
+  const count = (path: string) => calls.filter((c) => c === path).length;
+  const text = () => document.body.textContent ?? '';
+  const occurrences = (s: string) => text().split(s).length - 1;
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('a refused start shows the fixed message once and calls /start once', async () => {
+    stub({ start: 'refuse' });
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    await wait(20);
+    const startButton = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!;
+    startButton.click();
+    await wait(30);
+    await tick();
+    expect(occurrences(FIXED)).toBe(1);
+    expect(count('/api/agent-chat/start')).toBe(1);
+    expect(count('/api/agent-chat/turn')).toBe(0);
+    m.unmount();
+  });
+
+  it('a refused send shows the fixed message once, keeps the draft, and calls /turn once', async () => {
+    stub({ turn: 'refuse' });
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    await wait(20);
+    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    await wait(30);
+    await tick();
+    const box = document.querySelector('textarea') as HTMLTextAreaElement;
+    box.value = 'hello there';
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+    await tick();
+    [...document.querySelectorAll('button')].find((b) => /send/i.test(b.textContent ?? ''))!.click();
+    await wait(30);
+    await tick();
+    expect(occurrences(FIXED)).toBe(1);
+    expect(count('/api/agent-chat/turn')).toBe(1);
+    expect(count('/api/agent-chat/start')).toBe(1);
+    expect((document.querySelector('textarea') as HTMLTextAreaElement).value).toBe('hello there');
+    m.unmount();
+  });
+});

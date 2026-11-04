@@ -709,8 +709,15 @@
   <!-- ── Active chat ─────────────────────────────────────────────────── -->
   <main class="flex min-h-0 min-w-0 flex-1 flex-col">
     {#if !activeChatId && !loadingChat}
-      <div class="flex min-h-0 flex-1 items-center justify-center p-8 text-center text-sm text-zinc-500">
-        Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.
+      <div class="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-sm text-zinc-500">
+        <p>Select a chat from the list or click <span class="mx-1 font-semibold text-zinc-700 dark:text-zinc-300">+ New chat</span> to start a new one.</p>
+        <!-- portal#1611: a refused or failed start has no chat pane to show its
+             error in; without this the user saw nothing at all. -->
+        {#if turnError}
+          <div role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
+            {turnError}
+          </div>
+        {/if}
       </div>
     {:else}
       <!-- Header -->
