@@ -76,3 +76,15 @@ describe('updateScheduleInput', () => {
     }
   });
 });
+
+describe('previewScheduleInput (hadron-server#3457)', () => {
+  it('carries the entry and the timing and nothing the preview does not use', async () => {
+    const { previewScheduleInput } = await import('./schedule-write');
+    expect(previewScheduleInput({ appRef: 'a', entryNodeUrn: 'hrn:node:x:m:e', zone: 'Europe/Berlin', timing: { kind: 'daily', time: '09:00' } })).toEqual({ appRef: 'a', entryNodeUrn: 'hrn:node:x:m:e', cron: '0 9 * * *', timezone: 'Europe/Berlin' });
+  });
+  it('a one-time schedule sends runAt, not a cron; a missing zone is refused here', async () => {
+    const { previewScheduleInput } = await import('./schedule-write');
+    expect(previewScheduleInput({ appRef: 'a', entryNodeUrn: 'u', zone: 'UTC', timing: { kind: 'once', at: '2027-01-01T08:00:00.000Z' } })).toEqual({ appRef: 'a', entryNodeUrn: 'u', runAt: '2027-01-01T08:00:00.000Z', timezone: 'UTC' });
+    expect(() => previewScheduleInput({ appRef: 'a', entryNodeUrn: 'u', zone: ' ', timing: { kind: 'daily', time: '09:00' } })).toThrow(RangeError);
+  });
+});

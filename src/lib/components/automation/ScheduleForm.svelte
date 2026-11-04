@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, untrack, type Snippet } from 'svelte';
+  import { onMount, tick, untrack, type Snippet } from 'svelte';
   import SelectNode from '$lib/components/SelectNode.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { dayName, timingSentence, type Timing } from '$lib/automation/schedule-timing';
@@ -29,6 +29,7 @@
     canSubmit = true,
     blockedReason = null,
     preview,
+    onpick,
   }: {
     mode: 'create' | 'edit';
     initial: Initial;
@@ -41,6 +42,8 @@
     blockedReason?: string | null;
     /** What the automation will read, write and not do. Create only. */
     preview?: Snippet;
+    /** The picked node changed: it is set in a hidden field, which raises no input event of its own. */
+    onpick?: () => void;
   } = $props();
 
   const uid = $props.id();
@@ -69,6 +72,12 @@
     try { browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch { browserZone = ''; }
   });
   const zone = $derived(mode === 'edit' ? (seed.timezone ?? '') : browserZone);
+
+  async function pick(c: NodeChoice) {
+    entry = { urn: c.urn, name: c.name };
+    await tick(); // the hidden field carries the new value only after this
+    onpick?.();
+  }
 
   const errorFor = (field: string) => (failure && failure.field === field ? failure.message : null);
   const input = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white';
@@ -192,10 +201,10 @@
 
 {#await Promise.resolve(nodeMemories) then read}
   {#if read.kind === 'ok'}
-    <SelectNode memories={read.value} bind:open={picking} onselect={(c: NodeChoice) => { entry = { urn: c.urn, name: c.name }; }} />
+    <SelectNode memories={read.value} bind:open={picking} onselect={pick} />
   {:else}
-    <SelectNode memories={[]} memoriesFailed bind:open={picking} onselect={(c: NodeChoice) => { entry = { urn: c.urn, name: c.name }; }} />
+    <SelectNode memories={[]} memoriesFailed bind:open={picking} onselect={pick} />
   {/if}
 {:catch}
-  <SelectNode memories={[]} memoriesFailed bind:open={picking} onselect={(c: NodeChoice) => { entry = { urn: c.urn, name: c.name }; }} />
+  <SelectNode memories={[]} memoriesFailed bind:open={picking} onselect={pick} />
 {/await}

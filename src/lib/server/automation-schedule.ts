@@ -1,7 +1,7 @@
 import type { GraphQLClient } from 'graphql-request';
 import { extractGqlErrorCode } from '$lib/server/gqlError';
 import type { StoredSchedule } from '$lib/automation/schedule-write';
-import type { CreateScheduleInput, ScheduleUpdateInput } from '$lib/automation/schedule-write';
+import type { CreateScheduleInput, PreviewScheduleInput, ScheduleUpdateInput } from '$lib/automation/schedule-write';
 
 /**
  * portal#1701 — the reads and writes behind creating, editing, pausing and resuming a schedule.
@@ -20,13 +20,11 @@ export interface ListedSchedule extends StoredSchedule {
   createdBy: string | null;
 }
 
-export const SCHEDULE_FIELDS = `id name entryNodeUrn cron runAt timezone enabled nextRunAt lastRunAt userId createdBy`;
-
 export const AGENT_SCHEDULES_QUERY = /* GraphQL */ `
   query AgentSchedules($appRef: String!, $limit: Int, $offset: Int) {
     agentSchedules(appRef: $appRef, limit: $limit, offset: $offset) {
       total
-      items { ${SCHEDULE_FIELDS} }
+      items { id name entryNodeUrn cron runAt timezone enabled nextRunAt lastRunAt userId createdBy }
     }
   }
 `;
@@ -40,6 +38,17 @@ export const CREATE_AGENT_SCHEDULE_MUTATION = /* GraphQL */ `
 export const UPDATE_AGENT_SCHEDULE_MUTATION = /* GraphQL */ `
   mutation UpdateAgentSchedule($id: ID!, $input: UpdateAgentScheduleInput!) {
     updateAgentSchedule(id: $id, input: $input) { id }
+  }
+`;
+
+export const PREVIEW_AGENT_SCHEDULE_QUERY = /* GraphQL */ `
+  query PreviewAgentSchedule($input: PreviewAgentScheduleInput!) {
+    previewAgentSchedule(input: $input) {
+      outcome
+      reason
+      hash
+      summary { name schedule reads writes tools limits cannotDo }
+    }
   }
 `;
 
@@ -92,3 +101,33 @@ export const updateSchedule = (client: GraphQLClient, id: string, input: Schedul
  * edit. Resume is `{enabled:true}`, which is NOT stop-only, so it needs the creator.
  */
 export const setScheduleEnabled = (client: GraphQLClient, id: string, enabled: boolean) => updateSchedule(client, id, { enabled });
+
+export interface SchedulePreviewSummary { reads: string[]; writes: string[]; tools: string[]; limits: string[]; cannotDo: string[] }
+/** `summary.schedule` is deliberately not carried: it quotes the raw cron, and the page says when in its own words. */
+export type SchedulePreview =
+  | { ok: true; outcome: 'ADOPTABLE'; summary: SchedulePreviewSummary }
+  | { ok: true; outcome: 'CANNOT_BE_ADOPTED'; reason: 'MEMORY_UNREADABLE' | 'OTHER' }
+  | { ok: false; reason: 'forbidden' | 'not-found' | 'invalid' };
+
+/**
+ * What a schedule would do before it exists (hadron-server#3457). Nothing is written. Refusals are create's own
+ * (admin, App, Agent, timing); an entry that cannot be adopted is a typed result, not an error. A result the portal
+ * does not know how to read is not shown as adoptable: it is rethrown.
+ */
+export async function previewSchedule(client: GraphQLClient, input: PreviewScheduleInput): Promise<SchedulePreview> {
+  type Raw = { outcome: string; reason: string | null; summary: (SchedulePreviewSummary & { name: string; schedule: string | null }) | null };
+  let raw: Raw;
+  try {
+    raw = (await client.request<{ previewAgentSchedule: Raw }>(PREVIEW_AGENT_SCHEDULE_QUERY, { input })).previewAgentSchedule;
+  } catch (e) {
+    const code = extractGqlErrorCode(e);
+    if (code !== null && Object.hasOwn(REASONS, code)) return { ok: false, reason: REASONS[code] };
+    throw e;
+  }
+  if (raw.outcome === 'ADOPTABLE' && raw.summary) {
+    const { reads, writes, tools, limits, cannotDo } = raw.summary;
+    return { ok: true, outcome: 'ADOPTABLE', summary: { reads, writes, tools, limits, cannotDo } };
+  }
+  if (raw.outcome === 'CANNOT_BE_ADOPTED') return { ok: true, outcome: 'CANNOT_BE_ADOPTED', reason: raw.reason === 'MEMORY_UNREADABLE' ? 'MEMORY_UNREADABLE' : 'OTHER' };
+  throw new Error(`previewAgentSchedule: unreadable outcome ${raw.outcome}`);
+}

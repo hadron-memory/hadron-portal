@@ -35,6 +35,17 @@ export function createScheduleInput(args: { appRef: string; name: string; entryN
   return { ...base, cron: cronFor(timing) };
 }
 
+/**
+ * What the portal sends to previewAgentSchedule (hadron-server#3457): the same timing and entry a create would send,
+ * and nothing else. No name, policy or scope: none of them enters the pin or the summary, so the preview does not
+ * validate them and create may still refuse them.
+ */
+export type PreviewScheduleInput = Omit<CreateScheduleInput, 'name'>;
+export function previewScheduleInput(args: { appRef: string; entryNodeUrn: string; zone: string; timing: Timing }): PreviewScheduleInput {
+  const { name: _name, ...rest } = createScheduleInput({ ...args, name: '' });
+  return rest;
+}
+
 export interface ScheduleUpdateInput {
   enabled?: boolean;
   name?: string;
