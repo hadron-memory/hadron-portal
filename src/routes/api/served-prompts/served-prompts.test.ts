@@ -44,7 +44,9 @@ function route(handlers: { served?: (q: string, v: Record<string, unknown>) => u
   });
 }
 
-beforeEach(() => request.mockReset());
+beforeEach(() => {
+  request.mockReset();
+});
 
 describe('request shape', () => {
   it('401 without a token, and 400 on a bad source', async () => {
