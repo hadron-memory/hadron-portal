@@ -96,10 +96,21 @@ describe('what a record shows', () => {
   });
 
   it('the recorded model source is labelled client-reported / unspecified, never verified', async () => {
-    const m = show(() => ok(page([record({ variables: { session: { llmModel: { source: 'client-reported', name: 'x' } } } })])));
+    // The server records FLAT dotted keys (hadron-server resolvers.mutation.chat.ts), not a nested object.
+    const m = show(() => ok(page([record({ variables: { 'session.llmModel': 'x', 'session.llmModel.source': 'client-reported' } })])));
     await settle();
     expect(text(m)).toContain('client-reported');
     expect(text(m).toLowerCase()).not.toContain('verified');
+  });
+
+  it('a flat source that is not client-reported reads unspecified; no source key renders no label', async () => {
+    const a = show(() => ok(page([record({ variables: { 'session.llmModel.source': 'other' } })])));
+    await settle();
+    expect(text(a)).toContain('unspecified');
+    const b = show(() => ok(page([record({ variables: { 'session.llmModel': 'x' } })])));
+    await settle();
+    expect(text(b)).not.toContain('unspecified');
+    expect(text(b)).not.toContain('client-reported');
   });
 });
 
