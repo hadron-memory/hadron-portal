@@ -188,7 +188,8 @@
 
   /** The recorded model source, as a label: never a verified model. */
   function modelSource(variables: unknown): string | null {
-    const source = (variables as { session?: { llmModel?: { source?: unknown } } } | null)?.session?.llmModel?.source;
+    // The server records flat dotted keys (hadron-server resolvers.mutation.chat.ts), not a nested object.
+    const source = (variables as Record<string, unknown> | null)?.['session.llmModel.source'];
     if (source === undefined) return null;
     return source === 'client-reported'
       ? t('served.model.client-reported', 'client-reported')
