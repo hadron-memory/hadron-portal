@@ -99,6 +99,10 @@ jobs:
       - name: Check Task integrations layout
         run: pnpm test:task-integrations-layout
 
+      # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
+      - name: Check Nodes tab lazy reads
+        run: pnpm test:nodes-tab-lazy
+
       - name: Check App picker phone layout
         run: node scripts/test-select-app-layout.mjs
 

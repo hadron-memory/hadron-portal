@@ -3021,6 +3021,26 @@ export const NODE_CHILDREN_QUERY = /* GraphQL */ `
   }
 `;
 
+// portal#1700: the Nodes tab's two bounded doors. The memory's id alone, so a
+// door can pin its scope to a memory the viewer can read (null when they cannot).
+export const MEMORY_SCOPE_QUERY = /* GraphQL */ `
+  query MemoryScope($ref: ID!) {
+    memory(ref: $ref) { id urn }
+  }
+`;
+
+// portal#1700: one page of the memory's nodes for the Nodes tab's Table. No
+// sort is sent (server order), no edges and no body: the row a list needs. The
+// memory identity is selected per hit so an inherited row links to its OWN
+// memory (system memories can return base-memory rows).
+export const NODES_PAGE_QUERY = /* GraphQL */ `
+  query NodesPage($memoryId: ID!, $limit: Int!, $offset: Int!) {
+    findNodes(filter: { memoryIds: [$memoryId] }, limit: $limit, offset: $offset) {
+      hits { node { id urn loc name description nodeType tags seq isRunnable memoryId updatedAt memory { id urn name } commentSummary { openThreads } } }
+    }
+  }
+`;
+
 export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
   ${NODE_FIELDS}
   query NodesByLocPrefix(
