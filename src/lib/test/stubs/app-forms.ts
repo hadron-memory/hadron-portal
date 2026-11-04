@@ -69,6 +69,7 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
  */
 export async function beginEnhanced(
   form: HTMLFormElement,
+  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> } = {},
 ): Promise<(result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> }) => Promise<void>> {
   const submit = enhanced.get(form);
   if (!submit) throw new Error('beginEnhanced: this form was never enhanced');
@@ -83,7 +84,7 @@ export async function beginEnhanced(
     cancel: () => {},
   });
   if (typeof handler !== 'function') throw new Error('beginEnhanced: the submit callback returned no result handler');
-  return (result) => (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+  return (result) => (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: opts.update ?? (async () => {}) });
 }
 
 /**

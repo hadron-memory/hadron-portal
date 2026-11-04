@@ -118,6 +118,24 @@ describe('team roster and tasks', () => {
     expect(html).not.toContain('Not given');
   });
 
+  it('a refusal survives the re-read hiding the section: what happened is still said (QA P2)', () => {
+    const html = page({ teamGrant: { status: 'hidden' } }, { teamGrantRefused: true, teamGrantMessage: 'Only a manager can give this.' });
+    expect(html).toContain('Only a manager can give this.');
+    expect(html).not.toContain(HEADING);
+    expect(html).not.toContain('?/give');
+    expect(html).not.toContain('Not given');
+  });
+
+  it('a refusal survives the re-read failing: the section keeps saying what happened', () => {
+    const html = page({ teamGrant: { status: 'unavailable' } }, { teamGrantRefused: true, teamGrantMessage: 'Only a manager can give this.' });
+    expect(html).toContain('Only a manager can give this.');
+    expect(html).toContain('data-testid="team-grant-unavailable"');
+  });
+
+  it('a hidden section with nothing to say leaves nothing behind', () => {
+    expect(page({ teamGrant: { status: 'hidden' } })).not.toContain('team-grant-outcome');
+  });
+
   it('a failed read says so and offers nothing: it is not "not given"', () => {
     const html = page({ teamGrant: { status: 'unavailable' } });
     expect(html).toContain(HEADING);

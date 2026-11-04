@@ -3,12 +3,12 @@
  * confirmation (and that it belongs to ONE automation), where focus goes, and
  * what the enhanced submit does with the server's answer.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync, tick } from 'svelte';
 import { mountComponent, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
-import { submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
+import { navigationCalls, navigationHooks, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { beginEnhanced, submitEnhancedWithResult } from '$lib/test/stubs/app-forms';
 import Page from './+page.svelte';
 
 const app = { id: 'app-1', name: 'Team', urn: 'hrn:app:acme.com:team', organizationId: null };
@@ -17,7 +17,7 @@ const data = (state: string, ref = 'sch-1', name = 'Nightly digest', hash = 'h1'
   ({ app, kind: 'SCHEDULE', ref, approval: { state, hash, depth: {}, summary: summary(name) }, teamGrant: { status: 'hidden' } });
 const mounted: Mounted<Record<string, unknown>>[] = [];
 beforeEach(() => { resetNavigationCalls(); });
-afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); });
+afterEach(() => { while (mounted.length) mounted.pop()!.unmount(); vi.restoreAllMocks(); });
 function open(state: string, form: unknown = null) {
   const props = reactiveProps<Record<string, unknown>>({ data: data(state), form });
   const m = mountComponent(Page as never, props);
@@ -185,6 +185,150 @@ describe('team roster and tasks', () => {
     await submitEnhancedWithResult(form(t, 'give')!, given);
     await settle();
     expect(reReads()).toBe(0);
+  });
+
+  describe('a write in flight belongs to the one submit that sent it (LOCAL P2-1)', () => {
+    const none = { status: 'ready', live: null, ended: null };
+    const pressed = (t: HTMLElement) => form(t, 'give')!.querySelector('button')!;
+    const noted = () => {
+      const seen: unknown[] = [];
+      return { seen, update: async (o?: unknown) => { seen.push(o); } };
+    };
+
+    it('A, then B, then back to A: A\'s late answer touches nothing on the fresh page', async () => {
+      const { t, props } = openGrant(none);
+      const old = noted();
+      const deliver = await beginEnhanced(form(t, 'give')!, old);
+      props.data = withGrant(none, 'sch-2'); await settle();
+      props.data = withGrant(none, 'sch-1'); await settle();
+      await deliver(given); await settle();
+      expect(old.seen).toEqual([]);
+      expect(document.activeElement).not.toBe(t.querySelector('[data-testid="team-grant-outcome"]'));
+    });
+
+    it('A\'s late answer does not free B\'s button while B\'s own write is pending', async () => {
+      const { t, props } = openGrant(none);
+      const deliverA = await beginEnhanced(form(t, 'give')!, noted());
+      props.data = withGrant(none, 'sch-2'); await settle();
+      expect(pressed(t).disabled).toBe(false);
+      const deliverB = await beginEnhanced(form(t, 'give')!, noted());
+      await settle();
+      expect(pressed(t).disabled).toBe(true);
+      await deliverA(given); await settle();
+      expect(pressed(t).disabled).toBe(true);
+      await deliverB(given); await settle();
+      expect(pressed(t).disabled).toBe(false);
+    });
+
+    it('the current submit still applies, frees the button and moves focus', async () => {
+      const { t } = openGrant(none);
+      const own = noted();
+      const deliver = await beginEnhanced(form(t, 'give')!, own);
+      await settle();
+      expect(pressed(t).disabled).toBe(true);
+      await deliver(given); await settle();
+      expect(own.seen).toEqual([{ reset: false }]);
+      expect(pressed(t).disabled).toBe(false);
+      expect(document.activeElement).toBe(t.querySelector('[data-testid="team-grant-outcome"]'));
+    });
+
+    it('a reload of the same automation does not disown the write in flight', async () => {
+      const { t, props } = openGrant(none);
+      const own = noted();
+      const deliver = await beginEnhanced(form(t, 'give')!, own);
+      props.data = withGrant({ ...none }); await settle();
+      await deliver(given); await settle();
+      expect(own.seen).toEqual([{ reset: false }]);
+    });
+
+    it('after the page is gone its answer does nothing and throws nothing', async () => {
+      const { t } = openGrant(none);
+      const old = noted();
+      const deliver = await beginEnhanced(form(t, 'give')!, old);
+      mounted.pop()!.unmount();
+      await deliver(given);
+      expect(old.seen).toEqual([]);
+      expect(reReads()).toBe(0);
+    });
+  });
+
+  describe('a write whose re-read fails (LOCAL P2-2)', () => {
+    const none = { status: 'ready', live: null, ended: null };
+    const STALE = "This page couldn't be refreshed";
+    const brokenReload = async () => { throw new Error('reload failed'); };
+    const consoleWarn = () => vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    it('a Give that went through says so, says the page may be behind, and frees the button', async () => {
+      consoleWarn();
+      const { t } = openGrant(none);
+      await submitEnhancedWithResult(form(t, 'give')!, given, { update: brokenReload });
+      await settle();
+      expect(t.textContent).toContain('Given.');
+      expect(t.textContent).toContain(STALE);
+      expect(form(t, 'give')!.querySelector('button')!.disabled).toBe(false);
+      expect(document.activeElement).toBe(t.querySelector('[data-testid="team-grant-outcome"]'));
+    });
+
+    it('a Stop that went through says Stopped, not Given', async () => {
+      consoleWarn();
+      const { t } = openGrant({ status: 'ready', live, ended: null });
+      await submitEnhancedWithResult(form(t, 'stop')!, { type: 'success', status: 200, data: { teamGrant: 'stopped' } }, { update: brokenReload });
+      await settle();
+      expect(t.textContent).toContain('Stopped.');
+      expect(t.textContent).toContain(STALE);
+    });
+
+    it('a refusal whose re-read fails keeps the refusal and frees the button', async () => {
+      consoleWarn();
+      const { t, props } = openGrant(none);
+      navigationHooks.onInvalidateAll = brokenReload;
+      await submitEnhancedWithResult(form(t, 'give')!, refused, { update: async () => { props.form = refused.data; } });
+      await settle();
+      expect(t.textContent).toContain('No.');
+      expect(t.textContent).toContain(STALE);
+      expect(form(t, 'give')!.querySelector('button')!.disabled).toBe(false);
+    });
+
+    it('sends nothing again on its own', async () => {
+      consoleWarn();
+      const { t } = openGrant(none);
+      let sent = 0;
+      await submitEnhancedWithResult(form(t, 'give')!, given, { update: async () => { sent += 1; throw new Error('reload failed'); } });
+      await settle();
+      expect(sent).toBe(1);
+      expect(reReads()).toBe(0);
+    });
+
+    it('the note goes once the page has read the stored state again', async () => {
+      consoleWarn();
+      const { t, props } = openGrant(none);
+      await submitEnhancedWithResult(form(t, 'give')!, given, { update: brokenReload });
+      await settle();
+      props.data = withGrant({ status: 'ready', live, ended: null }); await settle();
+      expect(t.textContent).not.toContain(STALE);
+    });
+
+    it('a reload that fails after the page moved on says nothing on the page it moved to', async () => {
+      consoleWarn();
+      const { t, props } = openGrant(none);
+      const deliver = await beginEnhanced(form(t, 'give')!, { update: async () => {
+        props.data = withGrant(none, 'sch-2'); await settle();
+        throw new Error('reload failed');
+      } });
+      await deliver(given); await settle();
+      expect(t.textContent).not.toContain(STALE);
+      expect(form(t, 'give')!.querySelector('button')!.disabled).toBe(false);
+    });
+  });
+
+  it('a refused Give that leaves the viewer no longer a manager still says it was refused (QA P2)', async () => {
+    const { t, props } = openGrant({ status: 'ready', live: null, ended: null });
+    navigationHooks.onInvalidateAll = () => { props.data = withGrant({ status: 'hidden' }); };
+    await submitEnhancedWithResult(form(t, 'give')!, refused, { update: async () => { props.form = refused.data; } });
+    await settle();
+    expect(t.textContent).not.toContain('Team roster and tasks');
+    expect(t.querySelector('[role="alert"]')!.textContent).toContain('No.');
+    expect(document.activeElement).toBe(t.querySelector('[data-testid="team-grant-outcome"]'));
   });
 
   it('the control follows the stored state, not the last press', async () => {

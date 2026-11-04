@@ -50,6 +50,32 @@ function serve(rows: Record<string, unknown>[], users: Record<string, unknown> =
   });
 }
 
+/**
+ * LOCAL P2-3: the live-only list shrinks under the offset, so a row that was
+ * live throughout can fall behind it. Another manager ends the 200 older rows
+ * between page 1 and page 2. The history is the same 201 rows either side.
+ */
+function serveShrinkingLiveList(others: Record<string, unknown>[], target: Record<string, unknown>) {
+  serve([...others, target]);
+  const history = request.getMockImplementation()!;
+  request.mockImplementation(async (q: string, vars: Record<string, unknown> = {}) => {
+    if (!isList(q) || vars.includeRevoked) return history(q, vars);
+    return { automationTeamSnapshotGrants: Number(vars.offset ?? 0) === 0
+      ? { items: others, total: others.length + 1, hasMore: true }
+      : { items: [], total: 1, hasMore: false } };
+  });
+}
+/** A list that ends before the count it claims: what came back is not the whole list. */
+function serveShortOf(total: number, rows: Record<string, unknown>[]) {
+  serve(rows);
+  const rest = request.getMockImplementation()!;
+  request.mockImplementation(async (q: string, vars: Record<string, unknown> = {}) => {
+    if (!isList(q)) return rest(q, vars);
+    return { automationTeamSnapshotGrants: { items: Number(vars.offset ?? 0) === 0 ? rows : [], total, hasMore: false } };
+  });
+}
+const OTHERS = Array.from({ length: 200 }, (_, i) => grant({ id: `o${i}`, triggerId: `other-${i}` }));
+
 const locals = { token: 'tok', user: { id: 'u1' }, impersonation: null };
 type TeamGrant = { status: string; live?: Record<string, unknown> | null; ended?: Record<string, unknown>[] | null };
 async function teamGrant(kind = 'schedule', search = '') {
@@ -78,7 +104,7 @@ describe('reading the grant', () => {
     expect(g.status).toBe('ready');
     expect(g.live).toMatchObject({ id: 'g1', createdAt: '2026-11-01T10:00:00.000Z', givenBy: { name: 'Ana', urn: 'hrn:user:ana' } });
     expect(g.ended).toBeNull();
-    expect(calls(isList)[0][1]).toMatchObject({ appRef: 'app-1', includeRevoked: false });
+    expect(calls(isList)[0][1]).toMatchObject({ appRef: 'app-1', includeRevoked: true });
   });
 
   it('no grant for this automation is a known "not given", from a whole list', async () => {
@@ -92,6 +118,49 @@ describe('reading the grant', () => {
     const { teamGrant: g } = await teamGrant();
     expect(g.live).toMatchObject({ id: 'g1' });
     expect(calls(isList).length).toBeGreaterThan(1);
+  });
+
+  it('a grant live throughout stays given when other grants end between pages (LOCAL P2-3)', async () => {
+    serveShrinkingLiveList(OTHERS, grant({ id: 'g-live' }));
+    const { teamGrant: tg } = await teamGrant();
+    expect(tg.status).toBe('ready');
+    expect(tg.live).toMatchObject({ id: 'g-live' });
+  });
+
+  it('a list that ends before its own count is never "not given", whatever was read of it', async () => {
+    serveShortOf(5, [grant({ id: 'o', triggerId: 'other' })]);
+    const { teamGrant: tg } = await teamGrant();
+    expect(tg).toEqual({ status: 'unavailable' });
+  });
+
+  it('a list that repeats a page is never "not given", and the read stops', async () => {
+    serve([grant({ id: 'o', triggerId: 'other' })]);
+    request.mockImplementation(async (q: string) => {
+      if (isList(q)) return { automationTeamSnapshotGrants: { items: [grant({ id: 'o', triggerId: 'other' })], total: 2, hasMore: true } };
+      return { user: null };
+    });
+    const { teamGrant: tg } = await teamGrant();
+    expect(tg).toEqual({ status: 'unavailable' });
+    expect(calls(isList).length).toBeLessThanOrEqual(6);
+  });
+
+  it('a read that came up short is tried again, and a whole one is believed', async () => {
+    serve([grant({ id: 'g-live' })]);
+    const whole = request.getMockImplementation()!;
+    let short = true;
+    request.mockImplementation(async (q: string, vars: Record<string, unknown> = {}) => {
+      if (isList(q) && short) { short = false; return { automationTeamSnapshotGrants: { items: [], total: 1, hasMore: false } }; }
+      return whole(q, vars);
+    });
+    const { teamGrant: tg } = await teamGrant();
+    expect(tg.live).toMatchObject({ id: 'g-live' });
+  });
+
+  it('the ended rows it reads to stay complete are not shown or asked about until asked for', async () => {
+    serve([grant({ id: 'g0', grantedBy: 'u-bo', revokedAt: '2026-10-20T10:00:00.000Z', revokedBy: 'u-bo' })]);
+    const { teamGrant: tg } = await teamGrant();
+    expect(tg).toEqual({ status: 'ready', live: null, ended: null });
+    expect(calls((q) => /\buser\(/.test(q))).toHaveLength(0);
   });
 
   it('FORBIDDEN hides the section and asks nothing about people', async () => {
@@ -170,6 +239,18 @@ describe('Stop', () => {
     const r = await act('stop', 'schedule', { id: 'other' });
     expect(r).toEqual({ teamGrant: 'stopped' });
     expect(calls(isStop).map((c) => c[1])).toEqual([{ id: 'g7' }]);
+  });
+
+  it('finds a grant live throughout when other grants end between pages (LOCAL P2-3)', async () => {
+    serveShrinkingLiveList(OTHERS, grant({ id: 'g-live' }));
+    expect(await act('stop')).toEqual({ teamGrant: 'stopped' });
+    expect(calls(isStop).map((c) => c[1])).toEqual([{ id: 'g-live' }]);
+  });
+
+  it('an incomplete read never reports "stopped": it fails and ends nothing', async () => {
+    serveShortOf(5, [grant({ id: 'o', triggerId: 'other' })]);
+    await expect(act('stop')).rejects.toThrow();
+    expect(calls(isStop)).toHaveLength(0);
   });
 
   it('with nothing live there is nothing to end: no mutation, and the page re-reads', async () => {
