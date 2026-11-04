@@ -809,11 +809,18 @@ export const ORG_TASK_MEMORY_IDS_QUERY = /* GraphQL */ `
  * only: they join the scope for RUNNABLE_NODES_QUERY, whose `memoryIds` filter
  * is the boundary — naming a system memory there is what lifts the server's
  * default exclusion. Membership-gated (see ORG_SYSTEM_MEMORIES_QUERY).
+ *
+ * #1706 — `appId` is selected so the caller can leave an App's install memory
+ * out: an install memory is class `system` WITH `appId` set, and this list
+ * returns it to its audience. R208 /
+ * hrn:node:hadronmemory.com:specs:cor:api:060:04 keeps App-owned memories
+ * off the org's task surfaces, and for a platform-ADMIN org member the id
+ * reaching `createScope` is what made the whole org export fail.
  */
 export const ORG_SYSTEM_MEMORY_IDS_QUERY = /* GraphQL */ `
   query OrgSystemMemoryIds($orgId: ID!, $limit: Int, $offset: Int) {
     memories(orgId: $orgId, filter: { memoryClasses: [system] }, limit: $limit, offset: $offset) {
-      items { id }
+      items { id appId }
       total
     }
   }
