@@ -2605,18 +2605,33 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     expect(refreshes()).toBe(1);
   });
 
-  it('leaving A between the answer and its refresh refreshes nothing on B', async () => {
-    const { m, props } = await mountAgents();
-    const { id, delayed } = await beginInstall(m.target);
-    const answer = await confirmed(id);
-    const b = await dataFor('a2');
-    const finishing = delayed.finish(answer as never);
-    props.data = b;
-    flushSync();
-    await finishing;
-    await tick(4);
-    expect(refreshes()).toBe(0);
-    expect(actions(m.target).disabled).toBe(false);
+  // Superforms awaits between entering its result handler and applying the result, so a
+  // fence at any one point leaves the rest open. Walk the App change across all of them.
+  it('leaving A at any point while its answer is applied leaves B untouched (success and refusal)', async () => {
+    for (const [answer, text] of [[confirmed, LINKED], [refused, REFUSED]] as const) {
+      for (let turns = 0; turns <= 12; turns += 1) {
+        const { m, props } = await mountAgents();
+        const { id, delayed } = await beginInstall(m.target);
+        const result = await answer(id);
+        const b = await dataFor('a2');
+        resetNavigationCalls();
+        const finishing = delayed.finish(result as never);
+        for (let i = 0; i < turns; i += 1) await Promise.resolve();
+        props.data = b;
+        flushSync();
+        const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search agents"]')!;
+        search.focus();
+        await finishing;
+        await tick(4);
+        const at = `${text} after ${turns} turns`;
+        expect(m.target.textContent, at).not.toContain(text);
+        expect(document.activeElement, at).toBe(search);
+        expect(refreshes(), at).toBe(0);
+        expect(actions(m.target).disabled, at).toBe(false);
+        m.unmount();
+        mounted.pop();
+      }
+    }
   });
 
   it('a refresh that rejects after the user left A says nothing on B', async () => {
