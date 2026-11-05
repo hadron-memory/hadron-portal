@@ -77,6 +77,7 @@ describe('task detail: the memories read never becomes an uncaught page error (#
     },
     tree: { kind: 'ok', value: { rows: [], capped: false } },
     history: { kind: 'ok', value: { events: [], capped: false } },
+    review: { kind: 'ok', value: { readiness: null, seat: null } },
     ancestors: [],
     ancestorsTruncated: false,
     dependencies: { kind: 'failed' },

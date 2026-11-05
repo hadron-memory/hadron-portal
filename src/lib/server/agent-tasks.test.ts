@@ -312,6 +312,7 @@ describe('loadReview (portal#1697)', () => {
 
   it('a frozen head with no schedule is no Review section and no error', async () => {
     answer([frozen], () => { throw gqlError('REVIEW_SCHEDULE_MISSING'); });
+    vi.mocked(console.warn).mockClear();
     expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness: null, seat: null } });
     expect(console.warn).not.toHaveBeenCalled();
   });

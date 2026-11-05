@@ -32,6 +32,7 @@ vi.mock('$lib/server/agent-tasks', () => ({
   loadWriteCandidates: async () => ({ workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] }),
   loadTree: async () => [],
   loadHistory: async () => [],
+  loadReview: async () => ({ kind: 'ok', value: { readiness: null, seat: null } }),
   loadAncestors: async () => ({ ancestors: [], truncated: false }),
   canonicalTaskId: async (_c: unknown, _a: string, id: string) => id,
 }));

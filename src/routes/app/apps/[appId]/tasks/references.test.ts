@@ -35,7 +35,8 @@ function page(references: unknown): string {
       data: { app, task, ancestors: [], ancestorsTruncated: false,
         canWrite: false, impersonating: null, created: false, candidates: { workers: [], people: [] },
         tree: { kind: 'ok', value: { rows: [task], capped: false } },
-        history: { kind: 'ok', value: { events: [], capped: false } } },
+        history: { kind: 'ok', value: { events: [], capped: false } },
+        review: { kind: 'ok', value: { readiness: null, seat: null } } },
     },
   } as never).body;
 }

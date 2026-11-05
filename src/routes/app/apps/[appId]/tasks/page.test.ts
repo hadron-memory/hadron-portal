@@ -187,7 +187,7 @@ function taskPage(over: Record<string, unknown> = {}) {
       data: { app, task: detail(), ancestors: [], ancestorsTruncated: false,
         canWrite: true, impersonating: null, created: false, candidates: { workers: [], people: [] },
         tree: { kind: 'ok', value: { rows: [detail()], capped: false } },
-        history: { kind: 'ok', value: { events: [], capped: false } }, ...over },
+        history: { kind: 'ok', value: { events: [], capped: false } }, review: { kind: 'ok', value: { readiness: null, seat: null } }, ...over },
     },
   } as never).body;
 }
@@ -530,5 +530,21 @@ describe('task handles', () => {
     const html = taskPage({ task: detail({ id: 'abc', handle: 'AT3', status: 'BACKLOG', assignee: null }), canWrite: true });
     expect(html).not.toContain('project-zero-note');
     expect(barButtons(html).length).toBeGreaterThan(0);
+  });
+});
+
+describe('task page: Review section (portal#1697)', () => {
+  const H = 'c'.repeat(40);
+  const review = { kind: 'ok', value: { readiness: { ready: true, head: H, slots: [] }, seat: null } };
+
+  it('sits above Properties, which stays', () => {
+    const html = taskPage({ review, task: task({ properties: { 'pr.head': H } }) });
+    expect(html).toContain('Ready at cccccccc');
+    expect(html.indexOf('task-review-heading')).toBeLessThan(html.indexOf('Properties'));
+    expect(html).toContain('pr.head');
+  });
+
+  it('a task with no review answer has no Review section', () => {
+    expect(taskPage()).not.toContain('task-review-heading');
   });
 });
