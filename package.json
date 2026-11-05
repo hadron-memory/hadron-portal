@@ -26,7 +26,8 @@
     "check:grid-filters": "node scripts/check-grid-filters.mjs",
     "check:interpolation": "node scripts/check-unsafe-interpolation.mjs",
     "check:hook-teardown": "node scripts/check-hook-teardown.mjs",
-    "test:api-key-chain": "node scripts/test-api-key-chain.mjs"
+    "test:api-key-chain": "node scripts/test-api-key-chain.mjs",
+    "test:relation-focus": "node scripts/test-relation-focus.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.4",
