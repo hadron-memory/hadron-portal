@@ -14,6 +14,7 @@ import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout'
 import { appKeyRefusal } from '$lib/server/app-key-refusal';
 import { agentToolsRefusal } from './agent-tools-refusal';
 import { gqlClient } from '$lib/server/api';
+import { readAppInstallMarks } from '$lib/server/app-install-marks';
 import { pointerAction, readAppPointers } from '$lib/server/boot-prompt-pointer';
 import { appAgentPointerKey } from '$lib/boot-prompt-pointer';
 import { lookupOwn } from '$lib/lookup';
@@ -712,7 +713,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // ⇒ the page treats readiness as "don't block"). Only meaningful with an
   // agent linked.
   const userId = locals.user?.id ?? null;
-  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, liveStops, appProperties] = await Promise.all([
+  const [nodesData, chatConfigs, staff, teamChat, worklog, chatRoots, canManageApp, keyScopes, appKeys, viewerManages, teamRoster, bootPointers, installMarks, liveStops, appProperties] = await Promise.all([
     client
       .request<{ appNodes: MemoryNode[] }>(APP_NODES_QUERY, { appRef: params.appId, limit: APP_NODES_LIMIT })
       .catch(() => ({ appNodes: [] as MemoryNode[] })),
@@ -822,6 +823,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     loadAppTeamRoster(client, app.id),
     // portal#1142 S8: the installs' boot-prompt pointers, for the Agents tab.
     readAppPointers(client, app.id),
+    readAppInstallMarks(client, app.id),
     // portal#1139: the stops in effect, for the banner, in its OWN classified request
     // (never throws): a stop read that fails must not take the App page with it.
     loadLiveStops(client, app.id),
@@ -1032,6 +1034,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     currentUserId: locals.user?.id ?? null,
     canManageApp: canManageApp as boolean | null,
     bootPointers,
+    installMarks,
     liveStops,
     // The App half of a pointer result's key (the action's own params.appId).
     bootPointerAppKey: params.appId,

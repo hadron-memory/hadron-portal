@@ -6,7 +6,7 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
+import { kitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
@@ -2450,5 +2450,267 @@ describe('Roster placement readback (#1149)', () => {
     expect(row(1)).toContain('Not set');
     expect(row(2)).not.toContain('No team');
     expect(row(2)).not.toContain('Not set');
+  });
+});
+
+describe('Install on a derived row: its result belongs to one App window (#1684, LOCAL on #1714)', () => {
+  const BETA = { id: 'ag1', urn: 'hrn:agent:acme.com:beta', name: 'Beta', personaRole: null };
+  const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
+  const LINKED = 'Agent linked.';
+  const REFUSED = 'That agent cannot be installed.';
+  async function dataFor(appId: string) {
+    setStubPage(`https://example.test/app/apps/${appId}?tab=agents`, { appId });
+    const data = await pageData();
+    Object.assign(data.app, { id: appId, agents: [BETA] });
+    data.initialTab = 'agents';
+    return { ...data, bootPointerAppKey: appId, installMarks: { ag1: { kind: 'derived', importer: IMPORTER } } };
+  }
+  const installForm = (target: HTMLElement) =>
+    [...target.querySelectorAll<HTMLFormElement>('form[action="?/addAgent"]')].find((f) =>
+      f.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value.startsWith('installAgent:'))!;
+  const actions = (target: HTMLElement) => target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Beta"]')!;
+  async function mountAgents() {
+    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/customisation?') ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
+    const props = reactiveProps({ data: await dataFor('a1'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return { m, props };
+  }
+  // Goes through the row's own Install so the posted agent is the one it picked.
+  async function beginInstall(target: HTMLElement) {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    actions(target).click();
+    flushSync();
+    [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === 'Install')!.click();
+    await tick(2);
+    requestSubmit.mockRestore();
+    const form = installForm(target);
+    const id = form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
+    return { id, delayed: await submitEnhancedDeferred(form) };
+  }
+  const confirmed = async (id: string) => {
+    const f = await superValidate({ agentId: 'ag1' }, zod4(addAgentSchema), { errors: false, id });
+    f.message = { type: 'success', text: LINKED };
+    return { type: 'success' as const, status: 200, data: { form: f } };
+  };
+  const refused = async (id: string) => {
+    const f = await superValidate({ agentId: 'ag1' }, zod4(addAgentSchema), { errors: false, id });
+    f.valid = false;
+    f.message = { type: 'error', text: REFUSED };
+    return { type: 'failure' as const, status: 400, data: { form: f } };
+  };
+  const refreshes = () => navigationCalls.filter((c) => c.fn === 'invalidateAll').length;
+
+  it('A’s late success says nothing on B and refreshes nothing there', async () => {
+    const { m, props } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    props.data = await dataFor('a2');
+    await tick(3);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.textContent).not.toContain(LINKED);
+    expect(refreshes()).toBe(0);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('A’s late refusal says nothing on B', async () => {
+    const { m, props } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    props.data = await dataFor('a2');
+    await tick(3);
+    await delayed.finish(await refused(id) as never);
+    await tick(4);
+    expect(m.target.textContent).not.toContain(REFUSED);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('an attempt from before A -> B -> A is as stale as one from B (success and refusal)', async () => {
+    for (const answer of [confirmed, refused]) {
+      const { m, props } = await mountAgents();
+      const { id, delayed } = await beginInstall(m.target);
+      props.data = await dataFor('a2');
+      await tick(3);
+      props.data = await dataFor('a1');
+      await tick(3);
+      await delayed.finish(await answer(id) as never);
+      await tick(4);
+      expect(m.target.textContent).not.toContain(LINKED);
+      expect(m.target.textContent).not.toContain(REFUSED);
+      expect(refreshes()).toBe(0);
+      expect(actions(m.target).disabled).toBe(false);
+      m.unmount();
+      mounted.pop();
+    }
+  });
+
+  it('a request begun by a destroyed Page says nothing on a fresh mount (success and refusal)', async () => {
+    for (const answer of [confirmed, refused]) {
+      const first = await mountAgents();
+      const { id, delayed } = await beginInstall(first.m.target);
+      first.m.unmount();
+      mounted.pop();
+      const second = await mountAgents();
+      expect(installForm(second.m.target).querySelector<HTMLInputElement>('[name="__superform_id"]')!.value).not.toBe(id);
+      await delayed.finish(await answer(id) as never);
+      await tick(4);
+      expect(second.m.target.textContent).not.toContain(LINKED);
+      expect(second.m.target.textContent).not.toContain(REFUSED);
+      expect(refreshes()).toBe(0);
+      second.m.unmount();
+      mounted.pop();
+    }
+  });
+
+  it('leaving the App takes its receipt with it', async () => {
+    const { m, props } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(LINKED);
+    props.data = await dataFor('a2');
+    await tick(4);
+    expect(m.target.textContent).not.toContain(LINKED);
+  });
+
+  it('control: the current App’s success shows its receipt and refreshes once', async () => {
+    const { m } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(LINKED);
+    expect(refreshes()).toBe(1);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('control: the current App’s refusal shows and refreshes nothing', async () => {
+    const { m } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await refused(id) as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(REFUSED);
+    expect(refreshes()).toBe(0);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('a refresh that rejects after a confirmed install keeps the receipt, says so and frees the row', async () => {
+    const { m } = await mountAgents();
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after a confirmed install'); };
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(LINKED);
+    expect(m.target.textContent).toContain('could not be refreshed');
+    expect(actions(m.target).disabled).toBe(false);
+    expect(refreshes()).toBe(1);
+  });
+
+  // Superforms awaits between entering its result handler and applying the result, so a
+  // fence at any one point leaves the rest open. Walk the App change across all of them.
+  it('leaving A at any point while its answer is applied leaves B untouched (success, refusal, failed request)', async () => {
+    const failed = async () => ({ type: 'error', status: 500, error: { message: 'boom' } });
+    for (const [answer, text] of [[confirmed, LINKED], [refused, REFUSED], [failed, 'could not be confirmed']] as const) {
+      for (let turns = 0; turns <= 12; turns += 1) {
+        const { m, props } = await mountAgents();
+        const { id, delayed } = await beginInstall(m.target);
+        const result = await answer(id);
+        const b = await dataFor('a2');
+        resetNavigationCalls();
+        const finishing = delayed.finish(result as never);
+        for (let i = 0; i < turns; i += 1) await Promise.resolve();
+        const refreshedWhileOnA = refreshes();
+        props.data = b;
+        flushSync();
+        const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search agents"]')!;
+        search.focus();
+        await finishing;
+        await tick(4);
+        const at = `${text} after ${turns} turns`;
+        expect(m.target.textContent, at).not.toContain(text);
+        expect(document.activeElement, at).toBe(search);
+        expect(refreshes(), at).toBe(refreshedWhileOnA);
+        expect(actions(m.target).disabled, at).toBe(false);
+        m.unmount();
+        mounted.pop();
+      }
+    }
+  });
+
+  const REDIRECT = { type: 'redirect', status: 303, location: '/signin' } as const;
+  const FAILED = { type: 'error', status: 500, error: { message: 'boom' } } as const;
+  const UNCONFIRMED = 'could not be confirmed';
+
+  it('a redirect still reaches Kit in the current App (applyAction is off for this form)', async () => {
+    const { m } = await mountAgents();
+    kitAppliedResults.length = 0;
+    const { delayed } = await beginInstall(m.target);
+    await delayed.finish(REDIRECT as never);
+    await tick(4);
+    expect(kitAppliedResults).toEqual([REDIRECT]);
+  });
+
+  it('A’s late redirect does not reach Kit on B', async () => {
+    const { m, props } = await mountAgents();
+    kitAppliedResults.length = 0;
+    const { delayed } = await beginInstall(m.target);
+    props.data = await dataFor('a2');
+    await tick(3);
+    await delayed.finish(REDIRECT as never);
+    await tick(4);
+    expect(kitAppliedResults).toEqual([]);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('a failed request says the install is unconfirmed, claims neither outcome and frees the row', async () => {
+    const { m } = await mountAgents();
+    const { delayed } = await beginInstall(m.target);
+    await delayed.finish(FAILED as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(UNCONFIRMED);
+    expect(m.target.textContent).not.toContain(LINKED);
+    expect(refreshes()).toBe(0);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('A’s late failed request says nothing on B', async () => {
+    const { m, props } = await mountAgents();
+    const { delayed } = await beginInstall(m.target);
+    props.data = await dataFor('a2');
+    await tick(3);
+    await delayed.finish(FAILED as never);
+    await tick(4);
+    expect(m.target.textContent).not.toContain(UNCONFIRMED);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('a success or refusal never goes through Kit, so focus stays where the reader put it', async () => {
+    for (const answer of [confirmed, refused]) {
+      const { m } = await mountAgents();
+      kitAppliedResults.length = 0;
+      const { id, delayed } = await beginInstall(m.target);
+      const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search agents"]')!;
+      search.focus();
+      await delayed.finish(await answer(id) as never);
+      await tick(4);
+      expect(kitAppliedResults).toEqual([]);
+      expect(document.activeElement).toBe(search);
+    }
+  });
+
+  it('a refresh that rejects after the user left A says nothing on B', async () => {
+    const { m, props } = await mountAgents();
+    let reject!: (e: Error) => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((_, r) => { reject = r; });
+    const { id, delayed } = await beginInstall(m.target);
+    const finishing = delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    props.data = await dataFor('a2');
+    await tick(3);
+    reject(new Error('refresh failed'));
+    await finishing;
+    await tick(4);
+    expect(m.target.textContent).not.toContain(LINKED);
+    expect(m.target.textContent).not.toContain('could not be refreshed');
+    expect(actions(m.target).disabled).toBe(false);
   });
 });

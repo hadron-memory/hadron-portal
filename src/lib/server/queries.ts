@@ -4258,7 +4258,7 @@ const AGENT_APP_LITE_FIELDS = /* GraphQL */ `
     urn
     organizationId
     agents { id name urn description personaRole }
-    appAgents { agent { id } }
+    appAgents { agent { id } installMethod importer { id name urn } }
   }
 `;
 
@@ -4855,6 +4855,17 @@ export const COMPILE_AGENT_BOOT_PROMPT_MUTATION = /* GraphQL */ `
       revNo contentHash pointerSet
       node { id urn revision lintWarnings(first: 50) { items { kind position text targetUrn pinnedRevision newerRevision workerField } total nextCursor } }
     }
+  }
+`;
+
+/**
+ * portal#1684 (hadron-server#3435): how the App installs each Agent, in its own
+ * read so a refusal costs the marks and never the App page. The server answers
+ * every entry or none, so a null is withheld, and is not "installed".
+ */
+export const APP_INSTALL_MARKS_QUERY = /* GraphQL */ `
+  query AppInstallMarks($ref: ID!) {
+    app(ref: $ref) { id appAgents { agent { id } installMethod importer { id name urn } } }
   }
 `;
 

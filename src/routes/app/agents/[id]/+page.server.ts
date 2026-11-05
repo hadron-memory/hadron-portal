@@ -1,3 +1,4 @@
+import { installMarksOf, type AppAgentInstall } from '$lib/app-install-marks';
 import { loadAgentExtensions, loadSystemMemoryIdentity } from '$lib/server/agent-profile';
 import { agentBaseSchema, agentIndexRefsSchema } from './inheritance-schema';
 import { loadInheritanceManagement, loadBaseCandidates, baseVariables, indexVariables, SET_AGENT_BASE_MUTATION, SET_AGENT_INDEX_REFS_MUTATION } from '$lib/server/agent-inheritance-write';
@@ -150,7 +151,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     organizationId: string;
     // The install join. A row whose `agent` is null is an install withheld from
     // the caller (#1350); `agents` silently drops it.
-    appAgents?: Array<{ agent: { id: string } | null }> | null;
+    appAgents?: AppAgentInstall[] | null;
     agents?: Array<{
       id: string;
       name: string;
@@ -271,15 +272,20 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     (a) => !Array.isArray(a.appAgents) || a.appAgents.some((r) => !r || r.agent == null),
   );
   for (const app of appsWithThisAgent) {
+    // portal#1684: only the server's DERIVED says so; a withheld answer leaves the App's name.
+    const marks = installMarksOf(app.appAgents);
     for (const sibling of app.agents ?? []) {
       if (sibling.id === agentId || bundledById.has(sibling.id)) continue;
+      const mark = marks[sibling.id];
       bundledById.set(sibling.id, {
         id: sibling.id,
         name: sibling.name,
         urn: sibling.urn,
         description: sibling.description ?? null,
         personaRole: sibling.personaRole ?? null,
-        via: app.name,
+        via: mark?.kind === 'derived'
+          ? t('agent.bundled.via.derived', '{app}, derived from {importer}', { app: app.name, importer: mark.importer.name })
+          : app.name,
       });
     }
   }

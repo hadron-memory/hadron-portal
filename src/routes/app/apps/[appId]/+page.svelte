@@ -7,6 +7,7 @@
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
+  import { applyAction } from '$app/forms';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -161,7 +162,8 @@
   import type { ReleaseWorkerMessage } from './schema';
   import { releaseNotice } from './release-notice';
   import { rosterIsStale } from './hold-stale';
-  import { castableAgentOptions } from './cast-agents';
+  import { castableAgentOptions, castGroups } from './cast-agents';
+  import type { InstallMarks } from '$lib/app-install-marks';
 
   type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
   type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -275,6 +277,9 @@
   const agentsWithheld = $derived(rosterOf(app.agents).kind === 'withheld');
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
+  // #1684: how the App installs each agent, as the server states it (see app-install-marks.ts).
+  const installMarks = $derived<InstallMarks>((data as { installMarks?: InstallMarks }).installMarks ?? {});
+  const castAgentGroups = $derived(castGroups(castableAgents, installMarks));
   // R222: role is a fact, never a cast-time input. Preserve a restored
   // selection's identity even if that Agent no longer has a castable role.
   const selectedCastAgent = $derived(
@@ -701,10 +706,16 @@
     availableAgents.filter((a) => !installedAgents.some((i) => i.id === a.id)),
   );
   let agentsFilter = $state('');
+  // Everything the Name cell draws is searchable, the mark and its importer too.
+  function installMarkSearchText(agentId: string) {
+    const mark = installMarks[agentId];
+    if (mark?.kind === 'derived') return `${t('app.agents.derived-from', 'Derived from')} ${mark.importer.name} ${mark.importer.urn}`;
+    return mark ? t('app.agents.installed', 'Installed') : '';
+  }
   const agentColumns: PortalColumnDef<InstalledAgent>[] = [
     // The URN rides the Name cell's second line, as on the worker grid; search
     // still matches it because the accessor keeps it in the filter text.
-    { accessorFn: (row) => `${row.name} ${row.urn ?? ''}`, id: 'name', header: t('app.agents.column.name', 'Name'), enableHiding: false, size: 320 },
+    { accessorFn: (row) => [row.name, row.urn ?? '', installMarkSearchText(row.id)].join(' '), id: 'name', header: t('app.agents.column.name', 'Name'), enableHiding: false, size: 320 },
     { accessorFn: (row) => row.personaRole ?? '', id: 'role', header: t('app.agents.column.role', 'Role'), size: 180 },
     // portal#1142 S8: this install's boot-prompt pointer, joined by agent id.
     { accessorFn: (row) => pointerText(appRowPointer(data.bootPointers, row.id)), id: 'bootPrompt', header: t('app.agents.column.boot-prompt', 'Boot prompt'), size: 280 },
@@ -739,6 +750,9 @@
   // the App, the pre-menu button's gate); Unlink submits the hidden form
   // below the table for the picked row.
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
+    // #1684: a derived agent has no row, so Unlink has nothing to remove. Its
+    // own way off the roster is removing the import; Install writes the row.
+    const derived = installMarks[agent.id]?.kind === 'derived';
     return [
       { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
@@ -748,7 +762,11 @@
             ariaLabel: t('app.agents.set-boot-prompt.label', 'Set boot prompt for {name}', { name: agent.name }),
           }]
         : []),
-      { id: 'unlink', label: t('app.agents.unlink', 'Unlink'), danger: true },
+      ...(!derived
+        ? [{ id: 'unlink', label: t('app.agents.unlink', 'Unlink'), danger: true }]
+        : data.canManageApp !== false
+          ? [{ id: 'install', label: t('app.agents.install', 'Install') }]
+          : []),
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
@@ -762,6 +780,8 @@
       choosePointerRow(pointerAgent?.id === agent.id ? null : agent.id);
     } else if (id === 'unlink') {
       unlinkAgent(agent);
+    } else if (id === 'install') {
+      installDerivedAgent(agent);
     }
   }
   const agentsTable = createSvelteTable<InstalledAgent>({
@@ -1083,6 +1103,76 @@
     clearOnSubmit: 'none',
   });
 
+  // #1684: Install on a derived agent's row. It posts addAgent like the picker
+  // below, under its own instance-bound id (see castFormId), so its result lands
+  // here and the two forms never share a store. Fenced and refreshed as the cast
+  // form is: the Page is reused across Apps, so the id alone can't place a result.
+  let installGeneration = 0;
+  let installAttemptGeneration = -1;
+  let installRefreshFailed = $state(false);
+  const installFormId = `installAgent:${Math.random().toString(36).slice(2, 10)}`;
+  const {
+    form: installAgentForm,
+    message: installAgentMessage,
+    submitting: installAgentSubmitting,
+    enhance: installAgentEnhance,
+  } = superForm<AddAgentForm, App.Superforms.Message, AddAgentForm>(untrack(() => data.addAgentForm), {
+    id: installFormId,
+    validators: zod4Client(addAgentSchema),
+    clearOnSubmit: 'none',
+    onSubmit: () => {
+      installAttemptGeneration = installGeneration;
+      installRefreshFailed = false;
+    },
+    // Superforms awaits between its hooks, and the App can change during any of those
+    // waits. With applyAction on, Kit would then apply the result and reset focus with
+    // no hook left to stop it. Off, the form takes the result itself, onUpdated below
+    // drops one that went stale, and only a redirect still needs Kit.
+    applyAction: false,
+    onResult: async ({ result, cancel }) => {
+      if (installAttemptGeneration !== installGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+    // Superforms' default rethrows, leaving the row's Actions disabled. The request
+    // failed, so whether the install landed isn't known and this claims neither.
+    onError: () => {
+      if (installAttemptGeneration !== installGeneration) return;
+      installAgentMessage.set({
+        type: 'error',
+        text: t('app.agents.install.unconfirmed', 'The install could not be confirmed. Reload the page to check before trying again.'),
+      });
+    },
+    // The refresh is ours, so a rejection after a CONFIRMED install is told
+    // truthfully instead of stranding the form. The install is never retried.
+    invalidateAll: false,
+    onUpdated: async ({ form: f }) => {
+      const attempt = installAttemptGeneration;
+      if (attempt !== installGeneration) {
+        installAgentMessage.set(undefined);
+        return;
+      }
+      if (f.message?.type !== 'success') return;
+      try {
+        await invalidateAll();
+      } catch {
+        if (attempt === installGeneration) installRefreshFailed = true;
+      }
+    },
+  });
+
+  // Bumped on leaving an App, so a result begun before A -> B -> A is stale too.
+  let installContextApp = untrack(() => data.app.id);
+  $effect(() => {
+    const id = app.id;
+    if (id === installContextApp) return;
+    installContextApp = id;
+    installGeneration += 1;
+    untrack(() => {
+      installAgentMessage.set(undefined);
+      installRefreshFailed = false;
+    });
+  });
+
   const initialCreateKeyForm = untrack(() => submittedForm<CreateAppKeyForm>(form, 'createKey') as CreateAppKeySuperform | null ?? data.createKeyForm);
   const {
     form: createKeyForm,
@@ -1286,6 +1376,8 @@
       : $removeAgentErrors.agentId?.[0] ?? $removeAgentErrors._kind?.[0] ?? null,
   );
   const removeAgentActionSuccess = $derived($removeAgentMessage?.type === 'success' ? $removeAgentMessage.text : null);
+  const installAgentActionError = $derived($installAgentMessage?.type === 'error' ? $installAgentMessage.text : null);
+  const installAgentActionSuccess = $derived($installAgentMessage?.type === 'success' ? $installAgentMessage.text : null);
   const updateAgentToolsActionError = $derived(
     $updateAgentToolsMessage?.type === 'error'
       ? $updateAgentToolsMessage.text
@@ -1534,12 +1626,19 @@
   // idiom). The Keys confirm is the same browser confirm the old per-row form
   // ran; a decline submits nothing.
   let removeAgentFormEl = $state<HTMLFormElement | null>(null);
+  let installAgentFormEl = $state<HTMLFormElement | null>(null);
   let revokeKeyFormEl = $state<HTMLFormElement | null>(null);
   async function unlinkAgent(agent: { id: string; name: string }) {
     if ($removeAgentSubmitting) return;
     setRemoveAgent(agent.id);
     await tick();
     removeAgentFormEl?.requestSubmit();
+  }
+  async function installDerivedAgent(agent: { id: string }) {
+    if ($installAgentSubmitting) return;
+    installAgentForm.update((current) => ({ ...current, agentId: agent.id }), { taint: false });
+    await tick();
+    installAgentFormEl?.requestSubmit();
   }
   async function revokeAppKey(key: { id: string }) {
     if ($revokeKeySubmitting) return;
@@ -1770,14 +1869,19 @@
     </div>
   </div>
 
-  {#if removeAgentActionError || updateAgentToolsActionError || revokeKeyActionError || deleteAppActionError}
+  {#if installAgentActionError || removeAgentActionError || updateAgentToolsActionError || revokeKeyActionError || deleteAppActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
-      {removeAgentActionError ?? updateAgentToolsActionError ?? revokeKeyActionError ?? deleteAppActionError}
+      {installAgentActionError ?? removeAgentActionError ?? updateAgentToolsActionError ?? revokeKeyActionError ?? deleteAppActionError}
     </div>
   {/if}
-  {#if settingsActionSuccess || addAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
+  {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {settingsActionSuccess ?? addAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
+      {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
+    </div>
+  {/if}
+  {#if installRefreshFailed}
+    <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+      {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
     </div>
   {/if}
 
@@ -2432,11 +2536,32 @@
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
             >
               <option value="">{t('app.staff.field.agent.placeholder', '— Select an installed agent —')}</option>
-              {#each castableAgents as candidate (candidate.id)}
+              {#snippet castOption(candidate: (typeof castableAgents)[number])}
                 <option value={candidate.id}>
                   {candidate.name}{candidate.personaRole ? ` (${candidate.personaRole})` : ''}
                 </option>
-              {/each}
+              {/snippet}
+              {#if castAgentGroups.derived.length > 0}
+                <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
+                  {#each castAgentGroups.installed as candidate (candidate.id)}
+                    {@render castOption(candidate)}
+                  {/each}
+                </optgroup>
+                <optgroup label={t('app.staff.field.agent.derived', 'Derived')}>
+                  {#each castAgentGroups.derived as { agent: candidate, importer } (candidate.id)}
+                    <option value={candidate.id}>
+                      {t('app.staff.field.agent.derived-option', '{name}, derived from {importer}', {
+                        name: `${candidate.name}${candidate.personaRole ? ` (${candidate.personaRole})` : ''}`,
+                        importer: importer.name,
+                      })}
+                    </option>
+                  {/each}
+                </optgroup>
+              {:else}
+                {#each castAgentGroups.installed as candidate (candidate.id)}
+                  {@render castOption(candidate)}
+                {/each}
+              {/if}
             </select>
             {#if selectedCastAgent?.urn}
               <div class="mt-1 min-w-0"><Urn value={selectedCastAgent.urn} type="agent" /></div>
@@ -2866,6 +2991,19 @@
                 {#if agent.urn}
                   <Urn value={agent.urn} type="agent" size={8} />
                 {/if}
+                {#if installMarks[agent.id]}
+                  {@const mark = installMarks[agent.id]}
+                  <!-- #1684: only what the server states; a withheld answer draws nothing here. -->
+                  <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-testid="install-mark">
+                    {#if mark.kind === 'derived'}
+                      {t('app.agents.derived-from', 'Derived from')}
+                      <a href="/app/agents/{mark.importer.id}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{mark.importer.name}</a>
+                      <div class="mt-1"><Urn value={mark.importer.urn} type="agent" size={8} /></div>
+                    {:else}
+                      {t('app.agents.installed', 'Installed')}
+                    {/if}
+                  </div>
+                {/if}
                 <!-- Spec 021 US1: the canonical install URN the audit log cites.
                      The server derives it for the App's primary agent only
                      (`App.installedAgentUrn`), so it rides that agent's row. -->
@@ -2899,7 +3037,7 @@
                 actions={agentRowActions(agent)}
                 onselect={(id) => onAgentAction(id, agent)}
                 label={t('app.agents.actions.label', 'Actions for {name}', { name: agent.name })}
-                disabled={$removeAgentSubmitting}
+                disabled={$removeAgentSubmitting || $installAgentSubmitting}
                 fixed
                 compact
               />
@@ -3003,6 +3141,16 @@
           <p class="text-sm text-zinc-500">{t('app.agents.add.none', 'There is no other agent to add.')}</p>
         {/if}
       </section>
+      <!-- #1684: Install's submit target, one hidden form for every derived row. A
+           withheld roster offers no add, this one included. It stays mounted across
+           the install: the reload that follows drops the row that asked. -->
+      {#if !agentsWithheld}
+        <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
+          <input type="hidden" name="_kind" value="addAgent" />
+          <input type="hidden" name="__superform_id" value={installFormId} />
+          <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
+        </form>
+      {/if}
     </div>
     </div>
   {/if}
