@@ -68,3 +68,32 @@ describe('definition register section', () => {
     expect(await run()).toMatchObject({ kind: 'ready', index: { kind: 'failed' } });
   });
 });
+
+// portal#1654 items 6 and 7.
+describe('#1654 item 7: route-Agent provenance against a hostile ?agent=', () => {
+  it('every read asks as the route Agent; a ?agent= in the URL is never an asking Agent', async () => {
+    answer([a1]);
+    await run('agent=hrn:agent:evil.com:intruder&app=app-1');
+    expect(request.mock.calls.length).toBeGreaterThan(0);
+    for (const [, vars] of request.mock.calls) {
+      expect(JSON.stringify(vars)).not.toContain('intruder');
+      expect(JSON.stringify(vars)).not.toContain('evil.com');
+    }
+    expect(request.mock.calls.some((c) => (c[1] as { agentRef?: string; ref?: string }).agentRef === 'g1' || (c[1] as { ref?: string }).ref === 'g1')).toBe(true);
+    expect(calls()[0][1]).toMatchObject({ agentRef: 'g1' });
+  });
+  it('and the asking Agent shown is the one that was asked', async () => {
+    answer([a1]);
+    const r = await run('agent=hostile');
+    expect(JSON.stringify(r)).not.toContain('hostile');
+  });
+});
+
+describe('#1654 item 6: the answer says which request it is for', () => {
+  it('carries the App as asked, the limit and the offset', async () => {
+    answer([a1, a2]);
+    expect(await run('app=%20app-2%20&limit=50&offset=40')).toMatchObject({ key: 'app-2|50|40' });
+    request.mockClear();
+    expect(await run()).toMatchObject({ key: '|20|0' });
+  });
+});

@@ -1,9 +1,11 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { page as appPage } from '$app/state';
   import SelectApp from '$lib/components/SelectApp.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import ActionRegisterList from './ActionRegisterList.svelte';
   import type { DefinitionRegister } from '$lib/action-register/definition';
+  import { parseLimit, parseOffset } from '$lib/action-register/present';
   import { t } from '$lib/i18n/t';
 
   /**
@@ -23,6 +25,13 @@
 
   const ready = $derived(register.kind === 'ready' ? register : null);
 
+  // A late answer for another App or page is not drawn under the controls of
+  // this one: the loader's key (App as asked | limit | offset) must be the URL's.
+  const current = $derived(
+    `${appPage.url.searchParams.get('app')?.trim() ?? ''}|${parseLimit(appPage.url.searchParams.get('limit'))}|${parseOffset(appPage.url.searchParams.get('offset'))}`,
+  );
+  const stale = $derived(ready !== null && ready.key !== current);
+
   function qs(over: Record<string, string | null>): string {
     const u = new URLSearchParams();
     const app = 'app' in over ? over.app : (ready?.appId ?? null);
@@ -40,7 +49,7 @@
 </script>
 
 <section aria-labelledby="register-heading" class="space-y-3 border-t border-zinc-200 pt-4 dark:border-zinc-800" data-testid="definition-register">
-  <h2 id="register-heading" class="text-lg font-semibold">{t('action-register.section.title', 'Codes for this task loc')}</h2>
+  <h2 id="register-heading" class="text-lg font-semibold">{t('action-register.section.title', 'Codes that send work to this task')}</h2>
 
   {#if register.kind === 'unavailable'}
     <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-unavailable">
@@ -67,12 +76,14 @@
 
     {#if register.index === null}
       <!-- No App chosen: nothing was asked, so nothing is empty. -->
+    {:else if stale}
+      <p role="status" class="text-sm text-zinc-500">{t('action-register.loading', 'Loading…')}</p>
     {:else if register.index.kind === 'agent-not-found' || register.index.kind === 'app-not-found'}
       <p role="status" class="text-sm text-zinc-600 dark:text-zinc-400" data-testid="register-not-available">{t('action-register.section.not-available', 'Not available for this App.')}</p>
     {:else if register.index.kind === 'failed'}
       <p role="alert" class="text-sm text-red-700 dark:text-red-300" data-testid="register-failed">{t('action-register.load-failed', 'Couldn’t load the action register.')}</p>
     {:else}
-      <ActionRegisterList page={register.index.page} offset={register.offset} limit={register.limit} definitionUrn={register.definitionUrn} {hrefFor} listKey="definition-action-register" />
+      <ActionRegisterList page={register.index.page} offset={register.offset} limit={register.limit} definitionUrn={register.definitionUrn} {hrefFor} listKey="definition-action-register" nextStep={t('action-register.empty.next-app', 'Choose a different App to see its codes.')} />
     {/if}
   {/if}
 </section>
