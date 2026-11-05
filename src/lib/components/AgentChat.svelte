@@ -408,7 +408,9 @@
         // from MY_CHATS_QUERY which now selects it.
         scope: body.chat.scope === 'shared' ? 'shared' : 'private',
       };
-      messages = body.messages ?? [];
+      // A 200 without a messages list is not a reload: keep what is shown and say so.
+      if (!Array.isArray(body.messages)) throw new Error('reload returned no messages');
+      messages = body.messages;
       // #793: the tail page plus the server's word on whether anything precedes
       // it. `hasOlder` comes from the endpoint, never from `messages.length` —
       // a full last page is indistinguishable from a middle one.
@@ -461,7 +463,7 @@
         // invite a resend that duplicates the turn, so reload instead. The route sets the flag only for a
         // recognised structured marker; without it this is today's failure path, unchanged.
         if (res.status === 409 && body.partialTurn === true) {
-          await handlePartialTurn(chatId, issuedWindow, typeof body.error === 'string' ? body.error : '');
+          await handlePartialTurn(chatId, issuedWindow, typeof body.error === 'string' && body.error.trim() !== '' ? body.error : t('agent-chat.partial-turn.generic', "Your message was sent and the reply was saved. You don't need to send it again."));
           return;
         }
         throw new Error(body.error ?? 'Turn failed');
@@ -529,7 +531,9 @@
       if (!res.ok) throw new Error('reload failed');
       // The user may have switched chats, or reopened this one, while the read was in flight.
       if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
-      messages = body.messages ?? [];
+      // A 200 without a messages list is not a reload: keep what is shown and say so.
+      if (!Array.isArray(body.messages)) throw new Error('reload returned no messages');
+      messages = body.messages;
       resetScrollback({ messages, hasOlder: body.hasOlder });
       reloaded = true;
       scrollMessagesToBottom();
