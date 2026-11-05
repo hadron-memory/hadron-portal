@@ -41,6 +41,9 @@ async function mountWith(review: TaskRead<Review>, over: Record<string, unknown>
 const q = (m: { target: HTMLElement }, id: string) => m.target.querySelector(`[data-testid="${id}"]`);
 const overall = (m: { target: HTMLElement }) => q(m, 'task-review-overall')?.textContent?.replace(/\s+/g, ' ').trim();
 const row = (m: { target: HTMLElement }, name: string) => m.target.querySelector(`tr[data-review-slot="${name}"]`) as HTMLElement | null;
+const headers = (m: { target: HTMLElement }) => [...m.target.querySelectorAll('thead th')].map((th) => th.querySelector('span')?.textContent);
+/** A row's cell under a column, found through the header, so it can't pass on another column's text. */
+const cellUnder = (m: { target: HTMLElement }, name: string, header: string) => row(m, name)!.querySelectorAll('td')[headers(m).indexOf(header)]?.textContent?.trim();
 
 describe('TaskReview on a build task', () => {
   it('every slot counting says Ready at the head, and lists each slot', async () => {
@@ -78,6 +81,18 @@ describe('TaskReview on a build task', () => {
     expect(row(m, 'blind')!.textContent).toContain('dddddddd');
     expect(row(m, 'blind')!.textContent).toContain('Older head');
     expect(row(m, 'local')!.textContent).not.toContain('Older head');
+  });
+
+  it('puts the answer first: at 390 only the leading columns are on screen', async () => {
+    const m = await mountWith(ok(answer([slot()])));
+    expect(headers(m)).toEqual(['Slot', 'Verdict', 'Counts toward ready', 'Seat', 'State', 'Head']);
+  });
+
+  it('shows the server’s counts, even on an approval at the current head that doesn’t count', async () => {
+    const m = await mountWith(ok(answer([slot({ counts: false }), blind()])));
+    expect(cellUnder(m, 'local', 'Verdict')).toBe('Approved');
+    expect(cellUnder(m, 'local', 'Counts toward ready')).toBe('No');
+    expect(cellUnder(m, 'blind', 'Counts toward ready')).toBe('Yes');
   });
 
   it('a CANCELLED current seat is Not ready', async () => {
