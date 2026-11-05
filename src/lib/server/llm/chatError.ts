@@ -21,8 +21,8 @@ export const CHAT_ERROR = {
   bootPromptRecordedRevisionDeleted: t('agent-chat.error.boot-prompt-recorded-revision-deleted', "The boot prompt version this conversation was given has been deleted, so it can't continue. Start a new chat."),
   // portal#916 — the reply was saved but the extraction was refused (hadron-server#3514). Only chosen under a
   // recognised structured partialTurn marker (see partialTurnRefusal); never names a task, revision, rule or config.
-  partialTurnAttestationMissing: t('agent-chat.error.partial-turn-attestation-missing', "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory."),
-  partialTurnAuthorTaskBroken: t('agent-chat.error.partial-turn-author-task-broken', "Your message was sent and the reply was saved, but the information it collected wasn't: the task this memory requires for that data is unavailable. It stays that way until whoever manages the memory repairs it."),
+  partialTurnAttestationMissing: t('agent-chat.error.partial-turn-attestation-missing', "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory. You don't need to send it again."),
+  partialTurnAuthorTaskBroken: t('agent-chat.error.partial-turn-author-task-broken', "Your message was sent and the reply was saved, but the information it collected wasn't: the task this memory requires for that data is unavailable. It stays that way until whoever manages the memory repairs it. You don't need to send it again."),
   failed: t('agent-chat.error.failed', 'Chat request failed. Please try again.'),
 } as const;
 
