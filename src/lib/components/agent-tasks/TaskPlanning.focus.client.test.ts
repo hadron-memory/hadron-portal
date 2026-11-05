@@ -35,6 +35,36 @@ describe('exhausted relation control focus', () => {
     expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(false);
     for (const title of ['Task old-wait', 'Task old-hold', 'Task new']) expect(m.target.textContent).toContain(title);
   });
+  it.each(['Load more Waits for', 'Load more Holds up'])('%s ignores a platform body-focus event while the final page is pending', async (name) => {
+    const m = await setup(); const trigger = m.more(name); activate(trigger, 'Enter'); await tick(3);
+    // Simulate the body-target focusin an engine may emit when the focused
+    // trigger is disabled/removed. This is an event-order pin, not a claim
+    // that a particular browser emits it (native coverage is Chromium).
+    trigger.blur(); document.body.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    m.settle(); await tick(12);
+    expect(trigger.isConnected).toBe(false);
+    expect(document.activeElement).toBe(m.filter);
+    expect(m.target.textContent).toContain('Task new');
+  });
+  it('does not reveal the filter for an activation that never owned focus', async () => {
+    const m = await setup(); m.more('Load more Waits for').click(); await tick(3);
+    m.settle(); await tick(12);
+    expect(m.target.textContent).toContain('Task new');
+    expect(document.activeElement).toBe(document.body);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+  });
+  it('targets the named filter even if a different input precedes it in the table', async () => {
+    const m = await setup(); const other = document.createElement('input'); other.type = 'checkbox';
+    m.filter.closest('[data-testid="table-frame"]')!.prepend(other);
+    activate(m.more('Load more Waits for'), 'Enter'); await tick(3); m.settle(); await tick(12);
+    expect(document.activeElement).toBe(m.filter);
+  });
+  it('hands off to the filter when its header was already open', async () => {
+    const m = await setup(); m.target.querySelector<HTMLButtonElement>('[data-testid="table-header-toggle"]')!.click(); await tick(3);
+    activate(m.more('Load more Holds up'), 'Enter'); await tick(3); m.settle(); await tick(12);
+    expect(document.activeElement).toBe(m.filter);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(false);
+  });
   it('preserves a newer focus, even if that newer target is subsequently blurred to body', async () => {
     const m = await setup(); activate(m.more('Load more Waits for'), 'Enter'); await tick(3);
     const newer = m.more('Choose a task'); newer.focus(); newer.blur();
