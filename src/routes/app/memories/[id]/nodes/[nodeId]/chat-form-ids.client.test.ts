@@ -28,6 +28,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
+import { parse } from 'svelte/compiler';
+import chatThreadSource from '$lib/components/ChatThread.svelte?raw';
 import {
   captureUnhandledRejections,
   mountComponent,
@@ -157,7 +159,41 @@ async function mountPage(node: ReturnType<typeof teamChatNode>, url: URL) {
 
 const duplicateWarnings = () => warnings.filter((w) => w.includes('Duplicate form id'));
 
+/** ChatThread opts out of registration: check its actual option, not an empty warning log. */
+function expectChatThreadWarningPolicy() {
+  const script = parse(chatThreadSource, { modern: true }).instance;
+  const calls = (script?.content.body ?? [])
+    .flatMap((statement) => statement.type === 'VariableDeclaration' ? statement.declarations : [])
+    .map((declaration) => declaration.init)
+    .filter((call) => call?.type === 'CallExpression' && call.callee.type === 'Identifier' && call.callee.name === 'superForm');
+  expect(calls).toHaveLength(1);
+  const call = calls[0];
+  if (call?.type !== 'CallExpression') throw new Error('ChatThread send superForm is missing');
+  expect(call.arguments[0]).toMatchObject({ type: 'Identifier', name: 'initialSendForm' });
+  const options = call.arguments[1];
+  if (options?.type !== 'ObjectExpression') throw new Error('ChatThread send options must be explicit');
+  const warningOption = options.properties.find((property) =>
+    property.type === 'Property' && property.key.type === 'Identifier' && property.key.name === 'warnings');
+  if (warningOption?.type !== 'Property' || warningOption.value.type !== 'ObjectExpression') {
+    throw new Error('ChatThread warning policy is missing');
+  }
+  const duplicateId = warningOption.value.properties.find((property) =>
+    property.type === 'Property' && property.key.type === 'Identifier' && property.key.name === 'duplicateId');
+  expect(duplicateId).toMatchObject({ value: { type: 'Literal', value: false } });
+  // Keep the explanation attached to this option, not an unrelated file comment.
+  const optionStart = (options as typeof options & { start: number }).start;
+  const warningStart = (warningOption as typeof warningOption & { start: number }).start;
+  expect(chatThreadSource.slice(optionStart, warningStart)).toContain(
+    'hrn:node:hadronmemory.com:hadron-portal:findings:superforms-duplicate-id-page-epoch',
+  );
+}
+
+
 describe('#1522 chat send form identity', () => {
+  it('states ChatThread’s registration opt-out and links its page-epoch rationale', () => {
+    expectChatThreadWarningPolicy();
+  });
+
   it('team chat: explicit node-scoped id, distinct from every other form, no duplicate warning', async () => {
     const { target, loaded } = await mountPage(teamChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`));
     expect((loaded.sendChatMessageForm as { id: string }).id).toBe('sendChatMessage:chat-pk');
