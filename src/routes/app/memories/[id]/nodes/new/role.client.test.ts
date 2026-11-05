@@ -56,6 +56,15 @@ describe('New node: role field (#1670)', () => {
     expect([...t.querySelectorAll('#createRoleSuggestions option')].map((o) => (o as HTMLOptionElement).value)).toEqual(['spec', 'review']);
   });
 
+  it('a manager gets the declared list INSTEAD of the plain datalist; a manager of a memory with no rules keeps the plain one', async () => {
+    const withRules = await mountPage([rule('spec')]);
+    expect(withRules.querySelector('#createRoleSuggestions')).toBeNull();
+    expect(withRules.querySelector('input[name="role"]')?.hasAttribute('list')).toBe(false);
+    const noRules = await mountPage([]);
+    expect(noRules.querySelector('[data-testid="create-role-declared"]')).toBeNull();
+    expect(noRules.querySelector('input[name="role"]')?.getAttribute('list')).toBe('createRoleSuggestions');
+  });
+
   it('a manager sees every declared role, nested included, as buttons', async () => {
     const t = await mountPage([rule('spec', { strictSubRoles: true }), rule('spec.feature'), rule('spec.feature.ui')]);
     const buttons = [...t.querySelectorAll('[data-testid="create-role-declared"] button')].map((b) => b.textContent?.trim());

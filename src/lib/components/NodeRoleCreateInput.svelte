@@ -2,9 +2,11 @@
   #1670 — the role field on the node-create page.
 
   Reuses #921's field contract: an open string, sent trimmed only, empty sends
-  none, nothing lower-cased. Everyone gets the plain suggestions. A manager of
-  the memory (the only caller who can read its rules) also gets the memory's
-  declared roles, every rule row, disabled ones marked rather than hidden. A
+  none, nothing lower-cased. A caller who cannot read the
+  memory's rules gets the plain suggestions. A manager of the memory (the only
+  caller who can read its rules) gets the memory's declared roles instead, every
+  rule row, disabled ones marked rather than hidden; the plain list is not
+  offered beside them (issue item 2: everyone else gets the existing ones). A
   suggestion only fills the field; nothing here ever rejects a value.
 -->
 <script lang="ts">
