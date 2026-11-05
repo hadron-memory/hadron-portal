@@ -108,7 +108,7 @@ describe('TaskReview on a build task', () => {
 
   it('follows the server’s ready, not its own count', async () => {
     const m = await mountWith(ok(answer([slot()], false)));
-    expect(overall(m)).toContain('Not ready');
+    expect(overall(m)).toBe('Not ready at cccccccc');
   });
 
   it('shows only the current seat: its link and its assignee, never a superseded seat', async () => {
