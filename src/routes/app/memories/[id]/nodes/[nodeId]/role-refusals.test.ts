@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClientError } from 'graphql-request';
+import { GraphQLError } from 'graphql';
 import { jsonFingerprint } from '$lib/properties-source';
 import { NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY } from '$lib/server/queries';
 const request = vi.fn();
@@ -17,13 +18,14 @@ const payloads = [
   ['updateAbstract', { abstract: 'kept draft', expectedRevision: '3' }],
   ['updateData', { data: '{"draft":true}', baseline: await jsonFingerprint({}) }],
   ['updateProperties', { properties: '{"draft":true}', baseline: await jsonFingerprint({}) }],
+  ['updateStorage', { _kind: 'updateStorage', objectType: '', propertiesJson: '{"draft":true}' }],
   ['updateMeta', { name: 'Kept name', loc: 'note', nodeType: 'info', description: 'kept draft', tags: '', seq: '1', alias: '' }],
 ] as const;
 beforeEach(() => { request.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => {}); });
 async function run(action: string, payload: Record<string, string>, extensions: Record<string, unknown>) {
   request.mockImplementation(async (doc) => {
     if ([NODE_BY_ID_QUERY, NODE_DATA_READ_QUERY, NODE_PROPERTIES_READ_QUERY, NODE_QUERY].includes(doc)) return { node };
-    throw new ClientError({ status: 200, errors: [{ message: extensions.code === 'ROLE_GOVERNED' ? 'original governed reason' : 'private wire prose', extensions }] }, { query: 'mutation privateQuery', variables: { secret: 'private variable' } });
+    throw new ClientError({ status: 200, headers: new Headers(), body: '', errors: [new GraphQLError(extensions.code === 'ROLE_GOVERNED' ? 'original governed reason' : 'private wire prose', { extensions })] }, { query: 'mutation privateQuery', variables: { secret: 'private variable' } });
   });
   const { actions } = await import('./+page.server');
   const fd = new FormData();
