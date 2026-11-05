@@ -32,6 +32,7 @@ describe('exhausted relation control focus', () => {
     m.settle(); await tick(12);
     expect(trigger.isConnected).toBe(false);
     expect(document.activeElement).toBe(m.filter);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(false);
     for (const title of ['Task old-wait', 'Task old-hold', 'Task new']) expect(m.target.textContent).toContain(title);
   });
   it('preserves a newer focus, even if that newer target is subsequently blurred to body', async () => {

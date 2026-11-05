@@ -1,7 +1,7 @@
 <script lang="ts">
   import { taskChoiceStatus } from '$lib/agent-tasks/planning';
   import TaskHandle from './TaskHandle.svelte';
-  import { onDestroy, untrack } from 'svelte';
+  import { onDestroy, tick, untrack } from 'svelte';
   import { page } from '$app/stores';
   import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
@@ -63,8 +63,16 @@
       pageFailed = { blockedBy: null, blocks: null };
     });
   });
-  async function loadMore(direction: Direction) {
+  let relationHeaderOpen = $state(false);
+  let relationTable: HTMLDivElement | undefined = $state();
+  // Track actual focus changes, including focus-away then blur-to-body while a
+  // page is pending. BODY alone cannot distinguish that from a removed button.
+  let focusEpoch = 0;
+  async function loadMore(direction: Direction, event: MouseEvent) {
     if (pending || pagePending[direction] || pageFailed[direction] === 'shifted' || relationView.kind !== 'ok' || !relationView.value[direction].hasMore) return;
+    const trigger = event.currentTarget as HTMLButtonElement;
+    const focusAtStart = focusEpoch;
+    const ownedFocus = document.activeElement === trigger;
     const current = relationGeneration;
     const targetApp = appId;
     const targetTask = task.id;
@@ -85,8 +93,17 @@
         pageFailed[direction] = 'shifted';
         return;
       }
+      const handoff = !page.hasMore && ownedFocus && focusEpoch === focusAtStart;
       loadedMore = true;
       relationView = { kind: 'ok', value: { ...relationView.value, [direction]: { items: [...relationView.value[direction].items, ...page.items], hasMore: page.hasMore } } };
+      if (handoff) {
+        relationHeaderOpen = true;
+        await tick();
+        if (current === relationGeneration && focusEpoch === focusAtStart && relationTable?.isConnected &&
+            !trigger.isConnected && document.activeElement === document.body) {
+          relationTable.querySelector<HTMLInputElement>('input')?.focus();
+        }
+      }
     } catch { if (current === relationGeneration) pageFailed[direction] = 'failed'; }
     finally { if (current === relationGeneration) pagePending[direction] = false; }
   }
@@ -153,6 +170,7 @@
     };
   };
 </script>
+<svelte:window onfocusin={() => { focusEpoch++; }} />
 <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-planning">
   <h2 id="task-planning" class="font-semibold text-zinc-900 dark:text-white">{t('app.tasks.planning', 'Priority and blockers')}</h2>
   {#if canPriority}
@@ -166,15 +184,17 @@
   {#if relationView.kind !== 'ok'}
     <p role="status" class="text-sm">{t('app.tasks.dependencies.unknown', 'Blocker relations are unavailable. Reload to try again.')}</p>
   {:else}
-    <DataTable {table} bind:globalFilter={relationFilter} listKey="task-dependencies" searchPlaceholder={t('app.tasks.dependencies.search', 'Filter loaded relations…')} searchAriaLabel={t('app.tasks.dependencies.search', 'Filter loaded relations…')} maxHeight="24rem">
-      {#snippet cell(cell, row)}
-        {#if cell.column.id === 'title'}<a href="/app/apps/{appId}/tasks/{encodeURIComponent(row.id)}" class="text-indigo-700 underline dark:text-indigo-300">{row.title}</a>
-        {:else if cell.column.id === 'remove'}
-          {#if canBlockers && row.direction === 'blockedBy'}<form method="POST" action="?/removeBlocker" use:enhance={submit}><input type="hidden" name="blockerTaskRef" value={row.id} /><button disabled={pending} aria-label={t('app.tasks.blocker.remove-label', 'Remove blocker {name}', { name: row.title?.trim() || row.handle || row.id })} class="rounded border px-2 py-1 text-sm disabled:opacity-50">{t('app.tasks.blocker.remove', 'Remove')}</button></form>{/if}
-        {:else if cell.column.id === 'handle'}<TaskHandle handle={row.handle} />
-        {:else}{String(cell.getValue() ?? '')}{/if}
-      {/snippet}
-    </DataTable>
+    <div bind:this={relationTable} class="min-w-0">
+      <DataTable {table} bind:headerOpen={relationHeaderOpen} bind:globalFilter={relationFilter} listKey="task-dependencies" searchPlaceholder={t('app.tasks.dependencies.search', 'Filter loaded relations…')} searchAriaLabel={t('app.tasks.dependencies.search', 'Filter loaded relations…')} maxHeight="24rem">
+        {#snippet cell(cell, row)}
+          {#if cell.column.id === 'title'}<a href="/app/apps/{appId}/tasks/{encodeURIComponent(row.id)}" class="text-indigo-700 underline dark:text-indigo-300">{row.title}</a>
+          {:else if cell.column.id === 'remove'}
+            {#if canBlockers && row.direction === 'blockedBy'}<form method="POST" action="?/removeBlocker" use:enhance={submit}><input type="hidden" name="blockerTaskRef" value={row.id} /><button disabled={pending} aria-label={t('app.tasks.blocker.remove-label', 'Remove blocker {name}', { name: row.title?.trim() || row.handle || row.id })} class="rounded border px-2 py-1 text-sm disabled:opacity-50">{t('app.tasks.blocker.remove', 'Remove')}</button></form>{/if}
+          {:else if cell.column.id === 'handle'}<TaskHandle handle={row.handle} />
+          {:else}{String(cell.getValue() ?? '')}{/if}
+        {/snippet}
+      </DataTable>
+    </div>
     <p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.dependencies.loaded-only', 'Search and table pages cover loaded relations only.')}</p>
     {#if directions.some((key) => relationView.kind === 'ok' && relationView.value[key].hasMore && pageFailed[key] !== 'shifted')}
       <p class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.tasks.dependencies.load-guidance', 'Load more in each direction to see later relations.')}</p>
@@ -185,7 +205,7 @@
     <div class="flex flex-wrap gap-3">
       {#each directions as key}
         <div class="space-y-1">
-          {#if relationView.value[key].hasMore && pageFailed[key] !== 'shifted'}<button type="button" disabled={pending || pagePending[key]} onclick={() => loadMore(key)} class="rounded border px-3 py-1 text-sm disabled:opacity-50">{key === 'blockedBy' ? t('app.tasks.dependencies.more-waits', 'Load more Waits for') : t('app.tasks.dependencies.more-holds', 'Load more Holds up')}</button>{/if}
+          {#if relationView.value[key].hasMore && pageFailed[key] !== 'shifted'}<button type="button" disabled={pending || pagePending[key]} onclick={(event) => loadMore(key, event)} class="rounded border px-3 py-1 text-sm disabled:opacity-50">{key === 'blockedBy' ? t('app.tasks.dependencies.more-waits', 'Load more Waits for') : t('app.tasks.dependencies.more-holds', 'Load more Holds up')}</button>{/if}
           {#if pagePending[key]}<p role="status" class="text-sm">{key === 'blockedBy' ? t('app.tasks.dependencies.loading-waits', 'Loading Waits for…') : t('app.tasks.dependencies.loading-holds', 'Loading Holds up…')}</p>{/if}
           {#if pageFailed[key] === 'shifted'}<p role="alert" class="text-sm">{t('app.tasks.dependencies.shifted', 'Relations changed while loading. Reload this view before loading more.')} {t('app.tasks.dependencies.unchanged', 'Loaded rows are unchanged.')} <a href={$page.url.pathname + $page.url.search} data-sveltekit-reload class="underline">{t('app.tasks.dependencies.reload-link', 'Reload this view')}</a></p>
           {:else if pageFailed[key] === 'failed'}<p role="alert" class="text-sm">{key === 'blockedBy' ? t('app.tasks.dependencies.failed-waits', 'Couldn’t load more Waits for. Try again.') : t('app.tasks.dependencies.failed-holds', 'Couldn’t load more Holds up. Try again.')} {t('app.tasks.dependencies.reload', 'Loaded rows are unchanged. Reload if the list changed.')}</p>{/if}

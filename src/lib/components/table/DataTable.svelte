@@ -32,6 +32,7 @@
     searchPlaceholder,
     searchAriaLabel,
     globalFilter = $bindable(''),
+    headerOpen = $bindable(false),
     showSearch = true,
     showFooter = true,
     maxHeight = 'max(200px, calc(100vh - 23rem))',
@@ -44,6 +45,8 @@
     searchPlaceholder: string;
     searchAriaLabel: string;
     globalFilter?: string;
+    /** Callers may reveal the existing filter before a guarded focus handoff. */
+    headerOpen?: boolean;
     /** Server-filtered callers supply their own search control. */
     showSearch?: boolean;
     /** Server-paged callers (a page of a larger list) draw their own Previous/Next and total. */
@@ -60,7 +63,6 @@
     cell: Snippet<[PortalCell<T, unknown>, T]>;
   } = $props();
 
-  let headerOpen = $state(false);
   const active = $derived(globalFilter.trim() !== '');
 
   const pageSize = $derived(table.atoms.pagination.get().pageSize);
