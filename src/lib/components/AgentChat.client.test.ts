@@ -160,3 +160,166 @@ describe('AgentChat: a refused start or send is shown once and never replayed (#
     m.unmount();
   });
 });
+
+/**
+ * portal#916: a chat turn whose extraction the authoring gate refused AFTER the server saved the reply
+ * (hadron-server#3514). The turn route answers 409 with a fixed message and `partialTurn: true`; the component
+ * must not roll the user bubble back or refill the sent text (a resend would duplicate the turn), must reload
+ * the conversation, must say so truthfully when the reload fails, must keep a newer draft, and must touch only the
+ * chat the turn belonged to. The same failure WITHOUT the flag keeps today's rollback.
+ */
+describe('AgentChat: a partial turn is reloaded, never rolled back or refilled (#916)', () => {
+  const NOTICE = "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory.";
+  const GENERIC = 'Chat request failed. Please try again.';
+  const REFRESH_FAILED = "The conversation couldn't be refreshed, so the saved messages may not be shown here. Reload the page to see them.";
+  let resumeBodies: Array<{ chatId: string }>;
+  let turnCalls: number;
+
+  type Script = {
+    turn?: () => Promise<Response> | Response;
+    resume?: (chatId: string) => Response | Promise<Response>;
+  };
+  const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  const CHATS = [
+    { id: 'i1', loc: 'chats:c1', title: 'First chat', conversationName: null, stageName: 'stage-one', messageCount: 0, createdAt: '2026-01-01T00:00:00Z', lastMessageAt: null, scope: 'private', createdBy: null },
+    { id: 'i2', loc: 'chats:c2', title: 'Second chat', conversationName: null, stageName: 'stage-one', messageCount: 0, createdAt: '2026-01-01T00:00:00Z', lastMessageAt: null, scope: 'private', createdBy: null },
+  ];
+  const SAVED = [
+    { role: 'user', content: 'hello there', seq: 1, createdAt: '2026-01-01T00:00:01Z' },
+    { role: 'assistant', content: 'the saved reply', seq: 2, createdAt: '2026-01-01T00:00:02Z' },
+  ];
+  const partial = () => json({ error: NOTICE, code: 'partialTurnAttestationMissing', partialTurn: true }, 409);
+
+  function stub(script: Script) {
+    resumeBodies = [];
+    turnCalls = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/agent-chat/list')) return json({ chats: CHATS });
+      if (url.includes('/api/agent-chat/start')) return json({ chatId: 'chats:c1', conversationName: 'c', stageName: 'stage-one', welcomeMessage: null, welcomeError: null, scope: 'private' });
+      if (url.includes('/api/agent-chat/turn')) { turnCalls += 1; return script.turn ? script.turn() : json({ assistantMessage: 'ok' }); }
+      if (url.includes('/api/agent-chat/resume')) {
+        const b = JSON.parse(String(init?.body ?? '{}')) as { chatId: string };
+        resumeBodies.push(b);
+        if (script.resume) return script.resume(b.chatId);
+        return json({ chat: { title: 'First chat', conversationName: null, stageName: 'stage-one', scope: 'private' }, messages: SAVED, hasOlder: false });
+      }
+      return json({});
+    }));
+  }
+  const text = () => document.body.textContent ?? '';
+  const occurrences = (s: string) => text().split(s).length - 1;
+  const box = () => document.querySelector('textarea') as HTMLTextAreaElement;
+  async function startChat() {
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    await wait(20);
+    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('New chat'))!.click();
+    await wait(30);
+    await tick();
+    return m;
+  }
+  function type(value: string) {
+    box().value = value;
+    box().dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  async function send(value: string) {
+    type(value);
+    await tick();
+    [...document.querySelectorAll('button')].find((b) => /send/i.test(b.textContent ?? ''))!.click();
+  }
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('reloads the conversation, shows the fixed notice once, does not refill the sent text and shows no stage toast', async () => {
+    stub({ turn: partial });
+    const m = await startChat();
+    const resumesBefore = resumeBodies.length;
+    await send('hello there');
+    await wait(40);
+    await tick();
+    expect(turnCalls).toBe(1);
+    expect(resumeBodies.slice(resumesBefore)).toEqual([{ agentId: 'agent-under-test', chatId: 'chats:c1' }]);
+    expect(occurrences(NOTICE)).toBe(1);
+    expect(box().value).toBe('');
+    // the reloaded server transcript is what is shown, and the sent message is not duplicated by a rollback or a refill
+    expect(occurrences('the saved reply')).toBe(1);
+    expect(occurrences('hello there')).toBe(1);
+    expect(text()).not.toContain('Stage transitioned');
+    expect(text()).not.toContain(GENERIC);
+    m.unmount();
+  });
+
+  it('a failed reload says the reply was saved and the refresh failed, never that the messages are shown, and still does not refill', async () => {
+    let first = true;
+    stub({
+      turn: partial,
+      resume: () => {
+        // the reload after the turn is the only resume in this test
+        first = false;
+        return json({ error: 'boom' }, 500);
+      },
+    });
+    const m = await startChat();
+    await send('hello there');
+    await wait(40);
+    await tick();
+    expect(first).toBe(false);
+    expect(occurrences(NOTICE)).toBe(1);
+    expect(occurrences(REFRESH_FAILED)).toBe(1);
+    expect(text()).not.toContain('boom');
+    expect(box().value).toBe('');
+    m.unmount();
+  });
+
+  it('keeps a draft typed while the turn was pending', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    stub({ turn: async () => { await gate; return partial(); } });
+    const m = await startChat();
+    await send('hello there');
+    await tick();
+    type('a newer draft');
+    await tick();
+    release();
+    await wait(40);
+    await tick();
+    expect(box().value).toBe('a newer draft');
+    expect(occurrences(NOTICE)).toBe(1);
+    m.unmount();
+  });
+
+  it('after a chat switch the other chat gets no reload and no notice', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    stub({
+      turn: async () => { await gate; return partial(); },
+      resume: (chatId) => json({ chat: { title: chatId, conversationName: null, stageName: 'stage-one', scope: 'private' }, messages: [{ role: 'assistant', content: `history of ${chatId}`, seq: 1, createdAt: '2026-01-01T00:00:01Z' }], hasOlder: false }),
+    });
+    const m = await startChat();
+    await send('hello there');
+    await tick();
+    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Second chat'))!.click();
+    await wait(30);
+    const resumesAfterSwitch = resumeBodies.length;
+    release();
+    await wait(40);
+    await tick();
+    expect(resumeBodies).toHaveLength(resumesAfterSwitch);
+    expect(resumeBodies.at(-1)).toEqual({ agentId: 'agent-under-test', chatId: 'chats:c2' });
+    expect(text()).not.toContain(NOTICE);
+    expect(text()).toContain('history of chats:c2');
+    m.unmount();
+  });
+
+  it('the same failure WITHOUT the flag keeps today\'s rollback: bubble dropped, text refilled, no reload', async () => {
+    stub({ turn: () => json({ error: GENERIC, code: 'failed' }, 500) });
+    const m = await startChat();
+    const resumesBefore = resumeBodies.length;
+    await send('hello there');
+    await wait(40);
+    await tick();
+    expect(occurrences(GENERIC)).toBe(1);
+    expect(box().value).toBe('hello there');
+    expect(resumeBodies).toHaveLength(resumesBefore);
+    m.unmount();
+  });
+});
