@@ -15,6 +15,7 @@ import {
   TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
 import { rosterOf } from '$lib/withheld';
+import type { TaskReview } from '$lib/agent-tasks/review';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
 import { NO_NARROW, narrowArgs, type BoardNarrow } from '$lib/agent-tasks/narrow';
 import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TaskRefs, TeamComposition, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
@@ -120,6 +121,10 @@ export async function loadHistory(
   } catch (e) {
     return classify(e, `history read for ${taskId}`);
   }
+}
+
+export async function loadReview(_client: GraphQLClient, _appRef: string, _taskId: string): Promise<TaskRead<TaskReview>> {
+  return { kind: 'ok', value: { readiness: null, seat: null } };
 }
 
 /** The breadcrumb follows this many parents; a deeper chain shows an ellipsis. */

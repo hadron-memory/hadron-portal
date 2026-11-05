@@ -5119,6 +5119,32 @@ export const AGENT_TASK_TREE_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1697 — the two facts the Review section starts from, read from the
+ * task's own typed events (hrn:node:hadronmemory.com:specs:cor:agt:130:03),
+ * never from the `pr.*` / `review.*` property mirrors.
+ */
+export const TASK_REVIEW_EVENTS_QUERY = /* GraphQL */ `
+  query TaskReviewEvents($appRef: ID!, $taskId: ID!, $types: [String!], $after: ID, $limit: Int) {
+    agentTeamEvents(appRef: $appRef, taskId: $taskId, types: $types, after: $after, limit: $limit) {
+      id
+      type
+      payload
+    }
+  }
+`;
+
+/** portal#1697 (hadron-server#3448): the server's readiness answer at the frozen head; the portal never works it out. */
+export const PULL_REQUEST_READINESS_QUERY = /* GraphQL */ `
+  query PullRequestReadiness($taskRef: ID!, $head: String!) {
+    pullRequestReadiness(taskRef: $taskRef, head: $head) {
+      ready
+      head
+      slots { slot currentTaskId state verdict head counts }
+    }
+  }
+`;
+
 export const AGENT_TASK_EVENTS_QUERY = /* GraphQL */ `
   ${AGENT_TASK_PARTY_FIELDS}
   query AgentTaskEvents($appRef: ID!, $taskId: ID!, $after: ID, $limit: Int) {
