@@ -168,6 +168,9 @@
     // HERE rather than re-scoping ids to dodge a mount-order artifact — and
     // the same test file pins this decision: two live ChatThreads (the
     // router's transition window) must log nothing.
+    // hrn:node:hadronmemory.com:hadron-portal:findings:superforms-duplicate-id-page-epoch
+    // This also skips duplicate-id registration: silence from a single thread
+    // is not distinct-id coverage. The tests pin the option and ids separately.
     warnings: { duplicateId: false },
   });
   const sendError = $derived(
