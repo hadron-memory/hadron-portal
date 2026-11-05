@@ -65,6 +65,9 @@
   let input = $state('');
   let sending = $state(false);
   let turnError = $state<string | null>(null);
+  // portal#916: set only for a turn the server half-saved (see handlePartialTurn). Carries the chat it belongs to
+  // so it can never show in, or reload, another chat.
+  let partialTurnNotice = $state<{ chatId: string; text: string; refreshFailed: boolean } | null>(null);
 
   // Inline rename state
   let renamingChatId = $state<string | null>(null);
@@ -301,6 +304,7 @@
   async function startNewChat() {
     loadingChat = true;
     turnError = null;
+    partialTurnNotice = null;
     messages = [];
     // A chat that does not exist yet has no history behind it.
     resetScrollback();
@@ -379,6 +383,7 @@
     if (activeChatId === chatId) return;
     loadingChat = true;
     turnError = null;
+    partialTurnNotice = null;
     welcomeNotice = null;
     messages = [];
     // Cleared BEFORE the fetch, not only on success: an in-flight scroll-up
@@ -403,6 +408,9 @@
         // from MY_CHATS_QUERY which now selects it.
         scope: body.chat.scope === 'shared' ? 'shared' : 'private',
       };
+      // Chat switch stays tolerant, as before #916: a missing list opens an empty
+      // transcript. The strict check lives in the partial-turn reload only, where
+      // the transcript on screen must not be replaced by nothing.
       messages = body.messages ?? [];
       // #793: the tail page plus the server's word on whether anything precedes
       // it. `hasOlder` comes from the endpoint, never from `messages.length` —
@@ -423,9 +431,13 @@
     const text = input.trim();
     if (!text || !activeChatId || sending) return;
     const chatId = activeChatId;
+    // portal#916: the window this turn was issued in. A chat id is not unique over time (leave and reopen the same
+    // chat and it is a new window), so the fence is captured HERE, when the turn is issued, never after its response.
+    const issuedWindow = windowGeneration;
     input = '';
     sending = true;
     turnError = null;
+    partialTurnNotice = null;
     welcomeNotice = null;
 
     // Optimistic user bubble
@@ -447,7 +459,16 @@
         body: JSON.stringify({ agentId, chatId, userMessage: text, appId, configName }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? 'Turn failed');
+      if (!res.ok) {
+        // portal#916: the server saved both messages before refusing the extraction. A rollback plus refill would
+        // invite a resend that duplicates the turn, so reload instead. The route sets the flag only for a
+        // recognised structured marker; without it this is today's failure path, unchanged.
+        if (res.status === 409 && body.partialTurn === true) {
+          await handlePartialTurn(chatId, issuedWindow, typeof body.error === 'string' && body.error.trim() !== '' ? body.error : t('agent-chat.partial-turn.generic', "Your message was sent and the reply was saved. You don't need to send it again."));
+          return;
+        }
+        throw new Error(body.error ?? 'Turn failed');
+      }
 
       // Assistant bubble
       messages = [
@@ -488,6 +509,41 @@
     } finally {
       sending = false;
     }
+  }
+
+  /**
+   * portal#916: a turn the server half-saved (reply and counter saved, extraction refused, stage not run).
+   * Reloads the conversation through the same resume read, shows the route's fixed message as a notice, keeps the
+   * current stage (no toast), and NEVER touches `input`: the sent text is not put back, and a draft the user typed
+   * since stays. Applies only to the chat the turn belonged to, and to the window it was sent in.
+   */
+  async function handlePartialTurn(chatId: string, generation: number, notice: string) {
+    // An old turn belongs to the window it was issued in: if the user left and reopened the chat since, the fresh
+    // window already loaded the saved messages and this turn must neither reload it again nor explain itself there.
+    if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+    let reloaded = false;
+    try {
+      const res = await fetch('/api/agent-chat/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, chatId }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error('reload failed');
+      // The user may have switched chats, or reopened this one, while the read was in flight.
+      if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+      // A 200 without a messages list is not a reload: keep what is shown and say so.
+      if (!Array.isArray(body.messages)) throw new Error('reload returned no messages');
+      messages = body.messages;
+      resetScrollback({ messages, hasOlder: body.hasOlder });
+      reloaded = true;
+      scrollMessagesToBottom();
+    } catch {
+      if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+    }
+    // Truthful when the reload failed: the reply is saved, but this screen may not show it.
+    partialTurnNotice = { chatId, text: notice, refreshFailed: !reloaded };
+    refreshChatList();
   }
 
   function onInputKeydown(e: KeyboardEvent) {
@@ -555,6 +611,7 @@
         messages = [];
         resetScrollback();
         welcomeNotice = null;
+        partialTurnNotice = null;
       }
       await refreshChatList();
     } catch (e) {
@@ -831,6 +888,19 @@
                 <span class="h-1.5 w-1.5 animate-bounce rounded-full bg-current" style="animation-delay: 300ms"></span>
               </span>
             </div>
+          </div>
+        {/if}
+      </div>
+
+      <!-- The status region stays mounted (empty) so the notice that arrives later is announced; a live region that is
+           mounted already populated is not reliably read. Margins live on the notice, not the region. -->
+      <div role="status" data-testid="partial-turn-notice">
+        {#if partialTurnNotice && partialTurnNotice.chatId === activeChatId}
+          <div class="mx-4 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <p>{partialTurnNotice.text}</p>
+            {#if partialTurnNotice.refreshFailed}
+              <p class="mt-1">{t('agent-chat.partial-turn.refresh-failed', "The conversation couldn't be refreshed, so the saved messages may not be shown here. Reload the page to see them.")}</p>
+            {/if}
           </div>
         {/if}
       </div>

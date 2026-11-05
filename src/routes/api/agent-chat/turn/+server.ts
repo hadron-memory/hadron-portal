@@ -1,5 +1,5 @@
 import { runChatTurn } from '$lib/server/llm/agentChatTurn.js';
-import { publicChatError } from '$lib/server/llm/chatError.js';
+import { partialTurnRefusal, publicChatError } from '$lib/server/llm/chatError.js';
 import type { RequestHandler } from './$types';
 
 /**
@@ -53,6 +53,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       headers: { 'Content-Type': 'application/json' },
     });
   } catch (e) {
+    // portal#916: the server saved the reply before it refused the extraction. Only a recognised structured
+    // marker says so; the flag tells the page to reload instead of rolling back and refilling (a resend would
+    // duplicate the turn). Fixed copy only: nothing from the server's message or extensions crosses.
+    const partial = partialTurnRefusal(e);
+    if (partial) {
+      return new Response(JSON.stringify({ error: partial.message, code: partial.code, partialTurn: true }), {
+        status: partial.status,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     const safe = publicChatError(e);
     return new Response(JSON.stringify({ error: safe.message, code: safe.code }), {
       status: safe.status,

@@ -1,5 +1,5 @@
 import { t } from '$lib/i18n/t';
-import { extractGqlErrorCode } from '$lib/gql-error';
+import { extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/gql-error';
 
 /** Only these fixed messages may cross the chat API boundary. Never retain a raw cause. */
 export const CHAT_ERROR = {
@@ -19,6 +19,10 @@ export const CHAT_ERROR = {
   bootPromptNotSigned: t('agent-chat.error.boot-prompt-not-signed', "No signed version of this Agent's boot prompt is available here, so the chat can't run until whoever manages it signs one. Trying again won't help until they do."),
   // Defensive: a bind or a run raises it; the chat path excludes it (server serve.ts).
   bootPromptRecordedRevisionDeleted: t('agent-chat.error.boot-prompt-recorded-revision-deleted', "The boot prompt version this conversation was given has been deleted, so it can't continue. Start a new chat."),
+  // portal#916 — the reply was saved but the extraction was refused (hadron-server#3514). Only chosen under a
+  // recognised structured partialTurn marker (see partialTurnRefusal); never names a task, revision, rule or config.
+  partialTurnAttestationMissing: t('agent-chat.error.partial-turn-attestation-missing', "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory. You don't need to send it again."),
+  partialTurnAuthorTaskBroken: t('agent-chat.error.partial-turn-author-task-broken', "Your message was sent and the reply was saved, but the information it collected wasn't: the task this memory requires for that data is unavailable. It stays that way until whoever manages the memory repairs it. You don't need to send it again."),
   failed: t('agent-chat.error.failed', 'Chat request failed. Please try again.'),
 } as const;
 
@@ -59,4 +63,38 @@ const CONFLICT_CODES: ReadonlySet<ChatErrorCode> = new Set<ChatErrorCode>([
 export function publicChatError(error: unknown): { code: ChatErrorCode; message: string; status: number } {
   const code = error instanceof ChatError ? error.code : (bootPromptRefusalCode(error) ?? 'failed');
   return { code, message: CHAT_ERROR[code], status: CONFLICT_CODES.has(code) ? 409 : 500 };
+}
+
+/** The two attestation refusals reachable through a chat turn's extraction -> portal code. */
+const PARTIAL_TURN_REFUSALS: Readonly<Record<string, ChatErrorCode>> = {
+  AUTHORING_ATTESTATION_MISSING: 'partialTurnAttestationMissing',
+  AUTHOR_TASK_BROKEN: 'partialTurnAuthorTaskBroken',
+};
+
+const isStringArrayWith = (value: unknown, member: string) => Array.isArray(value) && value.includes(member);
+
+/**
+ * portal#916: `processChatResponse` is not atomic. When the authoring gate refuses the extraction the server has
+ * already saved the assistant message and the counter, and says so in `extensions.partialTurn`
+ * (hadron-server#3514, PR #3518). That marker is the ONLY evidence of what was saved (hrn:node:hadronmemory.com:specs:cor:cht:020:01, step 2), so
+ * this is keyed on it and never on the code alone: the code without a recognised marker (a server without #3518,
+ * a malformed report) stays the generic failure, and the reader is never told the reply was saved.
+ *
+ * Recognised = `persisted` includes ASSISTANT_MESSAGE, `refused` has an EXTRACTION entry whose code equals the
+ * error's own code and is one of the two reachable ones, and `notRun` includes STAGE_PROGRESSION. Structured
+ * fields only, never message text. Returns the fixed copy and the 409 (fix-the-setup class), or null.
+ */
+export function partialTurnRefusal(error: unknown): { code: ChatErrorCode; message: string; status: 409 } | null {
+  const ext = extractGqlErrorExtensions(error);
+  const serverCode = extractGqlErrorCode(error);
+  if (!ext || !serverCode || !Object.hasOwn(PARTIAL_TURN_REFUSALS, serverCode)) return null;
+  const report = ext.partialTurn;
+  if (!report || typeof report !== 'object') return null;
+  const { persisted, refused, notRun } = report as { persisted?: unknown; refused?: unknown; notRun?: unknown };
+  const extractionRefused =
+    Array.isArray(refused) &&
+    refused.some((r) => !!r && typeof r === 'object' && (r as { component?: unknown }).component === 'EXTRACTION' && (r as { code?: unknown }).code === serverCode);
+  if (!isStringArrayWith(persisted, 'ASSISTANT_MESSAGE') || !extractionRefused || !isStringArrayWith(notRun, 'STAGE_PROGRESSION')) return null;
+  const code = PARTIAL_TURN_REFUSALS[serverCode];
+  return { code, message: CHAT_ERROR[code], status: 409 };
 }
