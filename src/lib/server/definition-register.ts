@@ -4,7 +4,7 @@ import { parseLimit, parseOffset } from '$lib/action-register/present';
 import type { DefinitionRegister } from '$lib/action-register/definition';
 
 /**
- * portal#1649 — the definition page's "Codes for this task loc" read.
+ * portal#1649 — the definition page's "Codes that send work to this task" read.
  *
  * Asking Agent: the route's own Agent (this is resolution for the displayed
  * context, not a claim that it owns an inherited node). App: only the one the
@@ -29,5 +29,6 @@ export async function loadDefinitionRegister(
   const index = app
     ? await loadActionRegisterIndex(client, { appRef: app.id, agentRef: input.agentId, taskLoc: input.node.loc, limit, offset })
     : null;
-  return { kind: 'ready', apps: opts.apps, app, appId: app?.id ?? null, index, limit, offset, definitionUrn: input.node.urn };
+  // The request this answer is for (App as asked, limit, offset): the section discards it if the URL moved on.
+  return { kind: 'ready', apps: opts.apps, app, appId: app?.id ?? null, index, limit, offset, definitionUrn: input.node.urn, key: `${asked}|${limit}|${offset}` };
 }

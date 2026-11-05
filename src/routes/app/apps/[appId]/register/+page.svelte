@@ -5,6 +5,7 @@
   import SelectAgent from '$lib/components/SelectAgent.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import ActionRegisterList from '$lib/components/action-register/ActionRegisterList.svelte';
+  import { parseLimit, parseOffset } from '$lib/action-register/present';
   import { t } from '$lib/i18n/t';
   import type { PageData } from './$types';
 
@@ -20,9 +21,11 @@
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
   let pickerOpen = $state(false);
 
-  // A late answer for another App, Agent or page is not drawn under the
-  // controls of this one.
-  const current = $derived(`${data.app.id}|${appPage.url.searchParams.get('agent')?.trim() ?? ''}|${data.limit}|${data.offset}`);
+  // A late answer for another App, Agent, limit or page is not drawn under the
+  // controls of this one: every term comes from the URL, none from the answer.
+  const current = $derived(
+    `${data.app.id}|${appPage.url.searchParams.get('agent')?.trim() ?? ''}|${parseLimit(appPage.url.searchParams.get('limit'))}|${parseOffset(appPage.url.searchParams.get('offset'))}`,
+  );
   const stale = $derived(data.key !== current);
 
   function hrefFor(offset: number): string {
@@ -98,6 +101,6 @@
       {t('action-register.load-failed', 'Couldn’t load the action register.')}
     </div>
   {:else if data.index.kind === 'ok'}
-    <ActionRegisterList page={data.index.page} offset={data.offset} limit={data.limit} {hrefFor} listKey="app-action-register" />
+    <ActionRegisterList page={data.index.page} offset={data.offset} limit={data.limit} {hrefFor} listKey="app-action-register" nextStep={t('action-register.empty.next-agent', 'Choose a different Agent to see its codes.')} />
   {/if}
 </div>
