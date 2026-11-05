@@ -3024,12 +3024,6 @@
         <input type="hidden" name="_kind" value="removeAgent" />
         <input type="hidden" name="agentId" value={$removeAgentForm.agentId} />
       </form>
-      <!-- #1684: Install's submit target, the same shape. -->
-      <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
-        <input type="hidden" name="_kind" value="addAgent" />
-        <input type="hidden" name="__superform_id" value={installFormId} />
-        <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
-      </form>
 
       <!-- Add an agent: the install picker that used to appear only while the
            App had no agent. -->
@@ -3086,6 +3080,16 @@
           <p class="text-sm text-zinc-500">{t('app.agents.add.none', 'There is no other agent to add.')}</p>
         {/if}
       </section>
+      <!-- #1684: Install's submit target, one hidden form for every derived row. A
+           withheld roster offers no add, this one included. It stays mounted across
+           the install: the reload that follows drops the row that asked. -->
+      {#if !agentsWithheld}
+        <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
+          <input type="hidden" name="_kind" value="addAgent" />
+          <input type="hidden" name="__superform_id" value={installFormId} />
+          <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
+        </form>
+      {/if}
     </div>
     </div>
   {/if}
