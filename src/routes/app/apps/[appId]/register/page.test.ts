@@ -18,8 +18,8 @@ const data = (key: string, over: Record<string, unknown> = {}) => ({
   index: { kind: 'ok', page: { entries: [entry], total: 1, hasMore: false } },
   ...over,
 });
-const draw = (key: string, search: string) => {
-  setStubPage(`http://localhost/app/apps/app-1/register${search}`);
+const draw = (key: string, search: string, appId = 'app-1') => {
+  setStubPage(`http://localhost/app/apps/${appId}/register${search}`, { appId });
   return render(Page as never, { props: { data: data(key) } as never }).body;
 };
 afterEach(() => resetStubPage());
@@ -38,5 +38,14 @@ describe('App register page stale guard', () => {
     const out = draw('app-1|g1|20|0', search);
     expect(out).not.toContain('build.ready');
     expect(out).toContain('Loading…');
+  });
+  // #1731 BLIND P2-1: the App term must come from the route, not from the (possibly stale) answer.
+  it('does not draw app-1\'s answer under app-2\'s URL when Agent, limit and offset are unchanged', () => {
+    const out = draw('app-1|g1|20|0', '?agent=g1', 'app-2');
+    expect(out).not.toContain('build.ready');
+    expect(out).toContain('Loading…');
+  });
+  it('still draws the answer when the route App is the one it was asked for', () => {
+    expect(draw('app-1|g1|20|0', '?agent=g1', 'app-1')).toContain('build.ready');
   });
 });
