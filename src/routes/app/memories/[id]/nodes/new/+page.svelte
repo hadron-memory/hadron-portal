@@ -6,6 +6,7 @@
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import PropertiesEditor from '$lib/components/PropertiesEditor.svelte';
+  import NodeRoleCreateInput from '$lib/components/NodeRoleCreateInput.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { declaredObjectType, objectTypeNames, readMemorySchema } from '$lib/schema/memory-schema';
   import { deriveDefaultLoc } from '$lib/create-node/derive-default-loc';
@@ -294,6 +295,8 @@
         {/if}
       </div>
     {/if}
+
+    <NodeRoleCreateInput bind:value={$formData.role} rules={data.roleRules} {inputClass} />
 
     <div>
       <label for="description" class="mb-1 block text-xs text-zinc-500 dark:text-zinc-400">

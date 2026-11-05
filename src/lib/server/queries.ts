@@ -3572,6 +3572,20 @@ export const NODE_EXPORT_QUERY = /* GraphQL */ `
 // 'NODE_NOT_FOUND' on miss; every content field optional, omitted =
 // preserved). updateNode selects its target by `id` (PK or node URN) XOR
 // (`memoryId` + `loc`).
+// #1670: the memory's node-role rules, for the create page's role suggestions.
+// Memory.config is null for anyone who does not MANAGE the memory, so this is
+// also the manager check. Read by the create page only, never the shared layout.
+export const MEMORY_ROLE_RULES_QUERY = /* GraphQL */ `
+  query MemoryRoleRules($ref: ID!) {
+    memory(ref: $ref) {
+      id
+      config {
+        rules { role enabled writers strictSubRoles descriptionNode descriptionNodeState }
+      }
+    }
+  }
+`;
+
 export const CREATE_NODE_MUTATION = /* GraphQL */ `
   ${NODE_FIELDS}
   mutation CreateNode($input: CreateNodeInput!) {
