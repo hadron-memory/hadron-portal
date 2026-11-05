@@ -1,9 +1,10 @@
+import { nodeWriteErrorText } from '$lib/node-role-refusal';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError, extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
+import { extractGqlErrorCode, extractGqlErrorExtensions } from '$lib/server/gqlError';
 import { runStartError, runStartStatus } from '$lib/server/run-start-error';
 import { runAgentChoice } from '$lib/run-agent';
 import type { InstalledAgent } from '$lib/app-installed-agents';
@@ -683,7 +684,7 @@ async function saveNodeText(
   try {
     ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_BY_ID_QUERY, { ref: nodeRef }));
   } catch (e: unknown) {
-    return fail(500, { [failed]: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node', NODE_WRITE_REFUSALS) } });
+    return fail(500, { [failed]: { code: 'failed', detail: nodeWriteErrorText(e, 'Failed to read the node', NODE_WRITE_REFUSALS) } });
   }
   if (!node) return fail(404, { [failed]: { code: 'not-found', detail: null } });
 
@@ -729,13 +730,13 @@ async function saveNodeText(
     // mismatch (a concurrent move answers with it too), so the page words the
     // conflict generically unless the reload shows THIS field moved.
     if (extractGqlErrorCode(e) === 'NODE_WRITE_CONFLICT') {
-      return fail(409, { [failed]: { code: 'changed', detail: extractGqlError(e, '', NODE_WRITE_REFUSALS) || null } });
+      return fail(409, { [failed]: { code: 'changed', detail: nodeWriteErrorText(e, '', NODE_WRITE_REFUSALS) || null } });
     }
     // portal#1142 P0a: an include refusal (hadron-server#2040) wrote nothing;
     // say so with the server's words, the tag and the next step.
     const include = includeRefusalOf(e);
     if (include) return fail(400, { [failed]: { code: 'include', detail: includeRefusalText(include) } });
-    const detail = extractGqlError(e, 'Save failed', NODE_WRITE_REFUSALS);
+    const detail = nodeWriteErrorText(e, 'Save failed', NODE_WRITE_REFUSALS);
     if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { [failed]: { code: 'rejected', detail } });
     return fail(500, { [failed]: { code: 'failed', detail } });
   }
@@ -779,7 +780,7 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('node.create-parent.saved', 'Parent node created.') }),
       };
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to create parent node', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to create parent node', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
 
@@ -841,13 +842,13 @@ export const actions: Actions = {
     try {
       assertNodeUpdateDoor(currentNode, input);
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
 
     try {
       await client.request(nodeUpdateDocument(currentNode, input), { input });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
 
     // Move if loc changed. #237: route the move through the node's OWN
@@ -875,7 +876,7 @@ export const actions: Actions = {
         // An occupied destination is a 409 Conflict, not a 500 — matches the
         // /api/nodes/move endpoint and keeps it out of error monitoring.
         const status = extractGqlErrorCode(e) === 'NODE_ALREADY_EXISTS' ? 409 : 500;
-        const detail = extractGqlError(e, 'Failed to move node', NODE_WRITE_REFUSALS);
+        const detail = nodeWriteErrorText(e, 'Failed to move node', NODE_WRITE_REFUSALS);
         const text = t('node.meta.saved-not-moved', 'Saved, but the node was not moved: {detail}', { detail });
         if (status === 409) setError(form, 'loc', text);
         else message(form, { type: 'error', text });
@@ -924,7 +925,7 @@ export const actions: Actions = {
         });
         return fail(409, { form, deleteRefusedDescendants: count });
       }
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to delete', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to delete', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
     // Redirect to the *actual* memory's list — not the URL's gid, which
     // may have been stale.
@@ -976,7 +977,7 @@ export const actions: Actions = {
       console.error('[node-detail] send chat message failed:', e);
       return message(
         form,
-        { type: 'error', text: extractGqlError(e, 'Failed to send message', NODE_WRITE_REFUSALS) },
+        { type: 'error', text: nodeWriteErrorText(e, 'Failed to send message', NODE_WRITE_REFUSALS) },
         { status: 500 },
       );
     }
@@ -1029,7 +1030,7 @@ export const actions: Actions = {
     try {
       ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_DATA_READ_QUERY, { ref: params.nodeId }));
     } catch (e: unknown) {
-      return fail(500, { dataFailed: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node', NODE_WRITE_REFUSALS) } });
+      return fail(500, { dataFailed: { code: 'failed', detail: nodeWriteErrorText(e, 'Failed to read the node', NODE_WRITE_REFUSALS) } });
     }
     if (!node) return fail(404, { dataFailed: { code: 'not-found', detail: null } });
 
@@ -1051,7 +1052,7 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
     } catch (e: unknown) {
       if (e instanceof NoNodeDoorError) return fail(409, { dataFailed: { code: 'no-door', detail: e.message } });
-      const detail = extractGqlError(e, 'Failed to save', NODE_WRITE_REFUSALS);
+      const detail = nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS);
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') return fail(400, { dataFailed: { code: 'rejected', detail } });
       return fail(500, { dataFailed: { code: 'failed', detail } });
     }
@@ -1097,7 +1098,7 @@ export const actions: Actions = {
     try {
       ({ node } = await client.request<{ node: MemoryNode | null }>(NODE_PROPERTIES_READ_QUERY, { ref: params.nodeId }));
     } catch (e: unknown) {
-      return fail(500, { propertiesFailed: { code: 'failed', detail: extractGqlError(e, 'Failed to read the node', NODE_WRITE_REFUSALS) } });
+      return fail(500, { propertiesFailed: { code: 'failed', detail: nodeWriteErrorText(e, 'Failed to read the node', NODE_WRITE_REFUSALS) } });
     }
     if (!node) return fail(404, { propertiesFailed: { code: 'not-found', detail: null } });
 
@@ -1116,7 +1117,7 @@ export const actions: Actions = {
       if (e instanceof NoNodeDoorError) {
         return fail(409, { propertiesFailed: { code: 'no-door', detail: e.message } });
       }
-      const detail = extractGqlError(e, 'Failed to save', NODE_WRITE_REFUSALS);
+      const detail = nodeWriteErrorText(e, 'Failed to save', NODE_WRITE_REFUSALS);
       // #588: a memory-schema verdict (strict collection, wrong type, missing
       // required field) — the server's words, verbatim.
       if (extractGqlErrorCode(e) === 'BAD_USER_INPUT') {
@@ -1169,7 +1170,7 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
       return message(form, { type: 'success', text: t('node.flow.saved', 'Flow settings saved.') });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Save failed', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Save failed', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
 
@@ -1249,7 +1250,7 @@ export const actions: Actions = {
         // An occupied -copy slot just means "try the next suffix"; anything
         // else surfaces as-is.
         if (extractGqlErrorCode(e) !== 'NODE_ALREADY_EXISTS') {
-          return message(form, { type: 'error', text: extractGqlError(e, 'Failed to duplicate node', NODE_WRITE_REFUSALS) }, { status: 500 });
+          return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to duplicate node', NODE_WRITE_REFUSALS) }, { status: 500 });
         }
       }
     }
@@ -1319,7 +1320,7 @@ export const actions: Actions = {
       if (code === 'COMMENT_MOVE_UNCOMMENTABLE') {
         return setError(form, 'target', commentMoveRefusedText(), { status: 409 });
       }
-      const error = extractGqlError(e, 'Failed to move node', NODE_WRITE_REFUSALS);
+      const error = nodeWriteErrorText(e, 'Failed to move node', NODE_WRITE_REFUSALS);
       const fieldStatus =
         code === 'NODE_ALREADY_EXISTS' ? 409
         : code === 'CONFLICT' ? 409
@@ -1371,7 +1372,7 @@ export const actions: Actions = {
         ...message(form, { type: 'success', text: t('node-actions.convert-to-task.saved', 'Node converted to a task.') }),
       };
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to convert node to a task', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to convert node to a task', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
 
@@ -1472,7 +1473,7 @@ export const actions: Actions = {
       await client.request(nodeUpdateDocument(node, input), { input });
       return message(form, { type: 'success', text: t('node.edges.saved', 'Edges saved.') });
     } catch (e: unknown) {
-      return message(form, { type: 'error', text: extractGqlError(e, 'Failed to update edges', NODE_WRITE_REFUSALS) }, { status: 500 });
+      return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to update edges', NODE_WRITE_REFUSALS) }, { status: 500 });
     }
   },
 
@@ -1531,7 +1532,7 @@ export const actions: Actions = {
         await client.request(nodeUpdateDocument(node, input), { input });
       }
     } catch (e: unknown) {
-      return fail(500, { error: extractGqlError(e, 'Reorder failed', NODE_WRITE_REFUSALS) });
+      return fail(500, { error: nodeWriteErrorText(e, 'Reorder failed', NODE_WRITE_REFUSALS) });
     }
   },
 };

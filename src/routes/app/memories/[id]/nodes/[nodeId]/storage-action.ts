@@ -1,3 +1,4 @@
+import { nodeWriteErrorText } from '$lib/node-role-refusal';
 /**
  * #1031 — the Properties tab's storage form: object type, typed properties and
  * the skill export.
@@ -16,7 +17,7 @@ import type { Infer, SuperValidated } from 'sveltekit-superforms';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
 import { zod4 } from 'sveltekit-superforms/adapters';
 import { gqlClient } from '$lib/server/api';
-import { extractGqlError, extractGqlErrorCode } from '$lib/server/gqlError';
+import { extractGqlErrorCode } from '$lib/server/gqlError';
 import { NODE_BY_ID_QUERY } from '$lib/server/queries';
 // #868: the write goes through the door chooser; naming a mutation document
 // here directly is what `scripts/check-node-write-doors.mjs` fails.
@@ -130,13 +131,13 @@ export async function updateStorage({ request, params, locals }: RequestEvent<{ 
   try {
     assertNodeUpdateDoor(currentNode, input);
   } catch (e: unknown) {
-    return message(form, { type: 'error', text: extractGqlError(e, 'Failed to save', ["BAD_USER_INPUT"]) }, { status: 500 });
+    return message(form, { type: 'error', text: nodeWriteErrorText(e, 'Failed to save', ["BAD_USER_INPUT"]) }, { status: 500 });
   }
 
   try {
     await client.request(nodeUpdateDocument(currentNode, input), { input });
   } catch (e: unknown) {
-    const text = extractGqlError(e, 'Failed to save', ["BAD_USER_INPUT"]);
+    const text = nodeWriteErrorText(e, 'Failed to save', ["BAD_USER_INPUT"]);
     // #588: a memory-schema violation (undeclared collection, missing
     // required field, wrong type, unknown key under strict) — surface the
     // server's verdict verbatim on the properties field.

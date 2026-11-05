@@ -3239,7 +3239,7 @@
               onclick={saveContent}
               disabled={readOnly || saving || !contentDraft.dirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >{saving ? 'Saving...' : 'Save'}</button>
+            >{saving ? t('node.text.saving', 'Saving…') : contentSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
           </div>
           {#if contentSaveError}
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{contentSaveError}</p>
@@ -3326,7 +3326,7 @@
                 onclick={saveAbstract}
                 disabled={readOnly || savingAbstract || !abstractDraft.dirty}
                 class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-              >{savingAbstract ? 'Saving...' : 'Save'}</button>
+              >{savingAbstract ? t('node.text.saving', 'Saving…') : abstractSaveError ? t('node.save.retry', 'Retry') : t('node.text.save', 'Save')}</button>
             </div>
           </div>
           <!-- #936: derived from THIS memory's vector config; no claim when
@@ -3433,7 +3433,7 @@
               onclick={saveData}
               disabled={readOnly || savingData || !dataParse.ok || !dataDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >{savingData ? t('node.data.source.saving', 'Saving…') : t('node.data.source.save', 'Save')}</button>
+            >{savingData ? t('node.data.source.saving', 'Saving…') : dataSaveError ? t('node.save.retry', 'Retry') : t('node.data.source.save', 'Save')}</button>
           </div>
           {#if dataSaveError}
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{dataSaveError}</p>
@@ -3541,7 +3541,7 @@
               onclick={saveProperties}
               disabled={readOnly || savingProperties || !propertiesParse.ok || !propertiesDirty}
               class="rounded-md bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed"
-            >{savingProperties ? t('node.properties.source.saving', 'Saving…') : t('node.properties.source.save', 'Save')}</button>
+            >{savingProperties ? t('node.properties.source.saving', 'Saving…') : propertiesSaveError ? t('node.save.retry', 'Retry') : t('node.properties.source.save', 'Save')}</button>
           </div>
           {#if propertiesSaveError}
             <p role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{propertiesSaveError}</p>
@@ -4311,7 +4311,7 @@
               </div>
               <div class="flex gap-3">
                 <button type="submit" disabled={readOnly || $updateMetaSubmitting} class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-40">
-                  {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : t('node.meta.save', 'Save')}
+                  {$updateMetaSubmitting ? t('node.meta.saving', 'Saving...') : $updateMetaMessage?.type === 'error' ? t('node.save.retry', 'Retry') : t('node.meta.save', 'Save')}
                 </button>
                 <button type="button" onclick={() => isEditing = false} class="px-3 py-2 text-sm text-zinc-500 hover:text-zinc-300">Cancel</button>
               </div>
