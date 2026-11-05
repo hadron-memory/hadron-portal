@@ -188,7 +188,11 @@ export async function submitEnhancedDeferred(
  * downstream of a submit ever runs (#957). A no-op for other result types, and
  * never reached unless a test drives a result through `submitEnhancedWithResult`.
  */
+/** Every result handed to `applyAction`, in order. A test empties it itself. */
+export const kitAppliedResults: unknown[] = [];
+
 export function applyAction(result?: { type?: string; status?: number; data?: unknown }): Promise<void> {
+  kitAppliedResults.push(result);
   if (result && (result.type === 'success' || result.type === 'failure')) {
     // Kit's applyAction resets focus to the document body once the result is
     // applied (portal#1367: a native run saw it land BEFORE a form's own

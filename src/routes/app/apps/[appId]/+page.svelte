@@ -7,6 +7,7 @@
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
+  import { applyAction } from '$app/forms';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -1123,15 +1124,34 @@
       installAttemptGeneration = installGeneration;
       installRefreshFailed = false;
     },
-    onResult: ({ cancel }) => {
+    // Superforms awaits between its hooks, and the App can change during any of those
+    // waits. With applyAction on, Kit would then apply the result and reset focus with
+    // no hook left to stop it. Off, the form takes the result itself, onUpdated below
+    // drops one that went stale, and only a redirect still needs Kit.
+    applyAction: false,
+    onResult: async ({ result, cancel }) => {
       if (installAttemptGeneration !== installGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+    // Superforms' default rethrows, leaving the row's Actions disabled. The request
+    // failed, so whether the install landed isn't known and this claims neither.
+    onError: () => {
+      if (installAttemptGeneration !== installGeneration) return;
+      installAgentMessage.set({
+        type: 'error',
+        text: t('app.agents.install.unconfirmed', 'The install could not be confirmed. Reload the page to check before trying again.'),
+      });
     },
     // The refresh is ours, so a rejection after a CONFIRMED install is told
     // truthfully instead of stranding the form. The install is never retried.
     invalidateAll: false,
     onUpdated: async ({ form: f }) => {
       const attempt = installAttemptGeneration;
-      if (attempt !== installGeneration || f.message?.type !== 'success') return;
+      if (attempt !== installGeneration) {
+        installAgentMessage.set(undefined);
+        return;
+      }
+      if (f.message?.type !== 'success') return;
       try {
         await invalidateAll();
       } catch {
