@@ -43,6 +43,6 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     offset,
     // The request this answer is for: a view that finds it differs from the URL
     // it is showing discards the answer instead of drawing it under new controls.
-    key: `${app.id}|${agentRef}|${limit}|${offset}`,
+    key: `${params.appId}|${agentRef}|${limit}|${offset}`,
   };
 };

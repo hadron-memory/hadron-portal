@@ -38,9 +38,7 @@ describe('paging from the URL (cor:api:120:04)', () => {
   });
 });
 
-describe('what a page may claim about the whole list', () => {
-  it('only the first page with no more rows is the whole list', () => {
-  });
+describe('what a page claims about its neighbours', () => {
   it('Next comes from hasMore, Previous from offset, and previous never goes below 0', () => {
     expect(pageClaims({ offset: 0, limit: 20, total: 45, hasMore: true })).toMatchObject({ nextOffset: 20, prevOffset: null });
     expect(pageClaims({ offset: 20, limit: 20, total: 45, hasMore: true })).toMatchObject({ nextOffset: 40, prevOffset: 0 });

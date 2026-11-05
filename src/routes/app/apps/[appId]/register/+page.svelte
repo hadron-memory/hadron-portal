@@ -22,9 +22,10 @@
   let pickerOpen = $state(false);
 
   // A late answer for another App, Agent, limit or page is not drawn under the
-  // controls of this one: every term comes from the URL, none from the answer.
+  // controls of this one: every term comes from the URL, none from the answer
+  // (the App is the route's own param, as the loader keyed it).
   const current = $derived(
-    `${data.app.id}|${appPage.url.searchParams.get('agent')?.trim() ?? ''}|${parseLimit(appPage.url.searchParams.get('limit'))}|${parseOffset(appPage.url.searchParams.get('offset'))}`,
+    `${appPage.params.appId ?? ''}|${appPage.url.searchParams.get('agent')?.trim() ?? ''}|${parseLimit(appPage.url.searchParams.get('limit'))}|${parseOffset(appPage.url.searchParams.get('offset'))}`,
   );
   const stale = $derived(data.key !== current);
 
