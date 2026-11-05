@@ -478,4 +478,49 @@ describe('AgentChat: a partial turn is reloaded, never rolled back or refilled (
     expect(resumeBodies).toHaveLength(resumesBefore);
     m.unmount();
   });
+
+  // #1727 BLIND (AT0.4856.10) P2 and P3-3/P3-4, folded into one head.
+  it('the composer unlocks after a partial turn: a second send in the same mount goes out, and a later plain failure still rolls back (BLIND P2)', async () => {
+    let n = 0;
+    stub({ turn: () => { n += 1; return n === 1 ? partial() : n === 2 ? json({ assistantMessage: 'second reply' }) : json({ error: GENERIC, code: 'failed' }, 500); } });
+    const m = await startChat();
+    await send('first');
+    await wait(40);
+    await tick();
+    expect(box().disabled).toBe(false);
+    await send('second');
+    await wait(40);
+    await tick();
+    expect(turnCalls).toBe(2);
+    expect(text()).toContain('second reply');
+    await send('third');
+    await wait(40);
+    await tick();
+    expect(turnCalls).toBe(3);
+    expect(occurrences(GENERIC)).toBe(1);
+    expect(box().value).toBe('third');
+    m.unmount();
+  });
+
+  it('a flagged 409 whose error text is missing still says something: the generic saved-and-no-resend copy, never an empty box (BLIND P3-3)', async () => {
+    stub({ turn: () => json({ code: 'partialTurnAttestationMissing', partialTurn: true }, 409) });
+    const m = await startChat();
+    await send('hello there');
+    await wait(40);
+    await tick();
+    const region = document.querySelector('[data-testid="partial-turn-notice"]')!;
+    expect(region.textContent).toContain("Your message was sent and the reply was saved. You don't need to send it again.");
+    m.unmount();
+  });
+
+  it('a reload that answers 200 without a messages list is a failed reload: the transcript is kept and the notice says it could not refresh (BLIND P3-4)', async () => {
+    stub({ turn: partial, resume: () => json({ chat: { title: 'First chat', conversationName: null, stageName: 'stage-one', scope: 'private' }, hasOlder: false }) });
+    const m = await startChat();
+    await send('hello there');
+    await wait(40);
+    await tick();
+    expect(text()).toContain('hello there');
+    expect(text()).toContain(REFRESH_FAILED);
+    m.unmount();
+  });
 });
