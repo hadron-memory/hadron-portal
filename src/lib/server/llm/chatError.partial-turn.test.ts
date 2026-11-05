@@ -2,7 +2,7 @@
  * portal#916 partial-turn slice: the chat turn is not atomic on the server. When the authoring gate refuses the
  * extraction, hadron-server#3514 (PR #3518) reports `extensions.partialTurn`: the assistant message and counter
  * were saved, the extraction was refused, the stage did not advance. The marker, never the code alone, is the only
- * evidence of what was saved (cor:cht:020:01 step 2), so every mapping here is keyed on structured fields and a
+ * evidence of what was saved (hrn:node:hadronmemory.com:specs:cor:cht:020:01, step 2), so every mapping here is keyed on structured fields and a
  * missing or malformed marker keeps today's generic failure.
  *
  * The expected copy is restated here on purpose, independent of chatError.ts.

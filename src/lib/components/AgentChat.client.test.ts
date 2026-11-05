@@ -310,6 +310,37 @@ describe('AgentChat: a partial turn is reloaded, never rolled back or refilled (
     m.unmount();
   });
 
+  it('a reload that lands after the user left and reopened the chat is dropped: the fresh transcript stays, no stale notice', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let n = 0;
+    stub({
+      turn: partial,
+      resume: async (chatId) => {
+        n += 1;
+        const reload = n === 1; // the reload the partial turn starts, held open
+        if (reload) await gate;
+        return json({ chat: { title: chatId, conversationName: null, stageName: 'stage-one', scope: 'private' }, messages: [{ role: 'assistant', content: reload ? 'stale reload' : `fresh ${chatId}`, seq: 1, createdAt: '2026-01-01T00:00:01Z' }], hasOlder: false });
+      },
+    });
+    const m = await startChat();
+    await send('hello there');
+    await wait(30);
+    const click = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label))!.click();
+    click('Second chat');
+    await wait(30);
+    click('First chat');
+    await wait(30);
+    expect(text()).toContain('fresh chats:c1');
+    release();
+    await wait(40);
+    await tick();
+    expect(text()).toContain('fresh chats:c1');
+    expect(text()).not.toContain('stale reload');
+    expect(text()).not.toContain(NOTICE);
+    m.unmount();
+  });
+
   it('the same failure WITHOUT the flag keeps today\'s rollback: bubble dropped, text refilled, no reload', async () => {
     stub({ turn: () => json({ error: GENERIC, code: 'failed' }, 500) });
     const m = await startChat();

@@ -65,6 +65,9 @@
   let input = $state('');
   let sending = $state(false);
   let turnError = $state<string | null>(null);
+  // portal#916: set only for a turn the server half-saved (see handlePartialTurn). Carries the chat it belongs to
+  // so it can never show in, or reload, another chat.
+  let partialTurnNotice = $state<{ chatId: string; text: string } | null>(null);
 
   // Inline rename state
   let renamingChatId = $state<string | null>(null);
@@ -301,6 +304,7 @@
   async function startNewChat() {
     loadingChat = true;
     turnError = null;
+    partialTurnNotice = null;
     messages = [];
     // A chat that does not exist yet has no history behind it.
     resetScrollback();
@@ -379,6 +383,7 @@
     if (activeChatId === chatId) return;
     loadingChat = true;
     turnError = null;
+    partialTurnNotice = null;
     welcomeNotice = null;
     messages = [];
     // Cleared BEFORE the fetch, not only on success: an in-flight scroll-up
@@ -426,6 +431,7 @@
     input = '';
     sending = true;
     turnError = null;
+    partialTurnNotice = null;
     welcomeNotice = null;
 
     // Optimistic user bubble
@@ -447,7 +453,16 @@
         body: JSON.stringify({ agentId, chatId, userMessage: text, appId, configName }),
       });
       const body = await res.json();
-      if (!res.ok) throw new Error(body.error ?? 'Turn failed');
+      if (!res.ok) {
+        // portal#916: the server saved both messages before refusing the extraction. A rollback plus refill would
+        // invite a resend that duplicates the turn, so reload instead. The route sets the flag only for a
+        // recognised structured marker; without it this is today's failure path, unchanged.
+        if (res.status === 409 && body.partialTurn === true) {
+          await handlePartialTurn(chatId, typeof body.error === 'string' ? body.error : '');
+          return;
+        }
+        throw new Error(body.error ?? 'Turn failed');
+      }
 
       // Assistant bubble
       messages = [
@@ -488,6 +503,43 @@
     } finally {
       sending = false;
     }
+  }
+
+  /**
+   * portal#916: a turn the server half-saved (reply and counter saved, extraction refused, stage not run).
+   * Reloads the conversation through the same resume read, shows the route's fixed message as a notice, keeps the
+   * current stage (no toast), and NEVER touches `input`: the sent text is not put back, and a draft the user typed
+   * since stays. Applies only to the chat the turn belonged to, and to the window it was sent in.
+   */
+  async function handlePartialTurn(chatId: string, notice: string) {
+    if (destroyed || activeChatId !== chatId) return;
+    const generation = windowGeneration;
+    let reloaded = false;
+    try {
+      const res = await fetch('/api/agent-chat/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId, chatId }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error('reload failed');
+      // The user may have switched chats, or reopened this one, while the read was in flight.
+      if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+      messages = body.messages ?? [];
+      resetScrollback({ messages, hasOlder: body.hasOlder });
+      reloaded = true;
+      scrollMessagesToBottom();
+    } catch {
+      if (destroyed || activeChatId !== chatId || windowGeneration !== generation) return;
+    }
+    // Truthful when the reload failed: the reply is saved, but this screen may not show it.
+    partialTurnNotice = {
+      chatId,
+      text: reloaded
+        ? notice
+        : `${notice} ${t('agent-chat.partial-turn.refresh-failed', "The conversation couldn't be refreshed, so the saved messages may not be shown here. Reload the page to see them.")}`,
+    };
+    refreshChatList();
   }
 
   function onInputKeydown(e: KeyboardEvent) {
@@ -555,6 +607,7 @@
         messages = [];
         resetScrollback();
         welcomeNotice = null;
+        partialTurnNotice = null;
       }
       await refreshChatList();
     } catch (e) {
@@ -834,6 +887,12 @@
           </div>
         {/if}
       </div>
+
+      {#if partialTurnNotice && partialTurnNotice.chatId === activeChatId}
+        <div role="status" data-testid="partial-turn-notice" class="mx-4 mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          {partialTurnNotice.text}
+        </div>
+      {/if}
 
       {#if turnError}
         <div class="mx-4 mb-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
