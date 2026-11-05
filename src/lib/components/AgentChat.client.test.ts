@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mountComponent, tick, wait } from '$lib/test/mountComponent';
+import { captureUnhandledRejections, mountComponent, tick, wait } from '$lib/test/mountComponent';
 import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
 import AgentChat from './AgentChat.svelte';
 
@@ -169,7 +169,7 @@ describe('AgentChat: a refused start or send is shown once and never replayed (#
  * chat the turn belonged to. The same failure WITHOUT the flag keeps today's rollback.
  */
 describe('AgentChat: a partial turn is reloaded, never rolled back or refilled (#916)', () => {
-  const NOTICE = "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory.";
+  const NOTICE = "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory. You don't need to send it again.";
   const GENERIC = 'Chat request failed. Please try again.';
   const REFRESH_FAILED = "The conversation couldn't be refreshed, so the saved messages may not be shown here. Reload the page to see them.";
   let resumeBodies: Array<{ chatId: string }>;
@@ -339,6 +339,131 @@ describe('AgentChat: a partial turn is reloaded, never rolled back or refilled (
     expect(text()).not.toContain('stale reload');
     expect(text()).not.toContain(NOTICE);
     m.unmount();
+  });
+
+  it('a turn issued in a window the user has since left and reopened does NOT start another reload (#1727 LOCAL P2-1)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    stub({
+      turn: async () => { await gate; return partial(); },
+      resume: (chatId) => json({ chat: { title: chatId, conversationName: null, stageName: 'stage-one', scope: 'private' }, messages: [{ role: 'assistant', content: `history of ${chatId}`, seq: 1, createdAt: '2026-01-01T00:00:01Z' }], hasOlder: false }),
+    });
+    const m = await startChat();
+    await send('hello there');
+    await tick();
+    const click = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label))!.click();
+    click('Second chat');
+    await wait(30);
+    click('First chat');
+    await wait(30);
+    const resumesBefore = resumeBodies.length;
+    release();
+    await wait(40);
+    await tick();
+    // the old turn belongs to the old window: no third resume, no notice in the reopened window
+    expect(resumeBodies).toHaveLength(resumesBefore);
+    expect(text()).not.toContain(NOTICE);
+    m.unmount();
+  });
+
+  it('a fresh partial turn issued after reopening the chat still reloads and shows its notice (control for P2-1)', async () => {
+    stub({ turn: partial });
+    const m = await startChat();
+    const click = (label: string) => [...document.querySelectorAll('button')].find((b) => b.textContent?.includes(label))!.click();
+    click('Second chat');
+    await wait(30);
+    click('First chat');
+    await wait(30);
+    const resumesBefore = resumeBodies.length;
+    await send('hello again');
+    await wait(40);
+    await tick();
+    expect(resumeBodies).toHaveLength(resumesBefore + 1);
+    expect(occurrences(NOTICE)).toBe(1);
+    m.unmount();
+  });
+
+  it('the status region is mounted before any notice exists, so the later text is announced (#1727 LOCAL P2-2)', async () => {
+    stub({ turn: partial });
+    const m = await startChat();
+    const region = document.querySelector('[role="status"][data-testid="partial-turn-notice"]');
+    expect(region).not.toBeNull();
+    expect(region!.textContent?.trim()).toBe('');
+    await send('hello there');
+    await wait(40);
+    await tick();
+    // the SAME node now carries the notice: it was updated, not mounted populated
+    expect(document.querySelector('[role="status"][data-testid="partial-turn-notice"]')).toBe(region);
+    expect(region!.textContent).toContain(NOTICE);
+    m.unmount();
+  });
+
+  it('a 409 WITHOUT the partialTurn flag (a boot-prompt refusal) keeps today\'s rollback and refill (#1727 §10 P3-1)', async () => {
+    stub({ turn: () => json({ error: 'No approved version of this Agent\'s boot prompt is available here.', code: 'bootPromptNotApproved' }, 409) });
+    const m = await startChat();
+    const resumesBefore = resumeBodies.length;
+    await send('hello there');
+    await wait(40);
+    await tick();
+    expect(box().value).toBe('hello there');
+    expect(resumeBodies).toHaveLength(resumesBefore);
+    expect(text()).not.toContain(NOTICE);
+    m.unmount();
+  });
+
+  it('a failed reload that lands after a chat switch shows no notice in the other chat (#1727 §10 P3-2)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    let n = 0;
+    stub({
+      turn: partial,
+      resume: async (chatId) => {
+        n += 1;
+        if (n === 1) { await gate; return json({ error: 'boom' }, 500); }
+        return json({ chat: { title: chatId, conversationName: null, stageName: 'stage-one', scope: 'private' }, messages: [{ role: 'assistant', content: `history of ${chatId}`, seq: 1, createdAt: '2026-01-01T00:00:01Z' }], hasOlder: false });
+      },
+    });
+    const m = await startChat();
+    await send('hello there');
+    await wait(30);
+    [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Second chat'))!.click();
+    await wait(30);
+    release();
+    await wait(40);
+    await tick();
+    expect(text()).not.toContain(NOTICE);
+    expect(text()).not.toContain(REFRESH_FAILED);
+    expect(text()).toContain('history of chats:c2');
+    m.unmount();
+  });
+
+  it('after unmount a held partial turn starts no reload and throws nothing; a live twin does reload (#1727 LOCAL P3-1)', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    stub({ turn: async () => { await gate; return partial(); } });
+    const live = await startChat();
+    await send('hello there');
+    await tick();
+    const before = resumeBodies.length;
+    const rejections = await captureUnhandledRejections(async () => {
+      live.unmount();
+      release();
+      await wait(50);
+    });
+    expect(rejections).toEqual([]);
+    expect(resumeBodies).toHaveLength(before);
+    // twin: same flow without unmounting does reload, so the assertion above is not a harness that never ran
+    let release2!: () => void;
+    const gate2 = new Promise<void>((r) => { release2 = r; });
+    stub({ turn: async () => { await gate2; return partial(); } });
+    const twin = await startChat();
+    await send('hello there');
+    await tick();
+    const before2 = resumeBodies.length;
+    release2();
+    await wait(50);
+    expect(resumeBodies).toHaveLength(before2 + 1);
+    twin.unmount();
   });
 
   it('the same failure WITHOUT the flag keeps today\'s rollback: bubble dropped, text refilled, no reload', async () => {

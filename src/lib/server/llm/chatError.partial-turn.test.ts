@@ -11,9 +11,9 @@ import { describe, expect, it } from 'vitest';
 import { partialTurnRefusal, publicChatError } from './chatError';
 
 const MISSING_COPY =
-  "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory.";
+  "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory. You don't need to send it again.";
 const BROKEN_COPY =
-  "Your message was sent and the reply was saved, but the information it collected wasn't: the task this memory requires for that data is unavailable. It stays that way until whoever manages the memory repairs it.";
+  "Your message was sent and the reply was saved, but the information it collected wasn't: the task this memory requires for that data is unavailable. It stays that way until whoever manages the memory repairs it. You don't need to send it again.";
 
 const marker = (code: string) => ({
   persisted: ['ASSISTANT_MESSAGE', 'MESSAGE_COUNTER'],

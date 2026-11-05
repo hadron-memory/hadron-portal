@@ -14,8 +14,8 @@ const SENTINELS = ['sentinel-task-01HZZ', 'sentinel-rule-role', 'sentinel-rev-99
 const GENERIC = 'Chat request failed. Please try again.';
 
 const CASES = [
-  ['AUTHORING_ATTESTATION_MISSING', 'partialTurnAttestationMissing', "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory."],
-  ['AUTHOR_TASK_BROKEN', 'partialTurnAuthorTaskBroken', "Your message was sent and the reply was saved, but the information it collected wasn't: the task this memory requires for that data is unavailable. It stays that way until whoever manages the memory repairs it."],
+  ['AUTHORING_ATTESTATION_MISSING', 'partialTurnAttestationMissing', "Your message was sent and the reply was saved, but the chat couldn't save the information it collected: this memory accepts that data only from a task-assigned author, and a chat turn doesn't name one. Ask whoever manages the memory. You don't need to send it again."],
+  ['AUTHOR_TASK_BROKEN', 'partialTurnAuthorTaskBroken', "Your message was sent and the reply was saved, but the information it collected wasn't: the task this memory requires for that data is unavailable. It stays that way until whoever manages the memory repairs it. You don't need to send it again."],
 ] as const;
 
 const marker = (code: string) => ({
