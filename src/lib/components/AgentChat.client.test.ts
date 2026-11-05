@@ -513,6 +513,31 @@ describe('AgentChat: a partial turn is reloaded, never rolled back or refilled (
     m.unmount();
   });
 
+  it('a flagged 409 whose error text is an empty string takes the same generic copy: the trim arm is pinned (#1727 §10 P3-1)', async () => {
+    stub({ turn: () => json({ error: '   ', code: 'partialTurnAttestationMissing', partialTurn: true }, 409) });
+    const m = await startChat();
+    await send('hello there');
+    await wait(40);
+    await tick();
+    const region = document.querySelector('[data-testid="partial-turn-notice"]')!;
+    expect(region.textContent).toContain("Your message was sent and the reply was saved. You don't need to send it again.");
+    m.unmount();
+  });
+
+  it('switching to a chat whose resume answers 200 without a messages list never shows a developer string (BLIND P2-1 / #1727 §10 P3-2)', async () => {
+    stub({ resume: () => json({ chat: { title: 'Second chat', conversationName: null, stageName: 'stage-one', scope: 'private' }, hasOlder: false }) });
+    const m = mountComponent(AgentChat, { agentId: 'agent-under-test' });
+    await wait(20);
+    await tick();
+    const row = [...document.querySelectorAll('button')].find((e) => e.textContent?.includes('Second chat')) as HTMLElement;
+    row.click();
+    await wait(40);
+    await tick();
+    expect(resumeBodies.length).toBe(1);
+    expect(text()).not.toContain('reload returned no messages');
+    m.unmount();
+  });
+
   it('a reload that answers 200 without a messages list is a failed reload: the transcript is kept and the notice says it could not refresh (BLIND P3-4)', async () => {
     stub({ turn: partial, resume: () => json({ chat: { title: 'First chat', conversationName: null, stageName: 'stage-one', scope: 'private' }, hasOlder: false }) });
     const m = await startChat();
