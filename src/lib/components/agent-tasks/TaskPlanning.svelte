@@ -67,6 +67,8 @@
   let relationTable: HTMLDivElement | undefined = $state();
   // Track actual focus changes, including focus-away then blur-to-body while a
   // page is pending. BODY alone cannot distinguish that from a removed button.
+  // Any deliberate trip to another control cancels this continuation, even
+  // if focus later returns to the trigger; do not reclaim newer attention.
   let focusEpoch = 0;
   async function loadMore(direction: Direction, event: MouseEvent) {
     if (pending || pagePending[direction] || pageFailed[direction] === 'shifted' || relationView.kind !== 'ok' || !relationView.value[direction].hasMore) return;
@@ -97,11 +99,15 @@
       loadedMore = true;
       relationView = { kind: 'ok', value: { ...relationView.value, [direction]: { items: [...relationView.value[direction].items, ...page.items], hasMore: page.hasMore } } };
       if (handoff) {
+        // Reveal the existing filter before focusing. Leave it revealed even
+        // if a subsequent focus change during tick cancels the movement.
         relationHeaderOpen = true;
         await tick();
         if (current === relationGeneration && focusEpoch === focusAtStart && relationTable?.isConnected &&
             !trigger.isConnected && document.activeElement === document.body) {
-          relationTable.querySelector<HTMLInputElement>('input')?.focus();
+          const filterLabel = t('app.tasks.dependencies.search', 'Filter loaded relations…');
+          Array.from(relationTable.querySelectorAll<HTMLInputElement>('input[aria-label]'))
+            .find((input) => input.getAttribute('aria-label') === filterLabel)?.focus();
         }
       }
     } catch { if (current === relationGeneration) pageFailed[direction] = 'failed'; }
@@ -170,7 +176,9 @@
     };
   };
 </script>
-<svelte:window onfocusin={() => { focusEpoch++; }} />
+<!-- Body focus can be a platform consequence of disabling/removing the trigger,
+     not a new user target. A real newer control still advances the epoch. -->
+<svelte:window onfocusin={(event) => { if (event.target !== document.body) focusEpoch++; }} />
 <section class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="task-planning">
   <h2 id="task-planning" class="font-semibold text-zinc-900 dark:text-white">{t('app.tasks.planning', 'Priority and blockers')}</h2>
   {#if canPriority}

@@ -13,40 +13,61 @@ if (output) await mkdir(output, { recursive: true });
 const alias = { $lib: resolve('src/lib') };
 for (const name of ['forms', 'stores', 'navigation', 'environment', 'state']) alias[`$app/${name}`] = resolve(`src/lib/test/stubs/app-${name}.ts`);
 const server = await createServer({ configFile: false, optimizeDeps: { exclude: ['sveltekit-superforms', '@tanstack/svelte-table'] }, plugins: [tailwindcss(), svelte()], resolve: { alias, dedupe: ['svelte'], conditions: ['browser'] }, server: { host: '127.0.0.1', port: 0 } });
+function withDeadline(promise, label) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label}: timed out waiting for the paged request`)), 10000);
+  })]).finally(() => clearTimeout(timer));
+}
+// Dependency optimization can replace the first cold module graph. Retry only
+// the known reload/effect_orphan startup signatures, at most twice; a persistent
+// component error still fails the script. Requests/interaction start afterwards.
+async function mountFixture(page, origin, css, theme) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+        await page.goto(new URL('/__relation_focus', origin).href);
+        await page.evaluate(({ css, theme }) => {
+          document.documentElement.classList.toggle('dark', theme === 'dark');
+          document.body.innerHTML = `<style>${css}</style><main style="margin:16px;max-width:1100px"><div id="fixture"></div><button id="newer">Later keyboard target</button></main>`;
+          document.body.style.background = theme === 'dark' ? '#09090b' : '#fafafa';
+          document.body.style.color = theme === 'dark' ? '#fafafa' : '#18181b';
+        }, { css, theme });
+        return await page.evaluate(async () => { const h = await import('/src/lib/test/fixtures/relation-focus-harness.ts'); h.mountRelationFocus(document.getElementById('fixture')); return h.RELATION_PAGE_SIZE; });
+    } catch (error) {
+      if (attempt >= 2 || !/effect_orphan|Execution context was destroyed|navigation/i.test(String(error))) throw error;
+      console.log(`retry cold Vite mount ${attempt + 1}: ${String(error).split('\n')[0]}`);
+    }
+  }
+}
 let browser;
 try {
   await server.listen(); const origin = server.resolvedUrls.local[0];
   const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
   browser = await chromium.launch({ headless: true });
   for (const width of [1280, 390]) for (const theme of ['light', 'dark']) {
-    for (const direction of ['Waits for', 'Holds up']) for (const key of ['Enter', 'Space']) for (const newer of [false, true]) {
-      const label = `${width}-${theme}-${direction.replaceAll(' ', '-')}-${key}-${newer ? 'newer' : 'handoff'}`;
+    for (const direction of ['Waits for', 'Holds up']) for (const key of ['Enter', 'Space']) for (const focusMovedElsewhere of [false, true]) {
+      const label = `${width}-${theme}-${direction.replaceAll(' ', '-')}-${key}-${focusMovedElsewhere ? 'newer' : 'handoff'}`;
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       let release; let requested;
       const held = new Promise(r => release = r); const requestStarted = new Promise(r => requested = r);
       await page.route('**/relations?*', async route => {
-        assert.equal(new URL(route.request().url()).searchParams.get('offset'), '200');
-        requested(); await held;
+        requested(route.request().url()); await held;
         await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ kind: 'ok', value: {
           items: [{ id: 'appended', appId: 'app', title: 'Task appended', handle: 'AT1.appended', status: 'PENDING' }], hasMore: false,
         } }) });
       });
       await page.route('**/__relation_focus', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Relation focus</title>' }));
-      await page.goto(new URL('/__relation_focus', origin).href);
-      await page.evaluate(({ css, theme }) => {
-        document.documentElement.classList.toggle('dark', theme === 'dark');
-        document.body.innerHTML = `<style>${css}</style><main style="margin:16px;max-width:1100px"><div id="fixture"></div><button id="newer">Later keyboard target</button></main>`;
-        document.body.style.background = theme === 'dark' ? '#09090b' : '#fafafa';
-        document.body.style.color = theme === 'dark' ? '#fafafa' : '#18181b';
-      }, { css, theme });
-      await page.evaluate(async () => { const h = await import('/src/lib/test/fixtures/relation-focus-harness.ts'); h.mountRelationFocus(document.getElementById('fixture')); });
+      const pageSize = await mountFixture(page, origin, css, theme);
       const trigger = page.getByRole('button', { name: `Load more ${direction}`, exact: true });
-      await trigger.focus(); await page.keyboard.press(key); await requestStarted;
-      if (newer) await page.locator('#newer').focus();
-      release(); await trigger.waitFor({ state: 'detached' });
+      await trigger.focus(); await page.keyboard.press(key);
+      const requestedUrl = await withDeadline(requestStarted, label);
+      if (focusMovedElsewhere) await page.locator('#newer').focus();
+      release(); // Release the route before assertions so a failed assertion cannot strand it.
+      assert.equal(new URL(requestedUrl).searchParams.get('offset'), String(pageSize), label);
+      await trigger.waitFor({ state: 'detached' });
       const filter = page.getByRole('textbox', { name: 'Filter loaded relations…', exact: true });
-      if (newer) {
-        await page.waitForTimeout(30); assert.equal(await page.locator('#newer').evaluate(el => el === document.activeElement), true, label);
+      if (focusMovedElsewhere) {
+        await page.waitForFunction(() => document.activeElement?.id === 'newer'); assert.equal(await page.locator('#newer').evaluate(el => el === document.activeElement), true, label);
       } else {
         await filter.waitFor({ state: 'visible' });
         await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Filter loaded relations…');
@@ -65,7 +86,7 @@ try {
         await filter.focus();
       }
       if (output) await page.screenshot({ path: `${output}/${label}.png`, fullPage: true });
-      console.log(`ok ${label}: final page appended, exhausted; ${newer ? 'newer focus preserved' : 'filter focused; old/new rows keyboard reachable'}`);
+      console.log(`ok ${label}: final page appended, exhausted; ${focusMovedElsewhere ? 'newer focus preserved' : 'filter focused; old/new rows keyboard reachable'}`);
       await page.close();
     }
   }
