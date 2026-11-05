@@ -4,9 +4,11 @@
  * Only a caller who MANAGES the memory can read its `Memory.config`; for
  * anyone else it is null and they keep the plain suggestions. A rule row
  * DECLARES its (sub-)role whether or not it is enabled (hadron-server H1, FIT
- * delta A), so every row is suggested and a disabled one is only marked. A rule
- * whose writers level is `OWNER` is not built yet and refuses every write, the
- * manager's included (FIT delta C), so it is marked, not hidden. Suggestions
+ * delta A), so every row is suggested and a disabled one is only marked. An
+ * ENABLED rule whose writers level is `OWNER` is not built yet and refuses every
+ * write, the manager's included (FIT delta C), so it is marked, not hidden. A
+ * disabled row declares its role but governs nothing (the server resolver skips
+ * it), so it never carries the refusal claim, whatever its writers level. Suggestions
  * never reject a typed value, and nothing here changes the case or the shape of
  * what the user typed.
  */
@@ -22,7 +24,7 @@ export interface RoleRuleRow {
 export interface RoleSuggestion {
   role: string;
   disabled: boolean;
-  /** The rule's writers level is OWNER: every write to this role is refused. */
+  /** An ENABLED rule's writers level is OWNER: every write to this role is refused. Never set for a disabled row. */
   refusesAllWrites: boolean;
   /** The description node's URN, only when the server says it is readable (state OK). */
   descriptionUrn: string | null;
@@ -35,7 +37,7 @@ export function roleSuggestionsFromRules(rules: readonly RoleRuleRow[]): RoleSug
     .map((rule) => ({
       role: rule.role,
       disabled: !rule.enabled,
-      refusesAllWrites: rule.writers === 'OWNER',
+      refusesAllWrites: rule.enabled && rule.writers === 'OWNER',
       descriptionUrn: rule.descriptionNodeState === 'OK' && rule.descriptionNode ? rule.descriptionNode : null,
     }));
 }

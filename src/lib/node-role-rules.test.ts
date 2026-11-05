@@ -17,6 +17,10 @@ describe('roleSuggestionsFromRules (#1670)', () => {
     const s = roleSuggestionsFromRules([row('a', { writers: 'OWNER' }), row('b', { writers: 'ADMIN' }), row('c')]);
     expect(s.map((x) => x.refusesAllWrites)).toEqual([true, false, false]);
   });
+  it('does not claim a disabled OWNER row refuses writes: disabled rows govern nothing', () => {
+    const s = roleSuggestionsFromRules([row('d', { enabled: false, writers: 'OWNER' }), row('e', { writers: 'OWNER' })]);
+    expect(s.map((x) => [x.role, x.disabled, x.refusesAllWrites])).toEqual([['d', true, false], ['e', false, true]]);
+  });
   it('links the description only when its state is OK', () => {
     const s = roleSuggestionsFromRules([
       row('a', { descriptionNode: 'hrn:node:x:y:d', descriptionNodeState: 'OK' }),

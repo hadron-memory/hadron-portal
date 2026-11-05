@@ -71,6 +71,22 @@ describe('New node: role field (#1670)', () => {
     expect(items[2].querySelector('[data-testid="role-disabled"], [data-testid="role-refuses-all"]')).toBeNull();
   });
 
+  it('a disabled OWNER row says the rule is disabled and never that it refuses every write', async () => {
+    const t = await mountPage([rule('lone', { enabled: false, writers: 'OWNER' }), rule('on', { writers: 'OWNER' })]);
+    const items = [...t.querySelectorAll('[data-testid="create-role-declared"] li')];
+    expect(items[0].querySelector('[data-testid="role-disabled"]')).not.toBeNull();
+    expect(items[0].querySelector('[data-testid="role-refuses-all"]')).toBeNull();
+    expect(items[0].textContent).not.toContain('Refuses every write');
+    expect(items[1].querySelector('[data-testid="role-refuses-all"]')).not.toBeNull();
+  });
+
+  it('a disabled OWNER row under an enabled ALL ancestor still claims no refusal and stays suggested', async () => {
+    const t = await mountPage([rule('p', { strictSubRoles: true }), rule('p.c', { enabled: false, writers: 'OWNER' })]);
+    const items = [...t.querySelectorAll('[data-testid="create-role-declared"] li')];
+    expect(items.map((i) => i.querySelector('button')?.textContent?.trim())).toEqual(['p', 'p.c']);
+    expect(items[1].querySelector('[data-testid="role-refuses-all"]')).toBeNull();
+  });
+
   it('shows a description link only when the server says it is readable', async () => {
     const t = await mountPage([
       rule('a', { descriptionNode: 'hrn:node:acme:docs:roles:a', descriptionNodeState: 'OK' }),
