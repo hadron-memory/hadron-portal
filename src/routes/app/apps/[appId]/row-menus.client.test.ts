@@ -171,6 +171,21 @@ describe('A derived agent on the Agents tab (#1684)', () => {
     expect(groups[1].querySelector('option')!.getAttribute('value')).toBe('ag1');
   });
 
+  it('once the import is gone the agent leaves the roster and its Workers stay on the team', async () => {
+    setStubPage('https://example.test/app/apps/a1?tab=agents', { appId: 'a1' });
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })));
+    const data = await pageData('agents');
+    const worker = { id: 'w1', name: 'Bea', urn: 'hrn:worker:acme.com:team:bea', role: 'analyst', retiredAt: null, agent: { id: 'ag1', name: 'Beta', systemMemoryId: null } };
+    const roster = mountComponent(Page as never, { data: { ...data, app: { ...data.app, agents: [] }, installMarks: {}, staff: [worker] }, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(roster);
+    await tick(2);
+    expect(roster.target.querySelector('#panel-agents')!.textContent).not.toContain('Beta');
+    const staff = mountComponent(Page as never, { data: { ...data, initialTab: 'staff', app: { ...data.app, agents: [] }, installMarks: {}, staff: [worker] }, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(staff);
+    await tick(2);
+    expect(staff.target.querySelector('#panel-staff')!.textContent).toContain('Bea');
+  });
+
   it('with no derived agent the cast form is the plain list', async () => {
     setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({}) })));
