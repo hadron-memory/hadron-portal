@@ -60,6 +60,7 @@
     if (!readiness) return '';
     if (readiness.ready) return t('app.tasks.review.ready', 'Ready at {head}', { head: frozen });
     const slots = slotsNotCounting(readiness);
+    if (slots.length === 0) return t('app.tasks.review.not-ready', 'Not ready at {head}', { head: frozen });
     if (slots.length === 1) return t('app.tasks.review.not-ready-one', 'Not ready at {head}: {slot} doesn’t count', { head: frozen, slot: slots[0] });
     return t('app.tasks.review.not-ready-many', 'Not ready at {head}: {slots} don’t count', { head: frozen, slots: slots.join(', ') });
   });
