@@ -77,7 +77,7 @@
   const columns: PortalColumnDef<Row>[] = [
     { id: 'slot', accessorFn: (r) => r.slot, header: t('app.tasks.review.col.slot', 'Slot'), enableHiding: false, size: 90 },
     { id: 'verdict', accessorFn: (r) => verdictLabel(r.verdict), header: t('app.tasks.review.col.verdict', 'Verdict'), size: 150 },
-    { id: 'counts', accessorFn: (r) => r.counts, header: t('app.tasks.review.col.counts', 'Counts toward ready'), size: 225 },
+    { id: 'counts', accessorFn: (r) => r.counts, header: t('app.tasks.review.col.counts', 'Counts'), size: 110 },
     { id: 'seat', accessorFn: (r) => r.seat?.handle ?? '', header: t('app.tasks.review.col.seat', 'Seat'), size: 218 },
     { id: 'state', accessorFn: (r) => seatStateLabel(r.state), header: t('app.tasks.review.col.state', 'State'), size: 100 },
     { id: 'head', accessorFn: (r) => r.head ?? '', header: t('app.tasks.review.col.head', 'Head'), size: 130 },

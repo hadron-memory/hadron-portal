@@ -85,14 +85,14 @@ describe('TaskReview on a build task', () => {
 
   it('puts the answer first: at 390 only the leading columns are on screen', async () => {
     const m = await mountWith(ok(answer([slot()])));
-    expect(headers(m)).toEqual(['Slot', 'Verdict', 'Counts toward ready', 'Seat', 'State', 'Head']);
+    expect(headers(m)).toEqual(['Slot', 'Verdict', 'Counts', 'Seat', 'State', 'Head']);
   });
 
   it('shows the server’s counts, even on an approval at the current head that doesn’t count', async () => {
     const m = await mountWith(ok(answer([slot({ counts: false }), blind()])));
     expect(cellUnder(m, 'local', 'Verdict')).toBe('Approved');
-    expect(cellUnder(m, 'local', 'Counts toward ready')).toBe('No');
-    expect(cellUnder(m, 'blind', 'Counts toward ready')).toBe('Yes');
+    expect(cellUnder(m, 'local', 'Counts')).toBe('No');
+    expect(cellUnder(m, 'blind', 'Counts')).toBe('Yes');
   });
 
   it('a CANCELLED current seat is Not ready', async () => {
