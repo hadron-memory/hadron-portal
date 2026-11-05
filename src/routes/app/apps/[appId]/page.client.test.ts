@@ -2605,6 +2605,20 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     expect(refreshes()).toBe(1);
   });
 
+  it('leaving A between the answer and its refresh refreshes nothing on B', async () => {
+    const { m, props } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    const answer = await confirmed(id);
+    const b = await dataFor('a2');
+    const finishing = delayed.finish(answer as never);
+    props.data = b;
+    flushSync();
+    await finishing;
+    await tick(4);
+    expect(refreshes()).toBe(0);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
   it('a refresh that rejects after the user left A says nothing on B', async () => {
     const { m, props } = await mountAgents();
     let reject!: (e: Error) => void;

@@ -1104,7 +1104,11 @@
 
   // #1684: Install on a derived agent's row. It posts addAgent like the picker
   // below, under its own instance-bound id (see castFormId), so its result lands
-  // here and the two forms never share a store.
+  // here and the two forms never share a store. Fenced and refreshed as the cast
+  // form is: the Page is reused across Apps, so the id alone can't place a result.
+  let installGeneration = 0;
+  let installAttemptGeneration = -1;
+  let installRefreshFailed = $state(false);
   const installFormId = `installAgent:${Math.random().toString(36).slice(2, 10)}`;
   const {
     form: installAgentForm,
@@ -1115,6 +1119,38 @@
     id: installFormId,
     validators: zod4Client(addAgentSchema),
     clearOnSubmit: 'none',
+    onSubmit: () => {
+      installAttemptGeneration = installGeneration;
+      installRefreshFailed = false;
+    },
+    onResult: ({ cancel }) => {
+      if (installAttemptGeneration !== installGeneration) cancel();
+    },
+    // The refresh is ours, so a rejection after a CONFIRMED install is told
+    // truthfully instead of stranding the form. The install is never retried.
+    invalidateAll: false,
+    onUpdated: async ({ form: f }) => {
+      const attempt = installAttemptGeneration;
+      if (attempt !== installGeneration || f.message?.type !== 'success') return;
+      try {
+        await invalidateAll();
+      } catch {
+        if (attempt === installGeneration) installRefreshFailed = true;
+      }
+    },
+  });
+
+  // Bumped on leaving an App, so a result begun before A -> B -> A is stale too.
+  let installContextApp = untrack(() => data.app.id);
+  $effect(() => {
+    const id = app.id;
+    if (id === installContextApp) return;
+    installContextApp = id;
+    installGeneration += 1;
+    untrack(() => {
+      installAgentMessage.set(undefined);
+      installRefreshFailed = false;
+    });
   });
 
   const initialCreateKeyForm = untrack(() => submittedForm<CreateAppKeyForm>(form, 'createKey') as CreateAppKeySuperform | null ?? data.createKeyForm);
@@ -1821,6 +1857,11 @@
   {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
       {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
+    </div>
+  {/if}
+  {#if installRefreshFailed}
+    <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+      {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
     </div>
   {/if}
 
