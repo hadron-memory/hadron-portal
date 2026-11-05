@@ -23,8 +23,10 @@
  * holding A's id against B's results; and ChatThread seeding from the page's
  * submitted action data only when that data's id is its own. This file mounts
  * the real page for a platform team chat and an agent chat, checks the ids,
- * and drives the page-to-page handoff that produced the warning on main (red
- * before the fix, green after).
+ * and drives page-to-page lifecycle handoffs. ChatThread opts out of duplicate-id
+ * registration, so those legs check its explicit policy instead of treating an
+ * empty warning log as id coverage. The two-live-page leg at the end is the
+ * runtime carrier: removing suppression makes that transition warn.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
@@ -194,17 +196,17 @@ describe('#1522 chat send form identity', () => {
     expectChatThreadWarningPolicy();
   });
 
-  it('team chat: explicit node-scoped id, distinct from every other form, no duplicate warning', async () => {
+  it('team chat: node-scoped id distinct from other forms, explicit warning policy', async () => {
     const { target, loaded } = await mountPage(teamChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`));
     expect((loaded.sendChatMessageForm as { id: string }).id).toBe('sendChatMessage:chat-pk');
     expect(target.querySelector('form[action="?/sendChatMessage"]')).not.toBeNull();
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
   });
 
   it('agent chat: the id carries that node, not the team chat\'s', async () => {
     const { loaded } = await mountPage(agentChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/agent-chat-pk`));
     expect((loaded.sendChatMessageForm as { id: string }).id).toBe('sendChatMessage:agent-chat-pk');
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
   });
 
   it('the send action validates with the same id (a failed post stays this form\'s)', async () => {
@@ -242,11 +244,11 @@ describe('#1522 chat send form identity', () => {
     expect(r.data.form.id).toBe('sendMessage:chat-pk');
   });
 
-  // The red-first carrier: on main both surfaces shared the schema's shape
-  // hash, and the handoff window logged "Duplicate form id's found: 1qyjqon".
-  // The harness's 'overlap' phase is that window made deterministic — see its
-  // docblock for why kit's own ordering is not reproduced here.
-  it('handoff between the node page and the standalone chat page stays warning-free', async () => {
+  // This handoff retains the lifecycle/rejection coverage. ChatThread opts out
+  // of duplicate-id registration, so silence here cannot prove its ids are
+  // distinct: check the explicit policy instead. The two-live-page carrier at
+  // the end remains the runtime test of the router-window suppression.
+  it('handoff between the node and standalone chat pages tears down without rejections', async () => {
     serveNode(teamChatNode());
     const nodeData = await loadNodePage(teamChatNode(), new URL(`http://localhost/app/memories/${MEM}/nodes/chat-pk`));
     const chatData = (await loadChat({
@@ -265,7 +267,7 @@ describe('#1522 chat send form identity', () => {
     await tick();
     flushSync();
     await tick();
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
 
     // node page -> full-screen chat: both pages live under one page value,
     // then the node page is gone. Then back again — each direction passes
@@ -279,7 +281,7 @@ describe('#1522 chat send form identity', () => {
         await tick();
         flushSync();
         await tick();
-        expect(duplicateWarnings(), `phase=${p}`).toEqual([]);
+        expectChatThreadWarningPolicy();
       }
     });
     expect(phaseRejections).toEqual([]);
@@ -356,7 +358,7 @@ describe('#1522 chat send form identity', () => {
 
     expect(host.target.querySelector('[role="alert"]')).toBeNull();
     expect(host.target.textContent).not.toContain('Failed to send message');
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
   });
 
   // The same finding's same-route shape: ChatThread persists across a node
@@ -439,7 +441,7 @@ describe('#1522 chat send form identity', () => {
     const bComposer = target.querySelector<HTMLTextAreaElement>('textarea[name="content"]');
     expect(bComposer).not.toBeNull();
     expect(bComposer!.value).not.toBe('written for A');
-    expect(duplicateWarnings()).toEqual([]);
+    expectChatThreadWarningPolicy();
 
     // …and a page that mounts WHILE that old action data is still on the
     // page (one more navigation before anything clears it) must not SEED
