@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { castableAgentOptions } from './cast-agents';
+import { castableAgentOptions, castGroups } from './cast-agents';
 
 const agent = (id: string, name: string, personaRole?: string | null) => ({ id, name, personaRole });
 
@@ -40,5 +40,22 @@ describe('castableAgentOptions (#1032)', () => {
     const roster = [agent('1', 'Z', 'z'), agent('2', 'A', 'a')];
     castableAgentOptions(roster);
     expect(roster.map((a) => a.id)).toEqual(['1', '2']);
+  });
+});
+
+describe('castGroups (#1684)', () => {
+  const importer = { id: 'a', name: 'Team', urn: 'hrn:agent:acme.com:team' };
+  const options = [agent('b', 'Analyst', 'analyst'), agent('c', 'Coach', 'coach')];
+
+  it('puts a derived agent after every installed one and names its importer', () => {
+    const groups = castGroups(options, { b: { kind: 'derived', importer }, c: { kind: 'installed' } });
+    expect(groups.installed.map((a) => a.id)).toEqual(['c']);
+    expect(groups.derived.map((d) => [d.agent.id, d.importer.name])).toEqual([['b', 'Team']]);
+  });
+
+  it('an agent with no mark stays in the plain list: a withheld answer never reads as derived', () => {
+    const groups = castGroups(options, {});
+    expect(groups.installed.map((a) => a.id)).toEqual(['b', 'c']);
+    expect(groups.derived).toEqual([]);
   });
 });

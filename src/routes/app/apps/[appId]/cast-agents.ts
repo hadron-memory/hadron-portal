@@ -11,10 +11,18 @@
  * Sorted by name, case-insensitively, because the install roster arrives in
  * install order and a larger team's list was unscannable.
  */
+import type { InstallImporter, InstallMarks } from '$lib/app-install-marks';
+
 export type CastableAgent = { id: string; name: string; personaRole?: string | null };
 
 export function castableAgentOptions<T extends CastableAgent>(installed: readonly T[]): T[] {
   return installed
     .filter((agent) => !!agent.personaRole?.trim())
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id.localeCompare(b.id));
+}
+
+export type CastGroups<T> = { installed: T[]; derived: Array<{ agent: T; importer: InstallImporter }> };
+
+export function castGroups<T extends CastableAgent>(options: readonly T[], _marks: InstallMarks): CastGroups<T> {
+  return { installed: [...options], derived: [] };
 }
