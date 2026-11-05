@@ -9,11 +9,14 @@
   sits beside them. The button keeps its own aria-label ("Copy the task
   handle"), which contains its visible text "Copy" (Label in Name) and the
   name word.
+
+  portal#1697: `shown` draws a short form (a commit's short SHA) while the
+  button still copies the whole `value`.
 -->
 <script lang="ts">
   import { t } from '$lib/i18n/t';
 
-  let { value, label, name }: { value: string; label: string; name?: string } = $props();
+  let { value, label, name, shown }: { value: string; label: string; name?: string; shown?: string } = $props();
   let copied = $state(false);
 
   function copy() {
@@ -31,7 +34,7 @@
 
 <span class="inline-flex min-w-0 max-w-full items-center gap-1">
   {#if name}<span data-copy-name class="shrink-0 text-xs font-medium text-zinc-500 dark:text-zinc-400">{name}</span>{/if}
-  <code class="min-w-0 truncate rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">{value}</code>
+  <code class="min-w-0 truncate rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">{shown ?? value}</code>
   <button
     type="button"
     onclick={copy}

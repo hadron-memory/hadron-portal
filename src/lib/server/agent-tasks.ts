@@ -11,10 +11,13 @@ import {
   AGENT_TASKS_BOARD_QUERY,
   AGENT_TASK_REF_QUERY,
   APP_PEOPLE_QUERY,
+  PULL_REQUEST_READINESS_QUERY,
+  TASK_REVIEW_EVENTS_QUERY,
   TEAM_COMPOSITION_QUERY,
   TEAM_ROSTER_QUERY,
 } from '$lib/server/queries';
 import { rosterOf } from '$lib/withheld';
+import { REVIEW_EVENT_TYPES, reviewFacts, type PullRequestReadiness, type TaskReview } from '$lib/agent-tasks/review';
 import { boardFilterArgs, type BoardFilter } from '$lib/agent-tasks/status';
 import { NO_NARROW, narrowArgs, type BoardNarrow } from '$lib/agent-tasks/narrow';
 import type { AgentAlarm, AgentTaskRow, AgentTeamEvent, TaskRead, TaskRefs, TeamComposition, TeamRoster, WriteCandidates } from '$lib/agent-tasks/types';
@@ -119,6 +122,56 @@ export async function loadHistory(
     return { kind: 'ok', value: { events: events.slice(0, HISTORY_LIMIT), capped: true } };
   } catch (e) {
     return classify(e, `history read for ${taskId}`);
+  }
+}
+
+/**
+ * portal#1697 — a task's Review section (hadron-server#3448).
+ *
+ * `pullRequestReadiness` needs the head, so the frozen head comes first, from
+ * the task's own `pr.frozen` events and never from the `pr.head` property
+ * mirror, which any writer may change and which decides nothing
+ * (hrn:node:hadronmemory.com:specs:cor:agt:130:03). The events read oldest
+ * first, so the whole stream is read to reach the newest; past the bound the
+ * newest is unknown, which is a failure and never an old head called current.
+ *
+ * No freeze, or REVIEW_SCHEDULE_MISSING, is a task with no schedule: no section
+ * and no error. A null answer is the server's concealment, the not-participant
+ * state. PR_HEAD_NOT_FROZEN (another freeze landed between the two reads) stays
+ * a failure, whose line says to reload.
+ */
+export async function loadReview(client: GraphQLClient, appRef: string, taskId: string): Promise<TaskRead<TaskReview>> {
+  const events: { id: string; type: string; payload: unknown }[] = [];
+  let after: string | undefined;
+  try {
+    for (;;) {
+      const r = await client.request<{ agentTeamEvents: typeof events }>(TASK_REVIEW_EVENTS_QUERY, {
+        appRef,
+        taskId,
+        types: REVIEW_EVENT_TYPES,
+        after,
+        limit: EVENTS_PAGE,
+      });
+      events.push(...r.agentTeamEvents);
+      if (r.agentTeamEvents.length < EVENTS_PAGE) break;
+      if (events.length >= HISTORY_LIMIT) {
+        console.warn(`[agent-tasks] review events for ${taskId} passed the bound`);
+        return { kind: 'failed' };
+      }
+      after = r.agentTeamEvents[r.agentTeamEvents.length - 1].id;
+    }
+  } catch (e) {
+    return classify(e, `review events for ${taskId}`);
+  }
+  const { head, seat } = reviewFacts(events);
+  if (!head) return { kind: 'ok', value: { readiness: null, seat } };
+  try {
+    const r = await client.request<{ pullRequestReadiness: PullRequestReadiness | null }>(PULL_REQUEST_READINESS_QUERY, { taskRef: taskId, head });
+    if (!r.pullRequestReadiness) return { kind: 'not-participant' };
+    return { kind: 'ok', value: { readiness: r.pullRequestReadiness, seat } };
+  } catch (e) {
+    if (extractGqlErrorCode(e) === 'REVIEW_SCHEDULE_MISSING') return { kind: 'ok', value: { readiness: null, seat } };
+    return classify(e, `readiness read for ${taskId}`);
   }
 }
 
