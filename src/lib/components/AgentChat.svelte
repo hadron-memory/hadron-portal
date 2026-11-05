@@ -408,9 +408,10 @@
         // from MY_CHATS_QUERY which now selects it.
         scope: body.chat.scope === 'shared' ? 'shared' : 'private',
       };
-      // A 200 without a messages list is not a reload: keep what is shown and say so.
-      if (!Array.isArray(body.messages)) throw new Error('reload returned no messages');
-      messages = body.messages;
+      // Chat switch stays tolerant, as before #916: a missing list opens an empty
+      // transcript. The strict check lives in the partial-turn reload only, where
+      // the transcript on screen must not be replaced by nothing.
+      messages = body.messages ?? [];
       // #793: the tail page plus the server's word on whether anything precedes
       // it. `hasOlder` comes from the endpoint, never from `messages.length` —
       // a full last page is indistinguishable from a middle one.
