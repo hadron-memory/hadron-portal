@@ -23,7 +23,7 @@ describe('paging from the URL (cor:api:120:04)', () => {
     const asked = parseLimit('500');
     expect(pageClaims({ offset: 0, limit: asked, total: 900, hasMore: true }).nextOffset).toBe(200);
     expect(pageClaims({ offset: 400, limit: asked, total: 900, hasMore: true }).prevOffset).toBe(200);
-    expect(pageClaims({ offset: 200, limit: asked, total: 900, hasMore: false }).prevOffset).toBe(0);
+    expect(pageClaims({ offset: 200, limit: asked, total: 350, hasMore: false }).prevOffset).toBe(0);
     expect(pageClaims({ offset: 0, limit: 20, total: 900, hasMore: true }).nextOffset).toBe(20);
   });
   it('falls back on junk, zero, negative and fractional values', () => {
@@ -32,6 +32,9 @@ describe('paging from the URL (cor:api:120:04)', () => {
   });
   it('keeps a large offset: past-the-end is an empty page, not an error', () => {
     expect(parseOffset('4000')).toBe(4000);
+    // #1654 item 9: GraphQL Int is 32-bit, so an unclamped offset fails as a type error, not as an empty page.
+    expect(parseOffset('3000000000')).toBe(2147483647);
+    expect(parseOffset('2147483647')).toBe(2147483647);
   });
 });
 

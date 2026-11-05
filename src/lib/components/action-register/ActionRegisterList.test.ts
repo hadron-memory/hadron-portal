@@ -70,3 +70,51 @@ describe('empty and paging', () => {
     expect(out).not.toContain('rel="next"');
   });
 });
+
+// portal#1654 — the P3s from the #1651 reviews, one pin per item.
+const widths = (out: string) => [...out.matchAll(/<th[^>]*style="width: (\d+)px/g)].map((m) => Number(m[1]));
+
+describe('#1654 item 1: Code column at 390px', () => {
+  it('the Code column is narrower than the answer column and no wider than 120px', () => {
+    const [code, resolves] = widths(html({ page: { entries, total: 4, hasMore: false } }));
+    expect(code).toBeLessThanOrEqual(120);
+    expect(resolves).toBeGreaterThan(code);
+  });
+});
+
+describe('#1654 item 2: toolbar label', () => {
+  it('does not offer search on a list with search off', () => {
+    const out = html({ page: { entries, total: 4, hasMore: false } });
+    const toggle = out.split('data-testid="table-header-toggle"')[1].split('</button>')[0];
+    expect(toggle).toContain('Views &amp; columns');
+    expect(toggle).not.toMatch(/search/i);
+  });
+});
+
+describe('#1654 item 3: empty state', () => {
+  it('an empty first page offers a neutral next step, names no cause, and drops "0 in all"', () => {
+    const out = html({ page: { entries: [], total: 0, hasMore: false }, nextStep: 'Choose a different Agent to see its codes.' });
+    expect(out).toContain('Choose a different Agent to see its codes.');
+    expect(out).not.toMatch(/no Team Agent|ambiguous|not readable|no mapping|because/i);
+    expect(out).not.toContain('in all');
+  });
+  it('a past-the-end page keeps its total, which is information there', () => {
+    const out = html({ page: { entries: [], total: 45, hasMore: false }, offset: 200, nextStep: 'Choose a different Agent to see its codes.' });
+    expect(out).toContain('45 in all');
+  });
+});
+
+describe('#1654 item 5: Defined by', () => {
+  const out = html({ page: { entries: entries.slice(0, 3), total: 3, hasMore: false } });
+  const rows = out.split('<tr').slice(2);
+  it('a mapped row with no defining Agent shows a muted dash', () => {
+    expect(rows[1]).toContain('build.override');
+    expect(rows[1]).toMatch(/data-testid="register-defined-by-none"[^>]*>—/);
+    expect(rows[1]).toMatch(/register-defined-by-none[^>]*class="[^"]*text-zinc-400/);
+  });
+  it('a row with a defining Agent is unchanged, and a non-mapped row stays blank', () => {
+    expect(rows[0]).not.toContain('register-defined-by-none');
+    expect(rows[0]).toContain('hrn:agent:acme.com:team');
+    expect(rows[2]).not.toContain('register-defined-by-none');
+  });
+});
