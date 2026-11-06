@@ -17,13 +17,26 @@ export type BulkRefusal = { kind: 'refused'; error: string; code: string | null;
  */
 export type BulkOutcome = { kind: 'result'; value: BulkResult } | BulkRefusal | { kind: 'unknown' };
 
-function entryIsLegal(entry: BulkEntry, index: number, ref: string): boolean {
-  return entry?.index === index && entry.memoryRef === ref && entry.ok === !!entry.result && entry.ok === !entry.error;
+const isOptionalText = (value: unknown) => value === null || typeof value === 'string';
+function previewIsLegal(result: ApplyPreview | null, dryRun: boolean): boolean {
+  return !!result && result.dryRun === dryRun && Number.isInteger(result.templateRevision) && typeof result.required === 'boolean'
+    && Array.isArray(result.entries) && result.entries.every(entry => typeof entry?.role === 'string' && typeof entry.outcome === 'string')
+    && Array.isArray(result.warnings) && result.warnings.every(warning => typeof warning?.code === 'string' && typeof warning.role === 'string' && isOptionalText(warning.field));
 }
+function errorIsLegal(error: BulkError | null): boolean {
+  return !!error && typeof error.code === 'string' && typeof error.message === 'string'
+    && (error.currentRevision === null || Number.isInteger(error.currentRevision)) && isOptionalText(error.requestId);
+}
+function entryIsLegal(entry: BulkEntry, index: number, ref: string, dryRun: boolean): boolean {
+  if (entry?.index !== index || entry.memoryRef !== ref) return false;
+  return entry.ok === true ? entry.error === null && previewIsLegal(entry.result, dryRun) : entry.ok === false && entry.result === null && errorIsLegal(entry.error);
+}
+/** A row this page can't trust could still be a committed write, so one bad row makes the whole answer unknown. */
 function resultIsLegal(value: BulkResult | undefined, memoryRefs: string[], dryRun: boolean): value is BulkResult {
-  return !!value && value.dryRun === dryRun && Number.isInteger(value.succeeded) && Number.isInteger(value.failed)
-    && Array.isArray(value.results) && value.results.length === memoryRefs.length
-    && value.results.every((entry, index) => entryIsLegal(entry, index, memoryRefs[index]));
+  if (!value || value.dryRun !== dryRun || !Array.isArray(value.results) || value.results.length !== memoryRefs.length) return false;
+  if (!value.results.every((entry, index) => entryIsLegal(entry, index, memoryRefs[index], dryRun))) return false;
+  const succeeded = value.results.filter(entry => entry.ok).length;
+  return value.succeeded === succeeded && value.failed === value.results.length - succeeded;
 }
 
 /**

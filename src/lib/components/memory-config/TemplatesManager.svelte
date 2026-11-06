@@ -91,12 +91,12 @@
   {#if readOnly}<p>{t('config.impersonation', 'This page is read-only while impersonating.')}</p>{/if}
   {#if notice}<p role="status" class="text-green-700 dark:text-green-300">{notice}</p>{/if}
   {#if failure && editing === undefined && !chosen}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
-  {#if writable}<button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-template', 'Create template')}</button>{/if}
+  {#if writable}<button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{t('config.create-template', 'Create template')}</button>{/if}
   {#if !templates.length}<p class="text-zinc-500 dark:text-zinc-400">{writable ? t('config.no-templates-yet', 'No templates yet. Create a template to get started.') : t('config.no-visible-templates', 'No templates are available to you for this owner.')}</p>{/if}
   <DataTable {table} listKey={`node-role-templates:${ownerType}`} searchPlaceholder={t('config.search-templates', 'Search templates…')} searchAriaLabel={t('config.search-templates', 'Search templates…')}>
     {#snippet cell(cell, row)}
       {#if cell.column.id === 'actions'}
-        {#if writable}<div class="flex flex-wrap gap-2"><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(row)} class="min-h-11 rounded border px-3">{t('config.edit', 'Edit')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => remove(row)} class="min-h-11 rounded border px-3">{t('config.delete', 'Delete')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { chosen = row; memory = null; preview = null; editing = undefined; previewStale = false; failure = null; notice = ''; }} class="min-h-11 rounded border px-3">{t('config.apply-to-memory', 'Apply to a memory…')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { bulk = row; chosen = null; preview = null; failure = null; notice = ''; }} class="min-h-11 rounded border px-3">{t('config.apply-to-several', 'Apply to several memories…')}</button></div>{/if}
+        {#if writable}<div class="flex flex-wrap gap-2"><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => edit(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.edit', 'Edit')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => remove(row)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.delete', 'Delete')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { chosen = row; memory = null; preview = null; editing = undefined; previewStale = false; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-memory', 'Apply to a memory…')}</button><button type="button" disabled={pending || editing !== undefined || !!bulk} onclick={() => { bulk = row; chosen = null; preview = null; failure = null; notice = ''; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.apply-to-several', 'Apply to several memories…')}</button></div>{/if}
       {:else if cell.column.id === 'required'}{row.required ? t('config.yes', 'Yes') : t('config.no', 'No')}
       {:else}{String(cell.getValue() ?? '')}{/if}
     {/snippet}
@@ -143,17 +143,17 @@
       <h2 class="text-xl font-semibold">{t('config.apply-name', 'Apply “{name}”', { name: chosen.name })}</h2>
       {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
       {#if memory}<p>{memory.name}</p><Urn value={memory.urn} linked />{/if}
-      <button type="button" disabled={pending} onclick={() => memoryPicker = true} class="min-h-11 rounded border px-3">{t('config.choose-memory', 'Choose memory…')}</button>
+      <button type="button" disabled={pending} onclick={() => memoryPicker = true} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.choose-memory', 'Choose memory…')}</button>
       {#if memoryPicker}<SelectMemory {memories} bind:open={memoryPicker} onselect={(m) => { memory = m; preview = null; previewStale = false; }} />{/if}
       {#if memoriesFailed}<p role="alert">{t('config.memories-failed', 'Memories could not be loaded. Reload the page to try again.')}</p>{/if}
-      <button type="button" disabled={!memory || pending} onclick={() => apply(true)} class="min-h-11 rounded border px-3">{previewStale ? t('config.preview-again', 'Preview again') : t('config.preview', 'Preview')}</button>
+      <button type="button" disabled={!memory || pending} onclick={() => apply(true)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{previewStale ? t('config.preview-again', 'Preview again') : t('config.preview', 'Preview')}</button>
       {#if preview}
         <h3 class="font-semibold">{previewStale ? t('config.preview-stale', 'Preview out of date — preview again before applying') : preview.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.applied-heading', 'Template applied')}</h3>
         {#if preview.required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
         <DataTable table={previewTable} listKey="node-role-template-preview" searchPlaceholder={t('config.search-preview', 'Search preview…')} searchAriaLabel={t('config.search-preview', 'Search preview…')}>
           {#snippet cell(cell, row)}<span class="block whitespace-normal break-words">{cell.column.id === 'outcome' ? outcomeCopy(row.outcome, !!preview?.dryRun) : row.role}</span>{/snippet}
         </DataTable>
-        {#if preview.dryRun}<button type="button" disabled={pending || previewStale} onclick={() => apply(false)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{preview.required ? t('config.apply-lock', 'Apply and lock rules') : t('config.apply', 'Apply')}</button>{/if}
+        {#if preview.dryRun}<button type="button" disabled={pending || previewStale} onclick={() => apply(false)} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{preview.required ? t('config.apply-lock', 'Apply and lock rules') : t('config.apply', 'Apply')}</button>{/if}
         {#each preview.warnings as warning}<p>{warning.role}: {warning.field ?? ''} — {warning.code}</p>{/each}
       {/if}
     </section>

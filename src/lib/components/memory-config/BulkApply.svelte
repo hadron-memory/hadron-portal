@@ -20,7 +20,7 @@
   const required = $derived(template.required || requiredSeen);
   const applied = $derived(report !== null && !report.dryRun);
   // After an apply the list is a record: adding could re-send a memory that already succeeded.
-  const locked = $derived(pending || applied || unknown || settled.length > 0);
+  const locked = $derived(applied || unknown || settled.length > 0);
   const revision = $derived(report?.dryRun ? sharedRevision(report.results) : null);
   const retryable = $derived(applied && report ? retryPositions(report.results) : []);
   const addedIds = $derived(new Set(selection.map(m => m.id)));
@@ -98,7 +98,7 @@
   {/if}
   {#if !locked}
     <div class="flex flex-wrap items-center gap-3">
-      <button type="button" disabled={selection.length >= BULK_CAP} onclick={() => { capReached = false; picker = true; }} class="min-h-11 rounded border px-3">{t('config.bulk.add', 'Add memories…')}</button>
+      <button type="button" disabled={pending || selection.length >= BULK_CAP} onclick={() => { capReached = false; picker = true; }} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.bulk.add', 'Add memories…')}</button>
       <p role="status">{countNote}</p>
     </div>
     {#if picker}<SelectMemory {memories} {addedIds} keepOpen note={capReached ? t('config.bulk.cap-refused', 'One apply takes at most {cap} memories, so this one was not added.', { cap: BULK_CAP }) : countNote} bind:open={picker} onselect={add} />{/if}
@@ -106,7 +106,12 @@
   <div role="status">
     {#if report}
       <h3 class="font-semibold">{report.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.bulk.applied-heading', 'Apply finished')}</h3>
-      <p>{t('config.bulk.summary', '{succeeded} succeeded, {failed} failed', { succeeded: report.succeeded, failed: report.failed })}</p>
+      {#if report.dryRun}
+        <p>{t('config.bulk.preview-summary', '{succeeded} can take the template, {failed} can’t', { succeeded: report.succeeded, failed: report.failed })}</p>
+        {#if settled.length}<p>{t('config.bulk.retry-preview', 'These memories have not been retried yet. Check the preview, then apply.')}</p>{/if}
+      {:else}
+        <p>{t('config.bulk.summary', '{succeeded} succeeded, {failed} failed', { succeeded: report.succeeded, failed: report.failed })}</p>
+      {/if}
     {/if}
   </div>
   {#if rows.length}
@@ -116,7 +121,7 @@
           <div class="min-w-0 sm:w-1/2">
             <p class="font-medium break-words">{row.memory.name}</p>
             <div class="mt-1"><Urn value={row.memory.urn} linked /></div>
-            {#if !locked}<button type="button" onclick={() => remove(row.memory)} aria-label={t('config.bulk.remove-named', 'Remove {name}', { name: row.memory.name })} class="mt-1 min-h-11 rounded border px-3">{t('config.remove', 'Remove')}</button>{/if}
+            {#if !locked}<button type="button" disabled={pending} onclick={() => remove(row.memory)} aria-label={t('config.bulk.remove-named', 'Remove {name}', { name: row.memory.name })} class="mt-1 min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.remove', 'Remove')}</button>{/if}
           </div>
           <div class="min-w-0 sm:w-1/2">{@render outcome(row)}</div>
         </div>
@@ -126,6 +131,7 @@
   {#if report?.dryRun}
     {#if required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
     <p>{t('config.bulk.preview-may-differ', 'This preview may differ from the apply if memories change in between.')}</p>
+    {#if revision !== null && report.failed > 0}<p>{t('config.bulk.apply-sends-all', 'Apply sends every memory in this list, including any that can’t take the template in this preview.')}</p>{/if}
     {#if revision === null}<p role="status">{!report.results.some(entry => entry.ok) ? t('config.bulk.no-ok', 'No memory in this preview can take the template. Change the list and preview again.') : t('config.bulk.revisions-disagree', 'This preview saw different versions of the template. Preview again before applying.')}</p>{/if}
   {/if}
   {#if unknown}
@@ -134,10 +140,10 @@
   {:else}
     {#if reapplying && required && selection.length}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.bulk.reapply-warning', 'This template is required: applying it again replaces each chosen memory’s rule again and discards edits made since.')}</p>{/if}
     <div class="flex flex-wrap gap-3">
-      {#if !applied}<button type="button" disabled={pending || !selection.length} onclick={() => run(true)} class="min-h-11 rounded border px-3">{pending ? t('config.bulk.working', 'Working…') : report || mustPreview ? t('config.preview-again', 'Preview again') : t('config.preview', 'Preview')}</button>{/if}
-      {#if report?.dryRun && revision !== null}<button type="button" disabled={pending} onclick={() => run(false)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{required ? t('config.apply-lock', 'Apply and lock rules') : t('config.apply', 'Apply')}</button>{/if}
-      {#if retryable.length}<button type="button" disabled={pending} onclick={retry} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.bulk.retry', 'Retry failed')}</button>{/if}
-      <button type="button" disabled={pending} onclick={onclose} class="min-h-11 rounded border px-3">{t('config.close', 'Close')}</button>
+      {#if !applied}<button type="button" disabled={pending || !selection.length} onclick={() => run(true)} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{pending ? t('config.bulk.working', 'Working…') : report || mustPreview ? t('config.preview-again', 'Preview again') : t('config.preview', 'Preview')}</button>{/if}
+      {#if report?.dryRun && revision !== null}<button type="button" disabled={pending} onclick={() => run(false)} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{required ? t('config.apply-lock', 'Apply and lock rules') : t('config.apply', 'Apply')}</button>{/if}
+      {#if retryable.length}<button type="button" disabled={pending} onclick={retry} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{t('config.bulk.retry', 'Retry failed')}</button>{/if}
+      <button type="button" disabled={pending} onclick={onclose} class="min-h-11 rounded border px-3 disabled:cursor-not-allowed disabled:opacity-50">{t('config.close', 'Close')}</button>
     </div>
     {#if !selection.length && !pending}<p class="text-sm text-zinc-600 dark:text-zinc-400">{t('config.bulk.choose-one', 'Add at least one memory to preview.')}</p>{/if}
   {/if}
