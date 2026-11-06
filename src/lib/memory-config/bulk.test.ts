@@ -94,9 +94,10 @@ describe('bulkCall', () => {
     ['a fractional failed count', reply(200, { value: { ...legal, failed: 0.5 } })],
     ['a succeeded count the rows contradict', reply(200, { value: { ...legal, succeeded: 2 } })],
     ['a failed count the rows contradict', reply(200, { value: { ...legal, failed: 1 } })],
-    ['a result answering another position', reply(200, { value: { ...legal, results: [{ ...ok(0, 1), index: 3 }] } })],
-    ['a result echoing another ref', reply(200, { value: { ...legal, results: [{ ...ok(0, 1), memoryRef: 'other' }] } })],
-    ['a row that is both ok and failed', reply(200, { value: { ...legal, results: [{ ...ok(0, 1), error: failed(0, 'CONFLICT').error }] } })],
+    ['a result answering another position', reply(200, { value: { ...legal, results: [{ ...row, index: 3 }] } })],
+    ['a result echoing another ref', reply(200, { value: { ...legal, results: [{ ...row, memoryRef: 'other' }] } })],
+    ['a row that is both ok and failed', reply(200, { value: { ...legal, results: [{ ...row, error: wrong }] } })],
+    ['a failed row that carries a result', reply(200, { value: { ...legal, succeeded: 0, failed: 1, results: [{ ...row, ok: false, error: wrong }] } })],
     ['a dry-run answer to an apply', reply(200, { value: { ...legal, dryRun: true } })],
   ])('%s is unknown, never a refusal or a result', async (_name, impl) => {
     stub(impl);
