@@ -14,8 +14,8 @@ try {
  await server.listen(); const origin = server.resolvedUrls.local[0];
  const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
  browser = await chromium.launch({ headless: true });
- for (const width of [320, 390, 1280]) for (const dark of [false, true]) {
-  const label = `${width}/${dark ? 'dark' : 'light'}`;
+ for (const [width, dark, cap] of [320, 390, 1280].flatMap(w => [[w, false, false], [w, true, false], [w, false, true]])) {
+  const label = `${width}/${dark ? 'dark' : 'light'}${cap ? '/cap' : ''}`;
   const page = await browser.newPage({ viewport: { width, height: 900 } });
   page.setDefaultTimeout(10000);
   await page.route('**/__blank', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>fixture</title>' }));
@@ -23,12 +23,12 @@ try {
   await page.route('**/api/memory-config', r => {
    const body = JSON.parse(r.request().postData()); bodies.push(body);
    if (lose) return r.abort('connectionfailed');
-   const rows = body.memoryRefs.length === 6 ? (body.op === 'preview' ? previewRows : applyRows) : body.memoryRefs.map((ref, index) => ({ ...row(index, true, 'APPLIED'), memoryRef: ref }));
+   const rows = body.memoryRefs.length === 6 ? (body.op === 'preview' ? previewRows : applyRows) : body.memoryRefs.map((ref, index) => ({ ...row(index, body.op === 'preview', 'APPLIED'), memoryRef: ref }));
    return r.fulfill({ contentType: 'application/json', body: JSON.stringify(result(rows, body.op === 'preview')) });
   });
   await page.goto(new URL('/__blank', origin).href);
   await page.evaluate(({ css, dark }) => { document.head.innerHTML = `<style>${css}</style>`; document.body.innerHTML = `<div class="min-h-screen ${dark ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}"><main style="max-width:1100px;margin:0 16px;padding:16px 0" id="fixture"></main></div>`; document.documentElement.classList.toggle('dark', dark); }, { css, dark });
-  await page.evaluate(async () => { const { mountBulkTemplates } = await import('/src/lib/test/fixtures/memory-config-layout-harness.ts'); mountBulkTemplates(document.getElementById('fixture'), true); });
+  await page.evaluate(async count => { const { mountBulkTemplates } = await import('/src/lib/test/fixtures/memory-config-layout-harness.ts'); mountBulkTemplates(document.getElementById('fixture'), true, count); }, cap ? 51 : 6);
   const shot = name => shots ? page.screenshot({ path: `${shots}/${width}-${dark ? 'dark' : 'light'}-${name}.png`, fullPage: true }) : null;
   const inViewport = async (locator, name) => { const box = await locator.boundingBox(); assert.ok(box && box.x >= 0 && box.x + box.width <= width + 0.5, `${label}: ${name} leaves the viewport: ${JSON.stringify(box)}`); };
   const noOverflow = async name => { const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert.ok(over <= 0, `${label}: ${name} overflows ${over}px`); };
@@ -36,6 +36,34 @@ try {
   const panel = page.getByRole('region', { name: 'Apply to several memories', exact: true });
   await panel.getByRole('button', { name: 'Add memories…', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Choose a memory', exact: true });
+  const dimmed = async name => { const button = page.getByRole('button', { name, exact: true }).first(); assert.ok(await button.isDisabled(), `${label}: ${name} is disabled`); assert.equal(await button.evaluate(b => getComputedStyle(b).opacity), '0.5', `${label}: ${name} looks disabled`); };
+  if (cap) {
+   const open = picker.getByRole('button', { name: /^Select / });
+   for (let picked = 0; picked < 50;) {
+    if (await open.count()) { await open.first().click(); picked++; }
+    else await picker.getByRole('button', { name: 'Next →', exact: true }).click();
+   }
+   await picker.getByRole('button', { name: /^Added / }).first().waitFor();
+   if (!await open.count()) await picker.getByRole('button', { name: 'Next →', exact: true }).click();
+   await open.first().click();
+   await picker.getByText('One apply takes at most 50 memories, so this one was not added.').waitFor();
+   await picker.getByRole('button', { name: 'Done', exact: true }).click();
+   await panel.getByText('50 of 50 chosen. One apply takes at most 50 memories.').waitFor();
+   await dimmed('Add memories…');
+   assert.equal(await panel.getByRole('button', { name: /^Remove / }).count(), 50, `${label}: fifty rows, not fifty-one`);
+   await noOverflow('fifty chosen');
+   const previewButton = panel.getByRole('button', { name: 'Preview', exact: true });
+   await previewButton.scrollIntoViewIfNeeded(); await inViewport(previewButton, 'Preview at the cap'); await previewButton.click();
+   await panel.getByText('50 can take the template, 0 can’t').waitFor();
+   const applyButton = panel.getByRole('button', { name: 'Apply and lock rules', exact: true });
+   await applyButton.scrollIntoViewIfNeeded(); await inViewport(applyButton, 'Apply at the cap'); await applyButton.click();
+   await panel.getByText('50 succeeded, 0 failed').waitFor();
+   assert.equal(bodies.at(-1).memoryRefs.length, 50, `${label}: fifty refs sent`);
+   await noOverflow('fifty applied');
+   console.log(`${label} PASS: fifty chosen, a 51st refused, fifty previewed and applied, controls reachable`);
+   await page.close();
+   continue;
+  }
   await picker.getByRole('button', { name: 'Select Fixture memory 0', exact: true }).click();
   await picker.getByRole('button', { name: 'Added Fixture memory 0', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Added Fixture memory 0', `${label}: picking keeps focus on the row`);
@@ -50,7 +78,8 @@ try {
   await inViewport(panel.getByRole('button', { name: 'Remove Fixture memory 0', exact: true }), 'Remove');
   await noOverflow('selection');
   await panel.getByRole('button', { name: 'Preview', exact: true }).click();
-  await panel.getByText('5 succeeded, 1 failed').waitFor();
+  await panel.getByText('5 can take the template, 1 can’t').waitFor();
+  for (const name of ['Create template', 'Edit', 'Delete', 'Apply to a memory…', 'Apply to several memories…']) await dimmed(name);
   await noOverflow('preview');
   await inViewport(panel.getByText('Will be replaced').first().or(panel.getByText('review: Will be replaced')).first(), 'row outcome');
   await shot('preview');

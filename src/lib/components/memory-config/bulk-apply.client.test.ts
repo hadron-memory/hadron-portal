@@ -68,7 +68,31 @@ describe('entry and boundary', () => {
     (navigationGuards.find(g => g.fn === 'beforeNavigate')!.callback as (e: { cancel: () => void }) => void)({ cancel });
     expect(cancel).toHaveBeenCalledOnce();
     settleIt(answer([ok(0)]));
-    await settle(() => expect(panel.textContent).toContain('1 succeeded'));
+    await settle(() => expect(panel.textContent).toContain('1 can take the template, 0 can’t'));
+  });
+  it('dims every control it disables, in the panel and behind it', async () => {
+    let settleIt!: (v: unknown) => void;
+    fetcher.mockReturnValueOnce(new Promise(r => { settleIt = r; }));
+    const m = mount(); const panel = open(m.target);
+    expect(button(panel, 'Preview')!.className).toContain('disabled:opacity-50');
+    pick(panel, 1);
+    button(panel, 'Preview')!.click(); flushSync();
+    const disabled = ['Create template', 'Edit', 'Delete', 'Apply to a memory…', 'Apply to several memories…', 'Working…', 'Close', 'Add memories…'];
+    for (const name of disabled) { const b = button(m.target, name); expect(b?.disabled, name).toBe(true); expect(b!.className, name).toContain('disabled:opacity-50'); expect(b!.className, name).toContain('disabled:cursor-not-allowed'); }
+    settleIt(answer([ok(0)]));
+    await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
+  });
+  it('keeps the list and its controls in place, disabled, while a request runs', async () => {
+    let settleIt!: (v: unknown) => void;
+    fetcher.mockReturnValueOnce(new Promise(r => { settleIt = r; }));
+    const m = mount(); const panel = open(m.target); pick(panel, 2);
+    button(panel, 'Preview')!.click(); flushSync();
+    expect(button(panel, 'Add memories…')!.disabled).toBe(true);
+    expect(panel.querySelector<HTMLButtonElement>('[aria-label="Remove Memory 00"]')!.disabled).toBe(true);
+    expect(panel.textContent).toContain('2 of 50 chosen.');
+    settleIt(answer([ok(0), ok(1)]));
+    await settle(() => expect(panel.querySelector<HTMLButtonElement>('[aria-label="Remove Memory 00"]')!.disabled).toBe(false));
+    expect(button(panel, 'Add memories…')!.disabled).toBe(false);
   });
 });
 
@@ -128,8 +152,18 @@ describe('dry run first', () => {
     expect(sent(0)).toEqual({ kind: 'bulk', op: 'preview', ref: 't1', memoryRefs: ['m0', 'm1'] });
     expect(panel.querySelectorAll('tbody tr').length).toBe(2);
     expect(panel.textContent).toContain('Will be replaced');
-    expect(panel.textContent).toContain('1 succeeded, 1 failed');
+    expect(panel.textContent).toContain('1 can take the template, 1 can’t');
+    expect(panel.textContent).not.toMatch(/succeeded|failed/);
     expect(panel.textContent).toContain('This preview may differ from the apply if memories change in between.');
+  });
+  it('says Apply sends the rows that can’t take the template, and only when there are any', async () => {
+    const note = 'Apply sends every memory in this list, including any that can’t take the template in this preview.';
+    const m = mount(); const panel = open(m.target); pick(panel, 2);
+    await preview(panel, [ok(0), bad(1, 'MEMORY_NOT_FOUND')]);
+    expect(panel.textContent).toContain(note);
+    (panel.querySelector('[aria-label="Remove Memory 01"]') as HTMLButtonElement).click(); flushSync();
+    await preview(panel, [ok(0)]);
+    expect(panel.textContent).not.toContain(note);
   });
   it('carries the required-template lock note', async () => {
     const m = mount(); const panel = open(m.target); pick(panel, 1);
@@ -184,10 +218,10 @@ describe('apply', () => {
 });
 
 describe('per-target truth', () => {
-  it('takes header counts from the server, never from the number selected', async () => {
+  it('takes header counts from the answer, never from the number selected', async () => {
     const m = mount(); const panel = await applied(m.target, [0, 1, 2]);
-    await apply(panel, answer([ok(0, { dryRun: false }), bad(1, 'NOT_A_TASK'), ok(2, { dryRun: false })], false, { succeeded: 7, failed: 4 }), 'Apply finished');
-    expect(panel.textContent).toContain('7 succeeded, 4 failed');
+    await apply(panel, answer([ok(0, { dryRun: false }), bad(1, 'NOT_A_TASK'), ok(2, { dryRun: false })], false), 'Apply finished');
+    expect(panel.textContent).toContain('2 succeeded, 1 failed');
   });
   it('shows a skip as an outcome of a successful apply, not a failure', async () => {
     const m = mount(); const panel = await applied(m.target, [0]);
@@ -234,6 +268,7 @@ describe('retry failed', () => {
     button(panel, 'Retry failed')!.click();
     await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
     expect(panel.textContent).toContain('From the earlier apply, not sent again');
+    expect(panel.textContent).toContain('These memories have not been retried yet. Check the preview, then apply.');
     expect(panel.querySelectorAll('tbody tr').length).toBe(2);
     expect(button(panel, 'Add memories…')).toBeUndefined();
     expect(panel.querySelector('[aria-label^="Remove"]')).toBeNull();
@@ -255,6 +290,18 @@ describe('unknown outcome', () => {
     await settle(() => expect(panel.textContent).toContain('We don’t know which memories were changed.'));
     return panel;
   }
+  it.each([
+    ['counts the rows contradict', answer([{ ...ok(0, { dryRun: false }) }], false, { succeeded: 7, failed: 4 })],
+    ['a row claiming a dry run', answer([ok(0, { dryRun: true })], false)],
+    ['a row with no entries', answer([{ ...ok(0, { dryRun: false }), result: { ...ok(0, { dryRun: false }).result, entries: undefined } }], false)],
+    ['a row with no warnings', answer([{ ...ok(0, { dryRun: false }), result: { ...ok(0, { dryRun: false }).result, warnings: undefined } }], false)],
+  ])('an apply answered with %s reads as unknown, offers no resend and sends nothing', async (_name, response) => {
+    const m = mount(); const panel = await applied(m.target, [0]);
+    await apply(panel, response, 'We don’t know which memories were changed.');
+    for (const name of ['Retry failed', 'Apply', 'Preview', 'Preview again']) expect(button(panel, name)).toBeUndefined();
+    expect(panel.textContent).not.toMatch(/\d+ succeeded|Apply finished/);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it('a 5xx with no result reads the same as a lost connection', async () => {
     const m = mount(); const panel = await applied(m.target, [0]);
     await apply(panel, { ok: false, status: 503, json: async () => { throw new SyntaxError('html'); } }, 'We don’t know which memories were changed.');
