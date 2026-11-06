@@ -9,10 +9,10 @@ import { PAGE_LIMIT } from '$lib/server/paginate';
  * portal#1650 — the reads and the two writes behind the automation page's team
  * snapshot grant (hadron-server#3350, resolvers.runTeamSnapshot.ts at ecdde802).
  *
- * The list is narrowed by the server (hadron-server#3386, cor:agt:050:23): the
- * read sends this automation's triggerKind and triggerId, so it pages only that
- * trigger's grants and `total` counts only those. They are read to the end all
- * the same: only a complete read may say "not given", and the read always asks
+ * The list is narrowed by the server (hadron-server#3386,
+ * hrn:node:hadronmemory.com:specs:cor:agt:050:23): the read sends this
+ * automation's triggerKind and triggerId, so it pages only that trigger's
+ * grants and `total` counts only those. They are read to the end all the same: only a complete read may say "not given", and the read always asks
  * for the history: the live-only list shrinks under the offset when another
  * manager stops a grant, so a grant live throughout can fall behind it, where
  * the history only grows at its end
