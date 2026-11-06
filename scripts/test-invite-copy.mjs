@@ -62,6 +62,7 @@ try {
         else if (mode === 'rejected') await page.getByText(rejected, { exact: true }).waitFor();
         else {
           await page.waitForFunction(() => window.writes.length === 1);
+          assert.equal(await copy.evaluate(el => el === document.activeElement), true, `${label}: pending Copy keeps keyboard focus`);
           assert.equal(await page.getByText('Link copied.', { exact: true }).count(), 0, `${label}: pending is not success`);
           await copy.evaluate(el => el.click());
           assert.equal(await page.evaluate(() => window.writes.length), 1, `${label}: no duplicate pending write`);
@@ -74,6 +75,7 @@ try {
           await page.evaluate(() => window.releaseCopy());
           if (mode === 'resolved') {
             await page.getByText('Link copied.', { exact: true }).waitFor();
+            assert.equal(await copy.evaluate(el => el === document.activeElement), true, `${label}: resolved Copy keeps keyboard focus`);
             assert.match(await page.getByRole('status').textContent(), /Link copied\./);
             assert.equal(await page.getByRole('status').getAttribute('aria-live'), 'polite');
             if (shots) await page.screenshot({ path: `${shots}/${label}-success.png`, fullPage: true });
@@ -97,6 +99,19 @@ try {
             return el.value.slice(el.selectionStart, el.selectionEnd);
           }), expected, `${label}: full link remains selectable`);
           assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${label}: no horizontal overflow`);
+        }
+        if (mode === 'resolved') {
+          // Emulate engines without field-sizing. A long origin must remain
+          // manually scrollable, rather than hide its final wrapped lines.
+          const longUrl = `https://portal.staging.example-hadron-memory.com/invite/${'long-origin-control-'.repeat(16)}`;
+          await page.evaluate(url => window.fixture.replace(url), longUrl);
+          const fallback = page.getByRole('textbox', { name: 'Invitation link', exact: true });
+          await fallback.evaluate(el => { el.style.setProperty('field-sizing', 'fixed'); el.scrollTop = 0; });
+          assert.equal(await fallback.evaluate(el => el.scrollHeight > el.clientHeight), true, `${label}: fallback exercises overflow`);
+          await fallback.hover();
+          await page.mouse.wheel(0, 600);
+          await page.waitForFunction(() => document.querySelector('textarea[readonly]').scrollTop > 0);
+          assert.equal(await fallback.inputValue(), longUrl, `${label}: fallback retains complete link`);
         }
         await page.waitForTimeout(30);
         const state = await page.evaluate(() => ({ writes: window.writes, rejections: window.rejections, errors: window.pageErrors }));
