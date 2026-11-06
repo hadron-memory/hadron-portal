@@ -107,6 +107,11 @@ describe('App Runs manual server table', () => {
     expect(m.target.querySelector('[aria-busy]')?.getAttribute('aria-busy')).toBe('false');
     navigationHooks.onGoto = undefined; find(m.target, 'Active').click(); await tick(8);
     expect(m.target.textContent).not.toContain('Could not open this runs page');
+    navigationHooks.onGoto = async () => { throw new Error('current again'); };
+    find(m.target, 'All').click(); await tick(8);
+    expect(m.target.textContent).toContain('Could not open this runs page');
+    m.props.appRef = 'b'; m.props.initial = section({ page: 1 }); flushSync(); await tick(8);
+    expect(m.target.textContent).not.toContain('Could not open this runs page');
   });
   it('does not let a queued focus fallback reach a newer App view', async () => {
     const m = mount(); await tick(8);

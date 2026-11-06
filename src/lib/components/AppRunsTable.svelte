@@ -12,14 +12,18 @@
   let { appRef, initial }: { appRef: string; initial: RunsSection } = $props();
   let snapshot = untrack(() => initial), resource = untrack(() => appRef);
   let section = $state(untrack(() => initial)), pending = $state(false), announcement = $state('');
+  // Pending controls describe the newest request; rows still describe the served page.
+  let intent = $state<RunsQuery | null>(null);
+  const controls = $derived(intent ?? section);
   let heading: HTMLHeadingElement;
   let alive = true, epoch = 0;
-  $effect(() => { if (initial !== snapshot || appRef !== resource) { epoch++; snapshot = initial; resource = appRef; section = initial; pending = false; } });
+  $effect(() => { if (initial !== snapshot || appRef !== resource) { epoch++; snapshot = initial; resource = appRef; section = initial; intent = null; announcement = ''; pending = false; } });
   onDestroy(() => { alive = false; epoch++; });
   afterNavigate(nav => {
     if (nav.type === 'enter') return;
+    // Preserve a live filter control; recover only a lost BODY focus, still in this view.
     const generation = epoch;
-    void tick().then(() => { if (alive && generation === epoch) heading?.focus(); });
+    void tick().then(() => { if (alive && generation === epoch && document.activeElement === document.body) heading?.focus(); });
   });
   const sorting = $derived(section.sort === 'status' || section.sort === 'startedAt' ? [{ id: section.sort, desc: section.dir === 'desc' }] : []);
   const columns: PortalColumnDef<AppRun>[] = [
@@ -31,13 +35,13 @@
     { id: 'failure', header: t('runs.col.failure', 'Failure'), enableSorting: false, size: 220 },
     { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 90 },
   ];
-  function query(change: Partial<RunsQuery>): RunsQuery { return { page: section.page, statuses: section.statuses, sort: section.sort, dir: section.dir, ...change }; }
+  function query(change: Partial<RunsQuery>): RunsQuery { return { page: controls.page, statuses: controls.statuses, sort: controls.sort, dir: controls.dir, ...change }; }
   async function navigate(next: RunsQuery) {
     const id = ++epoch, ref = appRef;
-    pending = true;
+    intent = next; announcement = ''; pending = true;
     try { await goto(runsHref(ref, next), { keepFocus: true, noScroll: true }); }
     catch { if (alive && id === epoch && ref === appRef) announcement = t('runs.navigation-failed', 'Could not open this runs page. Try again.'); }
-    finally { if (alive && id === epoch && ref === appRef) pending = false; }
+    finally { if (alive && id === epoch && ref === appRef) { intent = null; pending = false; } }
   }
   const table = createSvelteTable<AppRun>({
     get data() { return section.runs; }, columns, getRowId: r => r.id,
@@ -70,23 +74,23 @@
 <div class="min-w-0 space-y-4 text-zinc-900 dark:text-zinc-100" aria-busy={pending}>
   <h2 bind:this={heading} tabindex="-1" class="text-lg font-semibold focus-visible:outline-2 focus-visible:outline-indigo-500">{t('app.tabs.runs', 'Runs')}</h2>
   <p role="status" aria-live="polite" class="text-sm">{announcement}</p>
-  <fieldset class="flex min-w-0 flex-wrap items-center gap-3" disabled={pending}>
+  <fieldset class="flex min-w-0 flex-wrap items-center gap-3">
     <legend class="sr-only">{t('runs.filter.statuses', 'Run statuses')}</legend>
     <label class="flex min-h-11 min-w-0 items-center gap-2">{t('runs.sort-by', 'Sort by')}
-      <select aria-label={t('runs.sort-label', 'Sort runs by')} value={section.sort} onchange={e => navigate(query({ page: 1, sort: e.currentTarget.value as RunsQuery['sort'] }))} class="min-h-11 min-w-0 rounded border border-zinc-300 bg-white px-2 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
+      <select aria-label={t('runs.sort-label', 'Sort runs by')} value={controls.sort} onchange={e => navigate(query({ page: 1, sort: e.currentTarget.value as RunsQuery['sort'] }))} class="min-h-11 min-w-0 rounded border border-zinc-300 bg-white px-2 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">
         <option value="createdAt">{t('runs.created', 'Created')}</option><option value="startedAt">{t('runs.started', 'Started')}</option><option value="finishedAt">{t('runs.finished', 'Finished')}</option><option value="status">{t('runs.status', 'Status')}</option>
       </select>
     </label>
     <label class="flex min-h-11 min-w-0 items-center gap-2">{t('runs.order', 'Order')}
-      <select aria-label={t('runs.order-label', 'Run sort order')} value={section.dir} onchange={e => navigate(query({ page: 1, dir: e.currentTarget.value as RunsQuery['dir'] }))} class="min-h-11 min-w-0 rounded border border-zinc-300 bg-white px-2 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"><option value="desc">{t('runs.descending', 'Descending')}</option><option value="asc">{t('runs.ascending', 'Ascending')}</option></select>
+      <select aria-label={t('runs.order-label', 'Run sort order')} value={controls.dir} onchange={e => navigate(query({ page: 1, dir: e.currentTarget.value as RunsQuery['dir'] }))} class="min-h-11 min-w-0 rounded border border-zinc-300 bg-white px-2 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"><option value="desc">{t('runs.descending', 'Descending')}</option><option value="asc">{t('runs.ascending', 'Ascending')}</option></select>
     </label>
     <button type="button" onclick={() => navigate(query({ page: 1, statuses: [] }))} class="min-h-11 rounded border border-zinc-300 bg-white px-3 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{t('runs.filter.all', 'All')}</button>
     <button type="button" onclick={() => navigate(query({ page: 1, statuses: ['PENDING', 'RUNNING'] }))} class="min-h-11 rounded border border-zinc-300 bg-white px-3 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{t('runs.filter.active', 'Active')}</button>
-    {#each RUN_STATUSES as status}<label class="flex min-h-11 items-center gap-1"><input type="checkbox" checked={section.statuses.includes(status)} onchange={(e) => navigate(query({ page: 1, statuses: RUN_STATUSES.filter(s => s === status ? e.currentTarget.checked : section.statuses.includes(s)) }))} />{status}</label>{/each}
+    {#each RUN_STATUSES as status}<label class="flex min-h-11 items-center gap-1"><input type="checkbox" checked={controls.statuses.includes(status)} onchange={(e) => navigate(query({ page: 1, statuses: RUN_STATUSES.filter(s => s === status ? e.currentTarget.checked : controls.statuses.includes(s)) }))} />{status}</label>{/each}
   </fieldset>
   {#if section.failed}<div role="alert"><p>{t('runs.read-failed', 'Could not load runs. Try again.')}</p><button type="button" disabled={pending} onclick={retry} class="min-h-11 rounded border border-zinc-300 bg-white px-3 text-zinc-900 focus-visible:outline-2 focus-visible:outline-indigo-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100">{t('runs.retry', 'Retry')}</button></div>
   {:else if section.total === 0}<p>{section.statuses.length ? t('runs.empty.filtered', 'No runs with this status yet.') : t('runs.empty.title', 'No runs yet.')}</p>{/if}
-  <p>{t('runs.pager.total', 'Total:')} {section.total}</p>
+  {#if !section.failed}<p>{t('runs.pager.total', 'Total:')} {section.total}</p>{/if}
   <DataTable {table} listKey="app-runs-server" showSearch={false} showPageSize={false} initialColumnsOnly={section.explicitState} sortButtons={true} searchPlaceholder="" searchAriaLabel="">
     {#snippet cell(c, run)}
       {#if c.column.id === 'status'}<span class="rounded px-2 py-1 {statusChipClass(run.status)}">{run.status}</span>
