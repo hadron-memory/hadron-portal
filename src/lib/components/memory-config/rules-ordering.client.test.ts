@@ -5,7 +5,7 @@ import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import RulebookManager from './RulebookManager.svelte';
 import type { Rule, Rulebook } from '$lib/memory-config/types';
 
-const rule: Rule = { id: 'r', role: 'old-role', revision: 1, enabled: true, strictSubRoles: false, writers: 'ALL', validateBy: null, locked: false, authorTask: null, authorTaskState: 'NONE', validationTask: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeState: 'NONE' };
+const rule: Rule = { id: 'r', role: 'old-role', revision: 1, enabled: true, strictSubRoles: false, writers: 'ALL', validateBy: null, locked: false, authorTask: null, authorTaskId: null, authorTaskState: 'NONE', validationTask: null, validationTaskId: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeId: null, descriptionNodeState: 'NONE' };
 const book = (role = 'old-role', revision = 1): Rulebook => ({ id: 'config', rules: [{ ...rule, role, revision }] });
 const reply = (body: unknown, ok = true) => ({ ok, json: async () => body } as Response);
 function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; }
@@ -107,6 +107,56 @@ describe('same-instance rulebook response ownership', () => {
     m.props.initial = null; flushSync(); concealed(m); m.props.initial = book('new-view'); flushSync();
     click(m.target, 'Create rule'); const newer = m.target.querySelector('dialog');
     release(0, book()); await settle(); expect(m.target.querySelector('dialog')).toBe(newer); expect(m.target.textContent).toContain('new-view');
+  });
+  it('old error after a newer read succeeds leaves that newer book and cleared failure alone', async () => {
+    const m = mount(); await banner(m); click(m.target, 'Reload'); click(m.target, 'Reload');
+    release(1, book('current-B')); await settle(); expect(m.target.querySelector('[role=alert]')).toBeNull();
+    reads[0].reject(new Error('old failure')); await settle(); expect(m.target.textContent).toContain('current-B'); expect(m.target.querySelector('[role=alert]')).toBeNull();
+  });
+  it.each(['success', 'error'] as const)('obsolete mutation %s launches no refresh into a replacement view', async kind => {
+    const m = mount(); const write = deferred<Response>(); mutate = () => write.promise;
+    click(m.target, 'Delete'); m.props.initial = book('replacement'); flushSync();
+    if (kind === 'success') write.resolve(reply({})); else write.resolve(reply({ error: 'obsolete refusal' }, false));
+    await settle(); expect(reads).toHaveLength(0); expect(m.target.textContent).toContain('replacement');
+    expect(m.target.querySelector('[role=alert]')).toBeNull(); expect(calls.map(c => c.op)).toEqual(['delete']);
+  });
+  it('current conflict Reload updates the revision and failure keeps the draft with the existing parent feedback', async () => {
+    const m = mount(); click(m.target, 'Edit'); click(m.target.querySelector('dialog')!, 'Save'); await settle();
+    click(m.target.querySelector('dialog')!, 'Reload the rule (discards your changes)'); release(0, book('fresh-rule', 2)); await settle();
+    const fresh = m.target.querySelector('dialog')!; expect(fresh.textContent).toContain('Edit rule');
+    click(fresh, 'Save'); await settle(); expect(calls.at(-1)?.revision).toBe(2);
+    click(fresh, 'Reload the rule (discards your changes)'); reads[1].reject(new Error('current failure')); await settle();
+    expect(m.target.querySelector('dialog')).toBe(fresh); expect(m.target.textContent).toContain('Could not reload. Your input is kept.');
+    expect(button(fresh, 'Save')!.disabled).toBe(false);
+  });
+  it.each(['save', 'row'] as const)('current %s success with refresh failure preserves truthful existing outcome and releases pending', async kind => {
+    const m = mount(); mutate = async () => reply({});
+    if (kind === 'save') { click(m.target, 'Edit'); click(m.target.querySelector('dialog')!, 'Save'); } else click(m.target, 'Delete');
+    await settle(); reads[0].reject(new Error('current refresh failed')); await settle();
+    expect(m.target.textContent).toContain(kind === 'save' ? 'Saved, but the rules could not be reloaded.' : 'The change succeeded, but the rules could not be reloaded.');
+    expect(button(m.target, 'Delete')!.disabled).toBe(false); expect(m.target.querySelector('dialog')).toBeNull();
+    expect(calls.map(c => c.op)).toEqual([kind === 'save' ? 'update' : 'delete', 'read']);
+  });
+  it('returning to the identical initial object is a new view, not permission for an old response', async () => {
+    const m = mount(); const original = m.props.initial; await banner(m); click(m.target, 'Reload');
+    m.props.initial = null; flushSync(); concealed(m); m.props.initial = original; flushSync();
+    release(0, book('obsolete-A')); await settle(); expect(m.target.textContent).toContain('old-role'); expect(m.target.textContent).not.toContain('obsolete-A');
+    click(m.target, 'Reload'); release(1, book('live-return')); await settle(); expect(m.target.textContent).toContain('live-return');
+  });
+  it('late failed conflict Reload does not overwrite replacement-view feedback or a newer editor', async () => {
+    const m = mount(); click(m.target, 'Edit'); click(m.target.querySelector('dialog')!, 'Save'); await settle();
+    click(m.target.querySelector('dialog')!, 'Reload the rule (discards your changes)');
+    m.props.initial = book('replacement'); flushSync(); click(m.target, 'Create rule'); const current = m.target.querySelector('dialog');
+    reads[0].reject(new Error('obsolete conflict reload')); await settle();
+    expect(m.target.querySelector('dialog')).toBe(current); expect(m.target.textContent).not.toContain('Could not reload. Your input is kept.');
+  });
+  it('pending Save stays single-flight and current completion releases its own editor', async () => {
+    const m = mount(); const write = deferred<Response>(); mutate = () => write.promise; click(m.target, 'Edit');
+    const dialog = m.target.querySelector('dialog')!; click(dialog, 'Save');
+    expect(button(dialog, 'Saving…')).toBeDefined(); button(dialog, 'Saving…')!.click(); flushSync();
+    expect(calls.map(c => c.op)).toEqual(['update']); expect(button(dialog, 'Cancel')!.disabled).toBe(true);
+    write.resolve(reply({})); await settle(); release(0, book('current')); await settle();
+    expect(m.target.querySelector('dialog')).toBeNull(); expect(calls.map(c => c.op)).toEqual(['update', 'read']);
   });
   it.each(['success', 'error'] as const)('teardown rejects old %s without changing a fresh null instance', async kind => {
     const old = mount(); await banner(old); click(old.target, 'Reload'); old.unmount(); const fresh = mount(null);
