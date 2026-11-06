@@ -1,5 +1,6 @@
 <script lang="ts">
   import TaskHandBack from '$lib/components/agent-tasks/TaskHandBack.svelte';
+  import TaskFindings from '$lib/components/agent-tasks/TaskFindings.svelte';
   import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
   import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
   import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
@@ -287,6 +288,12 @@
       </div>
     {/if}
   </section>
+
+  <!-- portal#1637: immutable result findings follow the existing Result facts;
+       their optional read and section actions never replace the task result. -->
+  {#if task.result}
+    <TaskFindings appId={data.app.id} taskId={task.id} findings={data.findings} />
+  {/if}
 
   <TaskHandBack handBack={task.handBack} />
 

@@ -1,4 +1,5 @@
 import { taskDependencies } from '$lib/server/task-planning';
+import { streamTaskFindings } from '$lib/server/task-findings';
 import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect, isHttpError } from '@sveltejs/kit';
@@ -67,6 +68,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // its own (the runs/[runId] pattern).
   if (task.appId !== app.id) redirect(303, `/app/apps/${task.appId}/tasks/${encodeURIComponent(task.id)}`);
 
+  // portal#1637: the immutable findings read starts only for a non-null result
+  // and always resolves to a typed value, so its failure stays in its section.
+  const findings = streamTaskFindings(client, task);
+
   // portal#1090: an impersonation session writes nothing, so it gets no bar
   // and no picker read. Everyone else gets the bar; the server decides.
   const canWrite = !locals.impersonation;
@@ -90,6 +95,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     tree,
     history,
     review,
+    findings,
     ancestors: crumbs.ancestors,
     ancestorsTruncated: crumbs.truncated,
     canWrite,

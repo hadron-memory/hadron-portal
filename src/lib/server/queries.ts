@@ -5101,6 +5101,25 @@ export const AGENT_TASKS_BOARD_QUERY = /* GraphQL */ `
   }
 `;
 
+/**
+ * portal#1637 (hadron-server#2662): one immutable findings page, separate from
+ * the shared task detail/tree/history reads and from finding dispositions.
+ */
+export const AGENT_TASK_FINDINGS_QUERY = /* GraphQL */ `
+  query AgentTaskFindings($id: ID!, $limit: Int, $offset: Int) {
+    agentTask(id: $id) {
+      id
+      result {
+        findings(limit: $limit, offset: $offset) {
+          items { id severity text }
+          total
+          hasMore
+        }
+      }
+    }
+  }
+`;
+
 export const AGENT_TASK_DETAIL_QUERY = /* GraphQL */ `
   ${AGENT_TASK_PARTY_FIELDS}
   ${AGENT_TASK_ROW_FIELDS}
