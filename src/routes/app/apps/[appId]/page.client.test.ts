@@ -6,11 +6,11 @@ import { zod4 } from 'sveltekit-superforms/adapters';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { page, setStubPage } from '$lib/test/stubs/app-stores';
 import { navigationCalls, navigationHooks, navigationGuards, resetNavigationCalls, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
-import { submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
+import { kitAppliedResults, submitEnhanced, submitEnhancedWithResult, submitEnhancedDeferred } from '$lib/test/stubs/app-forms';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import { postTeamChatMessageSchema } from '$lib/forms/team-chat-message-schema';
 import type { TeamChatFilter } from '$lib/team-chat-filter';
-import type { TeamChatMessage } from '$lib/types';
+import type { TeamChatMessage, TeamChatRefusal } from '$lib/types';
 import { AGENT_CHAT_KEY } from '$lib/app-chats';
 import Page from './+page.svelte';
 import {
@@ -1954,5 +1954,763 @@ describe('App Settings: task integrations draft (LOCAL review of #1614, P2-2)', 
     expect(section.querySelector('form')).toBeNull();
     expect(section.textContent).toContain('app-b-integration');
     expect(section.textContent).not.toContain('app-a-integration');
+  });
+});
+
+it('portal#1410 carries an explicit filter focus request through the route-keyed thread remount', async () => {
+  setStubPage('https://example.test/app/apps/a1?tab=chats&chat=chats:team', {appId:'a1'});
+  const data=await pageData();
+  const tagged={...message(1,'w1'),teamTags:[{headId:'head-ada',label:'team.ada'}]};
+  const props=reactiveProps({data:{...data,teamChatMessages:[tagged],teamFilter:{kind:'none'} as TeamChatFilter},form:null});
+  const m=mountComponent(Page as never,props as never) as Mounted<Record<string,unknown>>;
+  mounted.push(m);document.body.append(m.target);await tick(3);
+  const status=m.target.querySelector('[data-testid="team-chat-filter-status"]');
+  let finishNavigation!:()=>void;
+  navigationHooks.onGoto=()=>new Promise<void>(resolve=>{finishNavigation=resolve;});
+  const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;
+  tag.focus();tag.click();await tick(2);
+  expect(navigationCalls.some(c=>c.fn==='goto'&&String(c.args[0]).includes('team=head-ada'))).toBe(true);
+  props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'}};
+  await tick(2);finishNavigation();await tick(5);
+  const active=m.target.querySelector('[data-testid="team-chat-filter-active"]');
+  expect(active).not.toBeNull();expect(document.activeElement).toBe(active);
+  expect(m.target.querySelector('[data-testid="team-chat-filter-status"]')).toBe(status);
+  expect(m.target.querySelector('[data-testid="team-chat-filter-status"]')?.textContent).toContain('team.ada');
+});
+
+describe('portal#1624 BLIND refused and abandoned filter navigation', () => {
+  const tagged = { ...message(1, 'w1'), teamTags: [{headId:'head-ada', label:'team.ada'}] };
+  const refusal: TeamChatRefusal = {code:'TEAM_CHAT_TEAM_HEAD_INVALID', message:'Team broadcast target is unavailable in this Channel.'};
+  async function setup(invalid = false) {
+    setStubPage('https://example.test/app/apps/a1?tab=chats&chat=chats:team',{appId:'a1'});
+    const data=await pageData();
+    const props=reactiveProps({data:{...data,teamChatMessages:invalid?[]:[tagged],teamFilter:{kind:'none'} as TeamChatFilter,teamFilterInvalid:invalid,teamChatError:invalid,teamChatRefusal:null as TeamChatRefusal|null},form:null});
+    const m=mountComponent(Page as never,props as never) as Mounted<Record<string,unknown>>;
+    mounted.push(m);document.body.append(m.target);await tick(3);
+    let release!:()=>void;
+    navigationHooks.onGoto=()=>new Promise<void>(r=>{release=r;});
+    return {m,props,release:()=>release()};
+  }
+  const status=(m:Mounted<Record<string,unknown>>)=>m.target.querySelector('[data-testid="team-chat-filter-status"]')!;
+  const selectTag=async(m:Mounted<Record<string,unknown>>)=>{
+    const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;
+    tag.focus();tag.click();await tick(2);
+  };
+  it('a refused filter never announces selected and cannot reapply its intent on a later healthy reload',async()=>{
+    const {m,props,release}=await setup();await selectTag(m);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'},teamChatMessages:[],teamChatError:true,teamChatRefusal:refusal};
+    await tick(3);release();await tick(5);
+    expect(m.target.querySelector('[data-testid="team-chat-filter-refused"]')?.textContent).toBe(refusal.message);
+    expect(status(m).textContent).not.toContain('selected');
+    props.data={...props.data,teamChatMessages:[tagged],teamChatError:false,teamChatRefusal:null};await tick(4);
+    expect(status(m).textContent).not.toContain('selected');
+  });
+  it('an invalid navigation cancels intent even when its filter key differs; a later matching history visit is not a new choice',async()=>{
+    const {m,props,release}=await setup();await selectTag(m);
+    props.data={...props.data,teamFilterInvalid:true,teamChatError:true,teamChatMessages:[]};await tick(3);release();await tick(4);
+    expect(status(m).textContent).not.toContain('selected');
+    props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'},teamFilterInvalid:false,teamChatError:false,teamChatMessages:[tagged]};await tick(5);
+    expect(status(m).textContent).not.toContain('selected');
+    expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+  });
+  it('a completed navigation that did not apply its requested key cannot fire on a later history visit',async()=>{
+    const {m,props,release}=await setup();await selectTag(m);release();await tick(4);
+    props.data={...props.data,teamFilter:{kind:'team',headRef:'head-ada'}};await tick(5);
+    expect(status(m).textContent).not.toContain('selected');
+    expect(document.activeElement).not.toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+  });
+  it('a rejected old navigation cannot cancel a newer choice',async()=>{
+    const {m,props}=await setup();
+    const bo={...tagged,nodeId:'m2',seq:2,teamTags:[{headId:'head-bo',label:'team.bo'}]};
+    props.data={...props.data,teamChatMessages:[tagged,bo]};await tick(3);
+    const pending:Array<{resolve:()=>void;reject:(error:Error)=>void}>=[];
+    navigationHooks.onGoto=()=>new Promise<void>((resolve,reject)=>{pending.push({resolve,reject});});
+    await selectTag(m);
+    const second=m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-tag"]')[1];
+    second.focus();second.click();await tick(2);
+    pending[0].reject(new Error('old navigation cancelled'));await tick(3);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-bo'},teamChatMessages:[bo]};
+    await tick(3);pending[1].resolve();await tick(5);
+    expect(status(m).textContent).toContain('team.bo');
+    expect(document.activeElement).toBe(m.target.querySelector('[data-testid="team-chat-filter-active"]'));
+  });
+  it('clearing an initially invalid view still focuses and announces the healthy explicit All choice',async()=>{
+    const {m,props,release}=await setup(true);
+    const all=[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('All messages'))!;
+    all.focus();all.click();await tick(3);
+    props.data={...props.data,app:{...props.data.app},teamFilterInvalid:false,teamChatError:false,teamChatMessages:[tagged]};await tick(3);release();await tick(5);
+    const applied=[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('All messages'))!;
+    expect(document.activeElement).toBe(applied);expect(status(m).textContent).toContain('All messages selected.');
+  });
+  // portal#1629 (Liam's LOCAL gaps on #1624, Gabriel's optional coverage): three pins, no production change.
+  const untaggedButton=(m:Mounted<Record<string,unknown>>)=>[...m.target.querySelectorAll<HTMLButtonElement>('[data-testid="team-chat-filter"] button')].find(b=>b.textContent?.includes('No team tag recorded'))!;
+  it('portal#1629 the sole rejected navigation consumes its intent: no stale announcement and no replay on a later history visit',async()=>{
+    const {m,props}=await setup();
+    const pending:Array<{resolve:()=>void;reject:(error:Error)=>void}>=[];
+    navigationHooks.onGoto=()=>new Promise<void>((resolve,reject)=>{pending.push({resolve,reject});});
+    await selectTag(m);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);pending[0].resolve();await tick(5);
+    expect(status(m).textContent).toContain('team.ada');
+    const untagged=untaggedButton(m);untagged.focus();untagged.click();await tick(2);
+    expect(pending).toHaveLength(2);
+    pending[1].reject(new Error('navigation failed'));await tick(5);
+    expect(status(m).textContent).toBe('');
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'untagged'}};await tick(5);
+    expect(status(m).textContent).toBe('');
+    // Positive form (Gloria P2): the untagged chip exists and is the applied filter, yet focus was NOT pulled to it.
+    expect(untaggedButton(m).getAttribute('aria-pressed')).toBe('true');
+    expect(m.target.querySelector('[data-testid="team-chat-filter-active"]')).toBeNull();
+    expect(document.activeElement).toBe(document.body);
+  });
+  it('portal#1629 focus moved to another thread control, then destroyed by the keyed remount, is left on BODY (not pulled to the chip)',async()=>{
+    const {m,props,release}=await setup();await selectTag(m);
+    expect(navigationCalls.filter(c=>c.fn==='goto')).toHaveLength(1);
+    const other=untaggedButton(m);other.focus();expect(document.activeElement).toBe(other);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);release();await tick(5);
+    expect(m.target.contains(other)).toBe(false);
+    expect(document.activeElement).toBe(document.body);
+    expect(status(m).textContent).toContain('team.ada');
+  });
+  it('portal#1629 choosing the untagged filter announces its own neutral text',async()=>{
+    const {m,props,release}=await setup();
+    const untagged=untaggedButton(m);untagged.focus();untagged.click();await tick(2);
+    expect(navigationCalls.filter(c=>c.fn==='goto')).toHaveLength(1);
+    props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'untagged'}};await tick(3);release();await tick(5);
+    expect(status(m).textContent).toBe('Showing messages with no team tag recorded.');
+  });
+});
+
+it('portal#1624 QA restores the newer composer focus after the keyed route destroys that textarea', async()=>{
+  setStubPage('https://example.test/app/apps/a1?tab=chats&chat=chats:team',{appId:'a1'});
+  const data=await pageData();
+  const tagged={...message(1,'w1'),teamTags:[{headId:'head-ada',label:'team.ada'}]};
+  const props=reactiveProps({data:{...data,teamChatMessages:[tagged],teamFilter:{kind:'none'} as TeamChatFilter},form:null});
+  const m=mountComponent(Page as never,props as never) as Mounted<Record<string,unknown>>;
+  mounted.push(m);document.body.append(m.target);await tick(3);
+  let release!:()=>void;navigationHooks.onGoto=()=>new Promise<void>(r=>{release=r;});
+  const tag=m.target.querySelector<HTMLButtonElement>('[data-testid="team-chat-tag"]')!;tag.focus();tag.click();await tick(2);
+  const oldComposer=m.target.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
+  oldComposer.focus();oldComposer.value='draft typed while navigation waits';oldComposer.dispatchEvent(new Event('input',{bubbles:true}));await tick(3);
+  props.data={...props.data,app:{...props.data.app},teamFilter:{kind:'team',headRef:'head-ada'}};await tick(3);release();await tick(5);
+  const newComposer=m.target.querySelector<HTMLTextAreaElement>('#team-chat-body')!;
+  expect(newComposer).not.toBe(oldComposer);expect(newComposer.value).toBe('draft typed while navigation waits');
+  expect(document.activeElement).toBe(newComposer);
+});
+
+// portal#1469 (P3-5): the component test passes showDescription directly, so
+// nothing pinned the PAGE wiring — the Description column must follow whether
+// the App belongs to an organization (its memories read carries descriptions),
+// not any other condition. A user-owned App has no org, so no Description
+// column; an org App keeps it.
+describe('App memories Description column wiring (portal#1469)', () => {
+  const memoryRows = [
+    // non-null descriptions so the org direction proves the column renders
+    // data, not just a header, and the user-owned direction proves the data
+    // does not leak without the column.
+    { id: 'm1', urn: 'hrn:mem:acme.com:m1', name: 'First', description: 'a note', appId: 'a1' },
+    { id: 'm2', urn: 'hrn:mem:acme.com:m2', name: 'Second', description: 'another note', appId: 'a1' },
+  ];
+  async function mountMemoryTab(app: Record<string, unknown>): Promise<HTMLElement> {
+    setStubPage('https://example.test/app/apps/a1?tab=memory', { appId: 'a1' });
+    window.history.replaceState({}, '', '/app/apps/a1?tab=memory');
+    const data = await pageData();
+    const createMemoryForm = await superValidate(zod4(createAppMemorySchema), { id: 'createAppMemory:a1', errors: false });
+    const m = mountComponent(Page as never, {
+      data: { ...data, user: { id: 'u1' }, initialTab: 'memory', app: { ...data.app, ...app }, appMemories: memoryRows, createMemoryForm },
+      form: null,
+    } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return m.target;
+  }
+  it('a user-owned App (no organizationId) renders the memories grid without the Description column', async () => {
+    const target = await mountMemoryTab({ organizationId: null });
+    const headers = [...target.querySelectorAll('th')].map((h) => h.textContent?.trim() ?? '');
+    expect(headers.some((h) => h.startsWith('Description'))).toBe(false);
+    expect(headers.some((h) => h.startsWith('Name'))).toBe(true);
+    expect(target.textContent).toContain('First');
+    expect(target.textContent).not.toContain('a note');
+  });
+  it('an org-owned App keeps the Description column', async () => {
+    const target = await mountMemoryTab({ organizationId: 'o1' });
+    const headers = [...target.querySelectorAll('th')].map((h) => h.textContent?.trim() ?? '');
+    expect(headers.some((h) => h.startsWith('Description'))).toBe(true);
+    expect(target.textContent).toContain('First');
+    expect(target.textContent).toContain('a note');
+    expect(target.textContent).toContain('another note');
+  });
+});
+
+// ── hadron-portal#1149: the cast asks a deliberate reporting choice ──────────
+describe('Cast reporting choice (#1149)', () => {
+  async function openCast(staff?: Array<Record<string, unknown>>) {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    Object.assign(data.app, { agents: [
+      { id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
+    ] });
+    if (staff) (data as { staff: unknown }).staff = staff;
+    data.initialTab = 'staff';
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    await tick(2);
+    const form = m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    return { m, form };
+  }
+  const radios = (form: HTMLFormElement) => [...form.querySelectorAll<HTMLInputElement>('input[name="reporting"]')];
+  // The id the server would echo back: the one this form instance posts.
+  const idOf = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
+
+  it('starts with NEITHER choice selected and no head picker: nothing is guessed', async () => {
+    const { form } = await openCast();
+    const [head, none] = radios(form);
+    expect(head.value).toBe('head');
+    expect(none.value).toBe('none');
+    expect(head.checked).toBe(false);
+    expect(none.checked).toBe(false);
+    expect(form.querySelector('#castReportsTo')).toBeNull();
+    expect(new FormData(form).has('reporting')).toBe(false);
+    expect(form.querySelector('fieldset legend')?.textContent).toContain('Reports to');
+  });
+
+  it('choosing a worker reveals the picker of ACTIVE workers only, with the URN under the name', async () => {
+    const { form } = await openCast([
+      { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null },
+      { id: 'w2', name: 'Old', urn: 'hrn:worker:acme.com:team:old', role: 'qa', retiredAt: '2026-09-01T00:00:00.000Z' },
+    ]);
+    const [head] = radios(form);
+    head.click();
+    await tick(2);
+    const pick = form.querySelector<HTMLSelectElement>('#castReportsTo')!;
+    expect(pick).not.toBeNull();
+    expect([...pick.options].map((o) => o.value)).toEqual(['', 'w1']);
+    expect(pick.value).toBe('');
+    pick.value = 'w1';
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    expect(form.querySelector('span[title="hrn:worker:acme.com:team:ada"]')).not.toBeNull();
+  });
+
+  it('No team hides the picker and submits only the No team arm', async () => {
+    const { form } = await openCast();
+    const [head, none] = radios(form);
+    head.click();
+    await tick(2);
+    none.click();
+    await tick(2);
+    expect(form.querySelector('#castReportsTo')).toBeNull();
+    const data = new FormData(form);
+    expect(data.get('reporting')).toBe('none');
+    expect(data.has('reportsTo')).toBe(false);
+  });
+
+  it('a refused cast keeps the user’s choice for correction and shows the server’s sentence', async () => {
+    const { m, form } = await openCast([
+      { id: 'w1', name: 'Ada', urn: 'hrn:worker:acme.com:team:ada', role: 'coordinator', retiredAt: null },
+    ]);
+    (form.querySelector('[name="agentId"]') as HTMLSelectElement).value = 'agent-a';
+    form.querySelector('[name="agentId"]')!.dispatchEvent(new Event('change', { bubbles: true }));
+    (form.querySelector('[name="name"]') as HTMLInputElement).value = 'Iris';
+    form.querySelector('[name="name"]')!.dispatchEvent(new Event('input', { bubbles: true }));
+    radios(form)[0].click();
+    await tick(2);
+    const pick = form.querySelector<HTMLSelectElement>('#castReportsTo')!;
+    pick.value = 'w1';
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    const result = await superValidate(
+      { agentId: 'agent-a', name: 'Iris', reporting: 'head', reportsTo: 'w1' },
+      zod4(castWorkerSchema),
+      { errors: false, id: idOf(form) },
+    );
+    result.valid = false;
+    result.message = { type: 'error', text: 'Worker not found in this App.' };
+    await submitEnhancedWithResult(form, { type: 'failure', status: 500, data: { form: result } });
+    await tick(3);
+    expect(m.target.textContent).toContain('Worker not found in this App.');
+    // Still a head, still Ada: the permanent cast was refused, nothing re-sent.
+    expect(radios(form)[0].checked).toBe(true);
+    expect(radios(form)[1].checked).toBe(false);
+    expect(form.querySelector<HTMLSelectElement>('#castReportsTo')!.value).toBe('w1');
+  });
+});
+
+describe('Cast composer lifecycle (#1149, late result crosses App navigation)', () => {
+  const AGENTS = [
+    { id: 'agent-a', name: 'Portal Engineer', urn: 'hrn:agent:acme.com:portal', personaRole: 'portal-engineer' },
+    { id: 'agent-b', name: 'Server Engineer', urn: 'hrn:agent:acme.com:server', personaRole: 'server-engineer' },
+  ];
+  async function dataFor(appId: string) {
+    setStubPage(`https://example.test/app/apps/${appId}?tab=staff`, { appId });
+    const data = await pageData();
+    Object.assign(data.app, { id: appId, agents: AGENTS });
+    data.initialTab = 'staff';
+    return data;
+  }
+  async function openCast() {
+    const props = reactiveProps({ data: await dataFor('a1'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    const open = () => [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker')!.click();
+    open();
+    await tick(2);
+    const form = () => m.target.querySelector<HTMLFormElement>('form[action="?/castWorker"]')!;
+    return { m, props, form, open };
+  }
+  const fill = async (form: HTMLFormElement, agent: string, name: string) => {
+    const a = form.querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    a.value = agent; a.dispatchEvent(new Event('change', { bubbles: true }));
+    const n = form.querySelector<HTMLInputElement>('[name="name"]')!;
+    n.value = name; n.dispatchEvent(new Event('input', { bubbles: true }));
+    form.querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.click();
+    await tick(2);
+  };
+  const idOf = (form: HTMLFormElement) => form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
+  const success = async (id: string) => {
+    const f = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false, id });
+    f.message = { type: 'success', text: 'Worker cast.' };
+    return { type: 'success' as const, status: 200, data: { form: f } };
+  };
+
+  it('a No team choice made for App A is not carried to App B', async () => {
+    const { m, props, open, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    props.data = await dataFor('a2');
+    await tick(3);
+    open();
+    await tick(2);
+    expect(form().querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.checked).toBe(false);
+    expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('');
+    expect(m.target.textContent).not.toContain('Worker cast.');
+  });
+
+  it('changing the selected Agent clears the reporting choice', async () => {
+    const { form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    expect(form().querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.checked).toBe(true);
+    const a = form().querySelector<HTMLSelectElement>('[name="agentId"]')!;
+    a.value = 'agent-b'; a.dispatchEvent(new Event('change', { bubbles: true }));
+    await tick(2);
+    expect(form().querySelector<HTMLInputElement>('input[name="reporting"][value="none"]')!.checked).toBe(false);
+  });
+
+  it('A’s late success does not close B’s composer, empty B’s draft or say Worker cast on B', async () => {
+    const { m, props, form, open } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    props.data = await dataFor('a2');
+    await tick(3);
+    open();
+    await tick(2);
+    await fill(form(), 'agent-b', 'NewB');
+    await delayed.finish(await success(sent));
+    await tick(3);
+    expect(form()).not.toBeNull();
+    expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('NewB');
+    expect(m.target.textContent).not.toContain('Worker cast.');
+  });
+
+  it('an old A attempt delivered after A -> B -> A does not touch the fresh A composer (late success, refusal, held refresh)', async () => {
+    const { m, props, form, open } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    props.data = await dataFor('a2');
+    await tick(3);
+    props.data = await dataFor('a1');
+    await tick(3);
+    open();
+    await tick(2);
+    await fill(form(), 'agent-b', 'FreshA');
+    await delayed.finish(await success(sent));
+    await tick(3);
+    expect(form()).not.toBeNull();
+    expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('FreshA');
+    expect(m.target.textContent).not.toContain('Worker cast.');
+    expect(m.target.textContent).not.toContain('could not be refreshed');
+  });
+
+  it('an old A refusal delivered after A -> B -> A does not replace the fresh A draft', async () => {
+    const { m, props, form, open } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    props.data = await dataFor('a2');
+    await tick(3);
+    props.data = await dataFor('a1');
+    await tick(3);
+    open();
+    await tick(2);
+    await fill(form(), 'agent-b', 'FreshA');
+    const bad = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false, id: sent });
+    bad.valid = false;
+    bad.message = { type: 'error', text: 'That name is taken.' };
+    await delayed.finish({ type: 'failure', status: 500, data: { form: bad } } as never);
+    await tick(3);
+    expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('FreshA');
+    expect(m.target.textContent).not.toContain('That name is taken.');
+  });
+
+  it('an old A refresh that rejects after A -> B -> A adds no notice to the fresh A composer', async () => {
+    const { m, props, form, open } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    let rejectRefresh!: (e: Error) => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((_, rej) => { rejectRefresh = rej; });
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    const finished = delayed.finish(await success(sent));
+    await tick(3);
+    props.data = await dataFor('a2');
+    await tick(3);
+    props.data = await dataFor('a1');
+    await tick(3);
+    rejectRefresh(new Error('refresh failed'));
+    await finished.catch(() => {});
+    await tick(3);
+    open();
+    await tick(2);
+    expect(m.target.textContent).not.toContain('could not be refreshed');
+  });
+
+  it('a request begun by a destroyed Page cannot seed the fresh mount (success and refusal)', async () => {
+    for (const outcome of ['success', 'refusal'] as const) {
+      const first = await openCast();
+      await fill(first.form(), 'agent-a', 'Iris');
+      const sent = idOf(first.form());
+      const delayed = await submitEnhancedDeferred(first.form());
+      first.m.unmount();
+      const second = await openCast();
+      await fill(second.form(), 'agent-b', 'FreshA');
+      expect(idOf(second.form())).not.toBe(sent);
+      if (outcome === 'success') {
+        await delayed.finish(await success(sent));
+      } else {
+        const bad = await superValidate({ agentId: 'agent-a', name: 'Iris', reporting: 'none', reportsTo: '' }, zod4(castWorkerSchema), { errors: false, id: sent });
+        bad.valid = false;
+        bad.message = { type: 'error', text: 'That name is taken.' };
+        await delayed.finish({ type: 'failure', status: 500, data: { form: bad } } as never);
+      }
+      await tick(3);
+      expect(second.form()).not.toBeNull();
+      expect(second.form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('FreshA');
+      expect(second.m.target.textContent).not.toContain('Worker cast.');
+      expect(second.m.target.textContent).not.toContain('That name is taken.');
+      second.m.unmount();
+    }
+  });
+
+  it('control: the current App’s success clears and closes its own composer', async () => {
+    const { m, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    await delayed.finish(await success(sent));
+    await tick(3);
+    expect(m.target.querySelector('form[action="?/castWorker"]')).toBeNull();
+    expect(m.target.textContent).toContain('Worker cast.');
+  });
+
+  it('a refresh that rejects after a confirmed cast says so and never offers a blind repeat', async () => {
+    const { m, form } = await openCast();
+    await fill(form(), 'agent-a', 'Iris');
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after committed cast'); };
+    const sent = idOf(form());
+    const delayed = await submitEnhancedDeferred(form());
+    await delayed.finish(await success(sent));
+    await tick(4);
+    expect(m.target.textContent).toContain('Worker cast.');
+    expect(m.target.textContent).toContain('could not be refreshed');
+    const cast = [...m.target.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Cast a worker') as HTMLButtonElement;
+    expect(cast.disabled).toBe(false);
+  });
+});
+
+describe('Roster placement readback (#1149)', () => {
+  async function rosterText(placements: Array<string | null>) {
+    setStubPage('https://example.test/app/apps/a1?tab=staff', { appId: 'a1' });
+    const data = await pageData();
+    (data as { staff: unknown }).staff = placements.map((teamPlacement, i) => ({
+      id: `w${i}`, name: `Worker${i}`, urn: `hrn:worker:acme.com:team:worker${i}`, role: 'qa',
+      retiredAt: null, reportsToWorkerId: null, reportsToRetired: false, teamPlacement,
+    }));
+    data.initialTab = 'staff';
+    const m = mountComponent(Page as never, { data, form: null } as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(3);
+    return (i: number) => [...m.target.querySelectorAll('tr')].find((r) => r.textContent?.includes(`Worker${i}`))?.textContent ?? '';
+  }
+
+  it('says No team and Not set for answered placements, and nothing for a masked null', async () => {
+    const row = await rosterText(['NO_TEAM', 'UNSET', null]);
+    expect(row(0)).toContain('No team');
+    expect(row(1)).toContain('Not set');
+    expect(row(2)).not.toContain('No team');
+    expect(row(2)).not.toContain('Not set');
+  });
+});
+
+describe('Install on a derived row: its result belongs to one App window (#1684, LOCAL on #1714)', () => {
+  const BETA = { id: 'ag1', urn: 'hrn:agent:acme.com:beta', name: 'Beta', personaRole: null };
+  const IMPORTER = { id: 'ag0', name: 'Alpha', urn: 'hrn:agent:acme.com:alpha' };
+  const LINKED = 'Agent linked.';
+  const REFUSED = 'That agent cannot be installed.';
+  async function dataFor(appId: string) {
+    setStubPage(`https://example.test/app/apps/${appId}?tab=agents`, { appId });
+    const data = await pageData();
+    Object.assign(data.app, { id: appId, agents: [BETA] });
+    data.initialTab = 'agents';
+    return { ...data, bootPointerAppKey: appId, installMarks: { ag1: { kind: 'derived', importer: IMPORTER } } };
+  }
+  const installForm = (target: HTMLElement) =>
+    [...target.querySelectorAll<HTMLFormElement>('form[action="?/addAgent"]')].find((f) =>
+      f.querySelector<HTMLInputElement>('[name="__superform_id"]')?.value.startsWith('installAgent:'))!;
+  const actions = (target: HTMLElement) => target.querySelector<HTMLButtonElement>('button[aria-label="Actions for Beta"]')!;
+  async function mountAgents() {
+    vi.stubGlobal('fetch', vi.fn(async (url) => ({ ok: true, json: async () => String(url).includes('/customisation?') ? { list: { state: 'not-shown' }, original: { state: 'not-shown' }, replacement: { state: 'not-shown' } } : {} }) as Response));
+    const props = reactiveProps({ data: await dataFor('a1'), form: null });
+    const m = mountComponent(Page as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m);
+    await tick(2);
+    return { m, props };
+  }
+  // Goes through the row's own Install so the posted agent is the one it picked.
+  async function beginInstall(target: HTMLElement) {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, 'requestSubmit').mockImplementation(() => {});
+    actions(target).click();
+    flushSync();
+    [...target.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')].find((i) => i.textContent?.trim() === 'Install')!.click();
+    await tick(2);
+    requestSubmit.mockRestore();
+    const form = installForm(target);
+    const id = form.querySelector<HTMLInputElement>('[name="__superform_id"]')!.value;
+    return { id, delayed: await submitEnhancedDeferred(form) };
+  }
+  const confirmed = async (id: string) => {
+    const f = await superValidate({ agentId: 'ag1' }, zod4(addAgentSchema), { errors: false, id });
+    f.message = { type: 'success', text: LINKED };
+    return { type: 'success' as const, status: 200, data: { form: f } };
+  };
+  const refused = async (id: string) => {
+    const f = await superValidate({ agentId: 'ag1' }, zod4(addAgentSchema), { errors: false, id });
+    f.valid = false;
+    f.message = { type: 'error', text: REFUSED };
+    return { type: 'failure' as const, status: 400, data: { form: f } };
+  };
+  const refreshes = () => navigationCalls.filter((c) => c.fn === 'invalidateAll').length;
+
+  it('A’s late success says nothing on B and refreshes nothing there', async () => {
+    const { m, props } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    props.data = await dataFor('a2');
+    await tick(3);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.textContent).not.toContain(LINKED);
+    expect(refreshes()).toBe(0);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('A’s late refusal says nothing on B', async () => {
+    const { m, props } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    props.data = await dataFor('a2');
+    await tick(3);
+    await delayed.finish(await refused(id) as never);
+    await tick(4);
+    expect(m.target.textContent).not.toContain(REFUSED);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('an attempt from before A -> B -> A is as stale as one from B (success and refusal)', async () => {
+    for (const answer of [confirmed, refused]) {
+      const { m, props } = await mountAgents();
+      const { id, delayed } = await beginInstall(m.target);
+      props.data = await dataFor('a2');
+      await tick(3);
+      props.data = await dataFor('a1');
+      await tick(3);
+      await delayed.finish(await answer(id) as never);
+      await tick(4);
+      expect(m.target.textContent).not.toContain(LINKED);
+      expect(m.target.textContent).not.toContain(REFUSED);
+      expect(refreshes()).toBe(0);
+      expect(actions(m.target).disabled).toBe(false);
+      m.unmount();
+      mounted.pop();
+    }
+  });
+
+  it('a request begun by a destroyed Page says nothing on a fresh mount (success and refusal)', async () => {
+    for (const answer of [confirmed, refused]) {
+      const first = await mountAgents();
+      const { id, delayed } = await beginInstall(first.m.target);
+      first.m.unmount();
+      mounted.pop();
+      const second = await mountAgents();
+      expect(installForm(second.m.target).querySelector<HTMLInputElement>('[name="__superform_id"]')!.value).not.toBe(id);
+      await delayed.finish(await answer(id) as never);
+      await tick(4);
+      expect(second.m.target.textContent).not.toContain(LINKED);
+      expect(second.m.target.textContent).not.toContain(REFUSED);
+      expect(refreshes()).toBe(0);
+      second.m.unmount();
+      mounted.pop();
+    }
+  });
+
+  it('leaving the App takes its receipt with it', async () => {
+    const { m, props } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(LINKED);
+    props.data = await dataFor('a2');
+    await tick(4);
+    expect(m.target.textContent).not.toContain(LINKED);
+  });
+
+  it('control: the current App’s success shows its receipt and refreshes once', async () => {
+    const { m } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(LINKED);
+    expect(refreshes()).toBe(1);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('control: the current App’s refusal shows and refreshes nothing', async () => {
+    const { m } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await refused(id) as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(REFUSED);
+    expect(refreshes()).toBe(0);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('a refresh that rejects after a confirmed install keeps the receipt, says so and frees the row', async () => {
+    const { m } = await mountAgents();
+    navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after a confirmed install'); };
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(LINKED);
+    expect(m.target.textContent).toContain('could not be refreshed');
+    expect(actions(m.target).disabled).toBe(false);
+    expect(refreshes()).toBe(1);
+  });
+
+  // Superforms awaits between entering its result handler and applying the result, so a
+  // fence at any one point leaves the rest open. Walk the App change across all of them.
+  it('leaving A at any point while its answer is applied leaves B untouched (success, refusal, failed request)', async () => {
+    const failed = async () => ({ type: 'error', status: 500, error: { message: 'boom' } });
+    for (const [answer, text] of [[confirmed, LINKED], [refused, REFUSED], [failed, 'could not be confirmed']] as const) {
+      for (let turns = 0; turns <= 12; turns += 1) {
+        const { m, props } = await mountAgents();
+        const { id, delayed } = await beginInstall(m.target);
+        const result = await answer(id);
+        const b = await dataFor('a2');
+        resetNavigationCalls();
+        const finishing = delayed.finish(result as never);
+        for (let i = 0; i < turns; i += 1) await Promise.resolve();
+        const refreshedWhileOnA = refreshes();
+        props.data = b;
+        flushSync();
+        const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search agents"]')!;
+        search.focus();
+        await finishing;
+        await tick(4);
+        const at = `${text} after ${turns} turns`;
+        expect(m.target.textContent, at).not.toContain(text);
+        expect(document.activeElement, at).toBe(search);
+        expect(refreshes(), at).toBe(refreshedWhileOnA);
+        expect(actions(m.target).disabled, at).toBe(false);
+        m.unmount();
+        mounted.pop();
+      }
+    }
+  });
+
+  const REDIRECT = { type: 'redirect', status: 303, location: '/signin' } as const;
+  const FAILED = { type: 'error', status: 500, error: { message: 'boom' } } as const;
+  const UNCONFIRMED = 'could not be confirmed';
+
+  it('a redirect still reaches Kit in the current App (applyAction is off for this form)', async () => {
+    const { m } = await mountAgents();
+    kitAppliedResults.length = 0;
+    const { delayed } = await beginInstall(m.target);
+    await delayed.finish(REDIRECT as never);
+    await tick(4);
+    expect(kitAppliedResults).toEqual([REDIRECT]);
+  });
+
+  it('A’s late redirect does not reach Kit on B', async () => {
+    const { m, props } = await mountAgents();
+    kitAppliedResults.length = 0;
+    const { delayed } = await beginInstall(m.target);
+    props.data = await dataFor('a2');
+    await tick(3);
+    await delayed.finish(REDIRECT as never);
+    await tick(4);
+    expect(kitAppliedResults).toEqual([]);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('a failed request says the install is unconfirmed, claims neither outcome and frees the row', async () => {
+    const { m } = await mountAgents();
+    const { delayed } = await beginInstall(m.target);
+    await delayed.finish(FAILED as never);
+    await tick(4);
+    expect(m.target.textContent).toContain(UNCONFIRMED);
+    expect(m.target.textContent).not.toContain(LINKED);
+    expect(refreshes()).toBe(0);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('A’s late failed request says nothing on B', async () => {
+    const { m, props } = await mountAgents();
+    const { delayed } = await beginInstall(m.target);
+    props.data = await dataFor('a2');
+    await tick(3);
+    await delayed.finish(FAILED as never);
+    await tick(4);
+    expect(m.target.textContent).not.toContain(UNCONFIRMED);
+    expect(actions(m.target).disabled).toBe(false);
+  });
+
+  it('a success or refusal never goes through Kit, so focus stays where the reader put it', async () => {
+    for (const answer of [confirmed, refused]) {
+      const { m } = await mountAgents();
+      kitAppliedResults.length = 0;
+      const { id, delayed } = await beginInstall(m.target);
+      const search = m.target.querySelector<HTMLInputElement>('input[aria-label="Search agents"]')!;
+      search.focus();
+      await delayed.finish(await answer(id) as never);
+      await tick(4);
+      expect(kitAppliedResults).toEqual([]);
+      expect(document.activeElement).toBe(search);
+    }
+  });
+
+  it('a refresh that rejects after the user left A says nothing on B', async () => {
+    const { m, props } = await mountAgents();
+    let reject!: (e: Error) => void;
+    navigationHooks.onInvalidateAll = () => new Promise<void>((_, r) => { reject = r; });
+    const { id, delayed } = await beginInstall(m.target);
+    const finishing = delayed.finish(await confirmed(id) as never);
+    await tick(4);
+    props.data = await dataFor('a2');
+    await tick(3);
+    reject(new Error('refresh failed'));
+    await finishing;
+    await tick(4);
+    expect(m.target.textContent).not.toContain(LINKED);
+    expect(m.target.textContent).not.toContain('could not be refreshed');
+    expect(actions(m.target).disabled).toBe(false);
   });
 });

@@ -35,7 +35,8 @@ function page(references: unknown): string {
       data: { app, task, ancestors: [], ancestorsTruncated: false,
         canWrite: false, impersonating: null, created: false, candidates: { workers: [], people: [] },
         tree: { kind: 'ok', value: { rows: [task], capped: false } },
-        history: { kind: 'ok', value: { events: [], capped: false } } },
+        history: { kind: 'ok', value: { events: [], capped: false } },
+        review: { kind: 'ok', value: { readiness: null, seat: null } } },
     },
   } as never).body;
 }
@@ -99,6 +100,28 @@ describe('task references on the task page (portal#1575)', () => {
     expect(hrefs(html)).toEqual([target]);
   });
 
+  // portal#1580: the non-Cf blank set (hrn:node:hadronmemory.com:specs:cor:agt:050:01, ruling 0086 A) is revealed on the detail view.
+  it('blank characters are revealed in a label, a link’s text and a plain-text target; the href stays the stored string', () => {
+    const linkTarget = 'https://example.com/a\u2800b';
+    const html = page([
+      { kind: 'URL', target: linkTarget, label: 'x\u3164y' },
+      { kind: 'TASK', target: 'hrn:agenttask:acme.com:other:AT1.2\uFE0F', label: null },
+    ]);
+    const shown = text(section(html));
+    expect(shown).toContain('x[U+3164]y');
+    expect(shown).toContain('https://example.com/a[U+2800]b');
+    expect(shown).toContain('hrn:agenttask:acme.com:other:AT1.2[U+FE0F]');
+    expect(shown).not.toMatch(/[\u3164\u2800\uFE0F]/);
+    expect(hrefs(html)).toEqual([linkTarget]);
+  });
+
+  it('a variation selector in a label is left alone (an emoji label), and a supplementary one in a target is revealed', () => {
+    const html = page([{ kind: 'URL', target: 'https://example.com/\u{E0100}', label: 'Heart \u2764\uFE0F' }]);
+    const shown = text(section(html));
+    expect(shown).toContain('Heart \u2764\uFE0F');
+    expect(shown).toContain('https://example.com/[U+E0100]');
+  });
+
   it('a userinfo target displays literally and links to exactly the stored string', () => {
     const target = 'https://evil.com@github.com/o/r/pull/2';
     const html = page([{ kind: 'PULL_REQUEST', target, label: null }]);
@@ -158,5 +181,20 @@ describe('the new-task form keeps its references through a refusal (acceptance 7
     expect(html).toContain(message);
     const posted = /name="references" value="([^"]*)"/.exec(html)![1]!.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
     expect(JSON.parse(posted)).toEqual(list);
+  });
+
+  // portal#1580: the editor's list reveals the same set, labels and targets.
+  it('the editor list reveals blank characters in a label and a target (portal#1580)', () => {
+    const list = [{ kind: 'URL', target: 'https://example.com/a\u034Fb\uFE0F', label: 'x\u115Fy' }];
+    const html = render(NewTaskPage as never, {
+      props: {
+        data: { app, canWrite: true, impersonating: null, candidates: { workers: [], people: [], peopleWithheld: false, peopleFailed: false }, roles: [], families: [] },
+        form: { action: 'create', refusal: { kind: 'refused', code: 'BAD_USER_INPUT', message: 'm' }, values: { title: 'T', references: JSON.stringify(list) } },
+      },
+    } as never).body;
+    const shown = text(/<ol[^>]*data-testid="new-reference-list"[\s\S]*?<\/ol>/.exec(html)![0]);
+    expect(shown).toContain('x[U+115F]y');
+    expect(shown).toContain('https://example.com/a[U+034F]b[U+FE0F]');
+    expect(shown).not.toMatch(/[\u115F\u034F\uFE0F]/);
   });
 });

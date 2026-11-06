@@ -11,7 +11,7 @@
 <script lang="ts">
   import Urn from '$lib/components/Urn.svelte';
   import { t } from '$lib/i18n/t';
-  import { neutralizeFormatChars, referenceKindLabel, referenceLink, type TaskReference } from '$lib/agent-tasks/references';
+  import { neutralizeFormatChars, neutralizeTargetChars, referenceKindLabel, referenceLink, type TaskReference } from '$lib/agent-tasks/references';
 
   let { references, app }: { references: TaskReference[]; app: { id: string; urn: string } } = $props();
 </script>
@@ -29,11 +29,11 @@
             rel={link.external ? 'noopener noreferrer' : undefined}
             target={link.external ? '_blank' : undefined}
             class="min-w-0 text-indigo-600 [overflow-wrap:anywhere] hover:underline dark:text-indigo-300"
-          >{neutralizeFormatChars(ref.target)}</a>
+          >{neutralizeTargetChars(ref.target)}</a>
         {:else if link.kind === 'urn'}
           <span class="min-w-0 max-w-full overflow-hidden"><Urn value={link.urn} size={10} compact linked={link.linked} copyUrl={link.linked} label={t('app.tasks.ref.urn-label', 'reference {n}', { n: i + 1 })} /></span>
         {:else}
-          <span class="min-w-0 text-zinc-500 [overflow-wrap:anywhere] dark:text-zinc-400">{neutralizeFormatChars(ref.target)}</span>
+          <span class="min-w-0 text-zinc-500 [overflow-wrap:anywhere] dark:text-zinc-400">{neutralizeTargetChars(ref.target)}</span>
         {/if}
       </li>
     {/each}

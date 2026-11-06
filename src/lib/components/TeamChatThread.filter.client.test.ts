@@ -124,7 +124,7 @@ describe('TeamChatThread team filter — the control', () => {
 
   it('says "no team tag recorded" for the untagged view, never absent-vs-empty', async () => {
     const m = await mountThread({ messages: [], total: 0, filter: { kind: 'untagged' }, onSelectTeam: vi.fn() });
-    expect(q(m, 'team-chat-filter-empty')!.textContent).toContain('No messages without a team tag recorded');
+    expect(q(m, 'team-chat-filter-empty')!.textContent).toContain('No messages without a team tag.');
     expect(q(m, 'team-chat-filter-note')!.textContent).toContain('no team tag recorded');
   });
 

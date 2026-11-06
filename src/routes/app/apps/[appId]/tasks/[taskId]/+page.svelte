@@ -1,6 +1,7 @@
 <script lang="ts">
   import TaskHandBack from '$lib/components/agent-tasks/TaskHandBack.svelte';
   import TaskProperties from '$lib/components/agent-tasks/TaskProperties.svelte';
+  import TaskReview from '$lib/components/agent-tasks/TaskReview.svelte';
   import TaskPlanning from '$lib/components/agent-tasks/TaskPlanning.svelte';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
   import CopyCode from '$lib/components/agent-tasks/CopyCode.svelte';
@@ -16,7 +17,7 @@
   import { isProjectZero, taskHref } from '$lib/agent-tasks/handle';
   import TaskActionBar from '$lib/components/agent-tasks/TaskActionBar.svelte';
   import { fmtRunTime } from '$lib/flow/runs';
-  import { t } from '$lib/i18n/t';
+  import { splitAt, t } from '$lib/i18n/t';
   import { outcomeClass, sourceKind, taskDisplayState } from '$lib/agent-tasks/status';
   import { markStreamHandled } from '$lib/mark-stream-handled';
   import type { PageData } from './$types';
@@ -41,6 +42,8 @@
   // portal#1349: AT0 is the server's fixed "No project" row — read-only here, whatever the viewer may do elsewhere.
   const fixedTask = $derived(isProjectZero(data.task.handle));
   const basePath = $derived(`/app/apps/${data.app.id}`);
+  // portal#1415 A: one message with a {link} placeholder, so a translation can place the link.
+  const projectZeroNote = splitAt(t('app.tasks.tree.project-zero', 'Tasks that belong to no project are listed on the {link}, not under this one.'), 'link');
   const appsHref = $derived(data.app.organizationId ? `/app/orgs/${data.app.organizationId}/apps` : '/app/apps');
   const state = $derived(taskDisplayState(task));
 
@@ -52,8 +55,10 @@
     ...data.ancestors.map((a) => ({
       label: a.title,
       href: taskHref(basePath, a),
+      // portal#1415 item 1: the chip's accessible name is a visually hidden
+      // prefix + the chip value, so the label is the KIND, not the whole name.
       chip: a.handle,
-      chipLabel: t('app.tasks.handle.aria', 'Task handle {handle}', { handle: a.handle }),
+      chipLabel: t('app.tasks.handle.prefix', 'Task handle'),
     })),
     { label: task.title },
   ]);
@@ -142,9 +147,11 @@
       {/if}
     </div>
     <div class="flex min-w-0 flex-col items-start gap-1 sm:items-end">
-      <CopyCode value={task.handle} label={t('app.tasks.copy-handle', 'Copy the task handle')} />
-      <CopyCode value={task.id} label={t('app.tasks.copy-id', 'Copy the task id')} />
-      <CopyCode value="hadron team task get {task.id}" label={t('app.tasks.copy-cli', 'Copy the CLI command that reads this task')} />
+      <!-- portal#1415 item 2: visible names, so three stacked rows are not three
+           anonymous "Copy" buttons to a sighted reader. -->
+      <CopyCode value={task.handle} label={t('app.tasks.copy-handle', 'Copy the task handle')} name={t('app.tasks.copy-name-handle', 'Handle')} />
+      <CopyCode value={task.id} label={t('app.tasks.copy-id', 'Copy the task id')} name={t('app.tasks.copy-name-id', 'ID')} />
+      <CopyCode value="hadron team task get {task.id}" label={t('app.tasks.copy-cli', 'Copy the CLI command that reads this task')} name={t('app.tasks.copy-name-cli', 'CLI')} />
     </div>
   </div>
 
@@ -283,6 +290,16 @@
 
   <TaskHandBack handBack={task.handBack} />
 
+  <!-- portal#1697: above Properties, whose pr.* and review.* keys are mirrors of what this section reads. -->
+  <TaskReview
+    review={data.review}
+    rows={data.tree.kind === 'ok' ? (data.tree.value?.rows ?? []) : []}
+    references={task.references ?? []}
+    app={data.app}
+    {basePath}
+    build={task.parentTaskId ? (parent && parent.id === task.parentTaskId ? parent : { id: task.parentTaskId }) : null}
+  />
+
   <TaskProperties properties={task.properties} />
 
   <section id="subtasks" class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900" aria-labelledby="subtasks-heading">
@@ -300,8 +317,7 @@
       <!-- portal#1414: the server answers AT0's tree with null by design (AT0 is not a tree root).
            Neutral on AT0 only: any other null is a race with deletion or revoked access, and keeps the alert. -->
       <p class="text-sm text-zinc-500 dark:text-zinc-400" data-testid="project-zero-tree">
-        {t('app.tasks.tree.project-zero.lead', 'Tasks that belong to no project are listed on the')}
-        <a href="{basePath}/tasks" class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.tree.project-zero.link', 'Tasks page')}</a>{t('app.tasks.tree.project-zero.tail', ', not under this one.')}
+        {projectZeroNote[0]}<a href="{basePath}/tasks" class="text-indigo-600 underline dark:text-indigo-300">{t('app.tasks.tree.project-zero.link', 'Tasks page')}</a>{projectZeroNote[1]}
       </p>
     {:else}
       <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">

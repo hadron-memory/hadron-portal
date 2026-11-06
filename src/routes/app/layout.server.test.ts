@@ -381,6 +381,35 @@ describe('+layout.server.ts — #232 active-org cookie persistence', () => {
     );
   });
 
+  // #1394: the memory index page now awaits this load before it redirects, which
+  // only helps while the cookie write stays inside the load. Pin the order: no
+  // write before the delayed org fetch settles, and the write is done by the
+  // time the load itself resolves.
+  it('writes the cookie only after its delayed org fetch, and before the load resolves (#1394)', async () => {
+    const orgA = makeOrg({ id: 'org-a' });
+    const orgB = makeOrg({ id: 'org-b' });
+    let release!: () => void;
+    mockMyOrgsRequest.mockImplementationOnce(
+      () => new Promise((resolve) => { release = () => resolve({ organizations: [orgA, orgB] }); }),
+    );
+    mockMeRequest.mockResolvedValueOnce({ me: null });
+
+    const event = ev({ paramsId: 'org-b', pathname: '/app/orgs/org-b/agents' });
+    const cookieWrites = (event as unknown as { _cookieSetCalls: Array<{ name: string; value: string }> })._cookieSetCalls;
+    let resolved = false;
+    const run = loadAuthed(event).then((d) => { resolved = true; return d; });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(release).toBeTypeOf('function'); // the org fetch really is in flight
+    expect(resolved).toBe(false);
+    expect(cookieWrites).toHaveLength(0);
+
+    release();
+    await run;
+    expect(cookieWrites).toContainEqual(
+      expect.objectContaining({ name: ACTIVE_ORG_COOKIE_NAME, value: 'org-b' }),
+    );
+  });
+
   it('uses the cookie as lastActiveOrgId on routes without an org URL hint (repro for #232)', async () => {
     // Repro shape: user clicks an agent from /app/orgs/org-b/agents, lands
     // on /app/agents/<id>. Without the cookie, the layout would fall back to

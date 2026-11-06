@@ -4,6 +4,7 @@
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import Breadcrumb from '$lib/components/Breadcrumb.svelte';
+  import ServedPrompt from '$lib/components/ServedPrompt.svelte';
   import Urn from '$lib/components/Urn.svelte';
   import { scopedActionError, scopedActionSuccess } from '$lib/forms/scoped-message';
   import { submittedForm } from '$lib/forms/submitted-form';
@@ -184,6 +185,12 @@
       <pre class="mt-3 overflow-x-auto rounded-lg bg-white/60 p-3 font-mono text-xs text-red-900 dark:bg-black/30 dark:text-red-200">{JSON.stringify(run.failure, null, 2)}</pre>
     </section>
   {/if}
+
+  <!-- portal#1665: what this run was served (hrn:node:hadronmemory.com:specs:cor:agt:040:03). Keyed by the run: a response for another
+       run never shows here, and an empty answer renders nothing (the provider's concealment). -->
+  {#key run.id}
+    <ServedPrompt collapsible source="run" refId={run.id} />
+  {/key}
 
   <!-- Envelope: what the flow extracted -->
   <section class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">

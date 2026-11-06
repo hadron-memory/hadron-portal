@@ -2,7 +2,7 @@
  * portal#1052 — the board's and the task page's loaders.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { AGENT_ALARMS_QUERY, AGENT_TASK_DETAIL_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_TREE_QUERY, AGENT_TASKS_APP_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, AGENT_TASKS_BOARD_QUERY, AGENT_TASK_REF_QUERY, TASK_DEPENDENCIES_QUERY, TEAM_COMPOSITION_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
 import { markStreamHandled } from '$lib/mark-stream-handled';
 
 const request = vi.fn();
@@ -323,5 +323,34 @@ describe('task loader: handles', () => {
     });
     await expect(loadDetail('AT3')).rejects.toMatchObject({ status: 404, body: { message: 'App not found' } });
     expect(request.mock.calls.map((c) => c[0])).not.toContain(AGENT_TASK_DETAIL_QUERY);
+  });
+});
+
+describe('task loader: Review section (portal#1697)', () => {
+  const H = 'a'.repeat(40);
+  const readiness = { ready: false, head: H, slots: [] };
+  const mock = (read: () => unknown) =>
+    request.mockImplementation(async (q: string) => {
+      if (q === AGENT_TASKS_APP_QUERY) return { app };
+      if (q === AGENT_TASK_DETAIL_QUERY) return { agentTask: detail({ handle: 'AT3.405' }) };
+      if (q === AGENT_TASK_TREE_QUERY) return { agentTaskTree: [detail()] };
+      if (q === AGENT_TASK_EVENTS_QUERY) return { agentTeamEvents: [] };
+      if (q === TASK_REVIEW_EVENTS_QUERY) return { agentTeamEvents: [{ id: 'e1', type: 'pr.frozen', payload: { head: H } }] };
+      if (q === PULL_REQUEST_READINESS_QUERY) return read();
+      return { agentTask: null };
+    });
+
+  it('asks readiness once per load, by the canonical id, and hands back the answer', async () => {
+    mock(() => ({ pullRequestReadiness: readiness }));
+    const r = await loadDetail('AT3.405');
+    expect(r.review).toEqual({ kind: 'ok', value: { readiness, seat: null } });
+    expect(request.mock.calls.filter((c) => c[0] === PULL_REQUEST_READINESS_QUERY)).toEqual([[PULL_REQUEST_READINESS_QUERY, { taskRef: 't1', head: H }]]);
+  });
+
+  it('a refused read costs the section, not the page', async () => {
+    mock(() => { throw gqlError('INTERNAL'); });
+    const r = await loadDetail();
+    expect(r.review).toEqual({ kind: 'failed' });
+    expect(r.task).toMatchObject({ id: 't1' });
   });
 });

@@ -7,6 +7,7 @@
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
   import { tick, untrack } from 'svelte';
+  import { applyAction } from '$app/forms';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -100,7 +101,20 @@
   // page reset with the new props, and the URL is linkable. `keepFocus` and
   // `noScroll` leave the composer and its draft alone.
   const selectTeamFilter = (next: TeamChatFilter) => {
-    void goto(withTeamFilter(new URL(window.location.href), next), { keepFocus: true, noScroll: true });
+    const request = teamFilterFocusRequest;
+    if (request) request.navigation = 'pending';
+    void goto(withTeamFilter(new URL(window.location.href), next), { keepFocus: true, noScroll: true })
+      .then(() => {
+        // The loader props are now applied. A cancelled/superseding choice
+        // must not complete a newer request or resurrect an old App's intent.
+        if (request && teamFilterFocusRequest === request) request.navigation = 'complete';
+      })
+      .catch(() => {
+        if (request && teamFilterFocusRequest === request) {
+          teamFilterFocusRequest = null;
+          teamFilterAnnouncement = '';
+        }
+      });
   };
   import WorklogTable from '$lib/components/WorklogTable.svelte';
   import AiServiceConfigSection from '$lib/components/AiServiceConfigSection.svelte';
@@ -121,7 +135,7 @@
   import type { AppTabId } from './tab-intent';
   import { hasChatSurface as hasChatSurfaceFn } from '$lib/app-surfaces';
   import { workerHold } from '$lib/worker-hold';
-  import { reportsToOf, reportsToSortKey } from '$lib/worker-reports-to';
+  import { reportsToOf, reportsToSortKey, teamPlacementOf } from '$lib/worker-reports-to';
   import { AGENT_CHAT_KEY, TEAM_CHAT_LOC, withChatView } from '$lib/app-chats';
   import { focusTrapWhen } from '$lib/a11y/focus-trap';
   import { enhance } from '$app/forms';
@@ -148,7 +162,8 @@
   import type { ReleaseWorkerMessage } from './schema';
   import { releaseNotice } from './release-notice';
   import { rosterIsStale } from './hold-stale';
-  import { castableAgentOptions } from './cast-agents';
+  import { castableAgentOptions, castGroups } from './cast-agents';
+  import type { InstallMarks } from '$lib/app-install-marks';
 
   type AddAgentForm = Infer<typeof addAgentSchema, 'zod4'>;
   type AppSettingsForm = Infer<typeof appSettingsSchema, 'zod4'>;
@@ -173,6 +188,11 @@
 
   let { data, form }: { data: PageData; form: ActionData } = $props();
   const app = $derived(data.app);
+  // Survives the filter-keyed thread, but never follows a navigation to another App.
+  let teamFilterFocusRequest = $state<import('$lib/components/team-chat-thread').TeamChatFilterFocusRequest | null>(null);
+  let teamFilterAnnouncement = $state('');
+  const teamFilterAppId = $derived(app.id);
+  $effect(() => { void teamFilterAppId; untrack(() => { teamFilterFocusRequest = null; teamFilterAnnouncement = ''; }); });
   const org = $derived(data.org);
   const availableAgents = $derived(data.availableAgents);
 
@@ -257,12 +277,26 @@
   const agentsWithheld = $derived(rosterOf(app.agents).kind === 'withheld');
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
+  // #1684: how the App installs each agent, as the server states it (see app-install-marks.ts).
+  const installMarks = $derived<InstallMarks>((data as { installMarks?: InstallMarks }).installMarks ?? {});
+  const castAgentGroups = $derived(castGroups(castableAgents, installMarks));
   // R222: role is a fact, never a cast-time input. Preserve a restored
   // selection's identity even if that Agent no longer has a castable role.
   const selectedCastAgent = $derived(
     installedAgents.find((a) => a.id === $castWorkerForm.agentId) ?? null,
   );
+  // hadron-portal#1149 — the heads a cast may name: this App's ACTIVE workers.
+  // A retired worker can't be a head (the server refuses it), so offering one
+  // would be offering a guaranteed failure. The choice itself starts EMPTY.
+  const castHeads = $derived(sortedStaff.filter((w) => !w.retiredAt));
+  const selectedCastHead = $derived(castHeads.find((w) => w.id === $castWorkerForm.reportsTo) ?? null);
   let castOpen = $state(false);
+  // App the in-flight cast was submitted for, and whether its post-cast roster refresh failed.
+  // Generation fence: bumped every time the composer's context is LEFT (App change), so a result
+  // that began in an earlier visit to the same App (A -> B -> A) is as stale as one from B.
+  let castGeneration = 0;
+  let castAttemptGeneration = -1;
+  let castRefreshFailed = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
   // <table>. Mirrors /app/account/api-keys, which is the same list for a
@@ -672,10 +706,16 @@
     availableAgents.filter((a) => !installedAgents.some((i) => i.id === a.id)),
   );
   let agentsFilter = $state('');
+  // Everything the Name cell draws is searchable, the mark and its importer too.
+  function installMarkSearchText(agentId: string) {
+    const mark = installMarks[agentId];
+    if (mark?.kind === 'derived') return `${t('app.agents.derived-from', 'Derived from')} ${mark.importer.name} ${mark.importer.urn}`;
+    return mark ? t('app.agents.installed', 'Installed') : '';
+  }
   const agentColumns: PortalColumnDef<InstalledAgent>[] = [
     // The URN rides the Name cell's second line, as on the worker grid; search
     // still matches it because the accessor keeps it in the filter text.
-    { accessorFn: (row) => `${row.name} ${row.urn ?? ''}`, id: 'name', header: t('app.agents.column.name', 'Name'), enableHiding: false, size: 320 },
+    { accessorFn: (row) => [row.name, row.urn ?? '', installMarkSearchText(row.id)].join(' '), id: 'name', header: t('app.agents.column.name', 'Name'), enableHiding: false, size: 320 },
     { accessorFn: (row) => row.personaRole ?? '', id: 'role', header: t('app.agents.column.role', 'Role'), size: 180 },
     // portal#1142 S8: this install's boot-prompt pointer, joined by agent id.
     { accessorFn: (row) => pointerText(appRowPointer(data.bootPointers, row.id)), id: 'bootPrompt', header: t('app.agents.column.boot-prompt', 'Boot prompt'), size: 280 },
@@ -710,6 +750,9 @@
   // the App, the pre-menu button's gate); Unlink submits the hidden form
   // below the table for the picked row.
   function agentRowActions(agent: InstalledAgent): NodeMenuAction[] {
+    // #1684: a derived agent has no row, so Unlink has nothing to remove. Its
+    // own way off the roster is removing the import; Install writes the row.
+    const derived = installMarks[agent.id]?.kind === 'derived';
     return [
       { id: 'customisation', label: t('app.agents.customisation', 'Customisation…') },
       ...(data.canManageApp !== false
@@ -719,7 +762,11 @@
             ariaLabel: t('app.agents.set-boot-prompt.label', 'Set boot prompt for {name}', { name: agent.name }),
           }]
         : []),
-      { id: 'unlink', label: t('app.agents.unlink', 'Unlink'), danger: true },
+      ...(!derived
+        ? [{ id: 'unlink', label: t('app.agents.unlink', 'Unlink'), danger: true }]
+        : data.canManageApp !== false
+          ? [{ id: 'install', label: t('app.agents.install', 'Install') }]
+          : []),
     ];
   }
   function onAgentAction(id: string, agent: InstalledAgent) {
@@ -733,6 +780,8 @@
       choosePointerRow(pointerAgent?.id === agent.id ? null : agent.id);
     } else if (id === 'unlink') {
       unlinkAgent(agent);
+    } else if (id === 'install') {
+      installDerivedAgent(agent);
     }
   }
   const agentsTable = createSvelteTable<InstalledAgent>({
@@ -1054,6 +1103,76 @@
     clearOnSubmit: 'none',
   });
 
+  // #1684: Install on a derived agent's row. It posts addAgent like the picker
+  // below, under its own instance-bound id (see castFormId), so its result lands
+  // here and the two forms never share a store. Fenced and refreshed as the cast
+  // form is: the Page is reused across Apps, so the id alone can't place a result.
+  let installGeneration = 0;
+  let installAttemptGeneration = -1;
+  let installRefreshFailed = $state(false);
+  const installFormId = `installAgent:${Math.random().toString(36).slice(2, 10)}`;
+  const {
+    form: installAgentForm,
+    message: installAgentMessage,
+    submitting: installAgentSubmitting,
+    enhance: installAgentEnhance,
+  } = superForm<AddAgentForm, App.Superforms.Message, AddAgentForm>(untrack(() => data.addAgentForm), {
+    id: installFormId,
+    validators: zod4Client(addAgentSchema),
+    clearOnSubmit: 'none',
+    onSubmit: () => {
+      installAttemptGeneration = installGeneration;
+      installRefreshFailed = false;
+    },
+    // Superforms awaits between its hooks, and the App can change during any of those
+    // waits. With applyAction on, Kit would then apply the result and reset focus with
+    // no hook left to stop it. Off, the form takes the result itself, onUpdated below
+    // drops one that went stale, and only a redirect still needs Kit.
+    applyAction: false,
+    onResult: async ({ result, cancel }) => {
+      if (installAttemptGeneration !== installGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+    // Superforms' default rethrows, leaving the row's Actions disabled. The request
+    // failed, so whether the install landed isn't known and this claims neither.
+    onError: () => {
+      if (installAttemptGeneration !== installGeneration) return;
+      installAgentMessage.set({
+        type: 'error',
+        text: t('app.agents.install.unconfirmed', 'The install could not be confirmed. Reload the page to check before trying again.'),
+      });
+    },
+    // The refresh is ours, so a rejection after a CONFIRMED install is told
+    // truthfully instead of stranding the form. The install is never retried.
+    invalidateAll: false,
+    onUpdated: async ({ form: f }) => {
+      const attempt = installAttemptGeneration;
+      if (attempt !== installGeneration) {
+        installAgentMessage.set(undefined);
+        return;
+      }
+      if (f.message?.type !== 'success') return;
+      try {
+        await invalidateAll();
+      } catch {
+        if (attempt === installGeneration) installRefreshFailed = true;
+      }
+    },
+  });
+
+  // Bumped on leaving an App, so a result begun before A -> B -> A is stale too.
+  let installContextApp = untrack(() => data.app.id);
+  $effect(() => {
+    const id = app.id;
+    if (id === installContextApp) return;
+    installContextApp = id;
+    installGeneration += 1;
+    untrack(() => {
+      installAgentMessage.set(undefined);
+      installRefreshFailed = false;
+    });
+  });
+
   const initialCreateKeyForm = untrack(() => submittedForm<CreateAppKeyForm>(form, 'createKey') as CreateAppKeySuperform | null ?? data.createKeyForm);
   const {
     form: createKeyForm,
@@ -1131,6 +1250,7 @@
   });
 
   // ── Casting (#974) ───────────────────────────────────────────────────
+  const castFormId = `castWorker:${Math.random().toString(36).slice(2, 10)}`;
   const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
   const {
     form: castWorkerForm,
@@ -1139,22 +1259,67 @@
     submitting: castWorkerSubmitting,
     enhance: castWorkerEnhance,
   } = superForm<CastWorkerForm, App.Superforms.Message, CastWorkerForm>(initialCastWorkerForm, {
+    // Instance-bound id: Superforms applies an action result only to the live form whose id
+    // matches. A request begun by a Page that has since been destroyed carries the OLD id, so its
+    // late result cannot seed a fresh mount's form (review: lifetime of the result's owner).
+    id: castFormId,
     validators: zod4Client(castWorkerSchema),
     validationMethod: 'oninput',
     scrollToError: 'smooth',
     autoFocusOnError: 'detect',
     clearOnSubmit: 'none',
-    onUpdated: ({ form: f }) => {
+    // Fence by originating App (hrn:node:hadronmemory.com:hadron-portal:review:superforms-late-result-crosses-entity-navigation):
+    // this page component is REUSED across /apps/A -> /apps/B, so A's slow answer
+    // must not close B's composer, empty B's draft or print "Worker cast." on B.
+    // The cast itself is already committed server-side; only its application to
+    // the screen is dropped (never replayed).
+    onSubmit: () => {
+      castAttemptGeneration = castGeneration;
+      castRefreshFailed = false;
+    },
+    onResult: ({ cancel }) => {
+      if (castAttemptGeneration !== castGeneration) cancel();
+    },
+    // The refresh is ours (not Superforms'), so a rejection after a CONFIRMED
+    // cast is caught here and told truthfully instead of stranding the form.
+    invalidateAll: false,
+    onUpdated: async ({ form: f }) => {
+      if (castAttemptGeneration !== castGeneration) return;
       // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
+        const attempt = castAttemptGeneration;
         castWorkerForm.update(
-          (current) => ({ ...current, agentId: '', name: '' }),
+          (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
           { taint: false },
         );
         castOpen = false;
+        try {
+          await invalidateAll();
+        } catch {
+          // The worker WAS cast; only the roster read failed. Never retry the mint.
+          if (attempt === castGeneration) castRefreshFailed = true;
+        }
       }
     },
+  });
+
+  // A choice made for App A must not supply App B's deliberate required choice.
+  let castContextApp = untrack(() => data.app.id);
+  $effect(() => {
+    const id = app.id;
+    if (id === castContextApp) return;
+    castContextApp = id;
+    castGeneration += 1;
+    untrack(() => {
+      castWorkerForm.update(
+        (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
+        { taint: false },
+      );
+      castWorkerMessage.set(undefined);
+      castOpen = false;
+      castRefreshFailed = false;
+    });
   });
 
   const initialRetireWorkerForm = untrack(() => submittedForm<RetireWorkerForm>(form, 'retireWorker') as RetireWorkerSuperform | null ?? data.retireWorkerForm);
@@ -1211,6 +1376,8 @@
       : $removeAgentErrors.agentId?.[0] ?? $removeAgentErrors._kind?.[0] ?? null,
   );
   const removeAgentActionSuccess = $derived($removeAgentMessage?.type === 'success' ? $removeAgentMessage.text : null);
+  const installAgentActionError = $derived($installAgentMessage?.type === 'error' ? $installAgentMessage.text : null);
+  const installAgentActionSuccess = $derived($installAgentMessage?.type === 'success' ? $installAgentMessage.text : null);
   const updateAgentToolsActionError = $derived(
     $updateAgentToolsMessage?.type === 'error'
       ? $updateAgentToolsMessage.text
@@ -1227,6 +1394,8 @@
   const castWorkerAgentError = $derived($castWorkerErrors.agentId?.[0] ?? null);
   // #760: the name is required since hadron-server#1050 removed the register.
   const castWorkerNameError = $derived($castWorkerErrors.name?.[0] ?? null);
+  const castWorkerReportingError = $derived($castWorkerErrors.reporting?.[0] ?? null);
+  const castWorkerHeadError = $derived($castWorkerErrors.reportsTo?.[0] ?? null);
   const castWorkerActionError = $derived(
     $castWorkerMessage?.type === 'error'
       ? $castWorkerMessage.text
@@ -1457,12 +1626,19 @@
   // idiom). The Keys confirm is the same browser confirm the old per-row form
   // ran; a decline submits nothing.
   let removeAgentFormEl = $state<HTMLFormElement | null>(null);
+  let installAgentFormEl = $state<HTMLFormElement | null>(null);
   let revokeKeyFormEl = $state<HTMLFormElement | null>(null);
   async function unlinkAgent(agent: { id: string; name: string }) {
     if ($removeAgentSubmitting) return;
     setRemoveAgent(agent.id);
     await tick();
     removeAgentFormEl?.requestSubmit();
+  }
+  async function installDerivedAgent(agent: { id: string }) {
+    if ($installAgentSubmitting) return;
+    installAgentForm.update((current) => ({ ...current, agentId: agent.id }), { taint: false });
+    await tick();
+    installAgentFormEl?.requestSubmit();
   }
   async function revokeAppKey(key: { id: string }) {
     if ($revokeKeySubmitting) return;
@@ -1670,6 +1846,8 @@
     } finally { downloading = false; }
   }
 </script>
+<a data-sveltekit-preload-data="off" href={`/app/apps/${encodeURIComponent(data.app.id)}/node-role-templates`} class="inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t('config.templates', 'Node-role templates')}</a>
+
 
 <svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
 <!-- Escape leaves the maximised team chat. Bound at the window so it works
@@ -1693,14 +1871,19 @@
     </div>
   </div>
 
-  {#if removeAgentActionError || updateAgentToolsActionError || revokeKeyActionError || deleteAppActionError}
+  {#if installAgentActionError || removeAgentActionError || updateAgentToolsActionError || revokeKeyActionError || deleteAppActionError}
     <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
-      {removeAgentActionError ?? updateAgentToolsActionError ?? revokeKeyActionError ?? deleteAppActionError}
+      {installAgentActionError ?? removeAgentActionError ?? updateAgentToolsActionError ?? revokeKeyActionError ?? deleteAppActionError}
     </div>
   {/if}
-  {#if settingsActionSuccess || addAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
+  {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
     <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
-      {settingsActionSuccess ?? addAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
+      {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
+    </div>
+  {/if}
+  {#if installRefreshFailed}
+    <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+      {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
     </div>
   {/if}
 
@@ -1800,6 +1983,14 @@
       class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
     >
       {t('app.tabs.stops', 'Stops')}
+    </a>
+    <!-- #1649: the action register is a subroute: its read answers a non-participant
+         APP_NOT_FOUND, and that must never reach this page's loader. -->
+    <a
+      href="/app/apps/{app.id}/register"
+      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
+    >
+      {t('app.tabs.register', 'Action register')}
     </a>
     <!-- #1299: Automations is a subroute: its reads answer a reader who may not adopt
          with nothing, and that must never reach this page's loader. -->
@@ -2087,6 +2278,7 @@
             {#key app.id}<TeamChatSearch appId={app.id} />{/key}
           </div>
         {/if}
+        <span data-testid="team-chat-filter-status" class="sr-only" aria-live="polite" aria-atomic="true">{teamFilterAnnouncement}</span>
         <div class={teamSearchOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
         {#key `${app.id}:${data.postTeamChatMessageForm.id}:${data.teamFilterInvalid ? 'invalid' : filterKeyOf(data.teamFilter ?? NO_TEAM_FILTER)}`}
           {@const teamStateKey = `${app.id}:team`}
@@ -2108,6 +2300,8 @@
           filterInvalid={data.teamFilterInvalid}
           refusal={data.teamChatRefusal}
           onSelectTeam={selectTeamFilter}
+          bind:filterFocusRequest={teamFilterFocusRequest}
+          onFilterAnnouncement={(text) => { teamFilterAnnouncement = text; }}
         />
         {/key}
         </div>
@@ -2253,6 +2447,11 @@
           {castWorkerActionSuccess}
         </div>
       {/if}
+      {#if castRefreshFailed}
+        <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
+        </div>
+      {/if}
       {#if retireWorkerActionError}
         <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {retireWorkerActionError}
@@ -2324,6 +2523,7 @@
           class="max-w-lg space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
         >
           <input type="hidden" name="_kind" value={$castWorkerForm._kind} />
+          <input type="hidden" name="__superform_id" value={castFormId} />
           <div>
             <label for="castAgentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.agent', 'Agent')}
@@ -2332,16 +2532,38 @@
               id="castAgentId"
               name="agentId"
               bind:value={$castWorkerForm.agentId}
+              onchange={() => castWorkerForm.update((c) => ({ ...c, reporting: '', reportsTo: '' }), { taint: false })}
               aria-invalid={!!castWorkerAgentError}
               aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
             >
               <option value="">{t('app.staff.field.agent.placeholder', '— Select an installed agent —')}</option>
-              {#each castableAgents as candidate (candidate.id)}
+              {#snippet castOption(candidate: (typeof castableAgents)[number])}
                 <option value={candidate.id}>
                   {candidate.name}{candidate.personaRole ? ` (${candidate.personaRole})` : ''}
                 </option>
-              {/each}
+              {/snippet}
+              {#if castAgentGroups.derived.length > 0}
+                <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
+                  {#each castAgentGroups.installed as candidate (candidate.id)}
+                    {@render castOption(candidate)}
+                  {/each}
+                </optgroup>
+                <optgroup label={t('app.staff.field.agent.derived', 'Derived')}>
+                  {#each castAgentGroups.derived as { agent: candidate, importer } (candidate.id)}
+                    <option value={candidate.id}>
+                      {t('app.staff.field.agent.derived-option', '{name}, derived from {importer}', {
+                        name: `${candidate.name}${candidate.personaRole ? ` (${candidate.personaRole})` : ''}`,
+                        importer: importer.name,
+                      })}
+                    </option>
+                  {/each}
+                </optgroup>
+              {:else}
+                {#each castAgentGroups.installed as candidate (candidate.id)}
+                  {@render castOption(candidate)}
+                {/each}
+              {/if}
             </select>
             {#if selectedCastAgent?.urn}
               <div class="mt-1 min-w-0"><Urn value={selectedCastAgent.urn} type="agent" /></div>
@@ -2376,6 +2598,71 @@
               </p>
             {/if}
           </div>
+          <!-- hadron-portal#1149 — the user wants to say who this worker reports
+               to. Two deliberate choices, NEITHER preselected: a worker, or No
+               team. Omission is never No team and a coordinator is never
+               guessed, so there is no default and no "skip". -->
+          <fieldset
+            aria-describedby={castWorkerReportingError ? 'castReportingError' : undefined}
+            class="space-y-2"
+          >
+            <legend class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              {t('app.staff.field.reports-to', 'Reports to')}
+            </legend>
+            <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
+              <input
+                type="radio"
+                name="reporting"
+                value="head"
+                bind:group={$castWorkerForm.reporting}
+                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
+              />
+              {t('app.staff.reports-to.choice.worker', 'A worker')}
+            </label>
+            {#if $castWorkerForm.reporting === 'head'}
+              <div class="pl-6">
+                <label for="castReportsTo" class="sr-only">
+                  {t('app.staff.reports-to.choice.worker.label', 'Worker this one reports to')}
+                </label>
+                <select
+                  id="castReportsTo"
+                  name="reportsTo"
+                  bind:value={$castWorkerForm.reportsTo}
+                  aria-invalid={!!castWorkerHeadError}
+                  aria-describedby={castWorkerHeadError ? 'castReportsToError' : undefined}
+                  class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
+                >
+                  <option value="">{t('app.staff.reports-to.placeholder', '— Select a worker —')}</option>
+                  {#each castHeads as head (head.id)}
+                    <option value={head.id}>{head.name}{head.role ? ` (${head.role})` : ''}</option>
+                  {/each}
+                </select>
+                {#if selectedCastHead?.urn}
+                  <div class="mt-1 min-w-0"><Urn value={selectedCastHead.urn} type="worker" /></div>
+                {/if}
+                {#if castWorkerHeadError}
+                  <p id="castReportsToError" role="alert" class="mt-1 text-xs text-red-600 dark:text-red-400">{castWorkerHeadError}</p>
+                {/if}
+              </div>
+            {/if}
+            <label class="flex items-center gap-2 text-sm text-zinc-900 dark:text-white">
+              <input
+                type="radio"
+                name="reporting"
+                value="none"
+                bind:group={$castWorkerForm.reporting}
+                class="h-4 w-4 border-zinc-300 text-indigo-600 dark:border-zinc-600"
+              />
+              {t('app.staff.reports-to.choice.none', 'No team')}
+            </label>
+            {#if castWorkerReportingError}
+              <p id="castReportingError" role="alert" class="text-xs text-red-600 dark:text-red-400">{castWorkerReportingError}</p>
+            {:else}
+              <p class="text-xs text-zinc-400">
+                {t('app.staff.reports-to.help', 'Choose deliberately. A cast without a choice will be refused once enforcement is on.')}
+              </p>
+            {/if}
+          </fieldset>
           <div>
             <p class="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.role', 'Role')}
@@ -2615,7 +2902,17 @@
                   >{#if rt.retired}{' '}<span class="text-zinc-500">{t('app.staff.reports-to.retired', '(retired)')}</span>{/if}
                 </span>
               {:else}
-                <span class="text-xs text-zinc-400">—</span>
+                <!-- hadron-portal#1149 — only an answered placement says
+                     anything: a masked null (withheld) stays a dash, because a
+                     null pointer proves neither UNSET nor an explicit No team. -->
+                {@const placement = teamPlacementOf(worker)}
+                {#if placement.kind === 'no-team'}
+                  <span class="text-xs text-zinc-600 dark:text-zinc-300">{t('app.staff.reports-to.no-team', 'No team')}</span>
+                {:else if placement.kind === 'unset'}
+                  <span class="text-xs text-zinc-500">{t('app.staff.reports-to.unset', 'Not set')}</span>
+                {:else}
+                  <span class="text-xs text-zinc-400">—</span>
+                {/if}
               {/if}
             {:else if cell.column.id === 'lastActive'}
               <span class="text-xs text-zinc-500">{formatDate(worker.lastActiveAt)}</span>
@@ -2696,6 +2993,19 @@
                 {#if agent.urn}
                   <Urn value={agent.urn} type="agent" size={8} />
                 {/if}
+                {#if installMarks[agent.id]}
+                  {@const mark = installMarks[agent.id]}
+                  <!-- #1684: only what the server states; a withheld answer draws nothing here. -->
+                  <div class="mt-1 text-xs text-zinc-500 dark:text-zinc-400" data-testid="install-mark">
+                    {#if mark.kind === 'derived'}
+                      {t('app.agents.derived-from', 'Derived from')}
+                      <a href="/app/agents/{mark.importer.id}" class="font-medium text-indigo-600 hover:underline dark:text-indigo-300">{mark.importer.name}</a>
+                      <div class="mt-1"><Urn value={mark.importer.urn} type="agent" size={8} /></div>
+                    {:else}
+                      {t('app.agents.installed', 'Installed')}
+                    {/if}
+                  </div>
+                {/if}
                 <!-- Spec 021 US1: the canonical install URN the audit log cites.
                      The server derives it for the App's primary agent only
                      (`App.installedAgentUrn`), so it rides that agent's row. -->
@@ -2729,7 +3039,7 @@
                 actions={agentRowActions(agent)}
                 onselect={(id) => onAgentAction(id, agent)}
                 label={t('app.agents.actions.label', 'Actions for {name}', { name: agent.name })}
-                disabled={$removeAgentSubmitting}
+                disabled={$removeAgentSubmitting || $installAgentSubmitting}
                 fixed
                 compact
               />
@@ -2833,6 +3143,16 @@
           <p class="text-sm text-zinc-500">{t('app.agents.add.none', 'There is no other agent to add.')}</p>
         {/if}
       </section>
+      <!-- #1684: Install's submit target, one hidden form for every derived row. A
+           withheld roster offers no add, this one included. It stays mounted across
+           the install: the reload that follows drops the row that asked. -->
+      {#if !agentsWithheld}
+        <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
+          <input type="hidden" name="_kind" value="addAgent" />
+          <input type="hidden" name="__superform_id" value={installFormId} />
+          <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
+        </form>
+      {/if}
     </div>
     </div>
   {/if}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Check } from 'lucide-svelte';
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
   import { zod4Client } from 'sveltekit-superforms/adapters';
@@ -20,6 +21,7 @@
     indexBySeq,
     replyPreviewOf,
     type DayLabel,
+    type TeamChatFilterFocusRequest,
   } from './team-chat-thread';
   import { clampProbe } from './clamp-probe';
   import {
@@ -74,6 +76,8 @@
     filterInvalid = false,
     refusal = null,
     onSelectTeam,
+    filterFocusRequest = $bindable(null),
+    onFilterAnnouncement,
   }: {
     viewState?: TranscriptView;
     onViewStateChange?: (view: TranscriptView) => void;
@@ -123,6 +127,10 @@
     refusal?: TeamChatRefusal | null;
     /** Ask for a different filter ('none' clears). Omit and the filter UI is read-only. */
     onSelectTeam?: (next: TeamChatFilter) => void;
+    /** Parent-owned when a route keys/remounts this thread on filter changes. */
+    filterFocusRequest?: TeamChatFilterFocusRequest | null;
+    /** Route owner keeps its live region outside a keyed thread. */
+    onFilterAnnouncement?: (text: string) => void;
   } = $props();
 
   let messagesEl: HTMLDivElement | null = $state(null);
@@ -381,6 +389,66 @@
     }
     return null;
   });
+  // Focus only an explicitly requested filter once its route-owned value is applied.
+  // Polls and loader refreshes never move focus. A superseding choice/unmount
+  // cancels the post-tick continuation; a person who moved elsewhere keeps focus.
+  let filterBarEl: HTMLDivElement | undefined = $state();
+  let composerEl: HTMLTextAreaElement | undefined = $state();
+  let filterAnnouncement = $state('');
+  function selectTeam(next: TeamChatFilter, label?: string) {
+    if (!onSelectTeam) return;
+    filterFocusRequest = { key: filterKeyOf(next), label, opener: document.activeElement };
+    onSelectTeam(next);
+  }
+  function rememberFilterFocus(event: FocusEvent) {
+    const request = filterFocusRequest;
+    if (!request) return;
+    request.movedFocus = event.target === request.opener ? undefined
+      : event.target === composerEl ? 'composer' : 'elsewhere';
+  }
+  $effect(() => {
+    const requested = filterFocusRequest;
+    const applied = filterKey;
+    const navigation = requested?.navigation;
+    // Read each outcome on every run; the route may apply a refused/invalid
+    // response while goto is still pending. A URL key alone is not success.
+    const invalid = filterInvalid;
+    const initialRefusal = refusal;
+    const currentRefusal = liveRefusal;
+    const failedRead = shownLoadError;
+    const failed = invalid || !!initialRefusal || !!currentRefusal || failedRead;
+    if (!requested || navigation === 'pending') return;
+    if (requested.key !== applied && !failed && navigation !== 'complete') return;
+    let cancelled = false;
+    void tick().then(() => {
+      if (cancelled || !messagesEl || filterFocusRequest !== requested || filterKey !== applied) return;
+      if (failed || requested.key !== applied) {
+        // Consume failed and abandoned choices silently: the existing error
+        // UI explains them. No success announcement now or on later history.
+        filterAnnouncement = '';
+        onFilterAnnouncement?.('');
+        filterFocusRequest = null;
+        return;
+      }
+      const selected = filterBarEl?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')
+        ?? composerEl;
+      if (document.activeElement === requested.opener || document.activeElement === document.body) {
+        if (requested.movedFocus === 'composer') composerEl?.focus();
+        else if (requested.movedFocus !== 'elsewhere') selected?.focus();
+      }
+      filterAnnouncement = filter.kind === 'team'
+        ? t('app.team-chat.filter.announcement.team', 'Team filter selected: {team}.', { team: requested.label ?? activeTeamLabel ?? t('app.team-chat.filter.selected-team', 'Selected team') })
+        : filter.kind === 'untagged'
+          ? t('app.team-chat.filter.announcement.untagged', 'Showing messages with no team tag recorded.')
+          : t('app.team-chat.filter.announcement.all', 'All messages selected.');
+      onFilterAnnouncement?.(filterAnnouncement);
+      filterFocusRequest = null;
+    }).catch(() => {
+      if (filterFocusRequest === requested) filterFocusRequest = null;
+      console.warn('[team-chat] filter feedback could not be updated');
+    });
+    return () => { cancelled = true; };
+  });
   const filtered = $derived(filter.kind !== 'none');
   // Tags are keyed by `headId`, and two snapshots of one head on a message would
   // otherwise collide as keyed-each siblings.
@@ -492,7 +560,7 @@
     let inFlight = false;
     const fire = async () => {
       if (typeof document !== 'undefined' && document.hidden) return;
-      if (inFlight || untrack(() => liveRefusal)) return;
+      if (inFlight || untrack(() => liveRefusal || refusal)) return;
       inFlight = true;
       // #785: the composer needs no protection here any more. #754 polled by
       // invalidating the page load, which re-synced superForm from a fresh form
@@ -695,7 +763,8 @@
   }
 </script>
 
-<div class="flex flex-col {heightClass}">
+<div class="flex flex-col {heightClass}" onfocusin={rememberFilterFocus}>
+  {#if !onFilterAnnouncement}<span data-testid="team-chat-filter-status" class="sr-only" aria-live="polite" aria-atomic="true">{filterAnnouncement}</span>{/if}
   {#if showFilterBar}
     <!-- #1137: the team filter. Display and request only — the read happens on
          the server, and nothing here widens what the viewer may see. -->
@@ -705,6 +774,7 @@
     <div class="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
     <div
       data-testid="team-chat-filter"
+      bind:this={filterBarEl}
       class="flex flex-wrap items-center gap-2 px-6 py-2 text-xs"
     >
       <span class="font-medium text-zinc-600 dark:text-zinc-300" id="team-chat-filter-label">
@@ -714,11 +784,12 @@
         <button
           type="button"
           aria-pressed={filter.kind === 'none' && !filterInvalid}
-          onclick={() => onSelectTeam?.(NO_TEAM_FILTER)}
-          class="rounded-full border px-2 py-0.5 {filter.kind === 'none' && !filterInvalid
+          onclick={() => selectTeam(NO_TEAM_FILTER)}
+          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {filter.kind === 'none' && !filterInvalid
             ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200'
             : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
         >
+          {#if filter.kind === 'none' && !filterInvalid}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
           {t('app.team-chat.filter.all', 'All messages')}
         </button>
         {#if filter.kind === 'team'}
@@ -726,10 +797,10 @@
             type="button"
             aria-pressed="true"
             data-testid="team-chat-filter-active"
-            onclick={() => onSelectTeam?.(NO_TEAM_FILTER)}
-            title={t('app.team-chat.filter.clear', 'Clear the team filter')}
-            class="rounded-full border border-indigo-500 bg-indigo-50 px-2 py-0.5 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200"
+            onclick={() => selectTeam(NO_TEAM_FILTER)}
+            class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-indigo-500 bg-indigo-50 px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200"
           >
+            <Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />
             {activeTeamLabel ?? t('app.team-chat.filter.selected-team', 'Selected team')}
             <span aria-hidden="true">×</span>
             <span class="sr-only">{t('app.team-chat.filter.clear', 'Clear the team filter')}</span>
@@ -738,14 +809,16 @@
         <button
           type="button"
           aria-pressed={filter.kind === 'untagged'}
-          onclick={() => onSelectTeam?.({ kind: 'untagged' })}
-          class="rounded-full border px-2 py-0.5 {filter.kind === 'untagged'
+          onclick={() => selectTeam({ kind: 'untagged' })}
+          class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border px-2 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 {filter.kind === 'untagged'
             ? 'border-indigo-500 bg-indigo-50 text-indigo-700 dark:border-indigo-400 dark:bg-indigo-950 dark:text-indigo-200'
             : 'border-zinc-300 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-600 dark:text-zinc-300 dark:hover:bg-zinc-800'}"
         >
+          {#if filter.kind === 'untagged'}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}
           {t('app.team-chat.filter.untagged', 'No team tag recorded')}
         </button>
       </div>
+      {#if tagsObserved}<span class="text-zinc-500 dark:text-zinc-400">{t('app.team-chat.filter.hint', 'Choose a team by clicking a tag on a message.')}</span>{/if}
       {#if filter.kind === 'team'}
         <!-- Count-free on purpose: no exact count of untagged history exists to
              state, and a guessed one would be a claim about the team. -->
@@ -797,6 +870,7 @@
       <div role="alert" data-testid="team-chat-filter-refused" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
         {(liveRefusal ?? refusal)?.message}
       </div>
+      <p data-testid="team-chat-filter-refused-help" class="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{onSelectTeam ? t('app.team-chat.filter.refused-help', 'Choose All messages to leave this team filter, or ask an App manager to check access.') : t('app.team-chat.filter.refused-readonly-help', 'Ask an App manager to check access.')}</p>
     {:else if shownLoadError}
       <!-- "Couldn't load" and "nothing here" are different statements; the
            empty state below must never be shown for a failed fetch. -->
@@ -808,7 +882,7 @@
       <div class="flex h-full items-center justify-center text-center">
         <p data-testid="team-chat-filter-empty" class="text-zinc-500 dark:text-zinc-400">
           {filter.kind === 'untagged'
-            ? t('app.team-chat.filter.empty.untagged', 'No messages without a team tag recorded.')
+            ? t('app.team-chat.filter.empty.untagged', 'No messages without a team tag.')
             : t('app.team-chat.filter.empty.team', 'No messages with this team tag.')}
         </p>
       </div>
@@ -956,10 +1030,10 @@
                       data-testid="team-chat-tag"
                       aria-pressed={filter.kind === 'team' && filter.headRef === tag.headId}
                       disabled={!onSelectTeam}
-                      onclick={() => onSelectTeam?.({ kind: 'team', headRef: tag.headId })}
+                      onclick={() => selectTeam({ kind: 'team', headRef: tag.headId }, tag.label)}
                       title={t('app.team-chat.tag.filter', 'Show only messages with this team tag')}
-                      class="rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 enabled:hover:bg-zinc-200 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
-                    >{tag.label}</button>
+                      class="inline-flex min-h-6 min-w-6 items-center gap-1 rounded-full border border-zinc-300 bg-zinc-100 px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-600 enabled:hover:bg-zinc-200 aria-pressed:border-indigo-500 aria-pressed:bg-indigo-50 aria-pressed:text-indigo-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300 dark:enabled:hover:bg-zinc-700 dark:aria-pressed:border-indigo-400 dark:aria-pressed:bg-indigo-950 dark:aria-pressed:text-indigo-200"
+                    >{#if filter.kind === 'team' && filter.headRef === tag.headId}<Check data-selected-cue aria-hidden="true" class="h-3 w-3 shrink-0" />{/if}{tag.label}</button>
                   {/each}
                 </span>
               {/if}
@@ -1113,6 +1187,8 @@
       <div class="flex gap-3">
         <textarea
           id="team-chat-body"
+          data-testid="team-chat-composer"
+          bind:this={composerEl}
           name="body"
           bind:value={$postFormData.body}
           oninput={(event) => onDraftChange?.({ body: event.currentTarget.value, replyToSeq: replyTo === null ? undefined : String(replyTo) })}

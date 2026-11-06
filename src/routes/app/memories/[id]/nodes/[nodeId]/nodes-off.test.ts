@@ -20,6 +20,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NODE_ANCESTORS_QUERY, NODE_BY_ID_QUERY, NODE_CHILDREN_QUERY, WIKILINK_TARGETS_BATCH_QUERY } from '$lib/server/queries';
+import { fakeFindNodesChildren, type FakeChildRow } from '$lib/test/fakeFindNodesChildren';
 
 const mockRequest = vi.fn();
 vi.mock('$lib/server/api', () => ({ gqlClient: () => ({ request: mockRequest }) }));
@@ -43,21 +44,16 @@ function nodeRow(over: Record<string, unknown> = {}) {
   };
 }
 
-type Child = { id: string; loc: string; name: string; seq: number | null; commentSummary?: { openThreads: number } | null };
-const child = (loc: string, seq: number | null = null, threads = 0): { node: Child } => ({
-  node: { id: `id-${loc}`, loc, name: loc, seq, commentSummary: { openThreads: threads } },
-});
-
 async function runLoad(opts: {
   node?: Record<string, unknown>;
-  hits?: Array<{ node: Child }>;
-  total?: number | null;
+  /** The memory's nodes, answered as the server answers a loc-scoped findNodes. */
+  tree?: FakeChildRow[];
   childrenThrow?: boolean;
   /** The portal#1433 bounded reads (ancestors, wikilink targets) fail. */
   boundedReadsThrow?: boolean;
 } = {}) {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
-  mockRequest.mockImplementation(async (doc: string) => {
+  mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
     if (doc === NODE_BY_ID_QUERY) return { node: opts.node ?? nodeRow() };
     if (doc === NODE_ANCESTORS_QUERY || doc === WIKILINK_TARGETS_BATCH_QUERY) {
       if (opts.boundedReadsThrow) throw new Error('boom');
@@ -65,8 +61,7 @@ async function runLoad(opts: {
     }
     if (doc === NODE_CHILDREN_QUERY) {
       if (opts.childrenThrow) throw new Error('boom');
-      const hits = opts.hits ?? [];
-      return { findNodes: { total: opts.total === undefined ? hits.length : opts.total, hits } };
+      return fakeFindNodesChildren(opts.tree ?? [], MEM)(vars);
     }
     return { memories: { items: [], total: 0 } };
   });
@@ -87,6 +82,7 @@ async function runLoad(opts: {
     openChat: unknown;
     wikilinks: Record<string, { href: string; label: string } | null>;
     children: Array<{ loc: string; openThreads: number }> | null;
+    childrenHasMore: boolean;
     childrenUnavailable: boolean;
   };
 }
@@ -122,47 +118,84 @@ describe('node-detail load with the node list off (portal#1524)', () => {
     expect(link!.href).toBe(`/app/u/${'hrn:node:acme.com:notes:other:thing'}`);
   });
 
-  it('children: ONE bounded read, scoped to this memory and this loc', async () => {
-    await runLoad({ hits: [child('a:b:leaf:x')] });
+  // portal#1656: the section reads with `childrenOf` (hadron-server#2832), a
+  // page of 20 asked as 21 so a 21st row says more exist (the server sends no
+  // signal: `total` is null on this filter), and no sort, so the order shown is
+  // the server's sibling order.
+  const under = (n: number, from = 0) =>
+    Array.from({ length: n }, (_, i) => ({ id: `c${from + i}`, loc: `a:b:leaf:c${String(from + i).padStart(3, '0')}` }));
+
+  it('children: ONE childrenOf read of 21, scoped to this memory and loc, with no locPrefix and no sort', async () => {
+    await runLoad({ tree: under(3) });
     const calls = mockRequest.mock.calls.filter(([d]) => d === NODE_CHILDREN_QUERY);
     expect(calls).toHaveLength(1);
-    expect(calls[0][1]).toEqual({ memoryId: MEM, locPrefix: 'a:b:leaf:', limit: 200 });
+    expect(calls[0][1]).toEqual({ memoryId: MEM, childrenOf: 'a:b:leaf', limit: 21, offset: 0 });
+    expect(NODE_CHILDREN_QUERY).toContain('childrenOf: $childrenOf');
+    expect(NODE_CHILDREN_QUERY).not.toMatch(/locPrefix|sort:/);
   });
 
-  it('children: only DIRECT children, with the open-thread count carried through', async () => {
-    const data = await runLoad({ hits: [child('a:b:leaf:x', 1, 2), child('a:b:leaf:x:deep'), child('a:b:leaf:y', 2)] });
+  it('children: a parent with more than 200 descendants and 3 direct children shows exactly the 3', async () => {
+    const deep = Array.from({ length: 250 }, (_, i) => ({ id: `d${i}`, loc: `a:b:leaf:x:d${i}` }));
+    const data = await runLoad({ tree: [...deep, { id: 'x', loc: 'a:b:leaf:x' }, { id: 'y', loc: 'a:b:leaf:y' }, { id: 'z', loc: 'a:b:leaf:z' }] });
     expect(data.childrenUnavailable).toBe(false);
-    expect(data.children!.map((c) => [c.loc, c.openThreads])).toEqual([['a:b:leaf:x', 2], ['a:b:leaf:y', 0]]);
+    expect(data.childrenHasMore).toBe(false);
+    expect(data.children!.map((c) => c.loc)).toEqual(['a:b:leaf:x', 'a:b:leaf:y', 'a:b:leaf:z']);
   });
 
-  it('children: a leaf with a complete empty read is genuinely childless', async () => {
-    const data = await runLoad({ hits: [], total: 0 });
+  it('children: the root lists the top-level nodes only', async () => {
+    const data = await runLoad({ node: nodeRow({ loc: '' }), tree: [{ id: 't1', loc: 'top' }, { id: 't2', loc: 'top:kid' }, { id: 't3', loc: 'other' }] });
+    expect(mockRequest.mock.calls.find(([d]) => d === NODE_CHILDREN_QUERY)![1]).toMatchObject({ childrenOf: '' });
+    expect(data.children!.map((c) => c.loc)).toEqual(['other', 'top']);
+  });
+
+  it('children: exactly 20 direct children show 20 and no "more" (asked 21, got 20)', async () => {
+    const data = await runLoad({ tree: under(20) });
+    expect(data.children).toHaveLength(20);
+    expect(data.childrenHasMore).toBe(false);
+  });
+
+  it('children: 21 direct children show 20 and say more exist', async () => {
+    const data = await runLoad({ tree: under(21) });
+    expect(data.children!.map((c) => c.loc)).toEqual(under(20).map((c) => c.loc));
+    expect(data.childrenHasMore).toBe(true);
+    expect(data.childrenUnavailable).toBe(false);
+  });
+
+  it("children: shown in the server's sibling order, positioned first then by loc, never re-sorted", async () => {
+    const data = await runLoad({ tree: [
+      { id: 'u-b', loc: 'a:b:leaf:b' }, { id: 'p2', loc: 'a:b:leaf:z', seq: 2 },
+      { id: 'u-a', loc: 'a:b:leaf:a' }, { id: 'p1', loc: 'a:b:leaf:y', seq: 1 },
+    ] });
+    expect(data.children!.map((c) => c.loc)).toEqual(['a:b:leaf:y', 'a:b:leaf:z', 'a:b:leaf:a', 'a:b:leaf:b']);
+  });
+
+  it('children: the open-thread count is carried through', async () => {
+    const tree = [{ id: 'id-a:b:leaf:x', loc: 'a:b:leaf:x', commentSummary: { openThreads: 2 } }];
+    mockRequest.mockImplementation(async (doc: string, vars?: Record<string, unknown>) => {
+      if (doc === NODE_BY_ID_QUERY) return { node: nodeRow() };
+      if (doc === NODE_CHILDREN_QUERY) return fakeFindNodesChildren(tree, MEM)(vars);
+      return { nodeBatch: { nodes: [], unavailable: [], omitted: [], truncated: false } };
+    });
+    const { load } = await import('./+page.server');
+    const data = (await load({
+      params: { id: MEM, nodeId: 'leaf-pk' }, locals: { token: 'tok' },
+      url: new URL(`http://localhost/app/memories/${MEM}/nodes/leaf-pk`),
+      parent: vi.fn().mockResolvedValue({ graph: { id: MEM, urn: MEM_URN }, nodesOff: true, isConsumerMode: false, activeOrgId: 'org-1' }),
+    } as never)) as unknown as { children: Array<{ loc: string; openThreads: number }> };
+    expect(data.children.map((c) => [c.loc, c.openThreads])).toEqual([['a:b:leaf:x', 2]]);
+  });
+
+  it('children: a leaf with no children is genuinely childless', async () => {
+    const data = await runLoad({ tree: [] });
     expect(data.children).toEqual([]);
+    expect(data.childrenHasMore).toBe(false);
     expect(data.childrenUnavailable).toBe(false);
-  });
-
-  it('children: a page that is not the whole subtree is UNAVAILABLE, not a short list', async () => {
-    // 200 returned of 450: which direct children exist cannot be told.
-    const data = await runLoad({ hits: Array.from({ length: 200 }, (_, i) => child(`a:b:leaf:c${i}:d`)), total: 450 });
-    expect(data.children).toBeNull();
-    expect(data.childrenUnavailable).toBe(true);
-  });
-
-  it('children: an unknown total on a FULL page is UNAVAILABLE (null is not proof of completeness)', async () => {
-    const data = await runLoad({ hits: Array.from({ length: 200 }, (_, i) => child(`a:b:leaf:c${i}`)), total: null });
-    expect(data.children).toBeNull();
-    expect(data.childrenUnavailable).toBe(true);
-  });
-
-  it('children: an unknown total on a SHORT page is complete (the page was not capped)', async () => {
-    const data = await runLoad({ hits: [child('a:b:leaf:x'), child('a:b:leaf:y')], total: null });
-    expect(data.childrenUnavailable).toBe(false);
-    expect(data.children!.map((c) => c.loc)).toEqual(['a:b:leaf:x', 'a:b:leaf:y']);
   });
 
   it('children: a failed read is UNAVAILABLE, not "no children"', async () => {
     const data = await runLoad({ childrenThrow: true });
     expect(data.children).toBeNull();
+    expect(data.childrenHasMore).toBe(false);
     expect(data.childrenUnavailable).toBe(true);
   });
 });

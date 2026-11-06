@@ -10,7 +10,9 @@ const humanTeam = (appId: string) => `/app/apps/${appId}?tab=members`;
  * forwards rather than disappearing — an unknown route would 404 where the
  * reader expects the people list.
  */
-export const load: PageServerLoad = ({ params }) => {
+export const load: PageServerLoad = async ({ params, parent }) => {
+  // #1732: wait for the app layout (it writes the active-org cookie) first.
+  await parent();
   redirect(307, humanTeam(params.appId));
 };
 

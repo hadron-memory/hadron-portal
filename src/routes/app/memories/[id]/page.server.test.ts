@@ -12,39 +12,64 @@
 import { describe, it, expect } from 'vitest';
 import { load } from './+page.server';
 
-type IndexEvent = { params: { id: string }; url: URL };
+type IndexEvent = { params: { id: string }; url: URL; parent: () => Promise<unknown> };
 
-/** Run the (synchronous) loader and capture the thrown redirect. */
-function expectRedirect(id: string, search = ''): { status: number; location: string } {
+/** Run the loader (parent resolved) and capture the redirect it rejects with. */
+async function expectRedirect(id: string, search = ''): Promise<{ status: number; location: string }> {
   let thrown: unknown;
   try {
-    (load as (e: IndexEvent) => unknown)({
+    await (load as (e: IndexEvent) => unknown)({
       params: { id },
       url: new URL(`http://localhost/app/memories/${id}${search}`),
+      parent: async () => ({}),
     });
   } catch (e) {
     thrown = e;
   }
+  // A load that never reaches the throw must fail here, not pass vacuously.
   expect(thrown).toBeDefined();
   return thrown as { status: number; location: string };
 }
 
 describe('memory-detail index redirect', () => {
-  it('redirects to the /info tab (307)', () => {
-    const r = expectRedirect('mem-x');
+  it('redirects to the /info tab (307)', async () => {
+    const r = await expectRedirect('mem-x');
     expect(r.status).toBe(307);
     expect(r.location).toBe('/app/memories/mem-x/info');
   });
 
-  it('appends nothing when there is no incoming query', () => {
+  it('appends nothing when there is no incoming query', async () => {
     // Guards the other direction: a plain visit must not gain a bare '?'.
-    expect(expectRedirect('mem-x', '').location).not.toContain('?');
+    expect((await expectRedirect('mem-x', '')).location).not.toContain('?');
   });
 
   // The #761 case: the SECOND hop of a memory-URN deep link.
-  it('carries the query string onto the Info tab', () => {
-    const r = expectRedirect('mem-x', '?highlight=findings:foo&view=tree');
+  it('carries the query string onto the Info tab', async () => {
+    const r = await expectRedirect('mem-x', '?highlight=findings:foo&view=tree');
     expect(r.status).toBe(307);
     expect(r.location).toBe('/app/memories/mem-x/info?highlight=findings:foo&view=tree');
+  });
+
+  // #1394: the app layout writes the active-org cookie AFTER its GraphQL awaits.
+  // SvelteKit runs layout and page loads in parallel, so a redirect that settles
+  // first lets the response be generated and the later `cookies.set` is
+  // rejected. The redirect must wait for the parent (layout) load.
+  // Defensive change on a static lead: the root cause is unconfirmed.
+  it('does not redirect until the parent layout load has resolved (#1394)', async () => {
+    let release!: () => void;
+    const parent = new Promise<unknown>((resolve) => { release = () => resolve({}); });
+    let settled: 'pending' | 'rejected' | 'resolved' = 'pending';
+    let error: unknown;
+    const run = Promise.resolve((load as (e: IndexEvent) => unknown)({
+      params: { id: 'mem-x' },
+      url: new URL('http://localhost/app/memories/mem-x?view=tree'),
+      parent: () => parent,
+    })).then(() => { settled = 'resolved'; }, (e) => { settled = 'rejected'; error = e; });
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    expect(settled).toBe('pending');
+    release();
+    await run;
+    expect(settled).toBe('rejected');
+    expect(error).toMatchObject({ status: 307, location: '/app/memories/mem-x/info?view=tree' });
   });
 });

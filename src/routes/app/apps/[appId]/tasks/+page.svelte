@@ -90,11 +90,22 @@
   let typed = $state<string | null>(null);
   const searchValue = $derived(typed ?? data.text ?? '');
   // A whole handle once trimmed: a pasted "AT3.405 " is still one (Uma's P2).
-  const exactHandle = $derived(parseHandle(searchValue.trim()) ? searchValue.trim() : null);
+  // portal#1415 item 3: the link NAMES the canonical spelling `parseHandle`
+  // returns (upper case), never the case the user typed — and a bare handle
+  // canonicalizes everywhere it travels (text, href, submit), so the URL bar
+  // shows what the server recognizes. A qualified handle forwards its full
+  // spelling in the href (the route answers a foreign App as unknown,
+  // portal#1375 — the portal decides nothing) while the text still names its
+  // bare handle.
+  const typedHandle = $derived(parseHandle(searchValue.trim()));
+  const exactHandleHref = $derived(
+    typedHandle
+      ? `${basePath}/tasks/${encodeURIComponent(typedHandle.appUrn === null ? typedHandle.handle : searchValue.trim())}`
+      : '',
+  );
   // Starts like a handle but is not a whole one ("AT3." or "AT3.4x"): the search
   // cannot match handles (#1401 searches titles and descriptions), so say so.
   const looksLikePartialHandle = (text: string) => /^AT\d/i.test(text) && !parseHandle(text);
-  const exactHandleHref = $derived(exactHandle ? `${basePath}/tasks/${encodeURIComponent(exactHandle)}` : '');
   const columns: PortalColumnDef<BoardRow>[] = [
     { id: 'status', accessorFn: (r) => r.statusText, header: t('app.tasks.col.status', 'Status'), enableHiding: false, size: 170 },
     { id: 'title', accessorFn: (r) => r.title, header: t('app.tasks.col.task', 'Task'), enableHiding: false, size: 320 },
@@ -166,9 +177,12 @@
     const input = form.elements.namedItem('text') as HTMLInputElement;
     // portal#1349: an exact handle opens that task; the title search would never find it.
     input.value = input.value.trim();
-    if (parseHandle(input.value)) {
+    const parsed = parseHandle(input.value);
+    if (parsed) {
       event.preventDefault();
-      void goto(`${basePath}/tasks/${encodeURIComponent(input.value)}`);
+      // portal#1415 item 3: a bare handle opens its canonical spelling, the
+      // same destination the link offers; a qualified one forwards as-is.
+      void goto(`${basePath}/tasks/${encodeURIComponent(parsed.appUrn === null ? parsed.handle : input.value)}`);
       return;
     }
     input.setCustomValidity(input.value.length > TASK_SEARCH_MAX
@@ -283,8 +297,9 @@
           aria-describedby="task-tags-guidance"
           class="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-white" />
       </div>
-      <div class="pb-2">
-        <label class="flex items-center gap-2 text-sm font-medium {overdueOffered ? 'text-zinc-700 dark:text-zinc-300' : 'text-zinc-400 dark:text-zinc-500'}">
+      <!-- portal#1434: own row on a phone (full width), back beside the buttons from sm. -->
+      <div class="w-full pb-0 sm:w-auto sm:pb-2">
+        <label class="flex items-center gap-2 text-sm font-medium {overdueOffered ? 'text-zinc-700 dark:text-zinc-300' : 'cursor-not-allowed text-zinc-500 dark:text-zinc-400'}">
           <input type="checkbox" name="overdue" value="1" checked={narrow.overdue} aria-disabled={overdueOffered ? undefined : 'true'}
             onclick={(event) => { if (!overdueOffered) event.preventDefault(); }}
             aria-describedby="task-overdue-guidance" class="size-4 rounded border-zinc-300 dark:border-zinc-700" />
@@ -295,24 +310,35 @@
       <a href={taskBoardHref(basePath, data.filter, '')} data-sveltekit-reload class="rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700">{t('app.tasks.search.clear', 'Clear')}</a>
       <p id="task-search-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.limit', 'Up to 200 characters after trimming. Searches titles and descriptions in this App.')}</p>
       <p id="task-tags-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">{t('app.tasks.narrow.tags.guidance', 'Separate tags with commas. A task must have every tag listed.')}</p>
-      <p id="task-overdue-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
-        {overdueOffered
-          ? t('app.tasks.narrow.overdue.guidance', 'Overdue: the start-by time has passed and the task has not started.')
-          : t('app.tasks.narrow.overdue.unavailable', 'Overdue applies to Active, Queued and All tasks.')}
-      </p>
+      <!-- portal#1434: ONE Overdue note. When Overdue was dropped for the bucket, the
+           dropped notice IS the guidance (same id, still a status), not a second line. -->
+      {#if data.overdueDropped}
+        <p id="task-overdue-guidance" role="status" class="w-full text-xs text-amber-700 dark:text-amber-300" data-testid="overdue-dropped">{t('app.tasks.narrow.overdue.dropped', 'Overdue was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
+      {:else}
+        <p id="task-overdue-guidance" class="w-full text-xs text-zinc-500 dark:text-zinc-400">
+          {overdueOffered
+            ? t('app.tasks.narrow.overdue.guidance', 'Overdue: the start-by time has passed and the task has not started.')
+            : t('app.tasks.narrow.overdue.unavailable', 'Overdue applies to Active, Queued and All tasks.')}
+        </p>
+      {/if}
     </form>
-    {#if data.overdueDropped}
-      <p role="status" class="text-sm text-amber-700 dark:text-amber-300" data-testid="overdue-dropped">{t('app.tasks.narrow.overdue.dropped', 'Overdue was turned off: it does not apply to {bucket} tasks.', { bucket: boardFilterLabel(data.filter) })}</p>
-    {/if}
     <!-- portal#1349: the search reads titles and descriptions, so an EXACT handle
          (the only way to name a subtask like AT3.405 here) is a real link to that
          task. The route hands the handle to the server's resolver; an unknown,
          malformed or foreign one answers there, exactly like an unknown id. -->
-    {#if exactHandle}
-      <p class="text-sm" data-testid="open-by-handle">
-        <a href={exactHandleHref} class="text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.open-handle', 'Open {handle}', { handle: exactHandle })}</a>
-      </p>
-    {/if}
+    <!-- portal#1415 item 3, P2 fix (Juliet, AT0.4138): the live region is
+         ALWAYS in the DOM and only its content changes — a region that mounts
+         already-populated is not reliably announced, and one that unmounts
+         announces nothing. Empty has no line box, so nothing shifts. No
+         timer-driven text rides in here
+         (hrn:node:hadronmemory.com:hadron-portal:review:ticking-content-outside-live-region):
+         the content changes only on user keystrokes, and only when the text
+         crosses into or out of being a whole handle. -->
+    <p role="status" class="text-sm" data-testid="open-by-handle">
+      {#if typedHandle}
+        <a href={exactHandleHref} class="inline-flex min-h-6 min-w-6 items-center text-indigo-600 hover:underline dark:text-indigo-300">{t('app.tasks.open-handle', 'Open {handle}', { handle: typedHandle.handle })}</a>
+      {/if}
+    </p>
 
     {#if board.kind === 'invalid-search'}
       <p role="alert" class="text-sm text-red-700 dark:text-red-300">{t('app.tasks.search.bounds', 'Search text is 1 to 200 characters.')}</p>
@@ -322,21 +348,32 @@
         <button type="button" onclick={refresh} class="ml-2 font-medium underline">{t('app.tasks.retry', 'Try again')}</button>
       </div>
     {:else}
-      <p role="status" class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.shown', '{n} tasks shown', { n: rows.length })}</p>
-      {#if board.value.capped}
-        <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-          {t('app.tasks.search.capped', 'There may be more; narrow the search.')}
-        </div>
-      {/if}
-      {#if rows.length === 0}
-        <div role="status" class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty={data.filter}>
-          {#if data.text && looksLikePartialHandle(data.text)}
-            {t('app.tasks.search.partial-handle', 'No matching tasks. Handles open only when complete, for example AT3.405.')}
-          {:else}
-            {data.text ? t('app.tasks.search.empty', 'No matching tasks.') : narrowed ? t('app.tasks.narrow.empty', 'No tasks match these filters.') : boardEmptyText(data.filter)}
-          {/if}
-        </div>
-      {/if}
+      <!-- portal#1403: ONE live region for the count, the cap notice and the empty
+           explanation. They used to be three sibling role=status elements, so an
+           empty capped board announced three competing messages at once; one
+           region reads as one coherent update. The count stays loaded-only
+           ("Tasks shown"), never an exact total. -->
+      <div role="status" class="space-y-2">
+        <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.tasks.search.shown', 'Tasks shown: {n}', { n: rows.length })}</p>
+        {#if board.value.capped}
+          <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+            {data.text
+              ? t('app.tasks.search.capped', 'There may be more; narrow the search.')
+              : t('app.tasks.search.capped-no-search', 'There may be more; narrow the status filter or search.')}
+          </div>
+        {/if}
+        {#if rows.length === 0}
+          <div class="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-3 text-sm text-zinc-600 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-300" data-empty={data.filter}>
+            {#if data.text && looksLikePartialHandle(data.text)}
+              {t('app.tasks.search.partial-handle', 'No matching tasks. Handles open only when complete, for example AT3.405.')}
+            {:else if data.text}
+              {t('app.tasks.search.empty-scoped', 'No matching tasks with status {status}. Clear the search or change the status.', { status: boardFilterLabel(data.filter) })}
+            {:else}
+              {narrowed ? t('app.tasks.narrow.empty', 'No tasks match these filters. Clear removes them.') : boardEmptyText(data.filter)}
+            {/if}
+          </div>
+        {/if}
+      </div>
       <DataTable
         {table}
         listKey="app-tasks:board"

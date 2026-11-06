@@ -9,6 +9,11 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import SelectMemory from './SelectMemory.svelte';
+import { clearDictionary, rowSelectButtons, usePickerLocale } from '$lib/test/i18n-dictionary';
+
+// #1605: a test locale on the t() boundary; empty, t() is unchanged.
+vi.mock('$lib/i18n/t', async (importOriginal) =>
+  (await import('$lib/test/i18n-dictionary')).withDictionary(await importOriginal()));
 
 const memories = [
   { id: 'm1', name: 'Atlas KB', urn: 'hrn:mem:acme.com:atlas', visibility: 'PRIVATE' },
@@ -161,7 +166,10 @@ describe('SelectMemory: dialog semantics (#1279)', () => {
 // by scrolling (a scroll chaining from the memory list to the node dialog),
 // so a scroll anywhere re-measures, not just open and resize.
 describe('SelectMemory: visible title and clearOf scroll re-measure (#1600)', () => {
-  it('shows a visible "Choose a memory" heading that is also the dialog\'s accessible name', async () => {
+  // jsdom has no layout, so this proves the heading exists and names the
+  // dialog, not that it is visible; the real-Chromium layout script
+  // (scripts/test-stacked-memory-layout.mjs) owns visibility (#1606 item 2).
+  it('renders a "Choose a memory" h2 that is also the dialog\'s accessible name', async () => {
     openModal();
     await tick(2);
     const heading = dialog()!.querySelector('h2');
@@ -234,5 +242,66 @@ describe('SelectMemory: visible title and clearOf scroll re-measure (#1600)', ()
     } finally {
       host.remove();
     }
+  });
+});
+
+// #1604 item 1: on phones the Organization column folds under the memory
+// name. A memory with no org rendered a bare "—" there: an unlabelled stray
+// glyph under the name. The folded line renders only when there is an org;
+// the desktop column (its own cell, hidden below sm) keeps its "—".
+describe('SelectMemory: folded org line on phones (#1604)', () => {
+  const withOrg = [
+    { id: 'm1', name: 'Atlas KB', urn: 'hrn:mem:acme.com:atlas', orgName: '' },
+    { id: 'm2', name: 'Boreas KB', urn: 'hrn:mem:acme.com:boreas', orgName: 'Acme Inc' },
+    // The key absent, not just empty (#1642 BLIND P3).
+    { id: 'm3', name: 'Caurus KB', urn: 'hrn:mem:acme.com:caurus' },
+  ];
+
+  function rowFor(name: string) {
+    return [...document.querySelectorAll<HTMLTableRowElement>('.fixed.inset-0 tbody tr')].find((tr) => tr.textContent?.includes(name))!;
+  }
+
+  it('a no-org row has no folded line under the name, and its desktop cell keeps the dash', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ memories: withOrg, onselect: () => {}, open: true });
+    mounted.push(mountComponent(SelectMemory as never, props as never) as Mounted<Record<string, unknown>>);
+    await tick(2);
+    const cells = rowFor('Atlas KB').querySelectorAll('td');
+    expect(cells[0].textContent).not.toContain('—');
+    expect(cells[0].querySelector('div')).toBeNull();
+    expect(cells[2].textContent?.trim()).toBe('—');
+    const missing = rowFor('Caurus KB').querySelectorAll('td');
+    expect(missing[0].querySelector('div')).toBeNull();
+    expect(missing[2].textContent?.trim()).toBe('—');
+  });
+
+  it('a row with an org still folds its org name under the name', async () => {
+    const props = reactiveProps<Record<string, unknown>>({ memories: withOrg, onselect: () => {}, open: true });
+    mounted.push(mountComponent(SelectMemory as never, props as never) as Mounted<Record<string, unknown>>);
+    await tick(2);
+    const cells = rowFor('Boreas KB').querySelectorAll('td');
+    expect(cells[0].querySelector('div')?.textContent?.trim()).toBe('Acme Inc');
+    expect(cells[2].textContent?.trim()).toBe('Acme Inc');
+  });
+});
+
+// #1605: the per-row Select is localized and carries a distinct accessible
+// name per row (WCAG label-in-name: it starts with the visible label), so a
+// screen-reader user tabbing the list hears which entity each one picks.
+describe('SelectMemory: per-row Select (#1605)', () => {
+  afterEach(clearDictionary);
+  it('is localized and named after its memory', async () => {
+    usePickerLocale();
+    openModal();
+    await tick(2);
+    const buttons = rowSelectButtons('.fixed.inset-0 tbody tr');
+    const names = memories.map((x) => x.name);
+    for (const b of buttons) expect(b.textContent?.trim()).toBe('Wählen');
+    // Label in name (WCAG 2.5.3): the name contains what is on screen.
+    for (const b of buttons) expect(b.getAttribute('aria-label')).toContain(b.textContent?.trim());
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wählen ${n}`));
+    expect(new Set(buttons.map((b) => b.getAttribute('aria-label'))).size).toBe(names.length);
+    // The 44px coarse-pointer target (jsdom has no layout; the real-Chromium
+    // stacked layout script measures SelectMemory's).
+    for (const b of buttons) expect(b.classList.contains('pointer-coarse:min-h-11')).toBe(true);
   });
 });

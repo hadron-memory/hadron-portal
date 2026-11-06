@@ -10,6 +10,7 @@
   import { untrack } from 'svelte';
   import { page } from '$app/stores';
   import { applyRefreshFailedLine } from '$lib/tickers/apply';
+  import { t } from '$lib/i18n/t';
   import { workerOfPage } from '$lib/tickers/refresh-page';
   import { takeRefreshMarker } from '$lib/tickers/refresh-marker';
 
@@ -37,10 +38,18 @@
     });
   });
   const shown = $derived(consumed !== null && consumed.viewer === viewer && consumed.worker === worker);
+  // A native GET reload, never the named POST action in the failed request's query. Keep harmless view state.
+  const reloadHref = $derived.by(() => {
+    const query = new URLSearchParams($page.url.search);
+    for (const key of [...query.keys()]) if (key.startsWith('/')) query.delete(key);
+    const search = query.toString();
+    return `${$page.url.pathname}${search ? `?${search}` : ''}`;
+  });
 </script>
 
 {#if shown}
   <p role="status" class="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200" data-testid="apply-refresh-failed-page">
     {applyRefreshFailedLine()}
+    <a href={reloadHref} data-sveltekit-reload class="mt-2 block w-fit rounded-md px-3 py-2 font-medium underline underline-offset-2 outline-offset-2 focus-visible:outline-2 focus-visible:outline-current">{t('worker.apply.reload', 'Reload this page')}</a>
   </p>
 {/if}

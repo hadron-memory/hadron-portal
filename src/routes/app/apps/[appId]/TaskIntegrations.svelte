@@ -18,10 +18,15 @@
   import type { PropertiesRead } from '$lib/server/app-properties';
   import {
     MAX_REPOSITORIES,
+    TASK_INTEGRATION_PROVIDERS,
+    blankIntegration,
+    isUnsupported,
     leadStatus,
     readIntegrations,
     validateDrafts,
     type IntegrationDraft,
+    type UnsupportedEntry,
+    type LeadStatus,
     type TaskIntegrationsResult,
   } from '$lib/task-integrations';
 
@@ -33,14 +38,40 @@
     workers: Worker[] | null;
   } = $props();
 
-  const inputClass = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
-  const buttonClass = 'rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800';
+  const inputClass = 'w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 pointer-coarse:min-h-11 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900 dark:text-white dark:placeholder-zinc-500';
+  const buttonClass = 'rounded-md border border-zinc-300 px-3 py-1 text-xs text-zinc-600 pointer-coarse:min-h-11 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800';
   const errorClass = 'mt-1 text-xs text-red-600 dark:text-red-400';
+
+  // portal#1678: the exact strings are the specs engineer's scoped FIT (hrn:node:hadronmemory.com:specs:cor:agt:120:01, Decided). One
+  // t() call each, shared by the list and the form; no dispatch wording, no suffix.
+  const readyHelp = $derived(t('app.integrations.ready-label-help', 'Marks items as ready for a team to work on. A search for untracked items can show only these items, or leave them out.'));
+  const excludedHelp = $derived(t('app.integrations.excluded-labels-help', "Items with any of these labels are left out of the untracked items, so they can't be claimed from there."));
+  const helpClass = 'mt-1 text-xs text-zinc-500 dark:text-zinc-400';
 
   const roster = $derived(workers ?? []);
   const liveWorkers = $derived(roster.filter((w) => !w.retiredAt));
-  const saved = $derived(read.kind === 'ok' ? readIntegrations(read.properties) : []);
+  const entries = $derived(read.kind === 'ok' ? readIntegrations(read.properties) : []);
+  // portal#1679: an entry this portal can't represent stays visible, blocks editing, and is removed only on purpose.
+  // A removal is staged here and takes effect in the next save; nothing is sent until then. A staged removal is consent for
+  // one row of ONE revision: it names a position, so it only counts while the list is still the revision it was confirmed
+  // against. A refresh that replaces the list drops it (and an open "Remove entry?" question), so consent is never carried
+  // over to a row the person did not see. Review of #1695, LOCAL P2-1, BLIND P2, security P2-1.
+  const revision = $derived(read.kind === 'ok' ? read.revision : null);
+  let stagedRevision = $state<number | null>(null);
+  let stagedRemoved = $state<number[]>([]);
+  let stagedConfirming = $state<number | null>(null);
+  const removed = $derived(stagedRevision === revision ? stagedRemoved : []);
+  const confirming = $derived(stagedRevision === revision ? stagedConfirming : null);
+  // Staging against a newer revision starts from nothing.
+  function restage() {
+    if (stagedRevision !== revision) { stagedRemoved = []; stagedConfirming = null; stagedRevision = revision; }
+  }
+  function clearStaged() { stagedRemoved = []; stagedConfirming = null; }
+  const shown = $derived(entries.filter((e) => !(isUnsupported(e) && removed.includes(e.index))));
+  const saved = $derived(shown.filter((e): e is IntegrationDraft => !isUnsupported(e)));
+  const blocked = $derived(shown.some(isUnsupported));
   const canEdit = $derived(read.kind === 'ok' && manages !== false && workers !== null);
+  const providerLabel = (p: string) => (p === 'github' ? 'GitHub' : p);
 
   let editing = $state(false);
   let drafts = $state<IntegrationDraft[]>([]);
@@ -59,6 +90,7 @@
   let formEl = $state<HTMLFormElement>();
   let headingEl = $state<HTMLHeadingElement>();
   let bannerEl = $state<HTMLDivElement>();
+  let sectionEl = $state<HTMLElement>();
 
   // Mode changes unmount the button that had focus; put it somewhere a keyboard
   // or screen-reader user can carry on from (UX review of #1614, P2-1/P2-2).
@@ -74,20 +106,29 @@
     await tick();
     headingEl?.focus();
   }
+  // The three remove steps each unmount the button that had focus: hand it to the control that carries on from there
+  // (UX review of #1695, P2).
+  async function focusStep(selector: string) {
+    await tick();
+    (sectionEl?.querySelector<HTMLElement>(selector) ?? headingEl)?.focus();
+  }
+  function askRemove(index: number) { restage(); stagedConfirming = index; focusStep(`[data-unsupported="${index}"] [data-step="confirm"]`); }
+  function confirmRemove(index: number) { restage(); stagedRemoved = [...stagedRemoved, index]; stagedConfirming = null; focusStep('[data-removal-pending] button'); }
+  function keepEntry(index: number) { stagedConfirming = null; focusStep(`[data-unsupported="${index}"] [data-step="remove"]`); }
+  function undoRemovals() { clearStaged(); focusHeading(); }
 
-  const blank = (): IntegrationDraft => ({ name: '', provider: 'github', repositories: [''], readyLabel: '', excludeLabels: [], teams: [], extra: {} });
 
   function startEdit(addOne: boolean) {
     epoch++; pending = false;
     baseRevision = read.kind === 'ok' ? read.revision : null;
     drafts = $state.snapshot(saved) as IntegrationDraft[];
-    if (addOne) drafts.push(blank());
+    if (addOne) drafts.push(blankIntegration());
     errors = {}; formError = null; conflict = false;
     editing = true;
     focusName(addOne ? drafts.length - 1 : 0);
   }
-  function addIntegration() { drafts.push(blank()); focusName(drafts.length - 1); }
-  function cancel() { epoch++; pending = false; editing = false; errors = {}; formError = null; conflict = false; focusHeading(); }
+  function addIntegration() { drafts.push(blankIntegration()); focusName(drafts.length - 1); }
+  function cancel() { epoch++; pending = false; editing = false; errors = {}; formError = null; conflict = false; clearStaged(); focusHeading(); }
   async function reload() {
     const mine = epoch;
     await invalidateAll();
@@ -113,15 +154,41 @@
       if (!answer) { formError = t('app.integrations.error.unconfirmed', 'The save was not confirmed. Reload before trying again.'); focusFirstProblem(); return; }
       if (answer.ok) { await invalidateAll(); if (mine === epoch) cancel(); return; }
       if (answer.code === 'APP_PROPERTIES_CONFLICT') { conflict = true; formError = answer.message; focusFirstProblem(); return; }
-      if (answer.path && answer.path.startsWith('taskIntegrations[')) errors = { [answer.path]: answer.message };
+      const bare = answer.path?.match(/^taskIntegrations\[(\d+)\](?:\.teams\[(\d+)\])?$/);
+      if (answer.path && bare) {
+        // portal#1679 R1/R2: a refusal at an entry or team itself has no field of its own. Show a fixed message at
+        // that entry or team (never the server's words), or in the banner when it isn't on screen.
+        const i = Number(bare[1]);
+        const j = bare[2] === undefined ? null : Number(bare[2]);
+        const onScreen = i < drafts.length && (j === null || j < drafts[i].teams.length);
+        const fixed = j === null
+          ? t('app.integrations.error.entry-refused', 'The server refused this integration. Check its fields and try again.')
+          : t('app.integrations.error.team-refused', 'The server refused this team. Check its lead and label and try again.');
+        if (onScreen) errors = { [answer.path]: fixed };
+        else formError = fixed;
+      } else if (answer.path && answer.path.startsWith('taskIntegrations[')) errors = { [answer.path]: answer.message };
       else formError = answer.message;
       focusFirstProblem();
     };
   };
 
+  type NamedLead = Exclude<LeadStatus, { kind: 'unknown' }>;
+  function leadName(s: NamedLead): string {
+    if (s.kind === 'missing') return t('app.integrations.lead.missing', 'Worker not in this App’s list');
+    if (s.kind === 'unchecked') return t('app.integrations.lead.unchecked', 'Couldn’t check this worker');
+    return s.name;
+  }
+  function leadNote(s: NamedLead): string | null {
+    if (s.kind === 'retired') return t('app.integrations.lead.retired', 'No longer a live worker');
+    if (s.kind === 'missing') return t('app.integrations.lead.missing-note', 'Can’t confirm it is still live.');
+    if (s.kind === 'unchecked') return t('app.integrations.lead.unchecked-note', 'The worker list didn’t load, so we can’t tell if it is still live.');
+    return null;
+  }
+
   const hasListError = (path: string) => Object.keys(errors).some((k) => k === path || k.startsWith(`${path}[`));
   const field = (path: string) => `ti-${path.replace(/[^a-z0-9]+/gi, '-').replace(/-$/, '')}`;
-  const describedBy = (path: string) => (errors[path] ? `${field(path)}-error` : undefined);
+  // The help id, when the field has one, is merged with the error id, never swapped for it.
+  const describedBy = (path: string, help?: string) => [help, errors[path] ? `${field(path)}-error` : undefined].filter(Boolean).join(' ') || undefined;
 
   function pickLead(i: number, j: number, value: string) {
     drafts[i].teams[j].lead = value === '' ? null : value;
@@ -130,25 +197,26 @@
 </script>
 
 {#snippet lead(urn: string | null)}
-  {@const s = leadStatus(urn, roster)}
+  {@const s = leadStatus(urn, workers)}
   {#if s.kind === 'unknown'}
     <span class="text-amber-700 dark:text-amber-400">{t('app.integrations.lead.unknown', 'Unknown worker')}</span>
   {:else}
-    <span class="text-zinc-900 dark:text-zinc-100">{s.name ?? s.urn}</span>
-    {#if s.kind === 'retired'}
-      <span class="ml-1 text-amber-700 dark:text-amber-400">{t('app.integrations.lead.retired', 'No longer a live worker')}</span>
+    {@const note = leadNote(s)}
+    <span class="text-zinc-900 dark:text-zinc-100">{leadName(s)}</span>
+    {#if note}
+      <span class="ml-1 text-amber-700 dark:text-amber-400">{note}</span>
     {/if}
-    {#if s.name}<div class="mt-1"><Urn value={s.urn} size={10} compact /></div>{/if}
+    <div class="mt-1"><Urn value={s.urn} size={10} compact /></div>
   {/if}
 {/snippet}
 
 {#if read.kind !== 'hidden'}
-  <section class="max-w-2xl" aria-labelledby="task-integrations-heading" data-task-integrations>
+  <section bind:this={sectionEl} class="max-w-2xl" aria-labelledby="task-integrations-heading" data-task-integrations>
     <div class="mb-4 flex items-center justify-between">
-      <h2 id="task-integrations-heading" bind:this={headingEl} tabindex="-1" class="font-semibold focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-900 dark:text-white">{t('app.integrations.heading', 'Task integrations')}</h2>
-      {#if canEdit && !editing}
+      <h2 id="task-integrations-heading" bind:this={headingEl} tabindex="-1" class="font-semibold focus:outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500 text-zinc-900 dark:text-white">{t('app.integrations.heading', 'Task integrations')}</h2>
+      {#if canEdit && !editing && !blocked}
         <div class="flex gap-2">
-          {#if saved.length}<button type="button" class={buttonClass} onclick={() => startEdit(false)}>{t('app.integrations.edit', 'Edit')}</button>{/if}
+          {#if saved.length || removed.length}<button type="button" class={buttonClass} onclick={() => startEdit(false)}>{t('app.integrations.edit', 'Edit')}</button>{/if}
           <button type="button" class={buttonClass} onclick={() => startEdit(true)}>{t('app.integrations.add', 'Add integration')}</button>
         </div>
       {/if}
@@ -157,11 +225,45 @@
     {#if read.kind === 'failed'}
       <p role="alert" class="text-sm text-red-600 dark:text-red-400">{t('app.integrations.load-failed', 'The task integrations could not be loaded.')}</p>
     {:else if !editing}
-      {#if saved.length === 0}
+      {#if canEdit && blocked}
+        <p data-unsupported-notice class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          {t('app.integrations.unsupported-notice', 'This list holds an entry this portal can’t edit, so editing is off. Remove that entry here, or change it with a client that supports it.')}
+        </p>
+      {/if}
+      {#if canEdit && removed.length}
+        <p data-removal-pending class="mb-3 text-sm text-zinc-600 dark:text-zinc-400">
+          {t('app.integrations.removal-pending', 'The removal isn’t saved yet. Edit and save to apply it.')}
+          <button type="button" class="ml-2 underline pointer-coarse:min-h-11" onclick={undoRemovals}>{removed.length > 1 ? t('app.integrations.undo-removals', 'Undo all {n} removals', { n: removed.length }) : t('app.integrations.undo-removal', 'Undo removal')}</button>
+        </p>
+      {/if}
+      {#if shown.length === 0}
         <p class="text-sm text-zinc-500 dark:text-zinc-400">{t('app.integrations.none', 'None configured')}</p>
       {:else}
         <ul class="space-y-3">
-          {#each saved as d, i (i)}
+          {#each shown as entry, i (i)}
+            {#if isUnsupported(entry)}
+              {@const u: UnsupportedEntry = entry}
+              <li class="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950" data-unsupported={u.index}>
+                <div class="flex flex-wrap items-baseline gap-2">
+                  <span class="font-medium text-zinc-900 dark:text-white">{t('app.integrations.unsupported', 'Unsupported entry')}</span>
+                  <span class="text-xs text-zinc-600 dark:text-zinc-400">{t('app.integrations.unsupported-position', 'Entry {n}', { n: u.index + 1 })}{#if u.provider !== null}{' · '}{u.provider}{/if}</span>
+                </div>
+                {#if canEdit}
+                  {#if confirming === u.index}
+                    <p class="mt-2 text-zinc-700 dark:text-zinc-300">{t('app.integrations.remove-entry-confirm', 'Remove entry {n}? It is deleted when you save the integrations.', { n: u.index + 1 })}</p>
+                    <div class="mt-2 flex gap-2">
+                      <button type="button" class={buttonClass} data-step="confirm" onclick={() => confirmRemove(u.index)}>{t('app.integrations.confirm-remove-entry', 'Confirm remove')}</button>
+                      <button type="button" class={buttonClass} onclick={() => keepEntry(u.index)}>{t('app.integrations.keep-entry', 'Keep entry')}</button>
+                    </div>
+                  {:else}
+                    <div class="mt-2">
+                      <button type="button" class={buttonClass} data-step="remove" aria-label={t('app.integrations.remove-entry-n', 'Remove entry {n}', { n: u.index + 1 })} onclick={() => askRemove(u.index)}>{t('app.integrations.remove-entry', 'Remove entry')}</button>
+                    </div>
+                  {/if}
+                {/if}
+              </li>
+            {:else}
+            {@const d = entry}
             <li class="rounded-xl border border-zinc-200 bg-white p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900" data-integration={d.name}>
               <div class="flex items-baseline gap-2">
                 <span class="font-medium text-zinc-900 dark:text-white">{d.name}</span>
@@ -172,11 +274,11 @@
                 <dd class="min-w-0 break-words">{d.repositories.join(', ')}</dd>
                 {#if d.readyLabel}
                   <dt class="text-zinc-500 dark:text-zinc-400">{t('app.integrations.ready-label', 'Ready label')}</dt>
-                  <dd>{d.readyLabel}</dd>
+                  <dd>{d.readyLabel}<p class={helpClass}>{readyHelp}</p></dd>
                 {/if}
                 {#if d.excludeLabels.length}
                   <dt class="text-zinc-500 dark:text-zinc-400">{t('app.integrations.excluded-labels', 'Excluded labels')}</dt>
-                  <dd>{d.excludeLabels.join(', ')}</dd>
+                  <dd>{d.excludeLabels.join(', ')}<p class={helpClass}>{excludedHelp}</p></dd>
                 {/if}
                 {#each d.teams as team}
                   <dt class="text-zinc-500 dark:text-zinc-400">{t('app.integrations.team', 'Team')}</dt>
@@ -187,6 +289,7 @@
                 {/each}
               </dl>
             </li>
+            {/if}
           {/each}
         </ul>
       {/if}
@@ -197,14 +300,15 @@
         {#if formError}
           <div role="alert" tabindex="-1" bind:this={bannerEl} class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
             {formError}
-            {#if conflict}<button type="button" class="ml-2 underline" onclick={reload}>{t('app.integrations.reload', 'Reload (discards your changes)')}</button>{/if}
+            {#if conflict}<button type="button" class="ml-2 inline-flex items-center underline pointer-coarse:min-h-11" onclick={reload}>{t('app.integrations.reload', 'Reload (discards your changes)')}</button>{/if}
           </div>
         {/if}
 
         {#each drafts as d, i (i)}
           {@const at = `taskIntegrations[${i}]`}
-          <fieldset class="space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" data-integration-form={i}>
+          <fieldset class="min-w-0 space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900" data-integration-form={i}>
             <legend class="px-1 text-xs text-zinc-500 dark:text-zinc-400">{d.name.trim() || t('app.integrations.new', 'New integration')}</legend>
+            {#if errors[at]}<p role="alert" tabindex="-1" class={errorClass}>{errors[at]}</p>{/if}
 
             <div>
               <label for={field(`${at}.name`)} class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.integrations.name', 'Name')}</label>
@@ -215,7 +319,9 @@
             <div>
               <label for={field(`${at}.provider`)} class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.integrations.provider', 'Provider')}</label>
               <select id={field(`${at}.provider`)} bind:value={d.provider} class={inputClass}>
-                <option value="github">GitHub</option>
+                {#each TASK_INTEGRATION_PROVIDERS as p (p)}
+                  <option value={p}>{providerLabel(p)}</option>
+                {/each}
               </select>
             </div>
 
@@ -239,13 +345,15 @@
 
             <div>
               <label for={field(`${at}.readyLabel`)} class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">{t('app.integrations.ready-label', 'Ready label')}</label>
-              <input id={field(`${at}.readyLabel`)} type="text" bind:value={d.readyLabel} aria-invalid={!!errors[`${at}.readyLabel`]} aria-describedby={describedBy(`${at}.readyLabel`)} class="{inputClass} {errors[`${at}.readyLabel`] ? 'border-red-500' : ''}" />
+              <input id={field(`${at}.readyLabel`)} type="text" bind:value={d.readyLabel} aria-invalid={!!errors[`${at}.readyLabel`]} aria-describedby={describedBy(`${at}.readyLabel`, `${field(`${at}.readyLabel`)}-help`)} class="{inputClass} {errors[`${at}.readyLabel`] ? 'border-red-500' : ''}" />
+              <p id="{field(`${at}.readyLabel`)}-help" class={helpClass}>{readyHelp}</p>
               {#if errors[`${at}.readyLabel`]}<p id="{field(`${at}.readyLabel`)}-error" role="alert" class={errorClass}>{errors[`${at}.readyLabel`]}</p>{/if}
             </div>
 
             <div>
               <span class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300" id={field(`${at}.excludeLabels`)}>{t('app.integrations.excluded-labels', 'Excluded labels')}</span>
-              <div role="group" aria-labelledby={field(`${at}.excludeLabels`)} class="space-y-2">
+              <p id="{field(`${at}.excludeLabels`)}-help" class="mb-2 text-xs text-zinc-500 dark:text-zinc-400">{excludedHelp}</p>
+              <div role="group" aria-labelledby={field(`${at}.excludeLabels`)} aria-describedby="{field(`${at}.excludeLabels`)}-help" class="space-y-2">
                 {#each d.excludeLabels as _, j (j)}
                   {@const p = `${at}.excludeLabels[${j}]`}
                   <div>
@@ -266,23 +374,25 @@
                 {#each d.teams as team, j (j)}
                   {@const lp = `${at}.teams[${j}].lead`}
                   {@const tp = `${at}.teams[${j}].label`}
-                  {@const s = leadStatus(team.lead, roster)}
+                  {@const s = leadStatus(team.lead, workers)}
                   <div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800" data-team={j}>
+                    {#if errors[`${at}.teams[${j}]`]}<p role="alert" tabindex="-1" class="mb-2 {errorClass}">{errors[`${at}.teams[${j}]`]}</p>{/if}
                     <label for={field(lp)} class="mb-1 block text-xs font-medium text-zinc-600 dark:text-zinc-400">{t('app.integrations.lead', 'Lead')}</label>
                     <select id={field(lp)} value={team.lead ?? ''} onchange={(e) => pickLead(i, j, e.currentTarget.value)} aria-invalid={!!errors[lp]} aria-describedby={describedBy(lp)} class="{inputClass} {errors[lp] ? 'border-red-500' : ''}">
                       {#if s.kind === 'unknown'}
                         <option value="">{t('app.integrations.lead.unknown', 'Unknown worker')}</option>
-                      {:else if s.kind === 'retired'}
-                        <option value={s.urn}>{s.name ?? s.urn}</option>
+                      {:else if s.kind !== 'live'}
+                        <option value={s.urn}>{leadName(s)}</option>
                       {/if}
                       {#each liveWorkers as w (w.id)}
                         <option value={w.urn ?? w.id}>{w.name}</option>
                       {/each}
                     </select>
                     {#if s.kind !== 'unknown'}
+                      {@const note = leadNote(s)}
                       <div class="mt-1 text-xs">
-                        {#if s.name}<Urn value={s.urn} size={10} compact />{/if}
-                        {#if s.kind === 'retired'}<p class="text-amber-700 dark:text-amber-400">{t('app.integrations.lead.retired', 'No longer a live worker')}</p>{/if}
+                        <Urn value={s.urn} size={10} compact />
+                        {#if note}<p class="text-amber-700 dark:text-amber-400">{note}</p>{/if}
                       </div>
                     {/if}
                     {#if errors[lp]}<p id="{field(lp)}-error" role="alert" class={errorClass}>{errors[lp]}</p>{/if}
@@ -305,11 +415,11 @@
           </fieldset>
         {/each}
 
-        <div class="flex items-center gap-2">
+        <div class="flex flex-wrap items-center gap-2">
           <button type="button" class={buttonClass} onclick={addIntegration}>{t('app.integrations.add', 'Add integration')}</button>
           <span class="flex-1"></span>
           <button type="button" class={buttonClass} onclick={cancel}>{t('app.integrations.cancel', 'Cancel')}</button>
-          <button type="submit" disabled={pending} class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">{t('app.integrations.save', 'Save')}</button>
+          <button type="submit" disabled={pending} class="rounded-md bg-indigo-600 px-3 py-1 text-xs font-medium text-white pointer-coarse:min-h-11 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50">{t('app.integrations.save', 'Save')}</button>
         </div>
       </form>
     {/if}

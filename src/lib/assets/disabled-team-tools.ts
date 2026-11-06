@@ -8,9 +8,10 @@
  * ("The tool list"), from inventory rev 1,
  * hrn:node:hadronmemory.com:hadron-dev-team-petra:drafts:mcp-team-inventory.
  *
- * A pinned copy until S1 lands: a change to the plan's list is a new plan
- * revision, and the header above names the one this copy follows. Comparing it
- * with S1's exported list at its deployed SHA belongs to slice P2, not here.
+ * A pinned copy of the ruled list: a change to it is a new plan revision or a
+ * Holger ruling, and the header above names the one this copy follows. Slice P2
+ * (portal#1550) holds it equal to what S1's switch disabled at hadron-server
+ * 99246d46, in hosted-mcp-tools.test.ts.
  *
  * Names are written out in full, never built from a prefix, so a search for any
  * one of them finds it.

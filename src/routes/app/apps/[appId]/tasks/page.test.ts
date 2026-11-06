@@ -158,7 +158,7 @@ describe('board', () => {
 
   it('a full page says there may be more', () => {
     const html = board({ board: { kind: 'ok', value: { capped: true, tasks: [task()] } } });
-    expect(html).toContain('There may be more; narrow the search.');
+    expect(html).toContain('There may be more; narrow the status filter or search.');
   });
 
   it('a failed read is an alert, never an empty list', () => {
@@ -187,7 +187,7 @@ function taskPage(over: Record<string, unknown> = {}) {
       data: { app, task: detail(), ancestors: [], ancestorsTruncated: false,
         canWrite: true, impersonating: null, created: false, candidates: { workers: [], people: [] },
         tree: { kind: 'ok', value: { rows: [detail()], capped: false } },
-        history: { kind: 'ok', value: { events: [], capped: false } }, ...over },
+        history: { kind: 'ok', value: { events: [], capped: false } }, review: { kind: 'ok', value: { readiness: null, seat: null } }, ...over },
     },
   } as never).body;
 }
@@ -364,12 +364,25 @@ describe('board New task (#1090)', () => {
 describe('task handles', () => {
   const H = 'AT3.405';
 
+  // portal#1415 item 1: the chip's accessible name is CONTENT — a visually
+  // hidden "Task handle" prefix — not an aria-label attribute, whose support
+  // on a generic <code> is uneven. The pins match what an AT actually reads.
+  // `MARK` tolerates the {#if} comment markers Svelte's SSR puts between the
+  // tag and the span; the \s* is the &nbsp; that keeps "handle" and the value
+  // from running together as one word.
+  const esc = (s: string) => s.replaceAll('.', '\\.');
+  const MARK = '(?:<!--.*?-->)*';
+  const HANDLE_CHIP = (h: string) =>
+    new RegExp(`<code[^>]*data-task-handle[^>]*>${MARK}<span class="[^"]*\\bsr-only\\b[^"]*"[^>]*>Task handle\\s*</span>${MARK}${esc(h)}</code>`);
+  const CRUMB_CHIP = (h: string) =>
+    new RegExp(`<code[^>]*data-crumb-chip[^>]*>${MARK}<span class="[^"]*\\bsr-only\\b[^"]*"[^>]*>Task handle\\s*</span>${MARK}${esc(h)}</code>`);
+
   it('board: title stays the link text, the handle is a quiet chip, and the link points at the handle', () => {
     const html = board({ board: { kind: 'ok', value: { capped: false, tasks: [task({ id: 'abc', handle: H })] } } });
     expect(html).toContain(`href="/app/apps/app-1/tasks/${H}"`);
     expect(html).toContain(`href="/app/apps/app-1/tasks/${H}#subtasks"`);
-    expect(html).toMatch(/data-task-handle[^>]*>AT3\.405<\/code>/);
-    expect(html).toContain('aria-label="Task handle AT3.405"');
+    expect(html).toMatch(HANDLE_CHIP('AT3.405'));
+    expect(html).not.toMatch(/<code[^>]*data-task-handle[^>]*\saria-label/);
     expect(html).not.toContain('tasks/abc');
   });
 
@@ -391,12 +404,17 @@ describe('task handles', () => {
     expect(html).toMatch(new RegExp(`class="[^"]*\\btruncate\\b[^"]*"[^>]*title="${long.replaceAll('.', '\\.')}"`));
   });
 
-  it('detail: handle chip by the title, three SEPARATELY labelled copy values (handle, id, CLI), id not the only addressable thing', () => {
+  it('detail: handle chip by the title, three copy values with VISIBLE names (handle, id, CLI), id not the only addressable thing', () => {
     const html = taskPage({ task: detail({ id: 'abc', handle: H }) });
-    expect(html).toMatch(/data-task-handle[^>]*>AT3\.405<\/code>/);
+    expect(html).toMatch(HANDLE_CHIP('AT3.405'));
     expect(html).toContain('aria-label="Copy the task handle"');
     expect(html).toContain('aria-label="Copy the task id"');
     expect(html).toContain('aria-label="Copy the CLI command that reads this task"');
+    // portal#1415 item 2: three "Copy" buttons need visible names a sighted
+    // reader can tell apart — Handle, ID, CLI — not aria-labels alone.
+    expect(html).toMatch(/<span[^>]*data-copy-name[^>]*>\s*Handle\s*<\/span>/);
+    expect(html).toMatch(/<span[^>]*data-copy-name[^>]*>\s*ID\s*<\/span>/);
+    expect(html).toMatch(/<span[^>]*data-copy-name[^>]*>\s*CLI\s*<\/span>/);
     expect(html).toMatch(/<code[^>]*>AT3\.405<\/code>/);
     expect(html).toMatch(/<code[^>]*>abc<\/code>/);
   });
@@ -420,12 +438,14 @@ describe('task handles', () => {
       ancestors: [{ id: 'r', handle: 'AT91', title: 'Root' }, { id: 'p', handle: 'AT92', title: 'Parent' }],
     });
     const nav = html.match(/<nav aria-label="Breadcrumb"[\s\S]*?<\/nav>/)![0];
-    expect(nav).toMatch(/data-crumb-chip[^>]*>AT91<\/code>/);
-    expect(nav).toMatch(/data-crumb-chip[^>]*>AT92<\/code>/);
-    expect(nav).toContain('aria-label="Task handle AT91"');
+    expect(nav).toMatch(CRUMB_CHIP('AT91'));
+    expect(nav).toMatch(CRUMB_CHIP('AT92'));
+    expect(nav).not.toMatch(/<code[^>]*data-crumb-chip[^>]*\saria-label/);
     const parentFact = html.slice(html.indexOf('>Parent</dt>'), html.indexOf('</dd>', html.indexOf('>Parent</dt>')));
-    expect(parentFact).toMatch(/data-task-handle[^>]*>AT92<\/code>/);
-    expect(parentFact.replace(/<[^>]*>/g, ' ')).toMatch(/Parent\s+AT92/);
+    expect(parentFact).toMatch(HANDLE_CHIP('AT92'));
+    // The sr-only prefix is announced but not SEEN: drop it before asserting
+    // the visual order is the title then the handle.
+    expect(parentFact.replace(/<span[^>]*sr-only[^>]*>[^<]*<\/span>/g, '').replace(/<[^>]*>/g, ' ')).toMatch(/Parent\s+AT92/);
   });
 
   it('detail: an unread parent stays neutral, with no handle chip', () => {
@@ -440,13 +460,13 @@ describe('task handles', () => {
     const child = detail({ id: 'c1', handle: 'AT3.405.1', parentTaskId: 'abc', title: 'Child' });
     const html = taskPage({ task: detail({ id: 'abc', handle: H }), tree: { kind: 'ok', value: { rows: [detail({ id: 'abc', handle: H }), child], capped: false } } });
     expect(html).toContain('href="/app/apps/app-1/tasks/AT3.405.1"');
-    expect(html).toMatch(/data-task-handle[^>]*>AT3\.405\.1<\/code>/);
+    expect(html).toMatch(HANDLE_CHIP('AT3.405.1'));
   });
 
   it('AT0 is shown with its handle and title but offers no write control, with a plain explanation', () => {
     const html = taskPage({ task: detail({ id: 'z0', handle: 'AT0', title: 'No project', status: 'BACKLOG', assignee: null }), canWrite: true });
     expect(html).toContain('No project');
-    expect(html).toMatch(/data-task-handle[^>]*>AT0<\/code>/);
+    expect(html).toMatch(HANDLE_CHIP('AT0'));
     expect(html).toContain('data-testid="project-zero-note"');
     expect(barButtons(html)).toEqual([]);
     expect(html).not.toMatch(/<form/);
@@ -477,8 +497,20 @@ describe('task handles', () => {
     // Uma UX P2: say where AT0.<n> tasks are (the board), not that AT0 has none.
     expect(s).toContain('Tasks that belong to no project are listed on the');
     expect(s).toMatch(/<a href="\/app\/apps\/[^"]+\/tasks"[^>]*>Tasks page<\/a>, not under this one\./);
+    // portal#1415 B: the link is marked by more than colour, at rest (not only on hover).
+    const link = s.match(/<a href="\/app\/apps\/[^"]+\/tasks"[^>]*>/)![0];
+    expect(link.split(/\s+/)).toContain('underline');
     expect(s).not.toContain('role="alert"');
     expect(s).not.toContain('Couldn’t load the subtasks.');
+  });
+
+  // portal#1415 A: one sentence is one message, so a translation can place the link anywhere.
+  it('AT0 note: one i18n key with a {link} placeholder, not lead/link/tail', async () => {
+    const { readFileSync } = await import('node:fs');
+    const src = readFileSync(new URL('./[taskId]/+page.svelte', import.meta.url), 'utf8');
+    expect(src).not.toMatch(/app\.tasks\.tree\.project-zero\.(lead|tail)/);
+    expect(src).toContain("'app.tasks.tree.project-zero'");
+    expect(src).toContain('{link}');
   });
 
   it('a null tree on any other task, and a failed read on any task, keep the alert', () => {
@@ -498,5 +530,21 @@ describe('task handles', () => {
     const html = taskPage({ task: detail({ id: 'abc', handle: 'AT3', status: 'BACKLOG', assignee: null }), canWrite: true });
     expect(html).not.toContain('project-zero-note');
     expect(barButtons(html).length).toBeGreaterThan(0);
+  });
+});
+
+describe('task page: Review section (portal#1697)', () => {
+  const H = 'c'.repeat(40);
+  const review = { kind: 'ok', value: { readiness: { ready: true, head: H, slots: [] }, seat: null } };
+
+  it('sits above Properties, which stays', () => {
+    const html = taskPage({ review, task: task({ properties: { 'pr.head': H } }) });
+    expect(html).toContain('Ready at cccccccc');
+    expect(html.indexOf('task-review-heading')).toBeLessThan(html.indexOf('Properties'));
+    expect(html).toContain('pr.head');
+  });
+
+  it('a task with no review answer has no Review section', () => {
+    expect(taskPage()).not.toContain('task-review-heading');
   });
 });

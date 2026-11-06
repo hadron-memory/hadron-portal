@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { flushSync } from 'svelte';
 import { superValidate } from 'sveltekit-superforms';
 import { zod4 } from 'sveltekit-superforms/adapters';
-import { mountComponent, type Mounted } from '$lib/test/mountComponent';
+import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import Page from './+page.svelte';
 import { createNodeSchema } from './schema';
 
@@ -13,14 +13,21 @@ afterEach(() => {
   while (mounted.length) mounted.pop()!.unmount();
 });
 
-async function mountPage(prefillLoc = '') {
-  const form = await superValidate({}, zod4(createNodeSchema), { errors: false });
+/**
+ * `failedSubmit` is what the action returns when a submit is refused: the form
+ * the user posted, handed back as `form.form` (#1481). It is the one way the page
+ * mounts with a Loc the user already chose that is NOT a deep-link prefill.
+ */
+async function mountPage(prefillLoc = '', failedSubmit?: { name: string; loc: string }) {
+  // The loader seeds the form with the deep-link Loc (+page.server.ts: `superValidate({ loc: prefillLoc })`).
+  const form = await superValidate({ loc: prefillLoc }, zod4(createNodeSchema), { errors: false });
+  const posted = failedSubmit ? await superValidate(failedSubmit, zod4(createNodeSchema), { errors: false }) : null;
   const m = mountComponent(Page as never, {
     data: {
       graph: { id: 'm1', name: 'Test memory', urn: 'hrn:mem:acme:docs', schema: null },
       org: null, parentLoc: null, existingLocs: [], prefillLoc, form,
     },
-    form: null,
+    form: posted ? { form: posted } : null,
   } as never) as Mounted<Record<string, unknown>>;
   mounted.push(m);
   flushSync();
@@ -45,8 +52,10 @@ function type(el: HTMLInputElement, value: string) {
   flushSync();
 }
 
-// Real-time settle: the repro reverts ~200 ms after the edit.
-const settle = () => new Promise((r) => setTimeout(r, 300));
+// Settle by draining the microtask queue and the effects it schedules (#1481): the
+// derive effect that reverted the Loc is microtask-driven, so no wall-clock wait is
+// needed, and a fixed delay only made the lane slower and, on a loaded runner, flaky.
+const settle = () => tick(5);
 
 describe('New node — Loc manual edit (#1477)', () => {
   it('keeps a typed Loc after select-all + delete + typing', async () => {
@@ -85,6 +94,33 @@ describe('New node — Loc manual edit (#1477)', () => {
     const t = await mountPage('a:b');
     type(t.querySelector<HTMLInputElement>('#name')!, 'Sort imports');
     await settle();
-    expect(t.querySelector<HTMLInputElement>('#loc')!.value).not.toBe('sort-imports');
+    expect(t.querySelector<HTMLInputElement>('#loc')!.value).toBe('a:b');
+  });
+
+  // #1481: after a refused submit the page remounts with the form the user
+  // posted, and its Loc is theirs, not a slug to recompute from the Name.
+  it('keeps the Loc of a failed submit when the Name is edited', async () => {
+    const t = await mountPage('', { name: 'Daily review', loc: 'register:tick.mine' });
+    const name = t.querySelector<HTMLInputElement>('#name')!;
+    const loc = t.querySelector<HTMLInputElement>('#loc')!;
+    expect(loc.value).toBe('register:tick.mine');
+    type(name, 'Daily review two');
+    await settle();
+    expect(loc.value).toBe('register:tick.mine');
+  });
+
+  it('keeps an emptied Loc of a failed submit empty when the Name is edited', async () => {
+    const t = await mountPage('', { name: 'Daily review', loc: '' });
+    const loc = t.querySelector<HTMLInputElement>('#loc')!;
+    type(t.querySelector<HTMLInputElement>('#name')!, 'Daily review two');
+    await settle();
+    expect(loc.value).toBe('');
+  });
+
+  it('a fresh page with no failed submit still derives Loc from Name (the failed-submit arm is not always on)', async () => {
+    const t = await mountPage();
+    type(t.querySelector<HTMLInputElement>('#name')!, 'Daily review');
+    await settle();
+    expect(t.querySelector<HTMLInputElement>('#loc')!.value).toBe('daily-review');
   });
 });

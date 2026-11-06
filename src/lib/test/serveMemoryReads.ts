@@ -1,5 +1,6 @@
 import { NODE_ANCESTORS_QUERY, NODE_CHILDREN_QUERY, WIKILINK_TARGETS_BATCH_QUERY } from '$lib/server/queries';
 import { composeNodeUrn } from '$lib/urn/compose-node-urn';
+import { fakeFindNodesChildren } from './fakeFindNodesChildren';
 
 /** A node row as the old layout's slim `graphNodes` carried it. */
 export type SeedNode = {
@@ -17,8 +18,8 @@ export type SeedNode = {
 /**
  * A stand-in for the server reads that replaced `graphNodes` (portal#1433):
  * the breadcrumb/chat-root and same-memory wikilink `nodeBatch`es, the
- * aliased cross-memory wikilink lookups, and the node page's bounded
- * `locPrefix` children read (portal#1524). Returns undefined for any
+ * aliased cross-memory wikilink lookups, and the node page's `childrenOf`
+ * children read (portal#1656). Returns undefined for any
  * document it does not own, so a test chains its own handler after it.
  */
 export function serveMemoryReads(
@@ -56,14 +57,9 @@ export function serveMemoryReads(
       return { nodeBatch: { nodes, unavailable: [], omitted: [], truncated: false } };
     }
     if (doc === NODE_CHILDREN_QUERY) {
-      // Every descendant under `locPrefix` in this memory, as the server's
-      // prefix read returns it; the loader keeps the direct children.
-      const prefix = (vars.locPrefix ?? '') as string;
-      const hits = rows
-        .filter((n) => (n.memoryId ?? memory.id) === ((vars.memoryId as string | undefined) ?? memory.id))
-        .filter((n) => n.loc.startsWith(prefix))
-        .map((n) => ({ node: { ...full(n), commentSummary: null } }));
-      return { findNodes: { total: hits.length, hits } };
+      // portal#1656: the server's childrenOf read (direct children, sibling
+      // order, paged), as the node page's Children section asks it.
+      return fakeFindNodesChildren(rows, memory.id)(vars);
     }
     // The aliased wikilink lookup: `w{i}` is the node at URN `r{i}`, or null.
     if (doc.startsWith('query WikilinkTargets')) {

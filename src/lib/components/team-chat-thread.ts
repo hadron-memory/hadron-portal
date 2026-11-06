@@ -1,5 +1,16 @@
 import type { TeamChatMessage } from '$lib/types';
 
+/** Ephemeral user intent, owned outside a route-keyed thread mount. Never persisted. */
+export interface TeamChatFilterFocusRequest {
+  key: string;
+  label?: string;
+  opener: Element | null;
+  /** The route owner marks its own goto; absent for synchronous component consumers. */
+  navigation?: 'pending' | 'complete';
+  /** Reader intent survives destruction of the focused old thread control. */
+  movedFocus?: 'composer' | 'elsewhere';
+}
+
 /**
  * Presentation logic for the team chat tab (hadron-portal#732), kept out of the
  * Svelte component so the attribution rules — the whole reason the tab exists —

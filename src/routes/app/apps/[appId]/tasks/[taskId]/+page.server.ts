@@ -1,4 +1,5 @@
 import { taskDependencies } from '$lib/server/task-planning';
+import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect, isHttpError } from '@sveltejs/kit';
 import { gqlClient } from '$lib/server/api';
@@ -17,7 +18,7 @@ import {
   REASSIGN_AGENT_TASK_MUTATION,
   UPDATE_AGENT_TASK_MUTATION,
 } from '$lib/server/queries';
-import { canonicalTaskId, loadAncestors, loadHistory, loadTasksApp, loadTree, loadWriteCandidates } from '$lib/server/agent-tasks';
+import { canonicalTaskId, loadAncestors, loadHistory, loadReview, loadTasksApp, loadTree, loadWriteCandidates } from '$lib/server/agent-tasks';
 import {
   classifyWriteError,
   formValues,
@@ -69,9 +70,11 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   // portal#1090: an impersonation session writes nothing, so it gets no bar
   // and no picker read. Everyone else gets the bar; the server decides.
   const canWrite = !locals.impersonation;
-  const [tree, history, crumbs, candidates] = await Promise.all([
+  const [tree, history, review, crumbs, candidates] = await Promise.all([
     loadTree(client, task.id),
     loadHistory(client, app.id, task.id),
+    // portal#1697: optional like the relations; a slow read costs the section, never the page.
+    withTimeout(loadReview(client, app.id, task.id), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as const),
     loadAncestors(client, task.parentTaskId),
     canWrite ? loadWriteCandidates(client, app.id) : Promise.resolve({ workers: [], people: [], peopleWithheld: false, peopleFailed: false, roles: [], families: [] }),
   ]);
@@ -79,10 +82,14 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
   return {
     app,
     task,
-    dependencies: await taskDependencies(client, app.id, task.id),
+    // portal#1392: the relations are optional; a read that hasn't answered within the
+    // optional-list budget becomes the existing unknown state ("reload to try again"),
+    // never empty relations. The request itself is not cancelled, only no longer waited for.
+    dependencies: await withTimeout(taskDependencies(client, app.id, task.id), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as const),
     // The tree's first row is the task itself; the view shows what is below it.
     tree,
     history,
+    review,
     ancestors: crumbs.ancestors,
     ancestorsTruncated: crumbs.truncated,
     canWrite,

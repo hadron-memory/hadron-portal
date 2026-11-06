@@ -90,6 +90,29 @@ export const castWorkerSchema = z.object({
   _kind: z.literal('castWorker').default('castWorker'),
   agentId: z.string().trim().min(1, 'Select an agent to cast.').prefault(''),
   name: z.string().trim().min(1, 'Give the worker a name — the platform no longer picks one.').prefault(''),
+  // hadron-portal#1149 (hadron-server#2028, S12) — the cast takes a DELIBERATE
+  // reporting choice: a head, or an explicit No team. Nothing is preselected,
+  // and a missing choice is refused here rather than sent: omission is never
+  // No team, and the coordinator is never guessed. `reporting` has no default
+  // for that reason; a blank or unknown value fails the enum.
+  //
+  // The WIRE is presence-based (the action sends exactly one of `reportsTo` /
+  // `noTeam: true` and omits the other), so this form carries the choice as a
+  // two-way switch plus a head, and the action turns it into one arm.
+  //
+  // The empty string is the form's "nothing chosen yet" state, NOT a third
+  // choice: Superforms seeds an enum field with its FIRST member, which would
+  // preselect "a head" on a form that must start with neither. The refine
+  // below refuses it.
+  reporting: z.enum(['', 'head', 'none']).prefault(''),
+  reportsTo: z.string().trim().default(''),
+}).superRefine((value, ctx) => {
+  if (value.reporting === '') {
+    ctx.addIssue({ code: 'custom', path: ['reporting'], message: 'Choose who this worker reports to, or choose No team.' });
+  }
+  if (value.reporting === 'head' && !value.reportsTo) {
+    ctx.addIssue({ code: 'custom', path: ['reportsTo'], message: 'Choose the worker this one reports to, or choose No team.' });
+  }
 });
 
 export const retireWorkerSchema = z.object({

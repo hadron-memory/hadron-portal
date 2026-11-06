@@ -67,6 +67,40 @@
   let copied = $state(false);
   let urlCopied = $state(false);
 
+  // #1604: a compact chip truncates, and its full URN is only in a `title`
+  // tooltip, which a touch device cannot show. On a coarse pointer a compact,
+  // UNLINKED chip becomes a toggle between the truncated bare value and the
+  // whole fully-qualified URN (hrn:<type>: included), wrapped. A
+  // linked chip is left alone (a tap there navigates), and a fine pointer
+  // keeps the plain chip, with no extra tab stop.
+  //
+  // The pointer is read here, on the client, not by a CSS variant: the toggle
+  // changes the element (a <button> with aria-expanded), which CSS cannot do.
+  // The server render is the fine-pointer chip; on a phone the toggle's cue
+  // (a chevron) appears on hydration. matchMedia is absent in some test
+  // environments, and an old engine may lack addEventListener on it; the chip
+  // then stays plain or stops following pointer changes, never throws.
+  let coarsePointer = $state(false);
+  let expanded = $state(false);
+  const revealable = $derived(compact && !linked && coarsePointer);
+  const showFull = $derived(revealable && expanded);
+
+  // A chip that stops being a toggle (linked, non-compact, or a fine pointer)
+  // forgets it was open, so it never comes back expanded (#1642 LOCAL/BLIND P3).
+  $effect(() => {
+    if (!revealable) expanded = false;
+  });
+
+  $effect(() => {
+    if (!compact || linked || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia('(pointer: coarse)');
+    coarsePointer = mq.matches;
+    if (typeof mq.addEventListener !== 'function') return;
+    const follow = (e: { matches: boolean }) => (coarsePointer = e.matches);
+    mq.addEventListener('change', follow);
+    return () => mq.removeEventListener('change', follow);
+  });
+
   function v2TypeHint(typeHint: UrnTypeHint | undefined): string | undefined {
     if (!typeHint) return undefined;
     if (typeHint === 'memory') return 'mem';
@@ -129,6 +163,13 @@
   const displayFullUrn = $derived(parsed.fullUrn);
   const bareValue = $derived(parsed.bareValue);
 
+  // The toggle's name says what it does and keeps the value in it (label in
+  // name); aria-expanded carries the state, so the name stays the same.
+  const revealName = $derived(t('urn.reveal', 'Show full URN {urn}', { urn: displayFullUrn }));
+  // Expanded, the URN may wrap at any ":" first (<wbr>), and mid-segment only
+  // when a segment alone is wider than the cell (#1642 UX P3).
+  const fullSegments = $derived(displayFullUrn.split(':'));
+
   // Type badge: uniform style across all types (incl. 'unknown' fallback)
   const typeBadgeClass = 'bg-slate-300 text-slate-700 dark:bg-slate-600 dark:text-slate-200';
 
@@ -159,15 +200,28 @@
 <span class="inline-flex min-w-0 max-w-full items-center gap-1">
   <!-- The chip is an <a> when `linked`, a plain <code> otherwise. The anchor wraps
        ONLY the chip: the copy buttons below are siblings, because a <button> inside
-       an <a> is invalid and the anchor would swallow their clicks. -->
+       an <a> is invalid and the anchor would swallow their clicks.
+       #1604: on a coarse pointer an unlinked compact chip is a <button>. Its
+       role="button" is redundant there, but svelte's a11y check cannot see the
+       dynamic tag and flags the click handler without it. -->
   <svelte:element
-    this={linked ? 'a' : 'code'}
+    this={linked ? 'a' : revealable ? 'button' : 'code'}
     href={linked ? `/app/u/${displayFullUrn}` : undefined}
-    class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight {linked ? 'hover:opacity-80' : ''}"
+    type={revealable ? 'button' : undefined}
+    role={revealable ? 'button' : undefined}
+    aria-expanded={revealable ? expanded : undefined}
+    aria-label={revealable ? revealName : undefined}
+    onclick={revealable ? () => (expanded = !expanded) : undefined}
+    class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight {linked ? 'hover:opacity-80' : ''} {revealable ? 'min-h-6 bg-zinc-100 pr-1 text-left text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' : ''}"
     style="font-size: 0.6rem;"
   >
     {#if compact}
-      <span class="min-w-0 truncate bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{bareValue}</span>
+      <span class="min-w-0 {showFull ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'} bg-zinc-100 px-1.5 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={displayFullUrn}>{#if showFull}{#each fullSegments as segment, i}{#if i > 0}:<wbr />{/if}{segment}{/each}{:else}{bareValue}{/if}</span>
+      {#if revealable}
+        <!-- The cue that this chip opens (#1642 UX P2): a chevron that turns
+             down while the whole URN shows. -->
+        <svg aria-hidden="true" data-reveal-cue width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="shrink-0 transition-transform {expanded ? 'rotate-90' : ''}"><polyline points="9 6 15 12 9 18"></polyline></svg>
+      {/if}
     {:else}
       <span class="shrink-0 whitespace-nowrap pl-1.5 pr-0 py-0.5 font-medium {typeBadgeClass}">{CANONICAL_SCHEME}:</span>
       <span class="shrink-0 whitespace-nowrap pl-0 pr-0.5 py-0.5 font-medium {typeBadgeClass}">{displayType}:</span>

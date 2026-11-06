@@ -74,6 +74,9 @@ jobs:
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Check team chat chip target sizes
+        run: pnpm test:team-chat-chips-layout
+
       - name: Check node phone layout
         run: pnpm test:node-phone-layout
 
@@ -87,6 +90,25 @@ jobs:
       # portal#1315 (#1058/#1307): the NodeList search filter in real Chromium.
       - name: Check NodeList search
         run: pnpm test:node-list-search
+
+      # portal#1619: the Task integrations heading paints a focus ring after a keyboard Cancel.
+      - name: Check Task integrations focus ring
+        run: pnpm test:task-integrations-focus
+
+      # portal#1675: the ApplyAgentTickers result region paints a focus ring after a keyboard apply.
+      - name: Check ApplyAgentTickers focus ring
+        run: pnpm test:apply-agent-tickers-focus
+
+      # portal#1676: Task integrations' touch targets and overflow at 390px and 1280px.
+      - name: Check Task integrations layout
+        run: pnpm test:task-integrations-layout
+
+      # portal#1700: the Nodes tab reads one bounded page per action and keeps its DOM windowed (real Chromium).
+      - name: Check Nodes tab lazy reads
+        run: pnpm test:nodes-tab-lazy
+
+      - name: Check invitation clipboard feedback
+        run: pnpm test:invite-copy
 
       - name: Check App picker phone layout
         run: node scripts/test-select-app-layout.mjs

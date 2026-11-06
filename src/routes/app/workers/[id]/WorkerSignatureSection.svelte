@@ -12,21 +12,24 @@
   - No reset or default control, and no client cap (the server's is tunable).
 -->
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { superForm, type SuperValidated } from 'sveltekit-superforms/client';
   import { zod4Client } from 'sveltekit-superforms/adapters';
   import { failedSubmission } from '$lib/forms/submitted-form';
   import { t } from '$lib/i18n/t';
   import { updateSignatureSchema, type UpdateSignatureForm } from './schema';
   import { signatureInstanceId } from './signature-instance-id';
+  import { signatureLintPage, workerLinkAdvice, type SignatureLintPage } from '$lib/worker-signature-lint';
 
   let {
+    workerId,
     signature,
     trailer,
     retired,
     initialForm,
     actionResult,
   }: {
+    workerId: string;
     signature: string | null | undefined;
     trailer: string | null | undefined;
     retired: boolean;
@@ -142,7 +145,7 @@
     // #1367: a successful save disables the Save button the reader used, so
     // hand focus back (to them, if their control is still live, else here).
     onUpdated: ({ form }) => {
-      if (form.message?.type === 'success') void focusResultAfterSave();
+      if (form.message?.type === 'success') { void focusResultAfterSave(); void readLinkLint(); }
     },
     taintedMessage: t('worker.signature.discard', 'You have unsaved changes to this worker’s signature or trailer. Leave the page and lose them?'),
   });
@@ -174,8 +177,50 @@
     });
   });
 
+  // A loader replaces the worker object on every enhanced save. Its prop getter
+  // invalidates even when id is unchanged; compare the primitive before resetting lint.
+  const lintWorkerId = $derived(workerId);
   const readable = $derived({ signature: signature != null, trailer: trailer != null });
   const anyReadable = $derived(readable.signature || readable.trailer);
+  let lintState = $state<'loading' | 'ready' | 'unavailable'>('loading');
+  let linkLint = $state<SignatureLintPage | null>(null);
+  let lintEpoch = 0;
+  let lintBusy = $state(false);
+  let lintEl = $state<HTMLElement | null>(null);
+  async function readLinkLint(retry = false) {
+    if (!workerId || !anyReadable || (retry && lintBusy)) return;
+    const expectedWorker = workerId, stamp = ++lintEpoch;
+    lintBusy = true;
+    // Keep unchanged advice nodes mounted during a saved-value refresh, so they
+    // are not queued again by the live regions beside the save result.
+    if (!linkLint && !retry) lintState = 'loading';
+    try {
+      const r = await fetch(`/app/workers/${encodeURIComponent(expectedWorker)}/signature-lint`, { signal: AbortSignal.timeout(30_000) });
+      const value = await r.json();
+      if (lintEpoch !== stamp || workerId !== expectedWorker || !anyReadable) return;
+      const page = r.ok && value.workerId === expectedWorker ? signatureLintPage(value.page) : null;
+      linkLint = page; lintState = page ? 'ready' : 'unavailable';
+    } catch { if (lintEpoch === stamp && workerId === expectedWorker && anyReadable) { linkLint = null; lintState = 'unavailable'; } }
+    finally {
+      if (lintEpoch === stamp && workerId === expectedWorker) {
+        lintBusy = false;
+        if (retry && lintState === 'ready') {
+          await tick();
+          if (lintEpoch === stamp && workerId === expectedWorker && lintEl?.isConnected) lintEl.focus();
+        }
+      }
+    }
+  }
+  $effect(() => {
+    lintWorkerId; anyReadable;
+    ++lintEpoch; linkLint = null; lintState = 'loading'; lintBusy = false;
+    void untrack(() => readLinkLint());
+  });
+  onDestroy(() => { ++lintEpoch; });
+  const signatureAdvice = $derived(linkLint?.items.filter(i => i.kind === 'WORKER_LINK_MISSING' && i.workerField === 'signature') ?? []);
+  const trailerAdvice = $derived(linkLint?.items.filter(i => i.kind === 'WORKER_LINK_MISSING' && i.workerField === 'trailer') ?? []);
+  const otherAdvice = $derived(linkLint?.items.filter(i => i.kind !== 'WORKER_LINK_MISSING' || (i.workerField !== 'signature' && i.workerField !== 'trailer')) ?? []);
+  const adviceClass = 'text-sm text-amber-800 dark:text-amber-200';
   const dirty = $derived(
     (readable.signature && $data.signature !== $data.signatureBase) || (readable.trailer && $data.trailer !== $data.trailerBase),
   );
@@ -214,7 +259,8 @@
           <label for="workerSignature" class="text-sm font-medium text-zinc-900 dark:text-white">
             {t('worker.signature.signature-label', 'Signature template')}
           </label>
-          <textarea id="workerSignature" name="signature" bind:value={$data.signature} disabled={retired} aria-describedby={retired ? 'worker-signature-retired' : undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
+          <textarea id="workerSignature" name="signature" bind:value={$data.signature} disabled={retired} aria-describedby={[retired ? 'worker-signature-retired' : '', signatureAdvice.length ? 'worker-signature-advice' : ''].filter(Boolean).join(' ') || undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
+          <div id="worker-signature-advice" aria-busy={lintBusy} aria-live="polite" aria-atomic="true">{#each signatureAdvice as _}<p data-signature-lint-field="signature" class={adviceClass}>{workerLinkAdvice('signature')}</p>{/each}</div>
         </div>
       {:else}
         <p class="text-sm text-zinc-500">{t('worker.signature.signature-not-shown', 'Signature template: not shown.')}</p>
@@ -226,11 +272,25 @@
           <label for="workerTrailer" class="text-sm font-medium text-zinc-900 dark:text-white">
             {t('worker.signature.trailer-label', 'Trailer template')}
           </label>
-          <textarea id="workerTrailer" name="trailer" bind:value={$data.trailer} disabled={retired} aria-describedby={retired ? 'worker-signature-retired' : undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
+          <textarea id="workerTrailer" name="trailer" bind:value={$data.trailer} disabled={retired} aria-describedby={[retired ? 'worker-signature-retired' : '', trailerAdvice.length ? 'worker-trailer-advice' : ''].filter(Boolean).join(' ') || undefined} rows="2" spellcheck="false" class={fieldClass}></textarea>
+          <div id="worker-trailer-advice" aria-busy={lintBusy} aria-live="polite" aria-atomic="true">{#each trailerAdvice as _}<p data-signature-lint-field="trailer" class={adviceClass}>{workerLinkAdvice('trailer')}</p>{/each}</div>
         </div>
       {:else}
         <p class="text-sm text-zinc-500">{t('worker.signature.trailer-not-shown', 'Trailer template: not shown.')}</p>
       {/if}
+
+      <!-- Advisory saved-state read, independent of form validity and save availability. -->
+      <div bind:this={lintEl} data-signature-lint tabindex="-1" role="region" aria-label={t('worker.signature.lint.region', 'Saved worker link check')} aria-live="polite" aria-atomic="true" aria-busy={lintBusy} class="space-y-1 text-sm text-zinc-600 dark:text-zinc-300">
+        {#if lintState === 'loading'}
+          <p>{t('worker.signature.lint.loading', 'Checking the saved worker link…')}</p>
+        {:else if lintState === 'unavailable'}
+          <p>{t('worker.signature.lint.unavailable', 'Couldn’t check the worker link.')}</p>
+          <button type="button" aria-disabled={lintBusy} class="rounded border border-zinc-300 px-3 py-1.5 aria-disabled:opacity-60 dark:border-zinc-600" onclick={() => readLinkLint(true)}>{t('worker.signature.lint.retry', 'Retry')}</button>
+        {:else if linkLint}
+          {#each otherAdvice as _}<p>{t('worker.signature.lint.unknown', 'The worker link check found something to review.')}</p>{/each}
+          {#if linkLint.total > linkLint.items.length || linkLint.nextCursor !== null}<p>{t('worker.signature.lint.partial', '{shown} of {total} saved-value checks shown. The rest isn’t shown.', { shown: linkLint.items.length, total: linkLint.total })}</p>{/if}
+        {/if}
+      </div>
 
       {#if !retired}
         <button

@@ -5,8 +5,8 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphQLClient } from 'graphql-request';
-import { AGENT_TASK_DETAIL_QUERY, APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
-import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
+import { AGENT_TASK_DETAIL_QUERY, APP_PEOPLE_QUERY, AGENT_ALARMS_QUERY, AGENT_TASK_ANCESTOR_QUERY, AGENT_TASK_EVENTS_QUERY, AGENT_TASK_REF_QUERY, AGENT_TASKS_BOARD_QUERY, PULL_REQUEST_READINESS_QUERY, TASK_REVIEW_EVENTS_QUERY, TEAM_ROSTER_QUERY } from '$lib/server/queries';
+import { loadWriteCandidates, ALARMS_LIMIT, BOARD_LIMIT, HISTORY_LIMIT, loadAlarms, loadAncestors, loadBoard, loadHistory, loadReview, loadRoster, loadTree, hydrateTaskRefs, canonicalTaskId, HYDRATE_CONCURRENCY } from './agent-tasks';
 
 const request = vi.fn();
 const client = { request } as unknown as GraphQLClient;
@@ -280,5 +280,79 @@ describe('canonicalTaskId (the identity a write uses)', () => {
 describe('the task detail read (portal#1523)', () => {
   it('selects the requirements’ minimum model tier', () => {
     expect(AGENT_TASK_DETAIL_QUERY).toMatch(/requirements\s*\{[^}]*\bminTier\b/);
+  });
+});
+
+describe('loadReview (portal#1697)', () => {
+  const H = 'a'.repeat(40);
+  const readiness = { ready: true, head: H, slots: [] };
+  const frozen = { id: 'e1', type: 'pr.frozen', payload: { head: H, pullRequest: 'x' } };
+  const answer = (events: unknown[], read: () => unknown = () => ({ pullRequestReadiness: readiness })) =>
+    request.mockImplementation(async (q: string) => (q === TASK_REVIEW_EVENTS_QUERY ? { agentTeamEvents: events } : read()));
+  const readinessCalls = () => request.mock.calls.filter((c) => c[0] === PULL_REQUEST_READINESS_QUERY);
+
+  it('asks about the frozen head from the task’s own events, once', async () => {
+    answer([frozen]);
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness, seat: null } });
+    expect(request).toHaveBeenCalledWith(TASK_REVIEW_EVENTS_QUERY, expect.objectContaining({ appRef: 'app-1', taskId: 't1', types: ['pr.frozen', 'review.seat.assigned'] }));
+    expect(readinessCalls()).toEqual([[PULL_REQUEST_READINESS_QUERY, { taskRef: 't1', head: H }]]);
+  });
+
+  it('a task with no frozen head asks nothing about readiness and is no error', async () => {
+    answer([]);
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness: null, seat: null } });
+    expect(readinessCalls()).toEqual([]);
+  });
+
+  it('keeps a seat task’s slot and head, and asks nothing about readiness', async () => {
+    answer([{ id: 'e1', type: 'review.seat.assigned', payload: { slot: 'local', head: H, supersedes: null } }]);
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness: null, seat: { slot: 'local', head: H } } });
+    expect(readinessCalls()).toEqual([]);
+  });
+
+  it('a frozen head with no schedule is no Review section and no error', async () => {
+    answer([frozen], () => { throw gqlError('REVIEW_SCHEDULE_MISSING'); });
+    vi.mocked(console.warn).mockClear();
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'ok', value: { readiness: null, seat: null } });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('reads every page, so the newest freeze wins on a long stream', async () => {
+    const page = Array.from({ length: 200 }, (_, i) => ({ id: `e${i}`, type: 'pr.frozen', payload: { head: 'b'.repeat(40) } }));
+    request.mockImplementation(async (q: string, v: { after?: string }) => {
+      if (q !== TASK_REVIEW_EVENTS_QUERY) return { pullRequestReadiness: readiness };
+      return { agentTeamEvents: v.after ? [frozen] : page };
+    });
+    await loadReview(client, 'app-1', 't1');
+    expect(request).toHaveBeenCalledWith(TASK_REVIEW_EVENTS_QUERY, expect.objectContaining({ after: 'e199' }));
+    expect(readinessCalls()[0][1]).toEqual({ taskRef: 't1', head: H });
+  });
+
+  it('a stream past the bound is a failure, never an old head called current', async () => {
+    const page = Array.from({ length: 200 }, (_, i) => ({ id: `e${i}`, type: 'pr.frozen', payload: { head: H } }));
+    request.mockImplementation(async () => ({ agentTeamEvents: page }));
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'failed' });
+    expect(readinessCalls()).toEqual([]);
+  });
+
+  it('a null answer is the not-participant state', async () => {
+    answer([frozen], () => ({ pullRequestReadiness: null }));
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'not-participant' });
+  });
+
+  it('APP_NOT_FOUND on either read is the not-participant state', async () => {
+    answer([frozen], () => { throw gqlError('APP_NOT_FOUND'); });
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'not-participant' });
+    request.mockReset();
+    request.mockRejectedValue(gqlError('APP_NOT_FOUND'));
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'not-participant' });
+  });
+
+  it('anything else fails, including a head that moved between the two reads', async () => {
+    answer([frozen], () => { throw gqlError('PR_HEAD_NOT_FROZEN'); });
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'failed' });
+    request.mockReset();
+    request.mockRejectedValue(new Error('boom'));
+    expect(await loadReview(client, 'app-1', 't1')).toEqual({ kind: 'failed' });
   });
 });

@@ -44,11 +44,11 @@ describe('invite page error banner (portal#1398)', () => {
     expect(cls.split(/\s+/)).not.toContain('text-red-300');
   });
 
-  it('no error, no alert; the success banner is unchanged and is not an alert', async () => {
+  it('no error, no alert; the success banner retains its link and is not an alert', async () => {
     expect((await mountInvite(null)).querySelector('[role="alert"]')).toBeNull();
     const root = await mountInvite({ invited: true, inviteUrl: 'https://example.test/invite/abc' });
     expect(root.querySelector('[role="alert"]')).toBeNull();
     expect(root.textContent).toContain('Invitation created!');
-    expect(root.querySelector('code')?.textContent).toBe('https://example.test/invite/abc');
+    expect(root.querySelector('textarea')?.value).toBe('https://example.test/invite/abc');
   });
 });

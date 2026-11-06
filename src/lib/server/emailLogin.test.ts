@@ -60,6 +60,32 @@ describe('startBoundMagicLink', () => {
     expect(body).toEqual({ email: 'user@example.test', redirect: '/invite/x', clientState: cookie!.value });
   });
 
+  // portal#1091 nonce-only slice. The browser nonce must outlive the longest server
+  // path: the magic-link token, then a second emailed link plus the first-passkey
+  // enrolment (the server caps a pending flow at 30 min), plus slack. Figures are
+  // restated here independently of the module so a drift in either shows.
+  // Source: hadron-server a053f05c, src/auth/pendingEmailSignIn.ts
+  // (PENDING_EMAIL_SIGN_IN_TTL_SECONDS 600, PENDING_ENROLLMENT_TTL_SECONDS 1800) and the 15-min link token.
+  it('keeps the nonce cookie for 50 min: 15 link + max(10, 30) pending + 5 slack', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }));
+    const { cookies, sets } = cookieStub();
+    await startBoundMagicLink(cookies, 'user@example.test');
+    const cookie = sets.find((c) => c.name === 'hadron_login_state')!;
+    expect(cookie.opts.maxAge).toBe((15 + 30 + 5) * 60); // 15 link + max(10, 30) pending + 5 slack
+  });
+
+  it('only the lifetime moved: the other nonce cookie attributes are unchanged', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ok: true }) }));
+    const { cookies, sets } = cookieStub();
+    await startBoundMagicLink(cookies, 'user@example.test');
+    // Find the nonce by name (a future second cookies.set must not redirect
+    // this assertion), and compute `secure` the way the module does so the
+    // test still passes when the suite runs with NODE_ENV=production.
+    const nonce = sets.find((c) => c.name === 'hadron_login_state')!;
+    const { maxAge: _maxAge, ...rest } = nonce.opts;
+    expect(rest).toEqual({ path: '/auth', httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production' });
+  });
+
   it('propagates a server error with its status', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 400, json: async () => ({ error: 'client_state is required' }) }));
     const { cookies } = cookieStub();

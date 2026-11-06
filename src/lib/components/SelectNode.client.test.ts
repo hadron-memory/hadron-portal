@@ -12,6 +12,11 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
 import SelectNode from './SelectNode.svelte';
+import { clearDictionary, rowSelectButtons, usePickerLocale } from '$lib/test/i18n-dictionary';
+
+// #1605: a test locale on the t() boundary; empty, t() is unchanged.
+vi.mock('$lib/i18n/t', async (importOriginal) =>
+  (await import('$lib/test/i18n-dictionary')).withDictionary(await importOriginal()));
 import type { NodeChoice } from '$lib/node-choices';
 
 const mounted: Array<Mounted<Record<string, unknown>>> = [];
@@ -712,5 +717,30 @@ describe('SelectNode: #1584 fallback guards and carried P3s', () => {
     }
     expect(ids[1]).not.toBe(ids[0]);
     vi.restoreAllMocks();
+  });
+});
+
+// #1605: the per-row Select is localized and carries a distinct accessible
+// name per row (WCAG label-in-name: it starts with the visible label), so a
+// screen-reader user tabbing the list hears which entity each one picks.
+describe('SelectNode: per-row Select (#1605)', () => {
+  afterEach(clearDictionary);
+  it('is localized and named after its node', async () => {
+    serve({ [url('m2', 'findings', 0)]: [okPage([node(1), node(2)], false, 2)] });
+    const { target } = mount();
+    await tick();
+    await chooseMemory(target, 'Beta KB');
+    usePickerLocale();
+    await search(target, 'findings');
+    const buttons = rowSelectButtons('tbody tr');
+    const names = ['Node 1', 'Node 2'];
+    for (const b of buttons) expect(b.textContent?.trim()).toBe('Wählen');
+    // Label in name (WCAG 2.5.3): the name contains what is on screen.
+    for (const b of buttons) expect(b.getAttribute('aria-label')).toContain(b.textContent?.trim());
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wählen ${n}`));
+    expect(new Set(buttons.map((b) => b.getAttribute('aria-label'))).size).toBe(names.length);
+    // The 44px coarse-pointer target (jsdom has no layout; the real-Chromium
+    // stacked layout script measures SelectMemory's).
+    for (const b of buttons) expect(b.classList.contains('pointer-coarse:min-h-11')).toBe(true);
   });
 });

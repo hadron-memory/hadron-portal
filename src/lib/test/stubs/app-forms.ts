@@ -69,6 +69,7 @@ export async function submitEnhanced(form: HTMLFormElement): Promise<{ cancelled
  */
 export async function beginEnhanced(
   form: HTMLFormElement,
+  opts: { update?: (o?: { reset?: boolean; invalidateAll?: boolean }) => Promise<void> } = {},
 ): Promise<(result: { type: 'success' | 'failure'; status: number; data: Record<string, unknown> }) => Promise<void>> {
   const submit = enhanced.get(form);
   if (!submit) throw new Error('beginEnhanced: this form was never enhanced');
@@ -83,7 +84,7 @@ export async function beginEnhanced(
     cancel: () => {},
   });
   if (typeof handler !== 'function') throw new Error('beginEnhanced: the submit callback returned no result handler');
-  return (result) => (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: async () => {} });
+  return (result) => (handler as (event: unknown) => Promise<void>)({ result, action, formData, formElement: form, update: opts.update ?? (async () => {}) });
 }
 
 /**
@@ -187,7 +188,11 @@ export async function submitEnhancedDeferred(
  * downstream of a submit ever runs (#957). A no-op for other result types, and
  * never reached unless a test drives a result through `submitEnhancedWithResult`.
  */
+/** Every result handed to `applyAction`, in order. A test empties it itself. */
+export const kitAppliedResults: unknown[] = [];
+
 export function applyAction(result?: { type?: string; status?: number; data?: unknown }): Promise<void> {
+  kitAppliedResults.push(result);
   if (result && (result.type === 'success' || result.type === 'failure')) {
     // Kit's applyAction resets focus to the document body once the result is
     // applied (portal#1367: a native run saw it land BEFORE a form's own

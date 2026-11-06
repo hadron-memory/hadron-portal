@@ -12,6 +12,11 @@ import { flushSync } from 'svelte';
 import { mountComponent, tick, type Mounted } from '$lib/test/mountComponent';
 import EscapeHostHarness from '$lib/test/EscapeHostHarness.svelte';
 import SelectApp from './SelectApp.svelte';
+import { clearDictionary, rowSelectButtons, usePickerLocale } from '$lib/test/i18n-dictionary';
+
+// #1605: a test locale on the t() boundary; empty, t() is unchanged.
+vi.mock('$lib/i18n/t', async (importOriginal) =>
+  (await import('$lib/test/i18n-dictionary')).withDictionary(await importOriginal()));
 
 const apps = [
   { id: 'app1', name: 'Portal', urn: 'hrn:app:example.com:portal' },
@@ -90,5 +95,27 @@ describe('SelectApp: Escape closes one layer only (#1584)', () => {
     } finally {
       window.removeEventListener('keydown', above);
     }
+  });
+});
+
+// #1605: the per-row Select is localized and carries a distinct accessible
+// name per row (WCAG label-in-name: it starts with the visible label), so a
+// screen-reader user tabbing the list hears which entity each one picks.
+describe('SelectApp: per-row Select (#1605)', () => {
+  afterEach(clearDictionary);
+  it('is localized and named after its App', async () => {
+    usePickerLocale();
+    openInHost();
+    await tick(2);
+    const buttons = rowSelectButtons('.fixed.inset-0 tbody tr');
+    const names = apps.map((x) => x.name);
+    for (const b of buttons) expect(b.textContent?.trim()).toBe('Wählen');
+    // Label in name (WCAG 2.5.3): the name contains what is on screen.
+    for (const b of buttons) expect(b.getAttribute('aria-label')).toContain(b.textContent?.trim());
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toStrictEqual(names.map((n) => `Wählen ${n}`));
+    expect(new Set(buttons.map((b) => b.getAttribute('aria-label'))).size).toBe(names.length);
+    // The 44px coarse-pointer target (jsdom has no layout; the real-Chromium
+    // stacked layout script measures SelectMemory's).
+    for (const b of buttons) expect(b.classList.contains('pointer-coarse:min-h-11')).toBe(true);
   });
 });

@@ -56,6 +56,9 @@ export default defineConfig({
           // SSR task-page rendering now includes the native reload URL. Share
           // the same page-store fixture as mounted tests, rather than per-test mocks.
           '$app/stores': resolve(__dirname, 'src/lib/test/stubs/app-stores.ts'),
+          // portal#1649: server-rendered pages whose children navigate or read the URL.
+          '$app/navigation': resolve(__dirname, 'src/lib/test/stubs/app-navigation.ts'),
+          '$app/state': resolve(__dirname, 'src/lib/test/stubs/app-state.ts'),
         } },
       },
       {

@@ -32,9 +32,9 @@ it('reader keeps the memory readable without Add/Edit; a writer gets the control
   expect(target.textContent).toContain('Edit memory');
 });
 
-// portal#1524 (Holger, 2026-10-31): Nodes and Graph show a "temporarily off"
-// note, and the layout renders no browser, tree or graph and no error banner.
-it.each(['nodes', 'graph'])('the %s tab says the views are temporarily off, with no tree, graph or error banner', async (tab) => {
+// portal#1524 (Holger, 2026-10-31): the Graph tab shows a "temporarily off" note
+// and renders no graph. portal#1700: the Nodes tab is back, on bounded reads.
+async function mountTab(tab: string) {
   setStubPage(`http://localhost/app/memories/mem-1/${tab}`, { id: 'mem-1' });
   const props = reactiveProps<Record<string, unknown>>({
     data: {
@@ -45,10 +45,22 @@ it.each(['nodes', 'graph'])('the %s tab says the views are temporarily off, with
   });
   mounted = mountComponent(Layout as never, props as never) as Mounted<Record<string, unknown>>;
   await tick();
-  const t = mounted.target;
-  expect(t.querySelector('[data-testid="memory-views-off"]')?.textContent).toContain('Tree and graph views are temporarily off');
+  return mounted.target;
+}
+
+it('the graph tab says the graph view is temporarily off, with no tree, graph or error banner', async () => {
+  const t = await mountTab('graph');
+  expect(t.querySelector('[data-testid="memory-views-off"]')?.textContent).toContain('The graph view is temporarily off');
+  expect(t.querySelector('[data-testid="lazy-nodes-browser"]')).toBeNull();
   expect(t.textContent).not.toMatch(/Couldn.t load this memory.s nodes|no nodes|0 nodes/i);
   expect(t.querySelector('svg.topic-graph, [data-testid="topic-graph"], [role="tree"]')).toBeNull();
+});
+
+it('the nodes tab renders the bounded browser, not the off note (portal#1700), and stays graph-free', async () => {
+  const t = await mountTab('nodes');
+  expect(t.querySelector('[data-testid="lazy-nodes-browser"]')).not.toBeNull();
+  expect(t.querySelector('[data-testid="memory-views-off"]')).toBeNull();
+  expect(t.querySelector('svg.topic-graph, [data-testid="topic-graph"]')).toBeNull();
 });
 
 it('a node page shows no off-note (only the Nodes and Graph tabs do)', async () => {

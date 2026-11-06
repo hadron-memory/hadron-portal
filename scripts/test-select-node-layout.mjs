@@ -99,7 +99,8 @@ try {
         // buttons (the failed read has no rows; the memory stage's buttons
         // belong to the nested SelectMemory).
         if (view === 'results' || view === 'results-long-urn' || view === 'more') {
-          const select = page.getByRole('button', { name: 'Select', exact: true }).first();
+          // #1605: each row's Select is named after its node ("Select Node 0 — …").
+          const select = page.getByRole('button', { name: /^Select Node / }).first();
           await select.waitFor();
           const box = await select.evaluate((button) => {
             const rect = button.getBoundingClientRect();

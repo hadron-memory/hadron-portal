@@ -1,3 +1,4 @@
+import { rulebookAvailable } from '$lib/server/memory-config/service';
 import { fail, redirect, isRedirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms/adapters';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -211,7 +212,8 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
     ),
     superValidate<RetryFailedEmbeddingsForm>({}, retryFailedEmbeddingsFormAdapter, { errors: false }),
   ]);
-  return { allOrgs, owner, ownerUserId, transferCanDelete, form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm };
+  const roleConfigAvailable = await rulebookAvailable(gqlClient(locals.token), params.id).catch(() => false);
+  return { roleConfigAvailable, allOrgs, owner, ownerUserId, transferCanDelete, form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm };
 };
 
 export const actions: Actions = {
@@ -550,11 +552,21 @@ export const actions: Actions = {
       );
       return { vectorHealth: embedFailedView(res.validateMemory) };
     } catch (e: unknown) {
+      // #1465 (hrn:node:hadronmemory.com:specs:cor:api:140:03): validateMemory answers a memory the
+      // caller cannot read with the same MEMORY_NOT_FOUND as a missing one. One fixed message and a
+      // 404, never the server's text, so the page cannot say which of the two it was.
+      if (extractGqlErrorCode(e) === 'MEMORY_NOT_FOUND') {
+        return fail(404, {
+          vectorHealthError: t('memory-settings.vector-health.not-found', 'This memory could not be found.'),
+        });
+      }
       return fail(500, {
         vectorHealthError: extractGqlError(
           e,
           t('memory-settings.vector-health.failed', 'Could not check the vector index'),
           ['BAD_USER_INPUT'],
+          // #1465: a transport Error's own message (socket text, a URL) is not reader copy.
+          { transport: 'fallback' },
         ),
       });
     }
