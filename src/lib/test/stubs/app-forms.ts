@@ -188,8 +188,12 @@ export async function submitEnhancedDeferred(
  * downstream of a submit ever runs (#957). A no-op for other result types, and
  * never reached unless a test drives a result through `submitEnhancedWithResult`.
  */
-/** Every result handed to `applyAction`, in order. A test empties it itself. */
+/** Every result handed to `applyAction`, in order. A suite resets it in `afterEach`. */
 export const kitAppliedResults: unknown[] = [];
+
+export function resetKitAppliedResults(): void {
+  kitAppliedResults.length = 0;
+}
 
 export function applyAction(result?: { type?: string; status?: number; data?: unknown }): Promise<void> {
   kitAppliedResults.push(result);
