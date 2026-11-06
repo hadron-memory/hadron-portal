@@ -56,6 +56,13 @@ describe('findOutlineNoneTrap', () => {
     expect(findOutlineNoneTrap(`<input class="focus-visible:outline-none">`)).toEqual([]);
   });
 
+  // Pins WANTS_RING's (?!none) lookahead: focus-visible:outline-none is not a draw-wanting
+  // token, so even a BARE outline-none beside it is not the defect pair (nothing is being
+  // suppressed-then-drawn). Dropped the lookahead and this line would flag (Basil P3-3).
+  it('stays silent on a bare outline-none beside focus-visible:outline-none (the lookahead: no draw-wanting token)', () => {
+    expect(findOutlineNoneTrap(`<input class="outline-none focus-visible:outline-none">`)).toEqual([]);
+  });
+
   it.each([
     ['a dynamic class expression', `<div class={cls(x)} data-note="focus-visible:outline-2 outline-none">`],
     ['a Svelte class directive', `<div class:outline-none={x} class="focus-visible:outline-2">`],

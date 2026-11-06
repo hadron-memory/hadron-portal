@@ -165,8 +165,11 @@ export async function runFocusRingProbe({ name, elementId, fixtureModule, fixtur
 
         // Pointer arm: the same flow driven by a pointer. Focus still settles on the
         // element, but pointer modality must NOT match :focus-visible and must not paint
-        // — which also pins the focus:outline-none token (drop it and the un-suppressed
-        // plain-focus outline paints, reddening this arm; Gil's ask, portal#1745 item 2).
+        // (Gil's ask, portal#1745 item 2). What this pins is the modality split on the
+        // real flow — NOT the focus:outline-none token: outline-style's UA initial is
+        // none, so dropping the token leaves plain-:focus unpainted too and this arm
+        // stays green (verified empirically on #1745; see the PR body). The token is
+        // belt-and-braces against a UA/CSS change to that initial, not a pinned fact.
         await pointer(page, label);
         await page.waitForFunction((id) => document.activeElement?.id === id, elementId);
         const ptr = await ringReader(page, elementId);

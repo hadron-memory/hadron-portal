@@ -29,6 +29,16 @@ async function driveApply(page, via) {
     posted(route.request().url());
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ type: 'success', status: 200 }) });
   });
+  // Bound the wait for the round trip: an arm that never submits must fail HERE, named —
+  // not hang until some outer timeout with no cause (Basil P3-2, portal#1751 review).
+  const POST_DEADLINE_MS = 10_000;
+  let deadline;
+  const postedOrBust = Promise.race([
+    postedPromise,
+    new Promise((_, reject) => {
+      deadline = setTimeout(() => reject(new Error(`${via} apply: no POST to /__apply within ${POST_DEADLINE_MS}ms — the real round trip never started`)), POST_DEADLINE_MS);
+    }),
+  ]);
   try {
     const button = page.getByRole('button', { name: 'Apply the Agent’s tickers' });
     if (via === 'keyboard') {
@@ -41,7 +51,8 @@ async function driveApply(page, via) {
       await button.click();
     }
     // The enhance round trip has answered; deliver the receipt as the loader would.
-    await postedPromise;
+    await postedOrBust;
+    clearTimeout(deadline);
     await page.evaluate(async (module) => {
       const { applyFixture, applyReceipt } = await import(module);
       applyFixture.result = applyReceipt;
