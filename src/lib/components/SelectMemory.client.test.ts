@@ -305,3 +305,41 @@ describe('SelectMemory: per-row Select (#1605)', () => {
     for (const b of buttons) expect(b.classList.contains('pointer-coarse:min-h-11')).toBe(true);
   });
 });
+
+describe('SelectMemory: several picks in one sitting (#1736)', () => {
+  function openMulti(extra: Record<string, unknown>) {
+    const onselect = vi.fn();
+    const props = reactiveProps<Record<string, unknown>>({ memories, onselect, open: true, keepOpen: true, ...extra });
+    const m = mountComponent(SelectMemory as never, props as never) as Mounted<Record<string, unknown>>;
+    mounted.push(m); flushSync();
+    return { onselect };
+  }
+  const named = (label: string) => document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+
+  it('stays open across picks and closes on Done', () => {
+    const { onselect } = openMulti({});
+    named('Select Atlas KB').click(); flushSync();
+    expect(onselect).toHaveBeenCalledOnce();
+    expect(dialog()).not.toBeNull();
+    [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Done')!.click(); flushSync();
+    expect(dialog()).toBeNull();
+  });
+  it('a picked row reads Added, cannot be picked again, and keeps focus', () => {
+    const { onselect } = openMulti({ addedIds: new Set(['m1']) });
+    const added = named('Added Atlas KB');
+    expect(added.disabled).toBe(false);
+    expect(added.getAttribute('aria-disabled')).toBe('true');
+    added.click(); flushSync();
+    expect(onselect).not.toHaveBeenCalled();
+  });
+  it('shows the host note as status', () => {
+    openMulti({ note: '3 of 50 chosen.' });
+    expect(dialog()!.querySelector('[role=status]')?.textContent).toBe('3 of 50 chosen.');
+  });
+  it('a default picker still closes on select and has no Done', () => {
+    openModal(); flushSync();
+    expect([...document.querySelectorAll('button')].some(b => b.textContent?.trim() === 'Done')).toBe(false);
+    selectButton().click(); flushSync();
+    expect(dialog()).toBeNull();
+  });
+});
