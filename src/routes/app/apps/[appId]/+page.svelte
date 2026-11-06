@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppRunsPanel from './runs/AppRunsPanel.svelte';
   import TaskIntegrations from './TaskIntegrations.svelte';
   import { taskHref } from '$lib/agent-tasks/handle';
   import TaskHandle from '$lib/components/agent-tasks/TaskHandle.svelte';
@@ -6,7 +7,7 @@
   import StopBanner from '$lib/components/stops/StopBanner.svelte';
   import { rosterOf } from '$lib/withheld';
   import { env } from '$env/dynamic/public';
-  import { tick, untrack } from 'svelte';
+  import { tick, untrack, onDestroy } from 'svelte';
   import { applyAction } from '$app/forms';
   import { beforeNavigate, goto, afterNavigate, invalidateAll, replaceState } from '$app/navigation';
   import { superForm, type Infer, type SuperValidated } from 'sveltekit-superforms';
@@ -891,6 +892,7 @@
     ) {
       return 'members';
     }
+    if (submittedForm(result, 'runFlow')) return 'runs';
     if (submittedForm(result, 'createAppMemory')) return 'memory';
     if (submittedForm<DeleteAppForm>(result, 'deleteApp')) {
       return 'settings';
@@ -940,6 +942,7 @@
     // is the problem this tab exists to fix, and an empty worklog is
     // information too.
     { id: 'worklog', label: t('app.tabs.worklog', 'Worklog') },
+    { id: 'runs', label: t('app.tabs.runs', 'Runs') },
     { id: 'memory', label: 'Memory' },
     // #1007/#1008: App Keys and AI Service Configs were sections at the foot of
     // Settings, below the App form, its agents and its memories. Each is a list
@@ -1034,11 +1037,24 @@
   // `tabindex="-1"` button is still POINTER-focusable, so pressing on an
   // unselected tab and dragging away before release diverges focus from
   // selection, and arrows would then move relative to a tab the user is not on.
+  let tabNavigation = 0, tabNavigationPending = false, tabAlive = true;
+  onDestroy(() => { tabAlive = false; tabNavigation++; });
   async function focusTab(id: TabId) {
     if (channelPostBusy) return;
-    activeTab = id;
-    await tick();
-    document.getElementById(`tab-${id}`)?.focus();
+    const mine = ++tabNavigation, appId = app.id;
+    try {
+      // A second choice supersedes an in-flight Runs navigation, including
+      // a choice of a normally local tab. Its loader URL must agree as well.
+      if (id === 'runs' || tabNavigationPending) {
+        tabNavigationPending = true;
+        await goto(`/app/apps/${encodeURIComponent(appId)}?tab=${id}`, { keepFocus: true, noScroll: true });
+      }
+      if (!tabAlive || mine !== tabNavigation || app.id !== appId) return;
+      activeTab = id;
+      await tick();
+      if (tabAlive && mine === tabNavigation && app.id === appId) document.getElementById(`tab-${id}`)?.focus();
+    } catch { /* A failed navigation keeps the current tab; the router owns its error. */ }
+    finally { if (mine === tabNavigation) tabNavigationPending = false; }
   }
   function onTabKeydown(e: KeyboardEvent) {
     const order = tabs.map((tt) => tt.id);
@@ -1923,7 +1939,7 @@
          programmatically unrelated to the strip.
 
          The tablist is an inner flex box rather than this container, because
-         the "Runs" entry below is a real LINK to a subroute and must not sit
+         the other subroute links below must not sit
          inside a tablist. -->
     <div role="tablist" aria-label={t('app.tabs-label', 'App sections')} class="flex shrink-0">
       {#each tabs as tab (tab.id)}
@@ -1934,7 +1950,7 @@
           aria-selected={activeTab === tab.id}
           aria-controls="panel-{tab.id}"
           tabindex={activeTab === tab.id ? 0 : -1}
-          onclick={() => { if (!channelPostBusy) activeTab = tab.id; }}
+          onclick={() => { void focusTab(tab.id); }}
           onkeydown={onTabKeydown}
           class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
             {activeTab === tab.id
@@ -1945,14 +1961,6 @@
         </button>
       {/each}
     </div>
-    <!-- Runs is a real subroute (deep-linkable from "Test flow" and run
-         records), so it's a link styled as a tab, not an activeTab state. -->
-    <a
-      href="/app/apps/{app.id}/runs"
-      class="shrink-0 whitespace-nowrap border-b-2 border-transparent px-4 py-2 text-sm font-medium text-zinc-500 transition hover:border-zinc-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-200"
-    >
-      {t('app.tabs.runs', 'Runs')}
-    </a>
     <!-- #942: Channels is a subroute too (its own forms and table), linked like Runs. -->
     <a
       href="/app/apps/{app.id}/channels"
@@ -2380,6 +2388,12 @@
        it. Read through `teamWorkItems`, not appNodes.
 
        Append-only: no delete, no edit, no rename. -->
+  {#if activeTab === 'runs'}
+    <div role="tabpanel" id="panel-runs" aria-labelledby="tab-runs" tabindex="0" class="min-w-0 focus-visible:outline-2 focus-visible:outline-indigo-500">
+      {#if data.runsPanel}<AppRunsPanel data={data.runsPanel} {form} />{:else}<p role="status">{t('runs.loading', 'Loading runs…')}</p>{/if}
+    </div>
+  {/if}
+
   {#if activeTab === 'worklog'}
     <div id="panel-worklog" role="tabpanel" aria-labelledby="tab-worklog" tabindex="0" class="rounded-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
     <div class="space-y-4">

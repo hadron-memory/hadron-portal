@@ -34,7 +34,7 @@ const ROWS: Row[] = [
   { route: 'orgs/[id]/ai-configs', mod: () => import('./orgs/[id]/ai-configs/+page.server'), params: { id: 'org-1' }, status: 308, location: '/app/orgs/org-1/integrations' },
   { route: 'orgs/[id]/apps/[appId]', mod: () => import('./orgs/[id]/apps/[appId]/+page.server'), params: { id: 'org-1', appId: 'app-1' }, status: 303, location: '/app/apps/app-1' },
   { route: 'orgs/[id]/apps/[appId]/members', mod: () => import('./orgs/[id]/apps/[appId]/members/+page.server'), params: { id: 'org-1', appId: 'app-1' }, status: 303, location: '/app/apps/app-1/members' },
-  { route: 'orgs/[id]/apps/[appId]/runs', mod: () => import('./orgs/[id]/apps/[appId]/runs/+page.server'), params: { id: 'org-1', appId: 'app-1' }, status: 303, location: '/app/apps/app-1/runs' },
+  { route: 'orgs/[id]/apps/[appId]/runs', mod: () => import('./orgs/[id]/apps/[appId]/runs/+page.server'), params: { id: 'org-1', appId: 'app-1' }, status: 308, location: '/app/apps/app-1?tab=runs' },
   { route: 'orgs/[id]/apps/[appId]/runs/[runId]', mod: () => import('./orgs/[id]/apps/[appId]/runs/[runId]/+page.server'), params: { id: 'org-1', appId: 'app-1', runId: 'run-1' }, status: 303, location: '/app/apps/app-1/runs/run-1' },
 ];
 

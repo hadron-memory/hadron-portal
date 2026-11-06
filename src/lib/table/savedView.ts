@@ -57,21 +57,34 @@ export function extractView(state: PortalTableState): SavedView {
   };
 }
 
+/** A server table can own sort/filter values without exposing synthetic columns. */
+export function extractTableView<T extends RowData>(table: PortalTable<T>): SavedView {
+  const base = extractView(table.store.get());
+  const server = (table.options?.meta as { getServerView?: () => Pick<SavedView, 'sorting' | 'columnFilters'> } | undefined)?.getServerView?.();
+  return server ? { ...base, ...server } : base;
+}
+
 /**
  * Apply a saved view to a live table. Each slice is set independently; table-core
  * ignores ids that no longer exist (removed/renamed columns), so a stale view
  * never breaks the list (spec FR-013 / SC-005). Requires the table to have the
  * global-filter feature wired (all grid lists do).
  */
-export function applyView<T extends RowData>(table: PortalTable<T>, view: SavedView): void {
-  table.setSorting(view.sorting ?? []);
-  table.setColumnFilters(view.columnFilters ?? []);
-  table.setGlobalFilter(view.globalFilter ?? '');
+export function applyView<T extends RowData>(table: PortalTable<T>, view: SavedView, options: { columnsOnly?: boolean } = {}): void {
+  const server = (table.options?.meta as { applyServerView?: (view: SavedView) => void } | undefined)?.applyServerView;
+  if (!options.columnsOnly) {
+    if (server) server(view);
+    else {
+      table.setSorting(view.sorting ?? []);
+      table.setColumnFilters(view.columnFilters ?? []);
+      table.setGlobalFilter(view.globalFilter ?? '');
+    }
+  }
   table.setColumnVisibility(view.columnVisibility ?? {});
   table.setColumnOrder(view.columnOrder ?? []);
   table.setColumnSizing(view.columnSizing ?? {});
   // Land on the first page, keeping the view's page SIZE — see extractView.
-  table.setPagination({ pageIndex: 0, pageSize: view.pagination?.pageSize ?? 25 });
+  if (!options.columnsOnly && !server) table.setPagination({ pageIndex: 0, pageSize: view.pagination?.pageSize ?? 25 });
 }
 
 /** Turn a saved view into a partial PortalTableState usable as `initialState`. */

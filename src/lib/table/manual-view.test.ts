@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { makeHeadlessTable } from './headlessTable';
-import { applyView, normalizeView } from './savedView';
+import { applyView, normalizeView, extractTableView } from './savedView';
 
 describe('server-owned saved-view state', () => {
   it('applies a manual view as one server intent, not local paging/sorting', () => {
@@ -19,4 +19,12 @@ describe('server-owned saved-view state', () => {
     expect(applyServerView).not.toHaveBeenCalled(); expect(table.getColumn('id')?.getIsVisible()).toBe(false);
     expect(table.atoms.sorting.get()).toEqual([]);
   });
+  it('captures server sorting and filters rather than the local placeholder state', () => {
+    const serverView = { sorting: [{ id: 'createdAt', desc: true }], columnFilters: [{ id: 'status', value: ['FAILED'] }] };
+    const table = makeHeadlessTable({ data: [], columns: [{ accessorKey: 'id' }], meta: { getServerView: () => serverView } });
+    const saved = extractTableView(table);
+    expect(saved.sorting).toEqual(serverView.sorting);
+    expect(saved.columnFilters).toEqual(serverView.columnFilters);
+  });
+
 });
