@@ -1,0 +1,74 @@
+// Real Chromium geometry for bulk apply (#1736); synthetic component fixture, not signed-in/server QA.
+import assert from 'node:assert/strict';
+import { createServer } from 'vite';
+import { chromium } from 'playwright';
+const server = await createServer({ server: { host: '127.0.0.1', port: 0 }, plugins: [{ name: 'memory-config-navigation-stub', enforce: 'pre', transform(code, id) { return /memory-config\/.*\.svelte$/.test(id) ? code.replace("from '$app/navigation'", "from '$lib/test/stubs/app-navigation'") : null; } }] });
+const shots = process.env.MEMORY_CONFIG_SHOTS;
+const row = (i, dryRun, outcome) => ({ index: i, memoryRef: `m${i}`, ok: true, error: null, result: { memoryId: `m${i}`, templateRevision: 3, required: true, dryRun, entries: [{ role: 'review', outcome }, { role: 'author', outcome: 'SKIPPED_LOCKED' }], warnings: [] } });
+const bad = (i, code, message, extra = {}) => ({ index: i, memoryRef: `m${i}`, ok: false, result: null, error: { code, message, currentRevision: null, requestId: null, ...extra } });
+const previewRows = [row(0, true, 'APPLIED'), row(1, true, 'REPLACED'), row(2, true, 'APPLIED'), row(3, true, 'APPLIED'), bad(4, 'MEMORY_NOT_FOUND', 'Memory not found.'), row(5, true, 'APPLIED')];
+const applyRows = [row(0, false, 'APPLIED'), row(1, false, 'REPLACED'), bad(2, 'CONFLICT', 'Template changed.', { currentRevision: 4 }), bad(3, 'CONFLICT', 'Retry.'), bad(4, 'MEMORY_NOT_FOUND', 'Memory not found.'), bad(5, 'INTERNAL_SERVER_ERROR', 'Internal error.', { requestId: '6f1b4c3e-8a2d-4e5f-9b0c-1d2e3f4a5b6c' })];
+const result = (rows, dryRun) => ({ value: { dryRun, results: rows, succeeded: rows.filter(r => r.ok).length, failed: rows.filter(r => !r.ok).length } });
+let browser;
+try {
+ await server.listen(); const origin = server.resolvedUrls.local[0];
+ const css = await (await fetch(new URL('src/app.css?direct', origin))).text();
+ browser = await chromium.launch({ headless: true });
+ for (const width of [320, 390, 1280]) for (const dark of [false, true]) {
+  const label = `${width}/${dark ? 'dark' : 'light'}`;
+  const page = await browser.newPage({ viewport: { width, height: 900 } });
+  page.setDefaultTimeout(10000);
+  await page.route('**/__blank', r => r.fulfill({ contentType: 'text/html', body: '<!doctype html><title>fixture</title>' }));
+  const bodies = []; let lose = false;
+  await page.route('**/api/memory-config', r => {
+   const body = JSON.parse(r.request().postData()); bodies.push(body);
+   if (lose) return r.abort('connectionfailed');
+   const rows = body.memoryRefs.length === 6 ? (body.op === 'preview' ? previewRows : applyRows) : body.memoryRefs.map((ref, index) => ({ ...row(index, true, 'APPLIED'), memoryRef: ref }));
+   return r.fulfill({ contentType: 'application/json', body: JSON.stringify(result(rows, body.op === 'preview')) });
+  });
+  await page.goto(new URL('/__blank', origin).href);
+  await page.evaluate(({ css, dark }) => { document.head.innerHTML = `<style>${css}</style>`; document.body.innerHTML = `<div class="min-h-screen ${dark ? 'bg-zinc-950 text-zinc-100' : 'bg-zinc-50 text-zinc-900'}"><main style="max-width:1100px;margin:0 16px;padding:16px 0" id="fixture"></main></div>`; document.documentElement.classList.toggle('dark', dark); }, { css, dark });
+  await page.evaluate(async () => { const { mountBulkTemplates } = await import('/src/lib/test/fixtures/memory-config-layout-harness.ts'); mountBulkTemplates(document.getElementById('fixture'), true); });
+  const shot = name => shots ? page.screenshot({ path: `${shots}/${width}-${dark ? 'dark' : 'light'}-${name}.png`, fullPage: true }) : null;
+  const inViewport = async (locator, name) => { const box = await locator.boundingBox(); assert.ok(box && box.x >= 0 && box.x + box.width <= width + 0.5, `${label}: ${name} leaves the viewport: ${JSON.stringify(box)}`); };
+  const noOverflow = async name => { const over = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth); assert.ok(over <= 0, `${label}: ${name} overflows ${over}px`); };
+  await page.getByRole('button', { name: 'Apply to several memories…', exact: true }).click();
+  const panel = page.getByRole('region', { name: 'Apply to several memories', exact: true });
+  await panel.getByRole('button', { name: 'Add memories…', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Choose a memory', exact: true });
+  await picker.getByRole('button', { name: 'Select Fixture memory 0', exact: true }).click();
+  await picker.getByRole('button', { name: 'Added Fixture memory 0', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Added Fixture memory 0', `${label}: picking keeps focus on the row`);
+  for (const i of [1, 2, 3, 4]) await picker.getByRole('button', { name: `Select Fixture memory ${i}`, exact: true }).click();
+  await picker.getByRole('button', { name: 'Next →', exact: true }).click();
+  const last = picker.getByRole('button', { name: /^Select A memory with quite/ });
+  await inViewport(last, 'picker Select'); await last.click();
+  const done = picker.getByRole('button', { name: 'Done', exact: true });
+  await inViewport(done, 'picker Done');
+  await shot('picker');
+  await done.click();
+  await inViewport(panel.getByRole('button', { name: 'Remove Fixture memory 0', exact: true }), 'Remove');
+  await noOverflow('selection');
+  await panel.getByRole('button', { name: 'Preview', exact: true }).click();
+  await panel.getByText('5 succeeded, 1 failed').waitFor();
+  await noOverflow('preview');
+  await inViewport(panel.getByText('Will be replaced').first().or(panel.getByText('review: Will be replaced')).first(), 'row outcome');
+  await shot('preview');
+  await panel.getByRole('button', { name: 'Apply and lock rules', exact: true }).click();
+  await panel.getByText('2 succeeded, 4 failed').waitFor();
+  await noOverflow('report');
+  await inViewport(panel.getByText(/Request ID:/), 'request id');
+  await shot('report');
+  await panel.getByRole('button', { name: 'Retry failed', exact: true }).click();
+  await panel.getByText('Preview: nothing has been changed').waitFor();
+  assert.deepEqual(bodies.at(-1).memoryRefs, ['m2', 'm3', 'm4', 'm5'], `${label}: retry sends failed rows only`);
+  lose = true;
+  await panel.getByRole('button', { name: 'Apply and lock rules', exact: true }).click();
+  await panel.getByText('We don’t know which memories were changed.').waitFor();
+  await noOverflow('unknown');
+  await inViewport(panel.getByRole('button', { name: 'Start a new apply…', exact: true }), 'Start a new apply');
+  await shot('unknown');
+  console.log(`${label} PASS: no overflow, actions and outcomes in view, retry scope, unknown outcome`);
+  await page.close();
+ }
+} finally { await browser?.close(); await server.close(); }

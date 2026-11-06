@@ -6,7 +6,7 @@ export const ruleInput = z.object({
 }).strict();
 export const templateInput = z.object({ name: z.string().min(1).max(64), description: z.string().nullable().optional(), required: z.boolean(), rules: z.array(ruleInput).max(200).optional() }).strict();
 export const configRequest = z.object({
-  kind: z.enum(['rules', 'templates', 'apply']), op: z.enum(['read', 'create', 'update', 'delete', 'unlock', 'preview', 'apply']),
-  memoryRef: z.string().min(1).optional(), ref: z.string().min(1).optional(), revision: z.number().int().positive().optional(),
+  kind: z.enum(['rules', 'templates', 'apply', 'bulk']), op: z.enum(['read', 'create', 'update', 'delete', 'unlock', 'preview', 'apply']),
+  memoryRef: z.string().min(1).optional(), memoryRefs: z.array(z.string()).optional(), ref: z.string().min(1).optional(), revision: z.number().int().positive().optional(),
   ownerType: z.enum(['USER', 'ORGANIZATION', 'APP']).optional(), ownerRef: z.string().min(1).optional(), input: z.unknown().optional(),
 }).strict();
