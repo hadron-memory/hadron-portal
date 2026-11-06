@@ -102,4 +102,12 @@ describe('rendered memory rule management', () => {
     await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('dialog')).toBeNull(); expect(document.activeElement).toBe(m.target.querySelector('h1')); });
   });
 
+  it('uses the heading when the editor mounted with BODY as its invoker', async () => {
+    const m = mount(book); document.body.tabIndex = -1; document.body.focus();
+    try {
+      button(m.target, 'Edit').click(); flushSync(); const cancel = button(m.target.querySelector('dialog')!, 'Cancel'); cancel.focus(); cancel.click(); flushSync(); await tick();
+      expect(document.activeElement).toBe(m.target.querySelector('h1'));
+    } finally { document.body.removeAttribute('tabindex'); }
+  });
+
 });
