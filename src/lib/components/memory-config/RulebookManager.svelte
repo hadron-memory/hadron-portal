@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { beforeNavigate } from '$app/navigation';
   import { t } from '$lib/i18n/t';
   import DataTable from '$lib/components/table/DataTable.svelte';
@@ -15,7 +15,24 @@
   let editorVersion = $state(0);
   let heading = $state<HTMLHeadingElement>();
   let notice = $state(''), failure = $state<ConfigFailure | null>(null), busy = $state(false);
-  $effect(() => { if (initial !== snapshot) { snapshot = initial; book = initial; } });
+  // Plain counters are ownership tokens, never deep-proxied response state.
+  let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0;
+  let busyOwner: object | null = null;
+  $effect(() => {
+    if (initial !== snapshot) {
+      viewEpoch++;
+      snapshot = initial; book = initial;
+      busyOwner = null; busy = false;
+    }
+  });
+  onDestroy(() => { alive = false; });
+  type Owner = { current: () => boolean };
+  function ownView(editor?: number): Owner {
+    const view = viewEpoch, basedOn = initial;
+    return { current: () => alive && view === viewEpoch && basedOn === initial && (editor === undefined || editor === editorVersion) };
+  }
+  function edit(next: Rule | null | undefined) { editorVersion++; editing = next; }
+  type ReadResult = { kind: 'stale' } | { kind: 'applied'; current: () => boolean } | { kind: 'error'; error: ConfigFailure; current: () => boolean };
   beforeNavigate(({ cancel }) => {
     if (editing !== undefined && !window.confirm(t('config.discard-draft', 'Leave this page and discard your unsaved changes?'))) cancel();
   });
@@ -28,41 +45,77 @@
     { id: 'actions', header: t('config.actions', 'Actions'), size: 220 },
   ];
   const table = createSvelteTable<Rule>({ get data() { return book?.rules ?? []; }, columns, getRowId: r => r.id ?? r.role, initialState: { sorting: [{ id: 'role', desc: false }] } });
-  async function reload() {
-    const result = await configCall<{ value: Rulebook | null }>({ kind: 'rules', op: 'read', memoryRef });
-    book = result.value;
+  async function reload(owner: Owner): Promise<ReadResult> {
+    if (!owner.current()) return { kind: 'stale' };
+    // Only an issued read supersedes an earlier read. A refused mutation has
+    // no read outcome and must not retire another operation in this view.
+    const read = ++readSequence;
+    const current = () => owner.current() && read === readSequence;
+    try {
+      const result = await configCall<{ value: Rulebook | null }>({ kind: 'rules', op: 'read', memoryRef });
+      if (!current()) return { kind: 'stale' };
+      book = result.value;
+      return { kind: 'applied', current };
+    } catch (e) {
+      if (!current()) return { kind: 'stale' };
+      return { kind: 'error', error: e as ConfigFailure, current };
+    }
   }
   async function save(input: Record<string, unknown>): Promise<ConfigFailure | null> {
     if (readOnly) return { error: t('config.impersonation', 'This page is read-only while impersonating.') };
+    const owner = ownView(editorVersion);
+    feedbackSequence++;
     failure = null; notice = '';
     try {
       await configCall({ kind: 'rules', op: editing ? 'update' : 'create', memoryRef, ref: editing?.id, revision: editing?.revision, input });
-    } catch (e) { return e as ConfigFailure; }
-    notice = t('config.saved', 'Saved.');
-    try { await reload(); } catch { failure = { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') }; }
-    editing = undefined;
+    } catch (e) { return owner.current() ? e as ConfigFailure : null; }
+    if (!owner.current()) return null;
+    feedbackSequence++; notice = t('config.saved', 'Saved.');
+    const result = await reload(owner);
+    // Read ordering owns the book; this confirmed write still owns its editor.
+    // A newer read cannot strand that editor, while a newer view/session can.
+    if (!owner.current()) return null;
+    if (result.kind === 'error' && result.current()) failure = { error: t('config.reload-failed', 'Saved, but the rules could not be reloaded. Reload before another change.') };
+    edit(undefined);
     return null;
   }
   async function rowAction(rule: Rule, op: 'delete' | 'unlock') {
     if (readOnly || busy) return;
     const prompt = op === 'delete' ? t('config.delete-confirm', 'Delete the rule “{role}”?', { role: rule.role }) : t('config.unlock-confirm', 'Unlock “{role}” so it can be edited or deleted? On an org memory only an org admin can unlock it; the server may refuse this action.', { role: rule.role });
     if (!window.confirm(prompt)) return;
-    busy = true; failure = null; notice = '';
+    const owner = ownView(), token = {};
+    feedbackSequence++;
+    busyOwner = token; busy = true; failure = null; notice = '';
     try {
       await configCall({ kind: 'rules', op, memoryRef, ref: rule.id, revision: rule.revision });
-      notice = op === 'delete' ? t('config.deleted', 'Deleted.') : t('config.unlocked', 'Unlocked.');
-      try { await reload(); } catch { failure = { error: t('config.changed-reload-failed', 'The change succeeded, but the rules could not be reloaded. Reload before another change.') }; }
-    } catch (e) { failure = e as ConfigFailure; }
-    finally { busy = false; }
+      if (!owner.current()) return;
+      feedbackSequence++; notice = op === 'delete' ? t('config.deleted', 'Deleted.') : t('config.unlocked', 'Unlocked.');
+      const result = await reload(owner);
+      if (result.kind === 'error' && result.current()) { feedbackSequence++; failure = { error: t('config.changed-reload-failed', 'The change succeeded, but the rules could not be reloaded. Reload before another change.') }; }
+    } catch (e) { if (owner.current()) { feedbackSequence++; failure = e as ConfigFailure; } }
+    finally { if (busyOwner === token) { busyOwner = null; busy = false; } }
+  }
+  async function reloadFailure() {
+    const feedback = feedbackSequence;
+    const result = await reload(ownView());
+    if (result.kind === 'applied' && result.current() && feedback === feedbackSequence) failure = null;
+    // A current error preserves the existing truthful failure; a stale result does nothing.
+  }
+  async function reloadEditor() {
+    const owner = ownView(editorVersion), id = editing?.id;
+    const result = await reload(owner);
+    if (result.kind === 'stale' || !result.current()) return;
+    if (result.kind === 'applied') edit(book?.rules.find(r => r.id === id));
+    else { feedbackSequence++; failure = { error: t('config.reload-kept', 'Could not reload. Your input is kept.') }; }
   }
 </script>
 {#if book !== null}
   <section class="space-y-4" aria-label={t('config.node-roles', 'Node roles')}>
     <h1 bind:this={heading} tabindex="-1" class="text-2xl font-semibold text-zinc-900 dark:text-white">{t('config.node-roles', 'Node roles')}</h1>
     {#if readOnly}<p>{t('config.impersonation', 'This page is read-only while impersonating.')}</p>
-    {:else}<button type="button" onclick={() => editing = null} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-rule', 'Create rule')}</button>{/if}
+    {:else}<button type="button" onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-rule', 'Create rule')}</button>{/if}
     {#if notice}<p role="status" class="text-green-700 dark:text-green-300">{notice}</p>{/if}
-    {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p><button type="button" onclick={async () => { try { await reload(); failure = null; } catch { /* Keep existing truthful failure. */ } }} class="min-h-11 rounded border px-3">{t('config.reload', 'Reload')}</button>{/if}
+    {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p><button type="button" onclick={reloadFailure} class="min-h-11 rounded border px-3">{t('config.reload', 'Reload')}</button>{/if}
     <DataTable {table} listKey="memory-node-role-rules" searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
       {#snippet cell(cell, r)}
         {#if cell.column.id === 'role'}<span class="font-mono">{r.role}</span>
@@ -81,7 +134,7 @@
               <p>{t('config.locked', 'Locked by {name}', { name: r.sourceTemplate?.name ?? t('config.template', 'template') })}{#if r.sourceTemplate?.deleted} — {t('config.template-deleted', 'template deleted')}{/if}</p>
               {#if !readOnly}<button type="button" disabled={busy} onclick={() => rowAction(r, 'unlock')} class="min-h-11 rounded border px-3">{t('config.unlock', 'Unlock')}</button>{/if}
             {:else if !readOnly}
-              <button type="button" disabled={busy} onclick={() => editing = r} class="min-h-11 rounded border px-3">{t('config.edit', 'Edit')}</button>
+              <button type="button" disabled={busy} onclick={() => edit(r)} class="min-h-11 rounded border px-3">{t('config.edit', 'Edit')}</button>
               <button type="button" disabled={busy} onclick={() => rowAction(r, 'delete')} class="min-h-11 rounded border px-3">{t('config.delete', 'Delete')}</button>
             {/if}
           </div>
@@ -89,11 +142,7 @@
       {/snippet}
     </DataTable>
     {#if editing !== undefined && !readOnly}
-      {#key editorVersion}<RuleEditor fallbackFocus={heading} rule={editing} {memories} {memoriesFailed} oncancel={() => editing = undefined} onsave={save} onreload={async () => {
-        const id = editing?.id;
-        try { await reload(); editing = book?.rules.find(r => r.id === id); editorVersion++; }
-        catch { failure = { error: t('config.reload-kept', 'Could not reload. Your input is kept.') }; }
-      }} />{/key}
+      {#key editorVersion}<RuleEditor fallbackFocus={heading} rule={editing} {memories} {memoriesFailed} oncancel={() => edit(undefined)} onsave={save} onreload={reloadEditor} />{/key}
     {/if}
   </section>
 {/if}
