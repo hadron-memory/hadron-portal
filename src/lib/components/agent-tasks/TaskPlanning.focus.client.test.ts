@@ -65,6 +65,13 @@ describe('exhausted relation control focus', () => {
     expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
     expect(m.target.textContent).toContain('Task new'); expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it.each(['Load more Waits for', 'Load more Holds up'])('%s counts a blank pointer even if BODY was already active', async name => {
+    const m = await setup(); const trigger = m.more(name); activate(trigger, 'Enter'); await tick(3);
+    trigger.blur(); expect(document.activeElement).toBe(document.body);
+    m.target.querySelector('h2')!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    m.settle(); await tick(12); expect(document.activeElement).toBe(document.body);
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+  });
   it.each(['Load more Waits for', 'Load more Holds up'])('%s keeps the default handoff when a pointer repeats on the still-focused trigger', async name => {
     const m = await setup(); const trigger = m.more(name); activate(trigger, 'Enter'); await tick(3);
     const child = document.createElement('span'); child.textContent = 'busy'; trigger.append(child);
