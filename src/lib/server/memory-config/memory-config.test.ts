@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { loadRulebook, mutateRule, previewTemplate, applyTemplate } from './service';
+import { loadRulebook, mutateRule, previewTemplate, applyTemplate, previewBulkTemplate, applyBulkTemplate } from './service';
 
 const rule = { id: 'r1', role: 'review', revision: 7, enabled: true, locked: false, strictSubRoles: false, writers: 'ALL', validateBy: null, authorTask: null, authorTaskId: null, authorTaskState: 'NONE', validationTask: null, validationTaskId: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeId: null, descriptionNodeState: 'NONE', sourceTemplate: null };
 const client = (request = vi.fn()) => ({ request });
@@ -42,6 +42,21 @@ describe('memory node-role configuration boundaries', () => {
     expect(c.request.mock.calls[0][1]).toEqual({ templateRef: 'template', memoryRef: 'memory', dryRun: true });
     await applyTemplate(c, 'template', 'memory', preview.templateRevision, false);
     expect(c.request.mock.calls[1][1]).toEqual({ templateRef: 'template', memoryRef: 'memory', dryRun: false, expectedTemplateRevision: 9 });
+  });
+  it('bulk preview is a dry run with no revision; bulk apply pins the revision and sends the list as given', async () => {
+    const value = { dryRun: true, results: [], succeeded: 0, failed: 0 };
+    const c = client(vi.fn().mockResolvedValue({ applyMemoryConfigTemplateToMemories: value }));
+    expect(await previewBulkTemplate(c, 't', ['m1', 'm2'], false)).toBe(value);
+    expect(c.request.mock.calls[0][0]).toContain('applyMemoryConfigTemplateToMemories');
+    expect(c.request.mock.calls[0][1]).toEqual({ templateRef: 't', memoryRefs: ['m1', 'm2'], dryRun: true });
+    await applyBulkTemplate(c, 't', ['m1', 'm2'], 9, false);
+    expect(c.request.mock.calls[1][1]).toEqual({ templateRef: 't', memoryRefs: ['m1', 'm2'], dryRun: false, expectedTemplateRevision: 9 });
+  });
+  it('impersonation never bulk-previews or bulk-applies', async () => {
+    const c = client();
+    await expect(previewBulkTemplate(c, 't', ['m'], true)).rejects.toThrow(/read.only/i);
+    await expect(applyBulkTemplate(c, 't', ['m'], 9, true)).rejects.toThrow(/read.only/i);
+    expect(c.request).not.toHaveBeenCalled();
   });
   it('impersonation never previews or applies', async () => {
     const c = client();

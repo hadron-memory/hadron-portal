@@ -277,9 +277,18 @@ export function chatSortKey(node: Pick<MemoryNode, 'nodeType'>): 'seq' | 'loc' {
   return node.nodeType === CHAT_NODE_TYPE ? 'seq' : 'loc';
 }
 
+/** #1569: only the authenticated root's platform type selects the union.
+ * A default seq sort, a tag or a request parameter is not platform evidence.
+ * Legacy reads remain unqualified; #2836 excludes chat-message by default. */
+export function chatMessageNodeTypes(root: { nodeType?: string | null }): string[] | undefined {
+  return root.nodeType === CHAT_NODE_TYPE
+    ? [PLATFORM_MESSAGE_NODE_TYPE, LEGACY_MESSAGE_NODE_TYPE]
+    : undefined;
+}
+
 export type ChatPage = {
   messages: ChatMessage[];
-  /** The server's count of nodes under the prefix — not of messages. */
+  /** The server's count in the selected prefix/type domain — not of direct bubbles. */
   total: number;
   /** Is there anything before this window? Drives the scroll-up affordance. */
   hasOlder: boolean;
@@ -298,8 +307,8 @@ export type ChatPage = {
  *     atom is an ISO timestamp (`2026-06-21T223100Z-author`) and therefore
  *     lexicographically chronological.
  *
- * The two never mix within one chat, which is what makes a single sort key
- * per chat a total order.
+ * A chat root may contain both generations (including adopted history). The
+ * provider places null seq rows last and breaks ties by loc; retain that order.
  *
  * **`loc` is NOT a safe key for a platform chat, and that is not obvious.** The
  * server pads the seq atom to three digits (`chatRoot.ts`, `padStart(3, '0')`),
@@ -319,6 +328,8 @@ export async function loadChatMessages(
     before?: number;
     /** `seq` for a platform chat, `loc` for a legacy one. See the docblock. */
     sort?: 'seq' | 'loc';
+    /** Derived from the authenticated root; absent for legacy/unrelated reads. */
+    messageNodeTypes?: string[];
   } = {},
 ): Promise<ChatPage> {
   const limit = opts.limit ?? CHAT_PAGE_SIZE;
@@ -334,6 +345,9 @@ export async function loadChatMessages(
   // scroll-up cost two round trips and one of them was guaranteed waste. The
   // count comes back with whichever window we actually want.
   const sort = opts.sort ?? 'seq';
+  // One domain for count, tail correction and every older window. Conditional
+  // spread preserves exact legacy variables: omission, never null or a default.
+  const messageFilter = opts.messageNodeTypes ? { nodeTypes: opts.messageNodeTypes } : {};
   const firstOffset = opts.before === undefined ? 0 : Math.max(0, opts.before - fetchCount);
   const first = await client.request<{
     findNodes: { total: number | null; hits: Array<{ node: MemoryNode }> };
@@ -343,6 +357,7 @@ export async function loadChatMessages(
     limit: fetchCount,
     offset: firstOffset,
     sort,
+    ...messageFilter,
   });
   const total = first.findNodes.total ?? first.findNodes.hits.length;
 
@@ -374,6 +389,7 @@ export async function loadChatMessages(
               limit: Math.min(fetchCount, end - offset),
               offset,
               sort,
+              ...messageFilter,
             },
           )
         ).findNodes.hits;
@@ -387,24 +403,10 @@ export async function loadChatMessages(
       return MESSAGE_NODE_TYPES.includes(n.nodeType);
     });
 
-  // #793 (@copilot on PR #797): sort on the SAME key the server paged by.
-  //
-  // This used to fall back to `createdAt` for a legacy chat while the server
-  // ordered by `loc`. Two orders over one window is fine while the window is
-  // the whole thread — the client's order is what renders — and wrong once
-  // PAGED: the trim below takes "the last N" of the CLIENT order, while the
-  // cursor describes a position in the SERVER order. If the two ever disagree
-  // (a legacy `createdAt` edited, backfilled, or simply not matching its loc
-  // timestamp) the window and the cursor describe different slices, and the
-  // next page silently skips or repeats messages.
-  //
-  // `loc` is a total order on a legacy thread for the same reason it is the
-  // paging key: the atom is an ISO timestamp.
-  messages.sort((a, b) =>
-    sort === 'seq'
-      ? (a.seq ?? 0) - (b.seq ?? 0)
-      : a.loc.localeCompare(b.loc),
-  );
+  // Preserve provider hit order through filtering, trim and cursor derivation.
+  // In a mixed chat the provider orders seq ASC NULLS LAST, loc ASC. Treating
+  // null as zero here moves legacy rows across the trim boundary: the next
+  // offset then skips a message or repeats one. No presentation re-sort either.
 
   // #793: trim to the PAGE SIZE after filtering.
   //
