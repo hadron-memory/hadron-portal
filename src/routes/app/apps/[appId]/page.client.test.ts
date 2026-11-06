@@ -2534,6 +2534,52 @@ describe('Cast composer lifecycle (#1149, late result crosses App navigation)', 
       expect(kitAppliedResults).toEqual([]);
     });
 
+    // Jane's BLIND on #1771: the fence read one variable that every submit overwrites, so a
+    // submit on B made A's still-pending answer look current. B can submit by then: the
+    // composer is a new element, and afterNavigate has cleared the form's submitting state.
+    it.each([
+      ['a failed request', async () => FAILED, UNCONFIRMED],
+      ['a refusal', refused, NAME_TAKEN],
+      ['a success', success, 'Worker cast.'],
+      ['a redirect', async () => REDIRECT, null],
+    ] as const)('%s for A, arriving after B submitted, stays off B', async (_name, answer, text) => {
+      const { m, props, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const sent = idOf(form());
+      const first = await submitEnhancedDeferred(form());
+      props.data = await dataFor('a2');
+      await tick(3);
+      await typeOnB(m, form);
+      await submitEnhancedDeferred(form());
+      const tabs = () => m.target.querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+      const tab = tabs();
+      resetNavigationCalls();
+      await first.finish(await answer(sent) as never);
+      await tick(4);
+      if (text) expect(m.target.textContent).not.toContain(text);
+      expect(form().querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('NewB');
+      expect(tabs()).toBe(tab);
+      expect(refreshes()).toBe(0);
+      expect(kitAppliedResults).toEqual([]);
+    });
+
+    it('B’s own answer still lands after A’s stale one', async () => {
+      const { m, props, form } = await openCast();
+      await fill(form(), 'agent-a', 'Iris');
+      const first = await submitEnhancedDeferred(form());
+      props.data = await dataFor('a2');
+      await tick(3);
+      await typeOnB(m, form);
+      const sentB = idOf(form());
+      const second = await submitEnhancedDeferred(form());
+      await first.finish(FAILED as never);
+      await tick(2);
+      await second.finish(await refused(sentB) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(NAME_TAKEN);
+      expect(m.target.textContent).not.toContain(UNCONFIRMED);
+    });
+
     it('a success or refusal never goes through Kit, so focus stays where the reader put it', async () => {
       for (const answer of [success, refused]) {
         const { m, form } = await openCast();

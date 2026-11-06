@@ -296,6 +296,11 @@
   // that began in an earlier visit to the same App (A -> B -> A) is as stale as one from B.
   let castGeneration = 0;
   let castAttemptGeneration = -1;
+  // castAttemptGeneration is overwritten by the next submit, so on its own it would pass a pending
+  // answer from A once B has submitted. Superforms gives a hook no request identity, but it does
+  // give onResult the form element, the composer gets a new one for each opening and that element
+  // sends one request at a time (multipleSubmits: 'prevent'), so the element stands for the request.
+  const castRequestGeneration = new WeakMap<HTMLFormElement, number>();
   let castRefreshFailed = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
@@ -1275,8 +1280,9 @@
     // must not close B's composer, empty B's draft or print "Worker cast." on B.
     // The cast itself is already committed server-side; only its application to
     // the screen is dropped (never replayed).
-    onSubmit: () => {
+    onSubmit: ({ formElement }) => {
       castAttemptGeneration = castGeneration;
+      castRequestGeneration.set(formElement, castGeneration);
       castRefreshFailed = false;
     },
     // portal#1715: as on Install, and for the same reason. Superforms awaits between
@@ -1289,12 +1295,14 @@
     // by then, so the App change below also gives the form a new id: Superforms drops
     // a result whose id isn't the live one, right at that write.
     applyAction: false,
-    onResult: async ({ result, cancel }) => {
-      if (castAttemptGeneration !== castGeneration) cancel();
+    onResult: async ({ result, formElement, cancel }) => {
+      if (castRequestGeneration.get(formElement) !== castGeneration) cancel();
       else if (result.type === 'redirect') await applyAction(result);
     },
     // Superforms' default rethrows, leaving the form on "Casting…". The request failed,
     // so whether the cast landed isn't known and this claims neither. Never retried.
+    // A stale answer stops at onResult above, which also skips this hook; the check
+    // here is for an App change during the hooks of an answer that passed it.
     onError: () => {
       if (castAttemptGeneration !== castGeneration) return;
       activeTab = 'staff';
