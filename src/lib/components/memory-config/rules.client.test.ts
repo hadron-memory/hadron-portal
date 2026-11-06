@@ -85,4 +85,11 @@ describe('rendered memory rule management', () => {
     await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('dialog')).toBeNull(); expect(document.activeElement).toBe(button(m.target, 'Edit')); });
   });
 
+  it('does not steal a newer control focus when closing the editor', async () => {
+    const m = mount(book); button(m.target, 'Edit').click(); flushSync();
+    const other = document.createElement('input'); document.body.append(other);
+    try { other.focus(); button(m.target.querySelector('dialog')!, 'Cancel').click(); flushSync(); await tick(); expect(document.activeElement).toBe(other); }
+    finally { other.remove(); }
+  });
+
 });

@@ -15,6 +15,11 @@
   let snapshot = untrack(() => initial);
   let templates = $state(untrack(() => initial)), editing = $state<Template | null | undefined>(undefined);
   let nameInput = $state<HTMLInputElement>();
+  let heading = $state<HTMLHeadingElement>();
+  const uid = $props.id();
+  const formId = `${uid}-template-form`;
+  const fields = ['authorTask', 'validationTask', 'descriptionNode'] as const;
+  const labels = { authorTask: t('config.author', 'Author task'), validationTask: t('config.validator', 'Validation task'), descriptionNode: t('config.description-node', 'Description node') };
   let name = $state(''), description = $state(''), required = $state(false), rules = $state<Rule[]>([]), rulesChanged = $state(false);
   let ruleIndex = $state<number | null>(null), pending = $state(false), failure = $state<ConfigFailure | null>(null), notice = $state('');
   let chosen = $state<Template | null>(null), memory = $state<{ id: string; name: string; urn: string } | null>(null), memoryPicker = $state(false);
@@ -79,12 +84,12 @@
   }
 </script>
 <section class="space-y-4">
-  <h1 class="text-2xl font-semibold">{t('config.templates', 'Node-role templates')}</h1>
+  <h1 bind:this={heading} tabindex="-1" class="text-2xl font-semibold">{t('config.templates', 'Node-role templates')}</h1>
   {#if readOnly}<p>{t('config.impersonation', 'This page is read-only while impersonating.')}</p>{/if}
   {#if notice}<p role="status" class="text-green-700 dark:text-green-300">{notice}</p>{/if}
   {#if failure && editing === undefined && !chosen}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
   {#if writable}<button type="button" disabled={pending || editing !== undefined} onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-template', 'Create template')}</button>{/if}
-  {#if !templates.length}<p class="text-zinc-500 dark:text-zinc-400">{t('config.no-visible-templates', 'No templates are available to you for this owner.')}</p>{/if}
+  {#if !templates.length}<p class="text-zinc-500 dark:text-zinc-400">{writable ? t('config.no-templates-yet', 'No templates yet. Create a template to get started.') : t('config.no-visible-templates', 'No templates are available to you for this owner.')}</p>{/if}
   <DataTable {table} listKey={`node-role-templates:${ownerType}`} searchPlaceholder={t('config.search-templates', 'Search templates…')} searchAriaLabel={t('config.search-templates', 'Search templates…')}>
     {#snippet cell(cell, row)}
       {#if cell.column.id === 'actions'}
@@ -94,29 +99,29 @@
     {/snippet}
   </DataTable>
   {#if editing !== undefined && writable}
-    <form onsubmit={save} class="space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-      <fieldset disabled={pending} class="space-y-4">
+    <div aria-label={t('config.template-editor', 'Template editor')} class="min-w-0 space-y-4 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+      <fieldset disabled={pending} class="min-w-0 space-y-4">
         <h2 class="text-xl font-semibold">{editing ? t('config.edit-template', 'Edit template') : t('config.create-template', 'Create template')}</h2>
-        {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
-        <label class="block">{t('config.name', 'Name')}<input bind:this={nameInput} required maxlength="64" bind:value={name} class="w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950" /></label>
+        <form id={formId} onsubmit={save} class="space-y-4"><label class="block">{t('config.name', 'Name')}<input bind:this={nameInput} required maxlength="64" bind:value={name} class="w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950" /></label>
         <label class="block">{t('config.description', 'Description')}<textarea bind:value={description} class="w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950"></textarea></label>
-        <label class="flex items-center gap-2"><input type="checkbox" bind:checked={required} />{t('config.required', 'Required')}</label>
+        <label class="flex items-center gap-2"><input type="checkbox" bind:checked={required} />{t('config.required', 'Required')}</label></form>
         {#if required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
         <button type="button" onclick={() => ruleIndex = rules.length} class="min-h-11 rounded border px-3">{t('config.add-rule', 'Add rule')}</button>
         <DataTable table={ruleTable} listKey="template-draft-rules" searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
           {#snippet cell(cell, row)}
             {#if cell.column.id === 'role'}{row.role}
-            {:else if cell.column.id === 'settings'}<p>{row.enabled ? t('config.enabled', 'Enabled') : t('config.disabled', 'Disabled')}</p><p>{row.writers}{#if row.writers === 'OWNER'} — {t('config.owner-note', 'not supported yet; refuses every write when enabled')}{/if}</p><p>{t('config.strict-label', 'Strict sub-roles: {value}', { value: row.strictSubRoles ? t('config.yes', 'Yes') : t('config.no', 'No') })}</p><p>{row.validateBy ?? t('config.none', 'None')}</p>
-            {:else if cell.column.id === 'references'}{#each ['authorTask', 'validationTask', 'descriptionNode'] as field}<RuleReference state={row[`${field}State` as keyof Rule] as import('$lib/memory-config/types').RefState} urn={row[field as keyof Rule] as string | null} />{/each}
-            {:else}<button type="button" onclick={() => ruleIndex = rules.indexOf(row)} class="min-h-11 rounded border px-3">{t('config.edit', 'Edit')}</button><button type="button" onclick={() => { rules = rules.filter(r => r !== row); rulesChanged = true; }} class="min-h-11 rounded border px-3">{t('config.remove', 'Remove')}</button>{/if}
+            {:else if cell.column.id === 'settings'}<p>{row.enabled ? t('config.enabled', 'Enabled') : t('config.disabled', 'Disabled')}</p><p>{t('config.writers-label', 'Writers: {value}', { value: row.writers })}{#if row.writers === 'OWNER'} — {t('config.owner-note', 'not supported yet; refuses every write when enabled')}{/if}</p><p>{t('config.strict-label', 'Strict sub-roles: {value}', { value: row.strictSubRoles ? t('config.yes', 'Yes') : t('config.no', 'No') })}</p><p>{t('config.validate-label', 'Validate by: {value}', { value: row.validateBy ?? t('config.none', 'None') })}</p>
+            {:else if cell.column.id === 'references'}<div class="space-y-3 whitespace-normal">{#each fields as field}<div><p class="font-medium">{labels[field]}</p><RuleReference state={row[`${field}State`]} urn={row[field]} /></div>{/each}</div>
+            {:else}<div class="flex flex-wrap gap-2"><button type="button" onclick={() => ruleIndex = rules.indexOf(row)} class="min-h-11 rounded border px-3">{t('config.edit', 'Edit')}</button><button type="button" onclick={() => { rules = rules.filter(r => r !== row); rulesChanged = true; }} class="min-h-11 rounded border px-3">{t('config.remove', 'Remove')}</button></div>{/if}
           {/snippet}
         </DataTable>
+        {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
         {#if failure?.code === 'CONFLICT'}<button type="button" onclick={async () => { try { await reload(); const current = templates.find(v => v.id === editing?.id); if (current) edit(current); } catch { /* Preserve draft. */ } }} class="min-h-11 rounded border px-3">{t('config.reload-template', 'Reload template (discards your changes)')}</button>{/if}
-        <div class="flex gap-3"><button type="submit" class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.save', 'Save')}</button><button type="button" onclick={() => editing = undefined} class="min-h-11 rounded border px-4">{t('config.cancel', 'Cancel')}</button></div>
+        <div class="flex gap-3"><button type="submit" form={formId} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.save', 'Save')}</button><button type="button" onclick={() => editing = undefined} class="min-h-11 rounded border px-4">{t('config.cancel', 'Cancel')}</button></div>
       </fieldset>
-    </form>
+    </div>
     {#if ruleIndex !== null}
-      <RuleEditor templateDraft rule={rules[ruleIndex] ?? null} {memories} {memoriesFailed} oncancel={() => ruleIndex = null} onsave={async (input) => {
+      <RuleEditor fallbackFocus={heading} templateDraft rule={rules[ruleIndex] ?? null} {memories} {memoriesFailed} oncancel={() => ruleIndex = null} onsave={async (input) => {
         const index = ruleIndex!;
         if (rules.some((r, i) => i !== index && r.role === input.role)) return { error: t('config.duplicate-role', 'A rule already uses this role.'), field: 'role' };
         const previous = rules[index];
@@ -139,7 +144,7 @@
       {#if memoriesFailed}<p role="alert">{t('config.memories-failed', 'Memories could not be loaded. Reload the page to try again.')}</p>{/if}
       <button type="button" disabled={!memory || pending} onclick={() => apply(true)} class="min-h-11 rounded border px-3">{previewStale ? t('config.preview-again', 'Preview again') : t('config.preview', 'Preview')}</button>
       {#if preview}
-        <h3 class="font-semibold">{preview.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.applied-heading', 'Template applied')}</h3>
+        <h3 class="font-semibold">{previewStale ? t('config.preview-stale', 'Preview out of date — preview again before applying') : preview.dryRun ? t('config.preview-heading', 'Preview: nothing has been changed') : t('config.applied-heading', 'Template applied')}</h3>
         {#if preview.required}<p class="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-200">{t('config.required-warning', 'Applied rules arrive locked: ordinary edits and deletion are refused. On an org memory only an org admin can unlock them.')}</p>{/if}
         <DataTable table={previewTable} listKey="node-role-template-preview" searchPlaceholder={t('config.search-preview', 'Search preview…')} searchAriaLabel={t('config.search-preview', 'Search preview…')}>
           {#snippet cell(cell, row)}<span class="block whitespace-normal break-words">{cell.column.id === 'outcome' ? outcome(row.outcome) : row.role}</span>{/snippet}

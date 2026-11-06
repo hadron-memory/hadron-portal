@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
+  import { consumeEscapeAtDialog, dialogEscapeFallback } from '$lib/a11y/dialog-escape';
   import SelectNode from '$lib/components/SelectNode.svelte';
   import RuleReference from './RuleReference.svelte';
   import { t } from '$lib/i18n/t';
   import type { Rule } from '$lib/memory-config/types';
   import type { ConfigFailure } from '$lib/memory-config/client';
-  let { rule = null, templateDraft = false, memories, memoriesFailed = false, oncancel, onsave, onreload }: {
+  let { rule = null, templateDraft = false, memories, memoriesFailed = false, oncancel, onsave, onreload, fallbackFocus }: {
     rule?: Rule | null; templateDraft?: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed?: boolean;
-    oncancel: () => void; onsave: (input: Record<string, unknown>) => Promise<ConfigFailure | null>; onreload?: () => Promise<void>;
+    oncancel: () => void; onsave: (input: Record<string, unknown>) => Promise<ConfigFailure | null>; onreload?: () => Promise<void>; fallbackFocus?: HTMLElement;
   } = $props();
   const uid = $props.id();
   const seed = untrack(() => rule);
@@ -19,8 +20,23 @@
   let refs = $state<Partial<Record<Field, string | null>>>({});
   let choosing = $state<Field | null>(null), pickerOpen = $state(false);
   let pending = $state(false), failure = $state<ConfigFailure | null>(null);
+  const escapeOptions = { close: () => { if (!pending) oncancel(); }, suppressed: () => pickerOpen || pending };
   let dialog: HTMLDialogElement;
-  onMount(() => { dialog.showModal(); return () => dialog.close(); });
+  onMount(() => {
+    const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const fallback = fallbackFocus;
+    dialog.showModal();
+    return () => {
+      const restore = document.activeElement === document.body || dialog.contains(document.activeElement);
+      dialog.close();
+      void tick().then(() => {
+        // Recheck after teardown; never focus a new screen or steal a newer control.
+        if (!restore || document.activeElement !== document.body || !fallback?.isConnected) return;
+        const target = invoker?.isConnected && !invoker.matches(':disabled') ? invoker : fallback;
+        target.focus();
+      });
+    };
+  });
   async function save(event: SubmitEvent) {
     event.preventDefault(); if (pending) return;
     pending = true; failure = null;
@@ -30,7 +46,7 @@
     finally { pending = false; }
   }
 </script>
-<dialog bind:this={dialog} oncancel={(e) => { e.preventDefault(); if (!pending) oncancel(); }} aria-label={seed ? t('config.edit-rule', 'Edit rule') : t('config.create-rule', 'Create rule')} class="fixed inset-0 m-auto max-sm:m-0 max-h-[100dvh] w-full max-w-2xl overflow-y-auto rounded-xl border border-zinc-300 bg-white p-5 text-zinc-900 backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white max-sm:h-dvh max-sm:rounded-none">
+<dialog bind:this={dialog} use:dialogEscapeFallback={escapeOptions} onkeydown={(e) => { if (e.key === 'Escape' && !e.defaultPrevented && !e.isComposing && !pickerOpen && !pending) { e.preventDefault(); e.stopPropagation(); oncancel(); } else consumeEscapeAtDialog(e, escapeOptions); }} oncancel={(e) => e.preventDefault()} aria-label={seed ? t('config.edit-rule', 'Edit rule') : t('config.create-rule', 'Create rule')} class="fixed inset-0 m-auto max-sm:m-0 max-h-[100dvh] w-full max-w-2xl overflow-y-auto rounded-xl border border-zinc-300 bg-white p-5 text-zinc-900 backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white max-sm:h-dvh max-sm:rounded-none">
   <form onsubmit={save} class="space-y-4">
     <fieldset disabled={pending} class="space-y-4">
     <h2 class="text-xl font-semibold">{seed ? t('config.edit-rule', 'Edit rule') : t('config.create-rule', 'Create rule')}</h2>
@@ -38,7 +54,7 @@
     {#if failure?.field === 'role'}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p>{/if}
     <label class="flex items-center gap-2"><input type="checkbox" bind:checked={enabled} />{t('config.enabled', 'Enabled')}</label>
     <label class="flex items-center gap-2"><input type="checkbox" bind:checked={strictSubRoles} />{t('config.strict', 'Require declared sub-roles')}</label>
-    <div><label for={`${uid}-writers`} class="block">{t('config.writers', 'Writers')}</label><select id={`${uid}-writers`} bind:value={writers} class="mt-1 w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950"><option value="ALL">{t('config.writers.all', 'Anyone with memory write access')}</option><option value="ADMIN">{t('config.writers.admin', 'Organization admins / owners, or the owning user')}</option><option value="OWNER">{t('config.writers.owner', 'OWNER — not supported yet; refuses every write')}</option></select></div>
+    <div><label for={`${uid}-writers`} class="block">{t('config.writers', 'Writers')}</label><select id={`${uid}-writers`} bind:value={writers} class="mt-1 w-full rounded border p-2 dark:border-zinc-700 dark:bg-zinc-950"><option value="ALL">{t('config.writers.all', 'Anyone with memory write access')}</option><option value="ADMIN">{t('config.writers.admin', 'Organization admins / owners, or the owning user')}</option><option value="OWNER">{t('config.writers.owner', 'OWNER — not supported yet')}</option></select></div>
     {#each fields as field}
       <div class="space-y-1">
         <p class="font-medium">{labels[field]}</p>

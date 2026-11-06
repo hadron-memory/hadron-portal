@@ -68,7 +68,7 @@ describe('template management states', () => {
   it('labels each draft reference and setting separately', () => {
     const r = { role: 'review', enabled: true, strictSubRoles: false, writers: 'ADMIN', validateBy: 'AGENT', authorTask: null, authorTaskState: 'NONE', validationTask: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeState: 'NONE' } as Rule;
     const m = mount(false, true, [{ ...template, rules: [r] }]); button(m.target, 'Edit').click(); flushSync();
-    const form = m.target.querySelector('form')!;
+    const form = m.target.querySelector('[aria-label="Template editor"]')!;
     for (const text of ['Author task', 'Validation task', 'Description node', 'Writers: ADMIN', 'Validate by: AGENT']) expect(form.textContent).toContain(text);
   });
 

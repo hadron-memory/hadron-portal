@@ -13,6 +13,7 @@
   let snapshot = untrack(() => initial);
   let book = $state(untrack(() => initial)), editing = $state<Rule | null | undefined>(undefined);
   let editorVersion = $state(0);
+  let heading = $state<HTMLHeadingElement>();
   let notice = $state(''), failure = $state<ConfigFailure | null>(null), busy = $state(false);
   $effect(() => { if (initial !== snapshot) { snapshot = initial; book = initial; } });
   beforeNavigate(({ cancel }) => {
@@ -57,7 +58,7 @@
 </script>
 {#if book !== null}
   <section class="space-y-4" aria-label={t('config.node-roles', 'Node roles')}>
-    <h1 class="text-2xl font-semibold text-zinc-900 dark:text-white">{t('config.node-roles', 'Node roles')}</h1>
+    <h1 bind:this={heading} tabindex="-1" class="text-2xl font-semibold text-zinc-900 dark:text-white">{t('config.node-roles', 'Node roles')}</h1>
     {#if readOnly}<p>{t('config.impersonation', 'This page is read-only while impersonating.')}</p>
     {:else}<button type="button" onclick={() => editing = null} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-rule', 'Create rule')}</button>{/if}
     {#if notice}<p role="status" class="text-green-700 dark:text-green-300">{notice}</p>{/if}
@@ -88,7 +89,7 @@
       {/snippet}
     </DataTable>
     {#if editing !== undefined && !readOnly}
-      {#key editorVersion}<RuleEditor rule={editing} {memories} {memoriesFailed} oncancel={() => editing = undefined} onsave={save} onreload={async () => {
+      {#key editorVersion}<RuleEditor fallbackFocus={heading} rule={editing} {memories} {memoriesFailed} oncancel={() => editing = undefined} onsave={save} onreload={async () => {
         const id = editing?.id;
         try { await reload(); editing = book?.rules.find(r => r.id === id); editorVersion++; }
         catch { failure = { error: t('config.reload-kept', 'Could not reload. Your input is kept.') }; }
