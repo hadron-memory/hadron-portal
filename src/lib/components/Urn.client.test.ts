@@ -1,11 +1,12 @@
 /**
  * #1604 item 2: a compact chip truncates, and its full URN lived only in a
- * `title` tooltip, which a touch device cannot show. On a coarse pointer a
- * compact, UNLINKED chip becomes a toggle that reveals the whole URN. A linked
- * chip is left alone (a tap there navigates), and a fine pointer is unchanged.
+ * `title` tooltip, which a touch device cannot show. On a coarse pointer an
+ * unlinked chip becomes a toggle; #1686 adds the same reveal below sm and
+ * gives linked chips a sibling toggle so their anchors still navigate.
+ * Wide fine-pointer chips stay plain and copy keeps the full canonical values.
  *
- * The pointer is read in an effect (client-only), so this is the client lane:
- * a server render never runs it.
+ * The media queries are read in an effect (client-only), so this is the client
+ * lane: a server render never runs it.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
@@ -17,21 +18,38 @@ const URN = 'hrn:mem:hadronmemory.com:hadron-dev-team';
 
 type Listener = (e: { matches: boolean }) => void;
 
-/** A controllable `(pointer: coarse)` media query, with its listeners visible. */
-function stubPointer(coarse: boolean) {
+/** Controllable pointer/viewport media queries, with their listeners visible. */
+function stubPointer(coarse: boolean, narrow = false) {
   const listeners = new Set<Listener>();
+  const narrowListeners = new Set<Listener>();
   const mq = {
     matches: coarse,
     media: '(pointer: coarse)',
     addEventListener: (_: string, l: Listener) => listeners.add(l),
     removeEventListener: (_: string, l: Listener) => listeners.delete(l),
   };
-  vi.stubGlobal('matchMedia', vi.fn((q: string) => (q === '(pointer: coarse)' ? mq : { ...mq, matches: false, media: q })));
+  const narrowMq = {
+    matches: narrow,
+    media: '(max-width: 639px)',
+    addEventListener: (_: string, l: Listener) => narrowListeners.add(l),
+    removeEventListener: (_: string, l: Listener) => narrowListeners.delete(l),
+  };
+  vi.stubGlobal('matchMedia', vi.fn((q: string) => {
+    if (q === mq.media) return mq;
+    if (q === narrowMq.media) return narrowMq;
+    return { ...mq, matches: false, media: q };
+  }));
   return {
     listeners,
+    narrowListeners,
     set(next: boolean) {
       mq.matches = next;
       for (const l of [...listeners]) l({ matches: next });
+      flushSync();
+    },
+    setNarrow(next: boolean) {
+      narrowMq.matches = next;
+      for (const l of [...narrowListeners]) l({ matches: next });
       flushSync();
     },
   };
@@ -53,7 +71,7 @@ function mountUrn(props: Record<string, unknown>) {
 const toggle = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLButtonElement>('button[aria-expanded]');
 const valueSpan = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLElement>('span[title]')!;
 
-describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
+describe('Urn: compact reveal and touch targets (#1604/#1686)', () => {
   it('a compact unlinked chip toggles between truncated and the full URN', () => {
     stubPointer(true);
     const m = mountUrn({ compact: true });
@@ -63,11 +81,13 @@ describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
     expect(t!.getAttribute('aria-expanded')).toBe('false');
     expect(valueSpan(m).className).toContain('truncate');
     expect(valueSpan(m).textContent).toBe('hadronmemory.com:hadron-dev-team');
-    // #1642 UX P2: a purpose in the name (with the value kept in it), a
-    // visible cue, and a 24px minimum height.
+    // #1642 UX P2: a purpose in the name (with the value kept in it) and a
+    // visible cue. #1686 keeps fine rows dense and uses 44px coarse targets.
     expect(t!.getAttribute('aria-label')).toBe(`Show full URN ${URN}`);
     expect(t!.querySelector('svg[data-reveal-cue][aria-hidden="true"]')).not.toBeNull();
-    expect(t!.classList.contains('min-h-6')).toBe(true);
+    expect(t!.classList.contains('min-h-6')).toBe(false);
+    expect(t!.classList.contains('pointer-coarse:min-h-11')).toBe(true);
+    expect(t!.classList.contains('pointer-coarse:min-w-11')).toBe(true);
 
     t!.click();
     flushSync();
@@ -90,20 +110,70 @@ describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
     toggle(m)!.click();
     flushSync();
     const copy = m.target.querySelector<HTMLButtonElement>('button[aria-label="Copy URN"]')!;
+    const copyUrl = m.target.querySelector<HTMLButtonElement>('button[aria-label="Copy URL"]')!;
     expect(toggle(m)!.contains(copy)).toBe(false);
+    for (const button of [copy, copyUrl]) {
+      expect(button.classList.contains('pointer-coarse:min-h-11')).toBe(true);
+      expect(button.classList.contains('pointer-coarse:min-w-11')).toBe(true);
+      expect(button.classList.contains('pointer-coarse:items-center')).toBe(true);
+      expect(button.classList.contains('pointer-coarse:justify-center')).toBe(true);
+    }
     copy.click();
     expect(writeText).toHaveBeenCalledWith(URN);
+    copyUrl.click();
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/app/u/${URN}`);
   });
 
-  it('a linked compact chip does not toggle: it stays a link', () => {
+  it('a narrow fine pointer gets the reveal and collapses when the viewport grows', () => {
+    const media = stubPointer(false, true);
+    const m = mountUrn({ compact: true });
+    const t = toggle(m);
+    expect(t).not.toBeNull();
+    expect(m.target.querySelector('code')).toBeNull();
+
+    t!.click();
+    flushSync();
+    expect(t!.getAttribute('aria-expanded')).toBe('true');
+    expect(valueSpan(m).textContent).toBe(URN);
+
+    media.setNarrow(false);
+    expect(toggle(m)).toBeNull();
+    expect(valueSpan(m).className).toContain('truncate');
+
+    media.setNarrow(true);
+    expect(toggle(m)!.getAttribute('aria-expanded')).toBe('false');
+    expect(valueSpan(m).textContent).toBe('hadronmemory.com:hadron-dev-team');
+  });
+
+  it('removes both media-query listeners on unmount', () => {
+    const media = stubPointer(false, true);
+    const m = mountUrn({ compact: true });
+    expect(media.listeners.size).toBe(1);
+    expect(media.narrowListeners.size).toBe(1);
+    m.unmount();
+    expect(media.listeners.size).toBe(0);
+    expect(media.narrowListeners.size).toBe(0);
+  });
+
+  it('a linked compact chip stays a link and gets a separate reveal button', () => {
     stubPointer(true);
     const m = mountUrn({ compact: true, linked: true });
-    expect(toggle(m)).toBeNull();
-    expect(m.target.querySelector('a')?.getAttribute('href')).toBe(`/app/u/${URN}`);
+    const anchor = m.target.querySelector('a')!;
+    const t = toggle(m);
+    expect(anchor.getAttribute('href')).toBe(`/app/u/${URN}`);
+    expect(anchor.hasAttribute('aria-expanded')).toBe(false);
+    expect(t).not.toBeNull();
+    expect(anchor.contains(t)).toBe(false);
     expect(valueSpan(m).className).toContain('truncate');
+
+    t!.click();
+    flushSync();
+    expect(t!.getAttribute('aria-expanded')).toBe('true');
+    expect(valueSpan(m).textContent).toBe(URN);
+    expect(anchor.getAttribute('href')).toBe(`/app/u/${URN}`);
   });
 
-  it('a fine pointer keeps the plain chip (no toggle, no extra tab stop)', () => {
+  it('a wide fine pointer keeps the plain chip (no toggle, no extra tab stop)', () => {
     stubPointer(false);
     const m = mountUrn({ compact: true });
     expect(toggle(m)).toBeNull();
@@ -132,15 +202,17 @@ describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
     expect(valueSpan(m).className).toContain('truncate');
   });
 
-  it('a chip that becomes linked or non-compact while mounted stops being a toggle', () => {
+  it('a chip that becomes linked moves the toggle outside the anchor; non-compact removes it', () => {
     stubPointer(true);
     const m = mountUrn({ compact: true });
     expect(toggle(m)).not.toBeNull();
     m.props.linked = true;
     flushSync();
-    // Not just "no <button>": the link itself must carry no toggle semantics.
-    expect(m.target.querySelector('[aria-expanded], [role="button"]')).toBeNull();
-    expect(m.target.querySelector('a')).not.toBeNull();
+    const anchor = m.target.querySelector('a')!;
+    expect(anchor.hasAttribute('aria-expanded')).toBe(false);
+    expect(anchor.hasAttribute('role')).toBe(false);
+    expect(toggle(m)).not.toBeNull();
+    expect(anchor.contains(toggle(m))).toBe(false);
 
     m.props.linked = false;
     flushSync();
@@ -162,11 +234,14 @@ describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
     expect(valueSpan(m).className).toContain('truncate');
   });
 
-  it('a linked or non-compact chip never listens to the pointer', () => {
+  it('a non-compact chip never listens; a linked compact chip follows both reveal queries', () => {
     const pointer = stubPointer(true);
     mountUrn({ compact: true, linked: true });
+    expect(pointer.listeners.size).toBe(1);
+    expect(pointer.narrowListeners.size).toBe(1);
     mountUrn({});
-    expect(pointer.listeners.size).toBe(0);
+    expect(pointer.listeners.size).toBe(1);
+    expect(pointer.narrowListeners.size).toBe(1);
   });
 
   it('a chip expanded, then linked, then unlinked comes back collapsed (#1642 BLIND P3)', () => {
