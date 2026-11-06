@@ -2982,6 +2982,21 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     expect(region.textContent?.trim()).toBe('');
   });
 
+  // portal#1715 S2: these banners had dark classes only, so a refusal was a dark block on a light page.
+  it('the shared banners have a light and a dark look', async () => {
+    const { m } = await mountAgents();
+    const { id, delayed } = await beginInstall(m.target);
+    await delayed.finish(await refused(id) as never);
+    await tick(4);
+    const alert = [...m.target.querySelectorAll('[role="alert"]')].find((x) => x.textContent?.includes(REFUSED))!;
+    expect(alert.className.split(' ')).toEqual(expect.arrayContaining(['bg-red-50', 'text-red-700', 'dark:bg-red-950', 'dark:text-red-300']));
+    const { id: next, delayed: again } = await beginInstall(m.target);
+    await again.finish(await confirmed(next) as never);
+    await tick(4);
+    const status = [...m.target.querySelectorAll('[role="status"]')].find((x) => x.textContent?.includes(LINKED))!;
+    expect(status.className.split(' ')).toEqual(expect.arrayContaining(['bg-green-50', 'text-green-700', 'dark:bg-green-950', 'dark:text-green-300']));
+  });
+
   it('the stale-list notice leaves with the App', async () => {
     const { m, props } = await mountAgents();
     navigationHooks.onInvalidateAll = () => { throw new Error('refresh failed after a confirmed install'); };
