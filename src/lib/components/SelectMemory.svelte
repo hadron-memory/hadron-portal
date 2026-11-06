@@ -180,7 +180,7 @@
           aria-label={placeholder}
           class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-indigo-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-white dark:placeholder-zinc-500"
         />
-        {#if note}<p role="status" class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{note}</p>{/if}
+        {#if keepOpen}<p role="status" class="mt-2 text-xs text-zinc-600 dark:text-zinc-400">{note}</p>{/if}
       </div>
 
       <!-- Table -->
