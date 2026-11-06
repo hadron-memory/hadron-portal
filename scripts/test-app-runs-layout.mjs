@@ -45,8 +45,25 @@ try {
    await page.getByRole('button', { name: 'Next', exact: true }).click();
    url = await page.evaluate(async () => { const { navigationCalls } = await import('/src/lib/test/stubs/app-navigation.ts'); return navigationCalls.at(-1)?.args[0]; });
    assert.equal(new URL(url, origin).searchParams.get('page'), '4');
+   await page.evaluate(async () => {
+    const nav = await import('/src/lib/test/stubs/app-navigation.ts');
+    nav.resetNavigationCalls();
+    nav.navigationHooks.onGoto = () => new Promise(resolve => { window.releaseRunNavigation = resolve; });
+   });
+   const failed = page.getByLabel('FAILED', { exact: true });
+   await failed.focus(); await page.keyboard.press('Space');
+   await page.waitForFunction(() => document.querySelector('[aria-busy="true"]'));
+   assert.equal(await failed.evaluate(el => document.activeElement === el), true, 'pending filter navigation keeps native keyboard focus');
+   await page.evaluate(() => window.releaseRunNavigation());
+   await page.waitForFunction(() => !document.querySelector('[aria-busy="true"]'));
+   await page.evaluate(async () => {
+    const nav = await import('/src/lib/test/stubs/app-navigation.ts');
+    for (const guard of nav.navigationGuards.filter(x => x.fn === 'afterNavigate')) guard.callback({ type: 'goto' });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+   });
+   assert.equal(await failed.evaluate(el => document.activeElement === el), true, 'modeled router completion does not steal a live filter focus');
    assert.equal(errors.length, 0, errors.join('\n'));
-   console.log(`${width}/${dark ? 'dark' : 'light'}: PASS 20 rows, 7 columns, capped Flows only, contained grid, keyboard sort, URL pager; controlled fixture only`);
+   console.log(`${width}/${dark ? 'dark' : 'light'}: PASS 20 rows, 7 columns, capped Flows only, contained grid, keyboard sort, URL pager, native pending-filter focus; controlled fixture/router completion only`);
   } finally { await page.close(); }
  }
 } finally { await browser?.close(); await server.close(); }

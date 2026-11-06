@@ -3,7 +3,7 @@ import { flushSync } from 'svelte';
 import AppRunsTable from './AppRunsTable.svelte';
 import { mountComponent, tick } from '$lib/test/mountComponent';
 import { reactiveProps } from '$lib/test/reactiveProps.svelte';
-import { navigationCalls, resetNavigationCalls } from '$lib/test/stubs/app-navigation';
+import { navigationCalls, resetNavigationCalls, navigationHooks, navigationGuards, resetNavigationGuards } from '$lib/test/stubs/app-navigation';
 import type { AppRun } from '$lib/flow/runs';
 import type { RunsSection } from '$lib/flow/app-runs-page';
 import { localStorageViewStore } from '$lib/table/localStorageViewStore';
@@ -15,7 +15,7 @@ const reply = (value: unknown) => ({ ok: true, json: async () => value }) as Res
 let cleanup: (() => void)[] = [];
 function mount(initial = section()) { const props = reactiveProps({ appRef: 'a', initial }); const m = mountComponent(AppRunsTable, props); cleanup.push(m.unmount); return { ...m, props }; }
 const find = (root: HTMLElement, label: string) => [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === label)!;
-beforeEach(() => { localStorage.clear(); resetNavigationCalls(); });
+beforeEach(() => { localStorage.clear(); resetNavigationCalls(); resetNavigationGuards(); });
 afterEach(() => { cleanup.forEach(f => f()); cleanup = []; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('App Runs manual server table', () => {
   it('renders all20 served rows on page3 without local re-page or re-sort, and changes only the URL on sort', async () => {
@@ -60,4 +60,37 @@ describe('App Runs manual server table', () => {
     find(m.target, 'Retry').click(); m.unmount(); held.resolve(reply(section())); await tick(16);
     expect(navigationCalls).toEqual([]);
   });
+  it('keeps filters enabled and merges a newer choice while navigation is held', async () => {
+    const a = deferred<void>(), b = deferred<void>();
+    let call = 0; navigationHooks.onGoto = () => ++call === 1 ? a.promise : b.promise;
+    const m = mount(); await tick(8);
+    const labels = [...m.target.querySelectorAll('label')];
+    const failed = labels.find(x => x.textContent?.trim() === 'FAILED')!.querySelector('input')!;
+    const running = labels.find(x => x.textContent?.trim() === 'RUNNING')!.querySelector('input')!;
+    failed.focus(); failed.click(); await tick(4);
+    expect(failed.matches(':disabled')).toBe(false);
+    expect(document.activeElement).toBe(failed);
+    running.focus(); running.click(); await tick(4);
+    const url = new URL(navigationCalls.at(-1)!.args[0] as string, 'https://test');
+    expect(url.searchParams.get('status')).toBe('RUNNING,FAILED');
+    expect(navigationCalls.filter(x => x.fn === 'goto')).toHaveLength(2);
+    a.resolve(); await tick(8);
+    expect(m.target.querySelector('[aria-busy]')?.getAttribute('aria-busy')).toBe('true');
+    expect(failed.checked).toBe(true); expect(running.checked).toBe(true);
+    m.props.initial = section({ page: 1, statuses: ['RUNNING', 'FAILED'] }); flushSync();
+    b.resolve(); await tick(8);
+    expect(document.activeElement).toBe(running);
+    expect(failed.checked).toBe(true); expect(running.checked).toBe(true);
+  });
+  it('does not move a live filter focus to the heading after navigation', async () => {
+    const m = mount(); await tick(8);
+    const sort = m.target.querySelector<HTMLSelectElement>('select[aria-label="Sort runs by"]')!;
+    sort.focus();
+    for (const guard of navigationGuards.filter(x => x.fn === 'afterNavigate')) {
+      (guard.callback as (n: { type: string }) => void)({ type: 'goto' });
+    }
+    await tick(8);
+    expect(document.activeElement).toBe(sort);
+  });
+
 });
