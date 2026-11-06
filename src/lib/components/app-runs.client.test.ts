@@ -15,6 +15,9 @@ const reply = (value: unknown) => ({ ok: true, json: async () => value }) as Res
 let cleanup: (() => void)[] = [];
 function mount(initial = section()) { const props = reactiveProps({ appRef: 'a', initial }); const m = mountComponent(AppRunsTable, props); cleanup.push(m.unmount); return { ...m, props }; }
 const find = (root: HTMLElement, label: string) => [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === label)!;
+const statusBox = (root: HTMLElement, name: string) => [...root.querySelectorAll('label')].find(x => x.textContent?.trim() === name)!.querySelector('input')!;
+const selectControl = (root: HTMLElement, label: string) => root.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
+const changeSelect = (select: HTMLSelectElement, value: string) => { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); };
 beforeEach(() => { localStorage.clear(); resetNavigationCalls(); resetNavigationGuards(); });
 afterEach(() => { cleanup.forEach(f => f()); cleanup = []; resetNavigationGuards(); document.body.removeAttribute('tabindex'); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('App Runs manual server table', () => {
@@ -44,9 +47,60 @@ describe('App Runs manual server table', () => {
     expect(selected[1].args[1]).toMatchObject({ replaceState: false });
     expect(new URL(selected[1].args[0] as string, 'https://test').searchParams.get('sort')).toBe('finishedAt');
   });
+  it.each(['destroy', 'App change', 'served query', 'new intent'])('does not let delayed saved-view init overtake %s', async boundary => {
+    const v = await localStorageViewStore.create('app-runs-server', 'Default', normalizeView({ sorting: [{ id: 'status', desc: false }], columnFilters: [{ id: 'status', value: ['FAILED'] }] }));
+    await localStorageViewStore.setDefault('app-runs-server', v.id);
+    const views = await localStorageViewStore.list('app-runs-server');
+    const held = deferred<typeof views>(); vi.spyOn(localStorageViewStore, 'list').mockReturnValueOnce(held.promise);
+    const m = mount(section({ page: 1, explicitState: false })); await tick(4);
+    if (boundary === 'destroy') m.unmount();
+    else if (boundary === 'App change') { m.props.appRef = 'b'; m.props.initial = section({ page: 1 }); flushSync(); }
+    else if (boundary === 'served query') { m.props.initial = section({ page: 1, sort: 'finishedAt' }); flushSync(); }
+    else { find(m.target, 'Active').click(); await tick(8); }
+    const before = navigationCalls.filter(x => x.fn === 'goto').length;
+    held.resolve(views); await tick(32);
+    expect(navigationCalls.filter(x => x.fn === 'goto')).toHaveLength(before);
+  });
   it('renders the accepted SPAWN trigger as a named cell', async () => {
     const m = mount(section({ runs: [{ ...run('spawn'), triggerKind: 'SPAWN' }] })); await tick(8);
     expect(m.target.querySelector('tbody tr td:nth-child(2)')?.textContent?.trim()).toBe('Spawn');
+  });
+  it('keeps a held filter when the next choice changes sorting', async () => {
+    const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+    const m = mount(); await tick(8);
+    statusBox(m.target, 'FAILED').click(); await tick(4);
+    changeSelect(selectControl(m.target, 'Sort runs by'), 'status'); await tick(4);
+    const url = new URL(navigationCalls.at(-1)!.args[0] as string, 'https://test');
+    expect(url.searchParams.get('status')).toBe('FAILED'); expect(url.searchParams.get('sort')).toBe('status');
+    held.resolve(); await tick(4);
+  });
+  it('restores the served checkbox after navigation rejects', async () => {
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    const m = mount(); await tick(8);
+    const checkbox = statusBox(m.target, 'FAILED'); checkbox.click(); await tick(8);
+    expect(checkbox.checked).toBe(false);
+  });
+  it('restores the served sort after navigation rejects', async () => {
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    const m = mount(); await tick(8);
+    const sort = selectControl(m.target, 'Sort runs by'); changeSelect(sort, 'status'); await tick(8);
+    expect(sort.value).toBe('createdAt');
+  });
+  it('restores the served direction after navigation rejects', async () => {
+    navigationHooks.onGoto = async () => { throw new Error('navigation rejected'); };
+    const m = mount(); await tick(8);
+    const direction = selectControl(m.target, 'Run sort order'); changeSelect(direction, 'asc'); await tick(8);
+    expect(direction.value).toBe('desc');
+  });
+  it('lets served data replace intent before the old navigation settles', async () => {
+    const held = deferred<void>(); navigationHooks.onGoto = () => held.promise;
+    const m = mount(); await tick(8);
+    const checkbox = statusBox(m.target, 'FAILED'); checkbox.click(); await tick(4);
+    m.props.initial = section({ statuses: [], page: 1 }); flushSync(); await tick(4);
+    expect(checkbox.checked).toBe(false);
+    expect(m.target.querySelector('[aria-busy]')?.getAttribute('aria-busy')).toBe('false');
+    held.resolve(); await tick(8);
+    expect(checkbox.checked).toBe(false);
   });
   it('renders all20 served rows on page3 without local re-page or re-sort, and changes only the URL on sort', async () => {
     const rows = Array.from({ length: 20 }, (_, i) => ({ ...run(`row-${20 - i}`), startedAt: `2026-11-01T00:00:${String(i).padStart(2, '0')}Z` }));
