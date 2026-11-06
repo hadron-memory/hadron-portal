@@ -26,7 +26,7 @@ function activate(button: HTMLButtonElement, key: string) {
   button.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true })); button.click();
 }
 
-function nativeDisabledBlur() {
+function focusBody() {
   const previous = document.body.getAttribute('tabindex');
   document.body.tabIndex = -1; document.body.focus();
   if (previous === null) document.body.removeAttribute('tabindex');
@@ -91,19 +91,25 @@ describe('exhausted relation control focus', () => {
     expect(trigger.isConnected).toBe(true); expect(document.activeElement).not.toBe(m.filter);
     expect(m.target.textContent).toContain('Task new');
   });
-  it.each(['Load more Waits for', 'Load more Holds up'].flatMap(name => ['Enter', ' '].map(key => [name, key])))('%s %s restores the surviving non-final control after native disabled blur', async (name, key) => {
+  it.each(['Load more Waits for', 'Load more Holds up'].flatMap(name => ['Enter', ' '].map(key => [name, key])))('%s %s stays focusable while paging and suppresses repeated activation', async (name, key) => {
     const m = await setup(); const trigger = m.more(name); activate(trigger, key); await tick(3);
-    expect(trigger.disabled).toBe(true);
-    // jsdom keeps disabled-button focus; explicitly model Chromium's BODY blur.
-    nativeDisabledBlur(); expect(document.activeElement).toBe(document.body);
+    expect(trigger.disabled).toBe(false); expect(trigger.getAttribute('aria-disabled')).toBe('true');
+    expect(trigger.getAttribute('aria-busy')).toBe('true'); expect(document.activeElement).toBe(trigger);
+    trigger.click(); trigger.click(); expect(fetch).toHaveBeenCalledTimes(1);
     m.settle(true); await tick(12);
     expect(trigger.isConnected).toBe(true); expect(trigger.disabled).toBe(false);
-    expect(document.activeElement).toBe(trigger);
+    expect(trigger.getAttribute('aria-busy')).toBe('false'); expect(document.activeElement).toBe(trigger);
     expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+  });
+  it.each(['Load more Waits for', 'Load more Holds up'])('%s does not reclaim BODY after a newer click on blank space', async name => {
+    const m = await setup(); const trigger = m.more(name); activate(trigger, 'Enter'); await tick(3);
+    // Chromium clicking a non-focusable heading leaves BODY; no focusin on a
+    // different control occurs. Native reproduction is kept separate.
+    focusBody(); m.settle(true); await tick(12); expect(document.activeElement).toBe(document.body);
   });
   it.each([false, true])('does not reclaim a non-final control after newer focus (blur=%s)', async blur => {
     const m = await setup(); const trigger = m.more('Load more Waits for'); activate(trigger, 'Enter'); await tick(3);
-    nativeDisabledBlur(); const newer = m.more('Choose a task'); newer.focus(); if (blur) newer.blur();
+    focusBody(); const newer = m.more('Choose a task'); newer.focus(); if (blur) newer.blur();
     m.settle(true); await tick(12);
     expect(document.activeElement).toBe(blur ? document.body : newer);
   });
@@ -111,14 +117,14 @@ describe('exhausted relation control focus', () => {
     const m = await setup(); m.more('Load more Waits for').click(); await tick(3);
     m.settle(true); await tick(12); expect(document.activeElement).toBe(document.body);
   });
-  it('restores the retryable control after a failed read without moving to the final-page filter', async () => {
-    const m = await setup(); const trigger = m.more('Load more Holds up'); activate(trigger, 'Enter'); await tick(3); nativeDisabledBlur();
+  it('keeps the retryable control focused after a failed read without moving to the final-page filter', async () => {
+    const m = await setup(); const trigger = m.more('Load more Holds up'); activate(trigger, 'Enter'); await tick(3);
     m.fail(); await tick(12); expect(document.activeElement).toBe(trigger); expect(trigger.disabled).toBe(false);
     expect(m.target.textContent).toContain('Couldn’t load more Holds up. Try again.');
     expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
   });
   it('does not restore a non-final control across a newer relation snapshot', async () => {
-    const m = await setup(); const trigger = m.more('Load more Waits for'); activate(trigger, 'Enter'); await tick(3); nativeDisabledBlur();
+    const m = await setup(); const trigger = m.more('Load more Waits for'); activate(trigger, 'Enter'); await tick(3); focusBody();
     m.props.dependencies = initial(); await tick(3); m.settle(true); await tick(12);
     expect(document.activeElement).toBe(document.body); expect(m.target.textContent).not.toContain('Task new');
   });
