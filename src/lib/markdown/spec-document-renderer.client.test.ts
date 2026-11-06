@@ -67,6 +67,10 @@ describe('spec document links and markup safety', () => {
     const host = render(`[x](${u})`);
     expect(host.querySelector('a')?.hasAttribute('href') ?? false).toBe(false);
   });
+  it('removes a raw-HTML href of /\\host: browsers read the backslash as a slash (protocol-relative)', () => {
+    const host = render('<a href="/\\evil.test/x">x</a>');
+    expect(host.querySelector('a')?.hasAttribute('href') ?? false).toBe(false);
+  });
   it('keeps https, mailto, fragment and portal-relative links', () => {
     const host = render('[a](https://x.test/p) [b](mailto:a@x.test) [c](#fx-1-a) [d](/app/u/hrn:node:o:m:l)');
     expect([...host.querySelectorAll('a')].map((a) => a.getAttribute('href'))).toEqual(['https://x.test/p', 'mailto:a@x.test', '#fx-1-a', '/app/u/hrn:node:o:m:l']);

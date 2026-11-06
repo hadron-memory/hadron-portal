@@ -30,8 +30,14 @@ describe('classifySpecDocumentFailure', () => {
   it.each(['MEMORY_NOT_FOUND', 'NODE_NOT_FOUND'])('%s is not-found', (c) => expect(classifySpecDocumentFailure(gql(c))).toEqual({ kind: 'not-found' }));
   it('encrypted', () => expect(classifySpecDocumentFailure(gql('SPEC_CORPUS_ENCRYPTED_UNSUPPORTED'))).toEqual({ kind: 'encrypted' }));
   it('too large carries only a numeric cap', () => {
-    expect(classifySpecDocumentFailure(gql('SPEC_DOCUMENT_TOO_LARGE', { cap: 300, limit: 'nodes', maxBytes: 5 }))).toEqual({ kind: 'too-large', cap: 300 });
-    expect(classifySpecDocumentFailure(gql('SPEC_DOCUMENT_TOO_LARGE', { cap: '<b>x</b>' }))).toEqual({ kind: 'too-large', cap: null });
+    expect(classifySpecDocumentFailure(gql('SPEC_DOCUMENT_TOO_LARGE', { cap: 300, limit: 'nodes', maxBytes: 5 }))).toEqual({ kind: 'too-large', cap: 300, limit: 'nodes' });
+    expect(classifySpecDocumentFailure(gql('SPEC_DOCUMENT_TOO_LARGE', { cap: '<b>x</b>' }))).toEqual({ kind: 'too-large', cap: null, limit: null });
+  });
+  it('too large carries which limit was hit, only if it is one of the three the server sends', () => {
+    for (const limit of ['nodes', 'bytes', 'links'] as const) {
+      expect(classifySpecDocumentFailure(gql('SPEC_DOCUMENT_TOO_LARGE', { cap: 300, limit }))).toEqual({ kind: 'too-large', cap: 300, limit });
+    }
+    expect(classifySpecDocumentFailure(gql('SPEC_DOCUMENT_TOO_LARGE', { cap: 300, limit: '<i>x</i>' }))).toEqual({ kind: 'too-large', cap: 300, limit: null });
   });
   it('anything else is unclassified (the error page handles it)', () => {
     expect(classifySpecDocumentFailure(gql('FORBIDDEN'))).toBeNull();

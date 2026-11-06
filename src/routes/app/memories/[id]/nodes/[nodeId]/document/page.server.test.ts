@@ -10,7 +10,7 @@ beforeEach(() => { mockRequest.mockReset(); });
 
 const event = (id = 'mem-1', nodeId = 'node-1') => ({ params: { id, nodeId }, locals: { token: 't' } }) as unknown as Parameters<typeof load>[0];
 const run = async (e = event()) => (await load(e)) as { document: Record<string, unknown> };
-const specNode = (extra = {}) => ({ node: { id: 'node-1', memoryId: 'mem-1', loc: 'cor:agt:110', name: 'A Feature', role: 'spec.feature', ...extra } });
+const specNode = (extra = {}) => ({ node: { id: 'node-1', memoryId: 'mem-1', loc: 'cor:agt:110', name: 'A Feature', urn: 'hrn:node:o.test:m:cor:agt:110', role: 'spec.feature', ...extra } });
 const refusal = (code: string, extra: Record<string, unknown> = {}) => ({ response: { errors: [{ message: 'm', extensions: { code, ...extra } }] } });
 
 function serve(doc: () => unknown, node: unknown = specNode()) {
@@ -25,7 +25,7 @@ describe('document load', () => {
   it('returns the server markdown byte for byte', async () => {
     const md = '<a id="cor-agt-110"></a>\n\n# Feature é\n\ntail\n';
     serve(() => ({ specDocument: { loc: 'cor:agt:110', markdown: md } }));
-    expect((await run()).document).toEqual({ state: 'ok', loc: 'cor:agt:110', name: 'A Feature', markdown: md });
+    expect((await run()).document).toEqual({ state: 'ok', loc: 'cor:agt:110', name: 'A Feature', urn: 'hrn:node:o.test:m:cor:agt:110', markdown: md });
     expect(mockRequest).toHaveBeenCalledWith(SPEC_DOCUMENT_QUERY, { memoryRef: 'mem-1', loc: 'cor:agt:110' });
   });
   it('shows the SAME state for an unreadable node, a non-spec node, and the server not-found codes', async () => {
@@ -40,6 +40,14 @@ describe('document load', () => {
     expect(unreadable).toEqual({ state: 'not-found' });
     for (const other of [nonSpec, memory, missing]) expect(other).toEqual(unreadable);
   });
+  it('classifies a refusal of the FIRST (node) query like the second: not-found, encrypted, and unclassified rethrown', async () => {
+    mockRequest.mockImplementation(async () => { throw refusal('NODE_NOT_FOUND'); });
+    expect((await run()).document).toEqual({ state: 'not-found' });
+    mockRequest.mockImplementation(async () => { throw refusal('SPEC_CORPUS_ENCRYPTED_UNSUPPORTED'); });
+    expect((await run()).document).toEqual({ state: 'encrypted' });
+    mockRequest.mockImplementation(async () => { throw refusal('FORBIDDEN'); });
+    await expect(run()).rejects.toBeTruthy();
+  });
   it('never asks the server for a document of a non-spec node', async () => {
     serve(() => { throw new Error('unreached'); }, specNode({ role: null }));
     await run();
@@ -49,7 +57,7 @@ describe('document load', () => {
     serve(() => { throw refusal('SPEC_CORPUS_ENCRYPTED_UNSUPPORTED', { memoryId: 'secret-id' }); });
     expect((await run()).document).toEqual({ state: 'encrypted' });
     serve(() => { throw refusal('SPEC_DOCUMENT_TOO_LARGE', { cap: 300, limit: 'nodes', maxBytes: 9 }); });
-    expect((await run()).document).toEqual({ state: 'too-large', cap: 300 });
+    expect((await run()).document).toEqual({ state: 'too-large', cap: 300, limit: 'nodes' });
   });
   it('lets an unclassified failure reach the error page', async () => {
     serve(() => { throw refusal('FORBIDDEN'); });

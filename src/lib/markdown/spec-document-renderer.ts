@@ -23,8 +23,8 @@ import { installNoteHooks, NOTE_ATTRIBUTES, NOTE_TAGS } from './node-renderer';
  */
 export const SPEC_ANCHOR_ID = /^[A-Za-z0-9][A-Za-z0-9._]*(?:-[A-Za-z0-9._]*)+$/;
 
-/** Web links, mail and fragments only: no `javascript:`, `data:`, `file:` or `blob:`, no protocol-relative `//`. */
-const SAFE_URI = /^(?:(?:https?|mailto):|#|\/(?!\/))/i;
+/** Web links, mail and fragments only: no `javascript:`, `data:`, `file:` or `blob:`, no protocol-relative `//` or `/\\` (browsers read a backslash as a slash). */
+const SAFE_URI = /^(?:(?:https?|mailto):|#|\/(?![\/\\]))/i;
 
 const XHTML = 'http://www.w3.org/1999/xhtml';
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { t } from '$lib/i18n/t';
   import { renderSpecDocument } from '$lib/markdown/spec-document-renderer';
   import { specDocumentFilename } from '$lib/spec-document/spec-document';
@@ -16,23 +16,52 @@
   let renderFailed = $state(false);
   let copyStatus = $state<'idle' | 'copied' | 'failed'>('idle');
 
-  onMount(() => {
+  // An effect, not onMount: SvelteKit reuses this component when only the route
+  // params change (document A -> B, or back/forward), so the render must follow
+  // `markdown`. Effects never run during SSR, which keeps the parse off the
+  // server. `container` is bound after mount, so the first run waits for it.
+  $effect(() => {
+    const source = markdown;
+    if (!container) return;
     try {
-      html = renderSpecDocument(markdown, container);
+      html = renderSpecDocument(source, container);
+      renderFailed = false;
     } catch {
       // Show the raw text, escaped by the template, with Copy and Download intact.
+      html = null;
       renderFailed = true;
     }
   });
 
+  let statusTimer: ReturnType<typeof setTimeout> | undefined;
+  function setStatus(next: 'copied' | 'failed') {
+    copyStatus = next;
+    clearTimeout(statusTimer);
+    // The result is a moment's feedback, not a state of the page.
+    statusTimer = setTimeout(() => (copyStatus = 'idle'), 4000);
+  }
+  onDestroy(() => clearTimeout(statusTimer));
+
   async function copy() {
     try {
       await navigator.clipboard.writeText(markdown);
-      copyStatus = 'copied';
+      setStatus('copied');
     } catch {
-      copyStatus = 'failed';
+      setStatus('failed');
     }
   }
+
+  // A long code line scrolls its own box; a scrollable box has to be reachable
+  // by keyboard, so every rendered <pre> takes a tab stop and a name.
+  $effect(() => {
+    void html;
+    if (!container) return;
+    for (const pre of container.querySelectorAll('pre')) {
+      pre.setAttribute('tabindex', '0');
+      pre.setAttribute('role', 'region');
+      pre.setAttribute('aria-label', t('spec-document.code-block', 'Code block'));
+    }
+  });
 
   function download() {
     const url = URL.createObjectURL(new Blob([markdown], { type: 'text/markdown;charset=utf-8' }));
@@ -42,7 +71,8 @@
     document.body.append(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
+    // Revoke after the click has been handled: a synchronous revoke is flaky in some WebKit builds.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   const buttonClass =
@@ -57,7 +87,7 @@
   </span>
 </div>
 
-<div class="mt-4 min-w-0" data-testid="spec-document-body" aria-label={name}>
+<div class="mt-4 min-w-0" data-testid="spec-document-body" role="region" aria-label={name}>
   {#if renderFailed}
     <pre class="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-zinc-100 p-3 text-sm text-zinc-800 dark:bg-zinc-800 dark:text-zinc-100" data-testid="spec-document-raw">{markdown}</pre>
   {/if}

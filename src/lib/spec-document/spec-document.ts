@@ -23,10 +23,13 @@ export function specDocumentFilename(loc: string): string {
   return `${base === '' ? 'spec-document' : base}.md`;
 }
 
+/** Which of the server's three limits a too-large refusal hit (extensions.limit). */
+export type SpecDocumentLimit = 'nodes' | 'bytes' | 'links';
+
 export type SpecDocumentFailure =
   | { kind: 'not-found' }
   | { kind: 'encrypted' }
-  | { kind: 'too-large'; cap: number | null };
+  | { kind: 'too-large'; cap: number | null; limit: SpecDocumentLimit | null };
 
 /**
  * The server's refusals this view words itself. An unreadable memory, a
@@ -40,8 +43,15 @@ export function classifySpecDocumentFailure(e: unknown): SpecDocumentFailure | n
   if (code.endsWith('_NOT_FOUND')) return { kind: 'not-found' };
   if (code === 'SPEC_CORPUS_ENCRYPTED_UNSUPPORTED') return { kind: 'encrypted' };
   if (code === 'SPEC_DOCUMENT_TOO_LARGE') {
-    const cap = extractGqlErrorExtensions(e)?.cap;
-    return { kind: 'too-large', cap: typeof cap === 'number' && Number.isFinite(cap) ? cap : null };
+    const ext = extractGqlErrorExtensions(e);
+    const cap = ext?.cap;
+    const limit = ext?.limit;
+    return {
+      kind: 'too-large',
+      cap: typeof cap === 'number' && Number.isFinite(cap) ? cap : null,
+      // Only the three words the server sends; anything else is the plain line.
+      limit: limit === 'nodes' || limit === 'bytes' || limit === 'links' ? limit : null,
+    };
   }
   return null;
 }

@@ -5562,6 +5562,7 @@ export const SPEC_DOCUMENT_NODE_QUERY = /* GraphQL */ `
   query SpecDocumentNode($ref: ID!) {
     node(ref: $ref) {
       id
+      urn
       memoryId
       loc
       name
