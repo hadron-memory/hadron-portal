@@ -93,13 +93,18 @@ describe('findOutlineNoneTrap', () => {
 
   // A suppression scoped to focus-visible itself can never be restated safely: any
   // style utility beside it shares its variant, equal specificity leaves the winner
-  // to tailwind's utility sort order, and outline-none sorts AFTER the style
-  // utilities there (.focus-visible:outline-dashed before .focus-visible:outline-none
-  // in the compiled css) — the suppression wins and nothing paints (Gaia P3-1
-  // same-variant pair, confirmed; P2-grade per her rule).
+  // to tailwind's utility sort order — and that order is not a contract. In the
+  // compiled css outline-none (idx 104542) sorts AFTER dashed (104152)/dotted
+  // (104282)/double (104412) but BEFORE solid (104666), so the dashed pair never
+  // paints while the solid pair does: the outcome flips by which style utility is
+  // picked, which is exactly why the gate refuses the shape outright (Gaia P3-1
+  // same-variant pair; the solid flip confirmed on her 5b7e1afe delta).
   it.each([
     ['width-only beside a focus-visible suppression', `<div class="focus-visible:outline-none focus-visible:outline-2">`],
     ['style restatement under the same variant', `<div class="focus-visible:outline-none focus-visible:outline-dashed">`],
+    // The solid pair would PAINT (solid sorts after none) and is refused anyway —
+    // the bright line does not depend on the sort outcome.
+    ['solid under the same variant paints and is refused anyway', `<div class="focus-visible:outline-none focus-visible:outline-solid">`],
     ['same variant, matching extras on both', `<div class="dark:focus-visible:outline-none dark:focus-visible:outline-solid">`],
   ])('flags the same-variant suppression: %s', (_what, line) => {
     const findings = findOutlineNoneTrap(line);

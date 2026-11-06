@@ -34,10 +34,11 @@
  * dark suppression sorts AFTER the plain restatement at equal specificity; Gaia P3-1,
  * confirmed P2-grade, portal#1751 BLIND delta). A suppression scoped to `focus-visible`
  * itself is refused outright: any restatement beside it shares its variant, equal
- * specificity makes tailwind's utility sort order the judge, and `outline-none` sorts
- * after the style utilities there (`focus-visible:outline-dashed` before
- * `focus-visible:outline-none` in the compiled css) — so the ring never paints (Gaia
- * P3-1 same-variant pair). A suppression paired only with `focus-visible:ring-*`
+ * specificity makes tailwind's utility sort order the judge, and that order is not a
+ * contract — in the compiled css `outline-none` sorts after dashed/dotted/double but
+ * BEFORE `solid`, so the pair's outcome flips by which style utility is picked (Gaia
+ * P3-1 same-variant pair; the solid flip confirmed on her 5b7e1afe delta). A
+ * suppression paired only with `focus-visible:ring-*`
  * (box-shadow ring) is NOT the pair — the outline is hidden on purpose, with
  * outline-hidden's forced-colors fallback (Gaia P2, portal#1751 BLIND delta). The fixed
  * spellings (`focus:outline-none focus-visible:outline-solid …` and its inverse
@@ -102,17 +103,14 @@ const restatementFor = (extras) => new RegExp(
 /** A suppression token — `outline-none`, or `outline-hidden` (same variable; forced-colors fallback) — with its variant chain. */
 const SUPPRESSES = /^((?:[\w()-]+:)*)(outline-none|outline-hidden)$/;
 
-/** Variants that legitimately scope the suppression to focus. */
-const FOCUS_SCOPES = new Set(['focus', 'focus-visible']);
-
 /** Why a token is the defect, in one sentence for the CI annotation. */
 const REASON = {
   unscoped:
-    'the suppression is not focus-scoped — the bright line refuses it even though a focus-visible:outline-<style> restatement would out-rank it by specificity — scope it (focus:outline-none) and keep the focus-visible:outline-solid restatement',
+    'the suppression is not focus-scoped — the bright line refuses it even where a focus-visible:outline-<style> restatement would out-rank it by specificity — scope it (focus:outline-none) and add or keep the focus-visible:outline-solid restatement',
   noRestatement:
     'the suppression is focus-scoped but nothing safely re-states the outline STYLE — the restatement must be focus-visible:outline-<style> carrying the suppression\'s OWN extra variants (dark:focus:outline-none needs dark:focus-visible:outline-solid; a plain one sorts earlier at equal specificity, so the conditioned scheme/viewport keeps style:none); width/colour alone draw with --tw-outline-style, which the suppression left at none',
   sameVariant:
-    'the suppression is scoped to focus-visible, the same variant as any style restatement beside it — equal specificity leaves the winner to tailwind\'s utility sort order, and outline-none sorts after the style utilities there, so the ring never paints; use focus:outline-none with a focus-visible:outline-<style> restatement instead',
+    'the suppression is scoped to focus-visible, the same variant as any style restatement beside it — equal specificity leaves the winner to tailwind\'s utility sort order, not class order, and that order flips by style: dashed/dotted/double lose to outline-none while solid beats it (compiled css), so the pair is indeterminate by contract — use focus:outline-none with a focus-visible:outline-<style> restatement instead',
 };
 
 /**
@@ -140,7 +138,7 @@ export function findOutlineNoneTrap(line) {
       // a chain ending in focus is only safe when the same list re-states the outline
       // STYLE under focus-visible with the chain's own extra variants; a chain ending
       // in focus-visible is never safe — its restatement would share the variant.
-      if (last !== undefined && last === 'focus') {
+      if (last === 'focus') {
         const re = chain.length > 1 ? restatementFor(chain.slice(0, -1)) : RESTATES_STYLE;
         if (tokens.some((t) => re.test(t))) continue;
         out.push({ column: match.index + 1, token, line: line.trim(), reason: 'noRestatement' });

@@ -19,8 +19,10 @@
 # the reverse pairing loses the conditioned scheme/viewport — verified in the
 # compiled css, Gaia P3-1 at P2 grade, portal#1751 BLIND delta). A suppression
 # scoped to `focus-visible` itself is refused outright: any restatement beside it
-# shares the variant and `outline-none` sorts after the style utilities there, so
-# nothing paints. It shipped twice (#1619: the Task integrations heading;
+# shares the variant, and tailwind's utility sort order decides — outline-none sorts
+# after dashed/dotted/double but before solid in the compiled css, so the pair's
+# outcome flips by which style utility is picked. It shipped twice (#1619: the Task
+# integrations heading;
 # #1675: the ApplyAgentTickers result region), and jsdom cannot see it (it
 # computes no Tailwind cascade), so both times every component test stayed green.
 # The Chromium focus probes pin the two fixed surfaces; this gate stops the NEXT
