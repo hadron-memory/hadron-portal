@@ -119,7 +119,7 @@ describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
     expect(valueSpan(m).className).toContain('truncate');
   });
 
-  it('a fine pointer keeps the plain chip (no toggle, no extra tab stop)', () => {
+  it('a wide fine pointer keeps the plain chip (no toggle)', () => {
     stubPointer(false);
     const m = mountUrn({ compact: true });
     expect(toggle(m)).toBeNull();
@@ -290,14 +290,14 @@ describe('Urn: a keyboard user can read a truncated URN (#1686)', () => {
 });
 
 describe('Urn: touch targets for its own controls (#1686)', () => {
-  it('copy buttons and the reveal toggle extend their hit area to 44px on a coarse pointer', () => {
+  it('copy buttons and the reveal toggle extend their hit area to 44px tall on a coarse pointer', () => {
     stubPointer(true);
     const m = mountUrn({ compact: true });
     for (const el of [toggle(m)!, ...m.target.querySelectorAll<HTMLButtonElement>('button[aria-label^="Copy"]')]) {
       expect(el.className).toContain('relative');
       expect(el.className).toContain('pointer-coarse:after:absolute');
       expect(el.className).toContain('pointer-coarse:after:min-h-11');
-      expect(el.className).toContain('pointer-coarse:after:min-w-11');
+      expect(el.className).toContain('pointer-coarse:after:min-w-6');
     }
   });
 });

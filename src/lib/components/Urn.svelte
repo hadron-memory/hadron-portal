@@ -80,9 +80,21 @@
   // (a chevron) appears on hydration. matchMedia is absent in some test
   // environments, and an old engine may lack addEventListener on it; the chip
   // then stays plain or stops following pointer changes, never throws.
+  //
+  // #1686: the reveal also applies below a narrow viewport (a phone-width window
+  // on a fine pointer), and a WIDE fine-pointer chip is still readable by
+  // keyboard: it takes focus, and while focused a fixed readout shows the whole
+  // URN. The readout is `position: fixed`, so a cell's overflow cannot clip it
+  // and a dense list does not change height.
   let coarsePointer = $state(false);
+  let narrowViewport = $state(false);
   let expanded = $state(false);
-  const revealable = $derived(compact && !linked && coarsePointer);
+  const revealable = $derived(compact && !linked && (coarsePointer || narrowViewport));
+  const focusReadable = $derived(compact && !linked && !revealable);
+  const uid = $props.id();
+  const readoutId = `${uid}-urn-full`;
+  let focused = $state(false);
+  let readoutPos = $state({ left: 0, top: 0 });
   const showFull = $derived(revealable && expanded);
 
   // A chip that stops being a toggle (linked, non-compact, or a fine pointer)
@@ -94,12 +106,43 @@
   $effect(() => {
     if (!compact || linked || typeof window.matchMedia !== 'function') return;
     const mq = window.matchMedia('(pointer: coarse)');
+    const nq = window.matchMedia('(max-width: 639px)');
     coarsePointer = mq.matches;
-    if (typeof mq.addEventListener !== 'function') return;
-    const follow = (e: { matches: boolean }) => (coarsePointer = e.matches);
-    mq.addEventListener('change', follow);
-    return () => mq.removeEventListener('change', follow);
+    narrowViewport = nq.matches;
+    const followPointer = (e: { matches: boolean }) => (coarsePointer = e.matches);
+    const followWidth = (e: { matches: boolean }) => (narrowViewport = e.matches);
+    const cleanups: Array<() => void> = [];
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', followPointer);
+      cleanups.push(() => mq.removeEventListener('change', followPointer));
+    }
+    if (typeof nq.addEventListener === 'function') {
+      nq.addEventListener('change', followWidth);
+      cleanups.push(() => nq.removeEventListener('change', followWidth));
+    }
+    return () => cleanups.forEach((c) => c());
   });
+
+  $effect(() => {
+    if (!focusReadable) focused = false;
+  });
+
+  function showReadout(e: FocusEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    readoutPos = { left: Math.max(4, r.left), top: r.bottom + 4 };
+    focused = true;
+  }
+
+  function readoutKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && focused) focused = false;
+  }
+
+  // A 44px hit area for a control that is small on touch, without moving it
+  // (#1686): a centred pseudo-element, only on a coarse pointer. 24px wide so
+  // the neighbouring controls' areas do not overlap (the copy buttons widen their
+  // gap to match, on touch only).
+  const touchArea =
+    'relative pointer-coarse:after:absolute pointer-coarse:after:top-1/2 pointer-coarse:after:left-1/2 pointer-coarse:after:min-h-11 pointer-coarse:after:min-w-6 pointer-coarse:after:-translate-x-1/2 pointer-coarse:after:-translate-y-1/2';
 
   function v2TypeHint(typeHint: UrnTypeHint | undefined): string | undefined {
     if (!typeHint) return undefined;
@@ -212,7 +255,12 @@
     aria-expanded={revealable ? expanded : undefined}
     aria-label={revealable ? revealName : undefined}
     onclick={revealable ? () => (expanded = !expanded) : undefined}
-    class="inline-flex min-w-0 items-center overflow-hidden rounded font-mono leading-tight {linked ? 'hover:opacity-80' : ''} {revealable ? 'min-h-6 bg-zinc-100 pr-1 text-left text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400' : ''}"
+    tabindex={focusReadable ? 0 : undefined}
+    aria-describedby={focusReadable && focused ? readoutId : undefined}
+    onfocus={focusReadable ? showReadout : undefined}
+    onblur={focusReadable ? () => (focused = false) : undefined}
+    onkeydown={focusReadable ? readoutKey : undefined}
+    class="inline-flex min-w-0 items-center rounded font-mono leading-tight {revealable ? '' : 'overflow-hidden'} {linked ? 'hover:opacity-80' : ''} {revealable ? `${touchArea} min-h-6 bg-zinc-100 pr-1 text-left text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400` : ''} {focusReadable ? 'focus-visible:outline-2 focus-visible:outline-indigo-500' : ''}"
     style="font-size: 0.6rem;"
   >
     {#if compact}
@@ -229,7 +277,7 @@
     {/if}
   </svelte:element>
   <!-- type="button": a chip inside a <form> must never submit it (portal#945). -->
-  <button type="button" onclick={copy} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrnName} aria-label={copyUrnName}>
+  <button type="button" onclick={copy} class="ml-1 pointer-coarse:ml-3 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 {touchArea}" title={copyUrnName} aria-label={copyUrnName}>
     {#if copied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
@@ -237,12 +285,20 @@
     {/if}
   </button>
   {#if showCopyUrl}
-  <button type="button" onclick={copyUrl} class="ml-1 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300" title={copyUrlName} aria-label={copyUrlName}>
+  <button type="button" onclick={copyUrl} class="ml-1 pointer-coarse:ml-3 shrink-0 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 {touchArea}" title={copyUrlName} aria-label={copyUrlName}>
     {#if urlCopied}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>
     {:else}
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
     {/if}
   </button>
+  {/if}
+  {#if focusReadable && focused}
+    <span
+      id={readoutId}
+      role="tooltip"
+      class="z-50 max-w-[min(90vw,40rem)] rounded bg-zinc-800 px-2 py-1 font-mono text-zinc-100 shadow-lg [overflow-wrap:anywhere] dark:bg-zinc-100 dark:text-zinc-900"
+      style="position: fixed; left: {readoutPos.left}px; top: {readoutPos.top}px; font-size: 0.7rem;"
+    >{displayFullUrn}</span>
   {/if}
 </span>
