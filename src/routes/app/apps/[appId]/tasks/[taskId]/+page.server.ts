@@ -1,4 +1,6 @@
 import { taskDependencies } from '$lib/server/task-planning';
+import { taskFindingsPage } from '$lib/server/task-findings';
+import type { FindingsRead } from '$lib/agent-tasks/findings';
 import { OPTIONAL_LIST_TIMEOUT_MS, withTimeout } from '$lib/server/with-timeout';
 import { readTaskPriority } from '$lib/agent-tasks/planning';
 import { error, redirect, isHttpError } from '@sveltejs/kit';
@@ -86,6 +88,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     // optional-list budget becomes the existing unknown state ("reload to try again"),
     // never empty relations. The request itself is not cancelled, only no longer waited for.
     dependencies: await withTimeout(taskDependencies(client, app.id, task.id), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as const),
+    // portal#1637: the first page of the immutable findings, STREAMED so a slow or failed read costs the
+    // section and never the page. Only a task with a result is asked; a failure arrives as a VALUE
+    // ({kind:'failed'}), never empty and never a rejection (the #1588 pageerror class).
+    findings: (task.result
+      ? withTimeout(taskFindingsPage(client, app.id, task.id, 0), OPTIONAL_LIST_TIMEOUT_MS, { kind: 'failed' } as FindingsRead).catch((): FindingsRead => ({ kind: 'failed' }))
+      : Promise.resolve({ kind: 'no-result' } as FindingsRead)),
     // The tree's first row is the task itself; the view shows what is below it.
     tree,
     history,

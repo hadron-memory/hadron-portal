@@ -120,7 +120,7 @@ describe('GET /tasks/[taskId]/findings', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     request.mockImplementation(async (doc: string) => { if (doc === AGENT_TASK_FINDINGS_QUERY) throw new Error('secret finding text'); return provider()(doc, {}); });
     const response = await GET(event('0'));
-    expect(await response.json()).toEqual({ kind: 'failed' }); expect(JSON.stringify(await response.clone().text())).not.toContain('secret');
+    const body = await response.text(); expect(JSON.parse(body)).toEqual({ kind: 'failed' }); expect(body).not.toContain('secret');
   });
   it('a read that hangs past the optional-list bound is failed, not empty', async () => {
     vi.useFakeTimers();
