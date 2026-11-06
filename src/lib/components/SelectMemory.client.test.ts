@@ -312,7 +312,7 @@ describe('SelectMemory: several picks in one sitting (#1736)', () => {
     const props = reactiveProps<Record<string, unknown>>({ memories, onselect, open: true, keepOpen: true, ...extra });
     const m = mountComponent(SelectMemory as never, props as never) as Mounted<Record<string, unknown>>;
     mounted.push(m); flushSync();
-    return { onselect };
+    return { onselect, props };
   }
   const named = (label: string) => document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 
@@ -331,6 +331,20 @@ describe('SelectMemory: several picks in one sitting (#1736)', () => {
     expect(added.getAttribute('aria-disabled')).toBe('true');
     added.click(); flushSync();
     expect(onselect).not.toHaveBeenCalled();
+  });
+  it('keeps the note region mounted while the host note changes', async () => {
+    const { props } = openMulti({ note: '' });
+    const region = dialog()!.querySelector('[role=status]')!;
+    expect(region.textContent).toBe('');
+    props.note = '3 of 50 chosen.'; flushSync();
+    expect(dialog()!.querySelector('[role=status]')).toBe(region);
+    expect(region.textContent).toBe('3 of 50 chosen.');
+    props.note = ''; flushSync();
+    expect(dialog()!.querySelector('[role=status]')).toBe(region);
+  });
+  it('adds no empty region to the default picker', () => {
+    openModal(); flushSync();
+    expect(dialog()!.querySelector('[role=status]')).toBeNull();
   });
   it('shows the host note as status', () => {
     openMulti({ note: '3 of 50 chosen.' });

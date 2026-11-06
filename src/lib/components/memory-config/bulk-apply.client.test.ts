@@ -249,6 +249,73 @@ describe('per-target truth', () => {
   });
 });
 
+describe('announcements stay in one mounted region', () => {
+  const region = (panel: Element, role: string) => panel.querySelector<HTMLElement>(`div[role=${role}]`)!;
+  it('announces a refusal into an alert region that was already there, and empties it after', async () => {
+    const m = mount(); const panel = await applied(m.target, [0]);
+    const alert = region(panel, 'alert');
+    expect(alert.textContent?.trim()).toBe('');
+    await apply(panel, refuse(409, { error: 'x', code: 'CONFLICT' }), 'This template changed, so nothing was applied.');
+    expect(region(panel, 'alert')).toBe(alert);
+    expect(alert.textContent).toContain('This template changed');
+    fetcher.mockResolvedValueOnce(answer([ok(0)]));
+    button(panel, 'Preview again')!.click();
+    await settle(() => expect(region(panel, 'alert').textContent?.trim()).toBe(''));
+    expect(region(panel, 'alert')).toBe(alert);
+  });
+  it('announces a preview with no answer into the same region', async () => {
+    fetcher.mockRejectedValueOnce(new TypeError('offline'));
+    const m = mount(); const panel = open(m.target); pick(panel, 1);
+    const alert = region(panel, 'alert');
+    button(panel, 'Preview')!.click();
+    await settle(() => expect(alert.textContent).toContain('The preview did not finish.'));
+    expect(region(panel, 'alert')).toBe(alert);
+  });
+  it('announces an unknown outcome into the same region, and keeps it for a new apply', async () => {
+    const m = mount(); const panel = await applied(m.target, [0]);
+    const alert = region(panel, 'alert');
+    await apply(panel, Promise.reject(new TypeError('offline')), 'We don’t know');
+    expect(region(panel, 'alert')).toBe(alert);
+    expect(alert.textContent).toContain('We don’t know which memories were changed.');
+    button(panel, 'Start a new apply…')!.click(); flushSync();
+    expect(region(panel, 'alert')).toBe(alert);
+    expect(alert.textContent?.trim()).toBe('');
+  });
+  it('announces a preview that cannot be applied in the status region', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 1);
+    const status = region(panel, 'status');
+    await preview(panel, [bad(0, 'MEMORY_NOT_FOUND')]);
+    expect(region(panel, 'status')).toBe(status);
+    expect(status.textContent).toContain('No memory in this preview can take the template.');
+  });
+  it('does not call a load failure present on opening an alert', () => {
+    const panel = open(mount({ memoriesFailed: true }).target);
+    expect(panel.textContent).toContain('Memories could not be loaded.');
+    expect(region(panel, 'alert').textContent?.trim()).toBe('');
+  });
+});
+
+describe('search', () => {
+  const search = async (panel: Element, text: string) => {
+    const input = panel.querySelector<HTMLInputElement>('input[aria-label="Search memories…"]')!;
+    input.value = text; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    await settle(() => expect(panel.querySelector('tbody')).not.toBeNull());
+    await new Promise(r => setTimeout(r, 300)); flushSync();
+    return panel.querySelectorAll('tbody tr').length;
+  };
+  it('finds what a row renders: a warning, and the earlier-apply mark', async () => {
+    const m = mount(); const panel = await applied(m.target, [0, 1]);
+    await apply(panel, answer([ok(0, { dryRun: false, warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask' }] }), bad(1, 'CONFLICT')], false), 'Apply finished');
+    expect(await search(panel, 'TASK_LESS_VISIBLE')).toBe(1);
+    expect(await search(panel, 'authorTask')).toBe(1);
+    fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
+    expect(await search(panel, '')).toBe(2);
+    button(panel, 'Retry failed')!.click();
+    await settle(() => expect(panel.textContent).toContain('Preview: nothing has been changed'));
+    expect(await search(panel, 'earlier apply')).toBe(1);
+  });
+});
+
 describe('retry failed', () => {
   it('sends only failed rows, never a succeeded or DUPLICATE_TARGET row, and pins the new preview revision', async () => {
     const m = mount(); const panel = await applied(m.target, [0, 1, 2, 3]);
