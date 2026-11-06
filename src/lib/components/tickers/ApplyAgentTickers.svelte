@@ -250,7 +250,10 @@
     </form>
 
     <!-- Mounted before any result, so a screen reader is already watching it; focus moves here after an apply. -->
-    <div id="apply-tickers-result" bind:this={region} tabindex="-1" aria-live="polite" class="space-y-2 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
+    <!-- portal#1675: unconditional `outline-none` left --tw-outline-style:none under :focus-visible, so the ring
+         never painted. Same Tailwind 4 fix as the Task integrations heading (#1619): suppress only on :focus,
+         and re-state a solid style for :focus-visible. -->
+    <div id="apply-tickers-result" bind:this={region} tabindex="-1" aria-live="polite" class="space-y-2 focus:outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500">
       {#if shown && 'refusal' in shown}
         <div role="alert" class="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300" data-testid="apply-refusal">
           <p>{shown.refusal.message}</p>
