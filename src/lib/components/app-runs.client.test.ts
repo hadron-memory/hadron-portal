@@ -10,13 +10,13 @@ import { localStorageViewStore } from '$lib/table/localStorageViewStore';
 import { normalizeView } from '$lib/table/savedView';
 const run = (id: string): AppRun => ({ id, appId: 'a', organizationId: 'o', agentId: null, userId: null, triggerKind: 'MANUAL', triggerId: null, entryNodeUrn: `hrn:node:test:memory:${id}`, eventData: null, policy: null, budgetTokens: null, budgetActions: null, status: 'COMPLETED', curNodeUrn: null, parentRunId: null, failure: null, timeoutMs: null, attempts: 1, startedAt: null, finishedAt: null, createdAt: '2026-11-01T00:00:00Z', createdBy: null });
 const section = (extra: Partial<RunsSection> = {}): RunsSection => ({ runs: [run('old')], total: 100, page: 3, statuses: [], sort: 'createdAt', dir: 'desc', failed: false, explicitState: true, ...extra });
-function deferred<T>() { let resolve!: (v: T) => void; const promise = new Promise<T>(r => resolve = r); return { promise, resolve }; }
+function deferred<T>() { let resolve!: (v: T) => void, reject!: (e: Error) => void; const promise = new Promise<T>((r, j) => { resolve = r; reject = j; }); return { promise, resolve, reject }; }
 const reply = (value: unknown) => ({ ok: true, json: async () => value }) as Response;
 let cleanup: (() => void)[] = [];
 function mount(initial = section()) { const props = reactiveProps({ appRef: 'a', initial }); const m = mountComponent(AppRunsTable, props); cleanup.push(m.unmount); return { ...m, props }; }
 const find = (root: HTMLElement, label: string) => [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === label)!;
 beforeEach(() => { localStorage.clear(); resetNavigationCalls(); resetNavigationGuards(); });
-afterEach(() => { cleanup.forEach(f => f()); cleanup = []; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup.forEach(f => f()); cleanup = []; resetNavigationGuards(); document.body.removeAttribute('tabindex'); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 describe('App Runs manual server table', () => {
   it('renders all20 served rows on page3 without local re-page or re-sort, and changes only the URL on sort', async () => {
     const rows = Array.from({ length: 20 }, (_, i) => ({ ...run(`row-${20 - i}`), startedAt: `2026-11-01T00:00:${String(i).padStart(2, '0')}Z` }));
@@ -91,6 +91,42 @@ describe('App Runs manual server table', () => {
     }
     await tick(8);
     expect(document.activeElement).toBe(sort);
+  });
+
+  it('ignores a late navigation error without releasing a newer intent', async () => {
+    const a = deferred<void>(), b = deferred<void>();
+    let call = 0; navigationHooks.onGoto = () => ++call === 1 ? a.promise : b.promise;
+    const m = mount(); await tick(8);
+    find(m.target, 'Active').click(); await tick(4);
+    find(m.target, 'All').click(); await tick(4);
+    a.reject(new Error('obsolete')); await tick(8);
+    expect(m.target.textContent).not.toContain('Could not open this runs page');
+    expect(m.target.querySelector('[aria-busy]')?.getAttribute('aria-busy')).toBe('true');
+    b.reject(new Error('current')); await tick(8);
+    expect(m.target.textContent).toContain('Could not open this runs page');
+    expect(m.target.querySelector('[aria-busy]')?.getAttribute('aria-busy')).toBe('false');
+    navigationHooks.onGoto = undefined; find(m.target, 'Active').click(); await tick(8);
+    expect(m.target.textContent).not.toContain('Could not open this runs page');
+  });
+  it('does not let a queued focus fallback reach a newer App view', async () => {
+    const m = mount(); await tick(8);
+    document.body.tabIndex = -1; document.body.focus();
+    for (const guard of navigationGuards.filter(x => x.fn === 'afterNavigate')) {
+      (guard.callback as (n: { type: string }) => void)({ type: 'goto' });
+    }
+    m.props.appRef = 'b'; m.props.initial = section({ page: 1 }); flushSync();
+    await tick(8);
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('does not report an invented zero total on a failed read', async () => {
+    const failed = mount(section({ runs: [], total: 0, failed: true })); await tick(8);
+    expect(failed.target.querySelector('[role=alert]')?.textContent).toContain('Could not load runs');
+    expect(failed.target.textContent).not.toContain('Total:');
+    const empty = mount(section({ runs: [], total: 0, failed: false })); await tick(8);
+    expect(empty.target.querySelector('[role=alert]')).toBeNull();
+    expect(empty.target.textContent).toContain('Total: 0');
+    expect(empty.target.textContent).toContain('No runs yet');
   });
 
 });
