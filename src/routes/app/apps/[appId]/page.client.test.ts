@@ -2805,6 +2805,53 @@ describe('Install on a derived row: its result belongs to one App window (#1684,
     expect(actions(m.target).disabled).toBe(false);
   });
 
+  // Same race as the cast's (Jane's BLIND on #1771, Xabat's ruling 6692838145). After a
+  // navigation afterNavigate clears the form's submitting state, so B's row can Install while
+  // A's request is out, and the fence read the variable that B's submit had just overwritten.
+  describe('A’s answer arriving after B installed (portal#1715)', () => {
+    const FAILED = { type: 'error', status: 500, error: { message: 'boom' } } as const;
+    const REDIRECT = { type: 'redirect', status: 303, location: '/signin' } as const;
+    const UNCONFIRMED = 'could not be confirmed';
+    const navigated = async () => {
+      for (const guard of navigationGuards.filter((g) => g.fn === 'afterNavigate')) (guard.callback as (nav: unknown) => void)({ type: 'link' });
+      await tick(3);
+    };
+    async function pendingOnBoth() {
+      const { m, props } = await mountAgents();
+      const a = await beginInstall(m.target);
+      props.data = await dataFor('a2');
+      await tick(3);
+      await navigated();
+      const b = await beginInstall(m.target);
+      resetNavigationCalls();
+      return { m, a, b };
+    }
+
+    it.each([
+      ['a failed request', async () => FAILED, UNCONFIRMED],
+      ['a refusal', refused, REFUSED],
+      ['a success', confirmed, LINKED],
+      ['a redirect', async () => REDIRECT, null],
+    ] as const)('%s stays off B', async (_name, answer, text) => {
+      const { m, a } = await pendingOnBoth();
+      await a.delayed.finish(await answer(a.id) as never);
+      await tick(4);
+      if (text) expect(m.target.textContent).not.toContain(text);
+      expect(refreshes()).toBe(0);
+      expect(kitAppliedResults).toEqual([]);
+    });
+
+    it('B’s own answer still lands after A’s stale one', async () => {
+      const { m, a, b } = await pendingOnBoth();
+      await a.delayed.finish(FAILED as never);
+      await tick(2);
+      await b.delayed.finish(await refused(b.id) as never);
+      await tick(4);
+      expect(m.target.textContent).toContain(REFUSED);
+      expect(m.target.textContent).not.toContain(UNCONFIRMED);
+    });
+  });
+
   it('A’s late refusal says nothing on B', async () => {
     const { m, props } = await mountAgents();
     const { id, delayed } = await beginInstall(m.target);
