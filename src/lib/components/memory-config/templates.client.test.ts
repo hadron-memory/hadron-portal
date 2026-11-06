@@ -102,3 +102,45 @@ describe('template management states', () => {
   });
 
 });
+
+describe('#1764 less-visible task warning on single apply', () => {
+  const urn = 'hrn:node:acme.com:tasks:review-author';
+  const warn = { code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask', taskUrn: urn, taskState: 'OK' };
+  const answer = (dryRun: boolean, warnings: unknown[]) => ({ ok: true, json: async () => ({ value: { memoryId: 'm1', templateRevision: 9, required: false, dryRun, entries: [{ role: 'review', outcome: 'APPLIED' }], warnings } }) });
+  function pickMemory(root: HTMLElement) {
+    button(root, 'Apply to a memory…').click(); flushSync();
+    button(root, 'Choose memory…').click(); flushSync();
+    root.querySelector<HTMLButtonElement>('button[aria-label="Select My memory"]')!.click(); flushSync();
+  }
+  it('preview and real apply show the same plain copy, with the URN, and never the raw code', async () => {
+    fetcher.mockResolvedValueOnce(answer(true, [warn])).mockResolvedValueOnce(answer(false, [warn]));
+    const m = mount(false, true, [{ ...template, required: false }]); pickMemory(m.target);
+    button(m.target, 'Preview').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Preview: nothing has been changed'); });
+    const previewText = [...m.target.querySelectorAll('[data-task-warning]')].map(n => n.textContent);
+    expect(previewText.length).toBe(1); expect(previewText[0]).toContain('author task'); expect(previewText[0]).toContain(urn);
+    expect(m.target.textContent).not.toContain('TASK_LESS_VISIBLE');
+    // A warning on the preview does not block the apply.
+    const applyButton = [...m.target.querySelectorAll('button')].find(b => /^Apply/.test(b.textContent?.trim() ?? '') && !/Apply to/.test(b.textContent ?? ''))!;
+    expect(applyButton.disabled).toBe(false);
+    applyButton.click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).not.toContain('Preview: nothing has been changed'); });
+    const appliedText = [...m.target.querySelectorAll('[data-task-warning]')].map(n => n.textContent);
+    expect(appliedText).toEqual(previewText);
+  });
+  it('shows nothing for an empty list', async () => {
+    fetcher.mockResolvedValueOnce(answer(true, []));
+    const m = mount(false, true, [{ ...template, required: false }]); pickMemory(m.target);
+    button(m.target, 'Preview').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Preview: nothing has been changed'); });
+    expect(m.target.querySelectorAll('[data-task-warning]').length).toBe(0);
+  });
+  it('a null field or an unknown code renders a generic line and never throws or prints the code', async () => {
+    fetcher.mockResolvedValueOnce(answer(true, [{ ...warn, field: null }, { ...warn, code: 'NEW_CODE' }]));
+    const m = mount(false, true, [{ ...template, required: false }]); pickMemory(m.target);
+    button(m.target, 'Preview').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.querySelectorAll('[data-task-warning]').length).toBe(2); });
+    expect(m.target.textContent).not.toContain('NEW_CODE'); expect(m.target.textContent).not.toContain('TASK_LESS_VISIBLE');
+    expect(m.target.textContent).not.toContain(urn);
+  });
+});

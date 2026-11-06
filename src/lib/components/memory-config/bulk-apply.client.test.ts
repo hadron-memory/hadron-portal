@@ -421,3 +421,37 @@ describe('unknown outcome', () => {
     expect(rows.find(r => r.includes('Memory 00'))).toContain('Added');
   });
 });
+
+describe('#1764 less-visible task warning on bulk apply', () => {
+  const urn = 'hrn:node:acme.com:tasks:review-author';
+  const warn = { code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask', taskUrn: urn, taskState: 'OK' };
+  it('preview and real apply show the same copy per row, the preview does not block Apply, and the raw code never shows', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 2);
+    await preview(panel, [ok(0, { warnings: [warn] }), ok(1)]);
+    const rowWarnings = [...panel.querySelectorAll('[data-task-warning]')].map(n => n.textContent);
+    expect(rowWarnings.length).toBe(1); expect(rowWarnings[0]).toContain('author task'); expect(rowWarnings[0]).toContain(urn);
+    expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE');
+    expect(button(panel, 'Apply')!.disabled).toBe(false);
+    await apply(panel, answer([ok(0, { dryRun: false, warnings: [warn] }), ok(1, { dryRun: false })], false), 'Applied');
+    expect([...panel.querySelectorAll('[data-task-warning]')].map(n => n.textContent)).toEqual(rowWarnings);
+    expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE');
+  });
+  it('the row search matches the words the reader sees, not the code', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 2);
+    await preview(panel, [ok(0, { warnings: [warn] }), ok(1)]);
+    const search = panel.querySelector<HTMLInputElement>('input[type=search], input[role=searchbox], input[placeholder*="earch"]')!;
+    search.value = 'author task'; search.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    await settle(() => { expect(panel.textContent).toContain('Memory 00'); expect(panel.textContent).not.toContain('Memory 01'); });
+  });
+  it('a null field or an unknown code renders a generic line and the answer stays a result', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 1);
+    await preview(panel, [ok(0, { warnings: [{ ...warn, field: null }, { ...warn, code: 'NEW_CODE' }] })]);
+    expect(panel.querySelectorAll('[data-task-warning]').length).toBe(2);
+    expect(panel.textContent).not.toContain('NEW_CODE'); expect(panel.textContent).not.toContain('Not known');
+  });
+  it('an older answer without the new fields is still a legal result', async () => {
+    const m = mount(); const panel = open(m.target); pick(panel, 1);
+    await preview(panel, [ok(0, { warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask' }] })]);
+    expect(panel.querySelectorAll('[data-task-warning]').length).toBe(1);
+  });
+});

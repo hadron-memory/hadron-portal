@@ -111,3 +111,54 @@ describe('rendered memory rule management', () => {
   });
 
 });
+
+describe('#1764 less-visible task warning on rule save', () => {
+  const urn = 'hrn:node:acme.com:tasks:review-author';
+  const warn = { code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask', taskUrn: urn, taskState: 'OK' };
+  const saved = (warnings: unknown[]) => ({ ok: true, json: async () => ({ saved: true, warnings }) });
+  const reloaded = { ok: true, json: async () => ({ value: { ...book, rules: [{ ...rule, revision: 8 }] } }) };
+  async function save(m: ReturnType<typeof mount>, answer: unknown) {
+    fetcher.mockResolvedValueOnce(answer).mockResolvedValueOnce(reloaded);
+    const calls = fetcher.mock.calls.length;
+    button(m.target, 'Edit').click(); flushSync();
+    button(m.target.querySelector('dialog')!, 'Save').click();
+    await vi.waitFor(() => { flushSync(); expect(fetcher.mock.calls.length).toBe(calls + 2); expect(m.target.querySelector('dialog')).toBeNull(); });
+  }
+  it('shows the warning beside the saved notice, with the URN exactly as returned, and no raw code', async () => {
+    const m = mount(book); await save(m, saved([warn]));
+    const text = m.target.textContent!;
+    expect(text).toContain('Saved.'); expect(text).toContain('author task'); expect(text).toContain(urn);
+    expect(text).not.toContain('TASK_LESS_VISIBLE');
+    expect(m.target.querySelector('[role=alert]')?.textContent ?? '').not.toContain('author task');
+    expect(m.target.querySelector(`a[href*="${urn}"]`)).toBeNull();
+  });
+  it('is still readable after the rule list has refreshed', async () => {
+    const m = mount(book); await save(m, saved([warn]));
+    expect(m.target.textContent).toContain('author task');
+    expect(m.target.textContent).toContain('Saved.');
+  });
+  it('a save answering no warnings shows nothing, and clears an earlier warning', async () => {
+    const m = mount(book); await save(m, saved([warn]));
+    expect(m.target.textContent).toContain('author task');
+    await save(m, saved([]));
+    expect(m.target.textContent).toContain('Saved.');
+    expect(m.target.textContent).not.toContain('author task'); expect(m.target.textContent).not.toContain('may not');
+  });
+  it('a warning does not turn the save into a failure', async () => {
+    const m = mount(book); await save(m, saved([warn]));
+    expect(m.target.querySelector('[role=alert]')).toBeNull();
+  });
+  it('an old-shaped answer without warnings, a null field and an unknown code never throw', async () => {
+    const m = mount(book); await save(m, { ok: true, json: async () => ({ saved: true }) });
+    expect(m.target.textContent).toContain('Saved.');
+    await save(m, saved([{ ...warn, field: null }, { ...warn, code: 'NEW_CODE' }]));
+    expect(m.target.textContent).not.toContain('NEW_CODE'); expect(m.target.textContent).not.toContain('TASK_LESS_VISIBLE');
+  });
+  it('a later delete clears the warning from the earlier save', async () => {
+    const m = mount(book); await save(m, saved([warn]));
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({}) }).mockResolvedValueOnce(reloaded);
+    button(m.target, 'Delete').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Deleted.'); });
+    expect(m.target.textContent).not.toContain('author task');
+  });
+});
