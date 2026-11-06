@@ -7,8 +7,11 @@
 // (portal#1745 item 1); what this probe alone owns is HOW each arm drives the flow (item 2):
 // the apply is REAL — Enter or a pointer click on the real submit button, the real use:enhance
 // round trip (the POST to action '/__apply' is faked at the network layer; kit's deserialize
-// gets a success result), and the receipt delivered as the `result` prop the moment the round
-// trip answers. settleFocus then hands focus to the region, and the arm asserts the modality
+// gets a success result). The receipt is delivered as the `result` prop only AFTER the round
+// trip has answered — the response fulfilled, the page's own fetch settled, and one task
+// boundary for kit's deserialize chain (Gaia P2-2, portal#1751 BLIND: the first version
+// resolved its receipt at interception time, which undercut the survives-the-round-trip
+// claim). settleFocus then hands focus to the region, and the arm asserts the modality
 // survived the async round trip: keyboard → :focus-visible + ring, pointer → neither.
 // Setup: pnpm exec playwright install chromium
 // Run: pnpm test:apply-agent-tickers-focus
@@ -20,23 +23,40 @@ const FIXTURE = '/src/lib/test/fixtures/apply-agent-tickers-harness.svelte.ts';
  * One real apply. `via: 'keyboard'` tabs to the submit button (keyboard modality on)
  * and presses Enter; `via: 'pointer'` clicks it (pointer modality). Both drive kit's
  * enhance fetch to /__apply, fulfilled here with a bare success result (no data, so
- * kit's deserialize needs no devalue payload), then deliver the receipt prop.
+ * kit's deserialize needs no devalue payload). The `answered` receipt resolves only
+ * after `route.fulfill()` has sent the response — interception time no longer counts —
+ * and the receipt PROP is not delivered until the page's own fetch has settled plus one
+ * task boundary, so the assertions never race the round trip they claim survived.
  */
 async function driveApply(page, via) {
-  let posted;
-  const postedPromise = new Promise((resolve) => { posted = resolve; });
+  let answered;
+  const answeredPromise = new Promise((resolve) => { answered = resolve; });
   await page.route('**/__apply', async (route) => {
-    posted(route.request().url());
+    // Fulfill FIRST: `answered` means the response was sent, not merely intercepted
+    // (Gaia P2-2 — the old posted()-before-fulfill ordering resolved early).
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ type: 'success', status: 200 }) });
+    answered(route.request().url());
+  });
+  // Observe the page's own side of the round trip from the network seam: capture the
+  // /__apply fetch promise, so "settled" is the page's fetch resolving — not just the
+  // response existing on the wire.
+  await page.evaluate(() => {
+    const orig = window.fetch;
+    window.__applySettled = null;
+    window.fetch = (...args) => {
+      const p = orig(...args);
+      if (String(args[0]).includes('/__apply')) window.__applySettled = p.then(() => {}, () => {});
+      return p;
+    };
   });
   // Bound the wait for the round trip: an arm that never submits must fail HERE, named —
   // not hang until some outer timeout with no cause (Basil P3-2, portal#1751 review).
   const POST_DEADLINE_MS = 10_000;
   let deadline;
-  const postedOrBust = Promise.race([
-    postedPromise,
+  const answeredOrBust = Promise.race([
+    answeredPromise,
     new Promise((_, reject) => {
-      deadline = setTimeout(() => reject(new Error(`${via} apply: no POST to /__apply within ${POST_DEADLINE_MS}ms — the real round trip never started`)), POST_DEADLINE_MS);
+      deadline = setTimeout(() => reject(new Error(`${via} apply: no answered POST to /__apply within ${POST_DEADLINE_MS}ms — the real round trip never started`)), POST_DEADLINE_MS);
     }),
   ]);
   try {
@@ -50,9 +70,16 @@ async function driveApply(page, via) {
     } else {
       await button.click();
     }
-    // The enhance round trip has answered; deliver the receipt as the loader would.
-    await postedOrBust;
+    // The response is out; now the page's own round trip: fetch settled, then one task
+    // boundary for kit's deserialize/enhance chain — THEN the receipt, as the loader
+    // would deliver it, with the round trip genuinely behind us.
+    await answeredOrBust;
     clearTimeout(deadline);
+    await page.evaluate(() => {
+      if (!window.__applySettled) throw new Error('apply fetch was not observed through window.fetch');
+      return window.__applySettled;
+    });
+    await page.evaluate(() => new Promise((resolve) => { setTimeout(resolve, 0); }));
     await page.evaluate(async (module) => {
       const { applyFixture, applyReceipt } = await import(module);
       applyFixture.result = applyReceipt;

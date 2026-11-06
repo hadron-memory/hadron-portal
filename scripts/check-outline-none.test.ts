@@ -32,6 +32,31 @@ describe('findOutlineNoneTrap', () => {
     expect(findOutlineNoneTrap(line)).toHaveLength(1);
   });
 
+  // Gaia P2-1 (portal#1751 BLIND): a focus-scoped suppression accepted WITHOUT the
+  // focus-visible outline-STYLE restatement. Width/colour utilities draw with
+  // --tw-outline-style, which the suppression left at none — the ring never paints.
+  it.each([
+    ['width-only restatement (Gaia P2-1)', `<div class="focus:outline-none focus-visible:outline-2">`],
+    ['inverse ordering', `<div class="focus-visible:outline-2 focus:outline-none">`],
+    ['width + colour, still no style', `<div class="focus:outline-none focus-visible:outline-2 focus-visible:outline-indigo-500">`],
+    ['both scoped to focus-visible', `<div class="focus-visible:outline-none focus-visible:outline-2">`],
+    ['stacked non-focus variant', `<div class="dark:focus:outline-none focus-visible:outline-2">`],
+  ])('flags the scoped-but-unrestated suppression: %s', (_what, line) => {
+    const findings = findOutlineNoneTrap(line);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].reason).toBe('noRestatement');
+  });
+
+  // `outline-hidden` sets --tw-outline-style:none too (verified against the installed
+  // tailwindcss 4; its forced-colors fallback outline does not save the normal scheme) —
+  // Gaia's open question, confirmed as the same trap.
+  it.each([
+    ['bare outline-hidden', `<div class="outline-hidden focus-visible:outline-2">`],
+    ['scoped outline-hidden, no restatement', `<div class="focus:outline-hidden focus-visible:outline-2">`],
+  ])('flags outline-hidden beside a draw-wanting token: %s', (_what, line) => {
+    expect(findOutlineNoneTrap(line)).toHaveLength(1);
+  });
+
   it('reports every offending token, not just the first', () => {
     const line = `<div class="outline-none md:outline-none focus-visible:outline-2">`;
     expect(findOutlineNoneTrap(line)).toHaveLength(2);
@@ -42,6 +67,8 @@ describe('findOutlineNoneTrap', () => {
     ['the fix', `class="focus:outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"`],
     ['the inverse ordering', `class="focus-visible:outline-2 focus-visible:outline-indigo-500 focus:outline-none focus-visible:outline-solid"`],
     ['a stacked focus variant', `class="dark:focus:outline-none focus-visible:outline-solid"`],
+    ['a non-solid painting style', `class="focus:outline-none focus-visible:outline-dashed focus-visible:outline-2"`],
+    ['outline-hidden with the style restated', `class="focus:outline-hidden focus-visible:outline-solid focus-visible:outline-2"`],
   ])('accepts %s', (_what, line) => {
     expect(findOutlineNoneTrap(`<p ${line}>x</p>`)).toEqual([]);
   });
@@ -98,6 +125,20 @@ describe('scanFiles over the real repo', () => {
     const findings = scanFiles(files, () => mutant);
     expect(findings).toHaveLength(1);
     expect(findings[0].file).toContain('ApplyAgentTickers.svelte');
+  });
+
+  it('the Gaia P2-1 mutant: stripping only the style restatement is found', () => {
+    const files = [join(root, 'src/lib/components/tickers/ApplyAgentTickers.svelte')];
+    const real = readFileSyncOrNull(files[0]);
+    expect(real).toBeTruthy();
+    // Leave the scoped suppression and every width/colour utility; remove ONLY the
+    // focus-visible:outline-solid restatement — the exact spelling the first version of
+    // this guard wrongly accepted (Gaia P2-1, portal#1751 BLIND).
+    const mutant = real!.replace(' focus-visible:outline-solid', '');
+    expect(mutant).not.toBe(real); // the seed actually took
+    const findings = scanFiles(files, () => mutant);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].reason).toBe('noRestatement');
   });
 });
 

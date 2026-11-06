@@ -1,10 +1,17 @@
-# #1745 — fail on a bare `outline-none` beside `focus-visible:outline-*`.
+# #1745 — fail on an `outline-none`/`outline-hidden` suppression beside
+# `focus-visible:outline-*`, unless it is focus-scoped AND the same list re-states
+# the outline STYLE under focus-visible (`focus-visible:outline-solid` & co.).
 #
-# Tailwind 4's `outline-none` sets `--tw-outline-style: none`, and every
+# Tailwind 4's `outline-none` (and `outline-hidden`, which adds only a
+# forced-colors fallback) sets `--tw-outline-style: none`, and every
 # `outline-*` utility draws with `outline-style: var(--tw-outline-style)`. When
 # one element carries both, the computed outline style on `:focus-visible` stays
 # `none` and the focus ring never paints — the a11y intent of the class list is
-# silently inverted. It shipped twice (#1619: the Task integrations heading;
+# silently inverted. Width/colour utilities do not save a scoped suppression:
+# `focus:outline-none focus-visible:outline-2` still computes `none` on
+# `:focus-visible` (Gaia P2-1, portal#1751 BLIND review) — only a STYLE utility
+# (`focus-visible:outline-solid`, `-dashed`, `-dotted`, `-double`) re-states it.
+# It shipped twice (#1619: the Task integrations heading;
 # #1675: the ApplyAgentTickers result region), and jsdom cannot see it (it
 # computes no Tailwind cascade), so both times every component test stayed green.
 # The Chromium focus probes pin the two fixed surfaces; this gate stops the NEXT
@@ -30,5 +37,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: A bare outline-none must not sit beside focus-visible outline utilities
+      - name: An outline-none/outline-hidden suppression must not sit beside focus-visible outline utilities without a restated style
         run: node scripts/check-outline-none.mjs
