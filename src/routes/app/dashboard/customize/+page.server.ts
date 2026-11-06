@@ -4,6 +4,8 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = () => {
+export const load: PageServerLoad = async ({ parent }) => {
+  // #1732: wait for the app layout (it writes the active-org cookie) first.
+  await parent();
   redirect(301, '/app/dashboard');
 };
