@@ -10,6 +10,7 @@
   import { RUN_STATUSES, describeTrigger, fmtRunTime, runDuration, failureCode, statusChipClass, type AppRun } from '$lib/flow/runs';
   import { runsHref, isRunsSection, RUNS_PAGE_SIZE, RUN_SORTS, type RunsSection, type RunsQuery } from '$lib/flow/app-runs-page';
   let { appRef, initial }: { appRef: string; initial: RunsSection } = $props();
+  const mountedApp = untrack(() => appRef), mountedSection = untrack(() => initial);
   let snapshot = untrack(() => initial), resource = untrack(() => appRef);
   let section = $state(untrack(() => initial)), pending = $state(false), announcement = $state('');
   // Pending controls describe the newest request; rows still describe the served page.
@@ -36,10 +37,10 @@
     { id: 'actions', header: t('runs.col.open', 'Open'), enableSorting: false, enableHiding: false, size: 90 },
   ];
   function query(change: Partial<RunsQuery>): RunsQuery { return { page: controls.page, statuses: controls.statuses, sort: controls.sort, dir: controls.dir, ...change }; }
-  async function navigate(next: RunsQuery) {
+  async function navigate(next: RunsQuery, replaceState = false) {
     const id = ++epoch, ref = appRef;
     intent = next; announcement = ''; pending = true;
-    try { await goto(runsHref(ref, next), { keepFocus: true, noScroll: true }); }
+    try { await goto(runsHref(ref, next), { replaceState, keepFocus: true, noScroll: true }); }
     catch { if (alive && id === epoch && ref === appRef) announcement = t('runs.navigation-failed', 'Could not open this runs page. Try again.'); }
     finally { if (alive && id === epoch && ref === appRef) { intent = null; pending = false; } }
   }
@@ -51,7 +52,18 @@
     get state() { return { sorting, columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [], pagination: { pageIndex: section.page - 1, pageSize: RUNS_PAGE_SIZE } }; },
     onSortingChange: updater => { const next = typeof updater === 'function' ? updater(sorting) : updater; const item = next[0]; void navigate(query({ page: 1, sort: RUN_SORTS.includes(item?.id as RunsQuery['sort']) ? item.id as RunsQuery['sort'] : 'createdAt', dir: item?.desc ? 'desc' : 'asc' })); },
     onPaginationChange: updater => { const now = { pageIndex: section.page - 1, pageSize: RUNS_PAGE_SIZE }; const next = typeof updater === 'function' ? updater(now) : updater; if (next.pageIndex !== now.pageIndex) void navigate(query({ page: next.pageIndex + 1 })); },
-    meta: { getServerView: () => ({ sorting: [{ id: section.sort, desc: section.dir === 'desc' }], columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [] }), applyServerView: (view: SavedView) => { const sort = view.sorting[0]; const selected = view.columnFilters.find(x => x.id === 'status')?.value; void navigate(query({ page: 1, sort: RUN_SORTS.includes(sort?.id as RunsQuery['sort']) ? sort.id as RunsQuery['sort'] : 'createdAt', dir: sort ? (sort.desc ? 'desc' : 'asc') : 'desc', statuses: Array.isArray(selected) ? RUN_STATUSES.filter(x => selected.includes(x)) : [] })); } },
+    meta: {
+      getServerView: () => ({ sorting: [{ id: section.sort, desc: section.dir === 'desc' }], columnFilters: section.statuses.length ? [{ id: 'status', value: section.statuses }] : [] }),
+      applyServerView: (view: SavedView, options?: { initial?: boolean }) => {
+        if (options?.initial && (!alive || epoch !== 0 || appRef !== mountedApp || initial !== mountedSection)) return;
+        const sort = view.sorting[0];
+        const selected = view.columnFilters.find(x => x.id === 'status')?.value;
+        const next = query({ page: 1, sort: RUN_SORTS.includes(sort?.id as RunsQuery['sort']) ? sort.id as RunsQuery['sort'] : 'createdAt', dir: sort ? (sort.desc ? 'desc' : 'asc') : 'desc', statuses: Array.isArray(selected) ? RUN_STATUSES.filter(x => selected.includes(x)) : [] });
+        // Automatic restoration must not insert a synthetic Back stop or re-read identical data.
+        if (options?.initial && runsHref(appRef, next) === runsHref(appRef, section)) return;
+        void navigate(next, options?.initial === true);
+      },
+    },
   });
   async function retry() {
     const id = ++epoch, ref = appRef, basedOn = initial;

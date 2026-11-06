@@ -53,7 +53,7 @@ export function createViewController<T extends RowData>(args: {
     await refresh();
     const target = resolveInitialView(views, await store.getActiveId(listKey));
     if (target) {
-      applyView(table, target.view, { columnsOnly: args.initialColumnsOnly });
+      applyView(table, target.view, { columnsOnly: args.initialColumnsOnly, initial: true });
       activeId = target.id;
     }
   }

@@ -70,10 +70,13 @@ export function extractTableView<T extends RowData>(table: PortalTable<T>): Save
  * never breaks the list (spec FR-013 / SC-005). Requires the table to have the
  * global-filter feature wired (all grid lists do).
  */
-export function applyView<T extends RowData>(table: PortalTable<T>, view: SavedView, options: { columnsOnly?: boolean } = {}): void {
-  const server = (table.options?.meta as { applyServerView?: (view: SavedView) => void } | undefined)?.applyServerView;
+export function applyView<T extends RowData>(table: PortalTable<T>, view: SavedView, options: { columnsOnly?: boolean; initial?: boolean } = {}): void {
+  const server = (table.options?.meta as { applyServerView?: (view: SavedView, options?: { initial?: boolean }) => void } | undefined)?.applyServerView;
   if (!options.columnsOnly) {
-    if (server) server(view);
+    if (server) {
+      if (options.initial) server(view, { initial: true });
+      else server(view);
+    }
     else {
       table.setSorting(view.sorting ?? []);
       table.setColumnFilters(view.columnFilters ?? []);

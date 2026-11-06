@@ -33,7 +33,7 @@ it('keeps the failed-read flag and no-store header instead of claiming empty suc
 });
 
 it('propagates the helper concealment refusal, including with no caller token', async () => {
-  mocks.loadAppRunsPage.mockImplementation(() => { error(404, 'App not found'); });
+  mocks.loadAppRunsPage.mockImplementation(async () => { error(404, 'App not found'); });
   const { GET } = await import('./+server');
   await expect(GET(event() as never)).rejects.toMatchObject({ status: 404, body: { message: 'App not found' } });
   expect(mocks.gqlClient).toHaveBeenCalledExactlyOnceWith(undefined);
