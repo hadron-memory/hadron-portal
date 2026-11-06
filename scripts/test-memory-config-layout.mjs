@@ -34,14 +34,16 @@ try {
   const edit = editor.getByRole('button', { name: 'Edit', exact: true }).first();
   await edit.click();
   const ruleDialog = page.getByRole('dialog', { name: 'Edit rule', exact: true });
+  await ruleDialog.getByRole('checkbox', { name: 'Enabled', exact: true }).uncheck();
   await ruleDialog.getByRole('button', { name: 'Change…', exact: true }).first().click();
   await page.getByRole('dialog', { name: 'Choose a node', exact: true }).waitFor();
+  // No evaluate/count/waitFor between keys: Playwright evaluation can grant a user gesture
+  // and hide Chromium's second, non-cancelable native close request.
   await page.keyboard.press('Escape');
-  await ruleDialog.waitFor();
-  assert.equal(await page.getByRole('dialog', { name: 'Choose a node', exact: true }).count(), 1, 'First Escape keeps node stage and rule draft');
   await page.keyboard.press('Escape');
   await ruleDialog.waitFor();
   assert.equal(await page.getByRole('dialog', { name: 'Choose a node', exact: true }).count(), 0, 'Only reference picker closes');
+  assert.equal(await ruleDialog.getByRole('checkbox', { name: 'Enabled', exact: true }).isChecked(), false, 'Backing out of picker retains rule draft');
   await ruleDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.waitForFunction(() => document.activeElement?.textContent?.trim() === 'Edit');
   assert.equal(await edit.evaluate(el => document.activeElement === el), true, 'Return to invoking draft row');
