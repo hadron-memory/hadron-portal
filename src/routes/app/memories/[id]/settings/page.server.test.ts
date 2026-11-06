@@ -854,8 +854,11 @@ describe('memory settings load — the owner (#652)', () => {
     const res = await runLoad(personal({ class: 'knowledge', organizationId: 'org-1', userId: null }));
     expect(res.ownerUserId).toBeNull();
     expect(res.owner).toBeNull();
-    expect(mockRequest).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenCalledTimes(2);
     expect(mockRequest.mock.calls[0]![1]).toEqual({ user: 'viewer-1', resource: 'mem-1' });
+    expect(mockRequest.mock.calls[1]![0]).toContain('MemoryRoleConfigAvailable');
+    expect(mockRequest.mock.calls[1]![1]).toEqual({ ref: 'mem-1' });
+    expect(mockRequest.mock.calls.some(([query]) => /query UserProfile/.test(String(query)))).toBe(false);
   });
 
   it('uses the effective memory.delete capability for a granted contributor', async () => {

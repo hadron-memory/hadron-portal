@@ -1,0 +1,64 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { flushSync } from 'svelte';
+import { mountComponent } from '$lib/test/mountComponent';
+import TemplatesManager from './TemplatesManager.svelte';
+import type { Template } from '$lib/memory-config/types';
+const template: Template = { id: 't1', name: 'baseline', description: 'Test rulebook', required: true, revision: 9, rules: [] };
+const fetcher = vi.fn();
+let cleanup: (() => void)[] = [];
+function mount(readOnly = false, canManage = true) {
+  const m = mountComponent(TemplatesManager, { initial: [template], ownerType: 'USER' as const, ownerRef: 'u1', readOnly, canManage, memories: [{ id: 'm1', name: 'My memory', urn: 'hrn:mem:acme.com:memory' }], memoriesFailed: false });
+  cleanup.push(m.unmount); return m;
+}
+function button(root: HTMLElement, text: string) { return [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!; }
+beforeEach(() => { localStorage.clear(); fetcher.mockReset(); vi.stubGlobal('fetch', fetcher); });
+afterEach(() => { cleanup.splice(0).forEach(f => f()); vi.unstubAllGlobals(); });
+describe('template management states', () => {
+  it('impersonation and non-manager views have no mutation or apply controls', () => {
+    for (const [readOnly, canManage] of [[true, true], [false, false]]) {
+      const m = mount(readOnly, canManage);
+      for (const name of ['Create template', 'Edit', 'Delete', 'Apply to a memory…']) expect(button(m.target, name)).toBeUndefined();
+    }
+  });
+  it('retains template input on CONFLICT and uses expected revision', async () => {
+    fetcher.mockResolvedValue({ ok: false, json: async () => ({ code: 'CONFLICT', error: 'The template changed.' }) });
+    const m = mount(); button(m.target, 'Edit').click(); flushSync();
+    const input = m.target.querySelector<HTMLInputElement>('input[maxlength="64"]')!;
+    input.value = 'my-retained-name'; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    button(m.target, 'Save').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('The template changed.'); });
+    expect(m.target.querySelector('input[maxlength="64"]')).toBe(input);
+    expect(input.value).toBe('my-retained-name');
+    const sent = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(sent).toMatchObject({ op: 'update', ref: 't1', revision: 9, input: { name: 'my-retained-name', required: true } });
+    expect(sent.input).not.toHaveProperty('rules');
+  });
+  it('states required-template lock consequences before saving, without disabling Save', () => {
+    const m = mount(); button(m.target, 'Edit').click(); flushSync();
+    expect(m.target.textContent).toContain('Applied rules arrive locked');
+    expect(m.target.textContent).toContain('only an org admin can unlock');
+    expect(button(m.target, 'Save').disabled).toBe(false);
+  });
+  it('previews without writes, applies the preview revision, and retires a stale preview on CONFLICT', async () => {
+    const preview = { memoryId: 'm1', templateRevision: 9, required: true, dryRun: true, entries: [{ role: 'review', outcome: 'APPLIED' }], warnings: [] };
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({ value: preview }) })
+      .mockResolvedValueOnce({ ok: false, json: async () => ({ code: 'CONFLICT', error: 'revision mismatch' }) });
+    const m = mount(); button(m.target, 'Apply to a memory…').click(); flushSync();
+    expect(button(m.target, 'Apply and lock rules')).toBeUndefined();
+    button(m.target, 'Choose memory…').click(); flushSync();
+    const select = m.target.querySelector<HTMLButtonElement>('button[aria-label="Select My memory"]')!;
+    expect(select).not.toBeNull(); select.click(); flushSync();
+    button(m.target, 'Preview').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Preview: nothing has been changed'); });
+    expect(m.target.textContent).toContain('Will be added');
+    expect(m.target.textContent).toContain('Applied rules arrive locked');
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toMatchObject({ kind: 'apply', op: 'preview', ref: 't1', memoryRef: 'm1' });
+    button(m.target, 'Apply and lock rules').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('This template changed since the preview.'); });
+    expect(button(m.target, 'Apply and lock rules').disabled).toBe(true);
+    expect(button(m.target, 'Preview again')).toBeDefined();
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({ op: 'apply', revision: 9 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+});

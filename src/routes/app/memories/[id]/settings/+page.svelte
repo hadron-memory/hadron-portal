@@ -1383,3 +1383,10 @@
     </section>
   {/if}
 </fieldset>
+
+{#if data.roleConfigAvailable}
+  <section class="mt-8 rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
+    <h2 class="font-semibold">{t('config.node-roles', 'Node roles')}</h2>
+    <a data-sveltekit-preload-data="off" href={`/app/memories/${encodeURIComponent(g.id)}/settings/node-roles`} class="mt-2 inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t('config.manage-rules', 'Manage node-role rules')}</a>
+  </section>
+{/if}

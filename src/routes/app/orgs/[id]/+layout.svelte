@@ -32,6 +32,7 @@
           { id: 'integrations', label: t('org-detail.tab.integrations', 'Integrations'), href: `${basePath}/integrations` },
           // #942: the org's Channels and its own register rows.
           { id: 'channels', label: t('org-detail.tab.channels', 'Channels'), href: `${basePath}/channels` },
+          { id: 'node-role-templates', label: t('config.templates', 'Node-role templates'), href: `${basePath}/node-role-templates` },
           { id: 'usage', label: t('org-detail.tab.usage', 'Usage'), href: `${basePath}/sessions` },
         ],
   );
@@ -116,7 +117,7 @@
         <div class="scroll-hint flex min-w-0 gap-0 overflow-x-auto" use:scrollHint={activeTab?.id}>
           {#each tabs as tab (tab.id)}
             <a
-              href={tab.href}
+              href={tab.href} data-sveltekit-preload-data={tab.id === 'node-role-templates' ? 'off' : undefined}
               aria-current={activeTab?.id === tab.id ? 'page' : undefined}
               class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
                 {activeTab?.id === tab.id

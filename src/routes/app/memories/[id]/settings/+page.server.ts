@@ -1,3 +1,4 @@
+import { rulebookAvailable } from '$lib/server/memory-config/service';
 import { fail, redirect, isRedirect } from '@sveltejs/kit';
 import type { Infer } from 'sveltekit-superforms/adapters';
 import { message, setError, superValidate } from 'sveltekit-superforms/server';
@@ -211,7 +212,8 @@ export const load: PageServerLoad = async ({ locals, parent, params }) => {
     ),
     superValidate<RetryFailedEmbeddingsForm>({}, retryFailedEmbeddingsFormAdapter, { errors: false }),
   ]);
-  return { allOrgs, owner, ownerUserId, transferCanDelete, form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm };
+  const roleConfigAvailable = await rulebookAvailable(gqlClient(locals.token), params.id).catch(() => false);
+  return { roleConfigAvailable, allOrgs, owner, ownerUserId, transferCanDelete, form, vectorForm, marketplaceForm, schemaForm, deleteForm, retryEmbedsForm };
 };
 
 export const actions: Actions = {
