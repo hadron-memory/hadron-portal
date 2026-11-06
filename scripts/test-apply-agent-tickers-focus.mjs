@@ -83,10 +83,15 @@ try {
       const box = await page.evaluate(() => { const r = document.getElementById('apply-tickers-result').getBoundingClientRect(); return { left: r.left, top: r.top }; });
       assert.ok(box.left - 4 >= 0 && box.top - 4 >= 0, `${label}: ring would be clipped by the viewport (${JSON.stringify(box)})`);
 
-      // Pointer: a click that focuses the region keeps its old behaviour, no ring.
+      // Pointer: a click that focuses the region keeps its old behaviour, no ring. The click
+      // is a fixed offset onto the region's own padding, not its center: the region contains
+      // tabbable controls (the receipt's table, its URN link), and a center click lands on
+      // inert content only by current layout luck — a control moved under the center would
+      // take the focus itself and false-fail this arm.
+      const pad = await page.evaluate(() => { const b = document.getElementById('apply-tickers-result').getBoundingClientRect(); return { x: Math.round(b.left) + 6, y: Math.round(b.top) + 4 }; });
       await page.evaluate(() => document.activeElement?.blur());
       await page.mouse.click(1, 1);
-      await page.click('#apply-tickers-result');
+      await page.mouse.click(pad.x, pad.y);
       const ptr = await ring(page);
       assert.ok(ptr.focused && !ptr.focusVisible, `${label}: a pointer focus must not match :focus-visible (${JSON.stringify(ptr)})`);
       assert.equal(ptr.style, 'none', `${label}: pointer focus must not paint a ring (${JSON.stringify(ptr)})`);
