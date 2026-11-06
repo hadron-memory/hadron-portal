@@ -1,3 +1,6 @@
+import { loadAppRunsPage, loadAppRunsExtras } from '$lib/server/app-runs-page';
+import { flowRoots } from '$lib/flow/flows';
+import { runAppFlow } from '$lib/server/run-app-flow';
 import { readChannelPage, postToChannel } from '$lib/server/channel-chat';
 import { withRegisteredChannels } from '$lib/app-chats';
 
@@ -957,7 +960,10 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
     superValidate(zod4(createAppMemorySchema), { id: `createAppMemory:${app.id}`, errors: false }),
   ]);
 
+  const runsSection = initialTab === 'runs' ? await loadAppRunsPage(client, params.appId, url.searchParams) : null;
+  const runsExtras = initialTab === 'runs' ? await loadAppRunsExtras(client, params.appId) : null;
   return {
+    runsPanel: runsSection && runsExtras ? { ...runsSection, app, flows: flowRoots(nodesData.appNodes), flowsCapped: isCapped(nodesData.appNodes?.length ?? 0, APP_NODES_LIMIT), flowsScanned: nodesData.appNodes?.length ?? 0, ...runsExtras } : null,
     appMemoryScope,
     appMemories: app.organizationId ? orgAppMemories : appMemoriesFromScope(appMemoryScope, app.id),
     createMemoryForm,
@@ -1066,6 +1072,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 };
 
 export const actions: Actions = {
+  run: runAppFlow,
   createMemory,
   createCustomisation: async ({ request, params, locals }) =>
     writeCustomisation(gqlClient(locals.token), params.appId, await request.formData(), true),

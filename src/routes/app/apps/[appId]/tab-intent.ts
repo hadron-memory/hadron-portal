@@ -21,6 +21,7 @@ import { lookupOwn } from '$lib/lookup';
 export const APP_TAB_IDS = [
   'chats',
   'worklog',
+  'runs',
   'staff',
   'members',
   'agents',

@@ -107,6 +107,9 @@ jobs:
       - name: Check Nodes tab lazy reads
         run: pnpm test:nodes-tab-lazy
 
+      - name: Check App Runs table layout
+        run: pnpm test:app-runs-layout
+
       - name: Check invitation clipboard feedback
         run: pnpm test:invite-copy
 
