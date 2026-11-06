@@ -106,7 +106,8 @@ try {
       // V1: a chip truncates at 390, and the whole URN stays reachable: title plus a named Copy URN.
       if (width === 390 && !coarse) {
         const chips = await page.evaluate(() => [...document.querySelectorAll('[data-task-integrations] span[title]')].map((c) => {
-          const copy = c.closest('code')?.parentElement?.querySelector('button[aria-label]');
+          // #1686: at 390 the chip is a reveal toggle (a <button>) even on a fine pointer, not a <code>.
+          const copy = c.closest('code, button[aria-expanded]')?.parentElement?.querySelector('button[aria-label^="Copy"]');
           return { title: c.title, copyName: copy?.getAttribute('aria-label'), copyTab: copy?.tabIndex };
         }));
         assert.equal(chips.length, 3, `${label}: expected a chip for each lead with a URN, got ${JSON.stringify(chips)}`);
