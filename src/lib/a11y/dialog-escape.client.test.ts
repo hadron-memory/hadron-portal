@@ -30,12 +30,12 @@ describe('escapeIsOurs', () => {
 });
 
 describe('consumeEscapeAtDialog (the dialog layer)', () => {
-  it('consumes a plain Escape: stopPropagation, then close', () => {
+  it('consumes a plain Escape: prevent native close, stopPropagation, then close', () => {
     const close = vi.fn();
     const event = escape();
     consumeEscapeAtDialog(event, { close });
     expect(close).toHaveBeenCalledTimes(1);
-    expect(event.defaultPrevented).toBe(false); // the established #1582 shape
+    expect(event.defaultPrevented).toBe(true); // never send a native close request to an outer dialog
   });
   it('takes nothing when suppressed, consumed, or composing', () => {
     const close = vi.fn();

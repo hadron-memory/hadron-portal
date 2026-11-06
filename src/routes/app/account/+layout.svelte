@@ -14,11 +14,14 @@
   const tabs = [
     { id: 'account', label: t('app.account.tab.account', 'Account'), href: '/app/account' },
     { id: 'organization', label: t('app.account.tab.organization', 'Organization'), href: '/app/account/organizations' },
+    { id: 'node-role-templates', label: t('config.templates', 'Node-role templates'), href: '/app/account/node-role-templates' },
     { id: 'invite', label: t('app.account.tab.invite', 'Invite'), href: '/app/account/invite' },
     { id: 'api-keys', label: t('app.account.tab.api-keys', 'API Keys'), href: '/app/account/api-keys' },
   ];
   const activeTab = $derived(
-    $page.url.pathname.startsWith('/app/account/api-keys')
+    $page.url.pathname.startsWith('/app/account/node-role-templates')
+      ? 'node-role-templates'
+      : $page.url.pathname.startsWith('/app/account/api-keys')
       ? 'api-keys'
       : $page.url.pathname.startsWith('/app/account/organizations')
         ? 'organization'
@@ -45,7 +48,7 @@
   <div class="flex gap-0 overflow-x-auto border-b border-zinc-200 dark:border-zinc-800">
     {#each tabs as tab (tab.id)}
       <a
-        href={tab.href}
+        href={tab.href} data-sveltekit-preload-data={tab.id === 'node-role-templates' ? 'off' : undefined}
         class="shrink-0 whitespace-nowrap border-b-2 px-4 py-2 text-sm font-medium transition
           {activeTab === tab.id
             ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'

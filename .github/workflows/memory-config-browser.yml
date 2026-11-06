@@ -1,0 +1,24 @@
+name: Memory config browser
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  memory-config-browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec svelte-kit sync
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Check memory config form ownership, layout and layered Escape
+        run: node scripts/test-memory-config-layout.mjs
+      - name: Check native dialog survives Escape during a pending write or reload
+        run: node scripts/test-memory-config-pending-escape.mjs

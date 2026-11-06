@@ -1846,6 +1846,8 @@
     } finally { downloading = false; }
   }
 </script>
+<a data-sveltekit-preload-data="off" href={`/app/apps/${encodeURIComponent(data.app.id)}/node-role-templates`} class="inline-flex min-h-11 items-center text-indigo-700 underline dark:text-indigo-300">{t('config.templates', 'Node-role templates')}</a>
+
 
 <svelte:head><title>{app.name} · Apps · {org ? `${org.name} · ` : ''}Hadron</title></svelte:head>
 <!-- Escape leaves the maximised team chat. Bound at the window so it works
