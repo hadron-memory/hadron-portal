@@ -11,8 +11,14 @@
 // trip has answered — the response fulfilled, the page's own fetch settled, and one task
 // boundary for kit's deserialize chain (Gaia P2-2, portal#1751 BLIND: the first version
 // resolved its receipt at interception time, which undercut the survives-the-round-trip
-// claim). settleFocus then hands focus to the region, and the arm asserts the modality
-// survived the async round trip: keyboard → :focus-visible + ring, pointer → neither.
+// claim). That delivery is ALIGNMENT, not proof: fetch settles when headers arrive, and kit
+// still reads the body, deserializes, and runs the component's enhance callback
+// (invalidateAll, update) after it — no fixed task count pins that (Gaia P3-3, portal#1751
+// BLIND delta). The PROOF is where focus goes: the harness (focus-ring-probe.mjs) waits for
+// focus to land on the region before asserting anything, and ApplyAgentTickers hands focus
+// to the region in settleFocus — the LAST await of its enhance callback — so focus-on-region
+// can only happen after the whole client-side chain has run, and the modality assertions
+// cannot race it: keyboard → :focus-visible + ring, pointer → neither.
 // Setup: pnpm exec playwright install chromium
 // Run: pnpm test:apply-agent-tickers-focus
 import { runFocusRingProbe } from './lib/focus-ring-probe.mjs';
@@ -26,7 +32,9 @@ const FIXTURE = '/src/lib/test/fixtures/apply-agent-tickers-harness.svelte.ts';
  * kit's deserialize needs no devalue payload). The `answered` receipt resolves only
  * after `route.fulfill()` has sent the response — interception time no longer counts —
  * and the receipt PROP is not delivered until the page's own fetch has settled plus one
- * task boundary, so the assertions never race the round trip they claim survived.
+ * task boundary. That is best-effort alignment with the round trip (see the header);
+ * the hard synchronization is the harness's focus wait, which the component's own
+ * settleFocus — the last await of its enhance callback — cannot satisfy early.
  */
 async function driveApply(page, via) {
   let answered;
@@ -71,10 +79,12 @@ async function driveApply(page, via) {
       await button.click();
     }
     // The response is out; now the page's own round trip: fetch settled, then one task
-    // boundary for kit's deserialize/enhance chain — THEN the receipt, as the loader
-    // would deliver it, with the round trip genuinely behind us.
+    // boundary for kit's deserialize/enhance chain — then the receipt, as the loader
+    // would deliver it. Best-effort alignment only (fetch settles at headers; kit's
+    // chain continues past it) — the hard gate is the harness's wait for focus on the
+    // region, which settleFocus, the callback's last await, only satisfies once that
+    // chain is done (Gaia P3-3, portal#1751 BLIND delta).
     await answeredOrBust;
-    clearTimeout(deadline);
     await page.evaluate(() => {
       if (!window.__applySettled) throw new Error('apply fetch was not observed through window.fetch');
       return window.__applySettled;
@@ -85,6 +95,11 @@ async function driveApply(page, via) {
       applyFixture.result = applyReceipt;
     }, FIXTURE);
   } finally {
+    // Cleared on EVERY exit, not just success: an arm that throws before the POST
+    // (Cooper's P3 on the d9c289cb delta note) would otherwise leave the 10s deadline
+    // armed to reject into an unobserved promise, surfacing as an unhandled rejection
+    // long after this drive gave up.
+    clearTimeout(deadline);
     await page.unroute('**/__apply');
   }
 }

@@ -35,12 +35,17 @@ describe('findOutlineNoneTrap', () => {
   // Gaia P2-1 (portal#1751 BLIND): a focus-scoped suppression accepted WITHOUT the
   // focus-visible outline-STYLE restatement. Width/colour utilities draw with
   // --tw-outline-style, which the suppression left at none — the ring never paints.
+  // Gaia P3-2 (BLIND delta): bare `focus-visible:outline` draws WITH the variable too
+  // (emits outline-style: var(--tw-outline-style); outline-width: 1px), so it is a
+  // draw-wanting token the gate must see, not just `outline-<width>`.
   it.each([
     ['width-only restatement (Gaia P2-1)', `<div class="focus:outline-none focus-visible:outline-2">`],
     ['inverse ordering', `<div class="focus-visible:outline-2 focus:outline-none">`],
     ['width + colour, still no style', `<div class="focus:outline-none focus-visible:outline-2 focus-visible:outline-indigo-500">`],
-    ['both scoped to focus-visible', `<div class="focus-visible:outline-none focus-visible:outline-2">`],
-    ['stacked non-focus variant', `<div class="dark:focus:outline-none focus-visible:outline-2">`],
+    ['bare focus-visible:outline, still no style (Gaia P3-2)', `<div class="focus:outline-none focus-visible:outline">`],
+    // The chain ends in `focus` (it IS focus-scoped) under an extra variant, with no
+    // restatement at all — the label says what the shape is, not "non-focus".
+    ['extra-variant suppression, width-only restatement', `<div class="dark:focus:outline-none focus-visible:outline-2">`],
   ])('flags the scoped-but-unrestated suppression: %s', (_what, line) => {
     const findings = findOutlineNoneTrap(line);
     expect(findings).toHaveLength(1);
@@ -57,6 +62,51 @@ describe('findOutlineNoneTrap', () => {
     expect(findOutlineNoneTrap(line)).toHaveLength(1);
   });
 
+  // The restatement must be focus-visible-scoped and conditioned exactly like the
+  // suppression it answers.
+  it.each([
+    // Bare `outline-solid` sets the variable globally at (0,1,0), but the focus-scoped
+    // suppression out-ranks it under :focus at (0,2,0) — specificity, not cascade
+    // order (Basil P3, portal#1751 LOCAL delta: the suite did not pin this shape).
+    ['bare outline-solid is not a restatement', `<div class="focus:outline-none outline-solid focus-visible:outline-2">`],
+    // A restatement variant the suppression does not share exists only under that
+    // condition: this repo's dark: is class-scoped (:where(.dark, .dark *) via
+    // @custom-variant in src/app.css) and md: is a width media query — verified in the
+    // compiled css — so without .dark / below the breakpoint the suppression keeps
+    // --tw-outline-style:none and nothing paints (Gaia P3-1, confirmed; her delta
+    // marked it P2 if the compiled CSS confirmed — it does).
+    ['dark-conditioned restatement', `<div class="focus:outline-none dark:focus-visible:outline-solid focus-visible:outline-2">`],
+    ['breakpoint-conditioned restatement', `<div class="focus:outline-none md:focus-visible:outline-solid focus-visible:outline-2">`],
+    // The inverse shape: an extras-carrying suppression beside a PLAIN restatement.
+    // Both match under the condition at equal specificity, and the conditioned
+    // suppression sorts after the plain restatement in the compiled css
+    // (.dark:focus:outline-none at a higher index than .focus-visible:outline-solid),
+    // so dark mode keeps style:none — the extras must match, not just be present
+    // (Gaia P3-1 stacked suppression, confirmed; P2-grade per her rule).
+    ['stacked suppression, plain restatement', `<div class="dark:focus:outline-none focus-visible:outline-solid">`],
+    ['stacked suppression, extras on the wrong token', `<div class="dark:focus:outline-none md:focus-visible:outline-solid focus-visible:outline-2">`],
+  ])('flags the conditioned or unscoped restatement: %s', (_what, line) => {
+    const findings = findOutlineNoneTrap(line);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].reason).toBe('noRestatement');
+  });
+
+  // A suppression scoped to focus-visible itself can never be restated safely: any
+  // style utility beside it shares its variant, equal specificity leaves the winner
+  // to tailwind's utility sort order, and outline-none sorts AFTER the style
+  // utilities there (.focus-visible:outline-dashed before .focus-visible:outline-none
+  // in the compiled css) — the suppression wins and nothing paints (Gaia P3-1
+  // same-variant pair, confirmed; P2-grade per her rule).
+  it.each([
+    ['width-only beside a focus-visible suppression', `<div class="focus-visible:outline-none focus-visible:outline-2">`],
+    ['style restatement under the same variant', `<div class="focus-visible:outline-none focus-visible:outline-dashed">`],
+    ['same variant, matching extras on both', `<div class="dark:focus-visible:outline-none dark:focus-visible:outline-solid">`],
+  ])('flags the same-variant suppression: %s', (_what, line) => {
+    const findings = findOutlineNoneTrap(line);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].reason).toBe('sameVariant');
+  });
+
   it('reports every offending token, not just the first', () => {
     const line = `<div class="outline-none md:outline-none focus-visible:outline-2">`;
     expect(findOutlineNoneTrap(line)).toHaveLength(2);
@@ -66,7 +116,11 @@ describe('findOutlineNoneTrap', () => {
   it.each([
     ['the fix', `class="focus:outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"`],
     ['the inverse ordering', `class="focus-visible:outline-2 focus-visible:outline-indigo-500 focus:outline-none focus-visible:outline-solid"`],
-    ['a stacked focus variant', `class="dark:focus:outline-none focus-visible:outline-solid"`],
+    // The extras-matched pair Gaia's P3-1 fix endorses: same extra variants on both
+    // tokens, so the restatement exists exactly where the suppression does and sorts
+    // after it inside the same condition (verified in the compiled css:
+    // .dark:focus:outline-none before .dark:focus-visible:outline-solid).
+    ['a stacked focus variant, extras matched', `class="dark:focus:outline-none dark:focus-visible:outline-solid focus-visible:outline-2"`],
     ['a non-solid painting style', `class="focus:outline-none focus-visible:outline-dashed focus-visible:outline-2"`],
     ['outline-hidden with the style restated', `class="focus:outline-hidden focus-visible:outline-solid focus-visible:outline-2"`],
   ])('accepts %s', (_what, line) => {
@@ -83,11 +137,27 @@ describe('findOutlineNoneTrap', () => {
     expect(findOutlineNoneTrap(`<input class="focus-visible:outline-none">`)).toEqual([]);
   });
 
-  // Pins WANTS_RING's (?!none) lookahead: focus-visible:outline-none is not a draw-wanting
-  // token, so even a BARE outline-none beside it is not the defect pair (nothing is being
-  // suppressed-then-drawn). Dropped the lookahead and this line would flag (Basil P3-3).
+  // Pins WANTS_RING's (?!none|hidden) lookahead: focus-visible:outline-none is not a
+  // draw-wanting token, so even a BARE outline-none beside it is not the defect pair
+  // (nothing is being suppressed-then-drawn). Dropped the lookahead and this line would
+  // flag (Basil P3-3).
   it('stays silent on a bare outline-none beside focus-visible:outline-none (the lookahead: no draw-wanting token)', () => {
     expect(findOutlineNoneTrap(`<input class="outline-none focus-visible:outline-none">`)).toEqual([]);
+  });
+
+  // Gaia P2 (portal#1751 BLIND delta at 8676d593): outline-hidden must be excluded from
+  // WANTS_RING exactly like outline-none — `focus-visible:outline-hidden
+  // focus-visible:ring-2` is a valid ring-based pattern (outline hidden on purpose with
+  // its forced-colors fallback, the ring drawn by ring-*), not a suppressed-then-drawn
+  // pair. The old (?!none) lookahead made outline-hidden itself count as draw-wanting
+  // and flagged this as noRestatement, steering the author to add outline-solid beside
+  // a working ring.
+  it.each([
+    ['outline-hidden beside a box-shadow ring', `<input class="focus-visible:outline-hidden focus-visible:ring-2">`],
+    ['outline-hidden beside focus-visible:outline-hidden', `<input class="outline-hidden focus-visible:outline-hidden">`],
+    ['bare focus-visible:outline with no suppression on the element', `<input class="focus-visible:outline">`],
+  ])('stays silent on %s (no suppression-then-draw pair)', (_what, line) => {
+    expect(findOutlineNoneTrap(line)).toEqual([]);
   });
 
   it.each([

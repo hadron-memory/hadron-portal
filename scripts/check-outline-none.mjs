@@ -16,16 +16,35 @@
  * The rule this enforces is a bright line, the only kind a grep can hold: the DEFECT
  * SHAPE is an element whose class list contains BOTH a suppression (`outline-none`, or
  * `outline-hidden` — tailwind 4 sets `--tw-outline-style: none` for both; `outline-hidden`
- * only adds a forced-colors-only fallback outline) and a `focus-visible:outline-*` utility
+ * only adds a forced-colors-only fallback outline) and a `focus-visible:outline*` utility
  * that wants to draw — unless the suppression is focus-scoped AND the same list re-states
- * the outline STYLE under focus-visible (`focus-visible:outline-solid` and siblings). The
- * re-statement must be a STYLE utility: width/colour/offset utilities and bare `outline`
- * draw WITH `--tw-outline-style` and leave it `none`, so `focus:outline-none
- * focus-visible:outline-2` still computes `outline-style: none` on `:focus-visible` and
- * the ring never paints (Gaia P2-1, portal#1751 BLIND review). The fixed spellings
- * (`focus:outline-none focus-visible:outline-solid …` and its inverse ordering) are
- * accepted; so is a bare `outline-none` on an element with no `focus-visible:outline-*`
- * at all (nothing is being suppressed-then-drawn).
+ * the outline STYLE under focus-visible. The re-statement must be a STYLE utility
+ * (`outline-solid`/`-dashed`/`-dotted`/`-double`) carrying the SAME extra variants as the
+ * suppression: width/colour/offset utilities and bare `outline` draw WITH
+ * `--tw-outline-style` and leave it `none` (bare `focus-visible:outline` emits exactly
+ * `outline-style: var(--tw-outline-style); outline-width: 1px`), so
+ * `focus:outline-none focus-visible:outline-2` still computes `outline-style: none` on
+ * `:focus-visible` and the ring never paints (Gaia P2-1, portal#1751 BLIND review). A
+ * restatement with DIFFERENT or extra variants only exists under a condition the
+ * suppression is not bound by — in this repo `dark:` is class-scoped
+ * (`:where(.dark, .dark *)` via `@custom-variant` in src/app.css) and `md:` is a width
+ * media query, both verified in the compiled css — so `focus:outline-none
+ * dark:focus-visible:outline-solid` paints nothing without `.dark`, and
+ * `dark:focus:outline-none focus-visible:outline-solid` loses dark mode outright (the
+ * dark suppression sorts AFTER the plain restatement at equal specificity; Gaia P3-1,
+ * confirmed P2-grade, portal#1751 BLIND delta). A suppression scoped to `focus-visible`
+ * itself is refused outright: any restatement beside it shares its variant, equal
+ * specificity makes tailwind's utility sort order the judge, and `outline-none` sorts
+ * after the style utilities there (`focus-visible:outline-dashed` before
+ * `focus-visible:outline-none` in the compiled css) — so the ring never paints (Gaia
+ * P3-1 same-variant pair). A suppression paired only with `focus-visible:ring-*`
+ * (box-shadow ring) is NOT the pair — the outline is hidden on purpose, with
+ * outline-hidden's forced-colors fallback (Gaia P2, portal#1751 BLIND delta). The fixed
+ * spellings (`focus:outline-none focus-visible:outline-solid …` and its inverse
+ * ordering, and the extras-matched `dark:focus:outline-none
+ * dark:focus-visible:outline-solid`) are accepted; so is a bare `outline-none` on an
+ * element with no `focus-visible:outline*` at all (nothing is being
+ * suppressed-then-drawn).
  *
  * ## What it does NOT look at, and why each silence is enumerated
  *
@@ -47,16 +66,38 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** A `focus-visible:outline-*` utility that wants to DRAW (so `outline-none` itself doesn't count). */
-const WANTS_RING = /^(?:[\w()-]+:)*focus-visible:outline-(?!none\b)/;
+/**
+ * A `focus-visible:outline*` utility that wants to DRAW: bare `focus-visible:outline`
+ * (which emits `outline-style: var(--tw-outline-style); outline-width: 1px` per the
+ * installed tailwindcss — it draws WITH the variable, so a suppression beats it; Gaia
+ * P3-2, portal#1751 BLIND delta) or any `outline-<width/colour/offset/style>` except
+ * the two suppressions — neither counts, so the valid ring-based pattern
+ * `focus-visible:outline-hidden focus-visible:ring-2` — outline intentionally hidden
+ * with its forced-colors fallback, the ring drawn by `ring-*` — is not a pair at all
+ * (Gaia P2, portal#1751 BLIND delta at 8676d593).
+ */
+const WANTS_RING = /^(?:[\w()-]+:)*focus-visible:outline(?:-(?!(?:none|hidden)\b)|$)/;
 
 /**
  * The outline STYLE utilities that set `--tw-outline-style` back to a painting value
  * (tailwind 4 emits exactly solid/dashed/dotted/double). Only these re-state the ring
  * after a scoped suppression; width/colour/offset utilities and bare `outline` draw
- * WITH the variable and leave it whatever the suppression set.
+ * WITH the variable and leave it whatever the suppression set. The token must carry
+ * exactly a `focus-visible:` scope and the suppression's OWN extra variants — a
+ * differently-conditioned restatement does not exist where the suppression does
+ * (this repo's `dark:` is `:where(.dark, .dark *)`, `md:` is a width media query;
+ * verified in the compiled css), and an extras-carrying suppression beats a plain
+ * restatement that sorts earlier at equal specificity
+ * (`dark:focus:outline-none` after `focus-visible:outline-solid` — Gaia P3-1,
+ * portal#1751 BLIND delta).
  */
-const RESTATES_STYLE = /^(?:[\w()-]+:)*focus-visible:outline-(?:solid|dashed|dotted|double)$/;
+const STYLE = '(?:solid|dashed|dotted|double)';
+const RESTATES_STYLE = new RegExp(`^focus-visible:outline-${STYLE}$`);
+
+/** The restatement an extras-carrying `focus:`-scoped suppression requires: same extras, same order, focus-visible scope. */
+const restatementFor = (extras) => new RegExp(
+  `^${extras.map((v) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join(':')}${extras.length ? ':' : ''}focus-visible:outline-${STYLE}$`,
+);
 
 /** A suppression token — `outline-none`, or `outline-hidden` (same variable; forced-colors fallback) — with its variant chain. */
 const SUPPRESSES = /^((?:[\w()-]+:)*)(outline-none|outline-hidden)$/;
@@ -67,19 +108,22 @@ const FOCUS_SCOPES = new Set(['focus', 'focus-visible']);
 /** Why a token is the defect, in one sentence for the CI annotation. */
 const REASON = {
   unscoped:
-    'the suppression is not focus-scoped, so it wins under :focus-visible outright — scope it (focus:outline-none) and re-state focus-visible:outline-solid',
+    'the suppression is not focus-scoped — the bright line refuses it even though a focus-visible:outline-<style> restatement would out-rank it by specificity — scope it (focus:outline-none) and keep the focus-visible:outline-solid restatement',
   noRestatement:
-    'the suppression is focus-scoped but the list never re-states the outline STYLE under focus-visible — width/colour alone (focus-visible:outline-2) draw with --tw-outline-style, which the suppression left at none, so the ring never paints; add focus-visible:outline-solid (Gaia P2-1, portal#1751 BLIND)',
+    'the suppression is focus-scoped but nothing safely re-states the outline STYLE — the restatement must be focus-visible:outline-<style> carrying the suppression\'s OWN extra variants (dark:focus:outline-none needs dark:focus-visible:outline-solid; a plain one sorts earlier at equal specificity, so the conditioned scheme/viewport keeps style:none); width/colour alone draw with --tw-outline-style, which the suppression left at none',
+  sameVariant:
+    'the suppression is scoped to focus-visible, the same variant as any style restatement beside it — equal specificity leaves the winner to tailwind\'s utility sort order, and outline-none sorts after the style utilities there, so the ring never paints; use focus:outline-none with a focus-visible:outline-<style> restatement instead',
 };
 
 /**
  * The outline-none traps in one line of source: every class attribute whose list carries
- * both a draw-wanting `focus-visible:outline-*` token and a suppression token that is
- * either not scoped to a focus variant at all, or focus-scoped without a focus-visible
- * outline-STYLE restatement elsewhere in the same list.
+ * both a draw-wanting `focus-visible:outline*` token and a suppression token that is
+ * either not scoped to a focus variant at all, focus-scoped without a matching
+ * focus-visible outline-STYLE restatement elsewhere in the same list, or scoped to
+ * focus-visible itself (where no restatement can sit safely beside it).
  *
  * @param {string} line
- * @returns {{ column: number, token: string, line: string, reason: 'unscoped' | 'noRestatement' }[]}
+ * @returns {{ column: number, token: string, line: string, reason: 'unscoped' | 'noRestatement' | 'sameVariant' }[]}
  */
 export function findOutlineNoneTrap(line) {
   const out = [];
@@ -87,18 +131,23 @@ export function findOutlineNoneTrap(line) {
     const [, , value] = match;
     const tokens = value.split(/\s+/).filter(Boolean);
     if (!tokens.some((t) => WANTS_RING.test(t))) continue;
-    const restated = tokens.some((t) => RESTATES_STYLE.test(t));
     for (const token of tokens) {
       const m = SUPPRESSES.exec(token);
       if (!m) continue;
       const chain = m[1] ? m[1].split(':').filter(Boolean) : [];
       const last = chain[chain.length - 1];
       // An empty chain (the bare utility) or a non-focus variant is the defect outright;
-      // a chain ending in focus/focus-visible is only safe when the same list re-states
-      // the outline STYLE under focus-visible.
-      if (last !== undefined && FOCUS_SCOPES.has(last)) {
-        if (restated) continue;
+      // a chain ending in focus is only safe when the same list re-states the outline
+      // STYLE under focus-visible with the chain's own extra variants; a chain ending
+      // in focus-visible is never safe — its restatement would share the variant.
+      if (last !== undefined && last === 'focus') {
+        const re = chain.length > 1 ? restatementFor(chain.slice(0, -1)) : RESTATES_STYLE;
+        if (tokens.some((t) => re.test(t))) continue;
         out.push({ column: match.index + 1, token, line: line.trim(), reason: 'noRestatement' });
+        continue;
+      }
+      if (last === 'focus-visible') {
+        out.push({ column: match.index + 1, token, line: line.trim(), reason: 'sameVariant' });
         continue;
       }
       out.push({ column: match.index + 1, token, line: line.trim(), reason: 'unscoped' });
