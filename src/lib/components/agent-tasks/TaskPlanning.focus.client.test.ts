@@ -17,7 +17,7 @@ async function setup() {
   const m = mountComponent(TaskPlanning as never, props as never); mounts.push(m); await tick(3);
   const filter = m.target.querySelector<HTMLInputElement>('input[aria-label="Filter loaded relations…"]')!;
   const more = (name: string) => Array.from(m.target.querySelectorAll('button')).find((b) => b.textContent === name)!;
-  return { ...m, props, filter, more, settle: (hasMore = false) => resolve({ ok: true, json: async () => ({ kind: 'ok', value: { items: [choice('new')], hasMore } }) } as Response) };
+  return { ...m, props, filter, more, fail: () => resolve({ ok: false } as Response), settle: (hasMore = false) => resolve({ ok: true, json: async () => ({ kind: 'ok', value: { items: [choice('new')], hasMore } }) } as Response) };
 }
 // jsdom does not synthesize native button activation from a key. Dispatch the key
 // and its resulting click here; the real Chromium lane drives Enter/Space itself.
@@ -107,6 +107,16 @@ describe('exhausted relation control focus', () => {
     m.settle(true); await tick(12);
     expect(document.activeElement).toBe(blur ? document.body : newer);
   });
+  it('does not claim a surviving non-final control when activation never owned focus', async () => {
+    const m = await setup(); m.more('Load more Waits for').click(); await tick(3);
+    m.settle(true); await tick(12); expect(document.activeElement).toBe(document.body);
+  });
+  it('restores the retryable control after a failed read without moving to the final-page filter', async () => {
+    const m = await setup(); const trigger = m.more('Load more Holds up'); activate(trigger, 'Enter'); await tick(3); nativeDisabledBlur();
+    m.fail(); await tick(12); expect(document.activeElement).toBe(trigger); expect(trigger.disabled).toBe(false);
+    expect(m.target.textContent).toContain('Couldn’t load more Holds up. Try again.');
+    expect(m.filter.closest<HTMLElement>('[data-testid="table-header"]')?.hidden).toBe(true);
+  });
   it('does not restore a non-final control across a newer relation snapshot', async () => {
     const m = await setup(); const trigger = m.more('Load more Waits for'); activate(trigger, 'Enter'); await tick(3); nativeDisabledBlur();
     m.props.dependencies = initial(); await tick(3); m.settle(true); await tick(12);
@@ -118,8 +128,8 @@ describe('exhausted relation control focus', () => {
     const newer = m.more('Choose a task'); newer.focus(); m.settle(); await tick(12);
     expect(document.activeElement).toBe(newer); expect(m.target.textContent).not.toContain('Task new');
   });
-  it('does not run a pending focus handoff after unmount', async () => {
+  it.each([false, true])('does not run a pending focus handoff after unmount (hasMore=%s)', async hasMore => {
     const m = await setup(); activate(m.more('Load more Waits for'), 'Enter'); await tick(3); m.unmount();
-    m.settle(); await tick(12); expect(document.activeElement).toBe(document.body);
+    m.settle(hasMore); await tick(12); expect(document.activeElement).toBe(document.body);
   });
 });

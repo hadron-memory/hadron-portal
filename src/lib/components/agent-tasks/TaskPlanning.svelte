@@ -111,7 +111,16 @@
         }
       }
     } catch { if (current === relationGeneration) pageFailed[direction] = 'failed'; }
-    finally { if (current === relationGeneration) pagePending[direction] = false; }
+    finally {
+      if (current === relationGeneration) {
+        pagePending[direction] = false;
+        // A non-final control survives, but native disabled blur may leave BODY
+        // focused. Re-enable it before restoring only the original attention.
+        await tick();
+        if (current === relationGeneration && ownedFocus && focusEpoch === focusAtStart &&
+            trigger.isConnected && !trigger.disabled && document.activeElement === document.body) trigger.focus();
+      }
+    }
   }
   const rows = $derived<Relation[]>(relationView.kind === 'ok' ? [
     ...relationView.value.blockedBy.items.map((item) => ({ ...item, direction: 'blockedBy' as const })),
