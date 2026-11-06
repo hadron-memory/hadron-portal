@@ -3056,9 +3056,10 @@ export const NODES_BY_LOC_PREFIX_QUERY = /* GraphQL */ `
     $limit: Int
     $offset: Int
     $sort: NodeSort
+    $nodeTypes: [String!]
   ) {
     findNodes(
-      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix }
+      filter: { memoryIds: [$memoryId], locPrefix: $locPrefix, nodeTypes: $nodeTypes }
       limit: $limit
       offset: $offset
       sort: $sort
