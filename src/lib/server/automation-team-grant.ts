@@ -12,10 +12,11 @@ import { PAGE_LIMIT } from '$lib/server/paginate';
  * The list is narrowed by the server (hadron-server#3386,
  * hrn:node:hadronmemory.com:specs:cor:agt:050:23): the read sends this
  * automation's triggerKind and triggerId, so it pages only that trigger's
- * grants and `total` counts only those. They are read to the end all the same: only a complete read may say "not given", and the read always asks
- * for the history: the live-only list shrinks under the offset when another
- * manager stops a grant, so a grant live throughout can fall behind it, where
- * the history only grows at its end
+ * grants and `total` counts only those. They are read to the end all the same:
+ * only a complete read may say "not given", and the read always asks for the
+ * history: the live-only list shrinks under the offset when another manager
+ * stops a grant, so a grant live throughout can fall behind it, where the
+ * history only grows at its end
  * (hrn:node:hadronmemory.com:hadron-portal:findings:offset-drain-can-omit-continuously-live-row).
  * FORBIDDEN (only an App manager, as themselves, may read it) hides the section;
  * any other failure is `unavailable`, never "not given".
@@ -160,6 +161,8 @@ export const giveTeamGrant = (client: GraphQLClient, appRef: string, kind: Appro
  */
 export const stopTeamGrant = (client: GraphQLClient, appRef: string, kind: ApprovalTriggerKind, triggerId: string) =>
   write(async () => {
-    const live = (await grantsOf(client, appRef, kind, triggerId)).find((g) => g.revokedAt === null);
+    // The server narrows the list, but a revoke is by id: the row chosen here is
+    // checked to be this trigger's own before it is ended, whatever came back.
+    const live = (await grantsOf(client, appRef, kind, triggerId)).find((g) => g.revokedAt === null && g.triggerKind === kind && g.triggerId === triggerId);
     if (live) await client.request(STOP_AUTOMATION_TEAM_GRANT_MUTATION, { id: live.id });
   });

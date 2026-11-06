@@ -81,7 +81,7 @@ function serveShortOf(total: number, rows: Record<string, unknown>[]) {
   });
 }
 /** This automation's own 200 older, ended grants: the rows the server pages before its live one. */
-const OTHERS = Array.from({ length: 200 }, (_, i) => grant({ id: `o${i}`, revokedAt: '2026-10-01T10:00:00.000Z', revokedBy: 'u-ana' }));
+const OWN_ENDED = Array.from({ length: 200 }, (_, i) => grant({ id: `o${i}`, revokedAt: '2026-10-01T10:00:00.000Z', revokedBy: 'u-ana' }));
 
 const locals = { token: 'tok', user: { id: 'u1' }, impersonation: null };
 type TeamGrant = { status: string; live?: Record<string, unknown> | null; ended?: Record<string, unknown>[] | null };
@@ -128,7 +128,7 @@ describe('reading the grant', () => {
   });
 
   it('a grant live throughout stays given when other grants end between pages (LOCAL P2-3)', async () => {
-    serveShrinkingLiveList(OTHERS, grant({ id: 'g-live' }));
+    serveShrinkingLiveList(OWN_ENDED, grant({ id: 'g-live' }));
     const { teamGrant: tg } = await teamGrant();
     expect(tg.status).toBe('ready');
     expect(tg.live).toMatchObject({ id: 'g-live' });
@@ -218,7 +218,7 @@ describe('reading the grant', () => {
 describe('the list is narrowed by the server, not by the page', () => {
   const crowd = [
     grant({ id: 'other-sched', triggerId: 'sch-2' }),
-    grant({ id: 'same-id-other-kind', triggerKind: 'WEBHOOK' }),
+    grant({ id: 'webhook-sharing-this-id', triggerKind: 'WEBHOOK' }),
     grant(),
   ];
   const sent = () => calls(isList).map((c) => c[1]);
@@ -241,7 +241,7 @@ describe('the list is narrowed by the server, not by the page', () => {
   });
 
   it('stopping finds the grant with both filters, on every page', async () => {
-    serve([...OTHERS, grant({ id: 'g-live' })]);
+    serve([...OWN_ENDED, grant({ id: 'g-live' })]);
     await act('stop');
     expect(sent().length).toBeGreaterThan(1);
     for (const vars of sent()) expect(vars).toMatchObject({ triggerKind: 'SCHEDULE', triggerId: 'sch-1' });
@@ -252,6 +252,22 @@ describe('the list is narrowed by the server, not by the page', () => {
     serve(crowd);
     const { teamGrant: g } = await teamGrant();
     expect(g).toMatchObject({ status: 'ready', live: { id: 'g1' }, ended: null });
+  });
+
+  it('stop ends only a row that is this trigger\'s own, even if the server returned another (BLIND P2-2)', async () => {
+    serve([]);
+    request.mockImplementation(async (q: string, vars: Record<string, unknown> = {}) => {
+      if (isList(q)) return { automationTeamSnapshotGrants: { items: [grant({ id: 'foreign', triggerId: 'sch-2' }), grant({ id: 'foreign-kind', triggerKind: 'WEBHOOK' })], total: 2, hasMore: false } };
+      return { user: USERS[String(vars.ref)] ?? null };
+    });
+    await act('stop');
+    expect(calls(isStop)).toEqual([]);
+  });
+
+  it('giving does not read the list: no filter to send', async () => {
+    serve([]);
+    await act('give');
+    expect(calls(isList)).toEqual([]);
   });
 
   it('trusts the server\'s narrowing: a row it returned is not filtered again on the page', async () => {
@@ -306,7 +322,7 @@ describe('Stop', () => {
   });
 
   it('finds a grant live throughout when other grants end between pages (LOCAL P2-3)', async () => {
-    serveShrinkingLiveList(OTHERS, grant({ id: 'g-live' }));
+    serveShrinkingLiveList(OWN_ENDED, grant({ id: 'g-live' }));
     expect(await act('stop')).toEqual({ teamGrant: 'stopped' });
     expect(calls(isStop).map((c) => c[1])).toEqual([{ id: 'g-live' }]);
   });
