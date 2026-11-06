@@ -18,17 +18,33 @@ const URN = 'hrn:mem:hadronmemory.com:hadron-dev-team';
 type Listener = (e: { matches: boolean }) => void;
 
 /** A controllable `(pointer: coarse)` media query, with its listeners visible. */
-function stubPointer(coarse: boolean) {
+function stubPointer(coarse: boolean, narrow = false) {
   const listeners = new Set<Listener>();
+  const narrowListeners = new Set<Listener>();
   const mq = {
     matches: coarse,
     media: '(pointer: coarse)',
     addEventListener: (_: string, l: Listener) => listeners.add(l),
     removeEventListener: (_: string, l: Listener) => listeners.delete(l),
   };
-  vi.stubGlobal('matchMedia', vi.fn((q: string) => (q === '(pointer: coarse)' ? mq : { ...mq, matches: false, media: q })));
+  const nq = {
+    matches: narrow,
+    media: '(max-width: 639px)',
+    addEventListener: (_: string, l: Listener) => narrowListeners.add(l),
+    removeEventListener: (_: string, l: Listener) => narrowListeners.delete(l),
+  };
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn((q: string) => (q === '(pointer: coarse)' ? mq : q === '(max-width: 639px)' ? nq : { ...mq, matches: false, media: q })),
+  );
   return {
     listeners,
+    narrowListeners,
+    setNarrow(next: boolean) {
+      nq.matches = next;
+      for (const l of [...narrowListeners]) l({ matches: next });
+      flushSync();
+    },
     set(next: boolean) {
       mq.matches = next;
       for (const l of [...listeners]) l({ matches: next });
@@ -214,5 +230,74 @@ describe('Urn: tap-to-reveal on a coarse pointer (#1604)', () => {
     const m = mountUrn({ compact: true });
     expect(toggle(m)).toBeNull();
     expect(m.target.querySelector('code')).not.toBeNull();
+  });
+});
+
+describe('Urn: a keyboard user can read a truncated URN (#1686)', () => {
+  const tip = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLElement>('[role="tooltip"]');
+  const chip = (m: Mounted<Record<string, unknown>>) => m.target.querySelector<HTMLElement>('code')!;
+
+  it('a narrow viewport reveals on a fine pointer too, and follows a resize', () => {
+    const pointer = stubPointer(false, true);
+    const m = mountUrn({ compact: true });
+    expect(toggle(m)).not.toBeNull();
+    toggle(m)!.click();
+    flushSync();
+    expect(valueSpan(m).textContent).toContain(URN);
+
+    pointer.setNarrow(false);
+    expect(toggle(m)).toBeNull();
+    expect(valueSpan(m).className).toContain('truncate');
+  });
+
+  it('a wide fine-pointer chip is focusable and shows the whole URN while focused', () => {
+    stubPointer(false, false);
+    const m = mountUrn({ compact: true });
+    const c = chip(m);
+    expect(c.getAttribute('tabindex')).toBe('0');
+    expect(tip(m)).toBeNull();
+
+    c.focus();
+    flushSync();
+    expect(tip(m)?.textContent).toBe(URN);
+    expect(c.getAttribute('aria-describedby')).toBe(tip(m)!.id);
+    // Fixed, so a cell's overflow cannot clip it and the row's height cannot change.
+    expect(tip(m)!.style.position).toBe('fixed');
+
+    c.blur();
+    flushSync();
+    expect(tip(m)).toBeNull();
+    expect(c.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('Escape dismisses the readout without moving focus', () => {
+    stubPointer(false, false);
+    const m = mountUrn({ compact: true });
+    const c = chip(m);
+    c.focus();
+    flushSync();
+    c.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    flushSync();
+    expect(tip(m)).toBeNull();
+    expect(document.activeElement).toBe(c);
+  });
+
+  it('a linked or non-compact chip gets no extra tab stop', () => {
+    stubPointer(false, false);
+    expect(chip(mountUrn({ compact: false })).hasAttribute('tabindex')).toBe(false);
+    expect(mountUrn({ compact: true, linked: true }).target.querySelector('a')!.hasAttribute('tabindex')).toBe(false);
+  });
+});
+
+describe('Urn: touch targets for its own controls (#1686)', () => {
+  it('copy buttons and the reveal toggle extend their hit area to 44px on a coarse pointer', () => {
+    stubPointer(true);
+    const m = mountUrn({ compact: true });
+    for (const el of [toggle(m)!, ...m.target.querySelectorAll<HTMLButtonElement>('button[aria-label^="Copy"]')]) {
+      expect(el.className).toContain('relative');
+      expect(el.className).toContain('pointer-coarse:after:absolute');
+      expect(el.className).toContain('pointer-coarse:after:min-h-11');
+      expect(el.className).toContain('pointer-coarse:after:min-w-11');
+    }
   });
 });
