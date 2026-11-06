@@ -10,7 +10,8 @@ const humanTeam = (appId: string) => `/app/apps/${appId}?tab=members`;
  * forwards rather than disappearing — an unknown route would 404 where the
  * reader expects the people list.
  */
-export const load: PageServerLoad = ({ params }) => {
+export const load: PageServerLoad = async ({ params, parent }) => {
+  await parent();
   redirect(307, humanTeam(params.appId));
 };
 
