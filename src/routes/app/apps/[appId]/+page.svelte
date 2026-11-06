@@ -1114,6 +1114,9 @@
   // form is: the Page is reused across Apps, so the id alone can't place a result.
   let installGeneration = 0;
   let installAttemptGeneration = -1;
+  // Per request, as castRequestGeneration is. This form has no composer to reopen, so the
+  // {#key app.id} around it is what gives each App its own element.
+  const installRequestGeneration = new WeakMap<HTMLFormElement, number>();
   let installRefreshFailed = $state(false);
   const installFormId = `installAgent:${Math.random().toString(36).slice(2, 10)}`;
   const {
@@ -1125,8 +1128,9 @@
     id: installFormId,
     validators: zod4Client(addAgentSchema),
     clearOnSubmit: 'none',
-    onSubmit: () => {
+    onSubmit: ({ formElement }) => {
       installAttemptGeneration = installGeneration;
+      installRequestGeneration.set(formElement, installGeneration);
       installRefreshFailed = false;
     },
     // Superforms awaits between its hooks, and the App can change during any of those
@@ -1134,8 +1138,8 @@
     // no hook left to stop it. Off, the form takes the result itself, onUpdated below
     // drops one that went stale, and only a redirect still needs Kit.
     applyAction: false,
-    onResult: async ({ result, cancel }) => {
-      if (installAttemptGeneration !== installGeneration) cancel();
+    onResult: async ({ result, formElement, cancel }) => {
+      if (installRequestGeneration.get(formElement) !== installGeneration) cancel();
       else if (result.type === 'redirect') await applyAction(result);
     },
     // Superforms' default rethrows, leaving the row's Actions disabled. The request
@@ -3194,13 +3198,16 @@
       </section>
       <!-- #1684: Install's submit target, one hidden form for every derived row. A
            withheld roster offers no add, this one included. It stays mounted across
-           the install: the reload that follows drops the row that asked. -->
+           the install: the reload that follows drops the row that asked. Keyed by App
+           so a late answer can be told from B's own (installRequestGeneration). -->
       {#if !agentsWithheld}
-        <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
-          <input type="hidden" name="_kind" value="addAgent" />
-          <input type="hidden" name="__superform_id" value={installFormId} />
-          <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
-        </form>
+        {#key app.id}
+          <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
+            <input type="hidden" name="_kind" value="addAgent" />
+            <input type="hidden" name="__superform_id" value={installFormId} />
+            <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
+          </form>
+        {/key}
       {/if}
     </div>
     </div>
