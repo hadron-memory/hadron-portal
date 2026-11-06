@@ -119,6 +119,11 @@ describe('A derived agent on the Agents tab (#1684)', () => {
     expect(target.querySelector('tbody')!.textContent).not.toContain('Installed');
   });
 
+  it('a withheld answer still offers Unlink: with no mark, the row isn’t known to be derived', async () => {
+    const target = await mountTab('agents', { installMarks: {} });
+    expect(openMenu(target, 'Actions for Beta').map((i) => i.textContent?.trim())).toEqual(['Customisation…', 'Set boot prompt…', 'Unlink']);
+  });
+
   it('the search finds a derived agent by its importer', async () => {
     const target = await mountTab('agents', { installMarks: { ag1: { kind: 'derived', importer: IMPORTER } } });
     const search = target.querySelector<HTMLInputElement>('input[aria-label="Search agents"]')!;

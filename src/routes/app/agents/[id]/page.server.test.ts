@@ -9,6 +9,7 @@ import { SELF_AGENT_MANAGE_QUERY, AGENT_INDEX_REFS_QUERY } from '$lib/server/age
  * up SvelteKit.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { parse, visit, type FieldNode, type SelectionSetNode } from 'graphql';
 import {
   AGENT_QUERY,
   ORGANIZATIONS_QUERY,
@@ -702,8 +703,17 @@ describe('/app/agents/[id] loader — bundled agents (#713)', () => {
   });
 
   it('selects the join, not the masked primary id, in both App documents', () => {
+    // Parsed, so a reflow or a reordered selection can't fail it and a look-alike in a comment can't pass it.
+    const fields = (set: SelectionSetNode | undefined) =>
+      Object.fromEntries((set?.selections ?? []).filter((n): n is FieldNode => n.kind === 'Field').map((n) => [n.name.value, n.selectionSet]));
+    const names = (set: SelectionSetNode | undefined) => Object.keys(fields(set)).sort();
     for (const doc of [AGENT_APPS_QUERY, AGENT_OWNED_APPS_QUERY]) {
-      expect(doc).toContain('appAgents { agent { id } installMethod importer { id name urn } }');
+      const found: SelectionSetNode[] = [];
+      visit(parse(doc), { Field: (n) => { if (n.name.value === 'appAgents' && n.selectionSet) found.push(n.selectionSet); } });
+      expect(found).toHaveLength(1);
+      expect(names(found[0])).toEqual(['agent', 'importer', 'installMethod']);
+      expect(names(fields(found[0]).agent)).toEqual(['id']);
+      expect(names(fields(found[0]).importer)).toEqual(['id', 'name', 'urn']);
       expect(doc).not.toMatch(/^\s+agentId\s*$/m);
     }
   });

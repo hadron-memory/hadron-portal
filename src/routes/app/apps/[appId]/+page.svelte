@@ -279,7 +279,7 @@
   const installedAgents = $derived(app.agents ?? []);
   const castableAgents = $derived(castableAgentOptions(installedAgents));
   // #1684: how the App installs each agent, as the server states it (see app-install-marks.ts).
-  const installMarks = $derived<InstallMarks>((data as { installMarks?: InstallMarks }).installMarks ?? {});
+  const installMarks = $derived<InstallMarks>(data.installMarks ?? {});
   const castAgentGroups = $derived(castGroups(castableAgents, installMarks));
   // R222: role is a fact, never a cast-time input. Preserve a restored
   // selection's identity even if that Agent no longer has a castable role.
@@ -297,6 +297,11 @@
   // that began in an earlier visit to the same App (A -> B -> A) is as stale as one from B.
   let castGeneration = 0;
   let castAttemptGeneration = -1;
+  // castAttemptGeneration is overwritten by the next submit, so on its own it would pass a pending
+  // answer from A once B has submitted. Superforms gives a hook no request identity, but it does
+  // give onResult the form element, the composer gets a new one for each opening and that element
+  // sends one request at a time (multipleSubmits: 'prevent'), so the element stands for the request.
+  const castRequestGeneration = new WeakMap<HTMLFormElement, number>();
   let castRefreshFailed = $state(false);
 
   // #719 — App Keys as the shared TanStack grid, replacing a hand-rolled
@@ -1125,6 +1130,9 @@
   // form is: the Page is reused across Apps, so the id alone can't place a result.
   let installGeneration = 0;
   let installAttemptGeneration = -1;
+  // Per request, as castRequestGeneration is. This form has no composer to reopen, so the
+  // {#key app.id} around it is what gives each App its own element.
+  const installRequestGeneration = new WeakMap<HTMLFormElement, number>();
   let installRefreshFailed = $state(false);
   const installFormId = `installAgent:${Math.random().toString(36).slice(2, 10)}`;
   const {
@@ -1136,8 +1144,9 @@
     id: installFormId,
     validators: zod4Client(addAgentSchema),
     clearOnSubmit: 'none',
-    onSubmit: () => {
+    onSubmit: ({ formElement }) => {
       installAttemptGeneration = installGeneration;
+      installRequestGeneration.set(formElement, installGeneration);
       installRefreshFailed = false;
     },
     // Superforms awaits between its hooks, and the App can change during any of those
@@ -1145,8 +1154,8 @@
     // no hook left to stop it. Off, the form takes the result itself, onUpdated below
     // drops one that went stale, and only a redirect still needs Kit.
     applyAction: false,
-    onResult: async ({ result, cancel }) => {
-      if (installAttemptGeneration !== installGeneration) cancel();
+    onResult: async ({ result, formElement, cancel }) => {
+      if (installRequestGeneration.get(formElement) !== installGeneration) cancel();
       else if (result.type === 'redirect') await applyAction(result);
     },
     // Superforms' default rethrows, leaving the row's Actions disabled. The request
@@ -1266,13 +1275,15 @@
   });
 
   // ── Casting (#974) ───────────────────────────────────────────────────
-  const castFormId = `castWorker:${Math.random().toString(36).slice(2, 10)}`;
+  const newCastFormId = () => `castWorker:${Math.random().toString(36).slice(2, 10)}`;
+  const castFormId = newCastFormId();
   const initialCastWorkerForm = untrack(() => submittedForm<CastWorkerForm>(form, 'castWorker') as CastWorkerSuperform | null ?? data.castWorkerForm);
   const {
     form: castWorkerForm,
     errors: castWorkerErrors,
     message: castWorkerMessage,
     submitting: castWorkerSubmitting,
+    formId: castWorkerFormId,
     enhance: castWorkerEnhance,
   } = superForm<CastWorkerForm, App.Superforms.Message, CastWorkerForm>(initialCastWorkerForm, {
     // Instance-bound id: Superforms applies an action result only to the live form whose id
@@ -1289,18 +1300,44 @@
     // must not close B's composer, empty B's draft or print "Worker cast." on B.
     // The cast itself is already committed server-side; only its application to
     // the screen is dropped (never replayed).
-    onSubmit: () => {
+    onSubmit: ({ formElement }) => {
       castAttemptGeneration = castGeneration;
+      castRequestGeneration.set(formElement, castGeneration);
       castRefreshFailed = false;
     },
-    onResult: ({ cancel }) => {
-      if (castAttemptGeneration !== castGeneration) cancel();
+    // portal#1715: as on Install, and for the same reason. Superforms awaits between
+    // its hooks, so with applyAction on A's answer could cross onResult and then be
+    // applied by Kit on B, with no hook left to stop it: B's draft emptied or
+    // overwritten, its focus reset and A's receipt printed there. Off, the form takes
+    // the result itself and only a redirect still needs Kit. Kit also fed the `form`
+    // prop effects, so onUpdated below does their two jobs for an enhanced result.
+    // Past onResult no hook runs before the write into the form store, which B owns
+    // by then, so the App change below also gives the form a new id: Superforms drops
+    // a result whose id isn't the live one, right at that write.
+    applyAction: false,
+    onResult: async ({ result, formElement, cancel }) => {
+      if (castRequestGeneration.get(formElement) !== castGeneration) cancel();
+      else if (result.type === 'redirect') await applyAction(result);
+    },
+    // Superforms' default rethrows, leaving the form on "Casting…". The request failed,
+    // so whether the cast landed isn't known and this claims neither. Never retried.
+    // A stale answer stops at onResult above, which also skips this hook; the check
+    // here is for an App change during the hooks of an answer that passed it.
+    onError: () => {
+      if (castAttemptGeneration !== castGeneration) return;
+      activeTab = 'staff';
+      castWorkerMessage.set({
+        type: 'error',
+        text: t('app.staff.cast.unconfirmed', 'The cast could not be confirmed. Reload the page to check before casting again.'),
+      });
     },
     // The refresh is ours (not Superforms'), so a rejection after a CONFIRMED
     // cast is caught here and told truthfully instead of stranding the form.
     invalidateAll: false,
     onUpdated: async ({ form: f }) => {
       if (castAttemptGeneration !== castGeneration) return;
+      activeTab = 'staff';
+      if (!f.valid || f.message?.type === 'error') castOpen = true;
       // Clear the composer only on a clean cast, so a WORKER_NAME_TAKEN
       // refusal leaves the rejected name in the box to edit.
       if (f.valid && f.message?.type === 'success') {
@@ -1327,6 +1364,7 @@
     if (id === castContextApp) return;
     castContextApp = id;
     castGeneration += 1;
+    castWorkerFormId.set(newCastFormId());
     untrack(() => {
       castWorkerForm.update(
         (current) => ({ ...current, agentId: '', name: '', reporting: '', reportsTo: '' }),
@@ -1644,14 +1682,19 @@
   let removeAgentFormEl = $state<HTMLFormElement | null>(null);
   let installAgentFormEl = $state<HTMLFormElement | null>(null);
   let revokeKeyFormEl = $state<HTMLFormElement | null>(null);
+  // portal#1715: Link, row Install and row Unlink are three forms, and
+  // `multipleSubmits: 'prevent'` holds per form, so this is what keeps them to one
+  // write at a time. Client UX only: the server's write policy is unchanged. The
+  // guards below need it too, because requestSubmit() ignores a disabled control.
+  const agentWriteBusy = $derived($addAgentSubmitting || $installAgentSubmitting || $removeAgentSubmitting);
   async function unlinkAgent(agent: { id: string; name: string }) {
-    if ($removeAgentSubmitting) return;
+    if (agentWriteBusy) return;
     setRemoveAgent(agent.id);
     await tick();
     removeAgentFormEl?.requestSubmit();
   }
   async function installDerivedAgent(agent: { id: string }) {
-    if ($installAgentSubmitting) return;
+    if (agentWriteBusy) return;
     installAgentForm.update((current) => ({ ...current, agentId: agent.id }), { taint: false });
     await tick();
     installAgentFormEl?.requestSubmit();
@@ -1888,20 +1931,25 @@
   </div>
 
   {#if installAgentActionError || removeAgentActionError || updateAgentToolsActionError || revokeKeyActionError || deleteAppActionError}
-    <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">
+    <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
       {installAgentActionError ?? removeAgentActionError ?? updateAgentToolsActionError ?? revokeKeyActionError ?? deleteAppActionError}
     </div>
   {/if}
   {#if settingsActionSuccess || addAgentActionSuccess || installAgentActionSuccess || removeAgentActionSuccess || updateAgentToolsActionSuccess || revokeKeyActionSuccess}
-    <div role="status" class="rounded-lg border border-green-800 bg-green-950 px-4 py-3 text-sm text-green-300">
+    <div role="status" class="rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-700 dark:border-green-900 dark:bg-green-950 dark:text-green-300">
       {settingsActionSuccess ?? addAgentActionSuccess ?? installAgentActionSuccess ?? removeAgentActionSuccess ?? updateAgentToolsActionSuccess ?? revokeKeyActionSuccess}
     </div>
   {/if}
-  {#if installRefreshFailed}
-    <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-      {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
-    </div>
-  {/if}
+  <!-- portal#1715: the region stays mounted (empty) so a notice arriving later is announced; a live
+       region mounted already populated is not reliably read. The parent's space-y gap sits on the
+       notice, not the region, so the empty region adds no gap. -->
+  <div role="status" data-testid="install-refresh-status" class="mb-0">
+    {#if installRefreshFailed}
+      <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+        {t('app.agents.install.refresh-failed', 'The agent was installed, but the roster could not be refreshed. Reload the page to see it.')}
+      </div>
+    {/if}
+  </div>
 
   {#if newRawKey}
     <div class="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 dark:border-amber-500 dark:bg-amber-950/30">
@@ -2461,11 +2509,14 @@
           {castWorkerActionSuccess}
         </div>
       {/if}
-      {#if castRefreshFailed}
-        <div role="status" class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-          {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
-        </div>
-      {/if}
+      <!-- portal#1715: mounted empty, as the install notice above; the gap sits on the notice. -->
+      <div role="status" data-testid="cast-refresh-status" class="mb-0">
+        {#if castRefreshFailed}
+          <div class="mb-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+            {t('app.staff.cast.refresh-failed', 'The worker was cast, but the roster could not be refreshed. Reload the page to see it. Do not cast again.')}
+          </div>
+        {/if}
+      </div>
       {#if retireWorkerActionError}
         <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           {retireWorkerActionError}
@@ -2537,7 +2588,7 @@
           class="max-w-lg space-y-3 rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
         >
           <input type="hidden" name="_kind" value={$castWorkerForm._kind} />
-          <input type="hidden" name="__superform_id" value={castFormId} />
+          <input type="hidden" name="__superform_id" value={$castWorkerFormId} />
           <div>
             <label for="castAgentId" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
               {t('app.staff.field.agent', 'Agent')}
@@ -2551,18 +2602,20 @@
               aria-describedby={castWorkerAgentError ? 'castAgentIdError' : 'castAgentIdHelp'}
               class="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-white"
             >
-              <option value="">{t('app.staff.field.agent.placeholder', '— Select an installed agent —')}</option>
+              <option value="">{t('app.staff.field.agent.placeholder', '— Select an agent —')}</option>
               {#snippet castOption(candidate: (typeof castableAgents)[number])}
                 <option value={candidate.id}>
                   {candidate.name}{candidate.personaRole ? ` (${candidate.personaRole})` : ''}
                 </option>
               {/snippet}
               {#if castAgentGroups.derived.length > 0}
-                <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
-                  {#each castAgentGroups.installed as candidate (candidate.id)}
-                    {@render castOption(candidate)}
-                  {/each}
-                </optgroup>
+                {#if castAgentGroups.installed.length > 0}
+                  <optgroup label={t('app.staff.field.agent.installed', 'Installed')}>
+                    {#each castAgentGroups.installed as candidate (candidate.id)}
+                      {@render castOption(candidate)}
+                    {/each}
+                  </optgroup>
+                {/if}
                 <optgroup label={t('app.staff.field.agent.derived', 'Derived')}>
                   {#each castAgentGroups.derived as { agent: candidate, importer } (candidate.id)}
                     <option value={candidate.id}>
@@ -3053,7 +3106,7 @@
                 actions={agentRowActions(agent)}
                 onselect={(id) => onAgentAction(id, agent)}
                 label={t('app.agents.actions.label', 'Actions for {name}', { name: agent.name })}
-                disabled={$removeAgentSubmitting || $installAgentSubmitting}
+                disabled={agentWriteBusy}
                 fixed
                 compact
               />
@@ -3147,7 +3200,7 @@
                 <p role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{addAgentActionError}</p>
               {/if}
             </div>
-            <button type="submit" disabled={!$addAgentForm.agentId || $addAgentSubmitting}
+            <button type="submit" disabled={!$addAgentForm.agentId || agentWriteBusy}
               class="rounded-lg px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               style="background: #219ebc;">
               {$addAgentSubmitting ? 'Linking...' : 'Link'}
@@ -3159,13 +3212,16 @@
       </section>
       <!-- #1684: Install's submit target, one hidden form for every derived row. A
            withheld roster offers no add, this one included. It stays mounted across
-           the install: the reload that follows drops the row that asked. -->
+           the install: the reload that follows drops the row that asked. Keyed by App
+           so a late answer can be told from B's own (installRequestGeneration). -->
       {#if !agentsWithheld}
-        <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
-          <input type="hidden" name="_kind" value="addAgent" />
-          <input type="hidden" name="__superform_id" value={installFormId} />
-          <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
-        </form>
+        {#key app.id}
+          <form bind:this={installAgentFormEl} method="POST" action="?/addAgent" use:installAgentEnhance class="hidden">
+            <input type="hidden" name="_kind" value="addAgent" />
+            <input type="hidden" name="__superform_id" value={installFormId} />
+            <input type="hidden" name="agentId" value={$installAgentForm.agentId} />
+          </form>
+        {/key}
       {/if}
     </div>
     </div>
@@ -3335,7 +3391,7 @@
           <form method="POST" action="?/update" use:appSettingsEnhance class="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 space-y-4" novalidate>
             <input type="hidden" name="_kind" value={$appSettingsForm._kind} />
             {#if settingsActionError}
-              <div role="alert" class="rounded-lg border border-red-800 bg-red-950 px-4 py-3 text-sm text-red-300">{settingsActionError}</div>
+              <div role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{settingsActionError}</div>
             {/if}
             <div>
               <label for="name" class="mb-1 block text-sm font-medium text-zinc-700 dark:text-zinc-300">Name</label>

@@ -622,6 +622,46 @@ describe('addAgent action', () => {
     expect(mockRequest.mock.calls[0][1]).toEqual({ appRef: 'app-1', agentRef: 'agent-1' });
   });
 
+  // portal#1715 S2. Stubbed refusals: these prove the mapping, not that a real
+  // server reaches each code on this path.
+  describe('a refused install', () => {
+    const GENERIC = 'Something went wrong on our side.';
+    const refusal = (code: string, text = 'internal server text') => Object.assign(new Error(text), { response: { errors: [{ message: text, extensions: { code } }] } });
+    const refuse = async (error: unknown) => {
+      mockRequest.mockRejectedValueOnce(error);
+      return (await runAction('addAgent', { agentId: 'agent-1' })) as { status: number; data: { form: { message: { type: string; text: string } } } };
+    };
+
+    it.each([
+      ['AGENT_ORG_GRANT_INACTIVE', 'This App’s organization has an inactive grant for that agent, so it can’t be installed. Ask the organization to restore the grant.'],
+      ['AGENT_ORG_GRANT_REQUIRED', 'This App’s organization needs a grant for that agent before it can be installed.'],
+    ])('%s shows portal copy, never the server’s, at status 500', async (code, text) => {
+      const result = await refuse(refusal(code));
+      expect(result.status).toBe(500);
+      expect(result.data.form.message).toEqual({ type: 'error', text });
+      expect(mockRequest).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([['AGENT_NOT_FOUND'], ['SOME_NEW_DOMAIN_CODE'], ['AGENT_DEPENDENCY_UNAVAILABLE']])('%s keeps today’s handling', async (code) => {
+      const result = await refuse(refusal(code));
+      expect(result.status).toBe(500);
+      expect(result.data.form.message).toEqual({ type: 'error', text: GENERIC });
+    });
+
+    it('a prototype key as a code is not a map entry', async () => {
+      const result = await refuse(refusal('constructor'));
+      expect(result.data.form.message.text).toBe(GENERIC);
+    });
+
+    it('a failure with no GraphQL code keeps today’s handling and isn’t read as an unknown outcome', async () => {
+      const failure = new Error('socket hang up');
+      const result = await refuse(failure);
+      expect(result.status).toBe(500);
+      expect(result.data.form.message.text).toBe('socket hang up');
+      expect(result.data.form.message.text).not.toContain('could not be confirmed');
+    });
+  });
+
   it('rejects missing agent ids before mutation', async () => {
     const result = (await runAction('addAgent', {})) as {
       status: number;
