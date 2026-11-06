@@ -34,6 +34,13 @@ hadron_set_active_memory hrn:mem:hadronmemory.com:hadron-portal
 hadron_find_nodes "*"
 ```
 
+`hadron_set_active_memory` is the **MCP tool** — its scope lasts for your MCP session
+only. On the CLI, do **not** translate it to `hadron memory use` / `set-active`
+(or `app set-active` / `config set`): on a shared host like orca1 those write
+`~/.config/hadron/config.toml`, one file every worker on the host shares, and
+you would change every other session's default memory. Pass `-m <memory-urn>`
+(or fully-qualified node URNs) per command instead.
+
 For a one-time orientation, read `hrn:node:hadronmemory.com:hadron-portal:hadron-portal` (overview).
 
 ## Hadron memory organization
