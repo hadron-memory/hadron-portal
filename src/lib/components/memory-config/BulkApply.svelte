@@ -9,6 +9,8 @@
   import type { PortalColumnDef } from '$lib/table/features';
   import { BULK_CAP, bulkCall, retryPositions, rowErrorCopy, sharedRevision, wholeCallCopy, type BulkEntry, type BulkResult, type BulkTarget } from '$lib/memory-config/bulk';
   import { outcomeCopy } from '$lib/memory-config/outcome';
+  import { warningSearchText } from '$lib/memory-config/warnings';
+  import TaskWarnings from './TaskWarnings.svelte';
   import type { Template } from '$lib/memory-config/types';
   let { template, memories, memoriesFailed, pending = $bindable(false), onclose }: { template: Template; memories: BulkTarget[]; memoriesFailed: boolean; pending?: boolean; onclose: () => void } = $props();
   type Row = { memory: BulkTarget; entry: BulkEntry | null; earlier: boolean };
@@ -34,7 +36,7 @@
     if (row.entry.error) return `${rowErrorCopy(row.entry.error)} ${earlier}`;
     const result = row.entry.result;
     const entries = (result?.entries ?? []).map(e => `${e.role} ${outcomeCopy(e.outcome, !!result?.dryRun)}`);
-    const warnings = (result?.warnings ?? []).map(w => `${w.role} ${w.field ?? ''} ${w.code}`);
+    const warnings = (result?.warnings ?? []).map(warningSearchText);
     return [earlier, ...entries, ...warnings].join(' ');
   }
   const columns: PortalColumnDef<Row>[] = [{ id: 'memory', accessorFn: row => row.memory.name, header: t('config.bulk.memory-outcome', 'Memory and outcome'), size: 280, enableHiding: false }];
@@ -86,7 +88,7 @@
     {#if row.earlier}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
     {#if !row.entry.result.entries.length}<p>{t('config.bulk.no-rules', 'This template has no rules.')}</p>{/if}
     <ul>{#each row.entry.result.entries as entry}<li class="break-words">{entry.role}: {outcomeCopy(entry.outcome, row.entry.result.dryRun)}</li>{/each}</ul>
-    {#each row.entry.result.warnings as warning}<p class="break-words">{warning.role}: {warning.field ?? ''} — {warning.code}</p>{/each}
+    <TaskWarnings warnings={row.entry.result.warnings} />
   {/if}
   {#if row.earlier && row.entry?.error}<p class="text-zinc-600 dark:text-zinc-400">{t('config.bulk.earlier', 'From the earlier apply, not sent again')}</p>{/if}
 {/snippet}

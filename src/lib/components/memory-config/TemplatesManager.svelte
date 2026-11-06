@@ -13,6 +13,7 @@
   import { outcomeCopy } from '$lib/memory-config/outcome';
   import { configCall, type ConfigFailure } from '$lib/memory-config/client';
   import type { Rule, Template, OwnerType, ApplyPreview } from '$lib/memory-config/types';
+  import TaskWarnings from './TaskWarnings.svelte';
   let { initial, ownerType, ownerRef, readOnly, canManage, memories, memoriesFailed }: { initial: Template[]; ownerType: OwnerType; ownerRef: string; readOnly: boolean; canManage: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed: boolean } = $props();
   let snapshot = untrack(() => initial);
   let templates = $state(untrack(() => initial)), editing = $state<Template | null | undefined>(undefined);
@@ -154,7 +155,7 @@
           {#snippet cell(cell, row)}<span class="block whitespace-normal break-words">{cell.column.id === 'outcome' ? outcomeCopy(row.outcome, !!preview?.dryRun) : row.role}</span>{/snippet}
         </DataTable>
         {#if preview.dryRun}<button type="button" disabled={pending || previewStale} onclick={() => apply(false)} class="min-h-11 rounded bg-indigo-600 px-4 text-white disabled:cursor-not-allowed disabled:opacity-50">{preview.required ? t('config.apply-lock', 'Apply and lock rules') : t('config.apply', 'Apply')}</button>{/if}
-        {#each preview.warnings as warning}<p>{warning.role}: {warning.field ?? ''} — {warning.code}</p>{/each}
+        <TaskWarnings warnings={preview.warnings} />
       {/if}
     </section>
   {/if}

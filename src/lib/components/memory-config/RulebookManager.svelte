@@ -8,20 +8,22 @@
   import RuleReference from './RuleReference.svelte';
   import RuleEditor from './RuleEditor.svelte';
   import { configCall, type ConfigFailure } from '$lib/memory-config/client';
-  import type { Rule, Rulebook } from '$lib/memory-config/types';
+  import type { MemoryConfigWarning, Rule, Rulebook } from '$lib/memory-config/types';
+  import { normalizeWarnings } from '$lib/memory-config/warnings';
+  import TaskWarnings from './TaskWarnings.svelte';
   let { initial, memoryRef, readOnly, memories, memoriesFailed = false }: { initial: Rulebook | null; memoryRef: string; readOnly: boolean; memories: { id: string; name: string; urn: string }[]; memoriesFailed?: boolean } = $props();
   let snapshot = untrack(() => initial);
   let book = $state(untrack(() => initial)), editing = $state<Rule | null | undefined>(undefined);
   let editorVersion = $state(0);
   let heading = $state<HTMLHeadingElement>();
-  let notice = $state(''), failure = $state<ConfigFailure | null>(null), busy = $state(false);
+  let notice = $state(''), warnings = $state<MemoryConfigWarning[]>([]), failure = $state<ConfigFailure | null>(null), busy = $state(false);
   // Plain counters are ownership tokens, never deep-proxied response state.
   let alive = true, viewEpoch = 0, readSequence = 0, feedbackSequence = 0;
   let busyOwner: object | null = null;
   $effect(() => {
     if (initial !== snapshot) {
       viewEpoch++;
-      snapshot = initial; book = initial;
+      snapshot = initial; book = initial; warnings = [];
       busyOwner = null; busy = false;
     }
   });
@@ -65,12 +67,14 @@
     if (readOnly) return { error: t('config.impersonation', 'This page is read-only while impersonating.') };
     const owner = ownView(editorVersion);
     feedbackSequence++;
-    failure = null; notice = '';
+    failure = null; notice = ''; warnings = [];
+    let answer: { warnings?: unknown };
     try {
-      await configCall({ kind: 'rules', op: editing ? 'update' : 'create', memoryRef, ref: editing?.id, revision: editing?.revision, input });
+      answer = await configCall({ kind: 'rules', op: editing ? 'update' : 'create', memoryRef, ref: editing?.id, revision: editing?.revision, input });
     } catch (e) { return owner.current() ? e as ConfigFailure : null; }
     if (!owner.current()) return null;
-    feedbackSequence++; notice = t('config.saved', 'Saved.');
+    // An advisory rides along with a saved rule: it is shown beside the notice and never makes the save a failure.
+    feedbackSequence++; notice = t('config.saved', 'Saved.'); warnings = normalizeWarnings(answer?.warnings);
     const result = await reload(owner);
     // Read ordering owns the book; this confirmed write still owns its editor.
     // A newer read cannot strand that editor, while a newer view/session can.
@@ -85,7 +89,7 @@
     if (!window.confirm(prompt)) return;
     const owner = ownView(), token = {};
     feedbackSequence++;
-    busyOwner = token; busy = true; failure = null; notice = '';
+    busyOwner = token; busy = true; failure = null; notice = ''; warnings = [];
     try {
       await configCall({ kind: 'rules', op, memoryRef, ref: rule.id, revision: rule.revision });
       if (!owner.current()) return;
@@ -115,6 +119,7 @@
     {#if readOnly}<p>{t('config.impersonation', 'This page is read-only while impersonating.')}</p>
     {:else}<button type="button" onclick={() => edit(null)} class="min-h-11 rounded bg-indigo-600 px-4 text-white">{t('config.create-rule', 'Create rule')}</button>{/if}
     {#if notice}<p role="status" class="text-green-700 dark:text-green-300">{notice}</p>{/if}
+    {#if warnings.length}<div class="space-y-2"><TaskWarnings {warnings} /></div>{/if}
     {#if failure}<p role="alert" class="text-red-700 dark:text-red-300">{failure.error}</p><button type="button" onclick={reloadFailure} class="min-h-11 rounded border px-3">{t('config.reload', 'Reload')}</button>{/if}
     <DataTable {table} listKey="memory-node-role-rules" searchPlaceholder={t('config.search-rules', 'Search rules…')} searchAriaLabel={t('config.search-rules', 'Search rules…')}>
       {#snippet cell(cell, r)}

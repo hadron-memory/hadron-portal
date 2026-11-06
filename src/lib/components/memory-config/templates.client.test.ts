@@ -118,7 +118,7 @@ describe('#1764 less-visible task warning on single apply', () => {
     button(m.target, 'Preview').click();
     await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Preview: nothing has been changed'); });
     const previewText = [...m.target.querySelectorAll('[data-task-warning]')].map(n => n.textContent);
-    expect(previewText.length).toBe(1); expect(previewText[0]).toContain('author task'); expect(previewText[0]).toContain(urn);
+    expect(previewText.length).toBe(1); expect(previewText[0]).toContain('author task'); expect(previewText[0]!.replace(/\s/g, '')).toContain(urn);
     expect(m.target.textContent).not.toContain('TASK_LESS_VISIBLE');
     // A warning on the preview does not block the apply.
     const applyButton = [...m.target.querySelectorAll('button')].find(b => /^Apply/.test(b.textContent?.trim() ?? '') && !/Apply to/.test(b.textContent ?? ''))!;

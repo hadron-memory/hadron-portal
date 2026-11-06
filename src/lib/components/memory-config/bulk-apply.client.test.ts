@@ -242,10 +242,11 @@ describe('per-target truth', () => {
     expect(rows[3]).not.toContain('template changed');
     expect(panel.textContent).not.toMatch(/rolled back/i);
   });
-  it('shows warnings field by field, with no code-specific copy', async () => {
+  it('shows a warning in plain words per row, never the code or the field name', async () => {
     const m = mount(); const panel = open(m.target); pick(panel, 1);
     await preview(panel, [ok(0, { warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask' }] })]);
-    expect(panel.textContent).toContain('review: authorTask — TASK_LESS_VISIBLE');
+    expect(panel.textContent).toContain('author task');
+    expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE'); expect(panel.textContent).not.toContain('authorTask');
   });
 });
 
@@ -306,8 +307,8 @@ describe('search', () => {
   it('finds what a row renders: a warning, and the earlier-apply mark', async () => {
     const m = mount(); const panel = await applied(m.target, [0, 1]);
     await apply(panel, answer([ok(0, { dryRun: false, warnings: [{ code: 'TASK_LESS_VISIBLE', role: 'review', field: 'authorTask' }] }), bad(1, 'CONFLICT')], false), 'Apply finished');
-    expect(await search(panel, 'TASK_LESS_VISIBLE')).toBe(1);
-    expect(await search(panel, 'authorTask')).toBe(1);
+    expect(await search(panel, 'author task')).toBe(1);
+    expect(await search(panel, 'TASK_LESS_VISIBLE')).toBe(0);
     fetcher.mockResolvedValueOnce(answer([{ ...ok(0), memoryRef: 'm1' }]));
     expect(await search(panel, '')).toBe(2);
     button(panel, 'Retry failed')!.click();
@@ -429,10 +430,10 @@ describe('#1764 less-visible task warning on bulk apply', () => {
     const m = mount(); const panel = open(m.target); pick(panel, 2);
     await preview(panel, [ok(0, { warnings: [warn] }), ok(1)]);
     const rowWarnings = [...panel.querySelectorAll('[data-task-warning]')].map(n => n.textContent);
-    expect(rowWarnings.length).toBe(1); expect(rowWarnings[0]).toContain('author task'); expect(rowWarnings[0]).toContain(urn);
+    expect(rowWarnings.length).toBe(1); expect(rowWarnings[0]).toContain('author task'); expect(rowWarnings[0]!.replace(/\s/g, '')).toContain(urn);
     expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE');
     expect(button(panel, 'Apply')!.disabled).toBe(false);
-    await apply(panel, answer([ok(0, { dryRun: false, warnings: [warn] }), ok(1, { dryRun: false })], false), 'Applied');
+    await apply(panel, answer([ok(0, { dryRun: false, warnings: [warn] }), ok(1, { dryRun: false })], false), 'Apply finished');
     expect([...panel.querySelectorAll('[data-task-warning]')].map(n => n.textContent)).toEqual(rowWarnings);
     expect(panel.textContent).not.toContain('TASK_LESS_VISIBLE');
   });

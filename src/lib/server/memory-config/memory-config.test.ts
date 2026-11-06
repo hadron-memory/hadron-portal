@@ -76,10 +76,10 @@ describe('#1764 less-visible task warning boundary', () => {
     for (const fields of warningSelection(c.request.mock.calls[0][0])) expect(fields).toEqual(expect.arrayContaining(['code', 'role', 'field', 'taskUrn', 'taskState']));
     expect(out).toEqual({ warnings: [warning] });
   });
-  it('a save answering no warnings returns an empty list; a delete or unlock returns none', async () => {
+  it('a save answering no warnings returns an empty list; a delete returns no warnings', async () => {
     const c = client(vi.fn().mockResolvedValueOnce({ createNodeRoleRule: { rule, warnings: [] } }).mockResolvedValueOnce({ deleteNodeRoleRule: true }));
     expect(await mutateRule(c, { impersonating: false, memoryRef: 'm', op: 'create', input: { role: 'review' } })).toEqual({ warnings: [] });
-    expect(await mutateRule(c, { impersonating: false, memoryRef: 'm', op: 'delete', ref: 'r1', revision: 7, input: {} })).toBeUndefined();
+    expect(await mutateRule(c, { impersonating: false, memoryRef: 'm', op: 'delete', ref: 'r1', revision: 7, input: {} }) as object).not.toHaveProperty('warnings');
   });
   it('single and bulk apply select taskUrn and taskState on every warnings selection', async () => {
     const single = client(vi.fn().mockResolvedValue({ applyMemoryConfigTemplate: { memoryId: 'm', templateRevision: 9, required: false, dryRun: true, entries: [], warnings: [warning] } }));

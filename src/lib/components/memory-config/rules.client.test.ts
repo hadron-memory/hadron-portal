@@ -127,10 +127,15 @@ describe('#1764 less-visible task warning on rule save', () => {
   it('shows the warning beside the saved notice, with the URN exactly as returned, and no raw code', async () => {
     const m = mount(book); await save(m, saved([warn]));
     const text = m.target.textContent!;
-    expect(text).toContain('Saved.'); expect(text).toContain('author task'); expect(text).toContain(urn);
+    expect(text).toContain('Saved.'); expect(text).toContain('author task'); expect(text.replace(/\s/g, '')).toContain(urn);
     expect(text).not.toContain('TASK_LESS_VISIBLE');
     expect(m.target.querySelector('[role=alert]')?.textContent ?? '').not.toContain('author task');
     expect(m.target.querySelector(`a[href*="${urn}"]`)).toBeNull();
+  });
+  it('repeats a value that is not a URN as the server sent it, without inventing a type prefix', async () => {
+    const m = mount(book); await save(m, saved([{ ...warn, taskUrn: 'not a urn' }]));
+    expect(m.target.querySelector('[data-task-warning] code')?.textContent).toBe('not a urn');
+    expect(m.target.textContent).not.toContain('unknown');
   });
   it('is still readable after the rule list has refreshed', async () => {
     const m = mount(book); await save(m, saved([warn]));
@@ -153,6 +158,15 @@ describe('#1764 less-visible task warning on rule save', () => {
     expect(m.target.textContent).toContain('Saved.');
     await save(m, saved([{ ...warn, field: null }, { ...warn, code: 'NEW_CODE' }]));
     expect(m.target.textContent).not.toContain('NEW_CODE'); expect(m.target.textContent).not.toContain('TASK_LESS_VISIBLE');
+  });
+  it('a later save that is refused does not keep the earlier save’s warning beside the failure', async () => {
+    const m = mount(book); await save(m, saved([warn]));
+    expect(m.target.textContent).toContain('author task');
+    fetcher.mockResolvedValueOnce({ ok: false, json: async () => ({ code: 'CONFLICT', error: 'The rule changed.' }) });
+    button(m.target, 'Edit').click(); flushSync();
+    button(m.target.querySelector('dialog')!, 'Save').click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('The rule changed.'); });
+    expect(m.target.textContent).not.toContain('author task');
   });
   it('a later delete clears the warning from the earlier save', async () => {
     const m = mount(book); await save(m, saved([warn]));
