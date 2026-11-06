@@ -173,6 +173,20 @@ describe('same-instance rulebook response ownership', () => {
     expect(button(dialog, 'Save')!.disabled).toBe(false);
     expect(calls.map(c => c.op)).toEqual(kind === 'refusal' ? ['delete', 'create'] : kind === 'success' ? ['delete', 'create', 'read'] : ['delete', 'read', 'create']);
   });
+  it('a newer row read can supersede a save read without stranding its confirmed editor', async () => {
+    const m = mount(); const row = deferred<Response>();
+    mutate = request => request.op === 'delete' ? row.promise : Promise.resolve(reply({}));
+    click(m.target, 'Delete'); click(m.target, 'Create rule'); const dialog = m.target.querySelector('dialog')!;
+    const input = dialog.querySelector<HTMLInputElement>('input:not([type])')!;
+    input.value = 'created'; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync();
+    click(dialog, 'Save'); await settle(); expect(reads).toHaveLength(1);
+    row.resolve(reply({})); await settle(); expect(reads).toHaveLength(2);
+    release(1, book('latest-row-read')); await settle();
+    release(0, book('old-save-read')); await settle();
+    expect(m.target.textContent).toContain('latest-row-read'); expect(m.target.textContent).not.toContain('old-save-read');
+    expect(m.target.querySelector('dialog')).toBeNull();
+    expect(calls.map(c => c.op)).toEqual(['delete', 'create', 'read', 'read']);
+  });
   it('a row write completing after teardown issues no read', async () => {
     const old = mount(); const write = deferred<Response>(); mutate = () => write.promise;
     click(old.target, 'Delete'); old.unmount(); const fresh = mount(null);
