@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { flushSync } from 'svelte';
 import { mountComponent } from '$lib/test/mountComponent';
 import TemplatesManager from './TemplatesManager.svelte';
-import type { Template } from '$lib/memory-config/types';
+import type { Template, Rule } from '$lib/memory-config/types';
 const template: Template = { id: 't1', name: 'baseline', description: 'Test rulebook', required: true, revision: 9, rules: [] };
 const fetcher = vi.fn();
 let cleanup: (() => void)[] = [];
-function mount(readOnly = false, canManage = true) {
-  const m = mountComponent(TemplatesManager, { initial: [template], ownerType: 'USER' as const, ownerRef: 'u1', readOnly, canManage, memories: [{ id: 'm1', name: 'My memory', urn: 'hrn:mem:acme.com:memory' }], memoriesFailed: false });
+function mount(readOnly = false, canManage = true, initial = [template]) {
+  const m = mountComponent(TemplatesManager, { initial, ownerType: 'USER' as const, ownerRef: 'u1', readOnly, canManage, memories: [{ id: 'm1', name: 'My memory', urn: 'hrn:mem:acme.com:memory' }], memoriesFailed: false });
   cleanup.push(m.unmount); return m;
 }
 function button(root: HTMLElement, text: string) { return [...root.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!; }
@@ -29,6 +29,10 @@ describe('template management states', () => {
     await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('The template changed.'); });
     expect(m.target.querySelector('input[maxlength="64"]')).toBe(input);
     expect(input.value).toBe('my-retained-name');
+    const save = button(m.target, 'Save');
+    const alert = m.target.querySelector('[role=alert]')!;
+    expect(alert.nextElementSibling?.textContent).toContain('Reload template');
+    expect(alert.compareDocumentPosition(save) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const sent = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(sent).toMatchObject({ op: 'update', ref: 't1', revision: 9, input: { name: 'my-retained-name', required: true } });
     expect(sent.input).not.toHaveProperty('rules');
@@ -59,6 +63,13 @@ describe('template management states', () => {
     expect(button(m.target, 'Preview again')).toBeDefined();
     expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({ op: 'apply', revision: 9 });
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('labels each draft reference and setting separately', () => {
+    const r = { role: 'review', enabled: true, strictSubRoles: false, writers: 'ADMIN', validateBy: 'AGENT', authorTask: null, authorTaskState: 'NONE', validationTask: null, validationTaskState: 'NONE', descriptionNode: null, descriptionNodeState: 'NONE' } as Rule;
+    const m = mount(false, true, [{ ...template, rules: [r] }]); button(m.target, 'Edit').click(); flushSync();
+    const form = m.target.querySelector('form')!;
+    for (const text of ['Author task', 'Validation task', 'Description node', 'Writers: ADMIN', 'Validate by: AGENT']) expect(form.textContent).toContain(text);
   });
 
 });

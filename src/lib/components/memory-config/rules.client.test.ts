@@ -31,7 +31,7 @@ describe('rendered memory rule management', () => {
     expect(m.target.querySelector('a[href*="description"]')).toBeNull();
   });
   it('impersonation renders read-only with no mutation controls, including locked rules', () => {
-    const m = mount({ rules: [{ ...rule, locked: true, sourceTemplate: { id: 't', name: 'baseline', deleted: false } }] }, true);
+    const m = mount({ rules: [rule, { ...rule, id: 'locked', role: 'locked', locked: true, sourceTemplate: { id: 't', name: 'baseline', deleted: false } }] }, true);
     expect(m.target.textContent).toContain('read-only while impersonating');
     for (const name of ['Create rule', 'Edit', 'Delete', 'Unlock']) expect(button(m.target, name)).toBeUndefined();
   });
@@ -71,6 +71,18 @@ describe('rendered memory rule management', () => {
     m.props.readOnly = true; flushSync();
     expect(m.target.querySelector('dialog')).toBeNull();
     expect(button(m.target, 'Create rule')).toBeUndefined();
+  });
+
+  it('returns focus to the invoking Edit action after Cancel', async () => {
+    const m = mount(book); const edit = button(m.target, 'Edit'); edit.focus(); edit.click(); flushSync();
+    const cancel = button(m.target.querySelector('dialog')!, 'Cancel'); cancel.focus(); cancel.click(); flushSync(); await tick();
+    expect(document.activeElement).toBe(edit);
+  });
+  it('returns focus to a surviving row action after Save reload', async () => {
+    fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({}) }).mockResolvedValueOnce({ ok: true, json: async () => ({ value: { ...book, rules: [{ ...rule, revision: 8 }] } }) });
+    const m = mount(book); const edit = button(m.target, 'Edit'); edit.focus(); edit.click(); flushSync();
+    const save = button(m.target.querySelector('dialog')!, 'Save'); save.focus(); save.click();
+    await vi.waitFor(() => { flushSync(); expect(m.target.querySelector('dialog')).toBeNull(); expect(document.activeElement).toBe(button(m.target, 'Edit')); });
   });
 
 });
