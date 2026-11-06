@@ -34,11 +34,15 @@ try {
    await page.getByRole('button', { name: 'Edit', exact: true }).click();
    const dialog = page.getByRole('dialog', { name: 'Edit rule', exact: true });
    const enabled = dialog.getByRole('checkbox', { name: 'Enabled', exact: true }); await enabled.uncheck();
-   await dialog.getByRole('button', { name: 'Save', exact: true }).click(); await started;
+   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+   let timer;
+   await new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('Expected held request was not reached')), 10000); started.then(resolve, reject); }).finally(() => clearTimeout(timer));
    // Repeated Escape has no intervening user activation. Test body focus as well as dialog focus.
    await page.evaluate(() => { document.body.tabIndex = -1; document.body.focus(); });
    for (let i = 0; i < 3; i++) await page.keyboard.press('Escape');
    assert.equal(await page.locator('dialog').evaluate(el => el.open), true, `${width}/${dark}/${held}: pending dialog must stay open after rapid Escape`);
+   await page.locator('dialog').evaluate(el => { el.tabIndex = -1; el.focus(); });
+   assert.equal(await page.locator('dialog').evaluate(el => document.activeElement === el), true, 'Inside-dialog key target reached');
    for (let i = 0; i < 3; i++) { await page.keyboard.press('Escape'); await page.waitForTimeout(150); }
    assert.equal(await page.locator('dialog').evaluate(el => el.open), true, `${width}/${dark}/${held}: pending dialog must stay open after spaced Escape`);
    release();

@@ -77,6 +77,7 @@ describe('template management states', () => {
     fetcher.mockResolvedValueOnce({ ok: true, json: async () => ({}) }).mockRejectedValueOnce(new Error('offline'));
     const m = mount(); button(m.target, 'Delete').click();
     await vi.waitFor(() => { flushSync(); expect(m.target.textContent).toContain('Deleted, but the templates could not be reloaded. Reload before another change.'); });
+    expect(button(m.target, 'Delete')).toBeUndefined();
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(JSON.parse(fetcher.mock.calls[0][1].body).op).toBe('delete');
     expect(JSON.parse(fetcher.mock.calls[1][1].body).op).toBe('read');

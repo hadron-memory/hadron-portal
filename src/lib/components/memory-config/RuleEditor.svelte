@@ -20,10 +20,12 @@
   let refs = $state<Partial<Record<Field, string | null>>>({});
   let choosing = $state<Field | null>(null), pickerOpen = $state(false);
   let pending = $state(false), failure = $state<ConfigFailure | null>(null);
-  const escapeOptions = { close: () => { if (!pending) oncancel(); }, suppressed: () => pickerOpen || pending };
+  // A pending save still owns Escape: declining it lets Chromium close the native dialog.
+  // Only a nested picker suppresses this layer; pending close callbacks remain a no-op.
+  const escapeOptions = { close: () => { if (!pending) oncancel(); }, suppressed: () => pickerOpen };
   let dialog: HTMLDialogElement;
   onMount(() => {
-    const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const invoker = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
     const fallback = fallbackFocus;
     dialog.showModal();
     return () => {
@@ -46,7 +48,7 @@
     finally { pending = false; }
   }
 </script>
-<dialog bind:this={dialog} use:dialogEscapeFallback={escapeOptions} onkeydown={(e) => { if (e.key === 'Escape' && !e.defaultPrevented && !e.isComposing && !pickerOpen && !pending) { e.preventDefault(); e.stopPropagation(); oncancel(); } else consumeEscapeAtDialog(e, escapeOptions); }} oncancel={(e) => e.preventDefault()} aria-label={seed ? t('config.edit-rule', 'Edit rule') : t('config.create-rule', 'Create rule')} class="fixed inset-0 m-auto max-sm:m-0 max-h-[100dvh] w-full max-w-2xl overflow-y-auto rounded-xl border border-zinc-300 bg-white p-5 text-zinc-900 backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white max-sm:h-dvh max-sm:rounded-none">
+<dialog bind:this={dialog} use:dialogEscapeFallback={escapeOptions} onkeydown={(e) => { if (e.key === 'Escape' && !e.defaultPrevented && !e.isComposing && !pickerOpen) { e.preventDefault(); e.stopPropagation(); if (!pending) oncancel(); } else consumeEscapeAtDialog(e, escapeOptions); }} oncancel={(e) => e.preventDefault()} aria-label={seed ? t('config.edit-rule', 'Edit rule') : t('config.create-rule', 'Create rule')} class="fixed inset-0 m-auto max-sm:m-0 max-h-[100dvh] w-full max-w-2xl overflow-y-auto rounded-xl border border-zinc-300 bg-white p-5 text-zinc-900 backdrop:bg-black/50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-white max-sm:h-dvh max-sm:rounded-none">
   <form onsubmit={save} class="space-y-4">
     <fieldset disabled={pending} class="space-y-4">
     <h2 class="text-xl font-semibold">{seed ? t('config.edit-rule', 'Edit rule') : t('config.create-rule', 'Create rule')}</h2>
